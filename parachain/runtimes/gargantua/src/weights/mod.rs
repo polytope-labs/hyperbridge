@@ -33,6 +33,8 @@ pub mod pallet_assets;
 pub mod pallet_balances;
 pub mod pallet_collective;
 pub mod pallet_message_queue;
+pub mod pallet_messaging_fees;
+pub mod pallet_migrations;
 pub mod pallet_session;
 pub mod pallet_sudo;
 pub mod pallet_timestamp;

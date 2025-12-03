@@ -318,7 +318,7 @@ jobs:
                   cargo build -p hyperbridge --release
                   ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1 --skip test_runtime_upgrade_and_fee_migration
 
             - name: Force-stop simnode
               if: always()

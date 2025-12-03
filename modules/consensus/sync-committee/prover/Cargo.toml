@@ -38,4 +38,4 @@ dotenv = "0.15.0"
 
 
 [features]
-fulu = ["sync-committee-primitives/fulu"]
+gnosis = ["sync-committee-primitives/gnosis"]

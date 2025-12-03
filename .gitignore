@@ -59,3 +59,5 @@ evm/subgraph/generated
 /
 **/*.db
 package-lock.json
+parachain/simtests/gargantua-runtime-new.wasm
+parachain/simtests/hyperbridge-main-binary

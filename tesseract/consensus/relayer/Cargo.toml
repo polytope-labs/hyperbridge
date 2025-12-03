@@ -56,4 +56,4 @@ features = ["sp-runtime", "sc-service"]
 
 
 [features]
-fulu = ["tesseract-sync-committee/fulu"]
+gnosis = ["tesseract-sync-committee/gnosis"]

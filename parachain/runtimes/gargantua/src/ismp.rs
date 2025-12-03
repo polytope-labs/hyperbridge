@@ -16,8 +16,8 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
-	XcmGateway, EXISTENTIAL_DEPOSIT,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, XcmGateway,
+	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use frame_support::{
@@ -44,7 +44,7 @@ use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::router::Timeout;
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
-use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
+use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
 
 #[derive(Default)]
@@ -103,15 +103,6 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
-pub struct IsmpWeightToFee;
-impl WeightToFee for IsmpWeightToFee {
-	type Balance = Balance;
-
-	fn weight_to_fee(weight: &Weight) -> Self::Balance {
-		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
-	}
-}
-
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -139,13 +130,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
-		AccountId,
-		Balances,
-		IsmpWeightToFee,
-		TreasuryPalletId,
-		false,
-	>;
+	type FeeHandler = pallet_messaging_fees::Pallet<Runtime>;
 }
 
 impl ismp_grandpa::Config for Runtime {
@@ -267,14 +252,12 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
-		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
 			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
-			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}

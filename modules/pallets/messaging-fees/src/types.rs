@@ -26,6 +26,7 @@ pub trait PriceOracle {
 pub trait WeightInfo {
 	fn set_supported_route() -> Weight;
 	fn set_target_message_size() -> Weight;
+	fn migrate_evm_fees() -> Weight;
 }
 
 /// Default weight implementation using sensible defaults
@@ -36,5 +37,9 @@ impl WeightInfo for () {
 
 	fn set_target_message_size() -> Weight {
 		Weight::from_parts(10_000_000, 0)
+	}
+
+	fn migrate_evm_fees() -> Weight {
+		Weight::from_parts(200_000_000, 0)
 	}
 }

@@ -2,11 +2,18 @@
 
 use codec::{Decode, Encode};
 use polkadot_sdk::{
-	frame_support::traits::{
-		fungible::{Inspect, Mutate},
-		Get,
+	frame_support::{
+		self,
+		dispatch::PerDispatchClass,
+		pallet_prelude::StorageVersion,
+		traits::{
+			fungible::{Inspect, Mutate},
+			Get, OnRuntimeUpgrade,
+		},
 	},
+	frame_system::{self, limits::BlockWeights},
 	pallet_session::SessionHandler,
+	sp_io,
 	sp_runtime::{
 		traits::{AccountIdConversion, OpaqueKeys},
 		KeyTypeId, Weight,
@@ -26,7 +33,7 @@ use ismp::{
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_ismp_relayer::withdrawal::Signature;
-use pallet_messaging_fees::{IncentivesManager, TotalBytesProcessed};
+use pallet_messaging_fees::{migrations, IncentivesManager, TotalBytesProcessed};
 
 use crate::{
 	runtime::{
@@ -35,6 +42,8 @@ use crate::{
 	},
 	tests::common::setup_relayer_and_asset,
 };
+use pallet_messaging_fees::types::WeightInfo;
+use std::cmp::Ordering;
 
 fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
 	setup_relayer_and_asset(&relayer_account);
@@ -450,4 +459,73 @@ fn test_protocol_fee_accumulation() {
 			expected_fee_u256
 		);
 	});
+}
+
+#[cfg(test)]
+mod migration_tests {
+	use super::*;
+	use frame_support::weights::WeightMeter;
+	use pallet_messaging_fees::migrations::v1::Migration;
+	use polkadot_sdk::{frame_support::migrations::SteppedMigration, sp_runtime::Saturating};
+	#[test]
+	fn migration_scales_evm_fees_for_32_byte_address_multi_block() {
+		new_test_ext().execute_with(|| {
+			let evm_chain_1 = StateMachine::Evm(1);
+			let relayer_32_byte_1 = vec![1u8; 32];
+			let fee_1 = U256::from(100_000_000_000_000_000_000u128);
+
+			let evm_chain_2 = StateMachine::Evm(2);
+			let relayer_32_byte_2 = vec![2u8; 32];
+			let fee_2 = U256::from(200_000_000_000_000_000_000u128);
+
+			pallet_ismp_relayer::Fees::<Test>::insert(
+				evm_chain_1,
+				relayer_32_byte_1.clone(),
+				fee_1,
+			);
+			pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(&evm_chain_1, 6u8);
+
+			pallet_ismp_relayer::Fees::<Test>::insert(
+				evm_chain_2,
+				relayer_32_byte_2.clone(),
+				fee_2,
+			);
+			pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(&evm_chain_2, 8u8);
+
+			StorageVersion::new(0).put::<pallet_messaging_fees::Pallet<Test>>();
+
+			let one_item_weight =
+				<Test as pallet_messaging_fees::Config>::WeightInfo::migrate_evm_fees();
+
+			let mut meter = WeightMeter::with_limit(one_item_weight);
+			let cursor_1 = Migration::<Test>::step(None, &mut meter).unwrap();
+			assert!(cursor_1.is_some());
+
+			let mut meter = WeightMeter::with_limit(one_item_weight);
+			let cursor_2 = Migration::<Test>::step(cursor_1.clone(), &mut meter).unwrap();
+			assert!(cursor_2.is_some());
+			assert_ne!(cursor_1, cursor_2);
+
+			let mut meter = WeightMeter::with_limit(one_item_weight);
+			let cursor_3 = Migration::<Test>::step(cursor_2.clone(), &mut meter).unwrap();
+			assert!(cursor_3.is_none());
+
+			let scaling_power_1 = 18u32.saturating_sub(6u32);
+			let divisor_1 = U256::from(10u128).pow(U256::from(scaling_power_1));
+			let expected_fee_1 = fee_1.checked_div(divisor_1).unwrap();
+
+			let scaling_power_2 = 18u32.saturating_sub(8u32);
+			let divisor_2 = U256::from(10u128).pow(U256::from(scaling_power_2));
+			let expected_fee_2 = fee_2.checked_div(divisor_2).unwrap();
+
+			assert_eq!(
+				pallet_ismp_relayer::Fees::<Test>::get(evm_chain_1, relayer_32_byte_1),
+				expected_fee_1
+			);
+			assert_eq!(
+				pallet_ismp_relayer::Fees::<Test>::get(evm_chain_2, relayer_32_byte_2),
+				expected_fee_2
+			);
+		});
+	}
 }

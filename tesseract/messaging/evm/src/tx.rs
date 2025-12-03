@@ -70,7 +70,6 @@ pub async fn submit_messages(
 				};
 				let evs = wait_for_success(
 					&client.config.state_machine,
-					&client.config.etherscan_api_key,
 					client.config.ismp_host.0.into(),
 					client.client.clone(),
 					client.signer.clone(),
@@ -122,7 +121,6 @@ pub async fn submit_messages(
 #[async_recursion::async_recursion]
 pub async fn wait_for_success<'a, T>(
 	state_machine: &StateMachine,
-	etherscan_api_key: &String,
 	ismp_host: H160,
 	provider: Arc<Provider<Http>>,
 	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
@@ -154,7 +152,6 @@ where
 	let client_clone = provider.clone();
 	let signer_clone = signer.clone();
 	let state_machine_clone = state_machine.clone();
-	let etherscan_api_key_clone = etherscan_api_key.clone();
 	let ismp_host_clone = ismp_host.clone();
 
 	let handle_failed_tx = move || async move {
@@ -182,7 +179,6 @@ where
 			// don't retry in the next callstack
 			wait_for_success::<()>(
 				&state_machine_clone,
-				&etherscan_api_key_clone,
 				ismp_host_clone,
 				client_clone.clone(),
 				signer_clone.clone(),

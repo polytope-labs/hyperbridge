@@ -11,11 +11,7 @@ use hex_literal::hex;
 use ismp::host::StateMachine;
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::U256;
-use reqwest::{header::HeaderMap, Client};
-use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
-use serde::{de::DeserializeOwned, Deserialize};
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, sync::Arc};
 use tesseract_primitives::Cost;
 
 abigen!(
@@ -121,7 +117,7 @@ pub async fn get_current_gas_cost_in_usd(
 		},
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
-	let token_usd = get_price_from_uniswap_router(ismp_host_address, client, chain).await?;
+	let token_usd = get_price_from_uniswap_router(ismp_host_address, client).await?;
 
 	let unit_wei = get_cost_of_one_wei(token_usd);
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
@@ -145,7 +141,6 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 async fn get_price_from_uniswap_router(
 	ismp_host: H160,
 	client: Arc<Provider<Http>>,
-	chain: StateMachine,
 ) -> Result<U256, Error> {
 	let host = EvmHost::new(ismp_host, client.clone());
 	let params = host.host_params().call().await?;

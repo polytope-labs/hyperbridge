@@ -68,8 +68,6 @@ pub struct HostConfig {
 pub struct ProposerConfig {
 	/// Proposer account, private key
 	pub proposer: String,
-	/// Etherscan API key
-	pub l1_etherscan_api_key: String,
 	/// beacon consensus client rpc
 	pub beacon_consensus_rpcs: Vec<String>,
 	/// Proposer interval

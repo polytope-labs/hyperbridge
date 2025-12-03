@@ -78,9 +78,6 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	println!("waiting for next session on relay chain");
 	wait_for_next_session(&relay_client, &relay_rpc).await?;
 
-
-
-
 	let sub = para_rpc.chain_subscribe_finalized_heads().await?;
 	let _block = sub
 		.take(1)

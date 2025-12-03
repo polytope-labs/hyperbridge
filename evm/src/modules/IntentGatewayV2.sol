@@ -73,17 +73,26 @@ struct Order {
     uint256 nonce;
     /// @dev Represents the dispatch fees associated with the IntentGateway.
     uint256 fees;
-    /// @dev The tokens that the filler will provide.
-    PaymentInfo[] outputs;
-    /// @dev The tokens that are escrowed for the filler.
-    TokenInfo[] inputs;
     /// @dev The predispatch information for the order
     /// This is used to encode any calls before the order is placed
     PredispatchInfo predispatch;
-    /// @dev A bytes array to store the calls if any.
+    /// @dev The tokens that are escrowed for the filler.
+    TokenInfo[] inputs;
+    /// @dev The tokens that the filler will provide.
+    PaymentInfo[] outputs;
+    /// @dev Optional calldata to be executed after the order is filled
     bytes callData;
 }
 
+/**
+ * @dev Request from hyperbridge for collecting protocol revenue
+ */
+struct CollectFees {
+    /// @dev The address of the beneficiary of the protocol fee
+    address beneficiary;
+    /// @dev The tokens to be withdrawn
+    TokenInfo[] outputs;
+}
 
 /**
  * @dev Struct to define the parameters for the IntentGateway module.
@@ -130,7 +139,7 @@ struct CancelOptions {
 }
 
 /**
- * @dev Struct representing a new instance of IntentGateway.
+ * @dev Request from hyperbridge for adding a new deployment of IntentGateway
  */
 struct NewDeployment {
     /// @dev Identifier for the state machine.
@@ -158,6 +167,8 @@ contract IntentGatewayV2 is HyperApp {
         NewDeployment,
         /// @dev Identifies a request for updating parameters.
         UpdateParams,
+        /// @dev Identifies a request for redeeming an escrow.
+        RefundEscrow,
         /// @dev Identifies a request for collecting fees.
         CollectFees
     }
@@ -264,12 +275,12 @@ contract IntentGatewayV2 is HyperApp {
         uint256 nonce,
         /// @dev Represents the dispatch fees associated with the IntentGateway.
         uint256 fees,
-        /// @dev The tokens that the filler will provide.
-        PaymentInfo[] outputs,
+        /// @dev Assets that were used to execute a predispatch call
+        TokenInfo[] predispatch,
         /// @dev The tokens that are escrowed for the filler.
         TokenInfo[] inputs,
-        /// @dev A bytes array to store the calls if any.
-        bytes callData
+        /// @dev The tokens that the filler will provide.
+        PaymentInfo[] outputs
     );
 
     /**
@@ -408,9 +419,10 @@ contract IntentGatewayV2 is HyperApp {
 
         address hostAddr = host();
         // fill out the order preludes
-        order.nonce = _nonce;
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.sourceChain = IDispatcher(hostAddr).host();
+        order.nonce = _nonce;
+        _nonce += 1;
 
         bytes32 commitment = keccak256(abi.encode(order));
 
@@ -429,8 +441,8 @@ contract IntentGatewayV2 is HyperApp {
                     if (amount > msgValue) revert InsufficientNativeToken();
                     msgValue -= amount;
 
-                    (bool success, ) = callDispatcher.call{value: amount}("");
-                    require(success, "Native token transfer failed");
+                    (bool sent, ) = callDispatcher.call{value: amount}("");
+                    if (!sent) revert InsufficientNativeToken();
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, callDispatcher, amount);
                 }
@@ -513,7 +525,6 @@ contract IntentGatewayV2 is HyperApp {
             _orders[commitment][TRANSACTION_FEES] = order.fees;
         }
 
-        _nonce += 1;
         emit OrderPlaced({
             user: order.user,
             sourceChain: order.sourceChain,
@@ -521,9 +532,9 @@ contract IntentGatewayV2 is HyperApp {
             deadline: order.deadline,
             nonce: order.nonce,
             fees: order.fees,
-            outputs: order.outputs,
+            predispatch: order.predispatch.assets,
             inputs: order.inputs,
-            callData: order.callData
+            outputs: order.outputs
         });
     }
 
@@ -651,7 +662,7 @@ contract IntentGatewayV2 is HyperApp {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow) return redeem(incoming);
+        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) return redeem(incoming);
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -666,21 +677,22 @@ contract IntentGatewayV2 is HyperApp {
 
             _params = body;
         } else if (kind == RequestKind.CollectFees) {
-            PaymentInfo[] memory fees = abi.decode(incoming.request.body[1:], (PaymentInfo[]));
+            CollectFees memory req = abi.decode(incoming.request.body[1:], (CollectFees));
 
-            for (uint256 i = 0; i < fees.length; i++) {
-                address token = address(uint160(uint256(fees[i].token)));
-                address beneficiary = address(uint160(uint256(fees[i].beneficiary)));
-                uint256 amount = fees[i].amount;
+            uint256 outputsLen = req.outputs.length;
+            for (uint256 i = 0; i < outputsLen; i++) {
+                TokenInfo memory info = req.outputs[i];
+                address token = address(uint160(uint256(info.token)));
+                uint256 amount = info.amount;
 
                 if (token == address(0)) {
-                    (bool sent, ) = beneficiary.call{value: amount}("");
+                    (bool sent, ) = req.beneficiary.call{value: amount}("");
                     if (!sent) revert InsufficientNativeToken();
                 } else {
-                    IERC20(token).safeTransfer(beneficiary, amount);
+                    IERC20(token).safeTransfer(req.beneficiary, amount);
                 }
                 
-                emit RevenueWithdrawn(token, amount, beneficiary);
+                emit RevenueWithdrawn(token, amount, req.beneficiary);
             }
         }
     }
@@ -720,8 +732,14 @@ contract IntentGatewayV2 is HyperApp {
         }
 
         _filled[body.commitment] = incoming.relayer;
-
-        emit EscrowReleased({commitment: body.commitment});
+        
+        RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
+        
+        if (kind == RequestKind.RefundEscrow) {
+            emit EscrowRefunded({commitment: body.commitment});
+        } else {
+            emit EscrowReleased({commitment: body.commitment});
+        }
     }
 
     /**
@@ -817,7 +835,7 @@ contract IntentGatewayV2 is HyperApp {
         DispatchPost memory request = DispatchPost({
             dest: order.sourceChain,
             to: abi.encodePacked(instance(order.sourceChain)),
-            body: abi.encode(RequestKind.RedeemEscrow, data),
+            body: abi.encode(RequestKind.RefundEscrow, data),
             timeout: 0,
             fee: options.relayerFee,
             payer: msg.sender

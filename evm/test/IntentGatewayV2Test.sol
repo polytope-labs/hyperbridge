@@ -16,7 +16,7 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {IntentGatewayV2, Order, Params, TokenInfo, PaymentInfo, PredispatchInfo, FillOptions} from "../src/modules/IntentGatewayV2.sol";
+import {IntentGatewayV2, Order, Params, TokenInfo, CollectFees, PaymentInfo, PredispatchInfo, FillOptions} from "../src/modules/IntentGatewayV2.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -679,15 +679,19 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Setup fee collection request
         address treasury = user; // Use existing user address
-        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
-        feeRequests[0] = PaymentInfo({
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: feeAmount, // Collect exact amount
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: feeAmount // Collect exact amount
+        });
+
+        CollectFees memory collectFeesReq = CollectFees({
+            beneficiary: treasury,
+            outputs: outputs
         });
 
         // Create collect fees request from hyperbridge
-        bytes memory data = abi.encode(feeRequests);
+        bytes memory data = abi.encode(collectFeesReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
@@ -732,14 +736,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.deal(address(intentGateway), feeAmount);
 
         address treasury = user; // Use existing user address that can receive ETH
-        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
-        feeRequests[0] = PaymentInfo({
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({
             token: bytes32(0),
-            amount: feeAmount,
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: feeAmount
         });
 
-        bytes memory data = abi.encode(feeRequests);
+        CollectFees memory collectFeesReq = CollectFees({
+            beneficiary: treasury,
+            outputs: outputs
+        });
+
+        bytes memory data = abi.encode(collectFeesReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
@@ -776,24 +784,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.deal(address(intentGateway), ethAmount);
 
         address treasury = user; // Use existing user address that can receive ETH
-        PaymentInfo[] memory feeRequests = new PaymentInfo[](3);
-        feeRequests[0] = PaymentInfo({
+        TokenInfo[] memory outputs = new TokenInfo[](3);
+        outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: usdcAmount,
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: usdcAmount
         });
-        feeRequests[1] = PaymentInfo({
+        outputs[1] = TokenInfo({
             token: bytes32(uint256(uint160(address(dai)))),
-            amount: daiAmount,
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: daiAmount
         });
-        feeRequests[2] = PaymentInfo({
+        outputs[2] = TokenInfo({
             token: bytes32(0),
-            amount: ethAmount,
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: ethAmount
         });
 
-        bytes memory data = abi.encode(feeRequests);
+        CollectFees memory collectFeesReq = CollectFees({
+            beneficiary: treasury,
+            outputs: outputs
+        });
+
+        bytes memory data = abi.encode(collectFeesReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
@@ -837,14 +847,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         usdc.transfer(address(intentGateway), totalAmount);
 
         address treasury = user; // Use existing user address
-        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
-        feeRequests[0] = PaymentInfo({
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: collectAmount, // Collect specific amount
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: collectAmount // Collect specific amount
         });
 
-        bytes memory data = abi.encode(feeRequests);
+        CollectFees memory collectFeesReq = CollectFees({
+            beneficiary: treasury,
+            outputs: outputs
+        });
+
+        bytes memory data = abi.encode(collectFeesReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
@@ -871,14 +885,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         usdc.transfer(address(intentGateway), 1000 * 1e6);
 
         address treasury = user; // Use existing user address
-        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
-        feeRequests[0] = PaymentInfo({
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: 1000 * 1e6,
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: 1000 * 1e6
         });
 
-        bytes memory data = abi.encode(feeRequests);
+        CollectFees memory collectFeesReq = CollectFees({
+            beneficiary: treasury,
+            outputs: outputs
+        });
+
+        bytes memory data = abi.encode(collectFeesReq);
 
         // Request NOT from hyperbridge
         PostRequest memory request = PostRequest({
@@ -906,14 +924,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         usdc.transfer(address(intentGateway), actualBalance);
 
         address treasury = user; // Use existing user address
-        PaymentInfo[] memory feeRequests = new PaymentInfo[](1);
-        feeRequests[0] = PaymentInfo({
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: requestedAmount, // Request more than available
-            beneficiary: bytes32(uint256(uint160(treasury)))
+            amount: requestedAmount // Request more than available
         });
 
-        bytes memory data = abi.encode(feeRequests);
+        CollectFees memory collectFeesReq = CollectFees({
+            beneficiary: treasury,
+            outputs: outputs
+        });
+
+        bytes memory data = abi.encode(collectFeesReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),

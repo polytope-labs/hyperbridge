@@ -394,6 +394,7 @@ jobs:
                   sudo rm -rf ./eth-pos-devnet
                   sudo rm -rf ./target
                   sudo rm -rf /tmp
+                  sudo mkdir /tmp
 
     check-solidity:
         name: Check ismp-solidity

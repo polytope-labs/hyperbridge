@@ -18,7 +18,7 @@ use ethers::{
 		NameOrAddress, Provider, ProviderError, Wallet,
 	},
 	providers::{Http, Middleware, PendingTransaction},
-	types::{TransactionReceipt, TransactionRequest},
+	types::{TransactionReceipt, TransactionRequest, H160},
 };
 use geth_primitives::{new_u256, old_u256};
 use ismp::{
@@ -70,7 +70,7 @@ pub async fn submit_messages(
 				};
 				let evs = wait_for_success(
 					&client.config.state_machine,
-					&client.config.etherscan_api_key,
+					client.config.ismp_host.0.into(),
 					client.client.clone(),
 					client.signer.clone(),
 					progress,
@@ -121,7 +121,7 @@ pub async fn submit_messages(
 #[async_recursion::async_recursion]
 pub async fn wait_for_success<'a, T>(
 	state_machine: &StateMachine,
-	etherscan_api_key: &String,
+	ismp_host: H160,
 	provider: Arc<Provider<Http>>,
 	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
 	tx: PendingTransaction<'a, Http>,
@@ -152,20 +152,17 @@ where
 	let client_clone = provider.clone();
 	let signer_clone = signer.clone();
 	let state_machine_clone = state_machine.clone();
-	let etherscan_api_key_clone = etherscan_api_key.clone();
+	let ismp_host_clone = ismp_host.clone();
 
 	let handle_failed_tx = move || async move {
 		log::info!("No receipt for transaction on {:?}", state_machine_clone);
 
 		if let Some(call) = retry {
 			// lets retry
-			let gas_price: U256 = get_current_gas_cost_in_usd(
-				state_machine_clone,
-				&etherscan_api_key_clone,
-				client_clone.clone(),
-			)
-			.await?
-			.gas_price * 2; // for good measure
+			let gas_price: U256 =
+				get_current_gas_cost_in_usd(state_machine_clone, ismp_host, client_clone.clone())
+					.await?
+					.gas_price * 2; // for good measure
 			log::info!(
 				"Retrying consensus message on {:?} with gas {}",
 				state_machine_clone,
@@ -182,7 +179,7 @@ where
 			// don't retry in the next callstack
 			wait_for_success::<()>(
 				&state_machine_clone,
-				&etherscan_api_key_clone,
+				ismp_host_clone,
 				client_clone.clone(),
 				signer_clone.clone(),
 				pending,
@@ -286,13 +283,9 @@ pub async fn generate_contract_calls(
 	// the gas price by overriding the base fee
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
 	let mut gas_price = if set_gas_price() {
-		get_current_gas_cost_in_usd(
-			client.state_machine,
-			&client.config.etherscan_api_key.clone(),
-			client.client.clone(),
-		)
-		.await?
-		.gas_price
+		get_current_gas_cost_in_usd(client.state_machine, ismp_host.0.into(), client.client.clone())
+			.await?
+			.gas_price
 	} else {
 		Default::default()
 	};

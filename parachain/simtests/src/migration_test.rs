@@ -198,7 +198,6 @@ async fn test_runtime_upgrade_and_fee_migration() -> Result<(), anyhow::Error> {
 	println!("Waiting for Simnode RPC port {port}...");
 	wait_for_port(port, Duration::from_secs(60)).await?;
 
-
 	let local_ws_url = format!("ws://127.0.0.1:{port}");
 
 	// nexus_client already connected earlier for version check, reconnect for consistency

@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 
 [lib]
@@ -56,4 +56,4 @@ features = ["sp-runtime", "sc-service"]
 
 
 [features]
-gnosis = ["tesseract-sync-committee/gnosis"]
+nofulu = ["tesseract-sync-committee/nofulu"]

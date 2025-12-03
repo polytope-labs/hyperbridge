@@ -18,211 +18,273 @@ pragma solidity ^0.8.17;
  * @notice Tokens that must be received for a valid order fulfillment
  */
 struct PaymentInfo {
-	/// @dev The address of the ERC20 token on the destination chain
-	/// @dev address(0) used as a sentinel for the native token
-	bytes32 token;
-	/// @dev The amount of the token to be sent
-	uint256 amount;
-	/// @dev The address to receive the output tokens
-	bytes32 beneficiary;
+    /// @dev The address of the ERC20 token on the destination chain
+    /// @dev address(0) used as a sentinel for the native token
+    bytes32 token;
+    /// @dev The amount of the token to be sent
+    uint256 amount;
+    /// @dev The address to receive the output tokens
+    bytes32 beneficiary;
 }
 
 /**
  * @notice Tokens that must be escrowed for an order
  */
 struct TokenInfo {
-	/// @dev The address of the ERC20 token on the destination chain
-	/// @dev address(0) used as a sentinel for the native token
-	bytes32 token;
-	/// @dev The amount of the token to be sent
-	uint256 amount;
+    /// @dev The address of the ERC20 token on the destination chain
+    /// @dev address(0) used as a sentinel for the native token
+    bytes32 token;
+    /// @dev The amount of the token to be sent
+    uint256 amount;
+}
+
+/**
+ * @dev Struct for predispatch information
+ */
+struct PredispatchInfo {
+    /// @dev Assets to execute a predispatch call with
+    TokenInfo[] assets;
+    /// @dev The actual call data to be executed
+    bytes call;
 }
 
 /**
  * @dev Represents an order in the IntentGateway module.
- * @param Order The structure defining an order.
  */
 struct Order {
-	/// @dev The address of the user who is initiating the transfer
-	bytes32 user;
-	/// @dev The state machine identifier of the origin chain
-	bytes sourceChain;
-	/// @dev The state machine identifier of the destination chain
-	bytes destChain;
-	/// @dev The block number by which the order must be filled on the destination chain
-	uint256 deadline;
-	/// @dev The nonce of the order
-	uint256 nonce;
-	/// @dev Represents the dispatch fees associated with the IntentGateway.
-	uint256 fees;
-	/// @dev The tokens that the filler will provide.
-	PaymentInfo[] outputs;
-	/// @dev The tokens that are escrowed for the filler.
-	TokenInfo[] inputs;
-	/// @dev A bytes array to store the calls if any.
-	bytes callData;
+    /// @dev The address of the user who is initiating the transfer
+    bytes32 user;
+    /// @dev The state machine identifier of the origin chain
+    bytes sourceChain;
+    /// @dev The state machine identifier of the destination chain
+    bytes destChain;
+    /// @dev The block number by which the order must be filled on the destination chain
+    uint256 deadline;
+    /// @dev The nonce of the order
+    uint256 nonce;
+    /// @dev Represents the dispatch fees associated with the IntentGateway.
+    uint256 fees;
+    /// @dev The tokens that the filler will provide.
+    PaymentInfo[] outputs;
+    /// @dev The tokens that are escrowed for the filler.
+    TokenInfo[] inputs;
+    /// @dev The predispatch information for the order
+    PredispatchInfo predispatch;
+    /// @dev A bytes array to store the calls if any.
+    bytes callData;
 }
 
 /**
  * @dev Struct to define the parameters for the IntentGateway module.
  */
 struct Params {
-	/// @dev The address of the host contract
-	address host;
-	/// @dev Address of the dispatcher contract responsible for handling intents.
-	address dispatcher;
+    /// @dev The address of the host contract
+    address host;
+    /// @dev Address of the dispatcher contract responsible for handling intents.
+    address dispatcher;
+    /// @dev Protocol fee in basis points (BPS) deducted from filler-provided tokens
+    uint256 protocolFeeBps;
 }
 
 /**
  * @notice A struct representing the options for filling an intent.
- * @dev This struct is used to specify various parameters and options
- *      when filling an intent in the IntentGateway contract.
  */
 struct FillOptions {
-	/// @dev The fee paid to the relayer for processing transactions.
-	uint256 relayerFee;
+    /// @dev The fee paid to the relayer for processing transactions.
+    uint256 relayerFee;
 }
 
 /**
  * @dev Struct representing the options for canceling an intent.
  */
 struct CancelOptions {
-	/// @dev The fee paid to the relayer for processing transactions.
-	uint256 relayerFee;
-	/// @dev Stores the height value.
-	uint256 height;
+    /// @dev The fee paid to the relayer for processing transactions.
+    uint256 relayerFee;
+    /// @dev Stores the height value.
+    uint256 height;
 }
 
 /**
- * @title IIntentGateway
+ * @title IIntentGatewayV2
  * @author Polytope Labs (hello@polytope.technology)
- *
- * @dev Interface for the IntentGateway that allows for the creation and fulfillment of cross-chain orders.
+ * @notice Interface for the IntentGatewayV2 contract
+ * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
  */
 interface IIntentGateway {
-	/**
-	 * @dev Emitted when an order is placed.
-	 */
-	event OrderPlaced(
-		/// @dev The address of the user who is initiating the transfer
-		bytes32 user,
-		/// @dev The state machine identifier of the origin chain
-		bytes sourceChain,
-		/// @dev The state machine identifier of the destination chain
-		bytes destChain,
-		/// @dev The block number by which the order must be filled on the destination chain
-		uint256 deadline,
-		/// @dev The nonce of the order
-		uint256 nonce,
-		/// @dev Represents the dispatch fees associated with the IntentGateway.
-		uint256 fees,
-		/// @dev The tokens that the filler will provide.
-		PaymentInfo[] outputs,
-		/// @dev The tokens that are escrowed for the filler.
-		TokenInfo[] inputs,
-		/// @dev A bytes array to store the calls if any.
-		bytes callData
-	);
+    /**
+     * @dev Enum representing the different kinds of incoming requests that can be executed.
+     */
+    enum RequestKind {
+        /// @dev Identifies a request for redeeming an escrow.
+        RedeemEscrow,
+        /// @dev Identifies a request for recording new contract deployments
+        NewDeployment,
+        /// @dev Identifies a request for updating parameters.
+        UpdateParams,
+        /// @dev Identifies a request for refunding an escrow.
+        RefundEscrow,
+        /// @dev Identifies a request for collecting fees.
+        CollectFees
+    }
 
-	/**
-	 * @dev Emitted when an order is filled.
-	 * @param commitment The unique identifier of the order.
-	 * @param filler The address of the entity that filled the order.
-	 */
-	event OrderFilled(bytes32 indexed commitment, address filler);
+    /// @notice Thrown when an unauthorized action is attempted.
+    error Unauthorized();
 
-	/**
-	 * @dev Emitted when an escrow is released.
-	 * @param commitment The unique identifier of the order.
-	 */
-	event EscrowReleased(bytes32 indexed commitment);
+    /// @notice Thrown when an invalid input is provided.
+    error InvalidInput();
 
-	/**
-	 * @dev Emitted when an escrow is refunded.
-	 * @param commitment The unique identifier of the order.
-	 */
-	event EscrowRefunded(bytes32 indexed commitment);
+    /// @notice Thrown when an action is attempted on an expired order.
+    error Expired();
 
-	/// @notice Thrown when an unauthorized action is attempted.
-	error Unauthorized();
+    /// @notice Thrown when there are insufficient native tokens to complete an action.
+    error InsufficientNativeToken();
 
-	/// @notice Thrown when an invalid input is provided.
-	error InvalidInput();
+    /// @notice Thrown when an action is attempted on an order that has not yet expired.
+    error NotExpired();
 
-	/// @notice Thrown when an action is attempted on an expired order.
-	error Expired();
+    /// @notice Thrown when an action is attempted on an order that has already been filled.
+    error Filled();
 
-	/// @notice Thrown when there are insufficient native tokens to complete an action.
-	error InsufficientNativeToken();
+    /// @notice Thrown when an action is attempted on an order that has been cancelled.
+    error Cancelled();
 
-	/// @notice Thrown when an action is attempted on an order that has not yet expired.
-	error NotExpired();
+    /// @notice Thrown when an action is attempted on the wrong chain.
+    error WrongChain();
 
-	/// @notice Thrown when an action is attempted on an order that has already been filled.
-	error Filled();
+    /// @notice Thrown when an action is attempted on an unknown order.
+    error UnknownOrder();
 
-	/// @notice Thrown when an action is attempted on the wrong chain.
-	error WrongChain();
+    /**
+     * @dev Emitted when an order is placed.
+     */
+    event OrderPlaced(
+        /// @dev The address of the user who is initiating the transfer
+        bytes32 user,
+        /// @dev The state machine identifier of the origin chain
+        bytes sourceChain,
+        /// @dev The state machine identifier of the destination chain
+        bytes destChain,
+        /// @dev The block number by which the order must be filled on the destination chain
+        uint256 deadline,
+        /// @dev The nonce of the order
+        uint256 nonce,
+        /// @dev Represents the dispatch fees associated with the IntentGateway.
+        uint256 fees,
+        /// @dev Assets that were used to execute a predispatch call
+        TokenInfo[] predispatch,
+        /// @dev The tokens that are escrowed for the filler.
+        TokenInfo[] inputs,
+        /// @dev The tokens that the filler will provide.
+        PaymentInfo[] outputs
+    );
 
-	/// @notice Thrown when an action is attempted on an unknown order.
-	error UnknownOrder();
+    /**
+     * @notice Event emitted when an order is filled.
+     * @param commitment The order commitment hash
+     * @param filler The address of the filler
+     */
+    event OrderFilled(bytes32 commitment, address filler);
 
-	/**
-	 * @notice Fallback function to receive ether
-	 * @dev This function is called when ether is sent to the contract without data
-	 * @custom:note The function is marked payable to allow receiving ether
-	 */
-	receive() external payable;
+    /**
+     * @notice Event emitted when escrow is released.
+     * @param commitment The order commitment hash
+     */
+    event EscrowReleased(bytes32 commitment);
 
-	/**
-	 * @dev Should return the `IsmpHost` address for the current chain.
-	 * The `IsmpHost` is an immutable contract that will never change.
-	 */
-	function host() external view returns (address);
+    /**
+     * @notice Event emitted when escrow is refunded.
+     * @param commitment The order commitment hash
+     */
+    event EscrowRefunded(bytes32 commitment);
 
-	/**
-	 * @dev Fetch the IntentGateway contract instance for a chain.
-	 */
-	function instance(bytes calldata stateMachineId) external view returns (bytes32);
+    /**
+     * @notice Event emitted when parameters are updated.
+     * @param previous The previous parameters
+     * @param current The new parameters
+     */
+    event ParamsUpdated(Params previous, Params current);
 
-	/**
-	 * @notice Retrieves the current parameter settings for the IntentGateway module
-	 * @dev Returns a struct containing all configurable parameters
-	 * @return Params A struct containing the module's current parameters
-	 */
-	function params() external view returns (Params memory);
+    /**
+     * @notice Event emitted when a new deployment is added.
+     * @param stateMachineId The state machine identifier
+     * @param gateway The gateway address
+     */
+    event NewDeploymentAdded(bytes stateMachineId, bytes32 gateway);
 
-	/**
-	 * @notice Calculates the commitment slot hash required for storage queries.
-	 * @dev The commitment slot hash is used as part of the proof verification process
-	 * @param commitment The commitment value as a bytes32 hash
-	 * @return bytes The calculated commitment slot hash
-	 */
-	function calculateCommitmentSlotHash(bytes32 commitment) external pure returns (bytes memory);
+    /**
+     * @dev Emitted when dust is collected from predispatch swaps.
+     * @param token The token contract address of the dust, address(0) for native currency.
+     * @param amount The amount of dust collected.
+     */
+    event DustCollected(address token, uint256 amount);
 
-	/**
-	 * @notice Places an order with the given order details.
-	 * @dev This function allows users to place an order by providing the order details.
-	 * @param order The order details to be placed.
-	 * @param graffiti Additional data that can be attached to the order
-	 */
-	function placeOrder(Order memory order, bytes32 graffiti) external payable;
+    /**
+     * @dev Emitted when protocol fee is collected from a filler.
+     * @param token The token contract address of the fee, address(0) for native currency.
+     * @param amount The amount of protocol fee collected.
+     * @param chain The chain where the funds are stored.
+     */
+    event FeeCollected(address token, uint256 amount, bytes chain);
 
-	/**
-	 * @notice Fills an order with the specified options.
-	 * @param order The order to be filled.
-	 * @param options The options to be used when filling the order.
-	 * @dev This function is payable and can accept Ether.
-	 */
-	function fillOrder(Order calldata order, FillOptions memory options) external payable;
+    /**
+     * @dev Emitted when protocol revenue is withdrawn.
+     * @param token The token contract address of the fee, address(0) for native currency.
+     * @param amount The amount of protocol revenue collected.
+     * @param beneficiary The beneficiary of the funds
+     */
+    event RevenueWithdrawn(address token, uint256 amount, address beneficiary);
 
-	/**
-	 * @notice Cancels an existing order.
-	 * @param order The order to be canceled.
-	 * @param options Additional options for the cancellation process.
-	 * @dev This function can only be called by the order owner and requires a payment.
-	 * It will initiate a storage query on the source chain to verify the order has not
-	 * yet been filled. If the order has not been filled, the tokens will be released.
-	 */
-	function cancelOrder(Order calldata order, CancelOptions memory options) external payable;
+    /**
+     * @notice Returns the host address.
+     * @return The host contract address
+     */
+    function host() external view returns (address);
+
+    /**
+     * @notice Returns the instance address for a given state machine.
+     * @param stateMachineId The state machine identifier
+     * @return The instance address
+     */
+    function instance(bytes calldata stateMachineId) external view returns (bytes32);
+
+    /**
+     * @notice Returns the current gateway parameters.
+     * @return The current parameters
+     */
+    function params() external view returns (Params memory);
+
+    /**
+     * @notice Calculates the commitment slot hash for an order.
+     * @param commitment The order commitment
+     * @return The slot hash
+     */
+    function calculateCommitmentSlotHash(bytes32 commitment) external pure returns (bytes32);
+
+    /**
+     * @notice Places a new order.
+     * @param order The order details
+     * @param graffiti Additional data
+     */
+    function placeOrder(Order memory order, bytes32 graffiti) external payable;
+
+    /**
+     * @notice Fills an existing order.
+     * @param order The order to fill
+     * @param options Fill options including relayer fee
+     */
+    function fillOrder(Order calldata order, FillOptions memory options) external payable;
+
+    /**
+     * @notice Cancels an order (for expired orders).
+     * @param order The order to cancel
+     * @param options Cancel options including height and relayer fee
+     */
+    function cancelOrder(Order calldata order, CancelOptions memory options) external payable;
+
+    /**
+     * @notice Cancels a limit order (for orders with deadline = 0).
+     * @param order The order to cancel
+     * @param options Cancel options including relayer fee
+     */
+    function cancelLimitOrder(Order calldata order, CancelOptions memory options) external payable;
 }

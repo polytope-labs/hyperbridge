@@ -17,6 +17,8 @@ import {PostRequest, PostResponse, GetRequest} from "../libraries/Message.sol";
 import {DispatchPost, DispatchPostResponse, DispatchGet, IDispatcher} from "../interfaces/IDispatcher.sol";
 import {IApp, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "../interfaces/IApp.sol";
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 /**
  * @dev Uniswap interface for estimating fees in the native token
  */
@@ -66,6 +68,25 @@ abstract contract HyperApp is IApp {
     }
 
     /**
+     * @dev returns the quoted fee in the feeToken for dispatching a GET request
+     */
+    function quote(DispatchGet memory request) public view returns (uint256) {
+        address _host = host();
+        uint256 pbf = IDispatcher(_host).perByteFee(IDispatcher(_host).host());
+        uint256 minimumFee = 32 * pbf;
+        uint256 totalFee = request.fee + (pbf * request.context.length);
+        return minimumFee > totalFee ? minimumFee : totalFee;
+    }
+
+    /**
+     * @dev returns the quoted fee in the feeToken for dispatching a POST response
+     */
+    function quote(DispatchPostResponse memory response) public view returns (uint256) {
+        uint256 len = 32 > response.response.length ? 32 : response.response.length;
+        return response.fee + (len * IDispatcher(host()).perByteFee(response.request.source));
+    }
+
+    /**
      * @dev returns the quoted fee in the native token for dispatching a POST request
      */
     function quoteNative(DispatchPost memory request) public view returns (uint256) {
@@ -76,17 +97,6 @@ abstract contract HyperApp is IApp {
         path[0] = IUniswapV2Router02(_uniswap).WETH();
         path[1] = IDispatcher(_host).feeToken();
         return IUniswapV2Router02(_uniswap).getAmountsIn(fee, path)[0];
-    }
-
-    /**
-     * @dev returns the quoted fee in the feeToken for dispatching a GET request
-     */
-    function quote(DispatchGet memory request) public view returns (uint256) {
-        address _host = host();
-        uint256 pbf = IDispatcher(_host).perByteFee(IDispatcher(_host).host());
-        uint256 minimumFee = 32 * pbf;
-        uint256 totalFee = request.fee + (pbf * request.context.length);
-        return minimumFee > totalFee ? minimumFee : totalFee;
     }
 
     /**
@@ -103,14 +113,6 @@ abstract contract HyperApp is IApp {
     }
 
     /**
-     * @dev returns the quoted fee in the feeToken for dispatching a POST response
-     */
-    function quote(DispatchPostResponse memory response) public view returns (uint256) {
-        uint256 len = 32 > response.response.length ? 32 : response.response.length;
-        return response.fee + (len * IDispatcher(host()).perByteFee(response.request.source));
-    }
-
-    /**
      * @dev returns the quoted fee in the native token for dispatching a POST response
      */
     function quoteNative(DispatchPostResponse memory request) public view returns (uint256) {
@@ -121,6 +123,54 @@ abstract contract HyperApp is IApp {
         path[0] = IUniswapV2Router02(_uniswap).WETH();
         path[1] = IDispatcher(_host).feeToken();
         return IUniswapV2Router02(_uniswap).getAmountsIn(fee, path)[0];
+    }
+
+    /**
+     * @notice Dispatches a POST request using the fee token for payment
+     * @dev Handles fee token approval and transfer before dispatching the request to the Host.
+     * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
+     * @param request The POST request to dispatch containing destination, body, timeout, and fee parameters
+     * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
+     */
+    function dispatchWithFeeToken(DispatchPost memory request, address payer) internal {
+        address hostAddr = host();
+        address feeToken = IDispatcher(hostAddr).feeToken();
+        uint256 fee = quote(request);
+        if (payer != address(this)) IERC20(feeToken).transferFrom(payer, address(this), fee);
+        IERC20(feeToken).approve(hostAddr, fee);
+        IDispatcher(hostAddr).dispatch(request);
+    }
+
+    /**
+     * @notice Dispatches a POST response using the fee token for payment
+     * @dev Handles fee token approval and transfer before dispatching the response to the Host.
+     * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
+     * @param response The POST response to dispatch containing the original request, response data, timeout, and fee parameters
+     * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
+     */
+    function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal {
+        address hostAddr = host();
+        address feeToken = IDispatcher(hostAddr).feeToken();
+        uint256 fee = quote(response);
+        if (payer != address(this)) IERC20(feeToken).transferFrom(payer, address(this), fee);
+        IERC20(feeToken).approve(hostAddr, fee);
+        IDispatcher(hostAddr).dispatch(response);
+    }
+
+    /**
+     * @notice Dispatches a GET request using the fee token for payment
+     * @dev Handles fee token approval and transfer before dispatching the request to the Host.
+     * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
+     * @param request The GET request to dispatch containing destination, keys, height, timeout, and fee parameters
+     * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
+     */
+    function dispatchWithFeeToken(DispatchGet memory request, address payer) internal {
+        address hostAddr = host();
+        address feeToken = IDispatcher(hostAddr).feeToken();
+        uint256 fee = quote(request);
+        if (payer != address(this)) IERC20(feeToken).transferFrom(payer, address(this), fee);
+        IERC20(feeToken).approve(hostAddr, fee);
+        IDispatcher(hostAddr).dispatch(request);
     }
 
     /**

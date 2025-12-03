@@ -18,6 +18,7 @@ import {DispatchPost, DispatchPostResponse, DispatchGet, IDispatcher} from "../i
 import {IApp, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "../interfaces/IApp.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @dev Uniswap interface for estimating fees in the native token
@@ -35,6 +36,8 @@ interface IUniswapV2Router02 {
  * host authorization, and cross-chain message handling. Extend this contract to build your Hyperbridge application.
  */
 abstract contract HyperApp is IApp {
+    using SafeERC20 for IERC20;
+
     /**
      * @dev Call was not expected
      */
@@ -136,8 +139,8 @@ abstract contract HyperApp is IApp {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(request);
-        if (payer != address(this)) IERC20(feeToken).transferFrom(payer, address(this), fee);
-        IERC20(feeToken).approve(hostAddr, fee);
+        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
+        IERC20(feeToken).safeApprove(hostAddr, fee);
         IDispatcher(hostAddr).dispatch(request);
     }
 
@@ -152,8 +155,8 @@ abstract contract HyperApp is IApp {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(response);
-        if (payer != address(this)) IERC20(feeToken).transferFrom(payer, address(this), fee);
-        IERC20(feeToken).approve(hostAddr, fee);
+        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
+        IERC20(feeToken).safeApprove(hostAddr, fee);
         IDispatcher(hostAddr).dispatch(response);
     }
 
@@ -168,8 +171,8 @@ abstract contract HyperApp is IApp {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(request);
-        if (payer != address(this)) IERC20(feeToken).transferFrom(payer, address(this), fee);
-        IERC20(feeToken).approve(hostAddr, fee);
+        if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
+        IERC20(feeToken).safeApprove(hostAddr, fee);
         IDispatcher(hostAddr).dispatch(request);
     }
 

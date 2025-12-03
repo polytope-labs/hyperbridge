@@ -91,9 +91,7 @@ pub async fn get_current_gas_cost_in_usd(
 	ismp_host_address: H160,
 	client: Arc<Provider<Http>>,
 ) -> Result<GasBreakdown, Error> {
-	let mut gas_price_cost = U256::zero();
 	let mut gas_price = U256::zero();
-	let mut unit_wei = U256::zero();
 
 	match chain {
 		StateMachine::Evm(inner_evm) => {
@@ -123,12 +121,10 @@ pub async fn get_current_gas_cost_in_usd(
 		},
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
-	let token_usd = get_price_from_uniswap_router(ismp_host_address, client)
-		.await
-		.unwrap_or(U256::zero());
+	let token_usd = get_price_from_uniswap_router(ismp_host_address, client, chain).await?;
 
-	unit_wei = get_cost_of_one_wei(token_usd);
-	gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
+	let unit_wei = get_cost_of_one_wei(token_usd);
+	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 
 	log::debug!(
 		"Returned gas price for {chain:?}: {} Gwei",
@@ -149,10 +145,10 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 async fn get_price_from_uniswap_router(
 	ismp_host: H160,
 	client: Arc<Provider<Http>>,
+	chain: StateMachine,
 ) -> Result<U256, Error> {
 	let host = EvmHost::new(ismp_host, client.clone());
 	let params = host.host_params().call().await?;
-
 	// There are no uniswap pool on testnet, return 1 usd as native token value
 	if params.hyperbridge.0.starts_with(b"KUSAMA") {
 		return Ok(U256::from(10).pow(U256::from(27)));
@@ -179,7 +175,7 @@ async fn get_price_from_uniswap_router(
 
 	let amounts = router.get_amounts_in(old_u256(amount_out), path).call().await?;
 
-	if amounts.len() < 2 {
+	if amounts.is_empty() {
 		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
 	}
 
@@ -216,7 +212,6 @@ pub async fn get_l2_data_cost(
 	Ok(convert_27_decimals_to_18_decimals(data_cost)?.into())
 }
 
-
 /// Use this to convert a value in 27 decimals back to the standard erc20 18 decimals
 pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 	let val_as_str = value.to_string();
@@ -231,10 +226,8 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 #[cfg(test)]
 mod test {
 	use crate::gas_oracle::{
-		get_current_gas_cost_in_usd,
-		get_l2_data_cost, ARBITRUM_SEPOLIA_CHAIN_ID, BSC_CHAIN_ID,
-		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, OPTIMISM_SEPOLIA_CHAIN_ID, POLYGON_CHAIN_ID,
-		POLYGON_TESTNET_CHAIN_ID, SEPOLIA_CHAIN_ID,
+		get_current_gas_cost_in_usd, get_l2_data_cost, ARBITRUM_CHAIN_ID, BSC_CHAIN_ID,
+		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, POLYGON_CHAIN_ID,
 	};
 	use ethers::{prelude::Provider, providers::Http};
 	use ismp::host::StateMachine;
@@ -244,7 +237,8 @@ mod test {
 	#[ignore]
 	async fn get_gas_price_ethereum_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
+		let ethereum_rpc_uri =
+			std::env::var("ETHEREUM_URL").expect("ethereum url is not set in .env.");
 		let ismp_host = std::env::var("ETHEREUM_ISMP_HOST")
 			.expect("ETHEREUM_ISMP_HOST is not set in .env")
 			.parse()
@@ -260,31 +254,7 @@ mod test {
 		.await
 		.unwrap();
 
-		println!("Ethereum Gas Cost Eth mainnet: {:?}", ethereum_gas_cost_in_usd);
-	}
-
-	#[tokio::test]
-	#[ignore]
-	async fn get_gas_price_sepolia() {
-		dotenv::dotenv().ok();
-		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
-		let ismp_host = std::env::var("SEPOLIA_ISMP_HOST")
-			.expect("SEPOLIA_ISMP_HOST is not set in .env")
-			.parse()
-			.unwrap();
-		// Client is unused in this test
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
-
-		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(SEPOLIA_CHAIN_ID),
-			ismp_host,
-			client.clone(),
-		)
-		.await
-		.unwrap();
-
-		println!("Ethereum Gas Cost Sepolia: {:?}", ethereum_gas_cost_in_usd);
+		println!("Gas Cost Eth mainnet: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]
@@ -308,16 +278,16 @@ mod test {
 		.await
 		.unwrap();
 
-		println!("Ethereum Gas Cost Polygon Mainnet: {:?}", ethereum_gas_cost_in_usd);
+		println!("Gas Cost Polygon Mainnet: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]
 	#[ignore]
-	async fn get_gas_price_gnosis_testnet() {
+	async fn get_gas_price_gnosis_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_rpc_uri = std::env::var("CHIADO_URL").expect("get url is not set in .env.");
-		let ismp_host = std::env::var("CHIADO_ISMP_HOST")
-			.expect("CHIADO_ISMP_HOST is not set in .env")
+		let ethereum_rpc_uri = std::env::var("GNOSIS_URL").expect("gnosis url is not set in .env.");
+		let ismp_host = std::env::var("GNOSIS_ISMP_HOST")
+			.expect("GNOSIS_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
 		// Client is unused in this test
@@ -332,38 +302,14 @@ mod test {
 		.await
 		.unwrap();
 
-		println!("Ethereum Gas Cost Gnosis Mainnet: {:?}", ethereum_gas_cost_in_usd);
-	}
-
-	#[tokio::test]
-	#[ignore]
-	async fn get_gas_price_polygon_testnet() {
-		dotenv::dotenv().ok();
-		let ismp_host = std::env::var("POLYGON_TESTNET_ISMP_HOST")
-			.expect("POLYGON_TESTNET_ISMP_HOST is not set in .env")
-			.parse()
-			.unwrap();
-		let ethereum_rpc_uri = std::env::var("GETH_URL").expect("get url is not set in .env.");
-		// Client is unused in this test
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
-
-		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(POLYGON_TESTNET_CHAIN_ID),
-			ismp_host,
-			client.clone(),
-		)
-		.await
-		.unwrap();
-
-		println!("Ethereum Gas Cost Polygon Testnet: {:?}", ethereum_gas_cost_in_usd);
+		println!("Gas Cost Gnosis Mainnet: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]
 	#[ignore]
 	async fn get_gas_price_bsc_mainnet() {
 		dotenv::dotenv().ok();
-		let rpc_uri = std::env::var("BSC_URL").expect("BSC_URL is not set in .env");
+		let rpc_uri = std::env::var("BSC_MAINNET_URL").expect("BSC_MAINNET_URL is not set in .env");
 		let ismp_host = std::env::var("BSC_ISMP_HOST")
 			.expect("BSC_ISMP_HOST is not set in .env")
 			.parse()
@@ -377,14 +323,15 @@ mod test {
 				.await
 				.unwrap();
 
-		println!("Ethereum Gas Cost Bsc: {:?}", ethereum_gas_cost_in_usd);
+		println!("Gas Cost Bsc: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]
 	#[ignore]
 	async fn get_gas_price_arbitrum_mainnet() {
 		dotenv::dotenv().ok();
-		let ethereum_rpc_uri = std::env::var("ARB_URL").expect("arb url is not set in .env.");
+		let ethereum_rpc_uri =
+			std::env::var("ARBITRUM_MAINNET_URL").expect("arb url is not set in .env.");
 		let ismp_host = std::env::var("ARB_ISMP_HOST")
 			.expect("ARB_ISMP_HOST is not set in .env")
 			.parse()
@@ -393,66 +340,62 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID),
+			StateMachine::Evm(ARBITRUM_CHAIN_ID),
 			ismp_host,
 			client.clone(),
 		)
 		.await
 		.unwrap();
 
-		println!("Ethereum Gas Cost Arbitrum: {:?}", ethereum_gas_cost_in_usd);
+		println!("Gas Cost Arbitrum: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]
 	#[ignore]
-	async fn get_gas_price_optimism_base_mainnet() {
+	async fn get_gas_price_base_mainnet() {
 		dotenv::dotenv().ok();
-		let ismp_host = std::env::var("OP_ISMP_HOST")
-			.expect("OP_ISMP_HOST is not set in .env")
+		let ismp_host = std::env::var("BASE_ISMP_HOST")
+			.expect("BASE_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let ethereum_rpc_uri = std::env::var("OP_URL").expect("op url is not set in .env.");
+		let ethereum_rpc_uri =
+			std::env::var("BASE_MAINNET_URL").expect("op url is not set in .env.");
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
 
-		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
-			ismp_host,
-			client.clone(),
-		)
-		.await
-		.unwrap();
+		let ethereum_gas_cost_in_usd =
+			get_current_gas_cost_in_usd(StateMachine::Evm(8453), ismp_host, client.clone())
+				.await
+				.unwrap();
 
-		println!("Ethereum Gas Cost Optimism: {:?}", ethereum_gas_cost_in_usd);
+		println!("Gas Cost Base: {:?}", ethereum_gas_cost_in_usd);
 	}
 
 	#[tokio::test]
 	#[ignore]
 	async fn get_l2_data_cost_optimism_base_mainnet() {
 		dotenv::dotenv().ok();
-		let ismp_host = std::env::var("OP_ISMP_HOST")
-			.expect("OP_ISMP_HOST is not set in .env")
+		let ismp_host = std::env::var("BASE_ISMP_HOST")
+			.expect("BASE_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let ethereum_rpc_uri = std::env::var("OP_URL").expect("op url is not set in .env.");
+		let ethereum_rpc_uri =
+			std::env::var("BASE_MAINNET_URL").expect("op url is not set in .env.");
 		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
 		let client = Arc::new(provider.clone());
-		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
-			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
-			ismp_host,
-			client.clone(),
-		)
-		.await
-		.unwrap();
+		let ethereum_gas_cost_in_usd =
+			get_current_gas_cost_in_usd(StateMachine::Evm(8453), ismp_host, client.clone())
+				.await
+				.unwrap();
 		let data_cost = get_l2_data_cost(
 			vec![1u8; 32].into(),
-			StateMachine::Evm(OPTIMISM_SEPOLIA_CHAIN_ID),
+			StateMachine::Evm(8453),
 			client.clone(),
 			ethereum_gas_cost_in_usd.unit_wei_cost,
 		)
 		.await
 		.unwrap();
 
-		println!("Data Cost Optimism: {:?}", data_cost);
+		println!("Data Cost Base: {:?}", data_cost);
 	}
 }

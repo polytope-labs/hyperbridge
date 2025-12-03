@@ -10,7 +10,7 @@ use ismp::{
 use pallet_ismp_host_executive::HostParam;
 use polkadot_sdk::*;
 use primitive_types::U256;
-use sp_core::{H160, H256, hashing, storage::ChildInfo};
+use sp_core::{Bytes, H160, H256, hashing, storage::ChildInfo};
 use std::{sync::Arc, time::Duration};
 use subxt::{
 	OnlineClient,
@@ -42,8 +42,17 @@ pub struct SubstrateEvmClient<C: subxt::Config> {
 }
 
 #[derive(serde::Deserialize)]
-pub struct ReadProof {
-	pub proof: Vec<Vec<u8>>,
+pub struct ReadProof<H> {
+	pub at: H,
+	pub proof: Vec<Bytes>,
+}
+
+#[derive(Encode)]
+pub struct SubstrateEvmProof {
+	/// Proof of the Contract AccountInfo and the child trie root in the main State Trie
+	pub main_proof: Vec<Vec<u8>>,
+	/// Proof of the storage slots in the Contract's child Trie
+	pub child_proof: Vec<Vec<u8>>,
 }
 
 impl<C: subxt::Config> SubstrateEvmClient<C>
@@ -98,6 +107,49 @@ where
 		}
 		let trie_id: Vec<u8> = Vec::<u8>::decode(&mut input)?;
 		Ok(trie_id)
+	}
+
+	/// Fetches a combined prrof: Main Trie (ContractInfo + ChildRoot) amd Child Trie (Slots)
+	async fn fetch_combined_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
+		let contract_address: H160 = self.evm.config.ismp_host;
+		let block_hash = self
+			.substrate
+			.rpc
+			.chain_get_block_hash(Some(at.into()))
+			.await?
+			.ok_or_else(|| anyhow::anyhow!("Block hash not found for height {at}"))?;
+
+		let trie_id = self.get_contract_trie_id(contract_address, block_hash).await?;
+		let mut account_info_key = Vec::new();
+		account_info_key.extend_from_slice(&hashing::twox_128(b"Revive"));
+		account_info_key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
+		account_info_key.extend_from_slice(contract_address.as_bytes());
+
+		let child_info = ChildInfo::new_default(&trie_id);
+		let child_root_key = child_info.prefixed_storage_key().into_inner();
+
+		let main_keys = vec![account_info_key, child_root_key];
+
+		let main_proof: ReadProof<H256> = self
+			.substrate
+			.rpc_client
+			.request("state_getReadProof", rpc_params![main_keys, Some(block_hash)])
+			.await?;
+		let child_proof: ReadProof<H256> = self
+			.substrate
+			.rpc_client
+			.request(
+				"state_getChildReadProof",
+				rpc_params![child_info.prefixed_storage_key(), keys, Some(block_hash)],
+			)
+			.await?;
+
+		let substrate_evm_proof = SubstrateEvmProof {
+			main_proof: main_proof.proof.into_iter().map(|b| b.0).collect(),
+			child_proof: child_proof.proof.into_iter().map(|b| b.0).collect(),
+		};
+
+		Ok(substrate_evm_proof.encode())
 	}
 }
 
@@ -162,7 +214,6 @@ where
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: H160 = self.evm.config.ismp_host;
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
@@ -174,22 +225,7 @@ where
 			})
 			.collect();
 
-		let block_hash = self
-			.substrate
-			.rpc
-			.chain_get_block_hash(Some(at.into()))
-			.await?
-			.ok_or_else(|| anyhow::anyhow!("Block hash not found for height {at}"))?;
-
-		let trie_id = self.get_contract_trie_id(contract_addr, block_hash).await?;
-		let child_info = ChildInfo::new_default(&trie_id);
-
-		let params = rpc_params![child_info.prefixed_storage_key(), storage_keys, Some(block_hash)];
-
-		let proof: ReadProof =
-			self.substrate.rpc_client.request("state_getChildReadProof", params).await?;
-
-		Ok(proof.proof.encode())
+		self.fetch_combined_proof(at, storage_keys).await
 	}
 
 	async fn query_responses_proof(
@@ -198,7 +234,6 @@ where
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: H160 = self.evm.config.ismp_host;
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
@@ -210,22 +245,7 @@ where
 			})
 			.collect();
 
-		let block_hash = self
-			.substrate
-			.rpc
-			.chain_get_block_hash(Some(at.into()))
-			.await?
-			.ok_or_else(|| anyhow::anyhow!("Block hash not found for height {at}"))?;
-
-		let trie_id = self.get_contract_trie_id(contract_addr, block_hash).await?;
-		let child_info = ChildInfo::new_default(&trie_id);
-
-		let params = rpc_params![child_info.prefixed_storage_key(), storage_keys, Some(block_hash)];
-
-		let proof: ReadProof =
-			self.substrate.rpc_client.request("state_getChildReadProof", params).await?;
-
-		Ok(proof.proof.encode())
+		self.fetch_combined_proof(at, storage_keys).await
 	}
 
 	async fn query_state_proof(
@@ -234,16 +254,6 @@ where
 		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, Error> {
 		let contract_addr: H160 = self.evm.config.ismp_host;
-
-		let block_hash = self
-			.substrate
-			.rpc
-			.chain_get_block_hash(Some(at.into()))
-			.await?
-			.ok_or_else(|| anyhow::anyhow!("Block hash not found for height {at}"))?;
-
-		let trie_id = self.get_contract_trie_id(contract_addr, block_hash).await?;
-		let child_info = ChildInfo::new_default(&trie_id);
 
 		let storage_keys: Vec<Vec<u8>> = match keys {
 			StateProofQueryType::Ismp(keys) => {
@@ -279,12 +289,7 @@ where
 			},
 		};
 
-		let params = rpc_params![child_info.prefixed_storage_key(), storage_keys, Some(block_hash)];
-
-		let proof: ReadProof =
-			self.substrate.rpc_client.request("state_getChildReadProof", params).await?;
-
-		Ok(proof.proof.encode())
+		self.fetch_combined_proof(at, storage_keys).await
 	}
 
 	async fn query_ismp_events(

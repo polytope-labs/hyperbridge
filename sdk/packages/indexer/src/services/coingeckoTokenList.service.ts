@@ -145,7 +145,9 @@ export class CoinGeckoTokenListService {
 	 * @param currentTimestamp - Current timestamp in bigint
 	 */
 	static async sync(currentTimestamp: bigint): Promise<void> {
-		const syncPromises = Object.keys(NETWORK_TO_CHAIN_ID).map((networkName) => this.syncChain(networkName, currentTimestamp))
+		const syncPromises = Object.keys(NETWORK_TO_CHAIN_ID).map((networkName) =>
+			this.syncChain(networkName, currentTimestamp),
+		)
 
 		await Promise.allSettled(syncPromises)
 		logger.info(`[CoinGeckoTokenListService.sync] Completed sync for all supported chains`)
@@ -320,7 +322,9 @@ export class CoinGeckoTokenListService {
 					existingEntity.tokenName = tokenData.tokenName
 					existingEntity.tokenSymbol = tokenData.tokenSymbol
 					existingEntity.tokenURI = tokenData.tokenURI || undefined
-					existingEntity.pairedWith = pairedWithArray
+					const existingPairedWith = existingEntity.pairedWith ?? []
+					const mergedPairedWith = Array.from(new Set([...existingPairedWith, ...pairedWithArray]))
+					existingEntity.pairedWith = mergedPairedWith
 					existingEntity.updatedAt = timestampDate
 					await existingEntity.save()
 					savedCount++

@@ -184,7 +184,7 @@ contract IntentGatewayV2 is HyperApp {
      * @dev Hex value 0x05 padded with leading zeros to fill 32 bytes
      */
     bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
-        hex"0000000000000000000000000000000000000000000000000000000000000005";
+        hex"0000000000000000000000000000000000000000000000000000000000000006";
 
     /**
      * @dev Private variable to store the nonce value.

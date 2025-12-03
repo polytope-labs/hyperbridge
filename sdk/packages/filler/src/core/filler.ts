@@ -1,4 +1,4 @@
-import { chainIds } from "@hyperbridge/sdk"
+import { chainIds, retryPromise } from "@hyperbridge/sdk"
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
 import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "@hyperbridge/sdk"
@@ -86,9 +86,17 @@ export class IntentFiller {
 			try {
 				const sourceClient = this.chainClientManager.getPublicClient(order.sourceChain)
 				const orderValue = await this.contractService.getTokenUsdValue(order)
-				let currentConfirmations = await sourceClient.getTransactionConfirmations({
-					hash: order.transactionHash!,
-				})
+				let currentConfirmations = await retryPromise(
+					() =>
+						sourceClient.getTransactionConfirmations({
+							hash: order.transactionHash!,
+						}),
+					{
+						maxRetries: 3,
+						backoffMs: 250,
+						logMessage: "Failed to get initial transaction confirmations",
+					},
+				)
 				const requiredConfirmations = this.config.confirmationPolicy.getConfirmationBlocks(
 					chainIds[order.sourceChain as keyof typeof chainIds],
 					orderValue.inputUsdValue.toNumber(),
@@ -100,9 +108,17 @@ export class IntentFiller {
 
 				while (currentConfirmations < requiredConfirmations) {
 					await new Promise((resolve) => setTimeout(resolve, 300)) // Wait 300ms
-					currentConfirmations = await sourceClient.getTransactionConfirmations({
-						hash: order.transactionHash!,
-					})
+					currentConfirmations = await retryPromise(
+						() =>
+							sourceClient.getTransactionConfirmations({
+								hash: order.transactionHash!,
+							}),
+						{
+							maxRetries: 3,
+							backoffMs: 250,
+							logMessage: "Failed to get transaction confirmations",
+						},
+					)
 					this.logger.debug({ orderId: order.id, currentConfirmations }, "Order confirmation progress")
 				}
 

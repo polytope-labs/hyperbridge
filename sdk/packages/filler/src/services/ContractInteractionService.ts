@@ -74,12 +74,20 @@ export class ContractInteractionService {
 				// Check cache before making RPC call to avoid duplicate requests when cache is shared
 				const cachedPerByteFee = this.cacheService.getPerByteFee(destChain, sourceChain)
 				if (cachedPerByteFee === null) {
-					const perByteFee = await destClient.readContract({
-						address: this.configService.getHostAddress(destChain),
-						abi: EVM_HOST,
-						functionName: "perByteFee",
-						args: [toHex(sourceChain)],
-					})
+					const perByteFee = await retryPromise(
+						() =>
+							destClient.readContract({
+								address: this.configService.getHostAddress(destChain),
+								abi: EVM_HOST,
+								functionName: "perByteFee",
+								args: [toHex(sourceChain)],
+							}),
+						{
+							maxRetries: 3,
+							backoffMs: 250,
+							logMessage: "Failed to load perByteFee for cache initialization",
+						},
+					)
 					this.cacheService.setPerByteFee(destChain, sourceChain, perByteFee)
 				}
 			}
@@ -93,7 +101,11 @@ export class ContractInteractionService {
 		const client = this.clientManager.getPublicClient(chain)
 
 		if (tokenAddress === ADDRESS_ZERO) {
-			return await client.getBalance({ address: walletAddress as HexString })
+			return await retryPromise(() => client.getBalance({ address: walletAddress as HexString }), {
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get native token balance",
+			})
 		}
 
 		const tokenContract = getContract({
@@ -102,7 +114,11 @@ export class ContractInteractionService {
 			client,
 		})
 
-		const balance = await tokenContract.read.balanceOf([walletAddress as HexString])
+		const balance = await retryPromise(() => tokenContract.read.balanceOf([walletAddress as HexString]), {
+			maxRetries: 3,
+			backoffMs: 250,
+			logMessage: "Failed to get ERC20 token balance",
+		})
 
 		return balance
 	}
@@ -125,11 +141,19 @@ export class ContractInteractionService {
 		const client = this.clientManager.getPublicClient(chain)
 
 		try {
-			const decimals = await client.readContract({
-				address: bytes20Address as HexString,
-				abi: ERC20_ABI,
-				functionName: "decimals",
-			})
+			const decimals = await retryPromise(
+				() =>
+					client.readContract({
+						address: bytes20Address as HexString,
+						abi: ERC20_ABI,
+						functionName: "decimals",
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get token decimals",
+				},
+			)
 
 			this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
 			return decimals
@@ -172,7 +196,14 @@ export class ContractInteractionService {
 
 			// Check if we have enough native token
 			if (totalNativeTokenNeeded > 0n) {
-				const nativeBalance = await destClient.getBalance({ address: fillerWalletAddress })
+				const nativeBalance = await retryPromise(
+					() => destClient.getBalance({ address: fillerWalletAddress }),
+					{
+						maxRetries: 3,
+						backoffMs: 250,
+						logMessage: "Failed to get filler native balance",
+					},
+				)
 
 				if (BigInt(nativeBalance.toString()) < totalNativeTokenNeeded) {
 					this.logger.debug(
@@ -208,12 +239,20 @@ export class ContractInteractionService {
 		}))
 
 		for (const token of tokens) {
-			const allowance = await destClient.readContract({
-				abi: ERC20_ABI,
-				address: token.address as HexString,
-				functionName: "allowance",
-				args: [wallet.address, intentGateway],
-			})
+			const allowance = await retryPromise(
+				() =>
+					destClient.readContract({
+						abi: ERC20_ABI,
+						address: token.address as HexString,
+						functionName: "allowance",
+						args: [wallet.address, intentGateway],
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get token allowance",
+				},
+			)
 
 			if (allowance < token.amount) {
 				this.logger.info({ token: token.address }, "Approving token")
@@ -243,7 +282,11 @@ export class ContractInteractionService {
 					gasPrice: gasPrice + (gasPrice * 2000n) / 10000n,
 				})
 
-				await destClient.waitForTransactionReceipt({ hash: tx })
+				await retryPromise(() => destClient.waitForTransactionReceipt({ hash: tx }), {
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed while waiting for approval transaction receipt",
+				})
 				this.logger.info({ token: token.address }, "Approved token")
 			}
 		}
@@ -303,10 +346,18 @@ export class ContractInteractionService {
 
 			const filledSlot = keccak256(encodePacked(["bytes32", "uint256"], [commitment, mappingSlot]))
 
-			const filledStatus = await sourceClient.getStorageAt({
-				address: intentGatewayAddress,
-				slot: filledSlot,
-			})
+			const filledStatus = await retryPromise(
+				() =>
+					sourceClient.getStorageAt({
+						address: intentGatewayAddress,
+						slot: filledSlot,
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to read filled status from storage",
+				},
+			)
 			return filledStatus !== "0x0000000000000000000000000000000000000000000000000000000000000000"
 		} catch (error) {
 			this.logger.error({ err: error, orderId: order.id }, "Error checking if order filled")
@@ -340,12 +391,20 @@ export class ContractInteractionService {
 				to: this.configService.getIntentGatewayAddress(order.sourceChain),
 			}
 
-			let { gas_fee: postGasEstimate } = await estimateGasForPost({
-				postRequest: postRequest,
-				sourceClient: sourceClient as any,
-				hostLatestStateMachineHeight: 6291991n,
-				hostAddress: this.configService.getHostAddress(order.sourceChain),
-			})
+			let { gas_fee: postGasEstimate } = await retryPromise(
+				() =>
+					estimateGasForPost({
+						postRequest: postRequest,
+						sourceClient: sourceClient as any,
+						hostLatestStateMachineHeight: 6291991n,
+						hostAddress: this.configService.getHostAddress(order.sourceChain),
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to estimate post gas",
+				},
+			)
 
 			const { decimals: destFeeTokenDecimals } = await this.getFeeTokenWithDecimals(order.destChain)
 
@@ -441,15 +500,23 @@ export class ContractInteractionService {
 				// Add 0.5% markup
 				protocolFeeInNativeToken = protocolFeeInNativeToken + (protocolFeeInNativeToken * 50n) / 10000n
 
-				gas = await destClient.estimateContractGas({
-					abi: INTENT_GATEWAY_ABI,
-					address: this.configService.getIntentGatewayAddress(order.destChain),
-					functionName: "fillOrder",
-					args: [this.transformOrderForContract(order), fillOptions as any],
-					account: privateKeyToAccount(this.privateKey),
-					value: ethValue + protocolFeeInNativeToken,
-					stateOverride: stateOverride as any,
-				})
+				gas = await retryPromise(
+					() =>
+						destClient.estimateContractGas({
+							abi: INTENT_GATEWAY_ABI,
+							address: this.configService.getIntentGatewayAddress(order.destChain),
+							functionName: "fillOrder",
+							args: [this.transformOrderForContract(order), fillOptions as any],
+							account: privateKeyToAccount(this.privateKey),
+							value: ethValue + protocolFeeInNativeToken,
+							stateOverride: stateOverride as any,
+						}),
+					{
+						maxRetries: 3,
+						backoffMs: 250,
+						logMessage: "Failed to estimate fill gas (native fee mode)",
+					},
+				)
 				this.logger.debug(
 					{ orderId: order.id, fillGas: gas.toString(), feeMode: "native" },
 					"Estimated fill gas",
@@ -495,15 +562,23 @@ export class ContractInteractionService {
 					})
 				}
 
-				gas = await destClient.estimateContractGas({
-					abi: INTENT_GATEWAY_ABI,
-					address: this.configService.getIntentGatewayAddress(order.destChain),
-					functionName: "fillOrder",
-					args: [this.transformOrderForContract(order), fillOptions as any],
-					account: privateKeyToAccount(this.privateKey),
-					value: ethValue,
-					stateOverride: stateOverride as any,
-				})
+				gas = await retryPromise(
+					() =>
+						destClient.estimateContractGas({
+							abi: INTENT_GATEWAY_ABI,
+							address: this.configService.getIntentGatewayAddress(order.destChain),
+							functionName: "fillOrder",
+							args: [this.transformOrderForContract(order), fillOptions as any],
+							account: privateKeyToAccount(this.privateKey),
+							value: ethValue,
+							stateOverride: stateOverride as any,
+						}),
+					{
+						maxRetries: 3,
+						backoffMs: 250,
+						logMessage: "Failed to estimate fill gas (fee token mode)",
+					},
+				)
 				this.logger.debug(
 					{ orderId: order.id, fillGas: gas.toString(), feeMode: "feeToken" },
 					"Estimated fill gas",
@@ -552,35 +627,43 @@ export class ContractInteractionService {
 			payer: postRequest.from,
 		}
 
-		const quoteNative = await client
-			.readContract({
-				abi: INTENT_GATEWAY_ABI,
-				address: this.configService.getIntentGatewayAddress(postRequest.dest),
-				functionName: "quoteNative",
-				args: [dispatchPost] as any,
-			})
-			.catch(async () => {
-				const quoteInFeeToken = await client.readContract({
-					abi: INTENT_GATEWAY_ABI,
-					address: this.configService.getIntentGatewayAddress(postRequest.dest),
-					functionName: "quote",
-					args: [dispatchPost] as any,
-				})
+		const quoteNative = await retryPromise(
+			() =>
+				client
+					.readContract({
+						abi: INTENT_GATEWAY_ABI,
+						address: this.configService.getIntentGatewayAddress(postRequest.dest),
+						functionName: "quoteNative",
+						args: [dispatchPost] as any,
+					})
+					.catch(async () => {
+						const quoteInFeeToken = await client.readContract({
+							abi: INTENT_GATEWAY_ABI,
+							address: this.configService.getIntentGatewayAddress(postRequest.dest),
+							functionName: "quote",
+							args: [dispatchPost] as any,
+						})
 
-				const feeToken = (await this.getFeeTokenWithDecimals(chain)).address
-				const routerAddr = this.configService.getUniswapRouterV2Address(chain)
-				const WETH = this.configService.getWrappedNativeAssetWithDecimals(chain).asset
-				const quote = await client.simulateContract({
-					abi: UNISWAP_ROUTER_V2_ABI,
-					address: routerAddr,
-					// @ts-ignore
-					functionName: "getAmountsIn",
-					// @ts-ignore
-					args: [quoteInFeeToken, [WETH, feeToken]],
-				})
+						const feeToken = (await this.getFeeTokenWithDecimals(chain)).address
+						const routerAddr = this.configService.getUniswapRouterV2Address(chain)
+						const WETH = this.configService.getWrappedNativeAssetWithDecimals(chain).asset
+						const quote = await client.simulateContract({
+							abi: UNISWAP_ROUTER_V2_ABI,
+							address: routerAddr,
+							// @ts-ignore
+							functionName: "getAmountsIn",
+							// @ts-ignore
+							args: [quoteInFeeToken, [WETH, feeToken]],
+						})
 
-				return quote.result[0]
-			})
+						return quote.result[0]
+					}),
+			{
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to quote native fee",
+			},
+		)
 		return quoteNative
 	}
 
@@ -614,14 +697,22 @@ export class ContractInteractionService {
 		const feeToken = await this.getFeeTokenWithDecimals(chain)
 
 		try {
-			const quoteIn = await client.simulateContract({
-				abi: UNISWAP_ROUTER_V2_ABI,
-				address: routerAddr,
-				// @ts-ignore
-				functionName: "getAmountsIn",
-				// @ts-ignore
-				args: [gasCostInWei, [feeToken.address, wethAddr]],
-			})
+			const quoteIn = await retryPromise(
+				() =>
+					client.simulateContract({
+						abi: UNISWAP_ROUTER_V2_ABI,
+						address: routerAddr,
+						// @ts-ignore
+						functionName: "getAmountsIn",
+						// @ts-ignore
+						args: [gasCostInWei, [feeToken.address, wethAddr]],
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get on-chain gas cost quote",
+				},
+			)
 
 			return adjustFeeDecimals(quoteIn.result[0], feeToken.decimals, targetDecimals)
 		} catch {
@@ -655,16 +746,32 @@ export class ContractInteractionService {
 			return cachedFeeToken
 		}
 		const client = this.clientManager.getPublicClient(chain)
-		const feeTokenAddress = await client.readContract({
-			abi: EVM_HOST,
-			address: this.configService.getHostAddress(chain),
-			functionName: "feeToken",
-		})
-		const feeTokenDecimals = await client.readContract({
-			address: feeTokenAddress,
-			abi: ERC20_ABI,
-			functionName: "decimals",
-		})
+		const feeTokenAddress = await retryPromise(
+			() =>
+				client.readContract({
+					abi: EVM_HOST,
+					address: this.configService.getHostAddress(chain),
+					functionName: "feeToken",
+				}),
+			{
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get fee token address",
+			},
+		)
+		const feeTokenDecimals = await retryPromise(
+			() =>
+				client.readContract({
+					address: feeTokenAddress,
+					abi: ERC20_ABI,
+					functionName: "decimals",
+				}),
+			{
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get fee token decimals",
+			},
+		)
 		this.cacheService.setFeeTokenWithDecimals(chain, feeTokenAddress, feeTokenDecimals)
 		return { address: feeTokenAddress, decimals: feeTokenDecimals }
 	}
@@ -692,12 +799,20 @@ export class ContractInteractionService {
 			from: this.configService.getIntentGatewayAddress(order.destChain),
 			to: this.configService.getIntentGatewayAddress(order.sourceChain),
 		}
-		const perByteFee = await destClient.readContract({
-			address: this.configService.getHostAddress(order.destChain),
-			abi: EVM_HOST,
-			functionName: "perByteFee",
-			args: [toHex(order.sourceChain)],
-		})
+		const perByteFee = await retryPromise(
+			() =>
+				destClient.readContract({
+					address: this.configService.getHostAddress(order.destChain),
+					abi: EVM_HOST,
+					functionName: "perByteFee",
+					args: [toHex(order.sourceChain)],
+				}),
+			{
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get perByteFee for quote",
+			},
+		)
 		this.cacheService.setPerByteFee(order.destChain, order.sourceChain, perByteFee)
 		// Exclude 0x prefix from the body length, and get the byte length
 		const bodyByteLength = Math.floor((postRequest.body.length - 2) / 2)
@@ -714,11 +829,19 @@ export class ContractInteractionService {
 	 */
 	async getHostNonce(chain: string): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
-		const nonce = await client.readContract({
-			abi: EVM_HOST,
-			address: this.configService.getHostAddress(chain),
-			functionName: "nonce",
-		})
+		const nonce = await retryPromise(
+			() =>
+				client.readContract({
+					abi: EVM_HOST,
+					address: this.configService.getHostAddress(chain),
+					functionName: "nonce",
+				}),
+			{
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get host nonce",
+			},
+		)
 
 		return nonce
 	}
@@ -753,17 +876,29 @@ export class ContractInteractionService {
 		let latestHeight: any
 
 		if (chain) {
-			latestHeight = await this.api.query.ismp.latestStateMachineHeight({
-				stateId: {
-					Evm: this.configService.getChainId(chain),
+			latestHeight = await retryPromise(
+				() =>
+					this.api!.query.ismp.latestStateMachineHeight({
+						stateId: {
+							Evm: this.configService.getChainId(chain),
+						},
+						consensusStateId: this.configService.getConsensusStateId(chain),
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get latest state machine height",
 				},
-				consensusStateId: this.configService.getConsensusStateId(chain),
-			})
+			)
 
 			return BigInt(latestHeight.toString())
 		}
 
-		latestHeight = await this.api.query.system.number()
+		latestHeight = await retryPromise(() => this.api!.query.system.number(), {
+			maxRetries: 3,
+			backoffMs: 250,
+			logMessage: "Failed to get latest system block number",
+		})
 
 		return BigInt(latestHeight.toString())
 	}

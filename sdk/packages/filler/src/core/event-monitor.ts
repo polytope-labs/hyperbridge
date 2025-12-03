@@ -1,5 +1,5 @@
 import { EventEmitter } from "events"
-import { ChainConfig, Order, orderCommitment, hexToString, DecodedOrderPlacedLog } from "@hyperbridge/sdk"
+import { ChainConfig, Order, orderCommitment, hexToString, DecodedOrderPlacedLog, retryPromise } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_ABI } from "@/config/abis/IntentGateway"
 import { PublicClient } from "viem"
 import { ChainClientManager } from "@/services"
@@ -41,7 +41,11 @@ export class EventMonitor extends EventEmitter {
 				)
 				const intentGatewayAddress = this.configService.getIntentGatewayAddress(`EVM-${chainId}`)
 
-				const startBlock = await client.getBlockNumber()
+				const startBlock = await retryPromise(() => client.getBlockNumber(), {
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get start block number",
+				})
 				this.lastScannedBlock.set(chainId, startBlock - 1n)
 
 				this.logger.info({ chainId, startBlock }, "Initializing block scanner")
@@ -51,7 +55,6 @@ export class EventMonitor extends EventEmitter {
 					if (!mutex) return
 
 					if (mutex.isLocked()) {
-						this.logger.warn({ chainId }, "Waiting for previous scan to complete")
 						return
 					}
 
@@ -82,7 +85,11 @@ export class EventMonitor extends EventEmitter {
 		const lastScanned = this.lastScannedBlock.get(chainId)
 		if (!lastScanned) return
 
-		const currentBlock = await client.getBlockNumber()
+		const currentBlock = await retryPromise(() => client.getBlockNumber(), {
+			maxRetries: 3,
+			backoffMs: 250,
+			logMessage: "Failed to get current block number",
+		})
 
 		if (currentBlock > lastScanned) {
 			const fromBlock = lastScanned + 1n
@@ -96,12 +103,20 @@ export class EventMonitor extends EventEmitter {
 				"Scanning blocks",
 			)
 
-			const logs = await client.getLogs({
-				address: intentGatewayAddress,
-				event: orderPlacedEvent,
-				fromBlock,
-				toBlock: actualToBlock,
-			})
+			const logs = await retryPromise(
+				() =>
+					client.getLogs({
+						address: intentGatewayAddress,
+						event: orderPlacedEvent,
+						fromBlock,
+						toBlock: actualToBlock,
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get logs for block scan",
+				},
+			)
 
 			if (logs.length > 0) {
 				this.logger.info(

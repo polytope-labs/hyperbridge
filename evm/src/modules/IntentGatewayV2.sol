@@ -616,11 +616,7 @@ contract IntentGatewayV2 is HyperApp {
             IDispatcher(hostAddr).dispatch{value: msgValue}(request);
         } else {
             // try to pay for dispatch with fee token
-            address feeToken = IDispatcher(hostAddr).feeToken();
-            uint256 fee = quote(request);
-            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
-            IERC20(feeToken).approve(hostAddr, fee);
-            IDispatcher(hostAddr).dispatch(request);
+            dispatchWithFeeToken(request, msg.sender);
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
@@ -691,7 +687,7 @@ contract IntentGatewayV2 is HyperApp {
                 } else {
                     IERC20(token).safeTransfer(req.beneficiary, amount);
                 }
-                
+
                 emit RevenueWithdrawn(token, amount, req.beneficiary);
             }
         }
@@ -732,9 +728,8 @@ contract IntentGatewayV2 is HyperApp {
         }
 
         _filled[body.commitment] = incoming.relayer;
-        
+
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        
         if (kind == RequestKind.RefundEscrow) {
             emit EscrowRefunded({commitment: body.commitment});
         } else {
@@ -796,11 +791,7 @@ contract IntentGatewayV2 is HyperApp {
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
             // try to pay for dispatch with fee token
-            address feeToken = IDispatcher(hostAddr).feeToken();
-            uint256 fee = quote(request);
-            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
-            IERC20(feeToken).approve(hostAddr, fee);
-            IDispatcher(hostAddr).dispatch(request);
+            dispatchWithFeeToken(request, msg.sender);
         }
     }
 
@@ -847,12 +838,8 @@ contract IntentGatewayV2 is HyperApp {
             // there's some native tokens to pay for request dispatch
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
-            // pay for dispatch with fee token
-            address feeToken = IDispatcher(hostAddr).feeToken();
-            uint256 fee = quote(request);
-            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
-            IERC20(feeToken).approve(hostAddr, fee);
-            IDispatcher(hostAddr).dispatch(request);
+            // try to pay for dispatch with fee token
+            dispatchWithFeeToken(request, msg.sender);
         }
     }
 

@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@hyperbridge/core@^1.0.1":
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/@hyperbridge/core/-/core-1.0.1.tgz#f63b4b9a7f93c8ae9b9be43c605d5796458b8f77"
-  integrity sha512-iR5Y+Eoqe3bEWlHycRglB4L3DTFpbtKd1WWpmFFI39eoewS+hWyR+WV8FgNZ317Y5uNNxahVSvlLX+6gxDFZzg==
+"@hyperbridge/core@^1.1.1":
+  version "1.1.1"
+  resolved "https://registry.yarnpkg.com/@hyperbridge/core/-/core-1.1.1.tgz#b3a51745c69b5b90f9c335c337ff9bba1600c09a"
+  integrity sha512-FjZJxCj+vOePbkFTckZz+A4bmOlCcfasIoA1SLrUS2pcutYTw/HMgKMKFCtZ2pydxpNH+u67zskXopYv3A9/oA==
   dependencies:
     "@polytope-labs/solidity-merkle-trees" "^0.3.3"
     openzeppelin-solidity "^4.8.1"

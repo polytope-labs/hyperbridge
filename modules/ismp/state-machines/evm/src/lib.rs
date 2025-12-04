@@ -41,6 +41,8 @@ pub mod presets;
 pub mod tendermint;
 pub mod types;
 pub mod utils;
+pub mod substrate_evm;
+
 pub use tendermint::TendermintEvmStateMachine;
 pub use utils::*;
 

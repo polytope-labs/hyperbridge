@@ -60,7 +60,6 @@ pub struct SubstrateEvmProof {
 	pub child_proof: Vec<Vec<u8>>,
 }
 
-
 /// The ethereum account stored in the global state trie.
 #[derive(RlpDecodable, RlpEncodable)]
 pub struct Account {

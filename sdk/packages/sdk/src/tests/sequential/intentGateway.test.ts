@@ -12,6 +12,7 @@ import {
 	WalletClient,
 	encodeFunctionData,
 	decodeFunctionResult,
+	decodeFunctionData,
 	parseUnits,
 	erc20Abi,
 	encodeAbiParameters,
@@ -26,6 +27,7 @@ import {
 	Order,
 	TokenInfo,
 	PaymentInfo,
+	RequestStatus,
 } from "@/types"
 import {
 	orderCommitment,
@@ -37,6 +39,7 @@ import {
 	ADDRESS_ZERO,
 	ERC20Method,
 	getGasPriceFromEtherscan,
+	getRequestCommitment,
 } from "@/utils"
 import EVM_HOST from "@/abis/evmHost"
 import { EvmChain, EvmChainParams, IProof, SubstrateChain, getChain } from "@/chain"
@@ -1338,39 +1341,20 @@ describe.sequential("Order Cancellation tests", () => {
 			bscChapelPublicClient,
 			bscChapelIsmpHost,
 			ethSepoliaIsmpHost,
+			bscChapelHandler,
 		} = await setUpBscToSepoliaOrder()
 
-		let bscChapelEvmStructParams: EvmChainParams = {
+		const bscEvmChain = new EvmChain({
 			chainId: 97,
 			host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
 			rpcUrl: process.env.BSC_CHAPEL!,
-		}
-
-		let ethSepoliaEvmStructParams: EvmChainParams = {
+		})
+		const ethSepoliaEvmChain = new EvmChain({
 			chainId: 11155111,
 			host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
 			rpcUrl: process.env.SEPOLIA!,
-		}
-
-		let bscEvmChain = new EvmChain(bscChapelEvmStructParams) // Source Chain
-		let ethSepoliaEvmChain = new EvmChain(ethSepoliaEvmStructParams) // Dest Chain
-		let intentGateway = new IntentGateway(bscEvmChain, ethSepoliaEvmChain)
-
-		const daiAsset = chainConfigService.getDaiAsset(bscChapelId)
-
-		const inputs: TokenInfo[] = [
-			{
-				token: bytes20ToBytes32(daiAsset),
-				amount: 100n,
-			},
-		]
-		const outputs: PaymentInfo[] = [
-			{
-				token: "0x0000000000000000000000000000000000000000000000000000000000000000",
-				amount: 100n,
-				beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E",
-			},
-		]
+		})
+		const intentGateway = new IntentGateway(bscEvmChain, ethSepoliaEvmChain)
 
 		const order = {
 			user: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
@@ -1379,8 +1363,19 @@ describe.sequential("Order Cancellation tests", () => {
 			deadline: 0n, // Expired deadline
 			nonce: 0n,
 			fees: 1000000n,
-			outputs,
-			inputs,
+			outputs: [
+				{
+					token: "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString,
+					amount: 100n,
+					beneficiary: "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString,
+				},
+			],
+			inputs: [
+				{
+					token: bytes20ToBytes32(chainConfigService.getDaiAsset(bscChapelId)),
+					amount: 100n,
+				},
+			],
 			callData: "0x" as HexString,
 		}
 
@@ -1391,12 +1386,12 @@ describe.sequential("Order Cancellation tests", () => {
 			bscChapelIntentGateway.address,
 		)
 
-		let hash = await bscChapelIntentGateway.write.placeOrder([order, DEFAULT_GRAFFITI], {
+		const hash = await bscChapelIntentGateway.write.placeOrder([order, DEFAULT_GRAFFITI], {
 			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
 			chain: bscTestnet,
 		})
 
-		let receipt = await bscChapelPublicClient.waitForTransactionReceipt({
+		await bscChapelPublicClient.waitForTransactionReceipt({
 			hash,
 			confirmations: 1,
 		})
@@ -1413,81 +1408,104 @@ describe.sequential("Order Cancellation tests", () => {
 
 		const orderPlaced = orderPlacedEvent.args
 
-		const hyperbridgeConfig: IHyperbridgeConfig = {
-			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
-			consensusStateId: "PAS0",
-			stateMachineId: "KUSAMA-4009",
+		// Verify that the order is NOT refunded when placed (should have escrowed amounts)
+		const orderWithCommitment: Order = {
+			...orderPlaced,
+			id: orderCommitment(orderPlaced as Order),
 		}
+		const isRefundedBefore = await intentGateway.isOrderRefunded(orderWithCommitment)
+		assert(!isRefundedBefore, "Order should not be refunded before cancellation - escrowed amounts should exist")
 
 		const cancelGenerator = intentGateway.cancelOrder(orderPlaced as Order, indexer)
 
+		// Wait for DESTINATION_FINALIZED
 		let result = await cancelGenerator.next()
-
 		while (!result.done && result.value?.status !== "DESTINATION_FINALIZED") {
-			const status = result.value?.status
-			const data = result.value && "data" in result.value ? (result.value as any).data : undefined
-
 			result = await cancelGenerator.next()
 		}
-
-		expect(result.value?.status).toBe("DESTINATION_FINALIZED")
-
-		if (result.value?.status === "DESTINATION_FINALIZED" && result.value && "data" in result.value) {
-			const data = (result.value as any).data as { proof: IProof }
-			expect(data.proof).toBeDefined()
-		}
+		assert(result.value?.status === "DESTINATION_FINALIZED", "Expected DESTINATION_FINALIZED status")
 		const finalizedHeight = (result.value as any).data.proof.height as bigint
 
+		// Wait for AWAITING_GET_REQUEST
 		result = await cancelGenerator.next()
-		expect(result.value?.status).toBe("AWAITING_GET_REQUEST")
+		assert(result.value?.status === "AWAITING_GET_REQUEST", "Expected AWAITING_GET_REQUEST status")
 
-		const cancelOptions = {
-			relayerFee: 10000000000n,
-			height: finalizedHeight,
-		}
+		// Submit cancel order transaction
+		const cancelHash = await bscChapelIntentGateway.write.cancelOrder(
+			[orderPlaced, { relayerFee: 10000000000n, height: finalizedHeight }],
+			{
+				account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
+				chain: bscTestnet,
+			},
+		)
 
-		hash = await bscChapelIntentGateway.write.cancelOrder([orderPlaced, cancelOptions], {
-			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
-			chain: bscTestnet,
-		})
-
-		receipt = await bscChapelPublicClient.waitForTransactionReceipt({
-			hash,
+		const cancelReceipt = await bscChapelPublicClient.waitForTransactionReceipt({
+			hash: cancelHash,
 			confirmations: 1,
 		})
 
-		console.log("Order cancelled on BSC")
+		const getRequestEvent = parseEventLogs({ abi: EVM_HOST.ABI, logs: cancelReceipt.logs }).find(
+			(e) => e.eventName === "GetRequestEvent",
+		)
+		if (!getRequestEvent || getRequestEvent.eventName !== "GetRequestEvent") {
+			throw new Error("GetRequestEvent not found")
+		}
 
-		result = await cancelGenerator.next(hash)
+		// Continue with cancellation flow
+		result = await cancelGenerator.next(cancelHash)
 
+		// Wait for SOURCE_FINALIZED
 		while (!result.done && result.value?.status !== "SOURCE_FINALIZED") {
 			result = await cancelGenerator.next()
 		}
-		expect(result.value?.status).toBe("SOURCE_FINALIZED")
+		assert(result.value?.status === "SOURCE_FINALIZED", "Expected SOURCE_FINALIZED status")
 
-		while (!result.done) {
-			const status = result.value?.status
-
-			if (status === "HYPERBRIDGE_DELIVERED") {
-				console.log("Hyperbridge delivered")
-				result = await cancelGenerator.next()
-				continue
-			}
-
-			if (status === "HYPERBRIDGE_FINALIZED") {
-				const data = (result.value as any).data
-				if (data?.metadata) {
-					console.log(
-						`Status ${result.value.status}, Transaction: https://sepolia.etherscan.io/tx/${data.metadata.transactionHash}`,
-					)
-				}
-				break
-			}
-
+		// Wait for HYPERBRIDGE_FINALIZED
+		while (!result.done && result.value?.status !== "HYPERBRIDGE_FINALIZED") {
 			result = await cancelGenerator.next()
 		}
+		assert(result.value?.status === "HYPERBRIDGE_FINALIZED", "Expected HYPERBRIDGE_FINALIZED status")
 
-		expect(result.value?.status).toBe("HYPERBRIDGE_FINALIZED")
+		// Extract calldata from HYPERBRIDGE_FINALIZED event and call handleGetResponses
+		const hyperbridgeFinalizedData = (result.value as any).data
+		const { args, functionName } = decodeFunctionData({
+			abi: handler.ABI,
+			data: hyperbridgeFinalizedData.metadata.calldata!,
+		})
+
+		assert(functionName === "handleGetResponses", "Expected handleGetResponses function")
+
+		const handleHash = await bscChapelHandler.write.handleGetResponses(args as any, {
+			account: privateKeyToAccount(process.env.PRIVATE_KEY as HexString),
+			chain: bscTestnet,
+		})
+		const handleReceipt = await bscChapelPublicClient.waitForTransactionReceipt({
+			hash: handleHash,
+			confirmations: 1,
+		})
+
+		const escrowRefundedEvent = parseEventLogs({
+			abi: IntentGatewayABI.ABI,
+			logs: handleReceipt.logs,
+		}).find((e) => e.eventName === "EscrowRefunded")
+
+		if (!escrowRefundedEvent || escrowRefundedEvent.eventName !== "EscrowRefunded") {
+			throw new Error("EscrowRefunded event not found")
+		}
+
+		assert(
+			escrowRefundedEvent.args.commitment === orderCommitment(orderPlaced as Order),
+			"Commitment in EscrowRefunded event should match order commitment",
+		)
+
+		// Verify that the order is refunded after cancellation (should have zero escrowed amounts)
+		const orderWithCommitmentAfter: Order = {
+			...orderPlaced,
+			id: orderCommitment(orderPlaced as Order),
+		}
+		const isRefundedAfter = await intentGateway.isOrderRefunded(orderWithCommitmentAfter)
+		assert(isRefundedAfter, "Order should be refunded after cancellation - escrowed amounts should be zero")
+		console.log("Order has been refunded after cancellation")
 	}, 1_000_000)
 
 	it("Should quote native amount required for cancellation (BSC -> ETH)", async () => {

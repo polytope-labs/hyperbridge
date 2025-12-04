@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.4.10
+
+### Patch Changes
+
+- Added storage query to check for refunded orders
+
 ## 1.4.7
 
 ### Patch Changes

@@ -4,6 +4,7 @@ import {
 	encodeAbiParameters,
 	formatUnits,
 	hexToString,
+	keccak256,
 	maxUint256,
 	pad,
 	parseEventLogs,
@@ -451,6 +452,49 @@ export class IntentGateway {
 			slot: filledSlot,
 		})
 		return filledStatus !== "0x0000000000000000000000000000000000000000000000000000000000000000"
+	}
+
+	/**
+	 * Checks if an order has been refunded by verifying the escrowed token amounts on-chain.
+	 * Reads the storage slots for the `_orders` mapping on the source chain (where the escrow is held).
+	 * An order is considered refunded when all input token amounts in the `_orders` mapping are 0.
+	 *
+	 * @param order - The order to check
+	 * @returns True if the order has been refunded (all token amounts are 0), false otherwise
+	 */
+	async isOrderRefunded(order: Order): Promise<boolean> {
+		order = transformOrder(order)
+		const intentGatewayAddress =
+			this.destIntentGatewayAddress ?? this.source.configService.getIntentGatewayAddress(order.sourceChain)
+
+		const commitment = order.id as HexString
+		const ORDERS_MAPPING_SLOT = 4n
+
+		const firstLevelSlot = keccak256(
+			encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [commitment, ORDERS_MAPPING_SLOT]),
+		)
+
+		for (const input of order.inputs) {
+			const tokenAddress = bytes32ToBytes20(input.token)
+
+			const storageSlot = keccak256(
+				encodeAbiParameters(
+					[{ type: "address" }, { type: "bytes32" }],
+					[tokenAddress as `0x${string}`, firstLevelSlot as `0x${string}`],
+				),
+			)
+
+			const escrowedAmount = await this.source.client.getStorageAt({
+				address: intentGatewayAddress,
+				slot: storageSlot,
+			})
+
+			if (escrowedAmount !== "0x0000000000000000000000000000000000000000000000000000000000000000") {
+				return false
+			}
+		}
+
+		return true
 	}
 
 	private async submitAndConfirmReceipt(

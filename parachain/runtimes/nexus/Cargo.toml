@@ -123,7 +123,6 @@ features = [
     "staging-parachain-info",
     "parachains-common",
     "pallet-vesting",
-    "pallet-migrations"
 ]
 
 [features]

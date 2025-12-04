@@ -112,7 +112,6 @@ frame_support::construct_runtime!(
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
-		Migrations: pallet_migrations
 	}
 );
 
@@ -222,7 +221,6 @@ impl frame_system::Config for Test {
 	type SS58Prefix = ();
 	type OnSetCode = ParachainSetCode<Test>;
 	type MaxConsumers = ConstU32<16>;
-	type MultiBlockMigrator = Migrations;
 }
 
 impl pallet_timestamp::Config for Test {
@@ -472,20 +470,6 @@ impl pallet_messaging_fees::Config for Test {
 	type ReputationAsset = ReputationAsset;
 }
 
-parameter_types! {
-	pub MbmServiceWeight: Weight = TestBlockWeights::get().max_block.div(2);
-}
-
-impl pallet_migrations::Config for Test {
-	type RuntimeEvent = RuntimeEvent;
-	type Migrations = (pallet_messaging_fees::migrations::v1::Migration<Test>,);
-	type CursorMaxLen = ConstU32<65536>;
-	type IdentifierMaxLen = ConstU32<256>;
-	type MigrationStatusHandler = ();
-	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
-	type MaxServiceWeight = MbmServiceWeight;
-	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Test>;
-}
 pub struct MockPriceOracle;
 
 impl PriceOracle for MockPriceOracle {

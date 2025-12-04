@@ -44,7 +44,6 @@ use crate::types::*;
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarking;
 mod impls;
-pub mod migrations;
 pub mod types;
 
 /// A trait for managing messaging incentives, primarily for resetting them.

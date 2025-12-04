@@ -20,6 +20,7 @@ use subxt::{
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
+use evm_state_machine::types::SubstrateEvmProof;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
@@ -47,27 +48,18 @@ pub struct ReadProof<H> {
 	pub proof: Vec<Bytes>,
 }
 
-#[derive(Encode)]
-pub struct SubstrateEvmProof {
-	/// Proof of the Contract AccountInfo and the child trie root in the main State Trie
-	pub main_proof: Vec<Vec<u8>>,
-	/// Proof of the storage slots in the Contract's child Trie
-	pub child_proof: Vec<Vec<u8>>,
-}
-
 impl<C: subxt::Config> SubstrateEvmClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId: From<sp_core::crypto::AccountId32>
-		+ From<AccountId32>
+	C::AccountId: From<AccountId32>
 		+ Into<C::Address>
 		+ Clone
 		+ 'static
 		+ Send
 		+ Sync
 		+ Encode,
-	C::Signature: From<sp_runtime::MultiSignature> + From<MultiSignature> + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 {
@@ -158,15 +150,14 @@ impl<C> IsmpProvider for SubstrateEvmClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId: From<sp_core::crypto::AccountId32>
-		+ From<AccountId32>
+	C::AccountId: From<AccountId32>
 		+ Into<C::Address>
 		+ Clone
 		+ 'static
 		+ Send
 		+ Sync
 		+ Encode,
-	C::Signature: From<sp_runtime::MultiSignature> + From<MultiSignature> + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 {
@@ -426,15 +417,14 @@ impl<C> ByzantineHandler for SubstrateEvmClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId: From<sp_core::crypto::AccountId32>
-		+ From<AccountId32>
+	C::AccountId: From<AccountId32>
 		+ Into<C::Address>
 		+ Clone
 		+ 'static
 		+ Send
 		+ Sync
 		+ Encode,
-	C::Signature: From<sp_runtime::MultiSignature> + From<MultiSignature> + Send + Sync,
+	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 {

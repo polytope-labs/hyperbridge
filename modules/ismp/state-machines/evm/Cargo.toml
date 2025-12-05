@@ -31,6 +31,13 @@ tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
 tendermint-primitives ={ workspace = true, default-features = false}
 
+[dev-dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.140"
+reqwest = "0.12.15"
+tokio = { version = "1.46.1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3.19"
+
 [features]
 default = ["std"]
 std = [

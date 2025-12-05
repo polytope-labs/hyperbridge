@@ -234,21 +234,26 @@ fn verify_child_trie_values<H: IsmpHost>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::host::StateMachine;
+	use ismp::{
+		consensus::{
+			ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineHeight,
+			StateMachineId,
+		},
+		host::StateMachine,
+		messaging::Keccak256,
+		router::{IsmpRouter, PostResponse, Request, Response},
+	};
 	use primitive_types::U256;
 	use serde::{Deserialize, Serialize};
 	use serde_json::json;
 	use std::time::Duration;
-	use ismp::consensus::{ConsensusClient, ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId};
-	use ismp::messaging::Keccak256;
-	use ismp::router::{IsmpRouter, PostResponse, Request, Response};
 
 	struct MockHost;
 
 	impl Keccak256 for MockHost {
 		fn keccak256(bytes: &[u8]) -> H256
 		where
-			Self: Sized
+			Self: Sized,
 		{
 			todo!()
 		}
@@ -263,19 +268,31 @@ mod tests {
 			todo!()
 		}
 
-		fn state_machine_commitment(&self, height: StateMachineHeight) -> Result<StateCommitment, Error> {
+		fn state_machine_commitment(
+			&self,
+			height: StateMachineHeight,
+		) -> Result<StateCommitment, Error> {
 			todo!()
 		}
 
-		fn consensus_update_time(&self, consensus_state_id: ConsensusStateId) -> Result<Duration, Error> {
+		fn consensus_update_time(
+			&self,
+			consensus_state_id: ConsensusStateId,
+		) -> Result<Duration, Error> {
 			todo!()
 		}
 
-		fn state_machine_update_time(&self, state_machine_height: StateMachineHeight) -> Result<Duration, Error> {
+		fn state_machine_update_time(
+			&self,
+			state_machine_height: StateMachineHeight,
+		) -> Result<Duration, Error> {
 			todo!()
 		}
 
-		fn consensus_client_id(&self, consensus_state_id: ConsensusStateId) -> Option<ConsensusClientId> {
+		fn consensus_client_id(
+			&self,
+			consensus_state_id: ConsensusStateId,
+		) -> Option<ConsensusClientId> {
 			todo!()
 		}
 
@@ -287,7 +304,10 @@ mod tests {
 			todo!()
 		}
 
-		fn is_consensus_client_frozen(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error> {
+		fn is_consensus_client_frozen(
+			&self,
+			consensus_state_id: ConsensusStateId,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
@@ -311,27 +331,51 @@ mod tests {
 			todo!()
 		}
 
-		fn store_consensus_state_id(&self, consensus_state_id: ConsensusStateId, client_id: ConsensusClientId) -> Result<(), Error> {
+		fn store_consensus_state_id(
+			&self,
+			consensus_state_id: ConsensusStateId,
+			client_id: ConsensusClientId,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
-		fn store_consensus_state(&self, consensus_state_id: ConsensusStateId, consensus_state: Vec<u8>) -> Result<(), Error> {
+		fn store_consensus_state(
+			&self,
+			consensus_state_id: ConsensusStateId,
+			consensus_state: Vec<u8>,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
-		fn store_unbonding_period(&self, consensus_state_id: ConsensusStateId, period: u64) -> Result<(), Error> {
+		fn store_unbonding_period(
+			&self,
+			consensus_state_id: ConsensusStateId,
+			period: u64,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
-		fn store_consensus_update_time(&self, consensus_state_id: ConsensusStateId, timestamp: Duration) -> Result<(), Error> {
+		fn store_consensus_update_time(
+			&self,
+			consensus_state_id: ConsensusStateId,
+			timestamp: Duration,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
-		fn store_state_machine_update_time(&self, state_machine_height: StateMachineHeight, timestamp: Duration) -> Result<(), Error> {
+		fn store_state_machine_update_time(
+			&self,
+			state_machine_height: StateMachineHeight,
+			timestamp: Duration,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
-		fn store_state_machine_commitment(&self, height: StateMachineHeight, state: StateCommitment) -> Result<(), Error> {
+		fn store_state_machine_commitment(
+			&self,
+			height: StateMachineHeight,
+			state: StateCommitment,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
@@ -339,7 +383,10 @@ mod tests {
 			todo!()
 		}
 
-		fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error> {
+		fn freeze_consensus_client(
+			&self,
+			consensus_state_id: ConsensusStateId,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
@@ -367,7 +414,11 @@ mod tests {
 			todo!()
 		}
 
-		fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+		fn store_response_receipt(
+			&self,
+			req: &Response,
+			signer: &Vec<u8>,
+		) -> Result<Vec<u8>, Error> {
 			todo!()
 		}
 
@@ -375,7 +426,11 @@ mod tests {
 			todo!()
 		}
 
-		fn store_response_commitment(&self, res: &PostResponse, meta: Vec<u8>) -> Result<(), Error> {
+		fn store_response_commitment(
+			&self,
+			res: &PostResponse,
+			meta: Vec<u8>,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
@@ -387,7 +442,11 @@ mod tests {
 			todo!()
 		}
 
-		fn store_challenge_period(&self, state_machine: StateMachineId, period: u64) -> Result<(), Error> {
+		fn store_challenge_period(
+			&self,
+			state_machine: StateMachineId,
+			period: u64,
+		) -> Result<(), Error> {
 			todo!()
 		}
 
@@ -430,17 +489,15 @@ mod tests {
 		method: &str,
 		params: Vec<serde_json::Value>,
 	) -> Result<T, Box<dyn std::error::Error>> {
-		let client = reqwest::Client::builder()
-			.http1_only()
-			.build()?;
+		let client = reqwest::Client::builder().http1_only().build()?;
 		let url = get_rpc_url();
 
 		let body = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": params
-        });
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": method,
+			"params": params
+		});
 
 		let body_str = serde_json::to_string(&body)?;
 
@@ -468,7 +525,8 @@ mod tests {
 		tracing_subscriber::fmt::try_init();
 
 		let contract_hex = std::env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS must be set");
-		let contract_address = H160::from_slice(&hex::decode(contract_hex.trim_start_matches("0x"))?);
+		let contract_address =
+			H160::from_slice(&hex::decode(contract_hex.trim_start_matches("0x"))?);
 
 		println!("Fetching block hash...");
 		let block_hash: String = rpc_request("chain_getBlockHash", vec![]).await?;
@@ -476,7 +534,8 @@ mod tests {
 		let block_hash_h256 = H256::from_slice(&hex::decode(block_hash.trim_start_matches("0x"))?);
 
 		println!("Fetching block header...");
-		let header: serde_json::Value = rpc_request("chain_getHeader", vec![json!(block_hash)]).await?;
+		let header: serde_json::Value =
+			rpc_request("chain_getHeader", vec![json!(block_hash)]).await?;
 		let state_root_hex = header["stateRoot"].as_str().expect("stateRoot missing");
 		let state_root = H256::from_slice(&hex::decode(state_root_hex.trim_start_matches("0x"))?);
 
@@ -484,14 +543,14 @@ mod tests {
 		let storage_key_hex = format!("0x{}", hex::encode(&contract_info_key));
 
 		println!("Fetching account info storage...");
-		let account_info_hex: Option<String> = rpc_request(
-			"state_getStorage",
-			vec![json!(storage_key_hex), json!(block_hash)]
-		).await?;
+		let account_info_hex: Option<String> =
+			rpc_request("state_getStorage", vec![json!(storage_key_hex), json!(block_hash)])
+				.await?;
 
 		let account_info_bytes = hex::decode(
-			account_info_hex.ok_or("AccountInfo not found - is this a valid contract?")?
-				.trim_start_matches("0x")
+			account_info_hex
+				.ok_or("AccountInfo not found - is this a valid contract?")?
+				.trim_start_matches("0x"),
 		)?;
 
 		let mut input = &account_info_bytes[..];
@@ -503,7 +562,8 @@ mod tests {
 
 		let child_info = ChildInfo::new_default(&trie_id);
 		let child_root_key = child_info.prefixed_storage_key();
-		let child_storage_key_hex = format!("0x{}", hex::encode(child_info.prefixed_storage_key().into_inner()));
+		let child_storage_key_hex =
+			format!("0x{}", hex::encode(child_info.prefixed_storage_key().into_inner()));
 
 		println!("Fetching a valid existing key from child trie to use for verification...");
 		let keys_paged: Vec<String> = rpc_request(
@@ -513,45 +573,41 @@ mod tests {
 				json!("0x"),
 				json!(1),
 				json!(null),
-				json!(block_hash)
-			]
-		).await?;
+				json!(block_hash),
+			],
+		)
+		.await?;
 
 		let active_key_hex = keys_paged.first().ok_or("No keys found in contract child trie")?;
 		println!("Found active key: {}", active_key_hex);
 		let active_key = hex::decode(active_key_hex.trim_start_matches("0x"))?;
 
-		let main_keys = vec![
-			contract_info_key.clone(),
-			child_root_key.into_inner(),
-		];
-		let main_keys_hex: Vec<String> = main_keys.iter().map(|k| format!("0x{}", hex::encode(k))).collect();
+		let main_keys = vec![contract_info_key.clone(), child_root_key.into_inner()];
+		let main_keys_hex: Vec<String> =
+			main_keys.iter().map(|k| format!("0x{}", hex::encode(k))).collect();
 
 		println!("Fetching main proof...");
-		let main_read_proof: ReadProof = rpc_request(
-			"state_getReadProof",
-			vec![json!(main_keys_hex), json!(block_hash)]
-		).await?;
+		let main_read_proof: ReadProof =
+			rpc_request("state_getReadProof", vec![json!(main_keys_hex), json!(block_hash)])
+				.await?;
 
-		let main_proof_bytes: Vec<Vec<u8>> = main_read_proof.proof
+		let main_proof_bytes: Vec<Vec<u8>> = main_read_proof
+			.proof
 			.iter()
 			.map(|p| hex::decode(p.trim_start_matches("0x")).unwrap())
 			.collect();
-
 
 		let child_keys_hex = vec![active_key_hex.clone()];
 
 		println!("Fetching child proof...");
 		let child_read_proof: ReadProof = rpc_request(
 			"state_getChildReadProof",
-			vec![
-				json!(child_storage_key_hex),
-				json!(child_keys_hex),
-				json!(block_hash)
-			]
-		).await?;
+			vec![json!(child_storage_key_hex), json!(child_keys_hex), json!(block_hash)],
+		)
+		.await?;
 
-		let child_proof_bytes: Vec<Vec<u8>> = child_read_proof.proof
+		let child_proof_bytes: Vec<Vec<u8>> = child_read_proof
+			.proof
 			.iter()
 			.map(|p| hex::decode(p.trim_start_matches("0x")).unwrap())
 			.collect();
@@ -561,7 +617,7 @@ mod tests {
 		let verified_trie_id = fetch_trie_id_from_main_proof::<MockHost>(
 			&main_proof_bytes,
 			state_root,
-			&contract_info_key
+			&contract_info_key,
 		)?;
 		assert_eq!(verified_trie_id, trie_id, "Trie ID mismatch");
 		println!("Main Proof Verified: Trie ID matches");
@@ -569,14 +625,14 @@ mod tests {
 		let verified_child_root = fetch_child_root_from_main_proof::<MockHost>(
 			&main_proof_bytes,
 			state_root,
-			&verified_trie_id
+			&verified_trie_id,
 		)?;
 		println!("Main Proof Verified: Child Root gotten: {:?}", verified_child_root);
 
 		let values = verify_child_trie_values::<MockHost>(
 			verified_child_root,
 			&child_proof_bytes,
-			vec![active_key]
+			vec![active_key],
 		)?;
 
 		assert_eq!(values.len(), 1);

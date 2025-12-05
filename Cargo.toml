@@ -95,6 +95,7 @@ members = [
     "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
     "tesseract/messaging/evm-tendermint",
+    "tesseract/messaging/substrate-evm",
     "tesseract/messaging/fees",
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
@@ -116,7 +117,7 @@ members = [
 
 
     # Airdrop
-    "modules/pallets/bridge-drop", "tesseract/messaging/substrate-evm",
+    "modules/pallets/bridge-drop",
 ]
 
 # Config for 'cargo dist'

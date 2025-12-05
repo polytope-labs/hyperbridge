@@ -12,12 +12,12 @@ abstract contract BaseScript is Script, Config {
     bytes internal consensusState = vm.envBytes("CONSENSUS_STATE");
 
     // ============= Config Variables =============
-    address internal HOST_ADDRESS;
+    address payable internal HOST_ADDRESS;
 
     function setUp() public {
         // Load config
         _loadConfig(vm.envString("CONFIG"), true);
         
-        HOST_ADDRESS = config.get("HOST").toAddress();
+        HOST_ADDRESS = payable(config.get("HOST").toAddress());
     }
 }

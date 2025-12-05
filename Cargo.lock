@@ -6810,6 +6810,7 @@ dependencies = [
  "reqwest 0.12.20",
  "serde",
  "serde_json",
+ "sp-core 37.0.0",
  "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tokio",

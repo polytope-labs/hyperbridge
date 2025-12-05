@@ -16,7 +16,7 @@
 //! Substrate EVM State Machine client implementation
 
 use crate::{prelude::*, req_res_commitment_key, req_res_receipt_keys};
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, format};
 use codec::{Decode, Encode};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
@@ -29,6 +29,7 @@ use pallet_ismp_host_executive::EvmHosts;
 use polkadot_sdk::*;
 use primitive_types::H160;
 use sp_core::{hashing, storage::ChildInfo, H256};
+use sp_runtime::traits::BlakeTwo256;
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 
 /// Proof structure for Substrate EVM verification
@@ -148,8 +149,8 @@ fn fetch_trie_id_from_main_proof<H: IsmpHost>(
 	root: H256,
 	key: &[u8],
 ) -> Result<Vec<u8>, Error> {
-	let db = StorageProof::new(proof.to_vec()).into_memory_db::<sp_core::Blake2Hasher>();
-	let trie = TrieDBBuilder::<LayoutV0<sp_core::Blake2Hasher>>::new(&db, &root).build();
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
 	let val = trie
 		.get(key)
@@ -180,8 +181,8 @@ fn fetch_child_root_from_main_proof<H: IsmpHost>(
 	let child_info = ChildInfo::new_default(trie_id);
 	let key = child_info.prefixed_storage_key();
 
-	let db = StorageProof::new(proof.to_vec()).into_memory_db::<sp_core::Blake2Hasher>();
-	let trie = TrieDBBuilder::<LayoutV0<sp_core::Blake2Hasher>>::new(&db, &root).build();
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
 	let val = trie
 		.get(&key)
@@ -199,8 +200,8 @@ fn verify_child_trie_membership<H: IsmpHost>(
 	proof: &[Vec<u8>],
 	keys: Vec<Vec<u8>>,
 ) -> Result<(), Error> {
-	let db = StorageProof::new(proof.to_vec()).into_memory_db::<sp_core::Blake2Hasher>();
-	let trie = TrieDBBuilder::<LayoutV0<sp_core::Blake2Hasher>>::new(&db, &root).build();
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
 	for key in keys {
 		let val = trie
@@ -218,8 +219,8 @@ fn verify_child_trie_values<H: IsmpHost>(
 	proof: &[Vec<u8>],
 	keys: Vec<Vec<u8>>,
 ) -> Result<Vec<Option<Vec<u8>>>, Error> {
-	let db = StorageProof::new(proof.to_vec()).into_memory_db::<sp_core::Blake2Hasher>();
-	let trie = TrieDBBuilder::<LayoutV0<sp_core::Blake2Hasher>>::new(&db, &root).build();
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
 	let mut values = Vec::new();
 	for key in keys {

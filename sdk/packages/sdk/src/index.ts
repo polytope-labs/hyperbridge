@@ -25,6 +25,7 @@ export {
 	retryPromise,
 } from "@/utils"
 export * from "@/protocols/intents"
+export * from "@/protocols/tokenGateway"
 export * from "@/utils/txEvents"
 export * from "@/utils/tokenGateway"
 export * from "@/utils/xcmGateway"

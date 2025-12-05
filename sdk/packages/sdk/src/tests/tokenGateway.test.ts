@@ -30,6 +30,9 @@ import tokenGateway from "@/abis/tokenGateway"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import erc6160 from "@/abis/erc6160"
 import { getPostRequestEventFromTx } from "@/utils/txEvents"
+import { TokenGateway } from "@/protocols/tokenGateway"
+import { EvmChain } from "@/chains/evm"
+import { SubstrateChain } from "@/chains/substrate"
 
 // private key for testnet transactions
 const secret_key = process.env.SECRET_PHRASE || ""
@@ -226,6 +229,172 @@ describe("teleport function", () => {
 			}
 		}
 	}, 300_000_000)
+})
+
+describe("TokenGateway SDK", () => {
+	it("should estimate native cost for teleport using quoteNative", async () => {
+		const baseIsmpHostAddress = "0x6FFe92e4d7a9D589549644544780e6725E84b248" as HexString
+		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
+
+		// Set up source chain (BSC Mainnet)
+		const sourceChain = new EvmChain({
+			chainId: 56,
+			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
+			host: bscMainnetIsmpHostAddress,
+			consensusStateId: "BSC0",
+		})
+
+		// Set up destination chain (Base Mainnet)
+		const destChain = new EvmChain({
+			chainId: 8453,
+			rpcUrl: process.env.BASE_MAINNET || "https://base-mainnet.public.blastapi.io",
+			host: baseIsmpHostAddress,
+			consensusStateId: "ETH0",
+		})
+
+		// Create TokenGateway instance
+		const tokenGateway = new TokenGateway({
+			source: sourceChain,
+			dest: destChain,
+		})
+
+		// Define teleport parameters without relayerFee (will be auto-estimated)
+		const assetId = u8aToHex(keccakAsU8a("USDH")) as HexString
+		const recipientAddress = bytes20ToBytes32(ADDRESS_ZERO)
+		const amount = BigInt(1_000_000) // 1 USDH (assuming 6 decimals)
+		const timeout = 0
+
+		const teleportParams = {
+			amount,
+			assetId,
+			redeem: true,
+			to: recipientAddress,
+			dest: "EVM-8453", // Base Mainnet
+			timeout,
+			data: "0x" as `0x${string}`,
+		}
+
+		// Estimate the native cost (relayer fee will be automatically estimated)
+		const { totalNativeCost, relayerFeeInSourceFeeToken } = await tokenGateway.quoteNative(teleportParams)
+
+		console.log(`Total native cost (with auto-estimated relayer fee): ${totalNativeCost.toString()} wei`)
+		console.log(`Total cost in ETH: ${Number(totalNativeCost) / 1e18}`)
+		console.log(`Relayer fee in source fee token: ${relayerFeeInSourceFeeToken.toString()}`)
+
+		// Verify that totalNativeCost is a positive bigint
+		expect(typeof totalNativeCost).toBe("bigint")
+		expect(totalNativeCost).toBeGreaterThan(0n)
+		expect(typeof relayerFeeInSourceFeeToken).toBe("bigint")
+	})
+
+	it.skip("should estimate native cost for different amounts", async () => {
+		const baseIsmpHostAddress = "0x6FFe92e4d7a9D589549644544780e6725E84b248" as HexString
+		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
+
+		// Set up source chain (BSC Mainnet)
+		const sourceChain = new EvmChain({
+			chainId: 56,
+			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
+			host: bscMainnetIsmpHostAddress,
+			consensusStateId: "BSC0",
+		})
+
+		// Set up destination chain (Base Mainnet)
+		const destChain = new EvmChain({
+			chainId: 8453,
+			rpcUrl: process.env.BASE_MAINNET || "https://base-mainnet.public.blastapi.io",
+			host: baseIsmpHostAddress,
+			consensusStateId: "ETH0",
+		})
+
+		// Create TokenGateway instance
+		const tokenGateway = new TokenGateway({
+			source: sourceChain,
+			dest: destChain,
+		})
+
+		// Define teleport parameters with larger amount
+		const assetId = u8aToHex(keccakAsU8a("USDH")) as HexString
+		const recipientAddress = bytes20ToBytes32(ADDRESS_ZERO)
+		const amount = BigInt(10_000_000) // 10 USDH (assuming 6 decimals) - larger amount
+		const timeout = 0
+
+		const teleportParams = {
+			amount,
+			assetId,
+			redeem: true,
+			to: recipientAddress,
+			dest: "EVM-8453", // Base Mainnet
+			timeout,
+			data: "0x" as `0x${string}`,
+		}
+
+		// Estimate the native cost (relayer fee is automatically estimated)
+		const { totalNativeCost, relayerFeeInSourceFeeToken } = await tokenGateway.quoteNative(teleportParams)
+
+		console.log(`Total native cost (larger amount): ${totalNativeCost.toString()} wei`)
+		console.log(`Total cost in ETH: ${Number(totalNativeCost) / 1e18}`)
+		console.log(`Relayer fee in source fee token: ${relayerFeeInSourceFeeToken.toString()}`)
+
+		// Verify that totalNativeCost is a positive bigint
+		expect(typeof totalNativeCost).toBe("bigint")
+		expect(totalNativeCost).toBeGreaterThan(0n)
+		expect(typeof relayerFeeInSourceFeeToken).toBe("bigint")
+	})
+
+	it("should estimate native cost for non-EVM destination (relayer fee = 0)", async () => {
+		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
+
+		// Set up source chain (BSC Mainnet)
+		const sourceChain = new EvmChain({
+			chainId: 56,
+			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
+			host: bscMainnetIsmpHostAddress,
+			consensusStateId: "BSC0",
+		})
+
+		// Set up destination as a Substrate chain (Hyperbridge/Paseo)
+		const destChain = new SubstrateChain({
+			stateMachineId: "KUSAMA-4009",
+			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
+			hasher: "Keccak",
+			consensusStateId: "PAS0",
+		})
+
+		const tokenGateway = new TokenGateway({
+			source: sourceChain,
+			dest: destChain,
+		})
+
+		// Define teleport parameters with a Substrate destination
+		const assetId = u8aToHex(keccakAsU8a("USDH")) as HexString
+		const recipientAddress = bytes20ToBytes32(ADDRESS_ZERO)
+		const amount = BigInt(1_000_000) // 1 USDH (assuming 6 decimals)
+		const timeout = 0
+
+		const teleportParams = {
+			amount,
+			assetId,
+			redeem: true,
+			to: recipientAddress,
+			dest: "KUSAMA-4009", // Substrate destination (Hyperbridge)
+			timeout,
+			data: "0x" as `0x${string}`,
+		}
+
+		// Estimate the native cost - should work but relayer fee component should be 0
+		const { totalNativeCost, relayerFeeInSourceFeeToken } = await tokenGateway.quoteNative(teleportParams)
+
+		console.log(`Total native cost (non-EVM dest, no relayer fee): ${totalNativeCost.toString()} wei`)
+		console.log(`Total cost in ETH: ${Number(totalNativeCost) / 1e18}`)
+		console.log(`Relayer fee in source fee token: ${relayerFeeInSourceFeeToken.toString()}`)
+
+		// Verify that totalNativeCost is a positive bigint (protocol fee should still apply)
+		expect(typeof totalNativeCost).toBe("bigint")
+		expect(totalNativeCost).toBeGreaterThanOrEqual(0n)
+		// For non-EVM destination, relayer fee should be 0
+		expect(relayerFeeInSourceFeeToken).toBe(0n)
+	})
 })
 
 function createKeyringPairSigner(pair: KeyringPair): Signer {

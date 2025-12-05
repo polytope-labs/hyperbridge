@@ -30,6 +30,10 @@ export class ChainConfigService {
 		return addresses.IntentGateway[chain as keyof typeof addresses.IntentGateway]! as `0x${string}`
 	}
 
+	getTokenGatewayAddress(chain: string): `0x${string}` {
+		return addresses.TokenGateway[chain as keyof typeof addresses.TokenGateway]! as `0x${string}`
+	}
+
 	getHostAddress(chain: string): `0x${string}` {
 		return addresses.Host[chain as keyof typeof addresses.Host]! as `0x${string}`
 	}

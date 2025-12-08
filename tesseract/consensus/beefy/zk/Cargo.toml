@@ -30,6 +30,7 @@ sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git
 [dev-dependencies]
 ethers = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"
 subxt-utils = { workspace = true, default-features = true }

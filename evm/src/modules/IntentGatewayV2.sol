@@ -49,7 +49,7 @@ struct TokenInfo {
     uint256 amount;
 }
 
-struct PredispatchInfo {
+struct DispatchInfo {
     /// @dev Assets to execute a predispatch call with
     TokenInfo[] assets;
     /// @dev The actual call data to be executed
@@ -75,13 +75,14 @@ struct Order {
     uint256 fees;
     /// @dev The predispatch information for the order
     /// This is used to encode any calls before the order is placed
-    PredispatchInfo predispatch;
+    DispatchInfo predispatch;
     /// @dev The tokens that are escrowed for the filler.
     TokenInfo[] inputs;
-    /// @dev The tokens that the filler will provide.
+    /// @dev The filler output, ie the tokens that the filler will provide
     PaymentInfo[] outputs;
-    /// @dev Optional calldata to be executed after the order is filled
-    bytes callData;
+    /// @dev The postdispatch information for the order
+    /// This is used to encode any calls after the order is filled
+    DispatchInfo postdispatch;
 }
 
 /**
@@ -332,11 +333,11 @@ contract IntentGatewayV2 is HyperApp {
     event FeeCollected(address token, uint256 amount, bytes chain);
 
     /**
-    * @dev Emitted when protocol revenue is withdrawn.
-    * @param token The token contract address of the fee, address(0) for native currency.
-    * @param amount The amount of protocol revenue collected.
-    * @param beneficiary The beneficiary of the funds
-    */
+     * @dev Emitted when protocol revenue is withdrawn.
+     * @param token The token contract address of the fee, address(0) for native currency.
+     * @param amount The amount of protocol revenue collected.
+     * @param beneficiary The beneficiary of the funds
+     */
     event RevenueWithdrawn(address token, uint256 amount, address beneficiary);
 
     constructor(address admin) {
@@ -462,11 +463,7 @@ contract IntentGatewayV2 is HyperApp {
                 if (token == address(0)) {
                     balance = address(callDispatcher).balance;
                     if (balance < requiredAmount) revert InsufficientNativeToken();
-                    transferCalls[i] = Call({
-                        to: address(this),
-                        value: balance,
-                        data: ""
-                    });
+                    transferCalls[i] = Call({to: address(this), value: balance, data: ""});
                 } else {
                     balance = IERC20(token).balanceOf(callDispatcher);
                     if (balance < requiredAmount) revert InvalidInput();
@@ -565,6 +562,7 @@ contract IntentGatewayV2 is HyperApp {
         // fill the order
         uint256 msgValue = msg.value;
         uint256 outputsLen = order.outputs.length;
+
         for (uint256 i = 0; i < outputsLen; i++) {
             address token = address(uint160(uint256(order.outputs[i].token)));
             address beneficiary = address(uint160(uint256(order.outputs[i].beneficiary)));
@@ -585,9 +583,34 @@ contract IntentGatewayV2 is HyperApp {
             }
         }
 
-        // dispatch calls if any
-        if (order.callData.length > 0) {
-            ICallDispatcher(_params.dispatcher).dispatch(order.callData);
+        if (order.postdispatch.call.length > 0 && order.postdispatch.assets.length > 0) {
+            address callDispatcher = _params.dispatcher;
+            ICallDispatcher(callDispatcher).dispatch(order.postdispatch.call);
+
+            uint256 postdispatchLen = order.postdispatch.assets.length;
+            Call[] memory calls = new Call[](postdispatchLen);
+
+            // collect excess tokens from postdispatch
+            for (uint256 i = 0; i < postdispatchLen; i++) {
+                address token = address(uint160(uint256(order.postdispatch.assets[i].token)));
+                uint256 balance;
+
+                if (token == address(0)) {
+                    balance = address(callDispatcher).balance;
+                    calls[i] = Call({to: address(this), value: balance, data: ""});
+                } else {
+                    balance = IERC20(token).balanceOf(callDispatcher);
+                    calls[i] = Call({
+                        to: token,
+                        value: 0,
+                        data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
+                    });
+                }
+
+                if (balance > 0) emit DustCollected(token, balance);
+            }
+
+            ICallDispatcher(callDispatcher).dispatch(abi.encode(calls));
         }
 
         // Process inputs and collect protocol fees
@@ -595,11 +618,7 @@ contract IntentGatewayV2 is HyperApp {
 
         // construct settlement message
         bytes memory data = abi.encode(
-            RequestBody({
-                commitment: commitment,
-                tokens: inputs,
-                beneficiary: bytes32(uint256(uint160(msg.sender)))
-            })
+            RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))})
         );
         DispatchPost memory request = DispatchPost({
             dest: order.sourceChain,
@@ -643,10 +662,7 @@ contract IntentGatewayV2 is HyperApp {
             // Emit protocol fee collection event
             if (protocolFee > 0) emit FeeCollected(token, protocolFee, order.sourceChain);
 
-            inputs[i] = TokenInfo({
-                token: order.inputs[i].token,
-                amount: amountAfterFee
-            });
+            inputs[i] = TokenInfo({token: order.inputs[i].token, amount: amountAfterFee});
         }
     }
 
@@ -816,11 +832,7 @@ contract IntentGatewayV2 is HyperApp {
 
         // construct redemption request
         bytes memory data = abi.encode(
-            RequestBody({
-                commitment: commitment,
-                tokens: order.inputs,
-                beneficiary: order.user
-            })
+            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
         );
 
         DispatchPost memory request = DispatchPost({
@@ -842,7 +854,6 @@ contract IntentGatewayV2 is HyperApp {
             dispatchWithFeeToken(request, msg.sender);
         }
     }
-
 
     /**
      * @notice Handles the response for an incoming GET request.

@@ -4,7 +4,7 @@ out = "out"
 libs = ["lib"]
 auto_detect_solc = true
 optimizer = true
-evm_version = "paris"
+evm_version = "cancun"
 # via-ir = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 

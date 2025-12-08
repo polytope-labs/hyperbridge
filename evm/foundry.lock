@@ -1,0 +1,35 @@
+{
+  "lib/forge-std": {
+    "rev": "7117c90c8cf6c68e5acce4f09a6b24715cea4de6"
+  },
+  "lib/permit2": {
+    "rev": "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219"
+  },
+  "lib/solidity-stringutils": {
+    "rev": "4b2fcc43fa0426e19ce88b1f1ec16f5903a2e461"
+  },
+  "lib/sp1-contracts": {
+    "rev": "512b5e029abc27f6e46a3c7eba220dac83ecc306"
+  },
+  "lib/swap-router-contracts": {
+    "tag": {
+      "name": "v1.3.0",
+      "rev": "c696aada49b33c8e764e6f0bd0a0a56bd8aa455f"
+    }
+  },
+  "lib/universal-router": {
+    "tag": {
+      "name": "v1.6.0",
+      "rev": "41183d6eb154f0ab0e74a0e911a5ef9ea51fc4bd"
+    }
+  },
+  "lib/v4-core": {
+    "tag": {
+      "name": "v4.0.0",
+      "rev": "e50237c43811bd9b526eff40f26772152a42daba"
+    }
+  },
+  "lib/v4-periphery": {
+    "rev": "3779387e5d296f39df543d23524b050f89a62917"
+  }
+}

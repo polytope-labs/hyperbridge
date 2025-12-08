@@ -171,7 +171,7 @@ sc-simnode = { version = "2506.0.0" }
 simnode-runtime-api = { version = "2506.0.0", default-features = false }
 
 # crates.io
-serde = { version = "1", default-features = false }
+serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
 trie-db = { version = "0.30.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }

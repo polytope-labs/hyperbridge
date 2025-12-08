@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 # crates.io
-serde = { version = "1.0.164", features = ["derive"] }
+serde = { workspace = true, default-features = false, features = ["derive", "alloc"] }
 anyhow = "1.0.75"
 subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
@@ -55,3 +55,7 @@ features = ["sp-runtime"]
 [features]
 # a feature that tells the tests to write a new consensus state
 new-consensus-state = []
+
+[dev-dependencies]
+# crates.io
+serde = { workspace = true, default-features = false, features = ["derive", "alloc"] }

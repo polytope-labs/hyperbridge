@@ -7,18 +7,3 @@
 [submodule "evm/lib/sp1-contracts"]
 	path = evm/lib/sp1-contracts
 	url = https://github.com/succinctlabs/sp1-contracts
-[submodule "evm/lib/v4-core"]
-	path = evm/lib/v4-core
-	url = https://github.com/Uniswap/v4-core
-[submodule "evm/lib/v4-periphery"]
-	path = evm/lib/v4-periphery
-	url = https://github.com/Uniswap/v4-periphery
-[submodule "evm/lib/universal-router"]
-	path = evm/lib/universal-router
-	url = https://github.com/Uniswap/universal-router
-[submodule "evm/lib/permit2"]
-	path = evm/lib/permit2
-	url = https://github.com/Uniswap/permit2
-[submodule "evm/lib/swap-router-contracts"]
-	path = evm/lib/swap-router-contracts
-	url = https://github.com/Uniswap/swap-router-contracts

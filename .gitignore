@@ -17,6 +17,7 @@ evm/out/
 evm/cache/
 evm/broadcast/
 evm/integration-tests/target/
+evm/foundry.lock
 
 .uuid*
 

@@ -18,46 +18,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
-import {IUniswapV3SwapCallback} from "@uniswap/v3-core/contracts/interfaces/callback/IUniswapV3SwapCallback.sol";
+import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {IMulticallExtended} from "@uniswap/swap-router-contracts/contracts/interfaces/IMulticallExtended.sol";
 
 import {IWETH} from "../interfaces/IWETH.sol";
-
-/**
- * @title IV3SwapRouter
- * @notice Interface for Uniswap V3 Swap Router (SwapRouter02) without deadline in structs
- */
-interface IV3SwapRouter is IUniswapV3SwapCallback {
-    struct ExactInputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        uint24 fee;
-        address recipient;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-        uint160 sqrtPriceLimitX96;
-    }
-
-    struct ExactOutputSingleParams {
-        address tokenIn;
-        address tokenOut;
-        uint24 fee;
-        address recipient;
-        uint256 amountOut;
-        uint256 amountInMaximum;
-        uint160 sqrtPriceLimitX96;
-    }
-
-    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
-    function exactOutputSingle(ExactOutputSingleParams calldata params) external payable returns (uint256 amountIn);
-}
-
-/**
- * @title ISwapRouter02
- * @notice Extended interface for SwapRouter02 with multicall support
- */
-interface ISwapRouter02 is IV3SwapRouter {
-    function multicall(uint256 deadline, bytes[] calldata data) external payable returns (bytes[] memory);
-}
 
 /**
  * @title UniV3UniswapV2Wrapper
@@ -183,7 +147,7 @@ contract UniV3UniswapV2Wrapper {
         bytes[] memory data = new bytes[](1);
         data[0] = swapCall;
 
-        bytes[] memory results = ISwapRouter02(_params.swapRouter).multicall(deadline, data);
+        bytes[] memory results = IMulticallExtended(_params.swapRouter).multicall(deadline, data);
         uint256 amountReceived = abi.decode(results[0], (uint256));
 
         uint256[] memory amounts = new uint256[](2);
@@ -231,7 +195,7 @@ contract UniV3UniswapV2Wrapper {
         bytes[] memory data = new bytes[](1);
         data[0] = swapCall;
 
-        bytes[] memory results = ISwapRouter02(_params.swapRouter).multicall(deadline, data);
+        bytes[] memory results = IMulticallExtended(_params.swapRouter).multicall(deadline, data);
         uint256 spent = abi.decode(results[0], (uint256));
 
         if (spent < msg.value) {

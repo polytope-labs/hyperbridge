@@ -10,5 +10,6 @@
 @uniswap/v4-core/=node_modules/@uniswap/v4-core
 @uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery
 @uniswap/universal-router/=node_modules/@uniswap/universal-router
+@uniswap/swap-router-contracts/=node_modules/@uniswap/swap-router-contracts
 stringutils/=lib/solidity-stringutils/src/
 @sp1-contracts/=lib/sp1-contracts/contracts/src/

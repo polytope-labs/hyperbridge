@@ -8,6 +8,7 @@ evm_version = "cancun"
 # via-ir = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 
+
 [rpc_endpoints]
 # testnet
 ethereum-sepolia = "${SEPOLIA_RPC_URL}"

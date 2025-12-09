@@ -2,18 +2,7 @@
 
 use codec::{Decode, Encode};
 use polkadot_sdk::{
-	frame_support::{
-		self,
-		dispatch::PerDispatchClass,
-		pallet_prelude::StorageVersion,
-		traits::{
-			fungible::{Inspect, Mutate},
-			Get, OnRuntimeUpgrade,
-		},
-	},
-	frame_system::{self, limits::BlockWeights},
-	pallet_session::SessionHandler,
-	sp_io,
+	frame_support::traits::fungible::{Inspect, Mutate},
 	sp_runtime::{
 		traits::{AccountIdConversion, OpaqueKeys},
 		KeyTypeId, Weight,
@@ -42,8 +31,6 @@ use crate::{
 	},
 	tests::common::setup_relayer_and_asset,
 };
-use pallet_messaging_fees::types::WeightInfo;
-use std::cmp::Ordering;
 
 fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
 	setup_relayer_and_asset(&relayer_account);

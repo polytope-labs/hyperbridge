@@ -31,6 +31,7 @@ ibc = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
 tendermint-primitives ={ workspace = true, default-features = false}
+thiserror = { workspace = true}
 
 [dev-dependencies]
 serde = { workspace = true, features = ["derive", "alloc"] }

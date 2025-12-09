@@ -16,7 +16,7 @@
 //! Substrate EVM State Machine client implementation
 
 use crate::{prelude::*, req_res_commitment_key, req_res_receipt_keys};
-use alloc::{collections::BTreeMap, format, string::String};
+use alloc::{collections::BTreeMap, format, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
@@ -31,47 +31,35 @@ use primitive_types::H160;
 use sp_core::{hashing, storage::ChildInfo, H256};
 use sp_runtime::traits::BlakeTwo256;
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SubstrateEvmError {
+	#[error("Ismp contract address not found")]
 	IsmpContractNotFound,
+	#[error("Failed to decode proof: {0:?}")]
 	ProofDecodeError(codec::Error),
+	#[error("Trie error: {0}")]
 	TrieError(String),
+	#[error("Contract Info not found in main trie")]
 	ContractInfoNotFound,
+	#[error("Failed to decode AccountInfo variant")]
 	AccountInfoDecodeError,
-	AccountNotContract,
+	#[error("Failed to decode trie_id")]
 	TrieIdDecodeError,
+	#[error("Child Trie Root not found in main trie")]
 	ChildRootNotFound,
+	#[error("Failed to decode child root")]
 	ChildRootDecodeError,
+	#[error("Child Trie error: {0}")]
 	ChildTrieError(String),
+	#[error("Key {0:?} not found in child trie")]
 	KeyNotFound(Vec<u8>),
 }
 
 impl From<SubstrateEvmError> for Error {
 	fn from(e: SubstrateEvmError) -> Error {
-		match e {
-			SubstrateEvmError::IsmpContractNotFound =>
-				Error::Custom("Ismp contract address not found".to_string()),
-			SubstrateEvmError::ProofDecodeError(e) =>
-				Error::Custom(format!("Failed to decode proof: {:?}", e)),
-			SubstrateEvmError::TrieError(e) => Error::Custom(format!("Trie error: {:?}", e)),
-			SubstrateEvmError::ContractInfoNotFound =>
-				Error::Custom("Contract Info not found in main trie".to_string()),
-			SubstrateEvmError::AccountInfoDecodeError =>
-				Error::Custom("Failed to decode AccountInfo variant".to_string()),
-			SubstrateEvmError::AccountNotContract =>
-				Error::Custom("Account is not a contract".to_string()),
-			SubstrateEvmError::TrieIdDecodeError =>
-				Error::Custom("Failed to decode trie_id".to_string()),
-			SubstrateEvmError::ChildRootNotFound =>
-				Error::Custom("Child Trie Root not found in main trie".to_string()),
-			SubstrateEvmError::ChildRootDecodeError =>
-				Error::Custom("Failed to decode child root".to_string()),
-			SubstrateEvmError::ChildTrieError(e) =>
-				Error::Custom(format!("Child Trie error: {:?}", e)),
-			SubstrateEvmError::KeyNotFound(key) =>
-				Error::Custom(format!("Key {:?} not found in child trie", key)),
-		}
+		Error::Custom(e.to_string())
 	}
 }
 

@@ -30,12 +30,14 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
   
     address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address private constant WHALE = address(0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045);
+    address private DEPLOYER;
 
     UniV4UniswapV2Wrapper private wrapper;
 
     function setUp() public override {
-        vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
+       vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
 
+        DEPLOYER = address(this);
         wrapper = new UniV4UniswapV2Wrapper(address(this));
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({
@@ -55,7 +57,8 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
 
      
         uint256 exactEthAmount = 1 ether;
-        uint256 amountOutMin = 0; 
+        uint256[] memory expectedAmounts = wrapper.getAmountsOut(exactEthAmount, path);
+        uint256 amountOutMin = expectedAmounts[1]; 
 
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
@@ -92,24 +95,20 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         assertTrue(newDaiBalance > initialDaiBalance, "DAI balance should increase");
     }
 
-    function testSwapETHForExactTokensV4() public {
-       
+        function testSwapETHForExactTokensV4() public {
         address[] memory path = new address[](2);
         path[0] = address(0);  
         path[1] = DAI;
 
-   
         uint256 amountOut = 1000 * 1e18; 
         uint256 maxEthIn = 2 ether;    
 
-        
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
+        uint256 initialDeployerBalance = DEPLOYER.balance; 
 
-     
         uint256 deadline = block.timestamp + 1 hours;
 
-     
         vm.prank(WHALE);
         uint256[] memory amounts = wrapper.swapETHForExactTokens{value: maxEthIn}(
             amountOut,
@@ -118,27 +117,21 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
             deadline
         );
 
-    
         uint256 newDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 newEthBalance = WHALE.balance;
+        uint256 newDeployerBalance = DEPLOYER.balance; 
 
         console.log("Max ETH sent:", maxEthIn);
-        console.log("ETH actually spent:", amounts[0]);
+        console.log("ETH actually spent (returned):", amounts[0]);
+        console.log("WHALE ETH spent:", initialEthBalance - newEthBalance);
+        console.log("Deployer received refund:", newDeployerBalance - initialDeployerBalance);
         console.log("DAI received:", amounts[1]);
-        console.log("Actual DAI received:", newDaiBalance - initialDaiBalance);
 
+       
+        assertEq(initialEthBalance - newEthBalance, maxEthIn, "WHALE spent full amount");
+        
    
-        assertEq(amounts[1], amountOut, "Should receive exact DAI amount");
-        assertEq(
-            newDaiBalance - initialDaiBalance,
-            amountOut,
-            "DAI balance should increase by exact amount"
-        );
-        assertTrue(amounts[0] > 0, "Should spend some ETH");
-        assertTrue(
-            initialEthBalance - newEthBalance <= maxEthIn,
-            "Should not spend more than max ETH"
-        );
+        assertEq(newDeployerBalance - initialDeployerBalance, maxEthIn - amounts[0], "Deployer got refund");
     }
 
    

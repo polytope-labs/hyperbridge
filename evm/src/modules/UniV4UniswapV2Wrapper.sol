@@ -22,7 +22,6 @@ import {IUniversalRouter} from "@uniswap/universal-router/contracts/interfaces/I
 import {Commands} from "@uniswap/universal-router/contracts/libraries/Commands.sol";
 import {Actions} from "@uniswap/v4-periphery/src/libraries/Actions.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title UniV4UniswapV2Wrapper
@@ -30,8 +29,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
  * @notice Wraps Uniswap V4 Universal Router with V2-style interface for ETH swaps
  */
 contract UniV4UniswapV2Wrapper {
-    using SafeERC20 for IERC20;
-
     struct Params {
         address universalRouter;
         address quoter;
@@ -61,19 +58,22 @@ contract UniV4UniswapV2Wrapper {
         address recipient,
         uint256 deadline
     ) external payable returns (uint256[] memory amounts) {
+        require(path.length == 2, "Only single-hop");
 
         PoolKey memory poolKey = _createPoolKey(path[1]);
 
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(poolKey, true, uint128(msg.value), uint128(amountOutMin), bytes(""));
-        params[1] = abi.encode(poolKey.currency0, msg.value);
-        params[2] = abi.encode(poolKey.currency1, recipient, amountOutMin);
+        params[1] = abi.encode(poolKey.currency0, msg.value, false);
+        params[2] = abi.encode(poolKey.currency1, recipient, uint256(0)); // Using 0 to take full output balance
 
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(
-            abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE_ALL), uint8(Actions.TAKE_ALL)),
+            abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)),
             params
         );
+
+        uint256 balanceBefore = IERC20(path[1]).balanceOf(recipient);
 
         IUniversalRouter(_params.universalRouter).execute{value: msg.value}(
             abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))),
@@ -81,50 +81,63 @@ contract UniV4UniswapV2Wrapper {
             deadline
         );
 
+        uint256 balanceAfter = IERC20(path[1]).balanceOf(recipient);
+
         amounts = new uint256[](2);
         amounts[0] = msg.value;
-        amounts[1] = amountOutMin;
-
-        IERC20(path[1]).safeTransfer(recipient, amounts[1]);
+        amounts[1] = balanceAfter - balanceBefore;
     }
 
-    function swapETHForExactTokens(
+        function swapETHForExactTokens(
         uint256 amountOut,
         address[] calldata path,
         address recipient,
         uint256 deadline
     ) external payable returns (uint256[] memory amounts) {
+        require(path.length == 2, "Only single-hop");
 
         PoolKey memory poolKey = _createPoolKey(path[1]);
 
         bytes[] memory params = new bytes[](3);
         params[0] = abi.encode(poolKey, true, uint128(amountOut), uint128(msg.value), bytes(""));
-        params[1] = abi.encode(poolKey.currency0, msg.value);
-        params[2] = abi.encode(poolKey.currency1, amountOut);
+        params[1] = abi.encode(poolKey.currency0, uint256(0), false);
+        params[2] = abi.encode(poolKey.currency1, recipient, amountOut);
 
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(
-            abi.encodePacked(uint8(Actions.SWAP_EXACT_OUT_SINGLE), uint8(Actions.SETTLE_ALL), uint8(Actions.TAKE_ALL)),
+            abi.encodePacked(
+                uint8(Actions.SWAP_EXACT_OUT_SINGLE), 
+                uint8(Actions.SETTLE), 
+                uint8(Actions.TAKE)
+            ),
             params
         );
-
+        
         IUniversalRouter(_params.universalRouter).execute{value: msg.value}(
             abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))),
             inputs,
             deadline
         );
+        
+  
+        uint256 refundETH = address(this).balance;
+        
+   
+        if (refundETH > 0) {
+            (bool success, ) = _deployer.call{value: refundETH}("");
+            require(success, "ETH refund failed");
+        }
 
         amounts = new uint256[](2);
-        amounts[0] = msg.value;
+        amounts[0] = msg.value - refundETH;
         amounts[1] = amountOut;
-
-        IERC20(path[1]).safeTransfer(recipient, amounts[1]);
     }
 
     function getAmountsIn(uint256 amountOut, address[] calldata path) 
         external 
         returns (uint256[] memory amounts) 
     {
+        require(path.length == 2, "Only single-hop");
         
         (uint256 amountIn, ) = IV4Quoter(_params.quoter).quoteExactOutputSingle(
             IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountOut), bytes(""))
@@ -139,6 +152,7 @@ contract UniV4UniswapV2Wrapper {
         external 
         returns (uint256[] memory amounts) 
     {
+        require(path.length == 2, "Only single-hop");
         
         (uint256 amountOut, ) = IV4Quoter(_params.quoter).quoteExactInputSingle(
             IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountIn), bytes(""))

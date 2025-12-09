@@ -156,6 +156,8 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
+			Ismp,
+			Runtime,
 			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<

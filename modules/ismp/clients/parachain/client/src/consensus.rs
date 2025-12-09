@@ -43,13 +43,17 @@ use sp_runtime::{
 };
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMachine};
+use evm_state_machine::SubstrateEvmStateMachine;
 
 use crate::{Parachains, RelayChainOracle};
 
-/// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
+/// PassetHub testnet para ID
+pub const PASSET_HUB_TESTNET_PARA_ID: u32 = 1111;
 
-impl<T, R, S> Default for ParachainConsensusClient<T, R, S> {
+/// The parachain consensus client implementation for ISMP.
+pub struct ParachainConsensusClient<T, R, I, H, S = SubstrateStateMachine<T>>(PhantomData<(T, R, I, H, S)>);
+
+impl<T, R, I, H, S> Default for ParachainConsensusClient<T, R, I, H, S> {
 	fn default() -> Self {
 		Self(PhantomData)
 	}
@@ -74,10 +78,12 @@ pub const POLKADOT_CONSENSUS_ID: ConsensusStateId = *b"DOT0";
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`] on Paseo
 pub const PASEO_CONSENSUS_ID: ConsensusStateId = *b"PAS0";
 
-impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
+impl<T, R, I, H, S> ConsensusClient for ParachainConsensusClient<T, R, I, H, S>
 where
 	R: RelayChainOracle,
 	T: pallet_ismp::Config + super::Config,
+	I: IsmpHost + Send + Sync + Default + 'static,
+	H: pallet_ismp_host_executive::Config,
 	S: StateMachineClient + From<StateMachine> + 'static,
 {
 	fn verify_consensus(
@@ -224,6 +230,10 @@ where
 
 		if !Parachains::<T>::contains_key(&para_id) {
 			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
+		}
+
+		if para_id == PASSET_HUB_TESTNET_PARA_ID {
+			return Ok(Box::new(SubstrateEvmStateMachine::<I, H>::default()))
 		}
 
 		Ok(Box::new(S::from(id)))

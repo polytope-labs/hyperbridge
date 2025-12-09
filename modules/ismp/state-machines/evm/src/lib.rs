@@ -44,6 +44,7 @@ pub mod types;
 pub mod utils;
 
 pub use tendermint::TendermintEvmStateMachine;
+pub use substrate_evm::SubstrateEvmStateMachine;
 pub use utils::*;
 
 pub fn verify_membership<H: Keccak256 + Send + Sync>(

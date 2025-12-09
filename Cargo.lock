@@ -10726,11 +10726,13 @@ dependencies = [
 name = "ismp-parachain"
 version = "2506.2.0"
 dependencies = [
+ "evm-state-machine",
  "hex",
  "hex-literal 0.4.1",
  "ismp",
  "log",
  "pallet-ismp",
+ "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",

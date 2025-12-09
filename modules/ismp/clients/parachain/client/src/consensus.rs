@@ -43,17 +43,33 @@ use sp_runtime::{
 };
 use sp_trie::StorageProof;
 use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMachine};
-use evm_state_machine::SubstrateEvmStateMachine;
 
 use crate::{Parachains, RelayChainOracle};
 
 /// PassetHub testnet para ID
 pub const PASSET_HUB_TESTNET_PARA_ID: u32 = 1111;
 
-/// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, R, I, H, S = SubstrateStateMachine<T>>(PhantomData<(T, R, I, H, S)>);
+/// AssetHub mainnet para ID
+pub const ASSET_HUB_MAINNET_PARA_ID: u32 = 1000;
 
-impl<T, R, I, H, S> Default for ParachainConsensusClient<T, R, I, H, S> {
+/// The Evm state machine provider that resolves to a `StateMachineClient`
+pub trait EvmStateMachineProvider {
+	/// Returns the `StateMachineClient` for a given para_id.
+	fn state_machine(para_id: u32) -> Option<Box<dyn StateMachineClient>>;
+}
+
+impl EvmStateMachineProvider for () {
+	fn state_machine(_para_id: u32) -> Option<Box<dyn StateMachineClient>> {
+		None
+	}
+}
+
+/// The parachain consensus client implementation for ISMP.
+pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>, E = ()>(
+	PhantomData<(T, R, S, E)>,
+);
+
+impl<T, R, S, E> Default for ParachainConsensusClient<T, R, S, E> {
 	fn default() -> Self {
 		Self(PhantomData)
 	}
@@ -78,13 +94,12 @@ pub const POLKADOT_CONSENSUS_ID: ConsensusStateId = *b"DOT0";
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`] on Paseo
 pub const PASEO_CONSENSUS_ID: ConsensusStateId = *b"PAS0";
 
-impl<T, R, I, H, S> ConsensusClient for ParachainConsensusClient<T, R, I, H, S>
+impl<T, R, S, E> ConsensusClient for ParachainConsensusClient<T, R, S, E>
 where
 	R: RelayChainOracle,
 	T: pallet_ismp::Config + super::Config,
-	I: IsmpHost + Send + Sync + Default + 'static,
-	H: pallet_ismp_host_executive::Config,
 	S: StateMachineClient + From<StateMachine> + 'static,
+	E: EvmStateMachineProvider + 'static,
 {
 	fn verify_consensus(
 		&self,
@@ -232,8 +247,8 @@ where
 			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
 		}
 
-		if para_id == PASSET_HUB_TESTNET_PARA_ID {
-			return Ok(Box::new(SubstrateEvmStateMachine::<I, H>::default()))
+		if let Some(state_machine) = E::state_machine(para_id) {
+			return Ok(state_machine)
 		}
 
 		Ok(Box::new(S::from(id)))

@@ -20,6 +20,7 @@ use crate::{
 	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
+use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -41,7 +42,7 @@ use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
-use ismp::router::Timeout;
+use ismp::{consensus::StateMachineClient, router::Timeout};
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;
@@ -103,6 +104,20 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
+pub struct EvmStateMachineProvider;
+
+impl ismp_parachain::EvmStateMachineProvider for EvmStateMachineProvider {
+	fn state_machine(para_id: u32) -> Option<Box<dyn StateMachineClient>> {
+		if para_id == ismp_parachain::PASSET_HUB_TESTNET_PARA_ID ||
+			para_id == ismp_parachain::ASSET_HUB_MAINNET_PARA_ID
+		{
+			return Some(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
+		}
+
+		None
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -118,9 +133,8 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			Ismp,
-			Runtime,
 			HyperbridgeClientMachine<Runtime, Ismp, ()>,
+			EvmStateMachineProvider,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,

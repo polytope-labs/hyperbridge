@@ -23,10 +23,8 @@ log = { workspace = true }
 
 # local
 substrate-state-machine = { workspace = true }
-evm-state-machine = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
-pallet-ismp-host-executive = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -53,8 +51,6 @@ std = [
     "primitive-types/std",
     "pallet-ismp/std",
     "substrate-state-machine/std",
-    "evm-state-machine/std",
-    "pallet-ismp-host-executive/std"
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]
 runtime-benchmarks = [

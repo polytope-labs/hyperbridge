@@ -58,7 +58,6 @@ contract UniV4UniswapV2Wrapper {
         address recipient,
         uint256 deadline
     ) external payable returns (uint256[] memory amounts) {
-        require(path.length == 2, "Only single-hop");
 
         PoolKey memory poolKey = _createPoolKey(path[1]);
 
@@ -94,7 +93,6 @@ contract UniV4UniswapV2Wrapper {
         address recipient,
         uint256 deadline
     ) external payable returns (uint256[] memory amounts) {
-        require(path.length == 2, "Only single-hop");
 
         PoolKey memory poolKey = _createPoolKey(path[1]);
 
@@ -137,7 +135,6 @@ contract UniV4UniswapV2Wrapper {
         external 
         returns (uint256[] memory amounts) 
     {
-        require(path.length == 2, "Only single-hop");
         
         (uint256 amountIn, ) = IV4Quoter(_params.quoter).quoteExactOutputSingle(
             IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountOut), bytes(""))
@@ -152,7 +149,6 @@ contract UniV4UniswapV2Wrapper {
         external 
         returns (uint256[] memory amounts) 
     {
-        require(path.length == 2, "Only single-hop");
         
         (uint256 amountOut, ) = IV4Quoter(_params.quoter).quoteExactInputSingle(
             IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountIn), bytes(""))

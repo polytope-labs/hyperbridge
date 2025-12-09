@@ -205,7 +205,7 @@ fn inspector_should_intercept_illegal_request() {
 #[test]
 fn inspector_should_record_asset_inflow() {
 	new_test_ext().execute_with(|| {
-		let asset_id: H256 = [1u8; 32].into();
+		let asset_id: H256 = sp_core::hashing::keccak_256(&*b"MANTA").into();
 		let post = PostRequest {
 			source: StateMachine::Evm(1),
 			dest: StateMachine::Kusama(100),
@@ -213,22 +213,10 @@ fn inspector_should_record_asset_inflow() {
 			from: H160::zero().0.to_vec(),
 			to: H160::zero().0.to_vec(),
 			timeout_timestamp: 1000,
-			body: {
-				let body = Body {
-					amount: {
-						let bytes = convert_to_erc20(SEND_AMOUNT, 18, 10).to_big_endian();
-						alloy_primitives::U256::from_be_bytes(bytes)
-					},
-					asset_id: asset_id.0.into(),
-					redeem: false,
-					from: alloy_primitives::B256::from_slice(ALICE.as_slice()),
-					to: alloy_primitives::B256::from_slice(ALICE.as_slice()),
-				};
-
-				let encoded = vec![vec![0], Body::abi_encode(&body)].concat();
-				encoded
-			},
+			body: hex::decode("000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000069E10DE76676D080000009EA858A814B69366A6CEC8E38ECCC8C62CF4B8F1254B7B1674A9C660ACF571080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000F0B9889CDB70A716BF72E37EF626F08D9F14C1806D6F646CA09B1C60E8650245000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000C00000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000004907D176EE90A0530CE31").unwrap()
 		};
+
+		let (.., amount) = TokenGatewayInspector::is_token_gateway_request(&post.body).unwrap();
 
 		let result = TokenGatewayInspector::inspect_request(&post);
 		assert!(result.is_ok());
@@ -238,7 +226,7 @@ fn inspector_should_record_asset_inflow() {
 			asset_id,
 		);
 
-		assert_eq!(convert_to_erc20(SEND_AMOUNT, 18, 10), inflow);
+		assert_eq!(inflow, amount);
 	});
 }
 

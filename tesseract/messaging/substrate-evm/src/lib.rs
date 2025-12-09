@@ -255,12 +255,6 @@ where
 							key.len()
 						);
 					}
-					let contract_address = H160::from_slice(&key[..20]);
-					if contract_address != contract_addr {
-						anyhow::bail!(
-							"Arbitrary keys must belong to the configured ISMP host contract for Revive proof queries"
-						);
-					}
 					let slot = H256::from_slice(&key[20..]);
 					storage_keys.push(self.storage_key(slot));
 				}
@@ -276,11 +270,7 @@ where
 		previous_height: u64,
 		event: StateMachineUpdated,
 	) -> Result<Vec<Event>, Error> {
-		let adjusted_event = StateMachineUpdated {
-			state_machine_id: event.state_machine_id,
-			latest_height: event.latest_height,
-		};
-		self.evm.query_ismp_events(previous_height, adjusted_event).await
+		self.evm.query_ismp_events(previous_height, event).await
 	}
 
 	fn name(&self) -> String {

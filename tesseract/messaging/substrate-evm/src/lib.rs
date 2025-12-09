@@ -1,6 +1,9 @@
 use anyhow::Error;
 use codec::{Decode, Encode};
-use evm_state_machine::presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT};
+use evm_state_machine::{
+	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
+	types::SubstrateEvmProof,
+};
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -13,14 +16,11 @@ use primitive_types::U256;
 use sp_core::{Bytes, H160, H256, hashing, storage::ChildInfo};
 use std::{sync::Arc, time::Duration};
 use subxt::{
-	OnlineClient,
-	backend::legacy::LegacyRpcMethods,
-	config::{ExtrinsicParams, HashFor, Header},
-	ext::subxt_rpcs::{RpcClient, rpc_params},
+	config::{ExtrinsicParams, HashFor},
+	ext::subxt_rpcs::rpc_params,
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
-use evm_state_machine::types::SubstrateEvmProof;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
@@ -52,13 +52,7 @@ impl<C: subxt::Config> SubstrateEvmClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId: From<AccountId32>
-		+ Into<C::Address>
-		+ Clone
-		+ 'static
-		+ Send
-		+ Sync
-		+ Encode,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync + Encode,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
@@ -150,13 +144,7 @@ impl<C> IsmpProvider for SubstrateEvmClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId: From<AccountId32>
-		+ Into<C::Address>
-		+ Clone
-		+ 'static
-		+ Send
-		+ Sync
-		+ Encode,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync + Encode,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
@@ -290,7 +278,7 @@ where
 	) -> Result<Vec<Event>, Error> {
 		let adjusted_event = StateMachineUpdated {
 			state_machine_id: event.state_machine_id,
-			latest_height: event.latest_height.saturating_sub(1),
+			latest_height: event.latest_height,
 		};
 		self.evm.query_ismp_events(previous_height, adjusted_event).await
 	}
@@ -417,13 +405,7 @@ impl<C> ByzantineHandler for SubstrateEvmClient<C>
 where
 	C: subxt::Config + Send + Sync + Clone,
 	C::Header: Send + Sync,
-	C::AccountId: From<AccountId32>
-		+ Into<C::Address>
-		+ Clone
-		+ 'static
-		+ Send
-		+ Sync
-		+ Encode,
+	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync + Encode,
 	C::Signature: From<MultiSignature> + Send + Sync,
 	H256: From<HashFor<C>>,
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,

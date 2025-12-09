@@ -32,6 +32,49 @@ use sp_core::{hashing, storage::ChildInfo, H256};
 use sp_runtime::traits::BlakeTwo256;
 use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
 
+#[derive(Debug)]
+pub enum SubstrateEvmError {
+	IsmpContractNotFound,
+	ProofDecodeError(codec::Error),
+	TrieError(String),
+	ContractInfoNotFound,
+	AccountInfoDecodeError,
+	AccountNotContract,
+	TrieIdDecodeError,
+	ChildRootNotFound,
+	ChildRootDecodeError,
+	ChildTrieError(String),
+	KeyNotFound(Vec<u8>),
+}
+
+impl From<SubstrateEvmError> for Error {
+	fn from(e: SubstrateEvmError) -> Error {
+		match e {
+			SubstrateEvmError::IsmpContractNotFound =>
+				Error::Custom("Ismp contract address not found".to_string()),
+			SubstrateEvmError::ProofDecodeError(e) =>
+				Error::Custom(format!("Failed to decode proof: {:?}", e)),
+			SubstrateEvmError::TrieError(e) => Error::Custom(format!("Trie error: {:?}", e)),
+			SubstrateEvmError::ContractInfoNotFound =>
+				Error::Custom("Contract Info not found in main trie".to_string()),
+			SubstrateEvmError::AccountInfoDecodeError =>
+				Error::Custom("Failed to decode AccountInfo variant".to_string()),
+			SubstrateEvmError::AccountNotContract =>
+				Error::Custom("Account is not a contract".to_string()),
+			SubstrateEvmError::TrieIdDecodeError =>
+				Error::Custom("Failed to decode trie_id".to_string()),
+			SubstrateEvmError::ChildRootNotFound =>
+				Error::Custom("Child Trie Root not found in main trie".to_string()),
+			SubstrateEvmError::ChildRootDecodeError =>
+				Error::Custom("Failed to decode child root".to_string()),
+			SubstrateEvmError::ChildTrieError(e) =>
+				Error::Custom(format!("Child Trie error: {:?}", e)),
+			SubstrateEvmError::KeyNotFound(key) =>
+				Error::Custom(format!("Key {:?} not found in child trie", key)),
+		}
+	}
+}
+
 /// Proof structure for Substrate EVM verification
 #[derive(Decode, Encode)]
 pub struct SubstrateEvmProof {
@@ -39,6 +82,25 @@ pub struct SubstrateEvmProof {
 	pub main_proof: Vec<Vec<u8>>,
 	/// Proof of the Storage Slots in the Contract's Child Trie
 	pub child_proof: Vec<Vec<u8>>,
+}
+
+/// The contract info
+#[derive(Decode)]
+pub struct ContractInfo {
+	pub trie_id: Vec<u8>,
+}
+
+/// The account type which we care about
+#[derive(Decode)]
+pub enum AccountType {
+	#[codec(index = 0)]
+	Contract(ContractInfo),
+}
+
+/// The account info for a contract account
+#[derive(Decode)]
+pub struct AccountInfo {
+	pub account_type: AccountType,
 }
 
 /// Substrate EVM State machine client
@@ -71,10 +133,10 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<(), Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(SubstrateEvmError::IsmpContractNotFound)?;
 
-		let proof: SubstrateEvmProof = Decode::decode(&mut &proof.proof[..])
-			.map_err(|e| Error::Custom(format!("Failed to decode proof: {:?}", e)))?;
+		let proof: SubstrateEvmProof =
+			Decode::decode(&mut &proof.proof[..]).map_err(SubstrateEvmError::ProofDecodeError)?;
 
 		let state_root = H256::from_slice(&root.state_root[..]);
 
@@ -93,7 +155,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let storage_keys: Vec<Vec<u8>> =
 			keys.into_iter().map(|k| hashing::blake2_256(&k).to_vec()).collect();
 
-		verify_child_trie_membership::<H>(child_root, &proof.child_proof, storage_keys)
+		Ok(verify_child_trie_membership::<H>(child_root, &proof.child_proof, storage_keys)?)
 	}
 
 	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>> {
@@ -108,10 +170,10 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
-			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
+			.ok_or(SubstrateEvmError::IsmpContractNotFound)?;
 
-		let proof: SubstrateEvmProof = Decode::decode(&mut &proof.proof[..])
-			.map_err(|e| Error::Custom(format!("Failed to decode proof: {:?}", e)))?;
+		let proof: SubstrateEvmProof =
+			Decode::decode(&mut &proof.proof[..]).map_err(SubstrateEvmError::ProofDecodeError)?;
 
 		let state_root = H256::from_slice(&root.state_root[..]);
 
@@ -136,7 +198,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 	}
 }
 
-fn contract_info_key(address: H160) -> Vec<u8> {
+pub fn contract_info_key(address: H160) -> Vec<u8> {
 	let mut key = Vec::new();
 	key.extend_from_slice(&hashing::twox_128(b"Revive"));
 	key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
@@ -144,40 +206,32 @@ fn contract_info_key(address: H160) -> Vec<u8> {
 	key
 }
 
-fn fetch_trie_id_from_main_proof<H: IsmpHost>(
+pub fn fetch_trie_id_from_main_proof<H: IsmpHost>(
 	proof: &[Vec<u8>],
 	root: H256,
 	key: &[u8],
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, SubstrateEvmError> {
 	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
 	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
 	let val = trie
 		.get(key)
-		.map_err(|e| Error::Custom(format!("Trie error: {:?}", e)))?
-		.ok_or_else(|| Error::Custom("Contract Info not found in main trie".to_string()))?;
+		.map_err(|e| SubstrateEvmError::TrieError(format!("{:?}", e)))?
+		.ok_or(SubstrateEvmError::ContractInfoNotFound)?;
 
-	// Decodes AccountInfo to get trie_id
-	// AccountInfo { account_type: enum { Contract(ContractInfo { trie_id, ... }) = 0, ... }, ... }
-	let mut input = &val[..];
-	let variant_index = u8::decode(&mut input)
-		.map_err(|_| Error::Custom("Failed to decode AccountInfo variant".to_string()))?;
+	let account_info = AccountInfo::decode(&mut &val[..])
+		.map_err(|_| SubstrateEvmError::AccountInfoDecodeError)?;
 
-	if variant_index != 0 {
-		return Err(Error::Custom("Account is not a contract".to_string()));
-	}
+	let AccountType::Contract(contract_info) = account_info.account_type;
 
-	let trie_id = Vec::<u8>::decode(&mut input)
-		.map_err(|_| Error::Custom("Failed to decode trie_id".to_string()))?;
-
-	Ok(trie_id)
+	Ok(contract_info.trie_id)
 }
 
-fn fetch_child_root_from_main_proof<H: IsmpHost>(
+pub fn fetch_child_root_from_main_proof<H: IsmpHost>(
 	proof: &[Vec<u8>],
 	root: H256,
 	trie_id: &[u8],
-) -> Result<H256, Error> {
+) -> Result<H256, SubstrateEvmError> {
 	let child_info = ChildInfo::new_default(trie_id);
 	let key = child_info.prefixed_storage_key();
 
@@ -186,39 +240,39 @@ fn fetch_child_root_from_main_proof<H: IsmpHost>(
 
 	let val = trie
 		.get(&key)
-		.map_err(|e| Error::Custom(format!("Trie error: {:?}", e)))?
-		.ok_or_else(|| Error::Custom("Child Trie Root not found in main trie".to_string()))?;
+		.map_err(|e| SubstrateEvmError::TrieError(format!("{:?}", e)))?
+		.ok_or(SubstrateEvmError::ChildRootNotFound)?;
 
-	let child_root = H256::decode(&mut &val[..])
-		.map_err(|_| Error::Custom("Failed to decode child root".to_string()))?;
+	let child_root =
+		H256::decode(&mut &val[..]).map_err(|_| SubstrateEvmError::ChildRootDecodeError)?;
 
 	Ok(child_root)
 }
 
-fn verify_child_trie_membership<H: IsmpHost>(
+pub fn verify_child_trie_membership<H: IsmpHost>(
 	root: H256,
 	proof: &[Vec<u8>],
 	keys: Vec<Vec<u8>>,
-) -> Result<(), Error> {
+) -> Result<(), SubstrateEvmError> {
 	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
 	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
 	for key in keys {
 		let val = trie
 			.get(&key)
-			.map_err(|e| Error::Custom(format!("Child Trie error: {:?}", e)))?;
+			.map_err(|e| SubstrateEvmError::ChildTrieError(format!("{:?}", e)))?;
 		if val.is_none() {
-			return Err(Error::Custom(format!("Key {:?} not found in child trie", key)));
+			return Err(SubstrateEvmError::KeyNotFound(key));
 		}
 	}
 	Ok(())
 }
 
-fn verify_child_trie_values<H: IsmpHost>(
+pub fn verify_child_trie_values<H: IsmpHost>(
 	root: H256,
 	proof: &[Vec<u8>],
 	keys: Vec<Vec<u8>>,
-) -> Result<Vec<Option<Vec<u8>>>, Error> {
+) -> Result<Vec<Option<Vec<u8>>>, SubstrateEvmError> {
 	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
 	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
 
@@ -226,7 +280,7 @@ fn verify_child_trie_values<H: IsmpHost>(
 	for key in keys {
 		let val = trie
 			.get(&key)
-			.map_err(|e| Error::Custom(format!("Child Trie error: {:?}", e)))?;
+			.map_err(|e| SubstrateEvmError::ChildTrieError(format!("{:?}", e)))?;
 		values.push(val);
 	}
 	Ok(values)

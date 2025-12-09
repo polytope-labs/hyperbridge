@@ -14,6 +14,7 @@
 	"license": "ISC",
 	"description": "",
 	"dependencies": {
+		"@hyperbridge/core": "^1.1.1",
 		"@polytope-labs/erc6160": "^0.3.1",
 		"@polytope-labs/ismp-solidity": "^0.7.3",
 		"@polytope-labs/ismp-solidity-v1": "npm:@polytope-labs/ismp-solidity@^1.1.0",

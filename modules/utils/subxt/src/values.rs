@@ -69,10 +69,12 @@ pub fn messages_to_value(messages: Vec<Message>) -> Value<()> {
 
 fn response_message_to_composite(msg: &ResponseMessage) -> Composite<()> {
 	let datagram_value = match &msg.datagram {
-		RequestResponse::Request(reqs) =>
-			Value::variant("Request", Composite::unnamed(reqs.iter().map(request_to_value))),
-		RequestResponse::Response(resps) =>
-			Value::variant("Response", Composite::unnamed(resps.iter().map(response_to_value))),
+		RequestResponse::Request(reqs) => {
+			Value::variant("Request", Composite::unnamed(reqs.iter().map(request_to_value)))
+		},
+		RequestResponse::Response(resps) => {
+			Value::variant("Response", Composite::unnamed(resps.iter().map(response_to_value)))
+		},
 	};
 	Composite::named(vec![
 		("datagram".to_string(), datagram_value),
@@ -215,16 +217,21 @@ fn post_response_to_value(post: &PostResponse) -> Value<()> {
 
 pub fn state_machine_to_value(sm: &StateMachine) -> Value<()> {
 	match sm {
-		StateMachine::Evm(id) =>
-			Value::variant("Evm", Composite::unnamed(vec![Value::u128((*id).into())])),
-		StateMachine::Polkadot(id) =>
-			Value::variant("Polkadot", Composite::unnamed(vec![Value::u128((*id).into())])),
-		StateMachine::Kusama(id) =>
-			Value::variant("Kusama", Composite::unnamed(vec![Value::u128((*id).into())])),
-		StateMachine::Substrate(id) =>
-			Value::variant("Substrate", Composite::unnamed(vec![Value::from_bytes(id.to_vec())])),
-		StateMachine::Tendermint(id) =>
-			Value::variant("Tendermint", Composite::unnamed(vec![Value::from_bytes(id.to_vec())])),
+		StateMachine::Evm(id) => {
+			Value::variant("Evm", Composite::unnamed(vec![Value::u128((*id).into())]))
+		},
+		StateMachine::Polkadot(id) => {
+			Value::variant("Polkadot", Composite::unnamed(vec![Value::u128((*id).into())]))
+		},
+		StateMachine::Kusama(id) => {
+			Value::variant("Kusama", Composite::unnamed(vec![Value::u128((*id).into())]))
+		},
+		StateMachine::Substrate(id) => {
+			Value::variant("Substrate", Composite::unnamed(vec![Value::from_bytes(id.to_vec())]))
+		},
+		StateMachine::Tendermint(id) => {
+			Value::variant("Tendermint", Composite::unnamed(vec![Value::from_bytes(id.to_vec())]))
+		},
 		StateMachine::Relay { relay, para_id } => {
 			let composite = Composite::named(vec![
 				("relay".to_string(), Value::from_bytes(relay.to_vec())),
@@ -443,9 +450,17 @@ fn signature_to_value(sig: &Signature) -> Value<()> {
 }
 
 pub fn withdrawal_input_data_to_value(data: &WithdrawalInputData) -> Value<()> {
+	let beneficiary_value = match &data.beneficiary {
+		Some(address) => {
+			Value::variant("Some", Composite::unnamed(vec![Value::from_bytes(address.clone())]))
+		},
+		None => Value::variant("None", Composite::unnamed(vec![])),
+	};
+
 	Value::named_composite(vec![
 		("signature".to_string(), signature_to_value(&data.signature)),
 		("dest_chain".to_string(), state_machine_to_value(&data.dest_chain)),
+		("beneficiary".to_string(), beneficiary_value),
 	])
 }
 

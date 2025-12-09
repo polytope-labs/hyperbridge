@@ -14,15 +14,16 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@polytope-labs/ismp-solidity-v1/IDispatcher.sol";
-import {BaseIsmpModule, IncomingPostRequest, IncomingGetResponse} from "@polytope-labs/ismp-solidity-v1/IIsmpModule.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity-v1/StateMachine.sol";
+import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
+import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
 /**
  * @notice Tokens that must be received for a valid order fulfillment
@@ -48,6 +49,13 @@ struct TokenInfo {
     uint256 amount;
 }
 
+struct PredispatchInfo {
+    /// @dev Assets to execute a predispatch call with
+    TokenInfo[] assets;
+    /// @dev The actual call data to be executed
+    bytes call;
+}
+
 /**
  * @dev Represents an order in the IntentGateway module.
  * @param Order The structure defining an order.
@@ -65,12 +73,25 @@ struct Order {
     uint256 nonce;
     /// @dev Represents the dispatch fees associated with the IntentGateway.
     uint256 fees;
-    /// @dev The tokens that the filler will provide.
-    PaymentInfo[] outputs;
+    /// @dev The predispatch information for the order
+    /// This is used to encode any calls before the order is placed
+    PredispatchInfo predispatch;
     /// @dev The tokens that are escrowed for the filler.
     TokenInfo[] inputs;
-    /// @dev A bytes array to store the calls if any.
+    /// @dev The tokens that the filler will provide.
+    PaymentInfo[] outputs;
+    /// @dev Optional calldata to be executed after the order is filled
     bytes callData;
+}
+
+/**
+ * @dev Request from hyperbridge for collecting protocol revenue
+ */
+struct CollectFees {
+    /// @dev The address of the beneficiary of the protocol fee
+    address beneficiary;
+    /// @dev The tokens to be withdrawn
+    TokenInfo[] outputs;
 }
 
 /**
@@ -81,6 +102,8 @@ struct Params {
     address host;
     /// @dev Address of the dispatcher contract responsible for handling intents.
     address dispatcher;
+    /// @dev Protocol fee in basis points (BPS) deducted from filler-provided tokens
+    uint256 protocolFeeBps;
 }
 
 /**
@@ -116,7 +139,7 @@ struct CancelOptions {
 }
 
 /**
- * @dev Struct representing a new instance of IntentGateway.
+ * @dev Request from hyperbridge for adding a new deployment of IntentGateway
  */
 struct NewDeployment {
     /// @dev Identifier for the state machine.
@@ -126,12 +149,12 @@ struct NewDeployment {
 }
 
 /**
- * @title IntentGateway
+ * @title IntentGatewayV2
  * @author Polytope Labs (hello@polytope.technology)
  *
  * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
  */
-contract IntentGateway is BaseIsmpModule {
+contract IntentGatewayV2 is HyperApp {
     using SafeERC20 for IERC20;
 
     /**
@@ -143,7 +166,11 @@ contract IntentGateway is BaseIsmpModule {
         /// @dev Identifies a request for recording new contract deployments
         NewDeployment,
         /// @dev Identifies a request for updating parameters.
-        UpdateParams
+        UpdateParams,
+        /// @dev Identifies a request for redeeming an escrow.
+        RefundEscrow,
+        /// @dev Identifies a request for collecting fees.
+        CollectFees
     }
 
     /**
@@ -157,7 +184,7 @@ contract IntentGateway is BaseIsmpModule {
      * @dev Hex value 0x05 padded with leading zeros to fill 32 bytes
      */
     bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
-        hex"0000000000000000000000000000000000000000000000000000000000000005";
+        hex"0000000000000000000000000000000000000000000000000000000000000006";
 
     /**
      * @dev Private variable to store the nonce value.
@@ -193,6 +220,13 @@ contract IntentGateway is BaseIsmpModule {
     mapping(bytes32 => address) private _filled;
 
     /**
+     * @dev Mapping to store cancelled orders.
+     * The key is a bytes32 hash representing the order commitment, and the value is a boolean
+     * indicating whether the order has been cancelled.
+     */
+    mapping(bytes32 => bool) private _cancellations;
+
+    /**
      * @dev Mapping to store instances of contracts.
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
@@ -216,6 +250,9 @@ contract IntentGateway is BaseIsmpModule {
     /// @notice Thrown when an action is attempted on an order that has already been filled.
     error Filled();
 
+    /// @notice Thrown when an action is attempted on an order that has been cancelled.
+    error Cancelled();
+
     /// @notice Thrown when an action is attempted on the wrong chain.
     error WrongChain();
 
@@ -238,12 +275,12 @@ contract IntentGateway is BaseIsmpModule {
         uint256 nonce,
         /// @dev Represents the dispatch fees associated with the IntentGateway.
         uint256 fees,
-        /// @dev The tokens that the filler will provide.
-        PaymentInfo[] outputs,
+        /// @dev Assets that were used to execute a predispatch call
+        TokenInfo[] predispatch,
         /// @dev The tokens that are escrowed for the filler.
         TokenInfo[] inputs,
-        /// @dev A bytes array to store the calls if any.
-        bytes callData
+        /// @dev The tokens that the filler will provide.
+        PaymentInfo[] outputs
     );
 
     /**
@@ -278,6 +315,29 @@ contract IntentGateway is BaseIsmpModule {
      * @param gateway The gateway identifier.
      */
     event NewDeploymentAdded(bytes stateMachineId, bytes32 gateway);
+
+    /**
+     * @dev Emitted when some dust is collected from predispatch swaps.
+     * @param token The token contract address of the dust, address(0) for native currency.
+     * @param amount The amount of dust collected.
+     */
+    event DustCollected(address token, uint256 amount);
+
+    /**
+     * @dev Emitted when protocol fee is collected from a filler.
+     * @param token The token contract address of the fee, address(0) for native currency.
+     * @param amount The amount of protocol fee collected.
+     * @param chain The chain where the funds are stored.
+     */
+    event FeeCollected(address token, uint256 amount, bytes chain);
+
+    /**
+    * @dev Emitted when protocol revenue is withdrawn.
+    * @param token The token contract address of the fee, address(0) for native currency.
+    * @param amount The amount of protocol revenue collected.
+    * @param beneficiary The beneficiary of the funds
+    */
+    event RevenueWithdrawn(address token, uint256 amount, address beneficiary);
 
     constructor(address admin) {
         _admin = admin;
@@ -354,30 +414,93 @@ contract IntentGateway is BaseIsmpModule {
      * @param order The order details to be placed.
      */
     function placeOrder(Order memory order, bytes32 graffiti) public payable {
+        // Validate that order has inputs
+        if (order.inputs.length == 0) revert InvalidInput();
+
         address hostAddr = host();
         // fill out the order preludes
-        order.nonce = _nonce;
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.sourceChain = IDispatcher(hostAddr).host();
+        order.nonce = _nonce;
+        _nonce += 1;
 
         bytes32 commitment = keccak256(abi.encode(order));
 
         // escrow tokens
         uint256 msgValue = msg.value;
-        uint256 inputsLen = order.inputs.length;
-        for (uint256 i = 0; i < inputsLen; i++) {
-            if (order.inputs[i].amount == 0) revert InvalidInput();
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            if (token == address(0)) {
-                // native token
-                if (msgValue < order.inputs[i].amount) revert InsufficientNativeToken();
-                msgValue -= order.inputs[i].amount;
-            } else {
-                IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
+        if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
+            address callDispatcher = _params.dispatcher;
+
+            // Transfer all predispatch assets to the call dispatcher
+            uint256 assetsLen = order.predispatch.assets.length;
+            for (uint256 i = 0; i < assetsLen; i++) {
+                address token = address(uint160(uint256(order.predispatch.assets[i].token)));
+                uint256 amount = order.predispatch.assets[i].amount;
+
+                if (token == address(0)) {
+                    if (amount > msgValue) revert InsufficientNativeToken();
+                    msgValue -= amount;
+
+                    (bool sent, ) = callDispatcher.call{value: amount}("");
+                    if (!sent) revert InsufficientNativeToken();
+                } else {
+                    IERC20(token).safeTransferFrom(msg.sender, callDispatcher, amount);
+                }
             }
 
-            // commit order
-            _orders[commitment][token] += order.inputs[i].amount;
+            // Execute the call dispatcher with predispatch call
+            ICallDispatcher(callDispatcher).dispatch(order.predispatch.call);
+
+            // Transfer tokens from call dispatcher back to IntentGateway
+            uint256 inputsLen = order.inputs.length;
+            Call[] memory transferCalls = new Call[](inputsLen);
+            for (uint256 i = 0; i < inputsLen; i++) {
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                uint256 requiredAmount = order.inputs[i].amount;
+                uint256 balance;
+
+                if (token == address(0)) {
+                    balance = address(callDispatcher).balance;
+                    if (balance < requiredAmount) revert InsufficientNativeToken();
+                    transferCalls[i] = Call({
+                        to: address(this),
+                        value: balance,
+                        data: ""
+                    });
+                } else {
+                    balance = IERC20(token).balanceOf(callDispatcher);
+                    if (balance < requiredAmount) revert InvalidInput();
+                    transferCalls[i] = Call({
+                        to: token,
+                        value: 0,
+                        data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
+                    });
+                }
+
+                uint256 dust = balance - requiredAmount;
+                if (dust > 0) emit DustCollected(token, dust);
+
+                _orders[commitment][token] += requiredAmount;
+            }
+
+            // Execute transfer calls from call dispatcher
+            ICallDispatcher(callDispatcher).dispatch(abi.encode(transferCalls));
+        } else {
+            uint256 inputsLen = order.inputs.length;
+
+            for (uint256 i = 0; i < inputsLen; i++) {
+                if (order.inputs[i].amount == 0) revert InvalidInput();
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                if (token == address(0)) {
+                    // native token
+                    if (msgValue < order.inputs[i].amount) revert InsufficientNativeToken();
+                    msgValue -= order.inputs[i].amount;
+                } else {
+                    IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
+                }
+
+                _orders[commitment][token] += order.inputs[i].amount;
+            }
         }
 
         if (order.fees > 0) {
@@ -389,7 +512,7 @@ contract IntentGateway is BaseIsmpModule {
                 address[] memory path = new address[](2);
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
-                IUniswapV2Router02(uniswapV2).swapExactETHForTokens{value: msgValue}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees,
                     path,
                     address(this),
@@ -398,10 +521,10 @@ contract IntentGateway is BaseIsmpModule {
             } else {
                 IERC20(feeToken).safeTransferFrom(msg.sender, address(this), order.fees);
             }
+
             _orders[commitment][TRANSACTION_FEES] = order.fees;
         }
 
-        _nonce += 1;
         emit OrderPlaced({
             user: order.user,
             sourceChain: order.sourceChain,
@@ -409,9 +532,9 @@ contract IntentGateway is BaseIsmpModule {
             deadline: order.deadline,
             nonce: order.nonce,
             fees: order.fees,
-            outputs: order.outputs,
+            predispatch: order.predispatch.assets,
             inputs: order.inputs,
-            callData: order.callData
+            outputs: order.outputs
         });
     }
 
@@ -433,6 +556,9 @@ contract IntentGateway is BaseIsmpModule {
         bytes32 commitment = keccak256(abi.encode(order));
         if (_filled[commitment] != address(0)) revert Filled();
 
+        // Ensure the order has not been cancelled
+        if (_cancellations[commitment]) revert Cancelled();
+
         // no sneaky replay attacks
         _filled[commitment] = msg.sender;
 
@@ -442,27 +568,36 @@ contract IntentGateway is BaseIsmpModule {
         for (uint256 i = 0; i < outputsLen; i++) {
             address token = address(uint160(uint256(order.outputs[i].token)));
             address beneficiary = address(uint160(uint256(order.outputs[i].beneficiary)));
+            uint256 amount = order.outputs[i].amount;
 
             if (token == address(0)) {
                 // native token
-                if (msgValue < order.outputs[i].amount) revert InsufficientNativeToken();
-                (bool sent, ) = beneficiary.call{value: order.outputs[i].amount}("");
+                if (msgValue < amount) revert InsufficientNativeToken();
+
+                // Send amount after fee to beneficiary
+                (bool sent, ) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
-                msgValue -= order.outputs[i].amount;
+
+                msgValue -= amount;
             } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, order.outputs[i].amount);
+                // Transfer full amount from filler
+                IERC20(token).safeTransferFrom(msg.sender, beneficiary, amount);
             }
         }
 
+        // dispatch calls if any
         if (order.callData.length > 0) {
             ICallDispatcher(_params.dispatcher).dispatch(order.callData);
         }
+
+        // Process inputs and collect protocol fees
+        TokenInfo[] memory inputs = _processInputsAndCollectFees(order);
 
         // construct settlement message
         bytes memory data = abi.encode(
             RequestBody({
                 commitment: commitment,
-                tokens: order.inputs,
+                tokens: inputs,
                 beneficiary: bytes32(uint256(uint160(msg.sender)))
             })
         );
@@ -481,14 +616,38 @@ contract IntentGateway is BaseIsmpModule {
             IDispatcher(hostAddr).dispatch{value: msgValue}(request);
         } else {
             // try to pay for dispatch with fee token
-            address feeToken = IDispatcher(hostAddr).feeToken();
-            uint256 fee = quote(request);
-            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
-            IERC20(feeToken).approve(hostAddr, fee);
-            IDispatcher(hostAddr).dispatch(request);
+            dispatchWithFeeToken(request, msg.sender);
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
+    }
+
+    /**
+     * @dev Internal function to process inputs and collect protocol fees
+     * @param order The order being filled
+     * @return inputs The token info array with amounts after protocol fee deduction
+     */
+    function _processInputsAndCollectFees(Order calldata order) internal returns (TokenInfo[] memory inputs) {
+        uint256 protocolFeeBps = _params.protocolFeeBps;
+        uint256 inputsLen = order.inputs.length;
+        inputs = new TokenInfo[](inputsLen);
+
+        for (uint256 i = 0; i < inputsLen; i++) {
+            address token = address(uint160(uint256(order.inputs[i].token)));
+            uint256 amount = order.inputs[i].amount;
+
+            // Calculate protocol fee
+            uint256 protocolFee = (amount * protocolFeeBps) / 10_000;
+            uint256 amountAfterFee = amount - protocolFee;
+
+            // Emit protocol fee collection event
+            if (protocolFee > 0) emit FeeCollected(token, protocolFee, order.sourceChain);
+
+            inputs[i] = TokenInfo({
+                token: order.inputs[i].token,
+                amount: amountAfterFee
+            });
+        }
     }
 
     /**
@@ -499,7 +658,7 @@ contract IntentGateway is BaseIsmpModule {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow) return redeem(incoming);
+        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) return redeem(incoming);
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -513,6 +672,24 @@ contract IntentGateway is BaseIsmpModule {
             emit ParamsUpdated({previous: _params, current: body});
 
             _params = body;
+        } else if (kind == RequestKind.CollectFees) {
+            CollectFees memory req = abi.decode(incoming.request.body[1:], (CollectFees));
+
+            uint256 outputsLen = req.outputs.length;
+            for (uint256 i = 0; i < outputsLen; i++) {
+                TokenInfo memory info = req.outputs[i];
+                address token = address(uint160(uint256(info.token)));
+                uint256 amount = info.amount;
+
+                if (token == address(0)) {
+                    (bool sent, ) = req.beneficiary.call{value: amount}("");
+                    if (!sent) revert InsufficientNativeToken();
+                } else {
+                    IERC20(token).safeTransfer(req.beneficiary, amount);
+                }
+
+                emit RevenueWithdrawn(token, amount, req.beneficiary);
+            }
         }
     }
 
@@ -552,7 +729,12 @@ contract IntentGateway is BaseIsmpModule {
 
         _filled[body.commitment] = incoming.relayer;
 
-        emit EscrowReleased({commitment: body.commitment});
+        RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
+        if (kind == RequestKind.RefundEscrow) {
+            emit EscrowRefunded({commitment: body.commitment});
+        } else {
+            emit EscrowReleased({commitment: body.commitment});
+        }
     }
 
     /**
@@ -609,12 +791,58 @@ contract IntentGateway is BaseIsmpModule {
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);
         } else {
             // try to pay for dispatch with fee token
-            address feeToken = IDispatcher(hostAddr).feeToken();
-            uint256 fee = quote(request);
-            IERC20(feeToken).safeTransferFrom(msg.sender, address(this), fee);
-            IDispatcher(hostAddr).dispatch(request);
+            dispatchWithFeeToken(request, msg.sender);
         }
     }
+
+    /**
+     * @notice Cancels a limit order to redeem escrowed tokens on the source chain.
+     * @param order The order to be canceled.
+     * @param options Additional options for the cancellation process.
+     * @dev This function can only be called by the order owner and only for limit orders
+     * It will immediately send a cross-chain request to redeem the escrowed tokens.
+     */
+    function cancelLimitOrder(Order calldata order, CancelOptions memory options) public payable {
+        // only owner can cancel order
+        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // order has already been filled
+        if (_filled[commitment] != address(0)) revert Filled();
+
+        // mark order as cancelled
+        _cancellations[commitment] = true;
+
+        // construct redemption request
+        bytes memory data = abi.encode(
+            RequestBody({
+                commitment: commitment,
+                tokens: order.inputs,
+                beneficiary: order.user
+            })
+        );
+
+        DispatchPost memory request = DispatchPost({
+            dest: order.sourceChain,
+            to: abi.encodePacked(instance(order.sourceChain)),
+            body: abi.encode(RequestKind.RefundEscrow, data),
+            timeout: 0,
+            fee: options.relayerFee,
+            payer: msg.sender
+        });
+
+        // dispatch redemption request
+        address hostAddr = host();
+        if (msg.value > 0) {
+            // there's some native tokens to pay for request dispatch
+            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+        } else {
+            // try to pay for dispatch with fee token
+            dispatchWithFeeToken(request, msg.sender);
+        }
+    }
+
 
     /**
      * @notice Handles the response for an incoming GET request.

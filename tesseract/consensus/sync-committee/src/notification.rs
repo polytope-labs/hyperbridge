@@ -24,7 +24,7 @@ pub struct EventResponse {
 pub async fn consensus_notification<
 	T: Config + Send + Sync + 'static,
 	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
 >(
 	client: &SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 	counterparty: Arc<dyn IsmpProvider>,

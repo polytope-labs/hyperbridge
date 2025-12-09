@@ -17,10 +17,9 @@ contract DeployScript is BaseScript {
     function run() external {
         vm.startBroadcast(uint256(privateKey));
 
-        address hostAddr = vm.envAddress(string.concat(host, "_HOST"));
-        address swapRouter = vm.envAddress(string.concat(host, "_SWAP_ROUTER"));
-        address quoter = vm.envAddress(string.concat(host, "_QUOTER"));
-        address uniswapV2 = IDispatcher(hostAddr).uniswapV2Router();
+        address swapRouter = config.get("SWAP_ROUTER").toAddress();
+        address quoter = config.get("QUOTER").toAddress();
+        address uniswapV2 = IDispatcher(HOST_ADDRESS).uniswapV2Router();
 
         UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
         wrapper.init(UniV3UniswapV2Wrapper.Params({

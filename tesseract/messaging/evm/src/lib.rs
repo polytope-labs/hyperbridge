@@ -68,8 +68,6 @@ pub struct EvmConfig {
 	pub ismp_host: H160,
 	/// Relayer account private key
 	pub signer: String,
-	/// Etherscan API key
-	pub etherscan_api_key: String,
 	/// Batch size to parallelize tracing
 	pub tracing_batch_size: Option<usize>,
 	/// Batch size when querying events
@@ -106,7 +104,6 @@ impl Default for EvmConfig {
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
 			signer: Default::default(),
-			etherscan_api_key: Default::default(),
 			tracing_batch_size: Default::default(),
 			query_batch_size: Default::default(),
 			poll_interval: Default::default(),

@@ -28372,7 +28372,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28506,7 +28506,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "anyhow",
  "arb-host",

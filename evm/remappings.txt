@@ -1,3 +1,4 @@
+@hyperbridge/core/=node_modules/@hyperbridge/core/contracts/
 @polytope-labs/ismp-solidity/=node_modules/@polytope-labs/ismp-solidity/interfaces/
 @polytope-labs/ismp-solidity-v1/=node_modules/@polytope-labs/ismp-solidity-v1/interfaces/
 @openzeppelin/=node_modules/openzeppelin-solidity

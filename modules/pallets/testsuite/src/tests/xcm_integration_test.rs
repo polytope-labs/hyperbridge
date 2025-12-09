@@ -54,7 +54,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let relay_client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
-	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
+	let relay_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 	println!("connecting to asset hub");
 	let assethub_url = std::env::var("ASSET_HUB_LOCAL_URL")
 		.ok()
@@ -74,6 +74,9 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 
 	force_open_hrmp_channel(&relay_client, &signer, 1000, 2000).await?;
 	force_open_hrmp_channel(&relay_client, &signer, 2000, 1000).await?;
+
+	println!("waiting for next session on relay chain");
+	wait_for_next_session(&relay_client, &relay_rpc).await?;
 
 	let sub = para_rpc.chain_subscribe_finalized_heads().await?;
 	let _block = sub
@@ -197,6 +200,45 @@ async fn force_open_hrmp_channel(
 	);
 	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![force_call.into_value()]);
 	send_extrinsic(relay_client, signer, &sudo_call, None).await?;
+
+	Ok(())
+}
+
+async fn wait_for_next_session(
+	relay_client: &OnlineClient<BlakeSubstrateChain>,
+	relay_rpc: &LegacyRpcMethods<BlakeSubstrateChain>,
+) -> anyhow::Result<()> {
+	// Get current session index
+	let current_session_query = subxt::dynamic::storage("Session", "CurrentIndex", ());
+	let current_session: u32 = relay_client
+		.storage()
+		.at_latest()
+		.await?
+		.fetch(&current_session_query)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to fetch current session index"))?
+		.as_type::<u32>()?;
+
+	println!("Current session: {}, waiting for next session...", current_session);
+
+	// Subscribe to finalized blocks and wait for session to increment
+	let mut sub = relay_rpc.chain_subscribe_finalized_heads().await?;
+
+	while let Some(res) = sub.next().await {
+		let header = res?;
+		let new_session: u32 = relay_client
+			.storage()
+			.at(header.hash_with(subxt::config::substrate::BlakeTwo256))
+			.fetch(&current_session_query)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch session index"))?
+			.as_type::<u32>()?;
+
+		if new_session > current_session {
+			println!("Session changed from {} to {}", current_session, new_session);
+			break;
+		}
+	}
 
 	Ok(())
 }

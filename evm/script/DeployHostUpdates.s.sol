@@ -26,38 +26,12 @@ contract DeployScript is BaseScript {
         // HandlerV1 handler = new HandlerV1();
         // BeefyV1 consensusClient = new BeefyV1{salt: salt}();
 
-        // if (host.toSlice().startsWith("ethereum".toSlice())) {
-        //     HostParams memory params = EvmHost(ETHEREUM_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(ETHEREUM_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
-        //     HostParams memory params = EvmHost(ARBITRUM_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(ARBITRUM_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("optimism".toSlice())) {
-        //     HostParams memory params = EvmHost(OPTIMISM_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(OPTIMISM_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("base".toSlice())) {
-        //     HostParams memory params = EvmHost(BASE_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(BASE_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("bsc".toSlice())) {
-        //     HostParams memory params = EvmHost(BNB_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(BNB_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("gnosis".toSlice())) {
-        //     HostParams memory params = EvmHost(GNOSIS_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(GNOSIS_HOST).updateHostParams(params);
-        // } else {
-        //     revert("Unknown Host");
-        // }
+        uint256 chainId = block.chainid;
+
+        HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
+        params.consensusClient = address(consensusClient);
+        // params.handler = address(handler);
+        EvmHost(HOST_ADDRESS).updateHostParams(params);
+       
     }
 }

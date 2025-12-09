@@ -264,9 +264,6 @@ rpc_urls = ["http://127.0.0.1:8545", "http://localhost:8545"]
 # for BSC this will be "BSC0".
 consensus_state_id = "ETH0"
 
-# Etherscan v2 api key,all evm chains  share the same etherscan api key
-etherscan_api_key = ""
-
 # The IsmpHost contract address on this chain
 ismp_host = ""
 
@@ -364,8 +361,6 @@ signer = ""
 ```
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
-
-You can obtain the required etherscan v2 API key by following [this guide](https://docs.etherscan.io/). All EVM chains share the same etherscan API key.
 
 ### RPC Requirements
 

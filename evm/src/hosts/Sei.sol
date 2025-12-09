@@ -14,26 +14,22 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-
-struct Call {
-    // contract to call
-    address to;
-    // value to send with the call
-    uint256 value;
-    // target contract calldata
-    bytes data;
-}
-
+import {EvmHost, HostParams} from "./EvmHost.sol";
 
 /**
- * @title The ICallDispatcher
+ * @title The SeiHost
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice This interface is used to dispatch untrusted call(s)
+ * @notice The IsmpHost and IsmpDispatcher implementation for the Sei state machine.
+ * Refer to the official ISMP specification. https://docs.hyperbridge.network/protocol/ismp
  */
-interface ICallDispatcher {
-    /*
-     * @dev Dispatch the encoded call(s)
-     */
-    function dispatch(bytes memory params) external;
+contract SeiHost is EvmHost {
+    constructor(HostParams memory params) EvmHost(params) {}
+
+    /// chainId for the Sei mainnet
+    uint256 public constant CHAIN_ID = 1329;
+
+    function chainId() public pure override returns (uint256) {
+        return CHAIN_ID;
+    }
 }

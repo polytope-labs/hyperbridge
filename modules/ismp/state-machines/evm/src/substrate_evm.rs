@@ -16,7 +16,7 @@
 //! Substrate EVM State Machine client implementation
 
 use crate::{prelude::*, req_res_commitment_key, req_res_receipt_keys};
-use alloc::{collections::BTreeMap, format};
+use alloc::{collections::BTreeMap, format, string::String};
 use codec::{Decode, Encode};
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},

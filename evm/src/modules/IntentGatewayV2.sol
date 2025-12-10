@@ -88,9 +88,9 @@ struct Order {
 }
 
 /**
- * @dev Request from hyperbridge for collecting protocol revenue
+ * @dev Request from hyperbridge for sweeping accumulated dust
  */
-struct CollectFees {
+struct SweepDust {
     /// @dev The address of the beneficiary of the protocol fee
     address beneficiary;
     /// @dev The tokens to be withdrawn
@@ -127,8 +127,10 @@ struct RequestBody {
  *      when filling an intent in the IntentGateway contract.
  */
 struct FillOptions {
-    /// @dev The fee paid to the relayer for processing transactions.
+    /// @dev The fee paid in feeTokens to the relayer for processing transactions.
     uint256 relayerFee;
+    /// @dev The fee paid in native tokens for cross-chain dispatch.
+    uint256 nativeDispatchFee;
     /// @dev The output tokens with amounts the solver is willing to give
     /// @dev Must be strictly >= the amounts requested in order.outputs
     /// @dev The difference is kept as protocol revenue
@@ -176,8 +178,8 @@ contract IntentGatewayV2 is HyperApp {
         UpdateParams,
         /// @dev Identifies a request for redeeming an escrow.
         RefundEscrow,
-        /// @dev Identifies a request for collecting fees.
-        CollectFees
+        /// @dev Identifies a request for sweeping accumulated dust
+        SweepDust
     }
 
     /**
@@ -331,14 +333,6 @@ contract IntentGatewayV2 is HyperApp {
     event DustCollected(address token, uint256 amount);
 
     /**
-     * @dev Emitted when protocol fee is collected from a filler.
-     * @param token The token contract address of the fee, address(0) for native currency.
-     * @param amount The amount of protocol fee collected.
-     * @param chain The chain where the funds are stored.
-     */
-    event FeeCollected(address token, uint256 amount, bytes chain);
-
-    /**
      * @dev Emitted when protocol revenue is withdrawn.
      * @param token The token contract address of the fee, address(0) for native currency.
      * @param amount The amount of protocol revenue collected.
@@ -417,7 +411,6 @@ contract IntentGatewayV2 is HyperApp {
 
     /**
      * @notice Places an order with the given order details.
-     * @notice Any predispatch swaps should be exact input swaps, allowing the contract to reap any excess tokens.
      * @dev This function allows users to place an order by providing the order details.
      * @param order The order details to be placed.
      */
@@ -571,7 +564,6 @@ contract IntentGatewayV2 is HyperApp {
 
     /**
      * @notice Fills an order with the specified options.
-     * @notice Any post dispatch swaps should be exact input swaps
      * @param order The order to be filled.
      * @param options The options to be used when filling the order.
      * @dev This function is payable and can accept Ether.
@@ -624,13 +616,12 @@ contract IntentGatewayV2 is HyperApp {
             if (options.outputs[i].token != order.outputs[i].token) revert InvalidInput();
             if (options.outputs[i].beneficiary != order.outputs[i].beneficiary) revert InvalidInput();
 
-            uint256 solverAmount = options.outputs[i].amount;
-
             // Ensure solver is providing at least the requested amount
+            uint256 solverAmount = options.outputs[i].amount;
             if (solverAmount < requestedAmount) revert InvalidInput();
 
             // Calculate protocol revenue (difference between what solver provides and what user requested)
-            uint256 protocolRevenue = solverAmount - requestedAmount;
+            uint256 dust = solverAmount - requestedAmount;
             if (token == address(0)) {
                 // native token
                 if (msgValue < solverAmount) revert InsufficientNativeToken();
@@ -640,21 +631,17 @@ contract IntentGatewayV2 is HyperApp {
                 if (!sent) revert InsufficientNativeToken();
 
                 msgValue -= solverAmount;
-
-                // Keep protocol revenue in the contract
-                if (protocolRevenue > 0) {
-                    emit FeeCollected(token, protocolRevenue, order.destChain);
-                }
             } else {
                 // Transfer requested amount to beneficiary
                 IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount);
 
                 // Transfer protocol revenue to this contract
-                if (protocolRevenue > 0) {
-                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolRevenue);
-                    emit FeeCollected(token, protocolRevenue, order.destChain);
+                if (dust > 0) {
+                    IERC20(token).safeTransferFrom(msg.sender, address(this), dust);
                 }
             }
+
+            if (dust > 0) emit DustCollected(token, dust);
         }
 
         if (order.postdispatch.call.length > 0 && order.postdispatch.assets.length > 0) {
@@ -683,9 +670,9 @@ contract IntentGatewayV2 is HyperApp {
         });
 
         // dispatch settlement message
-        if (msgValue > 0) {
+        if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
             // there's some native tokens left to pay for request dispatch
-            IDispatcher(hostAddr).dispatch{value: msgValue}(request);
+            IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
         } else {
             // try to pay for dispatch with fee token
             dispatchWithFeeToken(request, msg.sender);
@@ -716,8 +703,8 @@ contract IntentGatewayV2 is HyperApp {
             emit ParamsUpdated({previous: _params, current: body});
 
             _params = body;
-        } else if (kind == RequestKind.CollectFees) {
-            CollectFees memory req = abi.decode(incoming.request.body[1:], (CollectFees));
+        } else if (kind == RequestKind.SweepDust) {
+            SweepDust memory req = abi.decode(incoming.request.body[1:], (SweepDust));
 
             uint256 outputsLen = req.outputs.length;
             for (uint256 i = 0; i < outputsLen; i++) {
@@ -923,16 +910,15 @@ contract IntentGatewayV2 is HyperApp {
         emit EscrowRefunded({commitment: body.commitment});
     }
 
-    
     /**
-    * @notice Recovers the signer's address from an Ethereum signed message and signature
-    * @dev Uses ECDSA signature recovery via the ecrecover precompile. The signature must be 65 bytes
-    * (32 bytes for r, 32 bytes for s, and 1 byte for v). This function expects the message to already
-    * be prefixed with the Ethereum Signed Message header.
-    * @param ethSignedMessage The hash of the message that was signed, including the Ethereum signed message prefix
-    * @param signature The ECDSA signature in the format (r, s, v) as a 65-byte array
-    * @return The address of the signer who created the signature, or address(0) if recovery fails
-    */
+     * @notice Recovers the signer's address from an Ethereum signed message and signature
+     * @dev Uses ECDSA signature recovery via the ecrecover precompile. The signature must be 65 bytes
+     * (32 bytes for r, 32 bytes for s, and 1 byte for v). This function expects the message to already
+     * be prefixed with the Ethereum Signed Message header.
+     * @param ethSignedMessage The hash of the message that was signed, including the Ethereum signed message prefix
+     * @param signature The ECDSA signature in the format (r, s, v) as a 65-byte array
+     * @return The address of the signer who created the signature, or address(0) if recovery fails
+     */
     function _recoverSigner(bytes32 ethSignedMessage, bytes memory signature) internal pure returns (address) {
         require(signature.length == 65, "Invalid signature length");
 
@@ -947,5 +933,5 @@ contract IntentGatewayV2 is HyperApp {
         }
 
         return ecrecover(ethSignedMessage, v, r, s);
-    }    
+    }
 }

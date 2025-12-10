@@ -16,7 +16,7 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {IntentGatewayV2, Order, Params, TokenInfo, CollectFees, PaymentInfo, DispatchInfo, FillOptions} from "../src/modules/IntentGatewayV2.sol";
+import {IntentGatewayV2, Order, Params, TokenInfo, SweepDust, PaymentInfo, DispatchInfo, FillOptions} from "../src/modules/IntentGatewayV2.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -72,15 +72,22 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         deal(address(dai), filler, 10000 * 1e18);
     }
 
-    function _createFillOptions(PaymentInfo[] memory orderOutputs, uint256 relayerFee) internal pure returns (FillOptions memory) {
+    function _createFillOptions(
+        PaymentInfo[] memory orderOutputs,
+        uint256 relayerFee
+    ) internal pure returns (FillOptions memory) {
         PaymentInfo[] memory solverOutputs = new PaymentInfo[](orderOutputs.length);
         for (uint256 i = 0; i < orderOutputs.length; i++) {
             solverOutputs[i] = orderOutputs[i];
         }
-        return FillOptions({relayerFee: relayerFee, outputs: solverOutputs});
+        return FillOptions({relayerFee: relayerFee, nativeDispatchFee: 0, outputs: solverOutputs});
     }
 
-    function _createFillOptionsWithRevenue(PaymentInfo[] memory orderOutputs, uint256[] memory extraAmounts, uint256 relayerFee) internal pure returns (FillOptions memory) {
+    function _createFillOptionsWithRevenue(
+        PaymentInfo[] memory orderOutputs,
+        uint256[] memory extraAmounts,
+        uint256 relayerFee
+    ) internal pure returns (FillOptions memory) {
         require(orderOutputs.length == extraAmounts.length, "Mismatched array lengths");
         PaymentInfo[] memory solverOutputs = new PaymentInfo[](orderOutputs.length);
         for (uint256 i = 0; i < orderOutputs.length; i++) {
@@ -90,7 +97,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 beneficiary: orderOutputs[i].beneficiary
             });
         }
-        return FillOptions({relayerFee: relayerFee, outputs: solverOutputs});
+        return FillOptions({relayerFee: relayerFee, nativeDispatchFee: 0, outputs: solverOutputs});
     }
 
     function testPredispatchSwapWithUniswapV2() public {
@@ -355,11 +362,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertGt(dustAmount, 0, "Dust amount should be greater than 0");
     }
 
-    function testProtocolFeeBpsChargedToFiller() public {
-        // Test that protocol revenue is correctly collected when solver provides extra tokens
+    function testDustCollectionFromSingleToken() public {
+        // Test that dust is correctly collected when solver provides extra tokens
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 1000 * 1e18; // 1000 DAI
-        uint256 protocolRevenue = 3 * 1e18; // 3 DAI extra as protocol revenue
+        uint256 dust = 3 * 1e18; // 3 DAI extra as dust
 
         // Setup order
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -394,9 +401,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Filler fills order with extra tokens (protocol revenue)
+        // Filler fills order with extra tokens (dust)
         vm.startPrank(filler);
-        uint256 totalDaiAmount = outputAmount + protocolRevenue;
+        uint256 totalDaiAmount = outputAmount + dust;
         dai.approve(address(intentGateway), totalDaiAmount);
         // Approve fee token for dispatch costs
         dai.approve(address(intentGateway), type(uint256).max);
@@ -404,40 +411,40 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.recordLogs();
 
         uint256[] memory extraAmounts = new uint256[](1);
-        extraAmounts[0] = protocolRevenue;
+        extraAmounts[0] = dust;
         FillOptions memory fillOptions = _createFillOptionsWithRevenue(outputs, extraAmounts, 0);
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
 
-        // Check FeeCollected event was emitted with correct values
+        // Check DustCollected event was emitted with correct values
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bool eventFound = false;
-        uint256 feeAmountFromEvent = 0;
+        uint256 dustAmountFromEvent = 0;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("FeeCollected(address,uint256,bytes)")) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
                 eventFound = true;
                 // Decode event to verify values
-                (address token, uint256 amount, ) = abi.decode(entries[i].data, (address, uint256, bytes));
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
                 assertEq(token, address(dai), "Token should be DAI");
-                feeAmountFromEvent = amount;
+                dustAmountFromEvent = amount;
                 break;
             }
         }
 
-        assertTrue(eventFound, "FeeCollected event should be emitted");
-        assertEq(feeAmountFromEvent, protocolRevenue, "Protocol revenue amount should match expected");
+        assertTrue(eventFound, "DustCollected event should be emitted");
+        assertEq(dustAmountFromEvent, dust, "Dust amount should match expected");
     }
 
-    function testProtocolFeeWithMultipleTokens() public {
-        // Test protocol revenue event collection with multiple output tokens
+    function testDustCollectionFromMultipleTokens() public {
+        // Test dust collection with multiple output tokens
         uint256 inputAmount = 1000 * 1e6;
 
         uint256 usdcOutputAmount = 1000 * 1e6;
         uint256 daiOutputAmount = 1000 * 1e18;
-        uint256 usdcRevenue = 5 * 1e6; // 5 USDC extra
-        uint256 daiRevenue = 5 * 1e18; // 5 DAI extra
+        uint256 usdcDust = 5 * 1e6; // 5 USDC extra
+        uint256 daiDust = 5 * 1e18; // 5 DAI extra
 
         // Setup order with single input
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -477,49 +484,49 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Filler fills order with extra tokens (protocol revenue)
+        // Filler fills order with extra tokens (dust)
         vm.startPrank(filler);
-        usdc.approve(address(intentGateway), usdcOutputAmount + usdcRevenue);
-        dai.approve(address(intentGateway), daiOutputAmount + daiRevenue);
+        usdc.approve(address(intentGateway), usdcOutputAmount + usdcDust);
+        dai.approve(address(intentGateway), daiOutputAmount + daiDust);
         // Approve fee token for dispatch costs
         dai.approve(address(intentGateway), type(uint256).max);
 
         vm.recordLogs();
 
         uint256[] memory extraAmounts = new uint256[](2);
-        extraAmounts[0] = usdcRevenue;
-        extraAmounts[1] = daiRevenue;
+        extraAmounts[0] = usdcDust;
+        extraAmounts[1] = daiDust;
         FillOptions memory fillOptions = _createFillOptionsWithRevenue(outputs, extraAmounts, 0);
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
 
-        // Verify two FeeCollected events were emitted with correct values
+        // Verify two DustCollected events were emitted with correct values
         Vm.Log[] memory entries = vm.getRecordedLogs();
-        uint256 protocolFeeEventCount = 0;
-        bool usdcFeeFound = false;
-        bool daiFeeFound = false;
+        uint256 dustEventCount = 0;
+        bool usdcDustFound = false;
+        bool daiDustFound = false;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("FeeCollected(address,uint256,bytes)")) {
-                protocolFeeEventCount++;
-                (address token, uint256 amount, ) = abi.decode(entries[i].data, (address, uint256, bytes));
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustEventCount++;
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
 
-                if (token == address(usdc) && amount == usdcRevenue) {
-                    usdcFeeFound = true;
-                } else if (token == address(dai) && amount == daiRevenue) {
-                    daiFeeFound = true;
+                if (token == address(usdc) && amount == usdcDust) {
+                    usdcDustFound = true;
+                } else if (token == address(dai) && amount == daiDust) {
+                    daiDustFound = true;
                 }
             }
         }
 
-        assertEq(protocolFeeEventCount, 2, "Should emit two FeeCollected events");
-        assertTrue(usdcFeeFound, "USDC revenue event not found");
-        assertTrue(daiFeeFound, "DAI revenue event not found");
+        assertEq(dustEventCount, 2, "Should emit two DustCollected events");
+        assertTrue(usdcDustFound, "USDC dust event not found");
+        assertTrue(daiDustFound, "DAI dust event not found");
     }
 
-    function testNoProtocolFeeWhenBpsIsZero() public {
-        // Test that no protocol revenue is collected when solver provides exact amount
+    function testNoDustCollectionWhenExactAmount() public {
+        // Test that no dust is collected when solver provides exact amount
         IntentGatewayV2 zeroFeeGateway = new IntentGatewayV2(address(this));
 
         Params memory zeroFeeParams = Params({
@@ -576,12 +583,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.stopPrank();
 
-        // No FeeCollected event should be emitted when solver provides exact amounts
+        // No DustCollected event should be emitted when solver provides exact amounts
         Vm.Log[] memory entries = vm.getRecordedLogs();
         for (uint256 i = 0; i < entries.length; i++) {
             assertTrue(
-                entries[i].topics[0] != keccak256("FeeCollected(address,uint256,bytes)"),
-                "FeeCollected event should not be emitted when no protocol revenue"
+                entries[i].topics[0] != keccak256("DustCollected(address,uint256)"),
+                "DustCollected event should not be emitted when no dust"
             );
         }
     }
@@ -646,8 +653,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    function testCollectProtocolFeesERC20() public {
-        // Simulate accumulated protocol fees in the gateway
+    function testSweepDustERC20() public {
+        // Simulate accumulated dust in the gateway
         uint256 feeAmount = 1000 * 1e6;
 
         // Transfer tokens to gateway instead of using deal
@@ -659,20 +666,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputs = new TokenInfo[](1);
         outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: feeAmount // Collect exact amount
+            amount: feeAmount // Sweep exact amount
         });
 
-        CollectFees memory collectFeesReq = CollectFees({beneficiary: treasury, outputs: outputs});
+        SweepDust memory sweepDustReq = SweepDust({beneficiary: treasury, outputs: outputs});
 
-        // Create collect fees request from hyperbridge
-        bytes memory data = abi.encode(collectFeesReq);
+        // Create sweep dust request from hyperbridge
+        bytes memory data = abi.encode(sweepDustReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
             from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
             to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -684,11 +691,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Verify gateway has the funds before collection
         assertEq(gatewayBalanceBefore, feeAmount, "Gateway should have funds before collection");
 
-        // Execute fee collection
+        // Execute dust sweep
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
-        // Verify fees were transferred
+        // Verify dust was transferred
         assertEq(usdc.balanceOf(treasury) - treasuryBalanceBefore, feeAmount, "Treasury should receive protocol fees");
         assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway should have no USDC left");
 
@@ -704,8 +711,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(eventFound, "RevenueWithdrawn event should be emitted");
     }
 
-    function testCollectProtocolFeesNative() public {
-        // Simulate accumulated ETH fees
+    function testSweepDustNative() public {
+        // Simulate accumulated ETH dust
         uint256 feeAmount = 1 ether;
         vm.deal(address(intentGateway), feeAmount);
 
@@ -713,32 +720,32 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputs = new TokenInfo[](1);
         outputs[0] = TokenInfo({token: bytes32(0), amount: feeAmount});
 
-        CollectFees memory collectFeesReq = CollectFees({beneficiary: treasury, outputs: outputs});
+        SweepDust memory sweepDustReq = SweepDust({beneficiary: treasury, outputs: outputs});
 
-        bytes memory data = abi.encode(collectFeesReq);
+        bytes memory data = abi.encode(sweepDustReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
             from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
             to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
         uint256 treasuryBalanceBefore = treasury.balance;
 
-        // Verify gateway has the funds before collection
-        assertEq(address(intentGateway).balance, feeAmount, "Gateway should have ETH before collection");
+        // Verify gateway has the funds before sweep
+        assertEq(address(intentGateway).balance, feeAmount, "Gateway should have ETH before sweep");
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
-        assertEq(treasury.balance - treasuryBalanceBefore, feeAmount, "Treasury should receive ETH fees");
+        assertEq(treasury.balance - treasuryBalanceBefore, feeAmount, "Treasury should receive ETH dust");
         assertEq(address(intentGateway).balance, 0, "Gateway should have no ETH left");
     }
 
-    function testCollectMultipleTokenFees() public {
+    function testSweepMultipleTokenDust() public {
         // Fund gateway with multiple tokens
         uint256 usdcAmount = 500 * 1e6;
         uint256 daiAmount = 1000 * 1e18;
@@ -757,16 +764,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         outputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
         outputs[2] = TokenInfo({token: bytes32(0), amount: ethAmount});
 
-        CollectFees memory collectFeesReq = CollectFees({beneficiary: treasury, outputs: outputs});
+        SweepDust memory sweepDustReq = SweepDust({beneficiary: treasury, outputs: outputs});
 
-        bytes memory data = abi.encode(collectFeesReq);
+        bytes memory data = abi.encode(sweepDustReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
             from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
             to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -782,7 +789,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
-        // Verify all fees were collected
+        // Verify all dust was swept
         assertEq(usdc.balanceOf(treasury) - usdcBalanceBefore, usdcAmount, "Treasury should receive USDC");
         assertEq(dai.balanceOf(treasury) - daiBalanceBefore, daiAmount, "Treasury should receive DAI");
         assertEq(treasury.balance - ethBalanceBefore, ethAmount, "Treasury should receive ETH");
@@ -793,7 +800,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(address(intentGateway).balance, 0, "Gateway ETH should be 0");
     }
 
-    function testCollectPartialFees() public {
+    function testSweepPartialDust() public {
         // Fund gateway with tokens
         uint256 totalAmount = 1000 * 1e6;
         uint256 collectAmount = 300 * 1e6;
@@ -806,19 +813,19 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputs = new TokenInfo[](1);
         outputs[0] = TokenInfo({
             token: bytes32(uint256(uint160(address(usdc)))),
-            amount: collectAmount // Collect specific amount
+            amount: collectAmount // Sweep specific amount
         });
 
-        CollectFees memory collectFeesReq = CollectFees({beneficiary: treasury, outputs: outputs});
+        SweepDust memory sweepDustReq = SweepDust({beneficiary: treasury, outputs: outputs});
 
-        bytes memory data = abi.encode(collectFeesReq);
+        bytes memory data = abi.encode(sweepDustReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
             from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
             to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -827,7 +834,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
-        // Verify partial collection
+        // Verify partial sweep
         assertEq(
             usdc.balanceOf(treasury) - treasuryBalanceBefore,
             collectAmount,
@@ -836,7 +843,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(address(intentGateway)), totalAmount - collectAmount, "Gateway should keep remainder");
     }
 
-    function testCollectFeesUnauthorized() public {
+    function testSweepDustUnauthorized() public {
         // Fund gateway
         vm.prank(user);
         usdc.transfer(address(intentGateway), 1000 * 1e6);
@@ -845,9 +852,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputs = new TokenInfo[](1);
         outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
 
-        CollectFees memory collectFeesReq = CollectFees({beneficiary: treasury, outputs: outputs});
+        SweepDust memory sweepDustReq = SweepDust({beneficiary: treasury, outputs: outputs});
 
-        bytes memory data = abi.encode(collectFeesReq);
+        bytes memory data = abi.encode(sweepDustReq);
 
         // Request NOT from hyperbridge
         PostRequest memory request = PostRequest({
@@ -856,7 +863,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             nonce: 0,
             from: abi.encodePacked(bytes32(uint256(uint160(address(0x1234))))),
             to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -865,7 +872,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
     }
 
-    function testCollectFeesExceedsBalance() public {
+    function testSweepDustExceedsBalance() public {
         // Fund gateway with less than requested
         uint256 actualBalance = 100 * 1e6;
         uint256 requestedAmount = 1000 * 1e6;
@@ -881,16 +888,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: requestedAmount // Request more than available
         });
 
-        CollectFees memory collectFeesReq = CollectFees({beneficiary: treasury, outputs: outputs});
+        SweepDust memory sweepDustReq = SweepDust({beneficiary: treasury, outputs: outputs});
 
-        bytes memory data = abi.encode(collectFeesReq);
+        bytes memory data = abi.encode(sweepDustReq);
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
             from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
             to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.CollectFees)), data),
+            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -966,10 +973,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // compatibility with all ERC20 token implementations.
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 1000 * 1e18; // 1000 DAI
-
-        // Setup postdispatch that does nothing but specifies USDC as expected asset
-        // This will cause the sweep to try to transfer 0 USDC from dispatcher
-        Call[] memory postdispatchCalls = new Call[](0); // No actual calls
 
         // Specify USDC as expected output, but dispatcher will have 0 balance
         TokenInfo[] memory postdispatchAssets = new TokenInfo[](1);

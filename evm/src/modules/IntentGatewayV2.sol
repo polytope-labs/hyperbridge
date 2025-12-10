@@ -133,7 +133,6 @@ struct FillOptions {
     uint256 nativeDispatchFee;
     /// @dev The output tokens with amounts the solver is willing to give
     /// @dev Must be strictly >= the amounts requested in order.outputs
-    /// @dev The difference is kept as protocol revenue
     PaymentInfo[] outputs;
 }
 
@@ -326,19 +325,19 @@ contract IntentGatewayV2 is HyperApp {
     event NewDeploymentAdded(bytes stateMachineId, bytes32 gateway);
 
     /**
-     * @dev Emitted when some dust is collected from predispatch swaps.
+     * @dev Emitted when some dust tokens are accrued.
      * @param token The token contract address of the dust, address(0) for native currency.
      * @param amount The amount of dust collected.
      */
     event DustCollected(address token, uint256 amount);
 
     /**
-     * @dev Emitted when protocol revenue is withdrawn.
+     * @dev Emitted when some dust tokens are swept.
      * @param token The token contract address of the fee, address(0) for native currency.
-     * @param amount The amount of protocol revenue collected.
+     * @param amount The amount of dust to be swept.
      * @param beneficiary The beneficiary of the funds
      */
-    event RevenueWithdrawn(address token, uint256 amount, address beneficiary);
+    event DustSwept(address token, uint256 amount, address beneficiary);
 
     constructor(address admin) {
         _admin = admin;
@@ -620,7 +619,6 @@ contract IntentGatewayV2 is HyperApp {
             uint256 solverAmount = options.outputs[i].amount;
             if (solverAmount < requestedAmount) revert InvalidInput();
 
-            // Calculate protocol revenue (difference between what solver provides and what user requested)
             uint256 dust = solverAmount - requestedAmount;
             if (token == address(0)) {
                 // native token
@@ -632,10 +630,7 @@ contract IntentGatewayV2 is HyperApp {
 
                 msgValue -= solverAmount;
             } else {
-                // Transfer requested amount to beneficiary
                 IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount);
-
-                // Transfer protocol revenue to this contract
                 if (dust > 0) {
                     IERC20(token).safeTransferFrom(msg.sender, address(this), dust);
                 }
@@ -719,7 +714,7 @@ contract IntentGatewayV2 is HyperApp {
                     IERC20(token).safeTransfer(req.beneficiary, amount);
                 }
 
-                emit RevenueWithdrawn(token, amount, req.beneficiary);
+                emit DustSwept(token, amount, req.beneficiary);
             }
         }
     }

@@ -83,7 +83,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         return FillOptions({relayerFee: relayerFee, nativeDispatchFee: 0, outputs: solverOutputs});
     }
 
-    function _createFillOptionsWithRevenue(
+    function _createFillOptionsWithDust(
         PaymentInfo[] memory orderOutputs,
         uint256[] memory extraAmounts,
         uint256 relayerFee
@@ -412,7 +412,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         uint256[] memory extraAmounts = new uint256[](1);
         extraAmounts[0] = dust;
-        FillOptions memory fillOptions = _createFillOptionsWithRevenue(outputs, extraAmounts, 0);
+        FillOptions memory fillOptions = _createFillOptionsWithDust(outputs, extraAmounts, 0);
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -496,7 +496,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256[] memory extraAmounts = new uint256[](2);
         extraAmounts[0] = usdcDust;
         extraAmounts[1] = daiDust;
-        FillOptions memory fillOptions = _createFillOptionsWithRevenue(outputs, extraAmounts, 0);
+        FillOptions memory fillOptions = _createFillOptionsWithDust(outputs, extraAmounts, 0);
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -699,16 +699,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(treasury) - treasuryBalanceBefore, feeAmount, "Treasury should receive protocol fees");
         assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway should have no USDC left");
 
-        // Verify RevenueWithdrawn event was emitted
+        // Verify DustSwept event was emitted
         Vm.Log[] memory entries = vm.getRecordedLogs();
         bool eventFound = false;
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("RevenueWithdrawn(address,uint256,address)")) {
+            if (entries[i].topics[0] == keccak256("DustSwept(address,uint256,address)")) {
                 eventFound = true;
                 break;
             }
         }
-        assertTrue(eventFound, "RevenueWithdrawn event should be emitted");
+        assertTrue(eventFound, "DustSwept event should be emitted");
     }
 
     function testSweepDustNative() public {

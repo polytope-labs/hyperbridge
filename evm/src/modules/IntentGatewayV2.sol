@@ -628,7 +628,7 @@ contract IntentGatewayV2 is HyperApp {
                 (bool sent, ) = beneficiary.call{value: requestedAmount}("");
                 if (!sent) revert InsufficientNativeToken();
 
-                msgValue -= solverAmount;
+                msgValue -= requestedAmount;
             } else {
                 IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount);
                 if (dust > 0) {

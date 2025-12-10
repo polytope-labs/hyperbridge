@@ -401,6 +401,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
+        // Record gateway DAI balance before fill
+        uint256 gatewayDaiBalanceBefore = dai.balanceOf(address(intentGateway));
+        uint256 userDaiBalanceBefore = dai.balanceOf(user);
+
         // Filler fills order with extra tokens (dust)
         vm.startPrank(filler);
         uint256 totalDaiAmount = outputAmount + dust;
@@ -416,6 +420,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
+
+        // Verify user received exact requested amount
+        assertEq(
+            dai.balanceOf(user) - userDaiBalanceBefore,
+            outputAmount,
+            "User should receive exactly the requested amount"
+        );
+
+        // Verify gateway collected the exact dust amount
+        assertEq(
+            dai.balanceOf(address(intentGateway)) - gatewayDaiBalanceBefore,
+            dust,
+            "Gateway should hold exactly the dust amount"
+        );
 
         // Check DustCollected event was emitted with correct values
         Vm.Log[] memory entries = vm.getRecordedLogs();
@@ -434,7 +452,100 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         }
 
         assertTrue(eventFound, "DustCollected event should be emitted");
-        assertEq(dustAmountFromEvent, dust, "Dust amount should match expected");
+        assertEq(dustAmountFromEvent, dust, "Event dust amount should match expected");
+    }
+
+    function testDustCollectionFromNativeToken() public {
+        // Test that dust is correctly collected when solver provides extra native tokens
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 outputAmount = 1 ether; // 1 ETH
+        uint256 dust = 0.1 ether; // 0.1 ETH extra as dust
+
+        // Setup order
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        PaymentInfo[] memory outputs = new PaymentInfo[](1);
+        outputs[0] = PaymentInfo({
+            token: bytes32(0), // Native token
+            amount: outputAmount,
+            beneficiary: bytes32(uint256(uint160(user)))
+        });
+
+        DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            sourceChain: host.host(),
+            destChain: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: predispatch,
+            inputs: inputs,
+            outputs: outputs,
+            postdispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""})
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Record gateway ETH balance before fill
+        uint256 gatewayEthBalanceBefore = address(intentGateway).balance;
+        uint256 userEthBalanceBefore = user.balance;
+
+        // Filler fills order with extra native tokens (dust)
+        vm.startPrank(filler);
+        uint256 totalEthAmount = outputAmount + dust;
+        // Approve fee token for dispatch costs
+        dai.approve(address(intentGateway), type(uint256).max);
+
+        vm.recordLogs();
+
+        uint256[] memory extraAmounts = new uint256[](1);
+        extraAmounts[0] = dust;
+        FillOptions memory fillOptions = _createFillOptionsWithDust(outputs, extraAmounts, 0);
+        intentGateway.fillOrder{value: totalEthAmount}(order, fillOptions);
+
+        vm.stopPrank();
+
+        // Verify user received exact requested amount
+        assertEq(
+            user.balance - userEthBalanceBefore,
+            outputAmount,
+            "User should receive exactly the requested ETH amount"
+        );
+
+        // Verify gateway collected the exact dust amount
+        assertEq(
+            address(intentGateway).balance - gatewayEthBalanceBefore,
+            dust,
+            "Gateway should hold exactly the ETH dust amount"
+        );
+
+        // Check DustCollected event was emitted with correct values
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool eventFound = false;
+        uint256 dustAmountFromEvent = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                // Decode event to verify values
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                if (token == address(0)) {
+                    eventFound = true;
+                    dustAmountFromEvent = amount;
+                    break;
+                }
+            }
+        }
+
+        assertTrue(eventFound, "DustCollected event should be emitted for native token");
+        assertEq(dustAmountFromEvent, dust, "Event dust amount should match expected");
     }
 
     function testDustCollectionFromMultipleTokens() public {

@@ -48,11 +48,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Deploy IntentGatewayV2
         intentGateway = new IntentGatewayV2(address(this));
 
-        // Set params with protocol fee
+        // Set params
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
-            protocolFeeBps: PROTOCOL_FEE_BPS
+            solverSelection: false
         });
         intentGateway.setParams(intentParams);
 
@@ -72,19 +72,44 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         deal(address(dai), filler, 10000 * 1e18);
     }
 
+    function _createFillOptions(PaymentInfo[] memory orderOutputs, uint256 relayerFee) internal pure returns (FillOptions memory) {
+        PaymentInfo[] memory solverOutputs = new PaymentInfo[](orderOutputs.length);
+        for (uint256 i = 0; i < orderOutputs.length; i++) {
+            solverOutputs[i] = orderOutputs[i];
+        }
+        return FillOptions({relayerFee: relayerFee, outputs: solverOutputs});
+    }
+
+    function _createFillOptionsWithRevenue(PaymentInfo[] memory orderOutputs, uint256[] memory extraAmounts, uint256 relayerFee) internal pure returns (FillOptions memory) {
+        require(orderOutputs.length == extraAmounts.length, "Mismatched array lengths");
+        PaymentInfo[] memory solverOutputs = new PaymentInfo[](orderOutputs.length);
+        for (uint256 i = 0; i < orderOutputs.length; i++) {
+            solverOutputs[i] = PaymentInfo({
+                token: orderOutputs[i].token,
+                amount: orderOutputs[i].amount + extraAmounts[i],
+                beneficiary: orderOutputs[i].beneficiary
+            });
+        }
+        return FillOptions({relayerFee: relayerFee, outputs: solverOutputs});
+    }
+
     function testPredispatchSwapWithUniswapV2() public {
         // Test scenario: User wants to swap 1 ETH for DAI using UniswapV2, then escrow the DAI
         uint256 ethAmount = 1 ether;
-        uint256 expectedDaiAmount = 2000 * 1e18; // Approximate amount, adjust based on current prices
 
         // Prepare predispatch call to swap ETH -> DAI via UniswapV2
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = address(dai);
 
+        // Get quote for expected output
+        uint256[] memory amounts = _uniswapV2Router.getAmountsOut(ethAmount, path);
+        uint256 expectedDaiAmount = amounts[1];
+        uint256 minDaiAmount = (expectedDaiAmount * 95) / 100; // 5% slippage tolerance
+
         bytes memory swapCalldata = abi.encodeWithSelector(
             _uniswapV2Router.swapExactETHForTokens.selector,
-            0, // amountOutMin (set to 0 for test)
+            minDaiAmount,
             path,
             address(dispatcher),
             block.timestamp + 3600
@@ -122,6 +147,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: 0,
             nonce: 0, // Will be set by contract
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -227,6 +253,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: 0,
             nonce: 0,
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -252,15 +279,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testProtocolDustCollection() public {
         // Test that excess tokens from swaps are collected as dust
         uint256 ethAmount = 1 ether;
-        uint256 requestedDaiAmount = 1500 * 1e18; // Request less than what swap will return
 
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = address(dai);
 
+        // Get quote for expected output
+        uint256[] memory amounts = _uniswapV2Router.getAmountsOut(ethAmount, path);
+        uint256 expectedDaiFromSwap = amounts[1];
+        uint256 requestedDaiAmount = (expectedDaiFromSwap * 80) / 100; // Request only 80% to create dust
+        uint256 minDaiAmount = (expectedDaiFromSwap * 95) / 100; // 5% slippage tolerance
+
         bytes memory swapCalldata = abi.encodeWithSelector(
             _uniswapV2Router.swapExactETHForTokens.selector,
-            0,
+            minDaiAmount,
             path,
             address(dispatcher),
             block.timestamp + 3600
@@ -291,6 +323,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: 0,
             nonce: 0,
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -323,12 +356,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testProtocolFeeBpsChargedToFiller() public {
-        // Test that protocol fee event is correctly emitted when filler fills order
+        // Test that protocol revenue is correctly collected when solver provides extra tokens
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 outputAmount = 1000 * 1e18; // 1000 DAI
-
-        // Calculate expected protocol fee (30 BPS = 0.3%)
-        uint256 expectedProtocolFee = (inputAmount * PROTOCOL_FEE_BPS) / 10_000;
+        uint256 protocolRevenue = 3 * 1e18; // 3 DAI extra as protocol revenue
 
         // Setup order
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -350,6 +381,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -362,15 +394,18 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Filler fills order
+        // Filler fills order with extra tokens (protocol revenue)
         vm.startPrank(filler);
-        dai.approve(address(intentGateway), outputAmount);
+        uint256 totalDaiAmount = outputAmount + protocolRevenue;
+        dai.approve(address(intentGateway), totalDaiAmount);
         // Approve fee token for dispatch costs
         dai.approve(address(intentGateway), type(uint256).max);
 
         vm.recordLogs();
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0});
+        uint256[] memory extraAmounts = new uint256[](1);
+        extraAmounts[0] = protocolRevenue;
+        FillOptions memory fillOptions = _createFillOptionsWithRevenue(outputs, extraAmounts, 0);
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -385,33 +420,38 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 eventFound = true;
                 // Decode event to verify values
                 (address token, uint256 amount, ) = abi.decode(entries[i].data, (address, uint256, bytes));
-                assertEq(token, address(usdc), "Token should be USDC");
+                assertEq(token, address(dai), "Token should be DAI");
                 feeAmountFromEvent = amount;
                 break;
             }
         }
 
         assertTrue(eventFound, "FeeCollected event should be emitted");
-        assertEq(feeAmountFromEvent, expectedProtocolFee, "Protocol fee amount should match expected");
+        assertEq(feeAmountFromEvent, protocolRevenue, "Protocol revenue amount should match expected");
     }
 
     function testProtocolFeeWithMultipleTokens() public {
-        // Test protocol fee event collection with multiple input tokens
-        uint256 usdcAmount = 1000 * 1e6;
-        uint256 daiAmount = 1000 * 1e18;
+        // Test protocol revenue event collection with multiple output tokens
+        uint256 inputAmount = 1000 * 1e6;
 
-        uint256 expectedUsdcFee = (usdcAmount * PROTOCOL_FEE_BPS) / 10_000;
-        uint256 expectedDaiFee = (daiAmount * PROTOCOL_FEE_BPS) / 10_000;
+        uint256 usdcOutputAmount = 1000 * 1e6;
+        uint256 daiOutputAmount = 1000 * 1e18;
+        uint256 usdcRevenue = 5 * 1e6; // 5 USDC extra
+        uint256 daiRevenue = 5 * 1e18; // 5 DAI extra
 
-        // Setup order with multiple inputs
-        TokenInfo[] memory inputs = new TokenInfo[](2);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
-        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
+        // Setup order with single input
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
 
-        PaymentInfo[] memory outputs = new PaymentInfo[](1);
+        PaymentInfo[] memory outputs = new PaymentInfo[](2);
         outputs[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: usdcOutputAmount,
+            beneficiary: bytes32(uint256(uint160(user)))
+        });
+        outputs[1] = PaymentInfo({
             token: bytes32(uint256(uint160(address(dai)))),
-            amount: 2000 * 1e18,
+            amount: daiOutputAmount,
             beneficiary: bytes32(uint256(uint160(user)))
         });
 
@@ -424,6 +464,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -432,20 +473,23 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // User places order
         vm.startPrank(user);
-        usdc.approve(address(intentGateway), usdcAmount);
-        dai.approve(address(intentGateway), daiAmount);
+        usdc.approve(address(intentGateway), inputAmount);
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Filler fills order
+        // Filler fills order with extra tokens (protocol revenue)
         vm.startPrank(filler);
-        dai.approve(address(intentGateway), 2000 * 1e18);
+        usdc.approve(address(intentGateway), usdcOutputAmount + usdcRevenue);
+        dai.approve(address(intentGateway), daiOutputAmount + daiRevenue);
         // Approve fee token for dispatch costs
         dai.approve(address(intentGateway), type(uint256).max);
 
         vm.recordLogs();
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0});
+        uint256[] memory extraAmounts = new uint256[](2);
+        extraAmounts[0] = usdcRevenue;
+        extraAmounts[1] = daiRevenue;
+        FillOptions memory fillOptions = _createFillOptionsWithRevenue(outputs, extraAmounts, 0);
         intentGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
@@ -461,27 +505,27 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 protocolFeeEventCount++;
                 (address token, uint256 amount, ) = abi.decode(entries[i].data, (address, uint256, bytes));
 
-                if (token == address(usdc) && amount == expectedUsdcFee) {
+                if (token == address(usdc) && amount == usdcRevenue) {
                     usdcFeeFound = true;
-                } else if (token == address(dai) && amount == expectedDaiFee) {
+                } else if (token == address(dai) && amount == daiRevenue) {
                     daiFeeFound = true;
                 }
             }
         }
 
         assertEq(protocolFeeEventCount, 2, "Should emit two FeeCollected events");
-        assertTrue(usdcFeeFound, "USDC fee event not found");
-        assertTrue(daiFeeFound, "DAI fee event not found");
+        assertTrue(usdcFeeFound, "USDC revenue event not found");
+        assertTrue(daiFeeFound, "DAI revenue event not found");
     }
 
     function testNoProtocolFeeWhenBpsIsZero() public {
-        // Deploy a new IntentGateway with 0 BPS
+        // Test that no protocol revenue is collected when solver provides exact amount
         IntentGatewayV2 zeroFeeGateway = new IntentGatewayV2(address(this));
 
         Params memory zeroFeeParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
-            protocolFeeBps: 0 // No protocol fee
+            solverSelection: false
         });
         zeroFeeGateway.setParams(zeroFeeParams);
 
@@ -506,6 +550,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -526,17 +571,17 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.recordLogs();
 
-        FillOptions memory fillOptions = FillOptions({relayerFee: 0});
+        FillOptions memory fillOptions = _createFillOptions(outputs, 0);
         zeroFeeGateway.fillOrder(order, fillOptions);
 
         vm.stopPrank();
 
-        // No FeeCollected event should be emitted
+        // No FeeCollected event should be emitted when solver provides exact amounts
         Vm.Log[] memory entries = vm.getRecordedLogs();
         for (uint256 i = 0; i < entries.length; i++) {
             assertTrue(
                 entries[i].topics[0] != keccak256("FeeCollected(address,uint256,bytes)"),
-                "FeeCollected event should not be emitted"
+                "FeeCollected event should not be emitted when no protocol revenue"
             );
         }
     }
@@ -544,15 +589,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testPredispatchFailsWithInsufficientBalance() public {
         // Test that predispatch reverts if swap doesn't produce enough tokens
         uint256 ethAmount = 0.01 ether; // Very small amount
-        uint256 unrealisticDaiAmount = 10000 * 1e18; // Unrealistically high expectation
 
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = address(dai);
 
+        // Get quote for expected output
+        uint256[] memory amounts = _uniswapV2Router.getAmountsOut(ethAmount, path);
+        uint256 expectedDaiFromSwap = amounts[1];
+        uint256 unrealisticDaiAmount = expectedDaiFromSwap * 10; // Request 10x more than possible
+        uint256 minDaiAmount = (expectedDaiFromSwap * 95) / 100; // 5% slippage tolerance
+
         bytes memory swapCalldata = abi.encodeWithSelector(
             _uniswapV2Router.swapExactETHForTokens.selector,
-            0,
+            minDaiAmount,
             path,
             address(dispatcher),
             block.timestamp + 3600
@@ -583,6 +633,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             deadline: 0,
             nonce: 0,
             fees: 0,
+            session: address(0),
             predispatch: predispatch,
             inputs: inputs,
             outputs: outputs,
@@ -847,5 +898,126 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         vm.expectRevert();
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    function testFillOrderWithNoPostdispatch() public {
+        // Test that fillOrder works correctly when there's no postdispatch calldata
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 outputAmount = 1000 * 1e18; // 1000 DAI
+
+        // Setup order with no postdispatch
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        PaymentInfo[] memory outputs = new PaymentInfo[](1);
+        outputs[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(dai)))),
+            amount: outputAmount,
+            beneficiary: bytes32(uint256(uint160(user)))
+        });
+
+        DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            sourceChain: host.host(),
+            destChain: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: predispatch,
+            inputs: inputs,
+            outputs: outputs,
+            postdispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""})
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Filler fills order with no postdispatch in dispatcher
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+
+        uint256 userDaiBalanceBefore = dai.balanceOf(user);
+
+        FillOptions memory fillOptions = _createFillOptions(outputs, 0);
+        intentGateway.fillOrder(order, fillOptions);
+
+        vm.stopPrank();
+
+        // Verify user received DAI
+        assertEq(dai.balanceOf(user) - userDaiBalanceBefore, outputAmount, "User should receive output amount");
+    }
+
+    function testPostdispatchZeroBalanceSweep() public {
+        // Test edge case: postdispatch specifies an asset but dispatcher has 0 balance
+        // This tests that the contract correctly handles sweeping 0 ERC20 tokens
+        //
+        // ISSUE FOUND & FIXED: Some ERC20 tokens revert on 0-value transfers.
+        // The contract now checks if (balance > 0) before adding transfer calls,
+        // avoiding potential reverts with tokens that reject 0-value transfers.
+        //
+        // Fixed behavior: The contract only creates transfer calls for non-zero balances,
+        // skipping unnecessary 0-value transfers entirely. This saves gas and ensures
+        // compatibility with all ERC20 token implementations.
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 outputAmount = 1000 * 1e18; // 1000 DAI
+
+        // Setup postdispatch that does nothing but specifies USDC as expected asset
+        // This will cause the sweep to try to transfer 0 USDC from dispatcher
+        Call[] memory postdispatchCalls = new Call[](0); // No actual calls
+
+        // Specify USDC as expected output, but dispatcher will have 0 balance
+        TokenInfo[] memory postdispatchAssets = new TokenInfo[](1);
+        postdispatchAssets[0] = TokenInfo({
+            token: bytes32(uint256(uint160(address(usdc)))),
+            amount: 0 // Expecting 0 USDC
+        });
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        // Filler sends DAI to dispatcher
+        PaymentInfo[] memory outputs = new PaymentInfo[](1);
+        outputs[0] = PaymentInfo({
+            token: bytes32(uint256(uint160(address(dai)))),
+            amount: outputAmount,
+            beneficiary: bytes32(uint256(uint160(address(dispatcher))))
+        });
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            sourceChain: host.host(),
+            destChain: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            outputs: outputs,
+            postdispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""})
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Filler fills order
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+
+        // When dispatcher has 0 USDC, no transfer call is created
+        // This ensures compatibility with all ERC20 tokens, including those that
+        // revert on 0-value transfers. The fix also saves gas by avoiding unnecessary calls.
+        intentGateway.fillOrder(order, _createFillOptions(outputs, 0));
+
+        vm.stopPrank();
     }
 }

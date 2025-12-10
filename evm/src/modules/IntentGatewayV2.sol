@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.24;
 
 import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
@@ -73,6 +73,8 @@ struct Order {
     uint256 nonce;
     /// @dev Represents the dispatch fees associated with the IntentGateway.
     uint256 fees;
+    /// @dev Optional session key used to select winning solver.
+    address session;
     /// @dev The predispatch information for the order
     /// This is used to encode any calls before the order is placed
     DispatchInfo predispatch;
@@ -103,8 +105,8 @@ struct Params {
     address host;
     /// @dev Address of the dispatcher contract responsible for handling intents.
     address dispatcher;
-    /// @dev Protocol fee in basis points (BPS) deducted from filler-provided tokens
-    uint256 protocolFeeBps;
+    /// @dev Flag indicating whether solver selection is enabled.
+    bool solverSelection;
 }
 
 /**
@@ -127,6 +129,10 @@ struct RequestBody {
 struct FillOptions {
     /// @dev The fee paid to the relayer for processing transactions.
     uint256 relayerFee;
+    /// @dev The output tokens with amounts the solver is willing to give
+    /// @dev Must be strictly >= the amounts requested in order.outputs
+    /// @dev The difference is kept as protocol revenue
+    PaymentInfo[] outputs;
 }
 
 /**
@@ -411,6 +417,7 @@ contract IntentGatewayV2 is HyperApp {
 
     /**
      * @notice Places an order with the given order details.
+     * @notice Any predispatch swaps should be exact input swaps, allowing the contract to reap any excess tokens.
      * @dev This function allows users to place an order by providing the order details.
      * @param order The order details to be placed.
      */
@@ -536,94 +543,140 @@ contract IntentGatewayV2 is HyperApp {
     }
 
     /**
+     * @dev Called by the solver to prove they've been selected by the user
+     * @param commitment The order commitment hash
+     * @param sessionSignature The signature from the session key that signed (commitment, solverAddress)
+     */
+    function select(bytes32 commitment, bytes memory sessionSignature) public {
+        // Verify that the session key signed (commitment, msg.sender)
+        bytes32 message = keccak256(abi.encodePacked(commitment, msg.sender));
+        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
+
+        // Recover the signer from the signature
+        address sessionKey = _recoverSigner(ethSignedMessage, sessionSignature);
+
+        // Store the solver address (msg.sender) in transient storage mapped to the commitment
+        bytes32 solver = bytes32(uint256(uint160(msg.sender)));
+        assembly {
+            tstore(commitment, solver)
+        }
+
+        // Store the session key in transient storage at commitment + 1
+        bytes32 sessionKeyBytes = bytes32(uint256(uint160(sessionKey)));
+        bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+        assembly {
+            tstore(sessionSlot, sessionKeyBytes)
+        }
+    }
+
+    /**
      * @notice Fills an order with the specified options.
+     * @notice Any post dispatch swaps should be exact input swaps
      * @param order The order to be filled.
      * @param options The options to be used when filling the order.
      * @dev This function is payable and can accept Ether.
      */
     function fillOrder(Order calldata order, FillOptions memory options) public payable {
+        // Ensure the order has not expired
+        if (order.deadline < block.number) revert Expired();
+        bytes32 commitment = keccak256(abi.encode(order));
+        if (_params.solverSelection) {
+            bytes32 solver;
+            assembly {
+                solver := tload(commitment)
+            }
+            if (address(uint160(uint256(solver))) != msg.sender) revert Unauthorized();
+
+            // Verify the session key stored in transient storage matches the order's session key
+            bytes32 storedSessionKey;
+            bytes32 sessionSlot = bytes32(uint256(commitment) + 1);
+            assembly {
+                storedSessionKey := tload(sessionSlot)
+            }
+
+            if (address(uint160(uint256(storedSessionKey))) != order.session) revert Unauthorized();
+        }
+
         address hostAddr = host();
         // Ensure the order is being filled on the correct chain
         if (keccak256(order.destChain) != keccak256(IDispatcher(hostAddr).host())) revert WrongChain();
-
-        // Ensure the order has not expired
-        if (order.deadline < block.number) revert Expired();
-
         // Ensure the order has not been filled
-        bytes32 commitment = keccak256(abi.encode(order));
         if (_filled[commitment] != address(0)) revert Filled();
 
         // Ensure the order has not been cancelled
         if (_cancellations[commitment]) revert Cancelled();
+
+        // Validate that solver outputs are provided and match order outputs length
+        uint256 outputsLen = order.outputs.length;
+        if (options.outputs.length != outputsLen) revert InvalidInput();
 
         // no sneaky replay attacks
         _filled[commitment] = msg.sender;
 
         // fill the order
         uint256 msgValue = msg.value;
-        uint256 outputsLen = order.outputs.length;
-
         for (uint256 i = 0; i < outputsLen; i++) {
             address token = address(uint160(uint256(order.outputs[i].token)));
             address beneficiary = address(uint160(uint256(order.outputs[i].beneficiary)));
-            uint256 amount = order.outputs[i].amount;
+            uint256 requestedAmount = order.outputs[i].amount;
 
+            // Verify that solver's output matches the order output token and beneficiary
+            if (options.outputs[i].token != order.outputs[i].token) revert InvalidInput();
+            if (options.outputs[i].beneficiary != order.outputs[i].beneficiary) revert InvalidInput();
+
+            uint256 solverAmount = options.outputs[i].amount;
+
+            // Ensure solver is providing at least the requested amount
+            if (solverAmount < requestedAmount) revert InvalidInput();
+
+            // Calculate protocol revenue (difference between what solver provides and what user requested)
+            uint256 protocolRevenue = solverAmount - requestedAmount;
             if (token == address(0)) {
                 // native token
-                if (msgValue < amount) revert InsufficientNativeToken();
+                if (msgValue < solverAmount) revert InsufficientNativeToken();
 
-                // Send amount after fee to beneficiary
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                // Send requested amount to beneficiary
+                (bool sent, ) = beneficiary.call{value: requestedAmount}("");
                 if (!sent) revert InsufficientNativeToken();
 
-                msgValue -= amount;
+                msgValue -= solverAmount;
+
+                // Keep protocol revenue in the contract
+                if (protocolRevenue > 0) {
+                    emit FeeCollected(token, protocolRevenue, order.destChain);
+                }
             } else {
-                // Transfer full amount from filler
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, amount);
+                // Transfer requested amount to beneficiary
+                IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount);
+
+                // Transfer protocol revenue to this contract
+                if (protocolRevenue > 0) {
+                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolRevenue);
+                    emit FeeCollected(token, protocolRevenue, order.destChain);
+                }
             }
         }
 
         if (order.postdispatch.call.length > 0 && order.postdispatch.assets.length > 0) {
             address callDispatcher = _params.dispatcher;
             ICallDispatcher(callDispatcher).dispatch(order.postdispatch.call);
-
-            uint256 postdispatchLen = order.postdispatch.assets.length;
-            Call[] memory calls = new Call[](postdispatchLen);
-
-            // collect excess tokens from postdispatch
-            for (uint256 i = 0; i < postdispatchLen; i++) {
-                address token = address(uint160(uint256(order.postdispatch.assets[i].token)));
-                uint256 balance;
-
-                if (token == address(0)) {
-                    balance = address(callDispatcher).balance;
-                    calls[i] = Call({to: address(this), value: balance, data: ""});
-                } else {
-                    balance = IERC20(token).balanceOf(callDispatcher);
-                    calls[i] = Call({
-                        to: token,
-                        value: 0,
-                        data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
-                    });
-                }
-
-                if (balance > 0) emit DustCollected(token, balance);
-            }
-
-            ICallDispatcher(callDispatcher).dispatch(abi.encode(calls));
         }
 
-        // Process inputs and collect protocol fees
-        TokenInfo[] memory inputs = _processInputsAndCollectFees(order);
-
         // construct settlement message
-        bytes memory data = abi.encode(
-            RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))})
+        bytes memory body = bytes.concat(
+            bytes1(uint8(RequestKind.RedeemEscrow)),
+            abi.encode(
+                RequestBody({
+                    commitment: commitment,
+                    tokens: order.inputs,
+                    beneficiary: bytes32(uint256(uint160(msg.sender)))
+                })
+            )
         );
         DispatchPost memory request = DispatchPost({
             dest: order.sourceChain,
             to: abi.encodePacked(address(uint160(uint256(instance(order.sourceChain))))),
-            body: bytes.concat(bytes1(uint8(RequestKind.RedeemEscrow)), data),
+            body: body,
             timeout: 0,
             fee: options.relayerFee,
             payer: msg.sender
@@ -639,31 +692,6 @@ contract IntentGatewayV2 is HyperApp {
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
-    }
-
-    /**
-     * @dev Internal function to process inputs and collect protocol fees
-     * @param order The order being filled
-     * @return inputs The token info array with amounts after protocol fee deduction
-     */
-    function _processInputsAndCollectFees(Order calldata order) internal returns (TokenInfo[] memory inputs) {
-        uint256 protocolFeeBps = _params.protocolFeeBps;
-        uint256 inputsLen = order.inputs.length;
-        inputs = new TokenInfo[](inputsLen);
-
-        for (uint256 i = 0; i < inputsLen; i++) {
-            address token = address(uint160(uint256(order.inputs[i].token)));
-            uint256 amount = order.inputs[i].amount;
-
-            // Calculate protocol fee
-            uint256 protocolFee = (amount * protocolFeeBps) / 10_000;
-            uint256 amountAfterFee = amount - protocolFee;
-
-            // Emit protocol fee collection event
-            if (protocolFee > 0) emit FeeCollected(token, protocolFee, order.sourceChain);
-
-            inputs[i] = TokenInfo({token: order.inputs[i].token, amount: amountAfterFee});
-        }
     }
 
     /**
@@ -894,4 +922,30 @@ contract IntentGatewayV2 is HyperApp {
 
         emit EscrowRefunded({commitment: body.commitment});
     }
+
+    
+    /**
+    * @notice Recovers the signer's address from an Ethereum signed message and signature
+    * @dev Uses ECDSA signature recovery via the ecrecover precompile. The signature must be 65 bytes
+    * (32 bytes for r, 32 bytes for s, and 1 byte for v). This function expects the message to already
+    * be prefixed with the Ethereum Signed Message header.
+    * @param ethSignedMessage The hash of the message that was signed, including the Ethereum signed message prefix
+    * @param signature The ECDSA signature in the format (r, s, v) as a 65-byte array
+    * @return The address of the signer who created the signature, or address(0) if recovery fails
+    */
+    function _recoverSigner(bytes32 ethSignedMessage, bytes memory signature) internal pure returns (address) {
+        require(signature.length == 65, "Invalid signature length");
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+
+        assembly {
+            r := mload(add(signature, 32))
+            s := mload(add(signature, 64))
+            v := byte(0, mload(add(signature, 96)))
+        }
+
+        return ecrecover(ethSignedMessage, v, r, s);
+    }    
 }

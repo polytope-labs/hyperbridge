@@ -52,7 +52,7 @@ pub const PASSET_HUB_TESTNET_PARA_ID: u32 = 1111;
 /// AssetHub mainnet para ID
 pub const ASSET_HUB_MAINNET_PARA_ID: u32 = 1000;
 
-/// The Evm state machine provider that resolves to a `StateMachineClient`
+/// The state machine provider that resolves to a `StateMachineClient`
 pub trait ParachainStateMachineProvider<T> {
 	/// Returns the `StateMachineClient` for a given para_id.
 	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;
@@ -65,11 +65,9 @@ impl<T: pallet_ismp::Config> ParachainStateMachineProvider<T> for () {
 }
 
 /// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>, P = ()>(
-	PhantomData<(T, R, S, P)>,
-);
+pub struct ParachainConsensusClient<T, R, S = ()>(PhantomData<(T, R, S)>);
 
-impl<T, R, S, P> Default for ParachainConsensusClient<T, R, S, P> {
+impl<T, R, S> Default for ParachainConsensusClient<T, R, S> {
 	fn default() -> Self {
 		Self(PhantomData)
 	}
@@ -94,12 +92,11 @@ pub const POLKADOT_CONSENSUS_ID: ConsensusStateId = *b"DOT0";
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`] on Paseo
 pub const PASEO_CONSENSUS_ID: ConsensusStateId = *b"PAS0";
 
-impl<T, R, S, P> ConsensusClient for ParachainConsensusClient<T, R, S, P>
+impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
 	R: RelayChainOracle,
 	T: pallet_ismp::Config + super::Config,
-	S: StateMachineClient + From<StateMachine> + 'static,
-	P: ParachainStateMachineProvider<T> + 'static,
+	S: ParachainStateMachineProvider<T> + 'static,
 {
 	fn verify_consensus(
 		&self,
@@ -236,18 +233,7 @@ where
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		let para_id = match id {
-			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
-			_ => Err(Error::Custom(
-				"State Machine is not supported by this consensus client".to_string(),
-			))?,
-		};
-
-		if !Parachains::<T>::contains_key(&para_id) {
-			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
-		}
-
-		P::state_machine(id)
+		S::state_machine(id)
 	}
 }
 

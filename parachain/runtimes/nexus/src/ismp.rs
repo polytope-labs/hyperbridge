@@ -47,6 +47,8 @@ use sp_runtime::Permill;
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
+use evm_state_machine::SubstrateEvmStateMachine;
+use ismp::consensus::StateMachineClient;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -134,6 +136,23 @@ impl WeightToFee for IsmpWeightToFee {
 	}
 }
 
+pub struct ParachainStateMachineProvider;
+
+impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		let para_id = match id {
+			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
+			_ => return Err(Error::Custom("Unknown state machine".to_string())),
+		};
+
+		if para_id == ismp_parachain::ASSET_HUB_MAINNET_PARA_ID {
+			return Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
+		}
+
+		Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id)))
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EitherOfDiverse<
 		WhitelistedCaller,
@@ -156,7 +175,6 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 			(),
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<

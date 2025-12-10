@@ -118,7 +118,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 			return Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
 		}
 
-		Ok(Box::new(SubstrateStateMachine::<Runtime>::from(id)))
+		Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id)))
 	}
 }
 
@@ -137,7 +137,6 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
 			ParachainStateMachineProvider,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<

@@ -7,5 +7,9 @@
 @uniswap/v2-periphery/=node_modules/@uniswap/v2-periphery
 @uniswap/v3-periphery/=node_modules/@uniswap/v3-periphery
 @uniswap/v3-core/=node_modules/@uniswap/v3-core
+@uniswap/v4-core/=node_modules/@uniswap/v4-core
+@uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery
+@uniswap/universal-router/=node_modules/@uniswap/universal-router
+@uniswap/swap-router-contracts/=node_modules/@uniswap/swap-router-contracts
 stringutils/=lib/solidity-stringutils/src/
 @sp1-contracts/=lib/sp1-contracts/contracts/src/

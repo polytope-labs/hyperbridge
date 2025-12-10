@@ -350,6 +350,10 @@ default-features = false
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
 
+[workspace.dependencies.ethers-solc]
+git = "https://github.com/polytope-labs/ethers-rs"
+rev = "45239225c50247e049892125d281442c084a2a92"
+
 [workspace.dependencies.forge-testsuite]
 git = "https://github.com/polytope-labs/forge-testsuite"
 rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"

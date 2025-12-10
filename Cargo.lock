@@ -10788,7 +10788,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "ethers",
  "ethers-contract-abigen",
- "forge-testsuite",
+ "ethers-solc",
  "ismp",
  "mmr-primitives",
  "polkadot-sdk",

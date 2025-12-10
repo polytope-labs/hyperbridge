@@ -53,23 +53,23 @@ pub const PASSET_HUB_TESTNET_PARA_ID: u32 = 1111;
 pub const ASSET_HUB_MAINNET_PARA_ID: u32 = 1000;
 
 /// The Evm state machine provider that resolves to a `StateMachineClient`
-pub trait EvmStateMachineProvider {
+pub trait ParachainStateMachineProvider<T> {
 	/// Returns the `StateMachineClient` for a given para_id.
-	fn state_machine(para_id: u32) -> Option<Box<dyn StateMachineClient>>;
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;
 }
 
-impl EvmStateMachineProvider for () {
-	fn state_machine(_para_id: u32) -> Option<Box<dyn StateMachineClient>> {
-		None
+impl<T: pallet_ismp::Config> ParachainStateMachineProvider<T> for () {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		Ok(Box::new(SubstrateStateMachine::<T>::from(id)))
 	}
 }
 
 /// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>, E = ()>(
-	PhantomData<(T, R, S, E)>,
+pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>, P = ()>(
+	PhantomData<(T, R, S, P)>,
 );
 
-impl<T, R, S, E> Default for ParachainConsensusClient<T, R, S, E> {
+impl<T, R, S, P> Default for ParachainConsensusClient<T, R, S, P> {
 	fn default() -> Self {
 		Self(PhantomData)
 	}
@@ -94,12 +94,12 @@ pub const POLKADOT_CONSENSUS_ID: ConsensusStateId = *b"DOT0";
 /// [`ConsensusClientId`] for [`ParachainConsensusClient`] on Paseo
 pub const PASEO_CONSENSUS_ID: ConsensusStateId = *b"PAS0";
 
-impl<T, R, S, E> ConsensusClient for ParachainConsensusClient<T, R, S, E>
+impl<T, R, S, P> ConsensusClient for ParachainConsensusClient<T, R, S, P>
 where
 	R: RelayChainOracle,
 	T: pallet_ismp::Config + super::Config,
 	S: StateMachineClient + From<StateMachine> + 'static,
-	E: EvmStateMachineProvider + 'static,
+	P: ParachainStateMachineProvider<T> + 'static,
 {
 	fn verify_consensus(
 		&self,
@@ -247,11 +247,7 @@ where
 			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
 		}
 
-		if let Some(state_machine) = E::state_machine(para_id) {
-			return Ok(state_machine)
-		}
-
-		Ok(Box::new(S::from(id)))
+		P::state_machine(id)
 	}
 }
 

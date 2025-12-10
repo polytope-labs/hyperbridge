@@ -47,6 +47,7 @@ use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
+use substrate_state_machine::SubstrateStateMachine;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -104,17 +105,20 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
-pub struct EvmStateMachineProvider;
+pub struct ParachainStateMachineProvider;
 
-impl ismp_parachain::EvmStateMachineProvider for EvmStateMachineProvider {
-	fn state_machine(para_id: u32) -> Option<Box<dyn StateMachineClient>> {
-		if para_id == ismp_parachain::PASSET_HUB_TESTNET_PARA_ID ||
-			para_id == ismp_parachain::ASSET_HUB_MAINNET_PARA_ID
-		{
-			return Some(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
+impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		let para_id = match id {
+			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
+			_ => return Err(Error::Custom("Unknown state machine".to_string())),
+		};
+
+		if para_id == ismp_parachain::PASSET_HUB_TESTNET_PARA_ID {
+			return Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
 		}
 
-		None
+		Ok(Box::new(SubstrateStateMachine::<Runtime>::from(id)))
 	}
 }
 
@@ -134,7 +138,7 @@ impl pallet_ismp::Config for Runtime {
 			Runtime,
 			IsmpParachain,
 			HyperbridgeClientMachine<Runtime, Ismp, ()>,
-			EvmStateMachineProvider,
+			ParachainStateMachineProvider,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,

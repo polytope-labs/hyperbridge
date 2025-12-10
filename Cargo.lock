@@ -8256,6 +8256,7 @@ dependencies = [
  "serde_json",
  "simnode-runtime-api",
  "smallvec",
+ "substrate-state-machine",
  "substrate-wasm-builder",
 ]
 

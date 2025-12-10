@@ -14,7 +14,7 @@ use pallet_ismp_host_executive::HostParam;
 use polkadot_sdk::*;
 use primitive_types::U256;
 use sp_core::{Bytes, H160, H256, hashing, storage::ChildInfo};
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use subxt::{
 	config::{ExtrinsicParams, HashFor},
 	ext::subxt_rpcs::rpc_params,
@@ -67,15 +67,20 @@ where
 		hashing::blake2_256(slot.as_bytes()).to_vec()
 	}
 
+	pub fn contract_info_key(&self, address: H160) -> Vec<u8> {
+		let mut key = Vec::new();
+		key.extend_from_slice(&hashing::twox_128(b"Revive"));
+		key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
+		key.extend_from_slice(address.as_bytes());
+		key
+	}
+
 	pub async fn get_contract_trie_id(
 		&self,
 		address: H160,
 		at: HashFor<C>,
 	) -> Result<Vec<u8>, Error> {
-		let mut key = Vec::new();
-		key.extend_from_slice(&hashing::twox_128(b"Revive"));
-		key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
-		key.extend_from_slice(address.as_bytes());
+		let key = self.contract_info_key(address);
 
 		let data = self
 			.substrate
@@ -96,8 +101,11 @@ where
 	}
 
 	/// Fetches a combined prrof: Main Trie (ContractInfo + ChildRoot) amd Child Trie (Slots)
-	async fn fetch_combined_proof(&self, at: u64, keys: Vec<Vec<u8>>) -> Result<Vec<u8>, Error> {
-		let contract_address: H160 = self.evm.config.ismp_host;
+	async fn fetch_combined_proof(
+		&self,
+		at: u64,
+		queries: Vec<(H160, Vec<Vec<u8>>)>,
+	) -> Result<Vec<u8>, Error> {
 		let block_hash = self
 			.substrate
 			.rpc
@@ -105,34 +113,52 @@ where
 			.await?
 			.ok_or_else(|| anyhow::anyhow!("Block hash not found for height {at}"))?;
 
-		let trie_id = self.get_contract_trie_id(contract_address, block_hash).await?;
-		let mut account_info_key = Vec::new();
-		account_info_key.extend_from_slice(&hashing::twox_128(b"Revive"));
-		account_info_key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
-		account_info_key.extend_from_slice(contract_address.as_bytes());
+		let mut main_keys = Vec::new();
+		let mut contract_info = BTreeMap::new();
 
-		let child_info = ChildInfo::new_default(&trie_id);
-		let child_root_key = child_info.prefixed_storage_key().into_inner();
+		for (contract_address, _) in queries {
+			let trie_id = self.get_contract_trie_id(contract_address, block_hash).await?;
+			let account_info_key = self.contract_info_key(contract_address);
 
-		let main_keys = vec![account_info_key, child_root_key];
+			let child_info = ChildInfo::new_default(&trie_id);
+			let child_root_key = child_info.prefixed_storage_key().into_inner();
+
+			main_keys.push(account_info_key);
+			main_keys.push(child_root_key);
+
+			contract_info.insert(contract_address.as_bytes().to_vec(), child_info)
+		}
 
 		let main_proof: ReadProof<H256> = self
 			.substrate
 			.rpc_client
 			.request("state_getReadProof", rpc_params![main_keys, Some(block_hash)])
 			.await?;
-		let child_proof: ReadProof<H256> = self
-			.substrate
-			.rpc_client
-			.request(
-				"state_getChildReadProof",
-				rpc_params![child_info.prefixed_storage_key(), keys, Some(block_hash)],
-			)
-			.await?;
 
+		let mut storage_proofs = Vec::new();
+
+		for (contract_address, keys) in queries {
+			let child_info = contract_info
+				.get(contract_address.as_bytes())
+				.expect("Contract Info should exist");
+
+			let child_proof: ReadProof<H256> = self
+				.substrate
+				.rpc_client
+				.request(
+					"state_getChildReadProof",
+					rpc_params![child_info.prefixed_storage_key(), keys, Some(block_hash)],
+				)
+				.await?;
+
+			storage_proofs.insert(
+				contract_address.as_bytes().to_vec(),
+				child_proof.proof.into_iter().map(|b| b.0).collect(),
+			);
+		}
 		let substrate_evm_proof = SubstrateEvmProof {
 			main_proof: main_proof.proof.into_iter().map(|b| b.0).collect(),
-			child_proof: child_proof.proof.into_iter().map(|b| b.0).collect(),
+			storage_proof: storage_proofs,
 		};
 
 		Ok(substrate_evm_proof.encode())
@@ -204,7 +230,8 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, storage_keys).await
+		self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
+			.await
 	}
 
 	async fn query_responses_proof(
@@ -224,7 +251,8 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, storage_keys).await
+		self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
+			.await
 	}
 
 	async fn query_state_proof(
@@ -232,22 +260,24 @@ where
 		at: u64,
 		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: H160 = self.evm.config.ismp_host;
-
-		let storage_keys: Vec<Vec<u8>> = match keys {
+		match keys {
 			StateProofQueryType::Ismp(keys) => {
 				if keys.iter().any(|key| key.len() != 32) {
 					return Err(anyhow::anyhow!("All ISMP keys must have a length of 32 bytes",));
 				}
-				keys.into_iter()
+				let storage_keys: Vec<Vec<u8>> = keys
+					.into_iter()
 					.map(|key| {
 						let slot = H256::from_slice(&key);
 						self.storage_key(slot)
 					})
-					.collect()
+					.collect();
+
+				self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
+					.await
 			},
 			StateProofQueryType::Arbitrary(keys) => {
-				let mut storage_keys = Vec::new();
+				let mut groups: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();
 				for key in keys.into_iter() {
 					if key.len() != 52 {
 						anyhow::bail!(
@@ -255,14 +285,15 @@ where
 							key.len()
 						);
 					}
+					let address = H160::from_slice(&key[..20]);
 					let slot = H256::from_slice(&key[20..]);
-					storage_keys.push(self.storage_key(slot));
-				}
-				storage_keys
-			},
-		};
+					let storage_key = self.storage_key(slot);
 
-		self.fetch_combined_proof(at, storage_keys).await
+					groups.entry(address).or_default().push(storage_key);
+				}
+				self.fetch_combined_proof(at, groups.into_iter().collect()).await
+			},
+		}
 	}
 
 	async fn query_ismp_events(

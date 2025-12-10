@@ -52,6 +52,7 @@ ismp-polygon = { workspace = true }
 ismp-tendermint = { workspace = true }
 pallet-messaging-fees = { workspace = true }
 evm-state-machine = { workspace = true }
+substrate-state-machine = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -152,7 +153,8 @@ std = [
     "ismp-polygon/std",
     "ismp-tendermint/std",
     "pallet-messaging-fees/std",
-    "evm-state-machine/std"
+    "evm-state-machine/std",
+    "substrate-state-machine/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

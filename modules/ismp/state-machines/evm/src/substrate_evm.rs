@@ -15,7 +15,7 @@
 
 //! Substrate EVM State Machine client implementation
 
-use crate::{prelude::*, req_res_commitment_key, req_res_receipt_keys};
+use crate::{prelude::*, req_res_commitment_key, req_res_receipt_keys, types::SubstrateEvmProof};
 use alloc::{
 	collections::BTreeMap,
 	format,
@@ -60,6 +60,10 @@ pub enum SubstrateEvmError {
 	ChildTrieError(String),
 	#[error("Key {0:?} not found in child trie")]
 	KeyNotFound(Vec<u8>),
+	#[error("Invalid key length: {0}")]
+	InvalidKeyLength(usize),
+	#[error("Storage proof missing for contract {0:?}")]
+	StorageProofMissing(Vec<u8>),
 }
 
 impl From<SubstrateEvmError> for Error {
@@ -67,16 +71,6 @@ impl From<SubstrateEvmError> for Error {
 		Error::Custom(e.to_string())
 	}
 }
-
-/// Proof structure for Substrate EVM verification
-#[derive(Decode, Encode)]
-pub struct SubstrateEvmProof {
-	/// Proof of the Contract AccountInfo and the Child Trie Root in the Main State Trie
-	pub main_proof: Vec<Vec<u8>>,
-	/// Proof of the Storage Slots in the Contract's Child Trie
-	pub child_proof: Vec<Vec<u8>>,
-}
-
 /// The contract info
 #[derive(Decode)]
 pub struct ContractInfo {
@@ -148,7 +142,12 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let storage_keys: Vec<Vec<u8>> =
 			keys.into_iter().map(|k| hashing::blake2_256(&k).to_vec()).collect();
 
-		Ok(verify_child_trie_membership::<H>(child_root, &proof.child_proof, storage_keys)?)
+		let storage_proof = proof
+			.storage_proof
+			.get(contract_address.as_bytes())
+			.ok_or(SubstrateEvmError::StorageProofMissing(contract_address.as_bytes().to_vec()))?;
+
+		Ok(verify_child_trie_membership::<H>(child_root, storage_proof, storage_keys)?)
 	}
 
 	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>> {
@@ -162,7 +161,7 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		root: StateCommitment,
 		proof: &Proof,
 	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
-		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+		let ismp_host_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or(SubstrateEvmError::IsmpContractNotFound)?;
 
 		let proof: SubstrateEvmProof =
@@ -170,24 +169,52 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 		let state_root = H256::from_slice(&root.state_root[..]);
 
-		let contract_info_key = contract_info_key(contract_address);
-		let trie_id =
-			fetch_trie_id_from_main_proof::<H>(&proof.main_proof, state_root, &contract_info_key)?;
-
-		let child_root =
-			fetch_child_root_from_main_proof::<H>(&proof.main_proof, state_root, &trie_id)?;
-
-		let storage_keys: Vec<Vec<u8>> =
-			keys.iter().map(|k| hashing::blake2_256(k).to_vec()).collect();
-
-		let values = verify_child_trie_values::<H>(child_root, &proof.child_proof, storage_keys)?;
-
-		let mut map = BTreeMap::new();
-		for (key, value) in keys.into_iter().zip(values.into_iter()) {
-			map.insert(key, value);
+		let mut contract_keys: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();
+		for key in keys {
+			let address = if key.len() == 52 {
+				H160::from_slice(&key[..20])
+			} else if key.len() == 32 {
+				ismp_host_address
+			} else {
+				return Err(SubstrateEvmError::InvalidKeyLength(key.len()).into());
+			};
+			contract_keys.entry(address).or_default().push(key);
 		}
 
-		Ok(map)
+		let mut result_map = BTreeMap::new();
+
+		for (address, keys) in contract_keys {
+			let contract_info_key = contract_info_key(address);
+			let trie_id = fetch_trie_id_from_main_proof::<H>(
+				&proof.main_proof,
+				state_root,
+				&contract_info_key,
+			)?;
+
+			let child_root =
+				fetch_child_root_from_main_proof::<H>(&proof.main_proof, state_root, &trie_id)?;
+
+			let storage_proof = proof
+				.storage_proof
+				.get(address.as_bytes())
+				.ok_or(SubstrateEvmError::StorageProofMissing(address.as_bytes().to_vec()))?;
+
+			let storage_keys: Vec<Vec<u8>> = keys
+				.iter()
+				.map(|k| {
+					let slot = if k.len() == 52 { &k[20..] } else { &k[..] };
+					hashing::blake2_256(slot).to_vec()
+				})
+				.collect();
+
+			let values = verify_child_trie_values::<H>(child_root, storage_proof, storage_keys)?;
+
+			for (key, value) in keys.into_iter().zip(values.into_iter()) {
+				result_map.insert(key, value);
+			}
+		}
+
+		Ok(result_map)
 	}
 }
 

@@ -57,7 +57,7 @@ pub struct SubstrateEvmProof {
 	/// Proof of the Contract AccountInfo and the child trie root in the main State Trie
 	pub main_proof: Vec<Vec<u8>>,
 	/// Proof of the storage slots in the Contract's child Trie
-	pub child_proof: Vec<Vec<u8>>,
+	pub storage_proof: BTreeMap<Vec<u8>, Vec<Vec<u8>>>,
 }
 
 /// The ethereum account stored in the global state trie.

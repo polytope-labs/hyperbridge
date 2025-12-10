@@ -15,14 +15,14 @@
 
 //! Substrate EVM State Machine client implementation
 
-use crate::{prelude::*, req_res_commitment_key, req_res_receipt_keys, types::SubstrateEvmProof};
+use crate::{req_res_commitment_key, req_res_receipt_keys, types::SubstrateEvmProof};
 use alloc::{
 	collections::BTreeMap,
 	format,
 	string::{String, ToString},
 	vec::Vec,
 };
-use codec::{Decode, Encode};
+use codec::Decode;
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,

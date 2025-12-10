@@ -116,9 +116,9 @@ where
 		let mut main_keys = Vec::new();
 		let mut contract_info = BTreeMap::new();
 
-		for (contract_address, _) in queries {
-			let trie_id = self.get_contract_trie_id(contract_address, block_hash).await?;
-			let account_info_key = self.contract_info_key(contract_address);
+		for (contract_address, _) in &queries {
+			let trie_id = self.get_contract_trie_id(*contract_address, block_hash).await?;
+			let account_info_key = self.contract_info_key(*contract_address);
 
 			let child_info = ChildInfo::new_default(&trie_id);
 			let child_root_key = child_info.prefixed_storage_key().into_inner();
@@ -126,7 +126,7 @@ where
 			main_keys.push(account_info_key);
 			main_keys.push(child_root_key);
 
-			contract_info.insert(contract_address.as_bytes().to_vec(), child_info)
+			contract_info.insert(contract_address.as_bytes().to_vec(), child_info);
 		}
 
 		let main_proof: ReadProof<H256> = self
@@ -135,7 +135,7 @@ where
 			.request("state_getReadProof", rpc_params![main_keys, Some(block_hash)])
 			.await?;
 
-		let mut storage_proofs = Vec::new();
+		let mut storage_proofs = BTreeMap::new();
 
 		for (contract_address, keys) in queries {
 			let child_info = contract_info

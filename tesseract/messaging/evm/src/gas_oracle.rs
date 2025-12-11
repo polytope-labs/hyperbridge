@@ -507,7 +507,7 @@ mod test {
 		let client = Arc::new(provider.clone());
 
 		// Uniswap router address
-		let uniswap_router = "0xAE2f1A3392f7ea11D47799b9489Cd0388e48129f".parse().unwrap();
+		let uniswap_router = "0xbB054fAD9b295caC4B937346E6c3DadC88aFe2A0".parse().unwrap();
 
 		let price = super::get_price_from_uniswap_router(ismp_host, client, Some(uniswap_router))
 			.await

@@ -21,6 +21,7 @@ use subxt::{
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
+use evm_state_machine::substrate_evm::{AccountInfo, AccountType, SubstrateEvmError};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
@@ -92,11 +93,13 @@ where
 			.ok_or_else(|| anyhow::anyhow!("Contract info not found"))?;
 
 		let mut input = &data[..];
-		let variant_index = u8::decode(&mut input)?;
-		if variant_index != 0 {
-			return Err(anyhow::anyhow!("Account is not a contract"));
-		}
-		let trie_id: Vec<u8> = Vec::<u8>::decode(&mut input)?;
+
+		let account_info = AccountInfo::decode(&mut &input[..])
+			.map_err(|_| SubstrateEvmError::AccountInfoDecodeError)?;
+
+		let AccountType::Contract(contract_info) = account_info.account_type;
+		let trie_id: Vec<u8> = contract_info.trie_id;
+
 		Ok(trie_id)
 	}
 

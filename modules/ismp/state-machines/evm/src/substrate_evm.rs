@@ -147,7 +147,9 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 			.get(contract_address.as_bytes())
 			.ok_or(SubstrateEvmError::StorageProofMissing(contract_address.as_bytes().to_vec()))?;
 
-		Ok(verify_child_trie_membership::<H>(child_root, storage_proof, storage_keys)?)
+		verify_child_trie_membership::<H>(child_root, storage_proof, storage_keys)?;
+
+		Ok(())
 	}
 
 	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>> {

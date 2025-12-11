@@ -12,7 +12,7 @@ use sp_core::H160;
 use sp_core::storage::ChildInfo;
 use ismp::consensus::StateCommitment;
 use ismp::host::IsmpHost;
-use evm_state_machine::substrate_evm::contract_info_key;
+use evm_state_machine::substrate_evm::{AccountInfo, AccountType, contract_info_key};
 use evm_state_machine::substrate_evm::fetch_trie_id_from_main_proof;
 use evm_state_machine::substrate_evm::fetch_child_root_from_main_proof;
 use evm_state_machine::substrate_evm::verify_child_trie_values;
@@ -105,11 +105,9 @@ async fn test_verify_revive_state_proof() -> Result<(), Box<dyn std::error::Erro
     )?;
 
     let mut input = &account_info_bytes[..];
-    let variant = u8::decode(&mut input)?;
-    if variant != 0 {
-        return Err("Account is not a contract".into());
-    }
-    let trie_id = Vec::<u8>::decode(&mut input)?;
+    let account_info = AccountInfo::decode(&mut &input[..])?;
+    let AccountType::Contract(info) = account_info.account_type;
+    let trie_id = info.trie_id;
 
     let child_info = ChildInfo::new_default(&trie_id);
     let child_root_key = child_info.prefixed_storage_key();

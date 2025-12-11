@@ -233,6 +233,17 @@ where
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		let para_id = match id {
+			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
+			_ => Err(Error::Custom(
+				"State Machine is not supported by this consensus client".to_string(),
+			))?,
+		};
+
+		if !Parachains::<T>::contains_key(&para_id) {
+			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
+		}
+
 		S::state_machine(id)
 	}
 }

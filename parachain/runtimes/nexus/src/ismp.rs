@@ -22,6 +22,7 @@ use crate::{
 	MIN_TECH_COLLECTIVE_APPROVAL,
 };
 use anyhow::anyhow;
+use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -31,6 +32,7 @@ use frame_support::{
 use frame_system::EnsureRoot;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::{
+	consensus::StateMachineClient,
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
@@ -47,8 +49,6 @@ use sp_runtime::Permill;
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
-use evm_state_machine::SubstrateEvmStateMachine;
-use ismp::consensus::StateMachineClient;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -140,16 +140,12 @@ pub struct ParachainStateMachineProvider;
 
 impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
 	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		let para_id = match id {
-			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
-			_ => return Err(Error::Custom("Unknown state machine".to_string())),
-		};
-
-		if para_id == ismp_parachain::ASSET_HUB_MAINNET_PARA_ID {
-			return Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
+		match id {
+			StateMachine::Polkadot(para_id) | StateMachine::Kusama(para_id)
+				if para_id == ismp_parachain::ASSET_HUB_MAINNET_PARA_ID =>
+				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
+			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
 		}
-
-		Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id)))
 	}
 }
 

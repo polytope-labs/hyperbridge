@@ -109,16 +109,12 @@ pub struct ParachainStateMachineProvider;
 
 impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
 	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		let para_id = match id {
-			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
-			_ => return Err(Error::Custom("Unknown state machine".to_string())),
-		};
-
-		if para_id == ismp_parachain::PASSET_HUB_TESTNET_PARA_ID {
-			return Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default()));
+		match id {
+			StateMachine::Polkadot(para_id) | StateMachine::Kusama(para_id)
+				if para_id == ismp_parachain::PASSET_HUB_TESTNET_PARA_ID =>
+				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
+			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
 		}
-
-		Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id)))
 	}
 }
 

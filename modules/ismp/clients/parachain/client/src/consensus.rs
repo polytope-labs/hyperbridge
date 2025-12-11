@@ -46,8 +46,26 @@ use substrate_state_machine::{read_proof_check_for_parachain, SubstrateStateMach
 
 use crate::{Parachains, RelayChainOracle};
 
+/// PassetHub testnet para ID
+pub const PASSET_HUB_TESTNET_PARA_ID: u32 = 1111;
+
+/// AssetHub mainnet para ID
+pub const ASSET_HUB_MAINNET_PARA_ID: u32 = 1000;
+
+/// The state machine provider that resolves to a `StateMachineClient`
+pub trait ParachainStateMachineProvider<T> {
+	/// Returns the `StateMachineClient` for a given para_id.
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error>;
+}
+
+impl<T: pallet_ismp::Config> ParachainStateMachineProvider<T> for () {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		Ok(Box::new(SubstrateStateMachine::<T>::from(id)))
+	}
+}
+
 /// The parachain consensus client implementation for ISMP.
-pub struct ParachainConsensusClient<T, R, S = SubstrateStateMachine<T>>(PhantomData<(T, R, S)>);
+pub struct ParachainConsensusClient<T, R, S = ()>(PhantomData<(T, R, S)>);
 
 impl<T, R, S> Default for ParachainConsensusClient<T, R, S> {
 	fn default() -> Self {
@@ -78,7 +96,7 @@ impl<T, R, S> ConsensusClient for ParachainConsensusClient<T, R, S>
 where
 	R: RelayChainOracle,
 	T: pallet_ismp::Config + super::Config,
-	S: StateMachineClient + From<StateMachine> + 'static,
+	S: ParachainStateMachineProvider<T> + 'static,
 {
 	fn verify_consensus(
 		&self,
@@ -226,7 +244,7 @@ where
 			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
 		}
 
-		Ok(Box::new(S::from(id)))
+		S::state_machine(id)
 	}
 }
 

@@ -20,6 +20,7 @@ use crate::{
 	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
+use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -41,11 +42,12 @@ use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
-use ismp::router::Timeout;
+use ismp::{consensus::StateMachineClient, router::Timeout};
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
+use substrate_state_machine::SubstrateStateMachine;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -103,6 +105,19 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
+pub struct ParachainStateMachineProvider;
+
+impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		match id {
+			StateMachine::Polkadot(para_id) | StateMachine::Kusama(para_id)
+				if para_id == ismp_parachain::PASSET_HUB_TESTNET_PARA_ID =>
+				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
+			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+		}
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -118,7 +133,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
+			ParachainStateMachineProvider,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,

@@ -95,6 +95,7 @@ members = [
     "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
     "tesseract/messaging/evm-tendermint",
+    "tesseract/messaging/substrate-evm",
     "tesseract/messaging/fees",
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
@@ -170,7 +171,7 @@ sc-simnode = { version = "2506.0.0" }
 simnode-runtime-api = { version = "2506.0.0", default-features = false }
 
 # crates.io
-serde = { version = "1", default-features = false }
+serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
 trie-db = { version = "0.30.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
@@ -304,6 +305,7 @@ tesseract-primitives = { path = "tesseract/messaging/primitives" }
 tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
+tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
 tesseract = { path = "tesseract/messaging/relayer" }

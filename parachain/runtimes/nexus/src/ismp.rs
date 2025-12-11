@@ -22,6 +22,7 @@ use crate::{
 	MIN_TECH_COLLECTIVE_APPROVAL,
 };
 use anyhow::anyhow;
+use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -31,6 +32,7 @@ use frame_support::{
 use frame_system::EnsureRoot;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::{
+	consensus::StateMachineClient,
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
@@ -134,6 +136,19 @@ impl WeightToFee for IsmpWeightToFee {
 	}
 }
 
+pub struct ParachainStateMachineProvider;
+
+impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		match id {
+			StateMachine::Polkadot(para_id) | StateMachine::Kusama(para_id)
+				if para_id == ismp_parachain::ASSET_HUB_MAINNET_PARA_ID =>
+				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
+			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+		}
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EitherOfDiverse<
 		WhitelistedCaller,
@@ -156,7 +171,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
+			ParachainStateMachineProvider,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,

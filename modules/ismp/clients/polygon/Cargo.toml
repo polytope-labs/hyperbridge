@@ -41,8 +41,8 @@ tendermint-verifier = { workspace = true, default-features = false }
 tendermint-primitives = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
-serde = { version = "1.0", features = ["derive"], default-features = false }
-serde_json = { version = "1.0", default-features = false }
+serde = { workspace = true, features = ["derive"], default-features = false }
+serde_json = { version = "1.0.112", default-features = false }
 prost = { workspace = true, default-features = false }
 evm-state-machine = { workspace = true }
 tendermint-ics23-primitives = { workspace = true, default-features = false }

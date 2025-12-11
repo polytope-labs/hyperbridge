@@ -26,7 +26,7 @@ substrate-state-machine = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 anyhow = "1.0.93"
 futures = "0.3.28"
-serde = { version = "1.0.214", features = ["derive"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
 json = { version = "1.0.132", package = "serde_json" }
 toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }

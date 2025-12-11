@@ -18,6 +18,7 @@ use substrate_state_machine::HashAlgorithm;
 use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_evm_tendermint::{TendermintEvmClient, TendermintEvmClientConfig};
+use tesseract_substrate_evm::{SubstrateEvmClient, SubstrateEvmClientConfig};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
@@ -34,6 +35,8 @@ pub enum AnyConfig {
 	Evm(EvmConfig),
 	/// Configuration for tendermint-based chains
 	Tendermint(TendermintEvmClientConfig),
+	/// Configuration for substrate-evm(revive) based chains
+	SubstrateEvm(SubstrateEvmClientConfig)
 }
 
 impl AnyConfig {
@@ -42,6 +45,7 @@ impl AnyConfig {
 			Self::Substrate(config) => config.state_machine,
 			Self::Evm(config) => config.state_machine,
 			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.state_machine,
+			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.state_machine
 		}
 	}
 }
@@ -97,6 +101,20 @@ impl AnyConfig {
 					Arc::new(client) as Arc<dyn IsmpProvider>
 				},
 			},
+			AnyConfig::SubstrateEvm(config) => {
+				match config.substrate.hashing.clone().unwrap_or(HashAlgorithm::Blake2) {
+					HashAlgorithm::Keccak => {
+						let mut client = SubstrateEvmClient::<KeccakSubstrateChain>::new(config).await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
+					HashAlgorithm::Blake2 => {
+						let mut client = SubstrateEvmClient::<Blake2SubstrateChain>::new(config).await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					}
+				}
+			}
 		};
 
 		Ok(client)

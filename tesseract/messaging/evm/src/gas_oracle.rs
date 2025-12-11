@@ -1,10 +1,9 @@
 use crate::abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle};
 use anyhow::{anyhow, Error};
 use ethers::{
-	abi::{decode, encode, ParamType, Token},
 	prelude::{abigen, Bytes, Middleware, Provider},
 	providers::Http,
-	types::{transaction::eip2718::TypedTransaction, TransactionRequest, H160},
+	types::H160,
 	utils::parse_units,
 };
 use geth_primitives::{new_u256, old_u256};

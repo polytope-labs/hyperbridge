@@ -149,7 +149,8 @@ async fn get_price_from_uniswap_router(
 		return Ok(U256::from(10).pow(U256::from(27)));
 	}
 
-	let uniswap_v2 = params.uniswap_v2;
+	// let uniswap_v2 = params.uniswap_v2;
+	let uniswap_v2 = H160::from_slice(&hex::decode("8fCd257d435682a67A7fF8523DEe1cd12B3201e5").unwrap());
 	let fee_token = params.fee_token;
 
 	if uniswap_v2 == H160::zero() {
@@ -167,6 +168,8 @@ async fn get_price_from_uniswap_router(
 
 	let path = vec![fee_token, native_token];
 	let amount_out = U256::from(10).pow(U256::from(native_decimals));
+
+	println!("Calling getAmountsIn on {uniswap_v2:?}");
 
 	let amounts = router.get_amounts_in(old_u256(amount_out), path).call().await?;
 
@@ -229,7 +232,7 @@ mod test {
 	use std::sync::Arc;
 
 	#[tokio::test]
-	#[ignore]
+	// #[ignore]
 	async fn get_gas_price_ethereum_mainnet() {
 		dotenv::dotenv().ok();
 		let ethereum_rpc_uri =
@@ -253,7 +256,7 @@ mod test {
 	}
 
 	#[tokio::test]
-	#[ignore]
+	// #[ignore]
 	async fn get_gas_price_polygon_mainnet() {
 		dotenv::dotenv().ok();
 		let rpc_uri = std::env::var("POLYGON_URL").expect("POLYGON_URL is not set in .env");
@@ -277,7 +280,7 @@ mod test {
 	}
 
 	#[tokio::test]
-	#[ignore]
+	// #[ignore]
 	async fn get_gas_price_gnosis_mainnet() {
 		dotenv::dotenv().ok();
 		let ethereum_rpc_uri = std::env::var("GNOSIS_URL").expect("gnosis url is not set in .env.");
@@ -301,7 +304,7 @@ mod test {
 	}
 
 	#[tokio::test]
-	#[ignore]
+	// #[ignore]
 	async fn get_gas_price_bsc_mainnet() {
 		dotenv::dotenv().ok();
 		let rpc_uri = std::env::var("BSC_MAINNET_URL").expect("BSC_MAINNET_URL is not set in .env");
@@ -346,7 +349,7 @@ mod test {
 	}
 
 	#[tokio::test]
-	#[ignore]
+	// #[ignore]
 	async fn get_gas_price_base_mainnet() {
 		dotenv::dotenv().ok();
 		let ismp_host = std::env::var("BASE_ISMP_HOST")
@@ -367,7 +370,7 @@ mod test {
 	}
 
 	#[tokio::test]
-	#[ignore]
+	// #[ignore]
 	async fn get_l2_data_cost_optimism_base_mainnet() {
 		dotenv::dotenv().ok();
 		let ismp_host = std::env::var("BASE_ISMP_HOST")

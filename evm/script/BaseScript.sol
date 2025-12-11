@@ -9,7 +9,7 @@ abstract contract BaseScript is Script, Config {
     bytes32 internal privateKey = vm.envBytes32("PRIVATE_KEY");
     address internal admin = vm.envAddress("ADMIN");
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
-    bytes internal consensusState = vm.envBytes("CONSENSUS_STATE");
+    // bytes internal consensusState = vm.envBytes("CONSENSUS_STATE");
 
     // ============= Config Variables =============
     address payable internal HOST_ADDRESS;
@@ -17,7 +17,7 @@ abstract contract BaseScript is Script, Config {
     function setUp() public {
         // Load config
         _loadConfig(vm.envString("CONFIG"), true);
-        
+
         HOST_ADDRESS = payable(config.get("HOST").toAddress());
     }
 }

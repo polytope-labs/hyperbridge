@@ -15,6 +15,7 @@ contract DeployScript is BaseScript {
 
         address universalRouter = config.get("UNIVERSAL_ROUTER").toAddress();
         address quoter = config.get("V4_QUOTER").toAddress();
+        address weth = uint24(config.get("WETH").toUint256());
         uint24 defaultFee = uint24(config.get("DEFAULT_FEE").toUint256());
         int24 defaultTickSpacing = int24(int256(config.get("DEFAULT_TICK_SPACING").toUint256()));
 
@@ -23,9 +24,9 @@ contract DeployScript is BaseScript {
             universalRouter: universalRouter,
             quoter: quoter,
             defaultFee: defaultFee,
-            defaultTickSpacing: defaultTickSpacing
+            defaultTickSpacing: defaultTickSpacing,
+            weth: weth
         }));
         vm.stopBroadcast();
     }
 }
-

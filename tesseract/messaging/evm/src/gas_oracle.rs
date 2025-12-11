@@ -1,9 +1,10 @@
 use crate::abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle};
 use anyhow::{anyhow, Error};
 use ethers::{
+	abi::{decode, encode, ParamType, Token},
 	prelude::{abigen, Bytes, Middleware, Provider},
 	providers::Http,
-	types::H160,
+	types::{transaction::eip2718::TypedTransaction, TransactionRequest, H160},
 	utils::parse_units,
 };
 use geth_primitives::{new_u256, old_u256};
@@ -18,6 +19,7 @@ abigen!(
 	IUniswapV2Router,
 	r#"[
         function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)
+        function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)
         function WETH() external pure returns (address)
     ]"#;
 	IERC20,
@@ -32,12 +34,14 @@ const OP_GAS_ORACLE: [u8; 20] = hex!("420000000000000000000000000000000000000F")
 // Supported EVM chains
 // Mainnets
 pub const ARBITRUM_CHAIN_ID: u32 = 42161;
+pub const OPTIMISM_CHAIN_ID: u32 = 10;
 pub const ETHEREUM_CHAIN_ID: u32 = 1;
 pub const BSC_CHAIN_ID: u32 = 56;
 pub const POLYGON_CHAIN_ID: u32 = 137;
 pub const GNOSIS_CHAIN_ID: u32 = 100;
 pub const CRONOS_CHAIN_ID: u32 = 25;
 pub const SEI_CHAIN_ID: u32 = 1329;
+pub const UNICHAIN_CHAIN_ID: u32 = 130;
 pub const INJECTIVE_CHAIN_ID: u32 = 1440; // Not launched yet
 
 // Testnets
@@ -117,7 +121,7 @@ pub async fn get_current_gas_cost_in_usd(
 		},
 		chain => Err(anyhow!("Unknown chain: {chain:?}"))?,
 	}
-	let token_usd = get_price_from_uniswap_router(ismp_host_address, client).await?;
+	let token_usd = get_price_from_uniswap_router(ismp_host_address, client, None).await?;
 
 	let unit_wei = get_cost_of_one_wei(token_usd);
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
@@ -141,6 +145,7 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 async fn get_price_from_uniswap_router(
 	ismp_host: H160,
 	client: Arc<Provider<Http>>,
+	uniswap_router_override: Option<H160>,
 ) -> Result<U256, Error> {
 	let host = EvmHost::new(ismp_host, client.clone());
 	let params = host.host_params().call().await?;
@@ -149,7 +154,7 @@ async fn get_price_from_uniswap_router(
 		return Ok(U256::from(10).pow(U256::from(27)));
 	}
 
-	let uniswap_v2 = params.uniswap_v2;
+	let uniswap_v2 = uniswap_router_override.unwrap_or(params.uniswap_v2);
 	let fee_token = params.fee_token;
 
 	if uniswap_v2 == H160::zero() {
@@ -166,13 +171,25 @@ async fn get_price_from_uniswap_router(
 	let native_decimals = native_token_contract.decimals().call().await?;
 
 	let path = vec![fee_token, native_token];
+
 	let amount_out = U256::from(10).pow(U256::from(native_decimals));
 
-	let amounts = router.get_amounts_in(old_u256(amount_out), path).call().await?;
+	// If get_amounts_in fails, try get_amounts_out
+	let amounts = match router.get_amounts_in(old_u256(amount_out), path.clone()).call().await {
+		Ok(amounts) => amounts,
+		Err(_) => {
+			router
+				.get_amounts_out(old_u256(amount_out), path.into_iter().rev().collect::<Vec<_>>())
+				.call()
+				.await?.into_iter().rev().collect::<Vec<_>>()
+		},
+	};
 
 	if amounts.is_empty() {
 		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
 	}
+
+	println!("Amounts {amounts:?}");
 
 	let amount_stable = new_u256(amounts[0]);
 
@@ -226,6 +243,7 @@ mod test {
 	};
 	use ethers::{prelude::Provider, providers::Http};
 	use ismp::host::StateMachine;
+	use sp_core::U256;
 	use std::sync::Arc;
 
 	#[tokio::test]
@@ -392,5 +410,113 @@ mod test {
 		.unwrap();
 
 		println!("Data Cost Base: {:?}", data_cost);
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn test_get_price_from_uniswap_router_arbitrum_mainnet() {
+		dotenv::dotenv().ok();
+		let ethereum_rpc_uri =
+			std::env::var("ARBITRUM_MAINNET_URL").expect("arb url is not set in .env.");
+		let ismp_host = std::env::var("ARB_ISMP_HOST")
+			.expect("ARB_ISMP_HOST is not set in .env")
+			.parse()
+			.unwrap();
+		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let client = Arc::new(provider.clone());
+
+		// Uniswap router address
+		let uniswap_router = "0x8fCd257d435682a67A7fF8523DEe1cd12B3201e5".parse().unwrap();
+
+		let price = super::get_price_from_uniswap_router(ismp_host, client, Some(uniswap_router))
+			.await
+			.unwrap();
+
+		println!(
+			"Arbitrum Mainnet - Price from Uniswap Router: {:?}",
+			price / U256::from(10u128.pow(27))
+		);
+		assert!(price > primitive_types::U256::zero());
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn test_get_price_from_uniswap_router_optimism_mainnet() {
+		dotenv::dotenv().ok();
+		let ethereum_rpc_uri =
+			std::env::var("OPTIMISM_MAINNET_URL").expect("optimism url is not set in .env.");
+		let ismp_host = std::env::var("OPTIMISM_ISMP_HOST")
+			.expect("OPTIMISM_ISMP_HOST is not set in .env")
+			.parse()
+			.unwrap();
+		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let client = Arc::new(provider.clone());
+
+		// Uniswap router address
+		let uniswap_router = "0x8fCd257d435682a67A7fF8523DEe1cd12B3201e5".parse().unwrap();
+
+		let price = super::get_price_from_uniswap_router(ismp_host, client, Some(uniswap_router))
+			.await
+			.unwrap();
+
+		println!(
+			"Optimism Mainnet - Price from Uniswap Router: {:?}",
+			price / U256::from(10u128.pow(27))
+		);
+		assert!(price > primitive_types::U256::zero());
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn test_get_price_from_uniswap_router_unichain_mainnet() {
+		dotenv::dotenv().ok();
+		let ethereum_rpc_uri =
+			std::env::var("UNICHAIN_MAINNET_URL").expect("unichain url is not set in .env.");
+		let ismp_host = std::env::var("UNICHAIN_ISMP_HOST")
+			.expect("UNICHAIN_ISMP_HOST is not set in .env")
+			.parse()
+			.unwrap();
+		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let client = Arc::new(provider.clone());
+
+		// Uniswap router address
+		let uniswap_router = "0x8fCd257d435682a67A7fF8523DEe1cd12B3201e5".parse().unwrap();
+
+		let price = super::get_price_from_uniswap_router(ismp_host, client, Some(uniswap_router))
+			.await
+			.unwrap();
+
+		println!(
+			"Unichain Mainnet - Price from Uniswap Router: {:?}",
+			price / U256::from(10u128.pow(27))
+		);
+		assert!(price > primitive_types::U256::zero());
+	}
+
+	#[tokio::test]
+	#[ignore]
+	async fn test_get_price_from_uniswap_router_soneium_mainnet() {
+		dotenv::dotenv().ok();
+		let ethereum_rpc_uri =
+			std::env::var("SONEIUM_MAINNET_URL").expect("unichain url is not set in .env.");
+		let ismp_host = std::env::var("SONEIUM_ISMP_HOST")
+			.expect("SONEIUM_ISMP_HOST is not set in .env")
+			.parse()
+			.unwrap();
+		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let client = Arc::new(provider.clone());
+
+		// Uniswap router address
+		let uniswap_router = "0xAE2f1A3392f7ea11D47799b9489Cd0388e48129f".parse().unwrap();
+
+		let price = super::get_price_from_uniswap_router(ismp_host, client, Some(uniswap_router))
+			.await
+			.unwrap();
+
+		println!(
+			"Soneium Mainnet - Price from Uniswap Router: {:?}",
+			price / U256::from(10u128.pow(27))
+		);
+		assert!(price > primitive_types::U256::zero());
 	}
 }

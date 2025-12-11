@@ -189,8 +189,6 @@ async fn get_price_from_uniswap_router(
 		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
 	}
 
-	println!("Amounts {amounts:?}");
-
 	let amount_stable = new_u256(amounts[0]);
 
 	let target_decimals = 27;

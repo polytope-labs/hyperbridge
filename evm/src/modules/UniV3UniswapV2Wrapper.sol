@@ -39,6 +39,8 @@ contract UniV3UniswapV2Wrapper {
         address swapRouter;
         /// @dev Address of the Uniswap V3 quoter contract
         address quoter;
+        /// @dev The fees that helps point to the specific pool.
+        uint24 maxFee;
     }
 
     /**
@@ -50,12 +52,6 @@ contract UniV3UniswapV2Wrapper {
      * @dev Private variable to track initialization status.
      */
     bool private _initialized;
-
-    /**
-     * @dev The maximum allowable fees for the UniV3UniswapV2Wrapper module.
-     * This constant represents a fee of 0.05%, which is equivalent to 500 basis points.
-     */
-    uint24 constant MAX_FEES = 500; // 0.05%
 
     /**
      * @dev The deployer of the contract.
@@ -132,7 +128,7 @@ contract UniV3UniswapV2Wrapper {
         IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams({
             tokenIn: weth,
             tokenOut: path[1],
-            fee: MAX_FEES,
+            fee: _params.maxFee,
             recipient: recipient,
             amountIn: msg.value,
             amountOutMinimum: amountOutMin,
@@ -180,7 +176,7 @@ contract UniV3UniswapV2Wrapper {
         IV3SwapRouter.ExactOutputSingleParams memory params = IV3SwapRouter.ExactOutputSingleParams({
             tokenIn: weth,
             tokenOut: path[1],
-            fee: MAX_FEES,
+            fee: _params.maxFee,
             recipient: recipient,
             amountOut: amountOut,
             amountInMaximum: msg.value,
@@ -224,7 +220,7 @@ contract UniV3UniswapV2Wrapper {
             tokenIn: path[0],
             tokenOut: path[1],
             amount: amountOut,
-            fee: MAX_FEES,
+            fee: _params.maxFee,
             sqrtPriceLimitX96: 0
         });
         (uint256 amountIn, , , ) = IQuoterV2(_params.quoter).quoteExactOutputSingle(params);
@@ -245,7 +241,7 @@ contract UniV3UniswapV2Wrapper {
             tokenIn: path[0],
             tokenOut: path[1],
             amountIn: amountIn,
-            fee: MAX_FEES,
+            fee: _params.maxFee,
             sqrtPriceLimitX96: 0
         });
         (uint256 amountOut, , , ) = IQuoterV2(_params.quoter).quoteExactInputSingle(params);

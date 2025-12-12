@@ -149,8 +149,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Create order
         Order memory order = Order({
             user: bytes32(0), // Will be set by contract
-            sourceChain: "", // Will be set by contract
-            destChain: abi.encodePacked("DEST_CHAIN"),
+            source: "", // Will be set by contract
+            destination: abi.encodePacked("DEST_CHAIN"),
             deadline: 0,
             nonce: 0, // Will be set by contract
             fees: 0,
@@ -255,8 +255,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Create order
         Order memory order = Order({
             user: bytes32(0),
-            sourceChain: "",
-            destChain: abi.encodePacked("DEST_CHAIN"),
+            source: "",
+            destination: abi.encodePacked("DEST_CHAIN"),
             deadline: 0,
             nonce: 0,
             fees: 0,
@@ -325,8 +325,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(0),
-            sourceChain: "",
-            destChain: abi.encodePacked("DEST_CHAIN"),
+            source: "",
+            destination: abi.encodePacked("DEST_CHAIN"),
             deadline: 0,
             nonce: 0,
             fees: 0,
@@ -383,8 +383,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
-            sourceChain: host.host(),
-            destChain: host.host(),
+            source: host.host(),
+            destination: host.host(),
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
@@ -476,8 +476,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
-            sourceChain: host.host(),
-            destChain: host.host(),
+            source: host.host(),
+            destination: host.host(),
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
@@ -577,8 +577,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
-            sourceChain: host.host(),
-            destChain: host.host(),
+            source: host.host(),
+            destination: host.host(),
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
@@ -663,8 +663,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
-            sourceChain: host.host(),
-            destChain: host.host(),
+            source: host.host(),
+            destination: host.host(),
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
@@ -746,8 +746,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(0),
-            sourceChain: "",
-            destChain: abi.encodePacked("DEST_CHAIN"),
+            source: "",
+            destination: abi.encodePacked("DEST_CHAIN"),
             deadline: 0,
             nonce: 0,
             fees: 0,
@@ -1038,8 +1038,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
-            sourceChain: host.host(),
-            destChain: host.host(),
+            source: host.host(),
+            destination: host.host(),
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,
@@ -1105,8 +1105,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
-            sourceChain: host.host(),
-            destChain: host.host(),
+            source: host.host(),
+            destination: host.host(),
             deadline: block.number + 1000,
             nonce: 0,
             fees: 0,

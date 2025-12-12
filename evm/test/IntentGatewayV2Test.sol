@@ -55,7 +55,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Params memory intentParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
-            solverSelection: false
+            solverSelection: false,
+            surplusShareBps: 10000 // 100% to protocol, 0% to beneficiary (default)
         });
         intentGateway.setParams(intentParams);
 
@@ -478,7 +479,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Params memory zeroFeeParams = Params({
             host: address(host),
             dispatcher: address(dispatcher),
-            solverSelection: false
+            solverSelection: false,
+            surplusShareBps: 10000 // 100% to protocol, 0% to beneficiary
         });
         zeroFeeGateway.setParams(zeroFeeParams);
 
@@ -753,6 +755,228 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway USDC should be 0");
         assertEq(dai.balanceOf(address(intentGateway)), 0, "Gateway DAI should be 0");
         assertEq(address(intentGateway).balance, 0, "Gateway ETH should be 0");
+    }
+
+    function testSurplusSplitBetweenBeneficiaryAndProtocol() public {
+        // Test 50/50 split: solver provides 2100 DAI, user gets 2050, protocol gets 50
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000 // 50% to protocol, 50% to beneficiary
+        });
+        customGateway.setParams(customParams);
+
+        uint256 solverOutputAmount = 2100 * 1e18;
+
+        // Setup order
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        PaymentInfo memory output = PaymentInfo({
+            beneficiary: bytes32(uint256(uint160(user))),
+            assets: outputAssets,
+            call: ""
+        });
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: abi.encodePacked(host.host()),
+            destination: abi.encodePacked(host.host()),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), 1000 * 1e6);
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Filler fills order with surplus
+        vm.startPrank(filler);
+        dai.approve(address(customGateway), 2200 * 1e18); // Approve surplus + fees
+
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: solverOutputAmount});
+
+        uint256 userDaiBalanceBefore = dai.balanceOf(user);
+
+        vm.recordLogs();
+        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        vm.stopPrank();
+
+        // Verify beneficiary received 2050 DAI (2000 + 50% of 100 surplus)
+        assertEq(dai.balanceOf(user) - userDaiBalanceBefore, 2050 * 1e18, "Beneficiary gets 50% surplus");
+
+        // Verify protocol received 50 DAI (50% of 100 surplus)
+        assertEq(dai.balanceOf(address(customGateway)), 50 * 1e18, "Protocol gets 50% surplus");
+
+        // Verify DustCollected event
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool found = false;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                found = true;
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                assertEq(token, address(dai), "Token should be DAI");
+                assertEq(amount, 50 * 1e18, "Amount should be 50 DAI");
+                break;
+            }
+        }
+        assertTrue(found, "DustCollected event should be emitted");
+    }
+
+    function testSurplusSplitWith100PercentToBeneficiary() public {
+        // Test with 100% surplus going to beneficiary (0% to protocol)
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 0 // 0% to protocol, 100% to beneficiary
+        });
+        customGateway.setParams(customParams);
+
+        uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
+
+        // Setup order
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        PaymentInfo memory output = PaymentInfo({
+            beneficiary: bytes32(uint256(uint160(user))),
+            assets: outputAssets,
+            call: ""
+        });
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: abi.encodePacked(host.host()),
+            destination: abi.encodePacked(host.host()),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), 1000 * 1e6);
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Filler fills order with surplus
+        vm.startPrank(filler);
+        dai.approve(address(customGateway), 2200 * 1e18); // Approve surplus + fees
+
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: solverOutputAmount});
+
+        uint256 userDaiBalanceBefore = dai.balanceOf(user);
+
+        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        vm.stopPrank();
+
+        // Verify beneficiary received requested amount + all surplus (2000 + 100 = 2100 DAI)
+        assertEq(dai.balanceOf(user) - userDaiBalanceBefore, 2100 * 1e18, "Beneficiary should receive 100% of surplus");
+
+        // Verify protocol received nothing
+        assertEq(dai.balanceOf(address(customGateway)), 0, "Protocol should receive 0%");
+    }
+
+    function testSurplusSplitWith0PercentToBeneficiary() public {
+        // Test 0/100 split: solver provides 2100 DAI, user gets 2000, protocol gets 100
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000 // 100% to protocol, 0% to beneficiary
+        });
+        customGateway.setParams(customParams);
+
+        uint256 solverOutputAmount = 2100 * 1e18; // 100 DAI surplus
+
+        // Setup order
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        PaymentInfo memory output = PaymentInfo({
+            beneficiary: bytes32(uint256(uint160(user))),
+            assets: outputAssets,
+            call: ""
+        });
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: abi.encodePacked(host.host()),
+            destination: abi.encodePacked(host.host()),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), 1000 * 1e6);
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Filler fills order with surplus
+        vm.startPrank(filler);
+        dai.approve(address(customGateway), 2200 * 1e18); // Approve surplus + fees
+
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: solverOutputAmount});
+
+        uint256 userDaiBalanceBefore = dai.balanceOf(user);
+
+        vm.recordLogs();
+        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+        vm.stopPrank();
+
+        // Verify beneficiary received only requested amount (2000 DAI, no surplus)
+        assertEq(dai.balanceOf(user) - userDaiBalanceBefore, 2000 * 1e18, "Beneficiary should receive only requested");
+
+        // Verify protocol received all surplus (100 DAI)
+        assertEq(dai.balanceOf(address(customGateway)), 100 * 1e18, "Protocol should receive 100% of surplus");
+
+        // Verify DustCollected event was emitted
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool found = false;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                found = true;
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                assertEq(token, address(dai), "Token should be DAI");
+                assertEq(amount, 100 * 1e18, "Amount should be 100 DAI");
+                break;
+            }
+        }
+        assertTrue(found, "DustCollected event should be emitted");
     }
 
     function testSweepDustUnauthorized() public {
@@ -1035,7 +1259,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testFillOrderWithSolverSelection() public {
         // Enable solver selection
-        Params memory newParams = Params({host: address(host), dispatcher: address(dispatcher), solverSelection: true});
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: true,
+            surplusShareBps: 10000
+        });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
         gatewayWithSelection.setParams(newParams);
@@ -1101,7 +1330,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testFillOrderWithWrongSolver() public {
         // Enable solver selection
-        Params memory newParams = Params({host: address(host), dispatcher: address(dispatcher), solverSelection: true});
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: true,
+            surplusShareBps: 10000
+        });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
         gatewayWithSelection.setParams(newParams);
@@ -1871,7 +2105,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testOnAcceptUpdateParams() public {
-        Params memory newParams = Params({host: address(0x5678), dispatcher: address(0x9ABC), solverSelection: true});
+        Params memory newParams = Params({
+            host: address(0x5678),
+            dispatcher: address(0x9ABC),
+            solverSelection: true,
+            surplusShareBps: 10000
+        });
 
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)),
@@ -1898,7 +2137,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bool eventFound = false;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("ParamsUpdated((address,address,bool),(address,address,bool))")) {
+            if (
+                entries[i].topics[0] ==
+                keccak256("ParamsUpdated((address,address,bool,uint256),(address,address,bool,uint256))")
+            ) {
                 eventFound = true;
                 break;
             }

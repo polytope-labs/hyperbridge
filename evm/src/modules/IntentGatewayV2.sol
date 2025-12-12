@@ -103,6 +103,9 @@ struct Params {
     address dispatcher;
     /// @dev Flag indicating whether solver selection is enabled.
     bool solverSelection;
+    /// @dev The percentage of surplus (in basis points) that goes to the protocol. The rest goes to beneficiary.
+    /// 10000 = 100%, 5000 = 50%, etc.
+    uint256 surplusShareBps;
 }
 
 /**
@@ -629,23 +632,36 @@ contract IntentGatewayV2 is HyperApp {
             if (solverAmount < requestedAmount) revert InvalidInput();
 
             uint256 dust = solverAmount - requestedAmount;
+            uint256 beneficiaryShare = 0;
+            uint256 protocolShare = 0;
+
+            if (dust > 0) {
+                // Split surplus between beneficiary and protocol
+                protocolShare = (dust * _params.surplusShareBps) / 10_000;
+                beneficiaryShare = dust - protocolShare;
+            }
+
             if (token == address(0)) {
                 // native token
                 if (msgValue < solverAmount) revert InsufficientNativeToken();
 
-                // Send requested amount to beneficiary
-                (bool sent, ) = beneficiary.call{value: requestedAmount}("");
+                // Send requested amount + beneficiary's share of surplus to beneficiary
+                uint256 beneficiaryTotal = requestedAmount + beneficiaryShare;
+                (bool sent, ) = beneficiary.call{value: beneficiaryTotal}("");
                 if (!sent) revert InsufficientNativeToken();
 
-                msgValue -= requestedAmount;
+                msgValue -= beneficiaryTotal;
             } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount);
-                if (dust > 0) {
-                    IERC20(token).safeTransferFrom(msg.sender, address(this), dust);
+                // Send requested amount + beneficiary's share of surplus to beneficiary
+                IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount + beneficiaryShare);
+
+                // Send protocol's share of surplus to protocol
+                if (protocolShare > 0) {
+                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
                 }
             }
 
-            if (dust > 0) emit DustCollected(token, dust);
+            if (protocolShare > 0) emit DustCollected(token, protocolShare);
         }
 
         if (order.output.call.length > 0) {

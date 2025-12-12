@@ -112,7 +112,8 @@ features = [
     "staging-parachain-info",
     "parachains-common",
     "pallet-vesting",
-    "pallet-migrations"
+    "pallet-migrations",
+    "sp-weights"
 ]
 
 [features]

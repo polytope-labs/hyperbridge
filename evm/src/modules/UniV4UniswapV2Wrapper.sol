@@ -134,10 +134,15 @@ contract UniV4UniswapV2Wrapper {
     function getAmountsIn(uint256 amountOut, address[] calldata path) 
         external 
         returns (uint256[] memory amounts) 
-    {
-        
+    {   
+
+        address tokenOut = path[0] == address(0) ? path[1] : path[0];
+        bool zeroForOne = path[0] == address(0);
+        PoolKey memory poolKey = _createPoolKey(tokenOut);
+
+
         (uint256 amountIn, ) = IV4Quoter(_params.quoter).quoteExactOutputSingle(
-            IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountOut), bytes(""))
+            IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountOut), bytes(""))
         );
         
         amounts = new uint256[](2);
@@ -149,9 +154,13 @@ contract UniV4UniswapV2Wrapper {
         external 
         returns (uint256[] memory amounts) 
     {
-        
+        address tokenOut = path[0] == address(0) ? path[1] : path[0];
+        bool zeroForOne = path[0] == address(0);
+        PoolKey memory poolKey = _createPoolKey(tokenOut);
+
+
         (uint256 amountOut, ) = IV4Quoter(_params.quoter).quoteExactInputSingle(
-            IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountIn), bytes(""))
+            IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountIn), bytes(""))
         );
         
         amounts = new uint256[](2);

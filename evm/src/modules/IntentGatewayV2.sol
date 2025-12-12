@@ -29,13 +29,12 @@ import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
  * @notice Tokens that must be received for a valid order fulfillment
  */
 struct PaymentInfo {
-    /// @dev The address of the ERC20 token on the destination chain
-    /// @dev address(0) used as a sentinel for the native token
-    bytes32 token;
-    /// @dev The amount of the token to be sent
-    uint256 amount;
     /// @dev The address to receive the output tokens
     bytes32 beneficiary;
+    /// @dev The assets to be provided by the filler
+    TokenInfo[] assets;
+    /// @dev Optional calldata to be executed on the destination chain
+    bytes call;
 }
 
 /**
@@ -81,10 +80,7 @@ struct Order {
     /// @dev The tokens that are escrowed for the filler.
     TokenInfo[] inputs;
     /// @dev The filler output, ie the tokens that the filler will provide
-    PaymentInfo[] outputs;
-    /// @dev The postdispatch information for the order
-    /// This is used to encode any calls after the order is filled
-    DispatchInfo postdispatch;
+    PaymentInfo output;
 }
 
 /**
@@ -132,8 +128,8 @@ struct FillOptions {
     /// @dev The fee paid in native tokens for cross-chain dispatch.
     uint256 nativeDispatchFee;
     /// @dev The output tokens with amounts the solver is willing to give
-    /// @dev Must be strictly >= the amounts requested in order.outputs
-    PaymentInfo[] outputs;
+    /// @dev Must be strictly >= the amounts requested in order.output.assets
+    TokenInfo[] outputs;
 }
 
 /**
@@ -185,12 +181,12 @@ contract IntentGatewayV2 is HyperApp {
     enum RequestKind {
         /// @dev Identifies a request for redeeming an escrow.
         RedeemEscrow,
+        /// @dev Identifies a request for refunding an escrow.
+        RefundEscrow,
         /// @dev Identifies a request for recording new contract deployments
         NewDeployment,
         /// @dev Identifies a request for updating parameters.
         UpdateParams,
-        /// @dev Identifies a request for redeeming an escrow.
-        RefundEscrow,
         /// @dev Identifies a request for sweeping accumulated dust
         SweepDust
     }
@@ -299,12 +295,14 @@ contract IntentGatewayV2 is HyperApp {
         uint256 fees,
         /// @dev Optional session key used to select winning solver.
         address session,
+        /// @dev Asset beneficiary on the destination chain
+        bytes32 beneficiary,
         /// @dev Assets that were used to execute a predispatch call
         TokenInfo[] predispatch,
         /// @dev The tokens that are escrowed for the filler.
         TokenInfo[] inputs,
         /// @dev The tokens that the filler will provide.
-        PaymentInfo[] outputs
+        TokenInfo[] outputs
     );
 
     /**
@@ -548,7 +546,8 @@ contract IntentGatewayV2 is HyperApp {
             session: order.session,
             predispatch: order.predispatch.assets,
             inputs: order.inputs,
-            outputs: order.outputs
+            beneficiary: order.output.beneficiary,
+            outputs: order.output.assets
         });
     }
 
@@ -609,7 +608,7 @@ contract IntentGatewayV2 is HyperApp {
         if (_cancellations[commitment]) revert Cancelled();
 
         // Validate that solver outputs are provided and match order outputs length
-        uint256 outputsLen = order.outputs.length;
+        uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
 
         // no sneaky replay attacks
@@ -617,14 +616,13 @@ contract IntentGatewayV2 is HyperApp {
 
         // fill the order
         uint256 msgValue = msg.value;
+        address beneficiary = address(uint160(uint256(order.output.beneficiary)));
         for (uint256 i = 0; i < outputsLen; i++) {
-            address token = address(uint160(uint256(order.outputs[i].token)));
-            address beneficiary = address(uint160(uint256(order.outputs[i].beneficiary)));
-            uint256 requestedAmount = order.outputs[i].amount;
+            address token = address(uint160(uint256(order.output.assets[i].token)));
+            uint256 requestedAmount = order.output.assets[i].amount;
 
             // Verify that solver's output matches the order output token and beneficiary
-            if (options.outputs[i].token != order.outputs[i].token) revert InvalidInput();
-            if (options.outputs[i].beneficiary != order.outputs[i].beneficiary) revert InvalidInput();
+            if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
 
             // Ensure solver is providing at least the requested amount
             uint256 solverAmount = options.outputs[i].amount;
@@ -650,9 +648,51 @@ contract IntentGatewayV2 is HyperApp {
             if (dust > 0) emit DustCollected(token, dust);
         }
 
-        if (order.postdispatch.call.length > 0 && order.postdispatch.assets.length > 0) {
+        if (order.output.call.length > 0) {
             address dispatcher = _params.dispatcher;
-            ICallDispatcher(dispatcher).dispatch(order.postdispatch.call);
+
+            ICallDispatcher(dispatcher).dispatch(order.output.call);
+
+            // Sweep any tokens left in the dispatcher after execution
+            uint256 assetsLen = order.output.assets.length;
+            Call[] memory sweepCalls = new Call[](assetsLen);
+            uint256 sweepCount = 0;
+
+            for (uint256 i = 0; i < assetsLen; i++) {
+                address token = address(uint160(uint256(order.output.assets[i].token)));
+
+                if (token == address(0)) {
+                    // Native token
+                    uint256 balance = dispatcher.balance;
+                    if (balance > 0) {
+                        sweepCalls[sweepCount] = Call({to: address(this), value: balance, data: ""});
+                        sweepCount++;
+                        emit DustCollected(token, balance);
+                    }
+                } else {
+                    // ERC20 token - only transfer if balance is non-zero to avoid reverts
+                    uint256 balance = IERC20(token).balanceOf(dispatcher);
+                    if (balance > 0) {
+                        sweepCalls[sweepCount] = Call({
+                            to: token,
+                            value: 0,
+                            data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
+                        });
+                        sweepCount++;
+                        emit DustCollected(token, balance);
+                    }
+                }
+            }
+
+            // Only dispatch sweep calls if we have any non-zero balances
+            if (sweepCount > 0) {
+                // Resize array to actual count
+                Call[] memory finalCalls = new Call[](sweepCount);
+                for (uint256 i = 0; i < sweepCount; i++) {
+                    finalCalls[i] = sweepCalls[i];
+                }
+                ICallDispatcher(dispatcher).dispatch(abi.encode(finalCalls));
+            }
         }
 
         // construct settlement message

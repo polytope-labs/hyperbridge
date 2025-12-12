@@ -32,6 +32,7 @@ contract UniV4UniswapV2Wrapper {
     struct Params {
         address universalRouter;
         address quoter;
+        address WETH;
         uint24 defaultFee;
         int24 defaultTickSpacing;
     }
@@ -136,8 +137,8 @@ contract UniV4UniswapV2Wrapper {
         returns (uint256[] memory amounts) 
     {   
 
-        address tokenOut = path[0] == address(0) ? path[1] : path[0];
-        bool zeroForOne = path[0] == address(0);
+        address tokenOut = _isNativeToken(path[0]) ? path[1] : path[0];
+        bool zeroForOne = _isNativeToken(path[0]);
         PoolKey memory poolKey = _createPoolKey(tokenOut);
 
 
@@ -154,8 +155,8 @@ contract UniV4UniswapV2Wrapper {
         external 
         returns (uint256[] memory amounts) 
     {
-        address tokenOut = path[0] == address(0) ? path[1] : path[0];
-        bool zeroForOne = path[0] == address(0);
+        address tokenOut = _isNativeToken(path[0]) ? path[1] : path[0];
+        bool zeroForOne = _isNativeToken(path[0]);
         PoolKey memory poolKey = _createPoolKey(tokenOut);
 
 
@@ -166,6 +167,11 @@ contract UniV4UniswapV2Wrapper {
         amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountOut;
+    }
+
+
+    function _isNativeToken(address token) internal view returns (bool) {
+    return token == address(0) || token == _params.WETH;
     }
 
     function _createPoolKey(address tokenOut) 

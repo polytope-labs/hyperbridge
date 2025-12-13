@@ -37,7 +37,7 @@ use ismp::{
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm_gateway::AssetGatewayParams;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_weights::WeightToFee, *};
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
@@ -47,7 +47,6 @@ use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
-use substrate_state_machine::SubstrateStateMachine;
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -118,6 +117,15 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 	}
 }
 
+pub struct IsmpWeightToFee;
+impl WeightToFee for IsmpWeightToFee {
+	type Balance = Balance;
+
+	fn weight_to_fee(weight: &Weight) -> Self::Balance {
+		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
+	}
+}
+
 impl pallet_ismp::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
@@ -145,7 +153,13 @@ impl pallet_ismp::Config for Runtime {
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler = pallet_messaging_fees::Pallet<Runtime>;
+	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
+		AccountId,
+		Balances,
+		IsmpWeightToFee,
+		TreasuryPalletId,
+		false,
+	>;
 }
 
 impl ismp_grandpa::Config for Runtime {

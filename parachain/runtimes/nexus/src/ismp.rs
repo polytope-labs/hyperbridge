@@ -127,15 +127,6 @@ impl ismp_grandpa::Config for Runtime {
 	>;
 }
 
-pub struct IsmpWeightToFee;
-impl WeightToFee for IsmpWeightToFee {
-	type Balance = Balance;
-
-	fn weight_to_fee(weight: &Weight) -> Self::Balance {
-		<Runtime as pallet_transaction_payment::Config>::WeightToFee::weight_to_fee(&weight)
-	}
-}
-
 pub struct ParachainStateMachineProvider;
 
 impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {

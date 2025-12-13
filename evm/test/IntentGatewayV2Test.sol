@@ -979,6 +979,97 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(found, "DustCollected event should be emitted");
     }
 
+    function testSurplusWithCalldataGoesToProtocol() public {
+        // Test that when calldata is present, ALL surplus goes to protocol
+        // Compare: without calldata and 50% split, protocol gets 50 DAI
+        //          with calldata and 50% split, protocol gets 100 DAI (all surplus)
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        customGateway.setParams(
+            Params({
+                host: address(host),
+                dispatcher: address(dispatcher),
+                solverSelection: false,
+                surplusShareBps: 5000
+            })
+        );
+
+        // Setup order WITH calldata
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        // Create postdispatch calls with a simple token approval (non-reverting)
+        Call[] memory postdispatchCalls = new Call[](1);
+        postdispatchCalls[0] = Call({
+            to: address(dai),
+            value: 0,
+            data: abi.encodeWithSelector(IERC20.approve.selector, address(intentGateway), 1000 * 1e18)
+        });
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: abi.encodePacked(host.host()),
+            destination: abi.encodePacked(host.host()),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: PaymentInfo({
+                beneficiary: bytes32(uint256(uint160(user))),
+                assets: outputAssets,
+                call: abi.encode(postdispatchCalls) // Valid non-reverting calldata
+            })
+        });
+
+        // Place and fill order
+        vm.prank(user);
+        usdc.approve(address(customGateway), 1000 * 1e6);
+        vm.prank(user);
+        customGateway.placeOrder(order, bytes32(0));
+
+        vm.prank(filler);
+        dai.approve(address(customGateway), 2200 * 1e18);
+
+        TokenInfo[] memory outputs = new TokenInfo[](1);
+        outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2100 * 1e18});
+
+        uint256 userBalanceBefore = dai.balanceOf(user);
+        uint256 gatewayBalanceBefore = dai.balanceOf(address(customGateway));
+
+        vm.recordLogs();
+        vm.prank(filler);
+        customGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs}));
+
+        // Verify beneficiary got ONLY requested amount (2000 DAI, no surplus)
+        assertEq(
+            dai.balanceOf(user) - userBalanceBefore,
+            2000 * 1e18,
+            "Beneficiary should get 0% surplus with calldata"
+        );
+
+        // Verify protocol got ALL surplus (100 DAI, not 50 which would be with 50% split)
+        assertEq(
+            dai.balanceOf(address(customGateway)) - gatewayBalanceBefore,
+            100 * 1e18,
+            "Protocol should get 100% surplus with calldata"
+        );
+
+        // Verify DustCollected event shows full 100 DAI
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                (, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                assertEq(amount, 100 * 1e18, "All surplus should go to protocol with calldata");
+                return; // Test passed
+            }
+        }
+        fail("DustCollected event not found");
+    }
+
     function testSweepDustUnauthorized() public {
         // Fund gateway
         vm.prank(user);

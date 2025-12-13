@@ -3,6 +3,7 @@ use std::env;
 fn main() -> anyhow::Result<()> {
 	let base_dir = env::current_dir()?.parent().unwrap().display().to_string();
 
+	// This no longer builds because of cancun
 	#[cfg(feature = "build-abi")]
 	{
 		use ethers_contract_abigen::MultiAbigen;

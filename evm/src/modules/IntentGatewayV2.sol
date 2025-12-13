@@ -624,10 +624,8 @@ contract IntentGatewayV2 is HyperApp {
             address token = address(uint160(uint256(order.output.assets[i].token)));
             uint256 requestedAmount = order.output.assets[i].amount;
 
-            // Verify that solver's output matches the order output token and beneficiary
             if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
 
-            // Ensure solver is providing at least the requested amount
             uint256 solverAmount = options.outputs[i].amount;
             if (solverAmount < requestedAmount) revert InvalidInput();
 
@@ -636,26 +634,25 @@ contract IntentGatewayV2 is HyperApp {
             uint256 protocolShare = 0;
 
             if (dust > 0) {
-                // Split surplus between beneficiary and protocol
-                protocolShare = (dust * _params.surplusShareBps) / 10_000;
-                beneficiaryShare = dust - protocolShare;
+                if (order.output.call.length > 0) {
+                    protocolShare = dust;
+                } else {
+                    protocolShare = (dust * _params.surplusShareBps) / 10_000;
+                    beneficiaryShare = dust - protocolShare;
+                }
             }
 
             if (token == address(0)) {
-                // native token
                 if (msgValue < solverAmount) revert InsufficientNativeToken();
 
-                // Send requested amount + beneficiary's share of surplus to beneficiary
                 uint256 beneficiaryTotal = requestedAmount + beneficiaryShare;
                 (bool sent, ) = beneficiary.call{value: beneficiaryTotal}("");
                 if (!sent) revert InsufficientNativeToken();
 
                 msgValue -= beneficiaryTotal;
             } else {
-                // Send requested amount + beneficiary's share of surplus to beneficiary
                 IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount + beneficiaryShare);
 
-                // Send protocol's share of surplus to protocol
                 if (protocolShare > 0) {
                     IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
                 }
@@ -686,7 +683,6 @@ contract IntentGatewayV2 is HyperApp {
                         emit DustCollected(token, balance);
                     }
                 } else {
-                    // ERC20 token - only transfer if balance is non-zero to avoid reverts
                     uint256 balance = IERC20(token).balanceOf(dispatcher);
                     if (balance > 0) {
                         sweepCalls[sweepCount] = Call({
@@ -700,9 +696,7 @@ contract IntentGatewayV2 is HyperApp {
                 }
             }
 
-            // Only dispatch sweep calls if we have any non-zero balances
             if (sweepCount > 0) {
-                // Resize array to actual count
                 Call[] memory finalCalls = new Call[](sweepCount);
                 for (uint256 i = 0; i < sweepCount; i++) {
                     finalCalls[i] = sweepCalls[i];

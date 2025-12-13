@@ -32,6 +32,7 @@ contract UniV4UniswapV2Wrapper {
     struct Params {
         address universalRouter;
         address quoter;
+        address WETH;
         uint24 defaultFee;
         int24 defaultTickSpacing;
     }
@@ -134,10 +135,15 @@ contract UniV4UniswapV2Wrapper {
     function getAmountsIn(uint256 amountOut, address[] calldata path) 
         external 
         returns (uint256[] memory amounts) 
-    {
-        
+    {   
+
+        address tokenOut = _isNativeToken(path[0]) ? path[1] : path[0];
+        bool zeroForOne = _isNativeToken(path[0]);
+        PoolKey memory poolKey = _createPoolKey(tokenOut);
+
+
         (uint256 amountIn, ) = IV4Quoter(_params.quoter).quoteExactOutputSingle(
-            IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountOut), bytes(""))
+            IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountOut), bytes(""))
         );
         
         amounts = new uint256[](2);
@@ -149,14 +155,23 @@ contract UniV4UniswapV2Wrapper {
         external 
         returns (uint256[] memory amounts) 
     {
-        
+        address tokenOut = _isNativeToken(path[0]) ? path[1] : path[0];
+        bool zeroForOne = _isNativeToken(path[0]);
+        PoolKey memory poolKey = _createPoolKey(tokenOut);
+
+
         (uint256 amountOut, ) = IV4Quoter(_params.quoter).quoteExactInputSingle(
-            IV4Quoter.QuoteExactSingleParams(_createPoolKey(path[1]), true, uint128(amountIn), bytes(""))
+            IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountIn), bytes(""))
         );
         
         amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountOut;
+    }
+
+
+    function _isNativeToken(address token) internal view returns (bool) {
+    return token == address(0) || token == _params.WETH;
     }
 
     function _createPoolKey(address tokenOut) 

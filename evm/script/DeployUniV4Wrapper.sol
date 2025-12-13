@@ -17,11 +17,13 @@ contract DeployScript is BaseScript {
         address quoter = config.get("V4_QUOTER").toAddress();
         uint24 defaultFee = uint24(config.get("DEFAULT_FEE").toUint256());
         int24 defaultTickSpacing = int24(int256(config.get("DEFAULT_TICK_SPACING").toUint256()));
+        address weth = config.get("WETH").toAddress();
 
         UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
         wrapper.init(UniV4UniswapV2Wrapper.Params({
             universalRouter: universalRouter,
             quoter: quoter,
+            WETH: weth,
             defaultFee: defaultFee,
             defaultTickSpacing: defaultTickSpacing
         }));

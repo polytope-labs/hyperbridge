@@ -70,7 +70,8 @@ contract DeployScript is BaseScript {
                 wrapper.init(UniV3UniswapV2Wrapper.Params({
                     WETH: config.get("WETH").toAddress(),
                     swapRouter: config.get("SWAP_ROUTER").toAddress(),
-                    quoter: config.get("QUOTER").toAddress()
+                    quoter: config.get("QUOTER").toAddress(),
+                    maxFee: uint24(config.get("MAX_FEE").toUint256())
                 }));
                 uniswapV2 = address(wrapper);
             } else {

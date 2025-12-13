@@ -27,7 +27,7 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
     address private constant UNIVERSAL_ROUTER = 0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af; 
     address private constant V4_QUOTER = 0x52F0E24D1c21C8A0cB1e5a5dD6198556BD9E1203;
     
-  
+    address private constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address private constant WHALE = address(0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045);
     address private DEPLOYER;
@@ -43,6 +43,7 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
             UniV4UniswapV2Wrapper.Params({
                 universalRouter: UNIVERSAL_ROUTER,
                 quoter: V4_QUOTER,
+                WETH: WETH,
                 defaultFee: 3000,        // 0.3% fee tier
                 defaultTickSpacing: 60   // Tick spacing for 0.3% pools
             })

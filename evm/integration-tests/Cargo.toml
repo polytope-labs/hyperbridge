@@ -39,7 +39,7 @@ beefy-prover = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }
 
-ismp-solidity-abi = { path = "../abi", features = ["build-abi"] }
+ismp-solidity-abi = { path = "../abi" }
 alloy-primitives = { workspace = true, default-features = true }
 
 rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }

@@ -145,7 +145,7 @@ struct SelectOptions {
     bytes32 commitment;
     /// @dev The solver address to select.
     address solver;
-    /// @dev The signature from the session key that signed (commitment, solver)
+    /// @dev The EIP-712 signature from the session key that signed SelectSolver(commitment, solver)
     bytes signature;
 }
 
@@ -177,6 +177,23 @@ struct NewDeployment {
  */
 contract IntentGatewayV2 is HyperApp {
     using SafeERC20 for IERC20;
+
+    /**
+     * @dev EIP-712 Domain separator type hash
+     */
+    bytes32 public constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+
+    /**
+     * @dev EIP-712 type hash for SelectSolver message
+     */
+    bytes32 public constant SELECT_SOLVER_TYPEHASH =
+        keccak256("SelectSolver(bytes32 commitment,address solver)");
+
+    /**
+     * @dev EIP-712 domain separator
+     */
+    bytes32 public immutable DOMAIN_SEPARATOR;
 
     /**
      * @dev Enum representing the different kinds of incoming requests that can be executed.
@@ -358,6 +375,17 @@ contract IntentGatewayV2 is HyperApp {
 
     constructor(address admin) {
         _admin = admin;
+
+        // Initialize EIP-712 domain separator
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH,
+                keccak256(bytes("IntentGatewayV2")),
+                keccak256(bytes("2")),
+                block.chainid,
+                address(this)
+            )
+        );
     }
 
     /**
@@ -411,7 +439,7 @@ contract IntentGatewayV2 is HyperApp {
      * @dev Returns a struct containing all configurable parameters
      * @return Params A struct containing the module's current parameters
      */
-    function params() public view returns (Params memory) {
+    function params() external view returns (Params memory) {
         return _params;
     }
 
@@ -559,10 +587,24 @@ contract IntentGatewayV2 is HyperApp {
      * @param options The options for selecting a solver.
      */
     function select(SelectOptions memory options) public {
-        // Verify that the session key signed (commitment, options.solver)
-        bytes32 message = keccak256(abi.encodePacked(options.commitment, options.solver));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        address sessionKey = _recoverSigner(ethSignedMessage, options.signature);
+        // Verify that the session key signed (commitment, options.solver) using EIP-712
+        bytes32 structHash = keccak256(
+            abi.encode(
+                SELECT_SOLVER_TYPEHASH,
+                options.commitment,
+                options.solver
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                DOMAIN_SEPARATOR,
+                structHash
+            )
+        );
+
+        address sessionKey = _recoverSigner(digest, options.signature);
 
         // store some preludes
         bytes32 commitment = options.commitment;
@@ -585,7 +627,8 @@ contract IntentGatewayV2 is HyperApp {
         // Ensure the order has not expired
         if (order.deadline < block.number) revert Expired();
         bytes32 commitment = keccak256(abi.encode(order));
-        if (_params.solverSelection) {
+        // cross-chain limit orders don't need solver selection, they can be filled directly
+        if (_params.solverSelection && order.deadline != type(uint256).max) {
             // Verify solver selection
             bytes32 solver;
             bytes32 storedSessionKey;

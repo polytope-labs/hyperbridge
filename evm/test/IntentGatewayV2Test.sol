@@ -76,6 +76,38 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         deal(address(dai), filler, 10000 * 1e18);
     }
 
+    /// @dev Helper function to create EIP-712 signature for solver selection
+    function _createSelectSolverSignature(
+        bytes32 commitment,
+        address solver,
+        uint256 privateKey,
+        address gateway
+    ) internal view returns (bytes memory) {
+        // Compute the EIP-712 digest using public constants
+        IntentGatewayV2 gatewayContract = IntentGatewayV2(payable(gateway));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                gatewayContract.SELECT_SOLVER_TYPEHASH(),
+                commitment,
+                solver
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                gatewayContract.DOMAIN_SEPARATOR(),
+                structHash
+            )
+        );
+
+        // Sign the digest
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+
+        // Return the signature in the expected format
+        return abi.encodePacked(r, s, v);
+    }
+
     function testDustCollectionFromPredispatchSwapWithUniswapV2() public {
         // Test scenario: User wants to swap 1 ETH for DAI using UniswapV2, then escrow the DAI
         uint256 ethAmount = 1 ether;
@@ -1337,11 +1369,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create signature from session key
-        bytes32 message = keccak256(abi.encodePacked(commitment, filler));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethSignedMessage);
-        bytes memory sessionSignature = abi.encodePacked(r, s, v);
+        // Create EIP-712 signature from session key
+        bytes memory sessionSignature = _createSelectSolverSignature(
+            commitment,
+            filler,
+            1, // Session key private key
+            address(intentGateway)
+        );
 
         // Solver selects themselves
         vm.prank(filler);
@@ -1394,11 +1428,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create signature from session key
-        bytes32 message = keccak256(abi.encodePacked(commitment, filler));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethSignedMessage);
-        bytes memory sessionSignature = abi.encodePacked(r, s, v);
+        // Create EIP-712 signature from session key
+        bytes memory sessionSignature = _createSelectSolverSignature(
+            commitment,
+            filler,
+            1, // Session key private key
+            address(gatewayWithSelection)
+        );
 
         // Solver selects themselves
         vm.startPrank(filler);
@@ -1465,11 +1501,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create signature from session key for filler
-        bytes32 message = keccak256(abi.encodePacked(commitment, filler));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethSignedMessage);
-        bytes memory sessionSignature = abi.encodePacked(r, s, v);
+        // Create EIP-712 signature from session key for filler
+        bytes memory sessionSignature = _createSelectSolverSignature(
+            commitment,
+            filler,
+            1, // Session key private key
+            address(gatewayWithSelection)
+        );
 
         // Solver selects filler
         vm.prank(filler);

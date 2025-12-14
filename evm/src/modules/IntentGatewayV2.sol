@@ -380,7 +380,7 @@ contract IntentGatewayV2 is HyperApp {
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
                 DOMAIN_TYPEHASH,
-                keccak256(bytes("IntentGatewayV2")),
+                keccak256(bytes("IntentGateway")),
                 keccak256(bytes("2")),
                 block.chainid,
                 address(this)

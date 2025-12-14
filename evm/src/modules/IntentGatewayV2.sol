@@ -165,8 +165,8 @@ struct CancelOptions {
 struct NewDeployment {
     /// @dev Identifier for the state machine.
     bytes stateMachineId;
-    /// @dev A bytes32 variable to store the gateway identifier.
-    bytes32 gateway;
+    /// @dev An address variable to store the gateway identifier.
+    address gateway;
 }
 
 /**
@@ -268,7 +268,7 @@ contract IntentGatewayV2 is HyperApp {
      * @dev Mapping to store instances of contracts.
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
-    mapping(bytes32 => bytes32) private _instances;
+    mapping(bytes32 => address) private _instances;
 
     /// @notice Thrown when an unauthorized action is attempted.
     error Unauthorized();
@@ -356,7 +356,7 @@ contract IntentGatewayV2 is HyperApp {
      * @param stateMachineId The identifier for the state machine.
      * @param gateway The gateway identifier.
      */
-    event NewDeploymentAdded(bytes stateMachineId, bytes32 gateway);
+    event NewDeploymentAdded(bytes stateMachineId, address gateway);
 
     /**
      * @dev Emitted when some dust tokens are accrued.
@@ -406,18 +406,17 @@ contract IntentGatewayV2 is HyperApp {
     /**
      * @dev Fetch the IntentGateway contract instance for a chain.
      */
-    function instance(bytes calldata stateMachineId) public view returns (bytes32) {
-        bytes32 gateway = _instances[keccak256(stateMachineId)];
-        return gateway == bytes32(0) ? bytes32(uint256(uint160(address(this)))) : gateway;
+    function instance(bytes calldata stateMachineId) public view returns (address) {
+        address gateway = _instances[keccak256(stateMachineId)];
+        return gateway == address(0) ? address(this) : gateway;
     }
 
     /**
      * @dev Checks that the request originates from a known instance of the IntentGateway.
      */
     modifier authenticate(PostRequest calldata request) {
-        bytes32 module = request.from.length == 20
-            ? bytes32(uint256(uint160(bytes20(request.from))))
-            : bytes32(request.from[:32]);
+        if (request.from.length != 20) revert InvalidInput();
+        address module = address(bytes20(request.from));
         // IntentGateway only accepts incoming assets from itself or known instances
         if (instance(request.source) != module) revert Unauthorized();
         _;
@@ -761,7 +760,7 @@ contract IntentGatewayV2 is HyperApp {
         );
         DispatchPost memory request = DispatchPost({
             dest: order.source,
-            to: abi.encodePacked(address(uint160(uint256(instance(order.source))))),
+            to: abi.encodePacked(instance(order.source)),
             body: body,
             timeout: 0,
             fee: options.relayerFee,
@@ -901,7 +900,7 @@ contract IntentGatewayV2 is HyperApp {
         bytes[] memory keys = new bytes[](1);
         keys[0] = bytes.concat(
             // contract address
-            abi.encodePacked(address(uint160(uint256(instance(order.destination))))),
+            abi.encodePacked(instance(order.destination)),
             // storage slot hash
             calculateCommitmentSlotHash(commitment)
         );
@@ -936,6 +935,9 @@ contract IntentGatewayV2 is HyperApp {
         // only owner can cancel order
         if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
 
+        address hostAddr = host();
+        if (keccak256(order.destination) != keccak256(IDispatcher(hostAddr).host())) revert WrongChain();
+
         bytes32 commitment = keccak256(abi.encode(order));
 
         // order has already been filled
@@ -959,7 +961,6 @@ contract IntentGatewayV2 is HyperApp {
         });
 
         // dispatch redemption request
-        address hostAddr = host();
         if (msg.value > 0) {
             // there's some native tokens to pay for request dispatch
             IDispatcher(hostAddr).dispatch{value: msg.value}(request);

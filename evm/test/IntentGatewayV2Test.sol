@@ -666,8 +666,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -716,8 +716,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -760,8 +760,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -1120,8 +1120,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: bytes("UNAUTHORIZED_CHAIN"),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(0x1234))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(0x1234)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -2115,8 +2115,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.host(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2176,8 +2176,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.host(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2192,7 +2192,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptNewDeployment() public {
         bytes memory stateMachineId = bytes("NEW_CHAIN");
-        bytes32 gateway = bytes32(uint256(uint160(address(0x1234))));
+        address gateway = address(0x1234);
 
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
@@ -2205,8 +2205,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2221,7 +2221,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bool eventFound = false;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("NewDeploymentAdded(bytes,bytes32)")) {
+            if (entries[i].topics[0] == keccak256("NewDeploymentAdded(bytes,address)")) {
                 eventFound = true;
                 break;
             }
@@ -2250,8 +2250,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2292,11 +2292,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory stateMachineId = bytes("TEST_CHAIN");
 
         // Before adding deployment, should return this contract's address
-        bytes32 instance = intentGateway.instance(stateMachineId);
-        assertEq(instance, bytes32(uint256(uint160(address(intentGateway)))), "Should return self address by default");
+        address instance = intentGateway.instance(stateMachineId);
+        assertEq(instance, address(intentGateway), "Should return self address by default");
 
         // Add a new deployment
-        bytes32 gateway = bytes32(uint256(uint160(address(0xABCD))));
+        address gateway = address(0xABCD);
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
         bytes memory body = bytes.concat(
@@ -2308,8 +2308,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });

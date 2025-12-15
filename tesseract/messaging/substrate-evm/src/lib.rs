@@ -17,8 +17,10 @@ use primitive_types::U256;
 use sp_core::{Bytes, H160, H256, hashing, storage::ChildInfo};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use subxt::{
+	OnlineClient,
+	backend::rpc::RpcClient,
 	config::{ExtrinsicParams, HashFor},
-	ext::subxt_rpcs::rpc_params,
+	ext::subxt_rpcs::{LegacyRpcMethods, rpc_params},
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
@@ -27,20 +29,21 @@ use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
 	StateMachineUpdated, StateProofQueryType, TxResult,
 };
-use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct SubstrateEvmClientConfig {
 	#[serde(flatten)]
 	pub evm: EvmConfig,
-	#[serde(flatten)]
-	pub substrate: SubstrateConfig,
+	// Substrate websocket url
+	pub ws_url: String,
 }
 
 #[derive(Clone)]
 pub struct SubstrateEvmClient<C: subxt::Config> {
 	pub evm: EvmClient,
-	pub substrate: SubstrateClient<C>,
+	pub online_client: OnlineClient<C>,
+	pub legacy_rpc: LegacyRpcMethods<C>,
+	pub subxt_rpc_client: RpcClient,
 }
 
 #[derive(serde::Deserialize)]
@@ -60,8 +63,10 @@ where
 {
 	pub async fn new(config: SubstrateEvmClientConfig) -> Result<Self, anyhow::Error> {
 		let evm = EvmClient::new(config.evm).await?;
-		let substrate = SubstrateClient::new(config.substrate).await?;
-		Ok(Self { evm, substrate })
+		let (online_client, rpc_client) =
+			subxt_utils::client::ws_client(&config.ws_url, 300u32 * 1024 * 1024).await?;
+		let legacy_rpc = LegacyRpcMethods::<C>::new(rpc_client.clone());
+		Ok(Self { evm, online_client, legacy_rpc, subxt_rpc_client: rpc_client })
 	}
 
 	pub fn storage_key(&self, slot: H256) -> Vec<u8> {
@@ -84,15 +89,14 @@ where
 		let key = self.contract_info_key(address);
 
 		let data = self
-			.substrate
-			.client
+			.online_client
 			.storage()
 			.at(at)
 			.fetch_raw(key)
 			.await?
 			.ok_or_else(|| anyhow::anyhow!("Contract info not found"))?;
 
-		let mut input = &data[..];
+		let input = &data[..];
 
 		let account_info = AccountInfo::decode(&mut &input[..])
 			.map_err(|_| SubstrateEvmError::AccountInfoDecodeError)?;
@@ -110,8 +114,7 @@ where
 		queries: Vec<(H160, Vec<Vec<u8>>)>,
 	) -> Result<Vec<u8>, Error> {
 		let block_hash = self
-			.substrate
-			.rpc
+			.legacy_rpc
 			.chain_get_block_hash(Some(at.into()))
 			.await?
 			.ok_or_else(|| anyhow::anyhow!("Block hash not found for height {at}"))?;
@@ -133,8 +136,7 @@ where
 		}
 
 		let main_proof: ReadProof<H256> = self
-			.substrate
-			.rpc_client
+			.subxt_rpc_client
 			.request("state_getReadProof", rpc_params![main_keys, Some(block_hash)])
 			.await?;
 
@@ -146,8 +148,7 @@ where
 				.expect("Contract Info should exist");
 
 			let child_proof: ReadProof<H256> = self
-				.substrate
-				.rpc_client
+				.subxt_rpc_client
 				.request(
 					"state_getChildReadProof",
 					rpc_params![child_info.prefixed_storage_key(), keys, Some(block_hash)],

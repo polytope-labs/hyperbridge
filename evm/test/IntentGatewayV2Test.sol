@@ -76,6 +76,38 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         deal(address(dai), filler, 10000 * 1e18);
     }
 
+    /// @dev Helper function to create EIP-712 signature for solver selection
+    function _createSelectSolverSignature(
+        bytes32 commitment,
+        address solver,
+        uint256 privateKey,
+        address gateway
+    ) internal view returns (bytes memory) {
+        // Compute the EIP-712 digest using public constants
+        IntentGatewayV2 gatewayContract = IntentGatewayV2(payable(gateway));
+        bytes32 structHash = keccak256(
+            abi.encode(
+                gatewayContract.SELECT_SOLVER_TYPEHASH(),
+                commitment,
+                solver
+            )
+        );
+
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                gatewayContract.DOMAIN_SEPARATOR(),
+                structHash
+            )
+        );
+
+        // Sign the digest
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
+
+        // Return the signature in the expected format
+        return abi.encodePacked(r, s, v);
+    }
+
     function testDustCollectionFromPredispatchSwapWithUniswapV2() public {
         // Test scenario: User wants to swap 1 ETH for DAI using UniswapV2, then escrow the DAI
         uint256 ethAmount = 1 ether;
@@ -634,8 +666,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -684,8 +716,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -728,8 +760,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -1088,8 +1120,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: bytes("UNAUTHORIZED_CHAIN"),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(0x1234))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(0x1234)),
+            to: abi.encodePacked(address(intentGateway)),
             body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
@@ -1337,11 +1369,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create signature from session key
-        bytes32 message = keccak256(abi.encodePacked(commitment, filler));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethSignedMessage);
-        bytes memory sessionSignature = abi.encodePacked(r, s, v);
+        // Create EIP-712 signature from session key
+        bytes memory sessionSignature = _createSelectSolverSignature(
+            commitment,
+            filler,
+            1, // Session key private key
+            address(intentGateway)
+        );
 
         // Solver selects themselves
         vm.prank(filler);
@@ -1394,11 +1428,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create signature from session key
-        bytes32 message = keccak256(abi.encodePacked(commitment, filler));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethSignedMessage);
-        bytes memory sessionSignature = abi.encodePacked(r, s, v);
+        // Create EIP-712 signature from session key
+        bytes memory sessionSignature = _createSelectSolverSignature(
+            commitment,
+            filler,
+            1, // Session key private key
+            address(gatewayWithSelection)
+        );
 
         // Solver selects themselves
         vm.startPrank(filler);
@@ -1465,11 +1501,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create signature from session key for filler
-        bytes32 message = keccak256(abi.encodePacked(commitment, filler));
-        bytes32 ethSignedMessage = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethSignedMessage);
-        bytes memory sessionSignature = abi.encodePacked(r, s, v);
+        // Create EIP-712 signature from session key for filler
+        bytes memory sessionSignature = _createSelectSolverSignature(
+            commitment,
+            filler,
+            1, // Session key private key
+            address(gatewayWithSelection)
+        );
 
         // Solver selects filler
         vm.prank(filler);
@@ -1870,88 +1908,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    function testCancelLimitOrder() public {
-        uint256 inputAmount = 1000 * 1e6;
 
-        TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
-
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: host.host(),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: address(0),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: output
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(intentGateway), inputAmount);
-        intentGateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
-
-        vm.startPrank(user);
-        dai.approve(address(intentGateway), type(uint256).max);
-        intentGateway.cancelLimitOrder(order, cancelOptions);
-        vm.stopPrank();
-    }
-
-    function testCancelLimitOrderUnauthorized() public {
-        uint256 inputAmount = 1000 * 1e6;
-
-        TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
-
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: host.host(),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: address(0),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: output
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(intentGateway), inputAmount);
-        intentGateway.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
-
-        vm.startPrank(filler);
-        dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
-        intentGateway.cancelLimitOrder(order, cancelOptions);
-        vm.stopPrank();
-    }
 
     // ============================================
     // placeOrder Edge Case Tests
@@ -2077,8 +2034,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.host(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2138,8 +2095,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.host(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2154,7 +2111,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptNewDeployment() public {
         bytes memory stateMachineId = bytes("NEW_CHAIN");
-        bytes32 gateway = bytes32(uint256(uint160(address(0x1234))));
+        address gateway = address(0x1234);
 
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
@@ -2167,8 +2124,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2183,7 +2140,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bool eventFound = false;
 
         for (uint256 i = 0; i < entries.length; i++) {
-            if (entries[i].topics[0] == keccak256("NewDeploymentAdded(bytes,bytes32)")) {
+            if (entries[i].topics[0] == keccak256("NewDeploymentAdded(bytes,address)")) {
                 eventFound = true;
                 break;
             }
@@ -2212,8 +2169,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });
@@ -2254,11 +2211,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory stateMachineId = bytes("TEST_CHAIN");
 
         // Before adding deployment, should return this contract's address
-        bytes32 instance = intentGateway.instance(stateMachineId);
-        assertEq(instance, bytes32(uint256(uint160(address(intentGateway)))), "Should return self address by default");
+        address instance = intentGateway.instance(stateMachineId);
+        assertEq(instance, address(intentGateway), "Should return self address by default");
 
         // Add a new deployment
-        bytes32 gateway = bytes32(uint256(uint160(address(0xABCD))));
+        address gateway = address(0xABCD);
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
         bytes memory body = bytes.concat(
@@ -2270,8 +2227,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.hyperbridge(),
             dest: host.host(),
             nonce: 0,
-            from: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
-            to: abi.encodePacked(bytes32(uint256(uint160(address(intentGateway))))),
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
             body: body,
             timeoutTimestamp: 0
         });

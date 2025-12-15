@@ -26,6 +26,7 @@ tesseract-substrate = { workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive", "alloc"] }
+subxt-utils = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

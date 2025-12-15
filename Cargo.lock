@@ -28850,6 +28850,7 @@ dependencies = [
  "serde",
  "sp-core 37.0.0",
  "subxt 0.42.1",
+ "subxt-utils",
  "tesseract-evm",
  "tesseract-primitives",
  "tesseract-substrate",

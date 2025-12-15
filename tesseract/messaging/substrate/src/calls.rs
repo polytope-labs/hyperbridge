@@ -36,6 +36,7 @@ use subxt::{
 	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
+use pallet_ismp_relayer::withdrawal::Signature;
 use subxt_utils::{
 	relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic,
 	values::{
@@ -186,12 +187,13 @@ where
 			};
 
 			let message = message(nonce, chain, Some(counterparty.address().clone()));
+			let signature = { self.sign(&message) };
 
 			results.push(
 				execute_withdrawal(
 					self,
 					Some(counterparty.address()),
-					message,
+					signature,
 					counterparty.clone(),
 					chain,
 				)
@@ -210,8 +212,9 @@ where
 			if let Some(raw_value) = raw_value { Decode::decode(&mut &*raw_value)? } else { 0u64 };
 
 		let message = message(nonce, chain, None);
+		let signature = { counterparty.sign(&message) };
 
-		results.push(execute_withdrawal(self, None, message, counterparty.clone(), chain).await?);
+		results.push(execute_withdrawal(self, None, signature, counterparty.clone(), chain).await?);
 
 		if results.is_empty() {
 			Err(anyhow!("No funds to withdraw"))
@@ -309,7 +312,7 @@ async fn relayer_account_balance<C: subxt::Config>(
 async fn execute_withdrawal<C>(
 	client: &SubstrateClient<C>,
 	beneficiary: Option<Vec<u8>>,
-	message: [u8; 32],
+	signature: Signature,
 	counterparty: Arc<dyn IsmpProvider>,
 	chain: StateMachine,
 ) -> anyhow::Result<WithdrawFundsResult>
@@ -321,7 +324,6 @@ where
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
 {
-	let signature = { counterparty.sign(&message) };
 
 	let input_data = WithdrawalInputData { signature, dest_chain: chain, beneficiary };
 

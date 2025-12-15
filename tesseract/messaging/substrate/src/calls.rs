@@ -185,7 +185,7 @@ where
 				0u64
 			};
 
-			let message = message(nonce, chain, Some(counterparty.address().clone()));
+			let message = message(nonce, self.state_machine, Some(counterparty.address().clone()));
 
 			results.push(
 				execute_withdrawal(

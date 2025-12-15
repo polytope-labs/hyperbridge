@@ -259,13 +259,6 @@ contract IntentGatewayV2 is HyperApp {
     mapping(bytes32 => address) private _filled;
 
     /**
-     * @dev Mapping to store cancelled orders.
-     * The key is a bytes32 hash representing the order commitment, and the value is a boolean
-     * indicating whether the order has been cancelled.
-     */
-    mapping(bytes32 => bool) private _cancellations;
-
-    /**
      * @dev Mapping to store instances of contracts.
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
@@ -641,7 +634,7 @@ contract IntentGatewayV2 is HyperApp {
         bytes32 commitment = keccak256(abi.encode(order));
 
         // cross-chain limit orders don't need solver selection, they can be filled directly
-        if (_params.solverSelection && order.deadline != type(uint256).max) {
+        if (_params.solverSelection) {
             // Verify solver selection
             bytes32 solver;
             bytes32 storedSessionKey;
@@ -662,9 +655,6 @@ contract IntentGatewayV2 is HyperApp {
 
         // Ensure the order has not been filled
         if (_filled[commitment] != address(0)) revert Filled();
-
-        // Ensure the order has not been cancelled
-        if (_cancellations[commitment]) revert Cancelled();
 
         // Validate that solver outputs are provided and match order outputs length
         uint256 outputsLen = order.output.assets.length;
@@ -803,7 +793,69 @@ contract IntentGatewayV2 is HyperApp {
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
     }
+    
+    /**
+     * @notice Cancels an existing order.
+     * @param order The order to be canceled.
+     * @param options Additional options for the cancellation process.
+     * @dev This function can only be called by the order owner and requires a payment.
+     * It will initiate a storage query on the source chain to verify the order has not
+     * yet been filled. If the order has not been filled, the tokens will be released.
+     */
+    function cancelOrder(Order calldata order, CancelOptions calldata options) public payable {
+        bytes32 commitment = keccak256(abi.encode(order));
 
+        // only owner can cancel order
+        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+
+        // order has not yet expired
+        if (options.height <= order.deadline) revert NotExpired();
+
+        // order has already been filled
+        if (_filled[commitment] != address(0)) revert Filled();
+
+        // fetch the tokens
+        uint256 inputsLen = order.inputs.length;
+        for (uint256 i; i < inputsLen;) {
+            // check for order existence
+            if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        bytes memory context = abi.encode(
+            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
+        );
+
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = bytes.concat(
+            // contract address
+            abi.encodePacked(instance(order.destination)),
+            // storage slot hash
+            calculateCommitmentSlotHash(commitment)
+        );
+        DispatchGet memory request = DispatchGet({
+            dest: order.destination,
+            keys: keys,
+            timeout: 0,
+            height: uint64(options.height),
+            fee: options.relayerFee,
+            context: context
+        });
+
+        // dispatch storage query request
+        address hostAddr = host();
+        if (msg.value > 0) {
+            // there's some native tokens left to pay for request dispatch
+            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+        } else {
+            // try to pay for dispatch with fee token
+            dispatchWithFeeToken(request, msg.sender);
+        }
+    }    
+    
     /**
      * @notice Executes an incoming post request.
      * @dev This function is called when an incoming post request is accepted.
@@ -900,115 +952,7 @@ contract IntentGatewayV2 is HyperApp {
     }
 
     /**
-     * @notice Cancels an existing order.
-     * @param order The order to be canceled.
-     * @param options Additional options for the cancellation process.
-     * @dev This function can only be called by the order owner and requires a payment.
-     * It will initiate a storage query on the source chain to verify the order has not
-     * yet been filled. If the order has not been filled, the tokens will be released.
-     */
-    function cancelOrder(Order calldata order, CancelOptions calldata options) public payable {
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        // only owner can cancel order
-        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
-
-        // order has not yet expired
-        if (options.height <= order.deadline) revert NotExpired();
-
-        // order has already been filled
-        if (_filled[commitment] != address(0)) revert Filled();
-
-        // fetch the tokens
-        uint256 inputsLen = order.inputs.length;
-        for (uint256 i; i < inputsLen;) {
-            // check for order existence
-            if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        bytes memory context = abi.encode(
-            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
-        );
-
-        bytes[] memory keys = new bytes[](1);
-        keys[0] = bytes.concat(
-            // contract address
-            abi.encodePacked(instance(order.destination)),
-            // storage slot hash
-            calculateCommitmentSlotHash(commitment)
-        );
-        DispatchGet memory request = DispatchGet({
-            dest: order.destination,
-            keys: keys,
-            timeout: 0,
-            height: uint64(options.height),
-            fee: options.relayerFee,
-            context: context
-        });
-
-        // dispatch storage query request
-        address hostAddr = host();
-        if (msg.value > 0) {
-            // there's some native tokens left to pay for request dispatch
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
-        } else {
-            // try to pay for dispatch with fee token
-            dispatchWithFeeToken(request, msg.sender);
-        }
-    }
-
-    /**
-     * @notice Cancels a limit order to redeem escrowed tokens on the source chain.
-     * @param order The order to be canceled.
-     * @param options Additional options for the cancellation process.
-     * @dev This function can only be called by the order owner and only for limit orders
-     * It will immediately send a cross-chain request to redeem the escrowed tokens.
-     */
-    function cancelLimitOrder(Order calldata order, CancelOptions calldata options) public payable {
-        // only owner can cancel order
-        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
-
-        address hostAddr = host();
-        if (keccak256(order.destination) != keccak256(IDispatcher(hostAddr).host())) revert WrongChain();
-
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        // order has already been filled
-        if (_filled[commitment] != address(0)) revert Filled();
-
-        // mark order as cancelled
-        _cancellations[commitment] = true;
-
-        // construct redemption request
-        bytes memory data = abi.encode(
-            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
-        );
-
-        DispatchPost memory request = DispatchPost({
-            dest: order.source,
-            to: abi.encodePacked(instance(order.source)),
-            body: abi.encode(RequestKind.RefundEscrow, data),
-            timeout: 0,
-            fee: options.relayerFee,
-            payer: msg.sender
-        });
-
-        // dispatch redemption request
-        if (msg.value > 0) {
-            // there's some native tokens to pay for request dispatch
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
-        } else {
-            // try to pay for dispatch with fee token
-            dispatchWithFeeToken(request, msg.sender);
-        }
-    }
-
-    /**
-     * @notice Handles the response for an incoming GET request.
+     * @notice Handles the response for a previously dispatched storage query (GET request).
      * @dev This function is called by the host to process the response of a GET request.
      * @param incoming The response data structure for the GET request.
      * Only the host can call this function.

@@ -6,10 +6,7 @@ use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use futures::StreamExt;
 use polkadot_sdk::{
-	cumulus_primitives_core::{
-		All, AllCounted, AssetFilter, BuyExecution, DepositAsset, Parachain, SetFeesMode,
-		TransferReserveAsset, Wild, Xcm,
-	},
+	cumulus_primitives_core::{AllCounted, AssetFilter, DepositAsset, Wild, Xcm},
 	sp_core::{bytes::from_hex, sr25519, Pair, H256},
 	sp_runtime::Weight,
 	staging_xcm::{
@@ -31,7 +28,6 @@ use subxt::{
 		scale_value::Composite,
 		subxt_rpcs::{rpc_params, RpcClient},
 	},
-	tx::Payload,
 	OnlineClient,
 };
 
@@ -58,7 +54,7 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.unwrap_or("ws://127.0.0.1:9922".to_string());
 	let relay_client = OnlineClient::<BlakeSubstrateChain>::from_url(&url).await?;
 	let rpc_client = RpcClient::from_url(&url).await?;
-	let _rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
+	let relay_rpc = LegacyRpcMethods::<BlakeSubstrateChain>::new(rpc_client.clone());
 	println!("connecting to asset hub");
 	let assethub_url = std::env::var("ASSET_HUB_LOCAL_URL")
 		.ok()
@@ -79,6 +75,9 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 	force_open_hrmp_channel(&relay_client, &signer, 1000, 2000).await?;
 	force_open_hrmp_channel(&relay_client, &signer, 2000, 1000).await?;
 
+	println!("waiting for next session on relay chain");
+	wait_for_next_session(&relay_client, &relay_rpc).await?;
+
 	let sub = para_rpc.chain_subscribe_finalized_heads().await?;
 	let _block = sub
 		.take(1)
@@ -86,136 +85,53 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 		.await
 		.into_iter()
 		.collect::<Result<Vec<_>, _>>()?;
+	let beneficiary: Location = Junctions::X4(Arc::new([
+		Junction::AccountId32 { network: None, id: pair.public().into() },
+		Junction::AccountKey20 {
+			network: Some(NetworkId::Ethereum { chain_id: 1 }),
+			key: [1u8; 20],
+		},
+		Junction::GeneralIndex(60 * 60),
+		Junction::GeneralIndex(1),
+	]))
+	.into_location();
+	let weight_limit = WeightLimit::Unlimited;
 
-	let beneficiary_value = Value::named_composite(vec![
-		("parents".to_string(), Value::u128(0_u8 as u128)),
-		(
-			"interior".to_string(),
-			Value::variant(
-				"X4",
-				Composite::unnamed(vec![Value::unnamed_composite(vec![
-					Value::variant(
-						"AccountId32",
-						Composite::named(vec![
-							(
-								"network".to_string(),
-								Value::variant("None", Composite::unnamed(vec![])),
-							),
-							("id".to_string(), Value::from_bytes(pair.public().to_vec())),
-						]),
-					),
-					Value::variant(
-						"AccountKey20",
-						Composite::named(vec![
-							(
-								"network".to_string(),
-								Value::variant(
-									"Some",
-									Composite::unnamed(vec![Value::variant(
-										"Ethereum",
-										Composite::named(vec![(
-											"chain_id".to_string(),
-											Value::u128(1_u64 as u128),
-										)]),
-									)]),
-								),
-							),
-							("key".to_string(), Value::from_bytes(vec![1u8; 20])),
-						]),
-					),
-					Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(3600)])),
-					Value::variant("GeneralIndex", Composite::unnamed(vec![Value::u128(1)])),
-				])]),
-			),
-		),
-	]);
+	let dest: VersionedLocation =
+		VersionedLocation::V5(Location::new(1, [Junction::Parachain(2000)]));
 
-	let dot_location_value = Value::named_composite(vec![
-		("parents".to_string(), Value::u128(1_u8 as u128)),
-		("interior".to_string(), Value::variant("Here", Composite::unnamed(vec![]))),
-	]);
+	let dot_location: Location = Parent.into();
+	let fee_asset_id = AssetId(dot_location.clone());
 
-	let assets_value = Value::named_composite(vec![
-		("id".to_string(), dot_location_value.clone()),
-		(
-			"fun".to_string(),
-			Value::variant("Fungible", Composite::unnamed(vec![Value::u128(SEND_AMOUNT)])),
-		),
-	]);
+	let asset = Asset { id: dot_location.clone().into(), fun: Fungibility::Fungible(SEND_AMOUNT) };
+	let assets = VersionedAssets::V5(vec![asset].into());
 
-	let weight_limit_value = Value::variant("Unlimited", Composite::unnamed(vec![]));
+	let xcm_beneficiary = beneficiary.clone();
+	let custom_xcm_on_dest = VersionedXcm::V5(Xcm::<()>(vec![DepositAsset {
+		assets: Wild(AllCounted(1)),
+		beneficiary: xcm_beneficiary,
+	}]));
 
-	let buy_execution_value = Value::variant(
-		"BuyExecution",
-		Composite::named(vec![
-			("fees".to_string(), assets_value.clone()),
-			("weight_limit".to_string(), weight_limit_value.clone()),
-		]),
-	);
-
-	let wild_all_value = Value::variant(
-		"Wild",
-		Composite::unnamed(vec![Value::variant("All", Composite::unnamed(vec![]))]),
-	);
-
-	let deposit_asset_value = Value::variant(
-		"DepositAsset",
-		Composite::named(vec![
-			("assets".to_string(), wild_all_value),
-			("beneficiary".to_string(), beneficiary_value),
-		]),
-	);
-
-	let remote_xcm_value = Value::unnamed_composite(vec![buy_execution_value, deposit_asset_value]);
-
-	let set_fees_mode_value = Value::variant(
-		"SetFeesMode",
-		Composite::named(vec![("jit_withdraw".to_string(), Value::bool(true))]),
-	);
-
-	let dest_location_value = Value::named_composite(vec![
-		("parents".to_string(), Value::u128(1_u8 as u128)),
-		(
-			"interior".to_string(),
-			Value::variant(
-				"X1",
-				Composite::unnamed(vec![Value::unnamed_composite(vec![Value::variant(
-					"Parachain",
-					Composite::unnamed(vec![Value::u128(2000_u32 as u128)]),
-				)])]),
-			),
-		),
-	]);
-
-	let transfer_reserve_asset_value = Value::variant(
-		"TransferReserveAsset",
-		Composite::named(vec![
-			("assets".to_string(), Value::unnamed_composite(vec![assets_value.clone()])),
-			("dest".to_string(), dest_location_value),
-			("xcm".to_string(), remote_xcm_value),
-		]),
-	);
-
-	let message_xcm_value =
-		Value::unnamed_composite(vec![set_fees_mode_value, transfer_reserve_asset_value]);
-
-	let xcm_struct_value = Value::unnamed_composite(vec![message_xcm_value]);
-
-	let message_value = Value::variant("V5", Composite::unnamed(vec![xcm_struct_value]));
-
-	let max_weight_value = Value::named_composite(vec![
-		("ref_time".to_string(), Value::u128(400_000_000_000u128)),
-		("proof_size".to_string(), Value::u128(1_000_000u128)),
-	]);
-
-	let ext = subxt::dynamic::tx("PolkadotXcm", "execute", vec![message_value, max_weight_value]);
-
-	let metadata = assethub_client.metadata();
-	let call_data_bytes = ext.encode_call_data(&metadata)?;
-
-	println!(
-		"\n\n>>> Hex-encoded call for Polkadot-JS:\n0x{}\n\n",
-		sp_core::hexdisplay::HexDisplay::from(&call_data_bytes)
+	println!("performing limited reserve asset transfer");
+	let dest_value = versioned_location_to_value(&dest);
+	let assets_value = versioned_assets_to_value(&assets);
+	let assets_transfer_type_value = Value::variant("LocalReserve", Composite::unnamed(vec![]));
+	let fee_transfer_type_value = Value::variant("LocalReserve", Composite::unnamed(vec![]));
+	let fee_asset_id_value = versioned_asset_id_to_value(&fee_asset_id);
+	let custom_xcm_on_dest_value = versioned_xcm_to_value(&custom_xcm_on_dest);
+	let weight_limit_value = weight_limit_to_value(&weight_limit);
+	let ext = subxt::dynamic::tx(
+		"PolkadotXcm",
+		"transfer_assets_using_type_and_then",
+		vec![
+			dest_value,
+			assets_value,
+			assets_transfer_type_value,
+			fee_asset_id_value,
+			fee_transfer_type_value,
+			custom_xcm_on_dest_value,
+			weight_limit_value,
+		],
 	);
 
 	let init_block = para_rpc
@@ -284,6 +200,45 @@ async fn force_open_hrmp_channel(
 	);
 	let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![force_call.into_value()]);
 	send_extrinsic(relay_client, signer, &sudo_call, None).await?;
+
+	Ok(())
+}
+
+async fn wait_for_next_session(
+	relay_client: &OnlineClient<BlakeSubstrateChain>,
+	relay_rpc: &LegacyRpcMethods<BlakeSubstrateChain>,
+) -> anyhow::Result<()> {
+	// Get current session index
+	let current_session_query = subxt::dynamic::storage("Session", "CurrentIndex", ());
+	let current_session: u32 = relay_client
+		.storage()
+		.at_latest()
+		.await?
+		.fetch(&current_session_query)
+		.await?
+		.ok_or_else(|| anyhow!("Failed to fetch current session index"))?
+		.as_type::<u32>()?;
+
+	println!("Current session: {}, waiting for next session...", current_session);
+
+	// Subscribe to finalized blocks and wait for session to increment
+	let mut sub = relay_rpc.chain_subscribe_finalized_heads().await?;
+
+	while let Some(res) = sub.next().await {
+		let header = res?;
+		let new_session: u32 = relay_client
+			.storage()
+			.at(header.hash_with(subxt::config::substrate::BlakeTwo256))
+			.fetch(&current_session_query)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to fetch session index"))?
+			.as_type::<u32>()?;
+
+		if new_session > current_session {
+			println!("Session changed from {} to {}", current_session, new_session);
+			break;
+		}
+	}
 
 	Ok(())
 }

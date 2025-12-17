@@ -1,3 +1,4 @@
+@hyperbridge/core/=node_modules/@hyperbridge/core/contracts/
 @polytope-labs/ismp-solidity/=node_modules/@polytope-labs/ismp-solidity/interfaces/
 @polytope-labs/ismp-solidity-v1/=node_modules/@polytope-labs/ismp-solidity-v1/interfaces/
 @openzeppelin/=node_modules/openzeppelin-solidity
@@ -6,5 +7,9 @@
 @uniswap/v2-periphery/=node_modules/@uniswap/v2-periphery
 @uniswap/v3-periphery/=node_modules/@uniswap/v3-periphery
 @uniswap/v3-core/=node_modules/@uniswap/v3-core
+@uniswap/v4-core/=node_modules/@uniswap/v4-core
+@uniswap/v4-periphery/=node_modules/@uniswap/v4-periphery
+@uniswap/universal-router/=node_modules/@uniswap/universal-router
+@uniswap/swap-router-contracts/=node_modules/@uniswap/swap-router-contracts
 stringutils/=lib/solidity-stringutils/src/
 @sp1-contracts/=lib/sp1-contracts/contracts/src/

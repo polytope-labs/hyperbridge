@@ -38,9 +38,12 @@ use pallet_ismp_host_executive::EvmHosts;
 use prelude::*;
 
 pub mod presets;
+pub mod substrate_evm;
 pub mod tendermint;
 pub mod types;
 pub mod utils;
+
+pub use substrate_evm::SubstrateEvmStateMachine;
 pub use tendermint::TendermintEvmStateMachine;
 pub use utils::*;
 

@@ -6758,8 +6758,15 @@ dependencies = [
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "prost 0.13.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sp-core 37.0.0",
  "tendermint-ics23-primitives",
  "tendermint-primitives",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing-subscriber",
  "trie-db",
 ]
 
@@ -8212,6 +8219,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "cumulus-pallet-parachain-system",
+ "evm-state-machine",
  "frame-benchmarking 41.0.0",
  "hex-literal 0.4.1",
  "hyperbridge-client-machine",
@@ -8234,6 +8242,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
+ "pallet-messaging-fees",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
@@ -8247,6 +8256,7 @@ dependencies = [
  "serde_json",
  "simnode-runtime-api",
  "smallvec",
+ "substrate-state-machine",
  "substrate-wasm-builder",
 ]
 
@@ -10787,7 +10797,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "ethers",
  "ethers-contract-abigen",
- "forge-testsuite",
+ "ethers-solc",
  "ismp",
  "mmr-primitives",
  "polkadot-sdk",
@@ -13307,6 +13317,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "cumulus-pallet-parachain-system",
+ "evm-state-machine",
  "frame-benchmarking 41.0.0",
  "hex-literal 0.4.1",
  "hyperbridge-client-machine",
@@ -13344,6 +13355,7 @@ dependencies = [
  "serde_json",
  "simnode-runtime-api",
  "smallvec",
+ "substrate-state-machine",
  "substrate-wasm-builder",
 ]
 
@@ -15562,9 +15574,13 @@ dependencies = [
  "pallet-xcm-gateway",
  "parity-scale-codec",
  "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
  "rs_merkle 1.5.0",
  "ruzstd 0.6.0",
  "scale-info",
+ "serde",
+ "serde_json",
  "sp-core 37.0.0",
  "substrate-state-machine",
  "subxt 0.42.1",
@@ -24373,6 +24389,7 @@ dependencies = [
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
  "pallet-ismp-rpc",
+ "pallet-messaging-fees",
  "pallet-mmr-tree",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -28364,7 +28381,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.3.0"
+version = "1.3.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28493,11 +28510,12 @@ dependencies = [
  "tesseract-evm-tendermint",
  "tesseract-primitives",
  "tesseract-substrate",
+ "tesseract-substrate-evm",
 ]
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "anyhow",
  "arb-host",
@@ -28814,6 +28832,29 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "zstd-safe 7.2.4",
+]
+
+[[package]]
+name = "tesseract-substrate-evm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "evm-state-machine",
+ "futures",
+ "ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "serde",
+ "sp-core 37.0.0",
+ "subxt 0.42.1",
+ "subxt-utils",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
 ]
 
 [[package]]

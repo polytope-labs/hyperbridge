@@ -48,4 +48,4 @@ anyhow = "1.0.75"
 
 [features]
 testing = []
-fulu = ["sync-committee-prover/fulu"]
+nofulu = ["sync-committee-prover/nofulu"]

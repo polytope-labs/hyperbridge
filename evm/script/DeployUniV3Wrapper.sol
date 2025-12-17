@@ -17,16 +17,17 @@ contract DeployScript is BaseScript {
     function run() external {
         vm.startBroadcast(uint256(privateKey));
 
-        address hostAddr = vm.envAddress(string.concat(host, "_HOST"));
-        address swapRouter = vm.envAddress(string.concat(host, "_SWAP_ROUTER"));
-        address quoter = vm.envAddress(string.concat(host, "_QUOTER"));
-        address uniswapV2 = IDispatcher(hostAddr).uniswapV2Router();
+        address swapRouter = config.get("SWAP_ROUTER").toAddress();
+        address quoter = config.get("QUOTER").toAddress();
+        uint24 maxFee = uint24(config.get("MAX_FEE").toUint256());
+        address uniswapV2 = IDispatcher(HOST_ADDRESS).uniswapV2Router();
 
         UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
         wrapper.init(UniV3UniswapV2Wrapper.Params({
             WETH: IUniswapV2Router02(uniswapV2).WETH(),
             swapRouter: swapRouter,
-            quoter: quoter
+            quoter: quoter,
+            maxFee: maxFee
         }));
         vm.stopBroadcast();
     }

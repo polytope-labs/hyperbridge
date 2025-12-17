@@ -15,3 +15,4 @@ mod pallet_collator_manager;
 mod pallet_consensus_incentives;
 mod pallet_messaging_fees;
 mod pallet_token_gateway;
+mod substrate_evm_state_machine;

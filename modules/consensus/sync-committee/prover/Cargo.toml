@@ -28,7 +28,8 @@ tracing = "0.1.40"
 
 [dev-dependencies]
 env_logger = "0.10.0"
-sync-committee-primitives = { path= "../primitives" }
+# feature flag needed so sync-committee tests pass, eth pos server in CI does not support fusaka
+sync-committee-primitives = { path= "../primitives", features = ["nofulu"] }
 sync-committee-verifier = { path= "../verifier" }
 ethers = { workspace = true, features = ["ws", "default"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"]}
@@ -38,4 +39,4 @@ dotenv = "0.15.0"
 
 
 [features]
-fulu = ["sync-committee-primitives/fulu"]
+nofulu = ["sync-committee-primitives/nofulu"]

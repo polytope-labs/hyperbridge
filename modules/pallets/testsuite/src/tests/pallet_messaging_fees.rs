@@ -2,11 +2,7 @@
 
 use codec::{Decode, Encode};
 use polkadot_sdk::{
-	frame_support::traits::{
-		fungible::{Inspect, Mutate},
-		Get,
-	},
-	pallet_session::SessionHandler,
+	frame_support::traits::fungible::{Inspect, Mutate},
 	sp_runtime::{
 		traits::{AccountIdConversion, OpaqueKeys},
 		KeyTypeId, Weight,

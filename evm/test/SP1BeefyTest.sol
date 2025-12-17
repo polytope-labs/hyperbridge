@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 // import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";

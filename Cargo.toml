@@ -95,6 +95,7 @@ members = [
     "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
     "tesseract/messaging/evm-tendermint",
+    "tesseract/messaging/substrate-evm",
     "tesseract/messaging/fees",
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
@@ -170,7 +171,7 @@ sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "de0ee
 simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode", rev = "de0ee657093d7be38f9d20961ac0270254419a68", default-features = false }
 
 # crates.io
-serde = { version = "1", default-features = false }
+serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
 trie-db = { version = "0.30.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
@@ -304,6 +305,7 @@ tesseract-primitives = { path = "tesseract/messaging/primitives" }
 tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
+tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
 tesseract = { path = "tesseract/messaging/relayer" }
@@ -347,6 +349,10 @@ rev = "45239225c50247e049892125d281442c084a2a92"
 default-features = false
 
 [workspace.dependencies.ethers-contract-abigen]
+git = "https://github.com/polytope-labs/ethers-rs"
+rev = "45239225c50247e049892125d281442c084a2a92"
+
+[workspace.dependencies.ethers-solc]
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
 

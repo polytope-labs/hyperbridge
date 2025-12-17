@@ -14,7 +14,7 @@ contract DeployScript is BaseScript {
 
     function run() external {
         address admin = vm.envAddress("ADMIN");
-        address tokenFaucet = vm.envAddress("TOKEN_FAUCET");
+        address tokenFaucet = config.get("TOKEN_FAUCET").toAddress();
 
         vm.startBroadcast(uint256(privateKey));
         PingModule ping = new PingModule{salt: salt}(admin);

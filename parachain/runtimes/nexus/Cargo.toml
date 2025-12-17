@@ -54,6 +54,8 @@ ismp-polygon = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
 pallet-messaging-fees = { workspace = true }
 pallet-collator-manager = { workspace = true }
+evm-state-machine = { workspace = true }
+substrate-state-machine = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 ismp-tendermint = { workspace = true }
@@ -122,7 +124,7 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
 ]
 
 [features]
@@ -163,7 +165,9 @@ std = [
     "pallet-consensus-incentives/std",
     "pallet-messaging-fees/std",
     "pallet-collator-manager/std",
-    "ismp-tendermint/std"
+    "ismp-tendermint/std",
+    "evm-state-machine/std",
+    "substrate-state-machine/std"
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
@@ -171,6 +175,7 @@ runtime-benchmarks = [
     "polkadot-sdk/runtime-benchmarks",
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
+    "pallet-messaging-fees/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

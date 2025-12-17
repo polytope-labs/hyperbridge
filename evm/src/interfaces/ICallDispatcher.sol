@@ -14,6 +14,17 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
+
+struct Call {
+    // contract to call
+    address to;
+    // value to send with the call
+    uint256 value;
+    // target contract calldata
+    bytes data;
+}
+
+
 /**
  * @title The ICallDispatcher
  * @author Polytope Labs (hello@polytope.technology)

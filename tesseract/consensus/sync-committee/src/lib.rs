@@ -29,7 +29,10 @@ use primitive_types::H160;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use sync_committee_primitives::{
-	constants::{gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, PROPOSER_LOOK_AHEAD_LIMIT_GNO},
+	constants::{
+		gnosis, Config, ETH1_DATA_VOTES_BOUND_ETH, ETH1_DATA_VOTES_BOUND_GNO,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM, PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+	},
 	types::VerifierState,
 	util::{compute_epoch_at_slot, compute_sync_committee_period_at_slot},
 };
@@ -67,11 +70,11 @@ impl SyncCommitteeConfig {
 		self,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<Sepolia, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM>::new(
-			&self.host,
-			&self.evm_config,
-			l2_config,
-		)
+		let client = SyncCommitteeHost::<
+			Sepolia,
+			ETH1_DATA_VOTES_BOUND_ETH,
+			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		>::new(&self.host, &self.evm_config, l2_config)
 		.await?;
 
 		Ok(Arc::new(client))
@@ -81,33 +84,33 @@ impl SyncCommitteeConfig {
 		self,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<Mainnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM>::new(
-			&self.host,
-			&self.evm_config,
-			l2_config,
-		)
+		let client = SyncCommitteeHost::<
+			Mainnet,
+			ETH1_DATA_VOTES_BOUND_ETH,
+			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+		>::new(&self.host, &self.evm_config, l2_config)
 		.await?;
 
 		Ok(Arc::new(client))
 	}
 
 	pub async fn into_chiado(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<gnosis::Testnet, ETH1_DATA_VOTES_BOUND_GNO, PROPOSER_LOOK_AHEAD_LIMIT_GNO>::new(
-			&self.host,
-			&self.evm_config,
-			Default::default(),
-		)
+		let client = SyncCommitteeHost::<
+			gnosis::Testnet,
+			ETH1_DATA_VOTES_BOUND_GNO,
+			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+		>::new(&self.host, &self.evm_config, Default::default())
 		.await?;
 
 		Ok(Arc::new(client))
 	}
 
 	pub async fn into_gnosis(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = SyncCommitteeHost::<gnosis::Mainnet, ETH1_DATA_VOTES_BOUND_GNO, PROPOSER_LOOK_AHEAD_LIMIT_GNO>::new(
-			&self.host,
-			&self.evm_config,
-			Default::default(),
-		)
+		let client = SyncCommitteeHost::<
+			gnosis::Mainnet,
+			ETH1_DATA_VOTES_BOUND_GNO,
+			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
+		>::new(&self.host, &self.evm_config, Default::default())
 		.await?;
 
 		Ok(Arc::new(client))
@@ -118,7 +121,11 @@ impl SyncCommitteeConfig {
 	}
 }
 
-pub struct SyncCommitteeHost<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> {
+pub struct SyncCommitteeHost<
+	C: Config,
+	const ETH1_DATA_VOTES_BOUND: usize,
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+> {
 	/// Consensus state id on counterparty chain
 	pub consensus_state_id: ConsensusStateId,
 	/// State machine Identifier for this chain.
@@ -141,7 +148,9 @@ pub struct SyncCommitteeHost<C: Config, const ETH1_DATA_VOTES_BOUND: usize, cons
 	pub retry: again::RetryPolicy,
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT> {
+impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>
+	SyncCommitteeHost<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+{
 	pub async fn new(
 		host: &HostConfig,
 		evm: &EvmConfig,

@@ -229,7 +229,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 5_800,
+	spec_version: 6_100,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -874,7 +874,7 @@ impl pallet_messaging_fees::Config for Runtime {
 		>,
 	>;
 	type PriceOracle = FixedPriceOracle;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
 }
 
@@ -1086,6 +1086,8 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
+		[pallet_migrations, Migrations]
+		[pallet_messaging_fees, MessagingFees]
 	);
 }
 

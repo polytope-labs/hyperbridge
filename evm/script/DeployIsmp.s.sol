@@ -16,6 +16,7 @@ import "../src/hosts/Base.sol";
 import "../src/hosts/Gnosis.sol";
 import "../src/hosts/Soneium.sol";
 import "../src/hosts/Unichain.sol";
+import "../src/hosts/Sei.sol";
 
 import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
 import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
@@ -33,6 +34,8 @@ import {FeeToken} from "../test/FeeToken.sol";
 import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IntentGateway, Params} from "../src/modules/IntentGateway.sol";
+import {UniV3UniswapV2Wrapper} from "../src/modules/UniV3UniswapV2Wrapper.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -52,16 +55,30 @@ contract DeployScript is BaseScript {
         address feeToken;
         bytes memory hyperbridge;
         TokenFaucet faucet;
-        bool isMainnet = vm.envBool("MAINNET");
 
+        bool isMainnet = config.get("is_mainnet").toBool();
         if (isMainnet) {
             // deploy zk connsensus client
             SP1Verifier verifier = new SP1Verifier{salt: salt}();
             SP1Beefy consensusClientInstance = new SP1Beefy{salt: salt}(verifier);
             consensusClient = address(consensusClientInstance);
             // use feeToken configured in environment variables
-            uniswapV2 = vm.envAddress(string.concat(host, "_UNISWAP_V2"));
-            feeToken = vm.envAddress(string.concat(host, "_FEE_TOKEN"));
+            address uniswap = config.get("UNISWAP_V2").toAddress();
+            // if existing univ2 address isn't available, deploy univ3 wrapper
+            if (uniswap == address(0)) {
+                UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
+                wrapper.init(UniV3UniswapV2Wrapper.Params({
+                    WETH: config.get("WETH").toAddress(),
+                    swapRouter: config.get("SWAP_ROUTER").toAddress(),
+                    quoter: config.get("QUOTER").toAddress(),
+                    maxFee: uint24(config.get("MAX_FEE").toUint256())
+                }));
+                uniswapV2 = address(wrapper);
+            } else {
+                uniswapV2 = uniswap;
+            }
+
+            feeToken = config.get("FEE_TOKEN").toAddress();
             decimals = IERC20Metadata(feeToken).decimals();
             hyperbridge = StateMachine.polkadot(paraId);
         } else {
@@ -98,8 +115,8 @@ contract DeployScript is BaseScript {
             unStakingPeriod: 21 * (60 * 60 * 24),
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            defaultPerByteFee: 3 * (10 ** (decimals - 2)), // $0.003/byte
-            stateCommitmentFee: 10 * (10 ** decimals), // $10
+            defaultPerByteFee: 3 * (10 ** (decimals - 3)), // $0.0003/byte
+            stateCommitmentFee: 1 * (10 ** decimals), // $1
             hyperbridge: hyperbridge,
             feeToken: feeToken,
             stateMachines: stateMachines
@@ -116,54 +133,94 @@ contract DeployScript is BaseScript {
             StateCommitment({timestamp: block.timestamp, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
 
-        if (!isMainnet) {
-            // deploy token gateway
-            TokenGateway gateway = new TokenGateway{salt: salt}(admin);
-            AssetMetadata[] memory assets = new AssetMetadata[](0);
-            gateway.init(
-                TokenGatewayParamsExt({
-                    params: TokenGatewayParams({host: hostAddress, dispatcher: address(0)}),
-                    assets: assets
-                })
-            );
+        // ============= Deploy applications =============
+        CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
+        // token gateway
+        TokenGateway tokenGateway = new TokenGateway{salt: salt}(admin);
+        AssetMetadata[] memory assets = new AssetMetadata[](0);
+        tokenGateway.init(
+            TokenGatewayParamsExt({
+                params: TokenGatewayParams({host: hostAddress, dispatcher: address(callDispatcher)}),
+                assets: assets
+            })
+        );
+
+        IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
+        intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));
+
+        if (!isMainnet) {
             PingModule ping = new PingModule{salt: salt}(admin);
             ping.setIsmpHost(hostAddress, address(faucet));
+            config.set("PING", address(ping));
+            config.set("TOKEN_FAUCET", address(faucet));
         }
+
+        // ============= Write addresses to config =============
+        config.set("HOST", hostAddress);
+        config.set("HANDLER", address(handler));
+        config.set("FEE_TOKEN", feeToken);
+        config.set("CALL_DISPATCHER", address(callDispatcher));
+        config.set("TOKEN_GATEWAY", address(tokenGateway));
+        config.set("INTENT_GATEWAY", address(intentGateway));
 
         vm.stopBroadcast();
     }
 
     function initHost(HostParams memory params) public returns (address) {
-        if (host.toSlice().startsWith("ethereum".toSlice())) {
+        uint256 chainId = block.chainid;
+
+        // Ethereum (mainnet: 1, sepolia: 11155111)
+        if (chainId == 1 || chainId == 11155111) {
             EthereumHost h = new EthereumHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
+        }
+        // Arbitrum (mainnet: 42161, sepolia: 421614)
+        else if (chainId == 42161 || chainId == 421614) {
             ArbitrumHost h = new ArbitrumHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("optimism".toSlice())) {
+        }
+        // Optimism (mainnet: 10, sepolia: 11155420)
+        else if (chainId == 10 || chainId == 11155420) {
             OptimismHost h = new OptimismHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("base".toSlice())) {
+        }
+        // Base (mainnet: 8453, sepolia: 84532)
+        else if (chainId == 8453 || chainId == 84532) {
             BaseHost h = new BaseHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("bsc".toSlice())) {
+        }
+        // BSC (mainnet: 56, testnet: 97)
+        else if (chainId == 56 || chainId == 97) {
             BscHost h = new BscHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("polygon".toSlice())) {
+        }
+        // Polygon (mainnet: 137, amoy: 80002)
+        else if (chainId == 137 || chainId == 80002) {
             PolygonHost h = new PolygonHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("gnosis".toSlice())) {
+        }
+        // Gnosis (mainnet: 100, chiado: 10200)
+        else if (chainId == 100 || chainId == 10200) {
             GnosisHost h = new GnosisHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("soneium".toSlice())) {
+        }
+        // Soneium (mainnet: 1868)
+        else if (chainId == 1868) {
             SoneiumHost h = new SoneiumHost{salt: salt}(params);
             return address(h);
-        } else if (host.toSlice().startsWith("unichain".toSlice())) {
+        }
+        // Unichain (mainnet: 1301)
+        else if (chainId == 1301) {
             UnichainHost h = new UnichainHost{salt: salt}(params);
             return address(h);
         }
+        // Sei (mainnet: 1329, arctic testnet: 1328)
+        else if (chainId == 1329 || chainId == 1328) {
+            SeiHost h = new SeiHost{salt: salt}(params);
+            return address(h);
+        }
 
-        revert("Unknown host");
+        revert("Unknown chain ID");
     }
 }

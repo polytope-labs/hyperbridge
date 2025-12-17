@@ -11,7 +11,7 @@ publish = false
 cometbft-rpc = { workspace = true}
 cometbft = { workspace = true}
 thiserror = "2.0.12"
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { version = "1.0" }
 reqwest = { version = "0.11", features = ["json"] }
 async-trait = "0.1.88"

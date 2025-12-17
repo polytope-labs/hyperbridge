@@ -16,10 +16,11 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TokenGovernor, TreasuryPalletId,
-	XcmGateway, EXISTENTIAL_DEPOSIT,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, XcmGateway,
+	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
+use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
@@ -36,15 +37,15 @@ use ismp::{
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm_gateway::AssetGatewayParams;
-use polkadot_sdk::*;
+use polkadot_sdk::{sp_weights::WeightToFee, *};
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::Permill;
 
 use hyperbridge_client_machine::HyperbridgeClientMachine;
-use ismp::router::Timeout;
+use ismp::{consensus::StateMachineClient, router::Timeout};
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
-use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight};
+use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
 
 #[derive(Default)]
@@ -103,6 +104,19 @@ impl Get<Option<StateMachine>> for Coprocessor {
 	}
 }
 
+pub struct ParachainStateMachineProvider;
+
+impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMachineProvider {
+	fn state_machine(id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
+		match id {
+			StateMachine::Evm(chain_id)
+				if chain_id == ismp_parachain::PASSET_HUB_TESTNET_CHAIN_ID =>
+				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
+			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+		}
+	}
+}
+
 pub struct IsmpWeightToFee;
 impl WeightToFee for IsmpWeightToFee {
 	type Balance = Balance;
@@ -127,7 +141,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_parachain::ParachainConsensusClient<
 			Runtime,
 			IsmpParachain,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
+			ParachainStateMachineProvider,
 		>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Runtime,
@@ -267,14 +281,12 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
-		let token_governor = ModuleId::Pallet(PalletId(pallet_token_governor::PALLET_ID));
 
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
 			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
-			id if id == token_governor => TokenGovernor::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}

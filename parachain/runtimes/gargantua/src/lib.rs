@@ -116,6 +116,7 @@ use sp_runtime::traits::IdentityLookup;
 use sp_core::crypto::FromEntropy;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
+
 /// Alias to 512-bit hash when used in the context of a transaction signature on the chain.
 pub type Signature = MultiSignature;
 
@@ -239,7 +240,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 4_000,
+	spec_version: 4_700,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,

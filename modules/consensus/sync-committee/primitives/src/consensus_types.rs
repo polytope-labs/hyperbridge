@@ -399,8 +399,7 @@ pub struct BeaconState<
 	const PENDING_DEPOSITS_LIMIT: usize,
 	const PENDING_CONSOLIDATIONS_LIMIT: usize,
 	const PENDING_PARTIAL_WITHDRAWALS_LIMIT: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize
-
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
 > {
 	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::as_string"))]
 	pub genesis_time: u64,
@@ -456,8 +455,8 @@ pub struct BeaconState<
 	pending_deposits: List<PendingDeposit, PENDING_DEPOSITS_LIMIT>,
 	pending_partial_withdrawals: List<PendingPartialWithdrawal, PENDING_PARTIAL_WITHDRAWALS_LIMIT>,
 	pending_consolidations: List<PendingConsolidation, PENDING_CONSOLIDATIONS_LIMIT>,
-    //  [New in Fulu:EIP7917]
-    #[cfg(feature = "fulu")]
-    #[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
-    proposer_lookahead: Vector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>
+	//  [New in Fulu:EIP7917]
+	#[cfg(not(feature = "nofulu"))]
+	#[cfg_attr(feature = "std", serde(with = "serde_hex_utils::seq_of_str"))]
+	proposer_lookahead: Vector<ValidatorIndex, PROPOSER_LOOK_AHEAD_LIMIT>,
 }

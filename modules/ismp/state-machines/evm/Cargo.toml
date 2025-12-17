@@ -24,12 +24,21 @@ hex-literal = { workspace = true }
 ethabi = { workspace = true }
 hash256-std-hasher = { version = "0.15.2", default-features = false }
 codec = { workspace = true, default-features = false }
-polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing"] }
+polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing", "sp-trie", "sp-runtime"] }
+sp-core = { workspace = true, default-features = false }
 primitive-types = { workspace = true }
 ibc = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
 tendermint-primitives ={ workspace = true, default-features = false}
+thiserror = { workspace = true}
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive", "alloc"] }
+serde_json = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3.19"
 
 [features]
 default = ["std"]
@@ -47,5 +56,6 @@ std = [
     "geth-primitives/std",
     "pallet-ismp-host-executive/std",
     "polkadot-sdk/std",
-    "primitive-types/std"
+    "primitive-types/std",
+    "sp-core/std"
 ]

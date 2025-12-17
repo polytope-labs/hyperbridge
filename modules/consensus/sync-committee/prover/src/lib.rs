@@ -50,7 +50,10 @@ pub mod routes;
 #[cfg(test)]
 mod test;
 
-pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> = BeaconState<
+pub type BeaconStateType<
+	const ETH1_DATA_VOTES_BOUND: usize,
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+> = BeaconState<
 	SLOTS_PER_HISTORICAL_ROOT,
 	HISTORICAL_ROOTS_LIMIT,
 	ETH1_DATA_VOTES_BOUND,
@@ -63,10 +66,14 @@ pub type BeaconStateType<const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK
 	PENDING_DEPOSITS_LIMIT,
 	PENDING_CONSOLIDATIONS_LIMIT,
 	PENDING_PARTIAL_WITHDRAWALS_LIMIT,
-	PROPOSER_LOOK_AHEAD_LIMIT
+	PROPOSER_LOOK_AHEAD_LIMIT,
 >;
 
-pub struct SyncCommitteeProver<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> {
+pub struct SyncCommitteeProver<
+	C: Config,
+	const ETH1_DATA_VOTES_BOUND: usize,
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+> {
 	pub primary_url: String,
 	pub providers: Vec<String>,
 	pub client: ClientWithMiddleware,
@@ -86,7 +93,9 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 	}
 }
 
-impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT> {
+impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>
+	SyncCommitteeProver<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+{
 	pub fn new(providers: Vec<String>) -> Self {
 		let client = ClientBuilder::new(Client::new())
 			.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(providers.clone())))
@@ -236,7 +245,10 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		})?;
 
 		let response_data = response
-			.json::<responses::beacon_state_response::Response<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>>()
+			.json::<responses::beacon_state_response::Response<
+				ETH1_DATA_VOTES_BOUND,
+				PROPOSER_LOOK_AHEAD_LIMIT,
+			>>()
 			.await
 			.map_err(|e| {
 				anyhow!("Failed to fetch beacon state with id {state_id} due to error {e:?}")
@@ -319,13 +331,17 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 			self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
-			finality_branch: prove_finalized_header::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&mut attested_state,
-			)?,
+			finality_branch: prove_finalized_header::<
+				C,
+				ETH1_DATA_VOTES_BOUND,
+				PROPOSER_LOOK_AHEAD_LIMIT,
+			>(&mut attested_state)?,
 		};
 
 		let execution_payload_proof =
-			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(&mut finalized_state)?;
+			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
+				&mut finalized_state,
+			)?;
 
 		let signature_period = compute_sync_committee_period_at_slot::<C>(block.slot);
 		let client_state_next_sync_committee_root =
@@ -416,17 +432,23 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 			self.fetch_beacon_state(&get_block_id(finalized_header.state_root)).await?;
 		let finality_proof = FinalityProof {
 			epoch: attested_state.finalized_checkpoint.epoch,
-			finality_branch: prove_finalized_header::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
-				&mut attested_state,
-			)?,
+			finality_branch: prove_finalized_header::<
+				C,
+				ETH1_DATA_VOTES_BOUND,
+				PROPOSER_LOOK_AHEAD_LIMIT,
+			>(&mut attested_state)?,
 		};
 
 		let execution_payload_proof =
-			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(&mut finalized_state)?;
+			prove_execution_payload::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
+				&mut finalized_state,
+			)?;
 
 		let sync_committee_update = {
 			let sync_committee_proof =
-				prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(&mut attested_state)?;
+				prove_sync_committee_update::<C, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>(
+					&mut attested_state,
+				)?;
 			Some(SyncCommitteeUpdate {
 				next_sync_committee: attested_state.next_sync_committee,
 				next_sync_committee_branch: sync_committee_proof,
@@ -449,7 +471,11 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>(
+pub fn prove_execution_payload<
+	C: Config,
+	const ETH1_DATA_VOTES_BOUND: usize,
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+>(
 	beacon_state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 ) -> anyhow::Result<ExecutionPayloadProof> {
 	trace!(target: "sync-committee-prover", "Proving execution payload");
@@ -481,7 +507,11 @@ pub fn prove_execution_payload<C: Config, const ETH1_DATA_VOTES_BOUND: usize, co
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>(
+pub fn prove_sync_committee_update<
+	C: Config,
+	const ETH1_DATA_VOTES_BOUND: usize,
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+>(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 ) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving sync committee update");
@@ -490,7 +520,11 @@ pub fn prove_sync_committee_update<C: Config, const ETH1_DATA_VOTES_BOUND: usize
 }
 
 #[instrument(level = "trace", target = "sync-committee-prover", skip_all)]
-pub fn prove_finalized_header<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize>(
+pub fn prove_finalized_header<
+	C: Config,
+	const ETH1_DATA_VOTES_BOUND: usize,
+	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+>(
 	state: &mut BeaconStateType<ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>,
 ) -> anyhow::Result<Vec<Node>> {
 	trace!(target: "sync-committee-prover", "Proving finalized head");

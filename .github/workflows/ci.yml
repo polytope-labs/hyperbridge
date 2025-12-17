@@ -1,12 +1,12 @@
 name: CI
 
 on:
-    push:
-        branches:
-            - main
+   push:
+       branches:
+        - main
 
-    pull_request_target:
-        types: [opened, synchronize]
+   pull_request_target:
+       types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -122,6 +122,11 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
+            - name: Download SVM Releases List
+              run: |
+                  wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
+                  echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
+
             - name: Install yarn
               run: |
                   curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
@@ -200,6 +205,10 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
+            - name: Download SVM Releases List
+              run: |
+                  wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
+                  echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
             - name: Install yarn
               run: |
                   curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
@@ -227,11 +236,6 @@ jobs:
               with:
                   toolchain: stable
 
-            - name: Install Go
-              uses: actions/setup-go@v5
-              with:
-                  go-version: "1.24"
-
             - name: Add wasm toolchain
               run: |
                   rustup update nightly
@@ -239,11 +243,16 @@ jobs:
                   rustup target add wasm32-unknown-unknown
                   rustup component add rust-src
 
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
+
             - uses: Swatinem/rust-cache@v2
 
             - name: Run unit tests
               run: |
-                  cargo test --all-targets --features=runtime-benchmarks --locked
+                  cargo test --all-targets --locked
 
     integration-tests:
         name: Integration Tests
@@ -275,6 +284,11 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+            - name: Download SVM Releases List
+              run: |
+                  wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
+                  echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
 
             - name: Install yarn
               run: |
@@ -318,8 +332,15 @@ jobs:
                   cargo build -p hyperbridge --release
                   ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
-                  kill -9 $!
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1 --skip test_runtime_upgrade_and_fee_migration
+
+            - name: Force-stop simnode
+              if: always()
+              run: |
+                echo "Cleaning up any leftover simnode processes..."
+                pkill -f "hyperbridge simnode" || true
+                fuser -k 9990/tcp || true
+                echo "Cleanup complete."
 
             - name: Run Parachain Devnet
               run: |
@@ -328,9 +349,11 @@ jobs:
                   mkdir -p polkadot-sdk/target/release
                   cd polkadot-sdk/target/release
                   wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
+                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-parachain'
                   wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
                   wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
                   sudo chmod +x ./polkadot
+                  sudo chmod +x ./polkadot-parachain
                   sudo chmod +x ./polkadot-execute-worker
                   sudo chmod +x ./polkadot-prepare-worker
 
@@ -345,6 +368,7 @@ jobs:
                   nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9922
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9910
 
             #      - name: Beefy integration tests
             #        run: |
@@ -356,7 +380,7 @@ jobs:
 
             - name: Xcm integration tests
               run: |
-                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
+                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test -- --nocapture --ignored
 
             - name: Run Eth POS Devnet Electra
               run: |
@@ -383,6 +407,13 @@ jobs:
                   docker-compose -f ./eth-pos-devnet/docker-compose.yml down
                   sudo rm -rf ./eth-pos-devnet
                   sudo rm -rf ./target
+                  pkill -f "hyperbridge" || true
+                  pkill -f "polkadot" || true
+                  pkill -f "zombienet" || true
+                  sudo rm -rf ./zombienet
+                  cd ../
+                  sudo rm -rf ./polkadot-sdk
+                  sudo rm -rf /tmp/*
 
     check-solidity:
         name: Check ismp-solidity

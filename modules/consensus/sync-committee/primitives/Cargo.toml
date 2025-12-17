@@ -32,4 +32,4 @@ std = [
     "serde",
     "serde-hex-utils/std",
 ]
-fulu = []
+nofulu = []

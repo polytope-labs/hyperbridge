@@ -1,6 +1,6 @@
 [package]
 name = "pallet-token-gateway"
-version = "2503.1.0"
+version = "2503.1.1"
 edition = "2021"
 description = "A substrate implementation of the token gateway protocol"
 authors = ["Polytope Labs <hello@polytope.technology>"]

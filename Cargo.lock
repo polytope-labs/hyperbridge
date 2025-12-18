@@ -9577,7 +9577,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "2503.1.0"
+version = "2503.1.1"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",
@@ -9619,7 +9619,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2503.1.0"
+version = "2503.1.1"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -15208,7 +15208,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-token-gateway"
-version = "2503.1.0"
+version = "2503.1.1"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-macro 0.7.7",

@@ -1,6 +1,6 @@
 [package]
 name = "ismp-parachain"
-version = "16.1.0"
+version = "16.2.0"
 edition = "2021"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 license = "Apache-2.0"

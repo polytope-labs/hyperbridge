@@ -2245,6 +2245,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "beacon-kit-prover"
+version = "0.1.0"
+
+[[package]]
 name = "beacon-kit-verifier"
 version = "0.1.1"
 dependencies = [

@@ -1,2 +1,2 @@
-@openzeppelin/=node_modules/openzeppelin-solidity
+@openzeppelin/=node_modules/@openzeppelin
 @polytope-labs/solidity-merkle-trees/=node_modules/@polytope-labs/solidity-merkle-trees

@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/core",
-	"version": "1.1.1",
+	"version": "1.2.0",
 	"description": "Hyperbridge Solidity SDK for dispatching & receiving cross-chain messages",
 	"author": "Polytope Labs <hello@polytope.technology>",
 	"license": "Apache-2.0",
@@ -35,8 +35,8 @@
 		"bridges"
 	],
 	"dependencies": {
+		"@openzeppelin/contracts": "^5.4.0",
 		"@polytope-labs/solidity-merkle-trees": "^0.3.3",
-		"openzeppelin-solidity": "^4.8.1",
 		"prettier": "^3.3.3",
 		"prettier-plugin-solidity": "^1.3.1"
 	}

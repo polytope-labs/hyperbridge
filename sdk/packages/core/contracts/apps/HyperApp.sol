@@ -140,7 +140,7 @@ abstract contract HyperApp is IApp {
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(request);
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
-        IERC20(feeToken).safeApprove(hostAddr, fee);
+        IERC20(feeToken).forceApprove(hostAddr, fee);
         IDispatcher(hostAddr).dispatch(request);
     }
 
@@ -156,7 +156,7 @@ abstract contract HyperApp is IApp {
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(response);
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
-        IERC20(feeToken).safeApprove(hostAddr, fee);
+        IERC20(feeToken).forceApprove(hostAddr, fee);
         IDispatcher(hostAddr).dispatch(response);
     }
 
@@ -172,7 +172,7 @@ abstract contract HyperApp is IApp {
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(request);
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
-        IERC20(feeToken).safeApprove(hostAddr, fee);
+        IERC20(feeToken).forceApprove(hostAddr, fee);
         IDispatcher(hostAddr).dispatch(request);
     }
 

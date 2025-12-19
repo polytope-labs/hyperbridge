@@ -8,12 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@openzeppelin/contracts':
+        specifier: ^5.4.0
+        version: 5.4.0
       '@polytope-labs/solidity-merkle-trees':
         specifier: ^0.3.3
         version: 0.3.4
-      openzeppelin-solidity:
-        specifier: ^4.8.1
-        version: 4.8.1
       prettier:
         specifier: ^3.3.3
         version: 3.6.2
@@ -22,6 +22,9 @@ importers:
         version: 1.4.3(prettier@3.6.2)
 
 packages:
+
+  '@openzeppelin/contracts@5.4.0':
+    resolution: {integrity: sha512-eCYgWnLg6WO+X52I16TZt8uEjbtdkgLC0SUX/xnAksjjrQI4Xfn4iBRoI5j55dmlOhDv1Y7BoR3cU7e3WWhC6A==}
 
   '@polytope-labs/solidity-merkle-trees@0.3.4':
     resolution: {integrity: sha512-ldLirdWNd7qNi8iRfpwlHCwy/FrVMd5wbsu9qVxx/IyOnbQnzzU816AfL3Zn01iN8DhB5UFLMkQ/HmF+VOLGFA==}
@@ -50,6 +53,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@openzeppelin/contracts@5.4.0': {}
 
   '@polytope-labs/solidity-merkle-trees@0.3.4':
     dependencies:

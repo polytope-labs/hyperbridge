@@ -9619,7 +9619,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2503.1.1"
+version = "2503.2.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",

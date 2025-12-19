@@ -198,7 +198,7 @@ serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-fea
 grandpa-verifier-primitives = { version = "2.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
 grandpa-verifier = { version = "2.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
 ismp-grandpa = { version = "2503.1.1", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2503.1.1", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain = { version = "2503.2.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
 ismp-parachain-inherent = { version = "2503.1.0", path = "./modules/ismp/clients/parachain/inherent" }
 ismp-parachain-runtime-api = { version = "2503.1.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 pallet-ismp = { version = "2503.1.0", path = "modules/pallets/ismp", default-features = false }

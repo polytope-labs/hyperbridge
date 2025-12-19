@@ -2247,6 +2247,18 @@ dependencies = [
 [[package]]
 name = "beacon-kit-prover"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "beacon-kit-verifier",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "ssz-rs",
+ "sync-committee-primitives",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "beacon-kit-verifier"

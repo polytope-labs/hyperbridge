@@ -134,14 +134,15 @@ abstract contract HyperApp is IApp {
      * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
      * @param request The POST request to dispatch containing destination, body, timeout, and fee parameters
      * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
+     * @return commitment The unique identifier for the dispatched request
      */
-    function dispatchWithFeeToken(DispatchPost memory request, address payer) internal {
+    function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(request);
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
         IERC20(feeToken).forceApprove(hostAddr, fee);
-        IDispatcher(hostAddr).dispatch(request);
+        return IDispatcher(hostAddr).dispatch(request);
     }
 
     /**
@@ -150,14 +151,15 @@ abstract contract HyperApp is IApp {
      * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
      * @param response The POST response to dispatch containing the original request, response data, timeout, and fee parameters
      * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
+     * @return commitment The unique identifier for the dispatched response
      */
-    function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal {
+    function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(response);
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
         IERC20(feeToken).forceApprove(hostAddr, fee);
-        IDispatcher(hostAddr).dispatch(response);
+        return IDispatcher(hostAddr).dispatch(response);
     }
 
     /**
@@ -166,14 +168,15 @@ abstract contract HyperApp is IApp {
      * If the payer is not this contract, transfers fee tokens from the payer to this contract first.
      * @param request The GET request to dispatch containing destination, keys, height, timeout, and fee parameters
      * @param payer The address that will pay the fee token. If different from this contract, must have approved this contract to spend the fee amount
+     * @return commitment The unique identifier for the dispatched request
      */
-    function dispatchWithFeeToken(DispatchGet memory request, address payer) internal {
+    function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32) {
         address hostAddr = host();
         address feeToken = IDispatcher(hostAddr).feeToken();
         uint256 fee = quote(request);
         if (payer != address(this)) IERC20(feeToken).safeTransferFrom(payer, address(this), fee);
         IERC20(feeToken).forceApprove(hostAddr, fee);
-        IDispatcher(hostAddr).dispatch(request);
+        return IDispatcher(hostAddr).dispatch(request);
     }
 
     /**

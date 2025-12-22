@@ -19,7 +19,7 @@ import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-import {SelectOptions} from "./interfaces/IntentGatewayV2.sol";
+import {SelectOptions, IIntentGatewayV2} from "./interfaces/IntentGatewayV2.sol";
 
 /**
  * @title IntentSolverAccount
@@ -53,17 +53,6 @@ contract IntentSolverAccount is Account, IAccountExecute {
      * @dev This is set during deployment via constructor
      */
     address private immutable INTENT_GATEWAY_V2;
-
-    /**
-     * @notice EIP-712 Domain separator type hash
-     */
-    bytes32 private constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
-
-    /**
-     * @notice EIP-712 type hash for SelectSolver message
-     */
-    bytes32 private constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
 
     /**
      * @notice Constructor for IntentSolverAccount
@@ -113,38 +102,21 @@ contract IntentSolverAccount is Account, IAccountExecute {
         // Decode signature: (sessionKey, solverSignature)
         (address sessionKey, bytes memory solverSignature) = abi.decode(op.signature, (address, bytes));
 
-        // Decode calldata 
         // Ensure calldata has minimum length as IntentGatewayV2.select(SelectOptions)
         if (op.callData.length != 260) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        (bytes32 commitment, address solver, bytes memory sessionKeySignature) =
-            abi.decode(op.callData[4:], (bytes32, address, bytes));
-            
         // Decode SelectOptions from calldata (skip 4-byte selector)
         SelectOptions memory options = abi.decode(op.callData[4:], (SelectOptions));
-
         if (options.solver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        // Compute IntentGatewayV2 domain separator
-        bytes32 domainSeparator = keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH,
-                keccak256(bytes("IntentGateway")),
-                keccak256(bytes("2")),
-                block.chainid,
-                INTENT_GATEWAY_V2
-            )
-        );
-
-        // Verify that the solver (address(this)) has signed (commitment, sessionKey) using EIP-712
+        bytes32 domainSeparator = IIntentGatewayV2(INTENT_GATEWAY_V2).DOMAIN_SEPARATOR();
         bytes32 structHash = keccak256(abi.encode(
-            SELECT_SOLVER_TYPEHASH,
+            IIntentGatewayV2(INTENT_GATEWAY_V2).SELECT_SOLVER_TYPEHASH(),
             options.commitment,
             sessionKey
         ));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
         address recoveredSolver = ECDSA.recover(digest, solverSignature);
-
         if (recoveredSolver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Call IntentGateway.select with the calldata

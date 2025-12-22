@@ -22,7 +22,7 @@ pub mod primitives;
 
 use crate::error::BeaconKitError;
 use alloc::vec::Vec;
-use bsc_verifier::aggregate_public_keys;
+use bls::{point_to_pubkey, types::G1ProjectivePoint};
 use primitive_types::H256;
 use primitives::{BeaconKitUpdate, Config, VerificationResult};
 use ssz_rs::{prelude::*, Merkleized};
@@ -31,6 +31,7 @@ use sync_committee_primitives::{
 	domains::DomainType,
 	util::{compute_domain, compute_signing_root},
 };
+use sync_committee_verifier::crypto::pubkey_to_projective;
 
 /// Verifies a Beacon Kit light client update
 pub fn verify_beacon_kit_header<C: Config>(
@@ -115,7 +116,7 @@ pub fn verify_beacon_kit_header<C: Config>(
 			&validators_root,
 			validator_proof_nodes.iter(),
 			C::VALIDATOR_REGISTRY_INDEX_LOG2,
-			C::VALIDATOR_REGSITRY_INDEX,
+			C::VALIDATOR_REGISTRY_INDEX,
 			&update.beacon_header.state_root,
 		);
 
@@ -133,4 +134,13 @@ pub fn verify_beacon_kit_header<C: Config>(
 		finalized_header: update.beacon_header,
 		next_validators,
 	})
+}
+
+pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
+	let aggregate = keys
+		.into_iter()
+		.filter_map(|key| pubkey_to_projective(key).ok())
+		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
+
+	point_to_pubkey(aggregate.into())
 }

@@ -11,7 +11,7 @@ pub struct ResponseData {
     pub header: SignedBeaconBlockHeader
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,
     pub signature: String

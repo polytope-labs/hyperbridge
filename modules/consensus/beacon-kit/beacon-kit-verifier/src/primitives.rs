@@ -30,7 +30,7 @@ const MAX_EXTRA_DATA_BYTES: usize = 32;
 pub trait Config: Clone + Send + Sync {
 	const EXECUTION_PAYLOAD_INDEX: usize;
 	const EXECTION_PAYLOAD_INDEX_LOG2: usize;
-	const VALIDATOR_REGSITRY_INDEX: usize;
+	const VALIDATOR_REGISTRY_INDEX: usize;
 	const VALIDATOR_REGISTRY_INDEX_LOG2: usize;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32];
 	const GENESIS_FORK_VERSION: [u8; 4];
@@ -44,7 +44,7 @@ pub struct BepoliaConfig;
 impl Config for BepoliaConfig {
 	const EXECUTION_PAYLOAD_INDEX: usize = 25;
 	const EXECTION_PAYLOAD_INDEX_LOG2: usize = 5;
-	const VALIDATOR_REGSITRY_INDEX: usize = 11;
+	const VALIDATOR_REGISTRY_INDEX: usize = 11;
 	const VALIDATOR_REGISTRY_INDEX_LOG2: usize = 5;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 		hex!("3cbcf75b02fe4750c592f1c1ff8b5500a74406f80f038e9ff250e2e294c5615e");
@@ -59,7 +59,7 @@ pub struct BerachainConfig;
 impl Config for BerachainConfig {
 	const EXECUTION_PAYLOAD_INDEX: usize = 25;
 	const EXECTION_PAYLOAD_INDEX_LOG2: usize = 5;
-	const VALIDATOR_REGSITRY_INDEX: usize = 11;
+	const VALIDATOR_REGISTRY_INDEX: usize = 11;
 	const VALIDATOR_REGISTRY_INDEX_LOG2: usize = 5;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32] =
 		hex!("df609e3b062842c6425ff716aec2d2092c46455d9b2e1a2c9e32c6ba63ff0bda");

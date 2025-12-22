@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 hex-literal = { workspace = true }
 sync-committee-primitives = { workspace = true, default-features = false }
-bsc-verifier = { workspace = true, default-features = false }
+sync-committee-verifier = { workspace = true, default-features = false }
 log = { workspace = true, default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 bls = { workspace = true }
@@ -18,6 +18,7 @@ primitive-types = { workspace = true, features = [
     "impl-codec",
 ] }
 thiserror = { workspace = true}
+
 
 [features]
 default = ["std"]
@@ -31,6 +32,6 @@ std = [
     "sync-committee-primitives/std",
     "log/std",
     "bls/std",
-    "bsc-verifier/std"
+    "sync-committee-verifier/std",
 ]
 

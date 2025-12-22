@@ -2265,13 +2265,13 @@ name = "beacon-kit-verifier"
 version = "0.1.1"
 dependencies = [
  "bls_on_arkworks",
- "bsc-verifier",
  "hex-literal 0.4.1",
  "log",
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "ssz-rs",
  "sync-committee-primitives",
+ "sync-committee-verifier",
  "thiserror 2.0.12",
 ]
 

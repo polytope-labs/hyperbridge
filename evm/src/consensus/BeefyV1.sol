@@ -15,8 +15,8 @@
 pragma solidity ^0.8.17;
 
 import "./Codec.sol";
-import "@polytope-labs/ismp-solidity/StateMachine.sol";
-import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
@@ -70,7 +70,7 @@ struct BeefyConsensusProof {
  * @notice This verifies secp256k1 signatures and authority set membership merkle proofs
  * in order to confirm newly finalized states of the Hyperbridge blockchain.
  */
-contract BeefyV1 is IConsensusClient, ERC165 {
+contract BeefyV1 is IConsensus, ERC165 {
     using HeaderImpl for Header;
 
     // The PayloadId for the mmr root.
@@ -104,23 +104,20 @@ contract BeefyV1 is IConsensusClient, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensusClient).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    function verifyConsensus(
-        bytes memory encodedState,
-        bytes memory encodedProof
-    ) external pure returns (bytes memory, IntermediateState[] memory) {
+    function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
+        external
+        pure
+        returns (bytes memory, IntermediateState[] memory)
+    {
         BeefyConsensusState memory consensusState = abi.decode(encodedState, (BeefyConsensusState));
-        (RelayChainProof memory relay, ParachainProof memory parachain) = abi.decode(
-            encodedProof,
-            (RelayChainProof, ParachainProof)
-        );
+        (RelayChainProof memory relay, ParachainProof memory parachain) =
+            abi.decode(encodedProof, (RelayChainProof, ParachainProof));
 
-        (BeefyConsensusState memory newState, IntermediateState memory intermediate) = verifyConsensus(
-            consensusState,
-            BeefyConsensusProof(relay, parachain)
-        );
+        (BeefyConsensusState memory newState, IntermediateState memory intermediate) =
+            verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
 
         IntermediateState[] memory intermediates = new IntermediateState[](1);
         intermediates[0] = intermediate;
@@ -130,10 +127,11 @@ contract BeefyV1 is IConsensusClient, ERC165 {
 
     // @dev Verify the consensus proof and return the new trusted consensus state and any intermediate states finalized
     // by this consensus proof.
-    function verifyConsensus(
-        BeefyConsensusState memory trustedState,
-        BeefyConsensusProof memory proof
-    ) internal pure returns (BeefyConsensusState memory, IntermediateState memory) {
+    function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
+        internal
+        pure
+        returns (BeefyConsensusState memory, IntermediateState memory)
+    {
         // verify mmr root proofs
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
 
@@ -143,23 +141,25 @@ contract BeefyV1 is IConsensusClient, ERC165 {
         return (state, intermediate);
     }
 
-    /** @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
+    /**
+     * @dev Verifies a new Mmmr root update, the relay chain accumulates its blocks into a merkle mountain range tree
      * which light clients can use as a source for log_2(n) ancestry proofs. This new mmr root hash is signed by
      * the relay chain authority set and we can verify the membership of the authorities who signed this new root
      * using a merkle multi proof and a merkle commitment to the total authorities.
      */
-    function verifyMmrUpdateProof(
-        BeefyConsensusState memory trustedState,
-        RelayChainProof memory relayProof
-    ) internal pure returns (BeefyConsensusState memory, bytes32) {
+    function verifyMmrUpdateProof(BeefyConsensusState memory trustedState, RelayChainProof memory relayProof)
+        internal
+        pure
+        returns (BeefyConsensusState memory, bytes32)
+    {
         uint256 signatures_length = relayProof.signedCommitment.votes.length;
         uint256 latestHeight = relayProof.signedCommitment.commitment.blockNumber;
 
         if (trustedState.latestHeight >= latestHeight) revert StaleHeight();
 
         if (
-            !checkParticipationThreshold(signatures_length, trustedState.currentAuthoritySet.len) &&
-            !checkParticipationThreshold(signatures_length, trustedState.nextAuthoritySet.len)
+            !checkParticipationThreshold(signatures_length, trustedState.currentAuthoritySet.len)
+                && !checkParticipationThreshold(signatures_length, trustedState.nextAuthoritySet.len)
         ) {
             revert SuperMajorityRequired();
         }
@@ -167,8 +167,8 @@ contract BeefyV1 is IConsensusClient, ERC165 {
         Commitment memory commitment = relayProof.signedCommitment.commitment;
 
         if (
-            commitment.validatorSetId != trustedState.currentAuthoritySet.id &&
-            commitment.validatorSetId != trustedState.nextAuthoritySet.id
+            commitment.validatorSetId != trustedState.currentAuthoritySet.id
+                && commitment.validatorSetId != trustedState.nextAuthoritySet.id
         ) {
             revert UnknownAuthoritySet();
         }
@@ -218,11 +218,10 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     }
 
     // @dev Stack too deep, sigh solidity
-    function verifyMmrLeaf(
-        BeefyConsensusState memory trustedState,
-        RelayChainProof memory relay,
-        bytes32 mmrRoot
-    ) internal pure {
+    function verifyMmrLeaf(BeefyConsensusState memory trustedState, RelayChainProof memory relay, bytes32 mmrRoot)
+        internal
+        pure
+    {
         bytes32 hash = keccak256(
             Codec.Encode(
                 PartialBeefyMmrLeaf({
@@ -245,10 +244,11 @@ contract BeefyV1 is IConsensusClient, ERC165 {
     }
 
     // @dev Verifies that some parachain header has been finalized, given the current trusted consensus state.
-    function verifyParachainHeaderProof(
-        bytes32 headsRoot,
-        ParachainProof memory proof
-    ) internal pure returns (IntermediateState memory) {
+    function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
+        internal
+        pure
+        returns (IntermediateState memory)
+    {
         Node[] memory leaves = new Node[](1);
         Parachain memory para = proof.parachain;
 
@@ -265,11 +265,8 @@ contract BeefyV1 is IConsensusClient, ERC165 {
         if (!valid) revert InvalidMmrProof();
         // extract the state commitment
         StateCommitment memory commitment = header.stateCommitment();
-        IntermediateState memory intermediate = IntermediateState({
-            stateMachineId: para.id,
-            height: header.number,
-            commitment: commitment
-        });
+        IntermediateState memory intermediate =
+            IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
 
         return intermediate;
     }

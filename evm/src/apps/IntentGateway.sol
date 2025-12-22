@@ -14,9 +14,10 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@polytope-labs/ismp-solidity-v1/IDispatcher.sol";
-import {BaseIsmpModule, IncomingPostRequest, IncomingGetResponse} from "@polytope-labs/ismp-solidity-v1/IIsmpModule.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity-v1/StateMachine.sol";
+import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -131,7 +132,7 @@ struct NewDeployment {
  *
  * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
  */
-contract IntentGateway is BaseIsmpModule {
+contract IntentGateway is HyperApp {
     using SafeERC20 for IERC20;
 
     /**
@@ -310,9 +311,8 @@ contract IntentGateway is BaseIsmpModule {
      * @dev Checks that the request originates from a known instance of the IntentGateway.
      */
     modifier authenticate(PostRequest calldata request) {
-        bytes32 module = request.from.length == 20
-            ? bytes32(uint256(uint160(bytes20(request.from))))
-            : bytes32(request.from[:32]);
+        bytes32 module =
+            request.from.length == 20 ? bytes32(uint256(uint160(bytes20(request.from)))) : bytes32(request.from[:32]);
         // IntentGateway only accepts incoming assets from itself or known instances
         if (instance(request.source) != module) revert Unauthorized();
         _;
@@ -390,10 +390,7 @@ contract IntentGateway is BaseIsmpModule {
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
                 IUniswapV2Router02(uniswapV2).swapExactETHForTokens{value: msgValue}(
-                    order.fees,
-                    path,
-                    address(this),
-                    block.timestamp
+                    order.fees, path, address(this), block.timestamp
                 );
             } else {
                 IERC20(feeToken).safeTransferFrom(msg.sender, address(this), order.fees);
@@ -446,7 +443,7 @@ contract IntentGateway is BaseIsmpModule {
             if (token == address(0)) {
                 // native token
                 if (msgValue < order.outputs[i].amount) revert InsufficientNativeToken();
-                (bool sent, ) = beneficiary.call{value: order.outputs[i].amount}("");
+                (bool sent,) = beneficiary.call{value: order.outputs[i].amount}("");
                 if (!sent) revert InsufficientNativeToken();
                 msgValue -= order.outputs[i].amount;
             } else {
@@ -461,9 +458,7 @@ contract IntentGateway is BaseIsmpModule {
         // construct settlement message
         bytes memory data = abi.encode(
             RequestBody({
-                commitment: commitment,
-                tokens: order.inputs,
-                beneficiary: bytes32(uint256(uint160(msg.sender)))
+                commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
             })
         );
         DispatchPost memory request = DispatchPost({
@@ -533,7 +528,7 @@ contract IntentGateway is BaseIsmpModule {
             if (_orders[body.commitment][token] == 0) revert UnknownOrder();
 
             if (token == address(0)) {
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);
@@ -582,9 +577,8 @@ contract IntentGateway is BaseIsmpModule {
             if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
         }
 
-        bytes memory context = abi.encode(
-            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
-        );
+        bytes memory context =
+            abi.encode(RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
 
         bytes[] memory keys = new bytes[](1);
         keys[0] = bytes.concat(
@@ -636,7 +630,7 @@ contract IntentGateway is BaseIsmpModule {
             if (_orders[body.commitment][token] == 0) revert UnknownOrder();
 
             if (token == address(0)) {
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);

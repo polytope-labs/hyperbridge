@@ -3,10 +3,10 @@
 
 pragma solidity ^0.8.17;
 
-import {BaseIsmpModule, IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {HyperApp, IncomingPostRequest} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {DispatchPost, IDispatcher, PostRequest} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {DispatchPost, IDispatcher, PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 
 struct CrossChainMessage {
     bytes dest;
@@ -15,7 +15,7 @@ struct CrossChainMessage {
     uint64 timeout;
 }
 
-contract CrossChainInscription is BaseIsmpModule {
+contract CrossChainInscription is HyperApp {
     using SafeERC20 for IERC20;
 
     // An inscription has been received
@@ -37,16 +37,18 @@ contract CrossChainInscription is BaseIsmpModule {
         _admin = admin;
     }
 
-    function setHost(address host) public {
+    function setHost(address hostAddr) public {
         if (msg.sender != _admin) revert Unauthorized();
         // infinite approval to save on gas
-        IERC20(IDispatcher(host).feeToken()).approve(
-            host,
-            type(uint256).max
-        );
+        IERC20(IDispatcher(hostAddr).feeToken()).approve(hostAddr, type(uint256).max);
 
-        _host = host;
+        _host = hostAddr;
         _admin = address(0);
+    }
+
+    // Implementation of HyperApp's required host() function
+    function host() public view override returns (address) {
+        return _host;
     }
 
     function inscribe(CrossChainMessage memory params) public payable {

@@ -14,18 +14,15 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
+import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
 
-contract FeeToken is ERC6160Ext20 {
-    constructor(
-        address _defaultOwner,
-        string memory _name,
-        string memory _symbol
-    ) ERC6160Ext20(_defaultOwner, _name, _symbol) {
+/**
+ * @title FeeToken
+ * @notice Test token that extends HyperFungibleTokenImpl with initial supply minting
+ */
+contract FeeToken is HyperFungibleTokenImpl {
+    constructor(address admin, string memory name, string memory symbol) HyperFungibleTokenImpl(admin, name, symbol) {
+        // Mint initial supply to tx.origin for testing purposes
         _mint(tx.origin, 1_000_000_000_000000000000000000);
-    }
-
-    function superApprove(address owner, address spender) public {
-        _approve(owner, spender, type(uint256).max);
     }
 }

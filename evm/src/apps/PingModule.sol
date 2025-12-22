@@ -3,11 +3,17 @@
 
 pragma solidity ^0.8.17;
 
-import "@polytope-labs/ismp-solidity/IIsmpModule.sol";
-import "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import "@polytope-labs/ismp-solidity/StateMachine.sol";
-import "@polytope-labs/ismp-solidity/Message.sol";
-import "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {Message, PostRequest, PostResponse, GetRequest} from "@hyperbridge/core/libraries/Message.sol";
+import {
+    IDispatcher,
+    DispatchPost,
+    DispatchPostResponse,
+    DispatchGet
+} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 
@@ -24,7 +30,7 @@ interface ITokenFaucet {
     function drip(address) external;
 }
 
-contract PingModule is IIsmpModule {
+contract PingModule is HyperApp {
     using Message for PostResponse;
     using Message for PostRequest;
     using Message for GetRequest;
@@ -39,14 +45,6 @@ contract PingModule is IIsmpModule {
 
     error NotIsmpHost();
     error ExecutionFailed();
-
-    // restricts call to `IIsmpHost`
-    modifier onlyIsmpHost() {
-        if (msg.sender != _host) {
-            revert NotIsmpHost();
-        }
-        _;
-    }
 
     // restricts call to `admin`
     modifier onlyAdmin() {
@@ -65,7 +63,7 @@ contract PingModule is IIsmpModule {
     }
 
     function setIsmpHost(address hostAddr, address tokenFaucet) public onlyAdmin {
-        address feeToken = IIsmpHost(hostAddr).feeToken();
+        address feeToken = IHost(hostAddr).feeToken();
         IERC20(feeToken).approve(hostAddr, type(uint256).max);
         if (tokenFaucet != address(0)) {
             ITokenFaucet(tokenFaucet).drip(feeToken);
@@ -79,13 +77,13 @@ contract PingModule is IIsmpModule {
     }
 
     // returns the current ismp host set
-    function host() public view returns (address) {
+    function host() public view override returns (address) {
         return _host;
     }
 
     function dispatchPostResponse(PostResponse memory response) public returns (bytes32) {
-        uint256 perByteFee = IIsmpHost(_host).perByteFee(response.request.source);
-        address feeToken = IIsmpHost(_host).feeToken();
+        uint256 perByteFee = IHost(_host).perByteFee(response.request.source);
+        address feeToken = IHost(_host).feeToken();
         uint256 length = 32 > response.response.length ? 32 : response.response.length;
         uint256 fee = perByteFee * length;
 
@@ -101,8 +99,8 @@ contract PingModule is IIsmpModule {
     }
 
     function dispatch(PostRequest memory request) public returns (bytes32) {
-        uint256 perByteFee = IIsmpHost(_host).perByteFee(request.dest);
-        address feeToken = IIsmpHost(_host).feeToken();
+        uint256 perByteFee = IHost(_host).perByteFee(request.dest);
+        address feeToken = IHost(_host).feeToken();
         uint256 length = 32 > request.body.length ? 32 : request.body.length;
         uint256 fee = perByteFee * length;
 
@@ -133,9 +131,9 @@ contract PingModule is IIsmpModule {
     }
 
     function ping(PingMessage memory pingMessage) public {
-        bytes memory body = bytes.concat("hello from ", IIsmpHost(_host).host());
-        uint256 perByteFee = IIsmpHost(_host).perByteFee(pingMessage.dest);
-        address feeToken = IIsmpHost(_host).feeToken();
+        bytes memory body = bytes.concat("hello from ", IHost(_host).host());
+        uint256 perByteFee = IHost(_host).perByteFee(pingMessage.dest);
+        address feeToken = IHost(_host).feeToken();
         uint256 length = 32 > body.length ? 32 : body.length;
         uint256 fee = (pingMessage.fee + (perByteFee * length)) * pingMessage.count;
 
@@ -143,7 +141,7 @@ contract PingModule is IIsmpModule {
 
         for (uint256 i = 0; i < pingMessage.count; i++) {
             DispatchPost memory post = DispatchPost({
-                body: bytes.concat("hello from ", IIsmpHost(_host).host()),
+                body: bytes.concat("hello from ", IHost(_host).host()),
                 dest: pingMessage.dest,
                 timeout: pingMessage.timeout,
                 to: abi.encodePacked(address(pingMessage.module)),
@@ -166,28 +164,28 @@ contract PingModule is IIsmpModule {
         IDispatcher(_host).dispatch(post);
     }
 
-    function onAccept(IncomingPostRequest memory incoming) external onlyIsmpHost {
+    function onAccept(IncomingPostRequest memory incoming) external override onlyHost {
         emit PostReceived(string(incoming.request.body));
         _request = incoming.request;
     }
 
-    function onPostResponse(IncomingPostResponse memory) external onlyIsmpHost {
+    function onGetResponse(IncomingGetResponse memory incoming) external override onlyHost {
+        emit GetResponseReceived(incoming.response.values);
+    }
+
+    function onPostResponse(IncomingPostResponse memory) external override onlyHost {
         emit PostResponseReceived();
     }
 
-    function onGetResponse(IncomingGetResponse memory response) external onlyIsmpHost {
-        emit GetResponseReceived(response.response.values);
-    }
-
-    function onGetTimeout(GetRequest memory) external onlyIsmpHost {
+    function onGetTimeout(GetRequest memory) external override onlyHost {
         emit GetTimeoutReceived();
     }
 
-    function onPostRequestTimeout(PostRequest memory) external onlyIsmpHost {
+    function onPostRequestTimeout(PostRequest memory) external override onlyHost {
         emit PostRequestTimeoutReceived();
     }
 
-    function onPostResponseTimeout(PostResponse memory) external onlyIsmpHost {
+    function onPostResponseTimeout(PostResponse memory) external override onlyHost {
         emit PostResponseTimeoutReceived();
     }
 }

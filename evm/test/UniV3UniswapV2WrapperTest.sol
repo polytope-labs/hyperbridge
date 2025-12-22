@@ -20,7 +20,7 @@ import "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {UniV3UniswapV2Wrapper} from "../src/modules/UniV3UniswapV2Wrapper.sol";
+import {UniV3UniswapV2Wrapper} from "../src/uniswapv2/UniV3UniswapV2Wrapper.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
@@ -37,42 +37,32 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
 
         wrapper = new UniV3UniswapV2Wrapper(address(this));
         wrapper.init(
-            UniV3UniswapV2Wrapper.Params({WETH: WETH, swapRouter: UNISWAP_V3_ROUTER_V2, quoter: UNISWAP_V3_QUOTER_V2, maxFee: 500})
+            UniV3UniswapV2Wrapper.Params({
+                WETH: WETH, swapRouter: UNISWAP_V3_ROUTER_V2, quoter: UNISWAP_V3_QUOTER_V2, maxFee: 500
+            })
         );
     }
 
     function testSwapETHForExactTokens() public {
-
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = DAI;
 
-
         uint256 amountOut = 485147;
         uint256 amountsIn = 2000000000000000000;
-
 
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
-
         uint256 deadline = block.timestamp + 1 hours;
 
-
-        uint256 slippage = amountsIn * 50 / 10_000; // 0.5% slippage
+        uint256 slippage = (amountsIn * 50) / 10_000; // 0.5% slippage
         vm.prank(WHALE);
-        uint256[] memory amounts = wrapper.swapETHForExactTokens{value: amountsIn + slippage}(
-            amountOut,
-            path,
-            WHALE,
-            deadline
-        );
-
+        uint256[] memory amounts =
+            wrapper.swapETHForExactTokens{value: amountsIn + slippage}(amountOut, path, WHALE, deadline);
 
         assertEq(
-            IERC20(DAI).balanceOf(WHALE),
-            initialDaiBalance + amountOut,
-            "DAI balance should increase by exact amount"
+            IERC20(DAI).balanceOf(WHALE), initialDaiBalance + amountOut, "DAI balance should increase by exact amount"
         );
         assertTrue(amounts[0] > 0, "ETH spent should be greater than 0");
         assertEq(amounts[1], amountOut, "Amount out should match requested amount");
@@ -80,49 +70,34 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
     }
 
     function testSwapExactETHForTokens() public {
-
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = DAI;
 
-
         uint256 exactEthAmount = 1 ether;
 
-
         uint256 amountOutMin = 0;
-
 
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
-
         uint256 deadline = block.timestamp + 1 hours;
 
-
         vm.prank(WHALE);
-        uint256[] memory amounts = wrapper.swapExactETHForTokens{value: exactEthAmount}(
-            amountOutMin, path, WHALE, deadline
-        );
+        uint256[] memory amounts =
+            wrapper.swapExactETHForTokens{value: exactEthAmount}(amountOutMin, path, WHALE, deadline);
 
         uint256 newDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 newEthBalance = WHALE.balance;
 
         // Verify exact ETH was spent (no refund for exact input)
         assertEq(amounts[0], exactEthAmount, "Should spend exact ETH amount");
-        assertEq(
-            initialEthBalance - newEthBalance,
-            exactEthAmount,
-            "ETH balance should decrease by exact amount"
-        );
+        assertEq(initialEthBalance - newEthBalance, exactEthAmount, "ETH balance should decrease by exact amount");
 
-      console.log(amounts[1]);
+        console.log(amounts[1]);
         assertTrue(amounts[1] > 0, "Should receive some DAI");
-        assertEq(
-            newDaiBalance - initialDaiBalance,
-            amounts[1],
-            "DAI balance increase should match reported amount"
-        );
-        }
+        assertEq(newDaiBalance - initialDaiBalance, amounts[1], "DAI balance increase should match reported amount");
+    }
 
     // Required to receive ETH refunds
     receive() external payable {}

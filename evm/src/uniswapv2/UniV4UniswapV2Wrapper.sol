@@ -60,13 +60,11 @@ contract UniV4UniswapV2Wrapper {
         return _params.WETH;
     }
 
-    function swapExactETHForTokens(
-        uint256 amountOutMin,
-        address[] calldata path,
-        address recipient,
-        uint256 deadline
-    ) external payable returns (uint256[] memory amounts) {
-
+    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address recipient, uint256 deadline)
+        external
+        payable
+        returns (uint256[] memory amounts)
+    {
         PoolKey memory poolKey = _createPoolKey(path[1]);
 
         bytes[] memory params = new bytes[](3);
@@ -76,16 +74,13 @@ contract UniV4UniswapV2Wrapper {
 
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(
-            abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)),
-            params
+            abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)), params
         );
 
         uint256 balanceBefore = IERC20(path[1]).balanceOf(recipient);
 
         IUniversalRouter(_params.universalRouter).execute{value: msg.value}(
-            abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))),
-            inputs,
-            deadline
+            abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))), inputs, deadline
         );
 
         uint256 balanceAfter = IERC20(path[1]).balanceOf(recipient);
@@ -95,13 +90,11 @@ contract UniV4UniswapV2Wrapper {
         amounts[1] = balanceAfter - balanceBefore;
     }
 
-        function swapETHForExactTokens(
-        uint256 amountOut,
-        address[] calldata path,
-        address recipient,
-        uint256 deadline
-    ) external payable returns (uint256[] memory amounts) {
-
+    function swapETHForExactTokens(uint256 amountOut, address[] calldata path, address recipient, uint256 deadline)
+        external
+        payable
+        returns (uint256[] memory amounts)
+    {
         PoolKey memory poolKey = _createPoolKey(path[1]);
 
         bytes[] memory params = new bytes[](3);
@@ -111,26 +104,17 @@ contract UniV4UniswapV2Wrapper {
 
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(
-            abi.encodePacked(
-                uint8(Actions.SWAP_EXACT_OUT_SINGLE),
-                uint8(Actions.SETTLE),
-                uint8(Actions.TAKE)
-            ),
-            params
+            abi.encodePacked(uint8(Actions.SWAP_EXACT_OUT_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)), params
         );
 
         IUniversalRouter(_params.universalRouter).execute{value: msg.value}(
-            abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))),
-            inputs,
-            deadline
+            abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))), inputs, deadline
         );
-
 
         uint256 refundETH = address(this).balance;
 
-
         if (refundETH > 0) {
-            (bool success, ) = _deployer.call{value: refundETH}("");
+            (bool success,) = _deployer.call{value: refundETH}("");
             require(success, "ETH refund failed");
         }
 
@@ -139,55 +123,41 @@ contract UniV4UniswapV2Wrapper {
         amounts[1] = amountOut;
     }
 
-    function getAmountsIn(uint256 amountOut, address[] calldata path)
-        external
-        returns (uint256[] memory amounts)
-    {
-
+    function getAmountsIn(uint256 amountOut, address[] calldata path) external returns (uint256[] memory amounts) {
         address tokenOut = _isNativeToken(path[0]) ? path[1] : path[0];
         bool zeroForOne = _isNativeToken(path[0]);
         PoolKey memory poolKey = _createPoolKey(tokenOut);
 
-
-        (uint256 amountIn, ) = IV4Quoter(_params.quoter).quoteExactOutputSingle(
-            IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountOut), bytes(""))
-        );
+        (uint256 amountIn,) = IV4Quoter(_params.quoter)
+            .quoteExactOutputSingle(
+                IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountOut), bytes(""))
+            );
 
         amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountOut;
     }
 
-    function getAmountsOut(uint256 amountIn, address[] calldata path)
-        external
-        returns (uint256[] memory amounts)
-    {
+    function getAmountsOut(uint256 amountIn, address[] calldata path) external returns (uint256[] memory amounts) {
         address tokenOut = _isNativeToken(path[0]) ? path[1] : path[0];
         bool zeroForOne = _isNativeToken(path[0]);
         PoolKey memory poolKey = _createPoolKey(tokenOut);
 
-
-        (uint256 amountOut, ) = IV4Quoter(_params.quoter).quoteExactInputSingle(
-            IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountIn), bytes(""))
-        );
+        (uint256 amountOut,) = IV4Quoter(_params.quoter)
+            .quoteExactInputSingle(IV4Quoter.QuoteExactSingleParams(poolKey, zeroForOne, uint128(amountIn), bytes("")));
 
         amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountOut;
     }
-
 
     function _isNativeToken(address token) internal view returns (bool) {
-    return token == address(0) || token == _params.WETH;
+        return token == address(0) || token == _params.WETH;
     }
 
-    function _createPoolKey(address tokenOut)
-        internal
-        view
-        returns (PoolKey memory)
-    {
+    function _createPoolKey(address tokenOut) internal view returns (PoolKey memory) {
         return PoolKey({
-            currency0: Currency.wrap(address(0)),  // ETH is always currency0
+            currency0: Currency.wrap(address(0)), // ETH is always currency0
             currency1: Currency.wrap(tokenOut),
             fee: _params.defaultFee,
             tickSpacing: _params.defaultTickSpacing,

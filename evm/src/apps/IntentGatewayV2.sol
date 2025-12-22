@@ -188,8 +188,7 @@ contract IntentGatewayV2 is HyperApp {
     /**
      * @dev EIP-712 type hash for SelectSolver message
      */
-    bytes32 public constant SELECT_SOLVER_TYPEHASH =
-        keccak256("SelectSolver(bytes32 commitment,address solver)");
+    bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
 
     /**
      * @dev EIP-712 domain separator
@@ -220,7 +219,7 @@ contract IntentGatewayV2 is HyperApp {
 
     /**
      * @notice Constant representing a filled slot in big endian format
-     * @dev Hex value 0x05 padded with leading zeros to fill 32 bytes
+     * @dev Hex value 0x06 padded with leading zeros to fill 32 bytes
      */
     bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
         hex"0000000000000000000000000000000000000000000000000000000000000006";
@@ -373,11 +372,7 @@ contract IntentGatewayV2 is HyperApp {
         // Initialize EIP-712 domain separator
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
-                DOMAIN_TYPEHASH,
-                keccak256(bytes("IntentGateway")),
-                keccak256(bytes("2")),
-                block.chainid,
-                address(this)
+                DOMAIN_TYPEHASH, keccak256(bytes("IntentGateway")), keccak256(bytes("2")), block.chainid, address(this)
             )
         );
     }
@@ -480,7 +475,7 @@ contract IntentGatewayV2 is HyperApp {
                     if (amount > msgValue) revert InsufficientNativeToken();
                     msgValue -= amount;
 
-                    (bool sent, ) = dispatcher.call{value: amount}("");
+                    (bool sent,) = dispatcher.call{value: amount}("");
                     if (!sent) revert InsufficientNativeToken();
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, dispatcher, amount);
@@ -560,10 +555,7 @@ contract IntentGatewayV2 is HyperApp {
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
                 IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
-                    order.fees,
-                    path,
-                    address(this),
-                    block.timestamp
+                    order.fees, path, address(this), block.timestamp
                 );
             } else {
                 IERC20(feeToken).safeTransferFrom(msg.sender, address(this), order.fees);
@@ -593,21 +585,9 @@ contract IntentGatewayV2 is HyperApp {
      */
     function select(SelectOptions calldata options) public {
         // Verify that the session key signed (commitment, options.solver) using EIP-712
-        bytes32 structHash = keccak256(
-            abi.encode(
-                SELECT_SOLVER_TYPEHASH,
-                options.commitment,
-                options.solver
-            )
-        );
+        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
 
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR,
-                structHash
-            )
-        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
 
         address sessionKey = ECDSA.recover(digest, options.signature);
 
@@ -692,7 +672,7 @@ contract IntentGatewayV2 is HyperApp {
                 if (msgValue < solverAmount) revert InsufficientNativeToken();
 
                 uint256 beneficiaryTotal = requestedAmount + beneficiaryShare;
-                (bool sent, ) = beneficiary.call{value: beneficiaryTotal}("");
+                (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
                 if (!sent) revert InsufficientNativeToken();
 
                 msgValue -= beneficiaryTotal;
@@ -767,9 +747,7 @@ contract IntentGatewayV2 is HyperApp {
             bytes1(uint8(RequestKind.RedeemEscrow)),
             abi.encode(
                 RequestBody({
-                    commitment: commitment,
-                    tokens: order.inputs,
-                    beneficiary: bytes32(uint256(uint160(msg.sender)))
+                    commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
                 })
             )
         );
@@ -793,7 +771,7 @@ contract IntentGatewayV2 is HyperApp {
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
     }
-    
+
     /**
      * @notice Cancels an existing order.
      * @param order The order to be canceled.
@@ -825,9 +803,8 @@ contract IntentGatewayV2 is HyperApp {
             }
         }
 
-        bytes memory context = abi.encode(
-            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
-        );
+        bytes memory context =
+            abi.encode(RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
 
         bytes[] memory keys = new bytes[](1);
         keys[0] = bytes.concat(
@@ -854,8 +831,8 @@ contract IntentGatewayV2 is HyperApp {
             // try to pay for dispatch with fee token
             dispatchWithFeeToken(request, msg.sender);
         }
-    }    
-    
+    }
+
     /**
      * @notice Executes an incoming post request.
      * @dev This function is called when an incoming post request is accepted.
@@ -864,7 +841,9 @@ contract IntentGatewayV2 is HyperApp {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) return redeem(incoming.request, kind);
+        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
+            return redeem(incoming.request, kind);
+        }
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -888,7 +867,7 @@ contract IntentGatewayV2 is HyperApp {
                 uint256 amount = info.amount;
 
                 if (token == address(0)) {
-                    (bool sent, ) = req.beneficiary.call{value: amount}("");
+                    (bool sent,) = req.beneficiary.call{value: amount}("");
                     if (!sent) revert InsufficientNativeToken();
                 } else {
                     IERC20(token).safeTransfer(req.beneficiary, amount);
@@ -921,7 +900,7 @@ contract IntentGatewayV2 is HyperApp {
             if (_orders[body.commitment][token] == 0) revert UnknownOrder();
 
             if (token == address(0)) {
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);
@@ -971,7 +950,7 @@ contract IntentGatewayV2 is HyperApp {
             if (_orders[body.commitment][token] == 0) revert UnknownOrder();
 
             if (token == address(0)) {
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);

@@ -4,9 +4,9 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGateway, Params} from "../src/modules/IntentGateway.sol";
+import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";
 import {BaseScript} from "./BaseScript.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;

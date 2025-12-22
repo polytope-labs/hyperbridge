@@ -19,8 +19,12 @@ import "../src/hosts/EvmHost.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
-import {DispatchPost} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {DispatchPost, DispatchPostResponse, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {PostRequest, Message} from "@hyperbridge/core/libraries/Message.sol";
+import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 contract EvmHostTest is BaseTest {
     using Message for PostRequest;
@@ -31,11 +35,8 @@ contract EvmHostTest is BaseTest {
         // set chain Id to testnet
         vm.chainId(host.chainId() + 5);
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
-        StateCommitment memory commitment = StateCommitment({
-            timestamp: 200,
-            overlayRoot: bytes32(0),
-            stateRoot: bytes32(0)
-        });
+        StateCommitment memory commitment =
+            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)});
 
         // we can set consensus state
         vm.prank(host.hostParams().admin);
@@ -129,11 +130,7 @@ contract EvmHostTest is BaseTest {
         vm.expectRevert(EvmHost.FrozenHost.selector);
         host.dispatch(
             DispatchPostResponse({
-                request: request,
-                response: abi.encode(bytes32(0)),
-                fee: 0,
-                timeout: 0,
-                payer: address(this)
+                request: request, response: abi.encode(bytes32(0)), fee: 0, timeout: 0, payer: address(this)
             })
         );
 
@@ -142,12 +139,7 @@ contract EvmHostTest is BaseTest {
         vm.expectRevert(EvmHost.FrozenHost.selector);
         host.dispatch(
             DispatchGet({
-                dest: StateMachine.evm(97),
-                height: 100,
-                keys: keys,
-                context: new bytes(0),
-                timeout: 60 * 60,
-                fee: 0
+                dest: StateMachine.evm(97), height: 100, keys: keys, context: new bytes(0), timeout: 60 * 60, fee: 0
             })
         );
 
@@ -202,7 +194,14 @@ contract EvmHostTest is BaseTest {
     function testMinimumMessagingFee() public {
         bytes memory hyperbridge = host.host();
         // dispatch request
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientBalance.selector,
+                address(this),
+                0,
+                host.perByteFee(StateMachine.evm(97)) * 32
+            )
+        );
         host.dispatch(
             DispatchPost({
                 body: new bytes(0), // empty body
@@ -247,11 +246,7 @@ contract EvmHostTest is BaseTest {
         vm.prank(address(manager));
         bytes32 resp = host.dispatch(
             DispatchPostResponse({
-                request: request,
-                response: new bytes(0),
-                fee: 0,
-                timeout: 0,
-                payer: address(manager)
+                request: request, response: new bytes(0), fee: 0, timeout: 0, payer: address(manager)
             })
         );
         assert(host.responseCommitments(resp).sender == address(manager));
@@ -269,8 +264,7 @@ contract EvmHostTest is BaseTest {
         StateMachineHeight memory height = StateMachineHeight({height: 100, stateMachineId: 2000});
         vm.prank(params.handler);
         host.storeStateMachineCommitment(
-            height,
-            StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            height, StateCommitment({timestamp: 200, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         );
 
         vm.prank(params.handler);

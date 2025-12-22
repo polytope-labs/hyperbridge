@@ -17,14 +17,14 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
-import {IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
-import "@polytope-labs/ismp-solidity/Message.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
-import {NotRoleAdmin} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {Message, PostRequest} from "@hyperbridge/core/libraries/Message.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import "../src/modules/TokenGateway.sol";
-import "../src/modules/CallDispatcher.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import "../src/apps/TokenGateway.sol";
+import "../src/apps/CallDispatcher.sol";
 
 contract TokenGatewayTest is BaseTest {
     using Message for PostRequest;
@@ -88,7 +88,9 @@ contract TokenGatewayTest is BaseTest {
     function testCannotTeleportAssetsWithInsufficientBalance() public {
         assert(feeToken.balanceOf(address(this)) == 0);
 
-        vm.expectRevert(bytes("ERC20: burn amount exceeds balance"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(this), 0, 1000 * 1e18)
+        );
         gateway.teleport(
             TeleportParams({
                 amount: 1000 * 1e18, // $1000
@@ -253,11 +255,17 @@ contract TokenGatewayTest is BaseTest {
 
         assert(erc6160Asset == address(feeToken));
         assert(erc20Asset == address(mockUSDC));
-        assert(keccak256(bytes(ERC6160Ext20(erc6160Asset).symbol())) == keccak256(bytes(string("USD.h")))); // should add suffix
+        assert(keccak256(bytes(HyperFungibleTokenImpl(erc6160Asset).symbol())) == keccak256(bytes(string("USD.h")))); // should add suffix
+
+        // Pre-deploy token for asset2 (auto-deployment removed in refactoring)
+        HyperFungibleTokenImpl usdh_token = new HyperFungibleTokenImpl(address(this), "Hyperbridge USD", "USDH");
+        // Grant gateway minter and burner roles
+        usdh_token.grantMinterRole(address(gateway));
+        usdh_token.grantBurnerRole(address(gateway));
 
         AssetMetadata memory asset2 = AssetMetadata({
             erc20: address(0),
-            erc6160: address(0),
+            erc6160: address(usdh_token),
             name: "Hyperbridge USD",
             symbol: "USDH",
             beneficiary: address(0),
@@ -281,7 +289,7 @@ contract TokenGatewayTest is BaseTest {
         );
 
         address usdh = gateway.erc6160(keccak256("USDH"));
-        assert(keccak256(bytes(ERC6160Ext20(usdh).symbol())) == keccak256(bytes(string("USDH")))); // no suffix
+        assert(keccak256(bytes(HyperFungibleTokenImpl(usdh).symbol())) == keccak256(bytes(string("USDH")))); // no suffix
     }
 
     function testToRevertOnAddAssetOnAcceptForUnauthorizedRequest() public {
@@ -422,10 +430,15 @@ contract TokenGatewayTest is BaseTest {
         assert(gateway.params().dispatcher == msg.sender);
     }
 
+    // testCanChangeAssetOwner disabled - changeAdmin functionality removed in refactored version
+    // This test needs to be updated based on new role-based access control model
+    /*
     function testCanChangeAssetOwner() public {
         // set gateway as the admin
         feeToken.changeAdmin(address(gateway));
 
+        // ChangeAssetAdmin functionality has been removed in the refactored version
+        // This test needs to be updated or removed based on new governance model
         ChangeAssetAdmin memory changeAsset = ChangeAssetAdmin({
             assetId: keccak256(bytes(feeToken.symbol())),
             newAdmin: address(this)
@@ -452,11 +465,9 @@ contract TokenGatewayTest is BaseTest {
         vm.expectRevert(NotRoleAdmin.selector);
         feeToken.changeAdmin(msg.sender);
     }
+    */
 
     function testCanAddNewContractInstance() public {
-        // set gateway as the admin
-        feeToken.changeAdmin(address(gateway));
-
         bytes memory chain = bytes("MNTL");
         ContractInstance memory instance = ContractInstance({chain: chain, moduleId: address(this)});
 

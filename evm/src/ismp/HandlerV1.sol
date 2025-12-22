@@ -18,9 +18,14 @@ import {MerkleMountainRange, MmrLeaf} from "@polytope-labs/solidity-merkle-trees
 import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
-import {IConsensusClient, IntermediateState, StateMachineHeight, StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
-import {IIsmpHost, FeeMetadata, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
+import {
+    IConsensus,
+    IntermediateState,
+    StateMachineHeight,
+    StateCommitment
+} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IHost, FeeMetadata, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
+import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
 import {
     Message,
     PostResponse,
@@ -36,7 +41,7 @@ import {
     PostRequestLeaf,
     PostResponseLeaf,
     GetResponseLeaf
-} from "@polytope-labs/ismp-solidity/Message.sol";
+} from "@hyperbridge/core/libraries/Message.sol";
 import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
@@ -95,7 +100,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
     /**
      * @dev Checks if the host permits incoming datagrams
      */
-    modifier notFrozen(IIsmpHost host) {
+    modifier notFrozen(IHost host) {
         FrozenStatus state = host.frozen();
         if (state == FrozenStatus.Incoming || state == FrozenStatus.All) revert HostFrozen();
         _;
@@ -115,14 +120,13 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - `IsmpHost`
      * @param proof - consensus proof
      */
-    function handleConsensus(IIsmpHost host, bytes calldata proof) external notFrozen(host) {
+    function handleConsensus(IHost host, bytes calldata proof) external notFrozen(host) {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
 
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (bytes memory verifiedState, IntermediateState[] memory intermediates) = IConsensusClient(
-            host.consensusClient()
-        ).verifyConsensus(host.consensusState(), proof);
+        (bytes memory verifiedState, IntermediateState[] memory intermediates) =
+            IConsensus(host.consensusClient()).verifyConsensus(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
         uint256 intermediatesLen = intermediates.length;
@@ -131,10 +135,8 @@ contract HandlerV1 is IHandler, ERC165, Context {
             // check that we know this state machine and it's a new update
             uint256 latestHeight = host.latestStateMachineHeight(intermediate.stateMachineId);
             if (latestHeight != 0 && intermediate.height > latestHeight) {
-                StateMachineHeight memory stateMachineHeight = StateMachineHeight({
-                    stateMachineId: intermediate.stateMachineId,
-                    height: intermediate.height
-                });
+                StateMachineHeight memory stateMachineHeight =
+                    StateMachineHeight({stateMachineId: intermediate.stateMachineId, height: intermediate.height});
                 host.storeStateMachineCommitment(stateMachineHeight, intermediate.commitment);
             }
         }
@@ -145,7 +147,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - `IsmpHost`
      * @param request - batch post requests
      */
-    function handlePostRequests(IIsmpHost host, PostRequestMessage calldata request) external notFrozen(host) {
+    function handlePostRequests(IHost host, PostRequestMessage calldata request) external notFrozen(host) {
         uint256 timestamp = block.timestamp;
         uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(request.proof.height);
         uint256 challengePeriod = host.challengePeriod();
@@ -183,7 +185,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - `IsmpHost`
      * @param response - batch post responses
      */
-    function handlePostResponses(IIsmpHost host, PostResponseMessage calldata response) external notFrozen(host) {
+    function handlePostResponses(IHost host, PostResponseMessage calldata response) external notFrozen(host) {
         uint256 timestamp = block.timestamp;
         uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(response.proof.height);
         uint256 challengePeriod = host.challengePeriod();
@@ -223,7 +225,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - Ismp host
      * @param message - batch get responses
      */
-    function handleGetResponses(IIsmpHost host, GetResponseMessage calldata message) external notFrozen(host) {
+    function handleGetResponses(IHost host, GetResponseMessage calldata message) external notFrozen(host) {
         uint256 timestamp = block.timestamp;
         uint256 delay = timestamp - host.stateMachineCommitmentUpdateTime(message.proof.height);
         uint256 challengePeriod = host.challengePeriod();
@@ -262,10 +264,10 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - IsmpHost
      * @param message - batch post request timeouts
      */
-    function handlePostRequestTimeouts(
-        IIsmpHost host,
-        PostRequestTimeoutMessage calldata message
-    ) external notFrozen(host) {
+    function handlePostRequestTimeouts(IHost host, PostRequestTimeoutMessage calldata message)
+        external
+        notFrozen(host)
+    {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
@@ -301,10 +303,10 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - Ismp host
      * @param message - batch post response timeouts
      */
-    function handlePostResponseTimeouts(
-        IIsmpHost host,
-        PostResponseTimeoutMessage calldata message
-    ) external notFrozen(host) {
+    function handlePostResponseTimeouts(IHost host, PostResponseTimeoutMessage calldata message)
+        external
+        notFrozen(host)
+    {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
@@ -340,7 +342,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - Ismp host
      * @param message - batch get request timeouts
      */
-    function handleGetRequestTimeouts(IIsmpHost host, GetTimeoutMessage calldata message) external notFrozen(host) {
+    function handleGetRequestTimeouts(IHost host, GetTimeoutMessage calldata message) external notFrozen(host) {
         uint256 delay = block.timestamp - host.stateMachineCommitmentUpdateTime(message.height);
         uint256 challengePeriod = host.challengePeriod();
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();

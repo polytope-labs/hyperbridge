@@ -25,150 +25,19 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
-
-/**
- * @notice Tokens that must be received for a valid order fulfillment
- */
-struct PaymentInfo {
-    /// @dev The address to receive the output tokens
-    bytes32 beneficiary;
-    /// @dev The assets to be provided by the filler
-    TokenInfo[] assets;
-    /// @dev Optional calldata to be executed on the destination chain
-    bytes call;
-}
-
-/**
- * @notice Tokens that must be escrowed for an order
- */
-struct TokenInfo {
-    /// @dev The address of the ERC20 token on the destination chain
-    /// @dev address(0) used as a sentinel for the native token
-    bytes32 token;
-    /// @dev The amount of the token to be sent
-    uint256 amount;
-}
-
-struct DispatchInfo {
-    /// @dev Assets to execute a predispatch call with
-    TokenInfo[] assets;
-    /// @dev The actual call data to be executed
-    bytes call;
-}
-
-/**
- * @dev Represents an order in the IntentGateway module.
- * @param Order The structure defining an order.
- */
-struct Order {
-    /// @dev The address of the user who is initiating the transfer
-    bytes32 user;
-    /// @dev The state machine identifier of the origin chain
-    bytes source;
-    /// @dev The state machine identifier of the destination chain
-    bytes destination;
-    /// @dev The block number by which the order must be filled on the destination chain
-    uint256 deadline;
-    /// @dev The nonce of the order
-    uint256 nonce;
-    /// @dev Represents the dispatch fees associated with the IntentGateway.
-    uint256 fees;
-    /// @dev Optional session key used to select winning solver.
-    address session;
-    /// @dev The predispatch information for the order
-    /// This is used to encode any calls before the order is placed
-    DispatchInfo predispatch;
-    /// @dev The tokens that are escrowed for the filler.
-    TokenInfo[] inputs;
-    /// @dev The filler output, ie the tokens that the filler will provide
-    PaymentInfo output;
-}
-
-/**
- * @dev Request from hyperbridge for sweeping accumulated dust
- */
-struct SweepDust {
-    /// @dev The address of the beneficiary of the protocol fee
-    address beneficiary;
-    /// @dev The tokens to be withdrawn
-    TokenInfo[] outputs;
-}
-
-/**
- * @dev Struct to define the parameters for the IntentGateway module.
- */
-struct Params {
-    /// @dev The address of the host contract
-    address host;
-    /// @dev Address of the dispatcher contract responsible for handling intents.
-    address dispatcher;
-    /// @dev Flag indicating whether solver selection is enabled.
-    bool solverSelection;
-    /// @dev The percentage of surplus (in basis points) that goes to the protocol. The rest goes to beneficiary.
-    /// 10000 = 100%, 5000 = 50%, etc.
-    uint256 surplusShareBps;
-}
-
-/**
- * @dev Struct representing the body of a request.
- */
-struct RequestBody {
-    /// @dev Represents the commitment of an order. This is typically a hash that uniquely identifies the order.
-    bytes32 commitment;
-    /// @dev Stores the identifier for the beneficiary.
-    bytes32 beneficiary;
-    /// @dev An array of token identifiers. Each element in the array represents a unique token involved in the order.
-    TokenInfo[] tokens;
-}
-
-/**
- * @notice A struct representing the options for filling an intent.
- * @dev This struct is used to specify various parameters and options
- *      when filling an intent in the IntentGateway contract.
- */
-struct FillOptions {
-    /// @dev The fee paid in feeTokens to the relayer for processing transactions.
-    uint256 relayerFee;
-    /// @dev The fee paid in native tokens for cross-chain dispatch.
-    uint256 nativeDispatchFee;
-    /// @dev The output tokens with amounts the solver is willing to give
-    /// @dev Must be strictly >= the amounts requested in order.output.assets
-    TokenInfo[] outputs;
-}
-
-/**
- * @notice A struct representing the options for selecting a solver
- * @dev This struct is used to specify various parameters and options
- *      when selecting a solver.
- */
-struct SelectOptions {
-    /// @dev The commitment hash of the order.
-    bytes32 commitment;
-    /// @dev The solver address to select.
-    address solver;
-    /// @dev The EIP-712 signature from the session key that signed SelectSolver(commitment, solver)
-    bytes signature;
-}
-
-/**
- * @dev Struct representing the options for canceling an intent.
- */
-struct CancelOptions {
-    /// @dev The fee paid to the relayer for processing transactions.
-    uint256 relayerFee;
-    /// @dev Stores the height value.
-    uint256 height;
-}
-
-/**
- * @dev Request from hyperbridge for adding a new deployment of IntentGateway
- */
-struct NewDeployment {
-    /// @dev Identifier for the state machine.
-    bytes stateMachineId;
-    /// @dev An address variable to store the gateway identifier.
-    address gateway;
-}
+import {
+    PaymentInfo,
+    TokenInfo,
+    DispatchInfo,
+    Order,
+    SweepDust,
+    Params,
+    RequestBody,
+    FillOptions,
+    SelectOptions,
+    CancelOptions,
+    NewDeployment
+} from "../interfaces/IntentGatewayV2.sol";
 
 /**
  * @title IntentGatewayV2
@@ -586,9 +455,7 @@ contract IntentGatewayV2 is HyperApp {
     function select(SelectOptions calldata options) public {
         // Verify that the session key signed (commitment, options.solver) using EIP-712
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
-
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
-
         address sessionKey = ECDSA.recover(digest, options.signature);
 
         // store some preludes

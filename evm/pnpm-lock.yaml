@@ -15,8 +15,8 @@ importers:
         specifier: ^5.4.0
         version: 5.4.0
       '@polytope-labs/solidity-merkle-trees':
-        specifier: ^0.3.4
-        version: 0.3.4
+        specifier: ^0.4.0
+        version: 0.4.0
       '@uniswap/swap-router-contracts':
         specifier: ^1.3.1
         version: 1.3.1(hardhat@2.28.0)
@@ -213,6 +213,9 @@ packages:
 
   '@polytope-labs/solidity-merkle-trees@0.3.4':
     resolution: {integrity: sha512-ldLirdWNd7qNi8iRfpwlHCwy/FrVMd5wbsu9qVxx/IyOnbQnzzU816AfL3Zn01iN8DhB5UFLMkQ/HmF+VOLGFA==}
+
+  '@polytope-labs/solidity-merkle-trees@0.4.0':
+    resolution: {integrity: sha512-GUtGJpzQ/KzXdHDmsYYrRFmh016P2z0afQhDO2ZLhQHBTw+XvvYao04MnhB2Ejg5H6An1zI46gp/W8eQgn75fQ==}
 
   '@scure/base@1.1.9':
     resolution: {integrity: sha512-8YKhl8GHiNI/pU2VMaofa2Tor7PJRAjwQLBBuilkJ9L5+13yVbC7JO/wS7piioAvPSwR3JKM1IJ/u4xQzbcXKg==}
@@ -1184,6 +1187,12 @@ snapshots:
   '@polytope-labs/solidity-merkle-trees@0.3.4':
     dependencies:
       openzeppelin-solidity: 4.8.1
+      prettier: 3.7.4
+      prettier-plugin-solidity: 1.4.3(prettier@3.7.4)
+
+  '@polytope-labs/solidity-merkle-trees@0.4.0':
+    dependencies:
+      '@openzeppelin/contracts': 5.4.0
       prettier: 3.7.4
       prettier-plugin-solidity: 1.4.3(prettier@3.7.4)
 

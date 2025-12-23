@@ -16,7 +16,7 @@
     "dependencies": {
         "@hyperbridge/core": "^1.2.1",
         "@openzeppelin/contracts": "^5.4.0",
-        "@polytope-labs/solidity-merkle-trees": "^0.3.4",
+        "@polytope-labs/solidity-merkle-trees": "^0.4.0",
         "@uniswap/swap-router-contracts": "^1.3.1",
         "@uniswap/universal-router": "github:Uniswap/universal-router",
         "@uniswap/v2-periphery": "^1.1.0-beta.0",

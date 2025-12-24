@@ -140,8 +140,7 @@ contract IntentSolverAccount is Account {
         // Use cached domain separator and type hash
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, sessionKey));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
-        address recoveredSolver = ECDSA.recover(digest, solverSignature);
-        if (recoveredSolver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (!_rawSignatureValidation(digest, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Pay for gas if needed
         _payPrefund(missingAccountFunds);

@@ -22,6 +22,8 @@ import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
@@ -45,24 +47,13 @@ import {
  *
  * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
  */
-contract IntentGatewayV2 is HyperApp {
+contract IntentGatewayV2 is HyperApp, EIP712 {
     using SafeERC20 for IERC20;
-
-    /**
-     * @dev EIP-712 Domain separator type hash
-     */
-    bytes32 public constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     /**
      * @dev EIP-712 type hash for SelectSolver message
      */
     bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
-
-    /**
-     * @dev EIP-712 domain separator
-     */
-    bytes32 public immutable DOMAIN_SEPARATOR;
 
     /**
      * @dev Enum representing the different kinds of incoming requests that can be executed.
@@ -235,15 +226,8 @@ contract IntentGatewayV2 is HyperApp {
      */
     event DustSwept(address token, uint256 amount, address beneficiary);
 
-    constructor(address admin) {
+    constructor(address admin) EIP712("IntentGateway", "2") {
         _admin = admin;
-
-        // Initialize EIP-712 domain separator
-        DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH, keccak256(bytes("IntentGateway")), keccak256(bytes("2")), block.chainid, address(this)
-            )
-        );
     }
 
     /**
@@ -259,6 +243,14 @@ contract IntentGatewayV2 is HyperApp {
      */
     function host() public view override returns (address) {
         return _params.host;
+    }
+
+    /**
+     * @notice Returns the EIP-712 domain separator
+     * @return bytes32 The domain separator used for EIP-712 signatures
+     */
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     /**
@@ -455,7 +447,7 @@ contract IntentGatewayV2 is HyperApp {
     function select(SelectOptions calldata options) public {
         // Verify that the session key signed (commitment, options.solver) using EIP-712
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
         // store some preludes

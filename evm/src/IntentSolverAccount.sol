@@ -44,6 +44,11 @@ import {SelectOptions, IIntentGatewayV2, Order, FillOptions, TokenInfo} from "./
  */
 contract IntentSolverAccount is Account {
     /**
+     * @notice Thrown when an unsupported function is called via fallback
+     */
+    error UnsupportedFunction(bytes4 selector);
+
+    /**
      * @notice Standard length of an ECDSA signature (r: 32 bytes, s: 32 bytes, v: 1 byte)
      */
     uint256 private constant ECDSA_SIGNATURE_LENGTH = 65;
@@ -52,6 +57,12 @@ contract IntentSolverAccount is Account {
      * @notice Expected calldata length for select function (4 byte selector + 256 bytes data)
      */
     uint256 private constant SELECT_CALLDATA_LENGTH = 260;
+
+    /**
+     * @notice Expected signature length for intent solver selection
+     * @dev abi.encodePacked(address, bytes65) = 20 + 65 = 85 bytes
+     */
+    uint256 private constant INTENT_SELECT_SIGNATURE_LENGTH = 85;
 
     /**
      * @notice Cached select function selector
@@ -101,7 +112,7 @@ contract IntentSolverAccount is Account {
      *      - Owner signs the userOpHash
      *
      *      Mode 2 - Intent solver selection (longer signature):
-     *      - Signature format: abi.encode(sessionKey, ownerSignature)
+     *      - Signature format: abi.encodePacked(sessionKey, ownerSignature)
      *      - CallData format: IntentGatewayV2.select(SelectOptions)
      *      - Validates that:
      *        1. Solver in calldata matches address(this)
@@ -127,17 +138,19 @@ contract IntentSolverAccount is Account {
             return super.validateUserOp(op, userOpHash, missingAccountFunds);
         }
 
-        // Decode signature: (sessionKey, solverSignature)
-        (address sessionKey, bytes calldata solverSignature) = abi.decode(op.signature, (address, bytes));
-
-        // Ensure calldata has exact length for select function
-        if (op.callData.length != SELECT_CALLDATA_LENGTH) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (
+            op.callData.length != SELECT_CALLDATA_LENGTH || bytes4(op.callData[0:4]) != SELECT_SELECTOR
+                || op.signature.length != INTENT_SELECT_SIGNATURE_LENGTH
+        ) {
+            return ERC4337Utils.SIG_VALIDATION_FAILED;
+        }
 
         // Decode SelectOptions from calldata (skip 4-byte selector)
         SelectOptions memory options = abi.decode(op.callData[4:], (SelectOptions));
         if (options.solver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        // Use cached domain separator and type hash
+        address sessionKey = address(bytes20(op.signature[0:20]));
+        bytes calldata solverSignature = op.signature[20:];
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, sessionKey));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
         if (!_rawSignatureValidation(digest, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
@@ -188,7 +201,7 @@ contract IntentSolverAccount is Account {
                 }
             }
         } else {
-            revert("Unsupported function");
+            revert UnsupportedFunction(selector);
         }
 
         // Forward the call to IntentGateway with calculated value

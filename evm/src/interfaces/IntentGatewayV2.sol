@@ -281,11 +281,6 @@ interface IIntentGatewayV2 {
     // ============================================
 
     /**
-     * @notice EIP-712 Domain separator type hash
-     */
-    function DOMAIN_TYPEHASH() external view returns (bytes32);
-
-    /**
      * @notice EIP-712 type hash for SelectSolver message
      */
     function SELECT_SOLVER_TYPEHASH() external view returns (bytes32);

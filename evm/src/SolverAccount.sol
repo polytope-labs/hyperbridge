@@ -86,21 +86,22 @@ contract SolverAccount is Account, ERC7821 {
     bytes32 private immutable DOMAIN_SEPARATOR;
 
     /**
-     * @notice Cached SELECT_SOLVER_TYPEHASH from IntentGateway
+     * @notice Local SELECT_SOLVER_TYPEHASH with nonce for replay protection
+     * @dev SelectSolver(bytes32 commitment,address solver,uint256 nonce)
      */
-    bytes32 private immutable SELECT_SOLVER_TYPEHASH;
+    bytes32 private constant SELECT_SOLVER_WITH_NONCE_TYPEHASH =
+        keccak256("SelectSolver(bytes32 commitment,address solver,uint256 nonce)");
 
     /**
      * @notice Constructor for SolverAccount
      * @param intentGatewayV2 The IntentGatewayV2 contract address
      * @dev The owner EOA will sign all operations on behalf of this solver account.
      *      The solver is identified by the deployed contract address (address(this)).
-     *      Caches domain separator and type hash to save gas on validation.
+     *      Caches domain separator to save gas on validation.
      */
     constructor(address intentGatewayV2) {
         INTENT_GATEWAY_V2 = intentGatewayV2;
         DOMAIN_SEPARATOR = IIntentGatewayV2(intentGatewayV2).DOMAIN_SEPARATOR();
-        SELECT_SOLVER_TYPEHASH = IIntentGatewayV2(intentGatewayV2).SELECT_SOLVER_TYPEHASH();
     }
 
     /**
@@ -117,9 +118,11 @@ contract SolverAccount is Account, ERC7821 {
      *      - Validates that:
      *        1. Calldata length and function selector are correct for select()
      *        2. Solver in calldata matches address(this)
-     *        3. Owner signed EIP-712 message: SelectSolver(commitment, sessionKey)
+     *        3. Nonce from EntryPoint (using first 192 bits of commitment as key)
+     *        4. Owner signed EIP-712 message: SelectSolver(commitment, sessionKey, nonce)
      *      - NOTE: This function only validates. The bundler will execute the callData
      *        (IntentGateway.select) via this contract's fallback function after validation.
+     *      - Replay protection: Signature includes nonce from EntryPoint
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
@@ -152,7 +155,14 @@ contract SolverAccount is Account, ERC7821 {
 
         address sessionKey = address(bytes20(op.signature[0:20]));
         bytes calldata solverSignature = op.signature[20:];
-        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, sessionKey));
+
+        // Get nonce from EntryPoint using first 192 bits of commitment as key
+        uint192 nonceKey = uint192(uint256(options.commitment) >> 64);
+        uint256 nonce = entryPoint().getNonce(address(this), nonceKey);
+
+        // Validate solver signature with nonce for replay protection
+        bytes32 structHash =
+            keccak256(abi.encode(SELECT_SOLVER_WITH_NONCE_TYPEHASH, options.commitment, sessionKey, nonce));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
         if (!_rawSignatureValidation(digest, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 

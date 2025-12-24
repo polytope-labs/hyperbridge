@@ -14,12 +14,12 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {PackedUserOperation, IAccountExecute} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-import {SelectOptions, IIntentGatewayV2} from "./interfaces/IntentGatewayV2.sol";
+import {SelectOptions, IIntentGatewayV2, Order, FillOptions, TokenInfo} from "./interfaces/IntentGatewayV2.sol";
 
 /**
  * @title IntentSolverAccount
@@ -42,11 +42,26 @@ import {SelectOptions, IIntentGatewayV2} from "./interfaces/IntentGatewayV2.sol"
  *
  * @author Polytope Labs
  */
-contract IntentSolverAccount is Account, IAccountExecute {
+contract IntentSolverAccount is Account {
     /**
      * @notice Standard length of an ECDSA signature (r: 32 bytes, s: 32 bytes, v: 1 byte)
      */
     uint256 private constant ECDSA_SIGNATURE_LENGTH = 65;
+
+    /**
+     * @notice Expected calldata length for select function (4 byte selector + 256 bytes data)
+     */
+    uint256 private constant SELECT_CALLDATA_LENGTH = 260;
+
+    /**
+     * @notice Cached select function selector
+     */
+    bytes4 private constant SELECT_SELECTOR = IIntentGatewayV2.select.selector;
+
+    /**
+     * @notice Cached fillOrder function selector
+     */
+    bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
 
     /**
      * @notice Address of the Intent Gateway V2 contract that authorizes voucher-based transactions
@@ -55,13 +70,26 @@ contract IntentSolverAccount is Account, IAccountExecute {
     address private immutable INTENT_GATEWAY_V2;
 
     /**
+     * @notice Cached domain separator from IntentGateway
+     */
+    bytes32 private immutable DOMAIN_SEPARATOR;
+
+    /**
+     * @notice Cached SELECT_SOLVER_TYPEHASH from IntentGateway
+     */
+    bytes32 private immutable SELECT_SOLVER_TYPEHASH;
+
+    /**
      * @notice Constructor for IntentSolverAccount
      * @param intentGatewayV2 The IntentGatewayV2 contract address
      * @dev The owner EOA will sign all operations on behalf of this solver account.
      *      The solver is identified by the deployed contract address (address(this)).
+     *      Caches domain separator and type hash to save gas on validation.
      */
     constructor(address intentGatewayV2) {
         INTENT_GATEWAY_V2 = intentGatewayV2;
+        DOMAIN_SEPARATOR = IIntentGatewayV2(intentGatewayV2).DOMAIN_SEPARATOR();
+        SELECT_SOLVER_TYPEHASH = IIntentGatewayV2(intentGatewayV2).SELECT_SOLVER_TYPEHASH();
     }
 
     /**
@@ -100,45 +128,25 @@ contract IntentSolverAccount is Account, IAccountExecute {
         }
 
         // Decode signature: (sessionKey, solverSignature)
-        (address sessionKey, bytes memory solverSignature) = abi.decode(op.signature, (address, bytes));
+        (address sessionKey, bytes calldata solverSignature) = abi.decode(op.signature, (address, bytes));
 
-        // Ensure calldata has minimum length as IntentGatewayV2.select(SelectOptions)
-        if (op.callData.length != 260) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        // Ensure calldata has exact length for select function
+        if (op.callData.length != SELECT_CALLDATA_LENGTH) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Decode SelectOptions from calldata (skip 4-byte selector)
         SelectOptions memory options = abi.decode(op.callData[4:], (SelectOptions));
         if (options.solver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        bytes32 domainSeparator = IIntentGatewayV2(INTENT_GATEWAY_V2).DOMAIN_SEPARATOR();
-        bytes32 structHash = keccak256(abi.encode(
-            IIntentGatewayV2(INTENT_GATEWAY_V2).SELECT_SOLVER_TYPEHASH(),
-            options.commitment,
-            sessionKey
-        ));
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        // Use cached domain separator and type hash
+        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, sessionKey));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
         address recoveredSolver = ECDSA.recover(digest, solverSignature);
         if (recoveredSolver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
-
-        // Call IntentGateway.select with the calldata
-        (bool success,) = INTENT_GATEWAY_V2.call(op.callData);
-        if (!success) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Pay for gas if needed
         _payPrefund(missingAccountFunds);
 
         return ERC4337Utils.SIG_VALIDATION_SUCCESS;
-    }
-
-    /**
-     * @notice Executes the user operation after successful validation
-     * @dev Called by the EntryPoint after validateUserOp succeeds. For intent solver selection,
-     *      the actual execution (IntentGateway.select call) happens in validateUserOp, so this
-     *      is a no-op. For standard operations, execution would happen here.
-     * @param userOp The packed user operation to execute
-     * @param userOpHash The hash of the user operation for verification
-     */
-    function executeUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external onlyEntryPoint {
-        // NO-OP: For intent solver selection, we already executed the select call in validateUserOp
     }
 
     /**
@@ -152,5 +160,51 @@ contract IntentSolverAccount is Account, IAccountExecute {
      */
     function _rawSignatureValidation(bytes32 hash, bytes calldata signature) internal view override returns (bool) {
         return ECDSA.recover(hash, signature) == address(this);
+    }
+
+    /**
+     * @notice Fallback function to forward select and fillOrder calls to IntentGateway
+     * @dev Only allows calls to select(SelectOptions) and fillOrder(Order, FillOptions)
+     *      All other calls will revert. This enables the solver account to interact
+     *      with the IntentGateway through the ERC4337 EntryPoint.
+     *      For fillOrder, calculates required native token amount from FillOptions.
+     */
+    fallback() external payable {
+        bytes4 selector = msg.sig;
+        uint256 value = 0;
+
+        // Only allow select and fillOrder functions
+        if (selector == SELECT_SELECTOR) {} else if (selector == FILL_ORDER_SELECTOR) {
+            // Decode fillOrder parameters to calculate native token amount
+            // fillOrder(Order calldata order, FillOptions calldata options)
+            (, FillOptions memory options) = abi.decode(msg.data[4:], (Order, FillOptions));
+
+            // Add native dispatch fee
+            value += options.nativeDispatchFee;
+
+            // Sum up all native token amounts (token == bytes32(0))
+            for (uint256 i = 0; i < options.outputs.length; i++) {
+                if (options.outputs[i].token == bytes32(0)) {
+                    value += options.outputs[i].amount;
+                }
+            }
+        } else {
+            revert("Unsupported function");
+        }
+
+        // Forward the call to IntentGateway with calculated value
+        (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call{value: value}(msg.data);
+
+        if (!success) {
+            // Bubble up the revert reason
+            assembly {
+                revert(add(returnData, 32), mload(returnData))
+            }
+        }
+
+        // Return the result
+        assembly {
+            return(add(returnData, 32), mload(returnData))
+        }
     }
 }

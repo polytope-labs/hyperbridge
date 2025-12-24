@@ -217,7 +217,7 @@ contract SolverAccount is Account, ERC7821 {
         // Only allow select function
         if (msg.sig != SELECT_SELECTOR) revert UnsupportedFunction(msg.sig);
 
-        // Forward the call to IntentGateway with calculated value
+        // Execute IntentGateway.select
         (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call(msg.data);
 
         if (!success) {

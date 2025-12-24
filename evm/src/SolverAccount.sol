@@ -18,13 +18,14 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 
 import {SelectOptions, IIntentGatewayV2, Order, FillOptions, TokenInfo} from "./interfaces/IntentGatewayV2.sol";
 
 /**
- * @title IntentSolverAccount
- * @notice ERC-4337 compliant smart contract account for solvers
- * @dev This contract extends OpenZeppelin's Account implementation and integrates with the Intent Gateway
+ * @title SolverAccount
+ * @notice ERC-4337 and ERC-7821 compliant smart contract account for solvers
+ * @dev This contract extends OpenZeppelin's Account and ERC7821 implementations and integrates with the Intent Gateway
  *      to enable solver delegation primarily for solver selection. Solvers can delegate to this smart
  *      contract account using EIP-7702.
  *
@@ -33,16 +34,20 @@ import {SelectOptions, IIntentGatewayV2, Order, FillOptions, TokenInfo} from "./
  *      2. Intent solver selection: Owner signs EIP-712 structured data (commitment, sessionKey) to
  *         authorize the solver account to be selected for filling orders
  *
- *      Workflow for intent solver selection:
+ *      Workflow for intent solver selection via ERC-4337:
  *      - User places an order with a session key
- *      - Owner signs SelectSolver(commitment, sessionKey) using EIP-712
- *      - UserOp contains: calldata = IntentGatewayV2.select(...)
- *      - validateUserOp verifies the owner signature and calls IntentGateway.select
+ *      - Solver EOA (via EIP-7702) signs SelectSolver(commitment, sessionKey) using EIP-712
+ *      - UserOp is submitted with:
+ *        - calldata: IntentGatewayV2.select(SelectOptions)
+ *        - signature: abi.encodePacked(sessionKey, solverSignature)
+ *      - validateUserOp verifies the signature and calldata (validation phase)
+ *      - Bundler executes op.callData by calling this contract (execution phase)
+ *      - Fallback function forwards the select() call to IntentGateway
  *      - The solver (this contract's address) is registered and can fill the order
  *
  * @author Polytope Labs
  */
-contract IntentSolverAccount is Account {
+contract SolverAccount is Account, ERC7821 {
     /**
      * @notice Thrown when an unsupported function is called via fallback
      */
@@ -70,11 +75,6 @@ contract IntentSolverAccount is Account {
     bytes4 private constant SELECT_SELECTOR = IIntentGatewayV2.select.selector;
 
     /**
-     * @notice Cached fillOrder function selector
-     */
-    bytes4 private constant FILL_ORDER_SELECTOR = IIntentGatewayV2.fillOrder.selector;
-
-    /**
      * @notice Address of the Intent Gateway V2 contract that authorizes voucher-based transactions
      * @dev This is set during deployment via constructor
      */
@@ -91,7 +91,7 @@ contract IntentSolverAccount is Account {
     bytes32 private immutable SELECT_SOLVER_TYPEHASH;
 
     /**
-     * @notice Constructor for IntentSolverAccount
+     * @notice Constructor for SolverAccount
      * @param intentGatewayV2 The IntentGatewayV2 contract address
      * @dev The owner EOA will sign all operations on behalf of this solver account.
      *      The solver is identified by the deployed contract address (address(this)).
@@ -111,14 +111,15 @@ contract IntentSolverAccount is Account {
      *      - Delegates to parent Account implementation
      *      - Owner signs the userOpHash
      *
-     *      Mode 2 - Intent solver selection (longer signature):
+     *      Mode 2 - Intent solver selection (85-byte signature):
      *      - Signature format: abi.encodePacked(sessionKey, ownerSignature)
      *      - CallData format: IntentGatewayV2.select(SelectOptions)
      *      - Validates that:
-     *        1. Solver in calldata matches address(this)
-     *        2. Owner signed EIP-712 message: SelectSolver(commitment, sessionKey)
-     *        3. IntentGateway.select call succeeds
-     *      - On success, registers this solver account for the order
+     *        1. Calldata length and function selector are correct for select()
+     *        2. Solver in calldata matches address(this)
+     *        3. Owner signed EIP-712 message: SelectSolver(commitment, sessionKey)
+     *      - NOTE: This function only validates. The bundler will execute the callData
+     *        (IntentGateway.select) via this contract's fallback function after validation.
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
@@ -175,37 +176,39 @@ contract IntentSolverAccount is Account {
     }
 
     /**
-     * @notice Fallback function to forward select and fillOrder calls to IntentGateway
-     * @dev Only allows calls to select(SelectOptions) and fillOrder(Order, FillOptions)
-     *      All other calls will revert. This enables the solver account to interact
-     *      with the IntentGateway through the ERC4337 EntryPoint.
-     *      For fillOrder, calculates required native token amount from FillOptions.
+     * @notice Validates an ERC-7821 authorized executor
+     * @param caller The address of the caller
+     * @param mode The mode of the call
+     * @param executionData The data of the call
+     * @return bool True if the caller is authorized, false otherwise
+     */
+    function _erc7821AuthorizedExecutor(address caller, bytes32 mode, bytes calldata executionData)
+        internal
+        view
+        virtual
+        override
+        returns (bool)
+    {
+        return caller == address(entryPoint()) || super._erc7821AuthorizedExecutor(caller, mode, executionData);
+    }
+
+    /**
+     * @notice Fallback function to forward select calls to IntentGateway
+     * @dev Only allows calls to select(SelectOptions). All other calls will revert.
+     *
+     *      This function is called in two scenarios:
+     *      1. ERC-4337 execution: After validateUserOp succeeds, the bundler executes
+     *         the UserOp.callData by calling this contract, triggering the fallback.
+     *      2. Direct calls: Anyone can call this function directly with select() calldata.
+     *
+     *      The function forwards the call to IntentGateway to register the solver.
      */
     fallback() external payable {
-        bytes4 selector = msg.sig;
-        uint256 value = 0;
-
-        // Only allow select and fillOrder functions
-        if (selector == SELECT_SELECTOR) {} else if (selector == FILL_ORDER_SELECTOR) {
-            // Decode fillOrder parameters to calculate native token amount
-            // fillOrder(Order calldata order, FillOptions calldata options)
-            (, FillOptions memory options) = abi.decode(msg.data[4:], (Order, FillOptions));
-
-            // Add native dispatch fee
-            value += options.nativeDispatchFee;
-
-            // Sum up all native token amounts (token == bytes32(0))
-            for (uint256 i = 0; i < options.outputs.length; i++) {
-                if (options.outputs[i].token == bytes32(0)) {
-                    value += options.outputs[i].amount;
-                }
-            }
-        } else {
-            revert UnsupportedFunction(selector);
-        }
+        // Only allow select function
+        if (msg.sig != SELECT_SELECTOR) revert UnsupportedFunction(msg.sig);
 
         // Forward the call to IntentGateway with calculated value
-        (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call{value: value}(msg.data);
+        (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call(msg.data);
 
         if (!success) {
             // Bubble up the revert reason

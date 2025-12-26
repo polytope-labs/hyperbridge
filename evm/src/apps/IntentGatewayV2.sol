@@ -321,28 +321,30 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         // Calculate reduced inputs (after protocol fees) for commitment and escrow
         uint256 inputsLen = order.inputs.length;
         uint256 protocolFeeBps = _params.protocolFeeBps;
-        TokenInfo[] memory reducedInputs = new TokenInfo[](inputsLen);
+        TokenInfo[] memory reducedInputs;
 
-        for (uint256 i; i < inputsLen;) {
-            uint256 originalAmount = order.inputs[i].amount;
-            uint256 reducedAmount = originalAmount;
-
-            if (protocolFeeBps > 0) {
+        if (protocolFeeBps > 0) {
+            reducedInputs = new TokenInfo[](inputsLen);
+            for (uint256 i; i < inputsLen;) {
+                uint256 originalAmount = order.inputs[i].amount;
                 uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
-                reducedAmount = originalAmount - protocolFee;
+                uint256 reducedAmount = originalAmount - protocolFee;
 
                 // Emit DustCollected for protocol fee if non-zero
                 if (protocolFee > 0) {
                     address token = address(uint160(uint256(order.inputs[i].token)));
                     emit DustCollected(token, protocolFee);
                 }
-            }
 
-            reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
+                reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
 
-            unchecked {
-                ++i;
+                unchecked {
+                    ++i;
+                }
             }
+        } else {
+            // No protocol fees, use order.inputs directly
+            reducedInputs = order.inputs;
         }
 
         // Temporarily swap inputs to calculate commitment with reduced amounts

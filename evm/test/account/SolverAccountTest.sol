@@ -41,8 +41,13 @@ contract SolverAccountTest is Test {
         // Deploy IntentGateway
         intentGateway = new IntentGatewayV2(address(this));
 
-        Params memory params =
-            Params({host: address(0x1), dispatcher: address(0x2), solverSelection: true, surplusShareBps: 5000, protocolFeeBps: 0});
+        Params memory params = Params({
+            host: address(0x1),
+            dispatcher: address(0x2),
+            solverSelection: true,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0
+        });
         intentGateway.setParams(params);
 
         // Deploy SolverAccount at a temporary address to get bytecode

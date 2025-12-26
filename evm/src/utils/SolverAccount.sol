@@ -20,7 +20,7 @@ import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-import {SelectOptions, IIntentGatewayV2} from "./interfaces/IntentGatewayV2.sol";
+import {SelectOptions, IIntentGatewayV2} from "../interfaces/IntentGatewayV2.sol";
 
 /**
  * @title SolverAccount

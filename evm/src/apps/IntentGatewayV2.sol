@@ -425,6 +425,35 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             _orders[commitment][TRANSACTION_FEES] = order.fees;
         }
 
+        // Calculate and collect protocol fees if configured
+        TokenInfo[] memory inputsAfterFees;
+
+        if (_params.protocolFeeBps > 0) {
+            uint256 inputsLen = order.inputs.length;
+            inputsAfterFees = new TokenInfo[](inputsLen);
+
+            for (uint256 i; i < inputsLen;) {
+                uint256 originalAmount = order.inputs[i].amount;
+                uint256 protocolFee = (originalAmount * _params.protocolFeeBps) / 10000;
+                uint256 amountAfterFee = originalAmount - protocolFee;
+
+                // Store the reduced amount for the event
+                inputsAfterFees[i] = TokenInfo({token: order.inputs[i].token, amount: amountAfterFee});
+
+                // Emit DustCollected for protocol fee if non-zero
+                if (protocolFee > 0) {
+                    address token = address(uint160(uint256(order.inputs[i].token)));
+                    emit DustCollected(token, protocolFee);
+                }
+
+                unchecked {
+                    ++i;
+                }
+            }
+        } else {
+            inputsAfterFees = order.inputs;
+        }
+
         emit OrderPlaced({
             user: order.user,
             source: order.source,
@@ -434,7 +463,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             fees: order.fees,
             session: order.session,
             predispatch: order.predispatch.assets,
-            inputs: order.inputs,
+            inputs: inputsAfterFees,
             beneficiary: order.output.beneficiary,
             outputs: order.output.assets
         });
@@ -459,7 +488,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             tstore(commitment, solver)
             tstore(sessionSlot, sessionKeyBytes)
         }
-        
+
         return sessionKey;
     }
 

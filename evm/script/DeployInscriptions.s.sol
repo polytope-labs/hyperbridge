@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {CrossChainInscription} from "../src/apps/Inscriptions.sol";
+import {CrossChainInscription} from "../src/utils/Inscriptions.sol";
 import {BaseScript} from "./BaseScript.sol";
 
 contract DeployScript is BaseScript {

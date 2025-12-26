@@ -95,6 +95,9 @@ struct Params {
     /// @dev The percentage of surplus (in basis points) that goes to the protocol. The rest goes to beneficiary.
     /// 10000 = 100%, 5000 = 50%, etc.
     uint256 surplusShareBps;
+    /// @dev The protocol fee in basis points charged on order inputs.
+    /// 10000 = 100%, 100 = 1%, etc.
+    uint256 protocolFeeBps;
 }
 
 /**

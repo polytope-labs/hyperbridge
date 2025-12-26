@@ -17,21 +17,21 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "../src/apps/PingModule.sol";
-import {HandlerV1} from "../src/ismp/HandlerV1.sol";
+import {PingModule} from "../src/utils/PingModule.sol";
+import {HandlerV1} from "../src/core/HandlerV1.sol";
 import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
-import {HostParams, PerByteFee} from "../src/hosts/EvmHost.sol";
-import {HostManagerParams, HostManager} from "../src/ismp/HostManager.sol";
+import {HostParams, PerByteFee} from "../src/core/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/core/HostManager.sol";
 import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
 import {MiniStaking} from "./mocks/MiniStakingContract.sol";
-import {TokenFaucet} from "../src/ismp/TokenFaucet.sol";
-import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 
 contract BaseTest is Test {
     /// @notice The Id of Role required to mint token

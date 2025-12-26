@@ -4,9 +4,9 @@ pragma solidity ^0.8.20;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import "../src/ismp/HandlerV1.sol";
-import "../src/hosts/EvmHost.sol";
-import "../src/ismp/HostManager.sol";
+import "../src/core/HandlerV1.sol";
+import "../src/core/EvmHost.sol";
+import "../src/core/HostManager.sol";
 
 import "../src/consensus/BeefyV1.sol";
 import "../src/hosts/Ethereum.sol";
@@ -18,11 +18,11 @@ import "../src/hosts/Soneium.sol";
 import "../src/hosts/Unichain.sol";
 import "../src/hosts/Sei.sol";
 
-import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
-import {TokenFaucet} from "../src/ismp/TokenFaucet.sol";
+import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 
-import {PingModule} from "../src/apps/PingModule.sol";
+import {PingModule} from "../src/utils/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 
@@ -35,7 +35,7 @@ import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";
-import {UniV3UniswapV2Wrapper} from "../src/uniswapv2/UniV3UniswapV2Wrapper.sol";
+import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");

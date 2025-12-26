@@ -18,12 +18,12 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
-import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import "@polytope-labs/ismp-solidity/IDispatcher.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/apps/TokenGateway.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
+import "@hyperbridge/core/interfaces/IDispatcher.sol";
 import "../src/hosts/EvmHost.sol";
-import "@polytope-labs/ismp-solidity/Message.sol";
+import "@hyperbridge/core/libraries/Message.sol";
 
 contract EvmHostForkTest is MainnetForkBaseTest {
     using Message for PostResponse;
@@ -76,7 +76,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         bytes memory response = abi.encode(bytes32(0));
 
         vm.prank(whaleAccount); // send some eth to the manager
-        (bool ok, ) = address(manager).call{value: cost}("");
+        (bool ok,) = address(manager).call{value: cost}("");
         if (!ok) revert("Transfer failed");
 
         vm.prank(address(manager));
@@ -164,7 +164,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         bytes memory response = abi.encode(bytes32(0));
 
         vm.prank(whaleAccount); // send some eth to the manager
-        (bool ok, ) = address(manager).call{value: cost}("");
+        (bool ok,) = address(manager).call{value: cost}("");
         if (!ok) revert("Transfer failed");
 
         vm.prank(address(manager));
@@ -250,7 +250,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function quote(uint256 feeTokenCost) internal view returns (uint256) {
         address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();
+        path[0] = IUniswapV2Router02(IHost(gateway.params().host).uniswapV2Router()).WETH();
         path[1] = address(feeToken);
 
         return _uniswapV2Router.getAmountsIn(feeTokenCost, path)[0];

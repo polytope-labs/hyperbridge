@@ -15,10 +15,11 @@
 pragma solidity ^0.8.17;
 
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse} from "@polytope-labs/ismp-solidity/Message.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
-import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import {BaseIsmpModule, IncomingPostRequest, IIsmpModule} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse} from "@hyperbridge/core/libraries/Message.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
+import {IncomingPostRequest, IApp} from "@hyperbridge/core/interfaces/IApp.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
@@ -39,7 +40,7 @@ struct HostManagerParams {
  * @notice Allows cross-chain governance actions
  * for updating the ISMP Host parameters or withdrawing bridge revenue.
  */
-contract HostManager is BaseIsmpModule, ERC165 {
+contract HostManager is HyperApp, ERC165 {
     using Bytes for bytes;
 
     enum OnAcceptActions {
@@ -71,7 +72,7 @@ contract HostManager is BaseIsmpModule, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IIsmpModule).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IApp).interfaceId || super.supportsInterface(interfaceId);
     }
 
     // Getter method for reading the host manager's params
@@ -79,17 +80,22 @@ contract HostManager is BaseIsmpModule, ERC165 {
         return _params;
     }
 
+    // Implementation of HyperApp's required host() function
+    function host() public view override returns (address) {
+        return _params.host;
+    }
+
     // This function can only be called once by the admin to set the IsmpHost.
     // This exists to seal the cyclic dependency between this contract & the ismp host.
-    function setIsmpHost(address host) public restrict(_params.admin) {
-        _params.host = host;
+    function setIsmpHost(address hostAddr) public restrict(_params.admin) {
+        _params.host = hostAddr;
         _params.admin = address(0);
     }
 
     function onAccept(IncomingPostRequest calldata incoming) external override restrict(_params.host) {
         PostRequest calldata request = incoming.request;
         // Only the Hyperbridge parachain can send requests to this module.
-        if (!request.source.equals(IIsmpHost(_params.host).hyperbridge())) revert UnauthorizedAction();
+        if (!request.source.equals(IHost(_params.host).hyperbridge())) revert UnauthorizedAction();
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.Withdraw) {

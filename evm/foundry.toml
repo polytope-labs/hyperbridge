@@ -6,9 +6,11 @@ auto_detect_solc = false
 solc = "0.8.30"
 optimizer = true
 evm_version = "cancun"
-# via-ir = true
+via-ir = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 
+[lint]
+lint_on_build = false
 
 [rpc_endpoints]
 # testnet

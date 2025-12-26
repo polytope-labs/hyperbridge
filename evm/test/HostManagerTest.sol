@@ -17,9 +17,9 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
-import {PostRequest} from "@polytope-labs/ismp-solidity/Message.sol";
-import {IncomingPostRequest} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
-import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
+import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {HostManagerParams, HostManager} from "../src/ismp/HostManager.sol";
 import {HostParams, EvmHost} from "../src/hosts/EvmHost.sol";
 
 contract HostManagerTest is BaseTest {

@@ -34,15 +34,14 @@ contract GnosisUniswapV2Interface {
      * @dev The native token for Gnosis itself is DAI so this method simply wraps
      * the native token and returns it to the caller.
      */
-    function swapETHForExactTokens(
-        uint amountOut,
-        address[] calldata,
-        address,
-        uint
-    ) external payable returns (uint[] memory) {
+    function swapETHForExactTokens(uint256 amountOut, address[] calldata, address, uint256)
+        external
+        payable
+        returns (uint256[] memory)
+    {
         if (amountOut > msg.value) revert MsgValueLessThanExactAmount();
 
-        (bool sent, ) = WETH().call{value: msg.value}("");
+        (bool sent,) = WETH().call{value: msg.value}("");
         if (!sent) revert DepositFailed();
 
         IERC20(WETH()).safeTransfer(msg.sender, msg.value);
@@ -55,7 +54,7 @@ contract GnosisUniswapV2Interface {
     /**
      * @dev Returns the quoted amount for the dispatch.
      */
-    function getAmountsIn(uint amountOut, address[] calldata) external pure returns (uint[] memory) {
+    function getAmountsIn(uint256 amountOut, address[] calldata) external pure returns (uint256[] memory) {
         uint256[] memory out = new uint256[](1);
         out[0] = amountOut;
         return out;

@@ -8,7 +8,7 @@ import "stringutils/strings.sol";
 import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {BaseScript} from "./BaseScript.sol";
-import "../src/modules/HandlerV1.sol";
+import "../src/ismp/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
@@ -26,12 +26,9 @@ contract DeployScript is BaseScript {
         // HandlerV1 handler = new HandlerV1();
         // BeefyV1 consensusClient = new BeefyV1{salt: salt}();
 
-        uint256 chainId = block.chainid;
-
         HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
         params.consensusClient = address(consensusClient);
         // params.handler = address(handler);
         EvmHost(HOST_ADDRESS).updateHostParams(params);
-       
     }
 }

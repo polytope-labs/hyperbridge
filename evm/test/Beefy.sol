@@ -15,7 +15,7 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
-import "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {Header} from "../src/consensus/Header.sol";
 import {BeefyMmrLeaf, Commitment, Codec, PartialBeefyMmrLeaf} from "../src/consensus/Codec.sol";
@@ -40,10 +40,11 @@ contract BeefyConsensusClientTest is Test {
         assert(limb2 == 0x0000000000000000000000000000000048a3f47bf8d72c875d822fc36d306d4f);
     }
 
-    function VerifyV1(
-        bytes memory trustedConsensusState,
-        bytes memory proof
-    ) public view returns (bytes memory, IntermediateState[] memory) {
+    function VerifyV1(bytes memory trustedConsensusState, bytes memory proof)
+        public
+        view
+        returns (bytes memory, IntermediateState[] memory)
+    {
         return beefy.verifyConsensus(trustedConsensusState, proof);
     }
 

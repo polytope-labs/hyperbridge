@@ -22,153 +22,24 @@ import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
-
-/**
- * @notice Tokens that must be received for a valid order fulfillment
- */
-struct PaymentInfo {
-    /// @dev The address to receive the output tokens
-    bytes32 beneficiary;
-    /// @dev The assets to be provided by the filler
-    TokenInfo[] assets;
-    /// @dev Optional calldata to be executed on the destination chain
-    bytes call;
-}
-
-/**
- * @notice Tokens that must be escrowed for an order
- */
-struct TokenInfo {
-    /// @dev The address of the ERC20 token on the destination chain
-    /// @dev address(0) used as a sentinel for the native token
-    bytes32 token;
-    /// @dev The amount of the token to be sent
-    uint256 amount;
-}
-
-struct DispatchInfo {
-    /// @dev Assets to execute a predispatch call with
-    TokenInfo[] assets;
-    /// @dev The actual call data to be executed
-    bytes call;
-}
-
-/**
- * @dev Represents an order in the IntentGateway module.
- * @param Order The structure defining an order.
- */
-struct Order {
-    /// @dev The address of the user who is initiating the transfer
-    bytes32 user;
-    /// @dev The state machine identifier of the origin chain
-    bytes source;
-    /// @dev The state machine identifier of the destination chain
-    bytes destination;
-    /// @dev The block number by which the order must be filled on the destination chain
-    uint256 deadline;
-    /// @dev The nonce of the order
-    uint256 nonce;
-    /// @dev Represents the dispatch fees associated with the IntentGateway.
-    uint256 fees;
-    /// @dev Optional session key used to select winning solver.
-    address session;
-    /// @dev The predispatch information for the order
-    /// This is used to encode any calls before the order is placed
-    DispatchInfo predispatch;
-    /// @dev The tokens that are escrowed for the filler.
-    TokenInfo[] inputs;
-    /// @dev The filler output, ie the tokens that the filler will provide
-    PaymentInfo output;
-}
-
-/**
- * @dev Request from hyperbridge for sweeping accumulated dust
- */
-struct SweepDust {
-    /// @dev The address of the beneficiary of the protocol fee
-    address beneficiary;
-    /// @dev The tokens to be withdrawn
-    TokenInfo[] outputs;
-}
-
-/**
- * @dev Struct to define the parameters for the IntentGateway module.
- */
-struct Params {
-    /// @dev The address of the host contract
-    address host;
-    /// @dev Address of the dispatcher contract responsible for handling intents.
-    address dispatcher;
-    /// @dev Flag indicating whether solver selection is enabled.
-    bool solverSelection;
-    /// @dev The percentage of surplus (in basis points) that goes to the protocol. The rest goes to beneficiary.
-    /// 10000 = 100%, 5000 = 50%, etc.
-    uint256 surplusShareBps;
-}
-
-/**
- * @dev Struct representing the body of a request.
- */
-struct RequestBody {
-    /// @dev Represents the commitment of an order. This is typically a hash that uniquely identifies the order.
-    bytes32 commitment;
-    /// @dev Stores the identifier for the beneficiary.
-    bytes32 beneficiary;
-    /// @dev An array of token identifiers. Each element in the array represents a unique token involved in the order.
-    TokenInfo[] tokens;
-}
-
-/**
- * @notice A struct representing the options for filling an intent.
- * @dev This struct is used to specify various parameters and options
- *      when filling an intent in the IntentGateway contract.
- */
-struct FillOptions {
-    /// @dev The fee paid in feeTokens to the relayer for processing transactions.
-    uint256 relayerFee;
-    /// @dev The fee paid in native tokens for cross-chain dispatch.
-    uint256 nativeDispatchFee;
-    /// @dev The output tokens with amounts the solver is willing to give
-    /// @dev Must be strictly >= the amounts requested in order.output.assets
-    TokenInfo[] outputs;
-}
-
-/**
- * @notice A struct representing the options for selecting a solver
- * @dev This struct is used to specify various parameters and options
- *      when selecting a solver.
- */
-struct SelectOptions {
-    /// @dev The commitment hash of the order.
-    bytes32 commitment;
-    /// @dev The solver address to select.
-    address solver;
-    /// @dev The EIP-712 signature from the session key that signed SelectSolver(commitment, solver)
-    bytes signature;
-}
-
-/**
- * @dev Struct representing the options for canceling an intent.
- */
-struct CancelOptions {
-    /// @dev The fee paid to the relayer for processing transactions.
-    uint256 relayerFee;
-    /// @dev Stores the height value.
-    uint256 height;
-}
-
-/**
- * @dev Request from hyperbridge for adding a new deployment of IntentGateway
- */
-struct NewDeployment {
-    /// @dev Identifier for the state machine.
-    bytes stateMachineId;
-    /// @dev An address variable to store the gateway identifier.
-    address gateway;
-}
+import {
+    PaymentInfo,
+    TokenInfo,
+    DispatchInfo,
+    Order,
+    SweepDust,
+    Params,
+    RequestBody,
+    FillOptions,
+    SelectOptions,
+    CancelOptions,
+    NewDeployment
+} from "../interfaces/IntentGatewayV2.sol";
 
 /**
  * @title IntentGatewayV2
@@ -176,25 +47,13 @@ struct NewDeployment {
  *
  * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
  */
-contract IntentGatewayV2 is HyperApp {
+contract IntentGatewayV2 is HyperApp, EIP712 {
     using SafeERC20 for IERC20;
-
-    /**
-     * @dev EIP-712 Domain separator type hash
-     */
-    bytes32 public constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     /**
      * @dev EIP-712 type hash for SelectSolver message
      */
-    bytes32 public constant SELECT_SOLVER_TYPEHASH =
-        keccak256("SelectSolver(bytes32 commitment,address solver)");
-
-    /**
-     * @dev EIP-712 domain separator
-     */
-    bytes32 public immutable DOMAIN_SEPARATOR;
+    bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
 
     /**
      * @dev Enum representing the different kinds of incoming requests that can be executed.
@@ -220,7 +79,7 @@ contract IntentGatewayV2 is HyperApp {
 
     /**
      * @notice Constant representing a filled slot in big endian format
-     * @dev Hex value 0x05 padded with leading zeros to fill 32 bytes
+     * @dev Hex value 0x06 padded with leading zeros to fill 32 bytes
      */
     bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
         hex"0000000000000000000000000000000000000000000000000000000000000006";
@@ -367,19 +226,8 @@ contract IntentGatewayV2 is HyperApp {
      */
     event DustSwept(address token, uint256 amount, address beneficiary);
 
-    constructor(address admin) {
+    constructor(address admin) EIP712("IntentGateway", "2") {
         _admin = admin;
-
-        // Initialize EIP-712 domain separator
-        DOMAIN_SEPARATOR = keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH,
-                keccak256(bytes("IntentGateway")),
-                keccak256(bytes("2")),
-                block.chainid,
-                address(this)
-            )
-        );
     }
 
     /**
@@ -395,6 +243,14 @@ contract IntentGatewayV2 is HyperApp {
      */
     function host() public view override returns (address) {
         return _params.host;
+    }
+
+    /**
+     * @notice Returns the EIP-712 domain separator
+     * @return bytes32 The domain separator used for EIP-712 signatures
+     */
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     /**
@@ -480,7 +336,7 @@ contract IntentGatewayV2 is HyperApp {
                     if (amount > msgValue) revert InsufficientNativeToken();
                     msgValue -= amount;
 
-                    (bool sent, ) = dispatcher.call{value: amount}("");
+                    (bool sent,) = dispatcher.call{value: amount}("");
                     if (!sent) revert InsufficientNativeToken();
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, dispatcher, amount);
@@ -560,10 +416,7 @@ contract IntentGatewayV2 is HyperApp {
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
                 IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
-                    order.fees,
-                    path,
-                    address(this),
-                    block.timestamp
+                    order.fees, path, address(this), block.timestamp
                 );
             } else {
                 IERC20(feeToken).safeTransferFrom(msg.sender, address(this), order.fees);
@@ -591,24 +444,10 @@ contract IntentGatewayV2 is HyperApp {
      * @dev Selects a solver for an order. Should be called in the same transaction as `fillOrder`.
      * @param options The options for selecting a solver.
      */
-    function select(SelectOptions calldata options) public {
+    function select(SelectOptions calldata options) public returns (address) {
         // Verify that the session key signed (commitment, options.solver) using EIP-712
-        bytes32 structHash = keccak256(
-            abi.encode(
-                SELECT_SOLVER_TYPEHASH,
-                options.commitment,
-                options.solver
-            )
-        );
-
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR,
-                structHash
-            )
-        );
-
+        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
+        bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
         // store some preludes
@@ -620,6 +459,8 @@ contract IntentGatewayV2 is HyperApp {
             tstore(commitment, solver)
             tstore(sessionSlot, sessionKeyBytes)
         }
+        
+        return sessionKey;
     }
 
     /**
@@ -692,7 +533,7 @@ contract IntentGatewayV2 is HyperApp {
                 if (msgValue < solverAmount) revert InsufficientNativeToken();
 
                 uint256 beneficiaryTotal = requestedAmount + beneficiaryShare;
-                (bool sent, ) = beneficiary.call{value: beneficiaryTotal}("");
+                (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
                 if (!sent) revert InsufficientNativeToken();
 
                 msgValue -= beneficiaryTotal;
@@ -767,9 +608,7 @@ contract IntentGatewayV2 is HyperApp {
             bytes1(uint8(RequestKind.RedeemEscrow)),
             abi.encode(
                 RequestBody({
-                    commitment: commitment,
-                    tokens: order.inputs,
-                    beneficiary: bytes32(uint256(uint160(msg.sender)))
+                    commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
                 })
             )
         );
@@ -793,7 +632,7 @@ contract IntentGatewayV2 is HyperApp {
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});
     }
-    
+
     /**
      * @notice Cancels an existing order.
      * @param order The order to be canceled.
@@ -825,9 +664,8 @@ contract IntentGatewayV2 is HyperApp {
             }
         }
 
-        bytes memory context = abi.encode(
-            RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user})
-        );
+        bytes memory context =
+            abi.encode(RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
 
         bytes[] memory keys = new bytes[](1);
         keys[0] = bytes.concat(
@@ -854,8 +692,8 @@ contract IntentGatewayV2 is HyperApp {
             // try to pay for dispatch with fee token
             dispatchWithFeeToken(request, msg.sender);
         }
-    }    
-    
+    }
+
     /**
      * @notice Executes an incoming post request.
      * @dev This function is called when an incoming post request is accepted.
@@ -864,7 +702,9 @@ contract IntentGatewayV2 is HyperApp {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) return redeem(incoming.request, kind);
+        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
+            return redeem(incoming.request, kind);
+        }
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -888,7 +728,7 @@ contract IntentGatewayV2 is HyperApp {
                 uint256 amount = info.amount;
 
                 if (token == address(0)) {
-                    (bool sent, ) = req.beneficiary.call{value: amount}("");
+                    (bool sent,) = req.beneficiary.call{value: amount}("");
                     if (!sent) revert InsufficientNativeToken();
                 } else {
                     IERC20(token).safeTransfer(req.beneficiary, amount);
@@ -921,7 +761,7 @@ contract IntentGatewayV2 is HyperApp {
             if (_orders[body.commitment][token] == 0) revert UnknownOrder();
 
             if (token == address(0)) {
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);
@@ -971,7 +811,7 @@ contract IntentGatewayV2 is HyperApp {
             if (_orders[body.commitment][token] == 0) revert UnknownOrder();
 
             if (token == address(0)) {
-                (bool sent, ) = beneficiary.call{value: amount}("");
+                (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);

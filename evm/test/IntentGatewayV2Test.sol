@@ -16,7 +16,20 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {IntentGatewayV2, Order, Params, TokenInfo, SweepDust, PaymentInfo, DispatchInfo, FillOptions, CancelOptions, NewDeployment, RequestBody, SelectOptions} from "../src/modules/IntentGatewayV2.sol";
+import {
+    IntentGatewayV2,
+    Order,
+    Params,
+    TokenInfo,
+    SweepDust,
+    PaymentInfo,
+    DispatchInfo,
+    FillOptions,
+    CancelOptions,
+    NewDeployment,
+    RequestBody,
+    SelectOptions
+} from "../src/apps/IntentGatewayV2.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -77,29 +90,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Helper function to create EIP-712 signature for solver selection
-    function _createSelectSolverSignature(
-        bytes32 commitment,
-        address solver,
-        uint256 privateKey,
-        address gateway
-    ) internal view returns (bytes memory) {
+    function _createSelectSolverSignature(bytes32 commitment, address solver, uint256 privateKey, address gateway)
+        internal
+        view
+        returns (bytes memory)
+    {
         // Compute the EIP-712 digest using public constants
         IntentGatewayV2 gatewayContract = IntentGatewayV2(payable(gateway));
-        bytes32 structHash = keccak256(
-            abi.encode(
-                gatewayContract.SELECT_SOLVER_TYPEHASH(),
-                commitment,
-                solver
-            )
-        );
+        bytes32 structHash = keccak256(abi.encode(gatewayContract.SELECT_SOLVER_TYPEHASH(), commitment, solver));
 
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                gatewayContract.DOMAIN_SEPARATOR(),
-                structHash
-            )
-        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", gatewayContract.DOMAIN_SEPARATOR(), structHash));
 
         // Sign the digest
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
@@ -153,11 +153,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: 2000 * 1e6 // 2000 USDC
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         // Create order
         Order memory order = Order({
@@ -209,13 +206,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 ethAmount = 1 ether;
 
         // Get quote for expected output and calculate minimum with slippage
-        uint256 minUsdcAmount = (IQuoter(UNISWAP_V3_QUOTER).quoteExactInputSingle(
-            WETH,
-            address(usdc),
-            3000, // 0.3% fee tier
-            ethAmount,
-            0
-        ) * 95) / 100; // 5% slippage tolerance
+        uint256 minUsdcAmount =
+            (IQuoter(UNISWAP_V3_QUOTER)
+                        .quoteExactInputSingle(
+                            WETH,
+                            address(usdc),
+                            3000, // 0.3% fee tier
+                            ethAmount,
+                            0
+                        )
+                    * 95) / 100; // 5% slippage tolerance
 
         // Prepare predispatch call to swap ETH -> USDC via UniswapV3
         bytes memory swapCalldata = abi.encodeWithSelector(
@@ -236,9 +236,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Call[] memory calls = new Call[](3);
         calls[0] = Call({to: WETH, value: ethAmount, data: abi.encodeWithSignature("deposit()")});
         calls[1] = Call({
-            to: WETH,
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V3_ROUTER, ethAmount)
+            to: WETH, value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V3_ROUTER, ethAmount)
         });
         calls[2] = Call({to: UNISWAP_V3_ROUTER, value: 0, data: swapCalldata});
 
@@ -263,11 +261,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: 2000 * 1e6 // 2000 USDC
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         // Create order
         Order memory order = Order({
@@ -325,11 +320,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -374,9 +366,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Verify user received exact requested amount
         assertEq(
-            dai.balanceOf(user) - userDaiBalanceBefore,
-            outputAmount,
-            "User should receive exactly the requested amount"
+            dai.balanceOf(user) - userDaiBalanceBefore, outputAmount, "User should receive exactly the requested amount"
         );
 
         // Verify gateway collected the exact dust amount
@@ -423,11 +413,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: outputAmount
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -471,9 +458,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Verify user received exact requested amount
         assertEq(
-            user.balance - userEthBalanceBefore,
-            outputAmount,
-            "User should receive exactly the requested ETH amount"
+            user.balance - userEthBalanceBefore, outputAmount, "User should receive exactly the requested ETH amount"
         );
 
         // Verify gateway collected the exact dust amount
@@ -524,11 +509,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -617,11 +599,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: 2000 * 1e6 // 2000 USDC
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(0),
@@ -809,11 +788,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -888,11 +864,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -952,11 +925,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1018,10 +988,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
         customGateway.setParams(
             Params({
-                host: address(host),
-                dispatcher: address(dispatcher),
-                solverSelection: false,
-                surplusShareBps: 5000
+                host: address(host), dispatcher: address(dispatcher), solverSelection: false, surplusShareBps: 5000
             })
         );
 
@@ -1078,9 +1045,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Verify beneficiary got ONLY requested amount (2000 DAI, no surplus)
         assertEq(
-            dai.balanceOf(user) - userBalanceBefore,
-            2000 * 1e18,
-            "Beneficiary should get 0% surplus with calldata"
+            dai.balanceOf(user) - userBalanceBefore, 2000 * 1e18, "Beneficiary should get 0% surplus with calldata"
         );
 
         // Verify protocol got ALL surplus (100 DAI, not 50 which would be with 50% split)
@@ -1143,11 +1108,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -1237,9 +1199,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Call 3: Transfer DAI to user
         postdispatchCalls[2] = Call({
-            to: address(dai),
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.transfer.selector, user, daiOutputAmount)
+            to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.transfer.selector, user, daiOutputAmount)
         });
 
         // Setup order output - beneficiary is dispatcher, it will receive USDC from solver
@@ -1343,11 +1303,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1385,10 +1342,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testFillOrderWithSolverSelection() public {
         // Enable solver selection
         Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000
+            host: address(host), dispatcher: address(dispatcher), solverSelection: true, surplusShareBps: 10000
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
@@ -1402,11 +1356,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1449,8 +1400,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1458,10 +1408,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testFillOrderWithWrongSolver() public {
         // Enable solver selection
         Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000
+            host: address(host), dispatcher: address(dispatcher), solverSelection: true, surplusShareBps: 10000
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
@@ -1475,11 +1422,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1528,8 +1472,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
         gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1547,11 +1490,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1595,11 +1535,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1644,11 +1581,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1689,11 +1623,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1734,11 +1665,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: 1 ether});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1766,8 +1694,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.expectRevert(IntentGatewayV2.InsufficientNativeToken.selector);
         intentGateway.fillOrder{value: 0.5 ether}(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1785,11 +1712,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1812,7 +1736,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Roll past deadline
         vm.roll(block.number + 101);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: block.number + 100});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: order.deadline + 1});
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
@@ -1829,11 +1753,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1874,11 +1795,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1908,8 +1826,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-
-
     // ============================================
     // placeOrder Edge Case Tests
     // ============================================
@@ -1924,11 +1840,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1956,11 +1869,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1996,11 +1906,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -2057,11 +1964,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -2115,10 +2019,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)),
-            abi.encode(deployment)
-        );
+        bytes memory body =
+            bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)), abi.encode(deployment));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2153,17 +2055,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     function testOnAcceptUpdateParams() public {
-        Params memory newParams = Params({
-            host: address(0x5678),
-            dispatcher: address(0x9ABC),
-            solverSelection: true,
-            surplusShareBps: 10000
-        });
+        Params memory newParams =
+            Params({host: address(0x5678), dispatcher: address(0x9ABC), solverSelection: true, surplusShareBps: 10000});
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)),
-            abi.encode(newParams)
-        );
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(newParams));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2186,8 +2081,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         for (uint256 i = 0; i < entries.length; i++) {
             if (
-                entries[i].topics[0] ==
-                keccak256("ParamsUpdated((address,address,bool,uint256),(address,address,bool,uint256))")
+                entries[i].topics[0]
+                    == keccak256("ParamsUpdated((address,address,bool,uint256),(address,address,bool,uint256))")
             ) {
                 eventFound = true;
                 break;
@@ -2218,10 +2113,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address gateway = address(0xABCD);
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)),
-            abi.encode(deployment)
-        );
+        bytes memory body =
+            bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)), abi.encode(deployment));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2267,7 +2160,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.deal(user, 10 ether);
         vm.prank(user);
-        (bool sent, ) = address(intentGateway).call{value: amount}("");
+        (bool sent,) = address(intentGateway).call{value: amount}("");
 
         assertTrue(sent, "ETH transfer should succeed");
         assertEq(address(intentGateway).balance, balanceBefore + amount, "Contract should receive ETH");
@@ -2283,11 +2176,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),

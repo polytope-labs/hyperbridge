@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {UniV4UniswapV2Wrapper} from "../src/modules/UniV4UniswapV2Wrapper.sol";
+import {UniV4UniswapV2Wrapper} from "../src/uniswapv2/UniV4UniswapV2Wrapper.sol";
 import {BaseScript} from "./BaseScript.sol";
 
 contract DeployScript is BaseScript {
@@ -20,13 +20,15 @@ contract DeployScript is BaseScript {
         address weth = config.get("WETH").toAddress();
 
         UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
-        wrapper.init(UniV4UniswapV2Wrapper.Params({
-            universalRouter: universalRouter,
-            quoter: quoter,
-            WETH: weth,
-            defaultFee: defaultFee,
-            defaultTickSpacing: defaultTickSpacing
-        }));
+        wrapper.init(
+            UniV4UniswapV2Wrapper.Params({
+                universalRouter: universalRouter,
+                quoter: quoter,
+                WETH: weth,
+                defaultFee: defaultFee,
+                defaultTickSpacing: defaultTickSpacing
+            })
+        );
         vm.stopBroadcast();
     }
 }

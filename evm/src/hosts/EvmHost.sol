@@ -20,14 +20,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-import {IIsmpModule, IncomingPostRequest, IncomingPostResponse, IncomingGetResponse} from "@polytope-labs/ismp-solidity/IIsmpModule.sol";
-import {DispatchPost, DispatchPostResponse, DispatchGet} from "@polytope-labs/ismp-solidity/IDispatcher.sol";
-import {IIsmpHost, FeeMetadata, ResponseReceipt, FrozenStatus} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
-import {StateCommitment, StateMachineHeight} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
-import {IHandler} from "@polytope-labs/ismp-solidity/IHandler.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse, Message} from "@polytope-labs/ismp-solidity/Message.sol";
-import {IConsensusClient} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {
+    IApp,
+    IncomingPostRequest,
+    IncomingPostResponse,
+    IncomingGetResponse
+} from "@hyperbridge/core/interfaces/IApp.sol";
+import {DispatchPost, DispatchPostResponse, DispatchGet} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {IHost, FeeMetadata, ResponseReceipt, FrozenStatus} from "@hyperbridge/core/interfaces/IHost.sol";
+import {StateCommitment, StateMachineHeight} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IHandler} from "@hyperbridge/core/interfaces/IHandler.sol";
+import {PostRequest, PostResponse, GetRequest, GetResponse, Message} from "@hyperbridge/core/libraries/Message.sol";
+import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
@@ -59,7 +64,7 @@ struct HostParams {
     // Ismp message handler contract. This performs all verification logic
     // needed to validate cross-chain messages before they are dispatched to local modules
     address handler;
-    // The authorized host manager contract, is itself an `IIsmpModule`
+    // The authorized host manager contract, is itself an `IApp`
     // which receives governance requests from the Hyperbridge chain to either
     // withdraw revenue from the host or update its protocol parameters
     address hostManager;
@@ -123,7 +128,7 @@ struct WithdrawParams {
  * It is only responsible for dispatching incoming & outgoing requests/responses. As well as managing
  * the state of the ISMP protocol.
  */
-abstract contract EvmHost is IIsmpHost, IHostManager, Context {
+abstract contract EvmHost is IHost, IHostManager, Context {
     using Message for PostResponse;
     using Message for PostRequest;
     using Message for GetRequest;
@@ -632,14 +637,16 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * If not enough native tokens are supplied, will revert.
      *
      * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IIsmpHost.feeToken.
+     * the IHost.feeToken.
      *
      * @param height - state machine height
      * @return the state commitment at `height`
      */
-    function stateMachineCommitment(
-        StateMachineHeight memory height
-    ) external payable returns (StateCommitment memory) {
+    function stateMachineCommitment(StateMachineHeight memory height)
+        external
+        payable
+        returns (StateCommitment memory)
+    {
         address caller = _msgSender();
         if (caller != _hostParams.handler) {
             uint256 fee = _hostParams.stateCommitmentFee;
@@ -649,10 +656,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
                 path[0] = IUniswapV2Router02(uniswapV2).WETH();
                 path[1] = feeToken();
                 IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                    fee,
-                    path,
-                    address(this),
-                    block.timestamp
+                    fee, path, address(this), block.timestamp
                 );
             } else {
                 SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
@@ -694,27 +698,24 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function updateHostParamsInternal(HostParams memory params) internal {
         // check the params to prevent the host from getting bricked.
         if (
-            params.hostManager == address(0) ||
-            address(params.hostManager).code.length == 0 ||
-            !IERC165(params.hostManager).supportsInterface(type(IIsmpModule).interfaceId)
+            params.hostManager == address(0) || address(params.hostManager).code.length == 0
+                || !IERC165(params.hostManager).supportsInterface(type(IApp).interfaceId)
         ) {
             // otherwise cannot process new cross-chain governance requests
             revert InvalidHostManager();
         }
 
         if (
-            params.handler == address(0) ||
-            address(params.handler).code.length == 0 ||
-            !IERC165(params.handler).supportsInterface(type(IHandler).interfaceId)
+            params.handler == address(0) || address(params.handler).code.length == 0
+                || !IERC165(params.handler).supportsInterface(type(IHandler).interfaceId)
         ) {
             // otherwise cannot process new datagrams
             revert InvalidHandler();
         }
 
         if (
-            params.consensusClient == address(0) ||
-            address(params.consensusClient).code.length == 0 ||
-            !IERC165(params.consensusClient).supportsInterface(type(IConsensusClient).interfaceId)
+            params.consensusClient == address(0) || address(params.consensusClient).code.length == 0
+                || !IERC165(params.consensusClient).supportsInterface(type(IConsensus).interfaceId)
         ) {
             // otherwise cannot process new consensus datagrams
             revert InvalidConsensusClient();
@@ -779,7 +780,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
         if (params.native) {
             // this is safe because re-entrancy is mitigated before dispatching requests
-            (bool sent, ) = params.beneficiary.call{value: params.amount}("");
+            (bool sent,) = params.beneficiary.call{value: params.amount}("");
             if (!sent) revert WithdrawalFailed();
         } else {
             SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
@@ -799,27 +800,26 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Store the state commitment at given state height alongside relevant metadata.
      * Assumes the state commitment is of the latest height.
      */
-    function storeStateMachineCommitment(
-        StateMachineHeight memory height,
-        StateCommitment memory commitment
-    ) external restrict(_hostParams.handler) {
+    function storeStateMachineCommitment(StateMachineHeight memory height, StateCommitment memory commitment)
+        external
+        restrict(_hostParams.handler)
+    {
         _stateCommitments[height.stateMachineId][height.height] = commitment;
         _stateCommitmentsUpdateTime[height.stateMachineId][height.height] = block.timestamp;
         _latestStateMachineHeight[height.stateMachineId] = height.height;
 
         emit StateMachineUpdated({
-            stateMachineId: this.stateMachineId(_hostParams.hyperbridge, height.stateMachineId),
-            height: height.height
+            stateMachineId: this.stateMachineId(_hostParams.hyperbridge, height.stateMachineId), height: height.height
         });
     }
 
     /**
      * @dev Delete the state commitment at given state height.
      */
-    function deleteStateMachineCommitment(
-        StateMachineHeight memory height,
-        address fisherman
-    ) external restrict(_hostParams.handler) {
+    function deleteStateMachineCommitment(StateMachineHeight memory height, address fisherman)
+        external
+        restrict(_hostParams.handler)
+    {
         deleteStateMachineCommitmentInternal(height, fisherman);
     }
 
@@ -871,11 +871,10 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev sets the initial consensus state
      * @param state initial consensus state
      */
-    function setConsensusState(
-        bytes memory state,
-        StateMachineHeight memory height,
-        StateCommitment memory commitment
-    ) public restrict(_hostParams.admin) {
+    function setConsensusState(bytes memory state, StateMachineHeight memory height, StateCommitment memory commitment)
+        public
+        restrict(_hostParams.admin)
+    {
         // if we're on mainnet, then consensus state can only be initialized once
         // and updated subsequently through consensus proofs
         bool canUpdate = chainId() == block.chainid ? keccak256(_consensusState) == keccak256(bytes("")) : true;
@@ -908,9 +907,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         bytes32 commitment = request.hash();
         _requestReceipts[commitment] = relayer;
 
-        (bool success, ) = address(destination).call(
-            abi.encodeWithSelector(IIsmpModule.onAccept.selector, IncomingPostRequest(request, relayer))
-        );
+        (bool success,) = address(destination)
+            .call(abi.encodeWithSelector(IApp.onAccept.selector, IncomingPostRequest(request, relayer)));
 
         if (!success) {
             // so that it can be retried
@@ -930,14 +928,11 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // replay protection
         bytes32 requestCommitment = response.request.hash();
         bytes32 responseCommitment = response.hash();
-        _responseReceipts[requestCommitment] = ResponseReceipt({
-            relayer: relayer,
-            responseCommitment: responseCommitment
-        });
+        _responseReceipts[requestCommitment] =
+            ResponseReceipt({relayer: relayer, responseCommitment: responseCommitment});
 
-        (bool success, ) = address(origin).call(
-            abi.encodeWithSelector(IIsmpModule.onPostResponse.selector, IncomingPostResponse(response, relayer))
-        );
+        (bool success,) = address(origin)
+            .call(abi.encodeWithSelector(IApp.onPostResponse.selector, IncomingPostResponse(response, relayer)));
 
         if (!success) {
             // so that it can be retried
@@ -957,9 +952,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         // don't commit the full response object, it's unused.
         _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
 
-        (bool success, ) = address(response.request.from).call(
-            abi.encodeWithSelector(IIsmpModule.onGetResponse.selector, IncomingGetResponse(response, relayer))
-        );
+        (bool success,) = address(response.request.from)
+            .call(abi.encodeWithSelector(IApp.onGetResponse.selector, IncomingGetResponse(response, relayer)));
 
         if (!success) {
             // so that it can be retried
@@ -975,16 +969,13 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @notice Does not refund any protocol fees.
      * @param request - get request
      */
-    function dispatchTimeOut(
-        GetRequest memory request,
-        FeeMetadata memory meta,
-        bytes32 commitment
-    ) external restrict(_hostParams.handler) {
+    function dispatchTimeOut(GetRequest memory request, FeeMetadata memory meta, bytes32 commitment)
+        external
+        restrict(_hostParams.handler)
+    {
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(request.from).call(
-            abi.encodeWithSelector(IIsmpModule.onGetTimeout.selector, request)
-        );
+        (bool success,) = address(request.from).call(abi.encodeWithSelector(IApp.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -1003,18 +994,15 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST timeout to the source module
      * @param request - post timeout
      */
-    function dispatchTimeOut(
-        PostRequest memory request,
-        FeeMetadata memory meta,
-        bytes32 commitment
-    ) external restrict(_hostParams.handler) {
+    function dispatchTimeOut(PostRequest memory request, FeeMetadata memory meta, bytes32 commitment)
+        external
+        restrict(_hostParams.handler)
+    {
         address origin = _bytesToAddress(request.from);
 
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success, ) = address(origin).call(
-            abi.encodeWithSelector(IIsmpModule.onPostRequestTimeout.selector, request)
-        );
+        (bool success,) = address(origin).call(abi.encodeWithSelector(IApp.onPostRequestTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -1033,20 +1021,17 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
      * @dev Dispatch an incoming POST response timeout to the source module
      * @param response - timed-out post response
      */
-    function dispatchTimeOut(
-        PostResponse memory response,
-        FeeMetadata memory meta,
-        bytes32 commitment
-    ) external restrict(_hostParams.handler) {
+    function dispatchTimeOut(PostResponse memory response, FeeMetadata memory meta, bytes32 commitment)
+        external
+        restrict(_hostParams.handler)
+    {
         address origin = _bytesToAddress(response.request.to);
 
         // replay protection
         bytes32 reqCommitment = response.request.hash();
         delete _responseCommitments[commitment];
         delete _responded[reqCommitment];
-        (bool success, ) = address(origin).call(
-            abi.encodeWithSelector(IIsmpModule.onPostResponseTimeout.selector, response)
-        );
+        (bool success,) = address(origin).call(abi.encodeWithSelector(IApp.onPostResponseTimeout.selector, response));
 
         if (!success) {
             // so that it can be retried
@@ -1065,12 +1050,12 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
     /**
      * @dev Dispatch a POST request to Hyperbridge
      *
-     * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+     * @notice Payment for the request can be made with either the native token or the IHost.feeToken.
      * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
      * Will revert if enough native tokens are not provided.
      *
      * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IIsmpHost.feeToken.
+     * the IHost.feeToken.
      *
      * A minimum fee of one word size (32) * _params.perByteFee is enforced, even for empty payloads.
      *
@@ -1088,10 +1073,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                fee,
-                path,
-                address(this),
-                block.timestamp
+                fee, path, address(this), block.timestamp
             );
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
@@ -1153,10 +1135,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                fee,
-                path,
-                address(this),
-                block.timestamp
+                fee, path, address(this), block.timestamp
             );
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
@@ -1231,10 +1210,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                fee,
-                path,
-                address(this),
-                block.timestamp
+                fee, path, address(this), block.timestamp
             );
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
@@ -1244,11 +1220,8 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
         uint256 timeout = _hostParams.defaultTimeout > post.timeout ? _hostParams.defaultTimeout : post.timeout;
         uint64 timeoutTimestamp = post.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
 
-        PostResponse memory response = PostResponse({
-            request: post.request,
-            response: post.response,
-            timeoutTimestamp: timeoutTimestamp
-        });
+        PostResponse memory response =
+            PostResponse({request: post.request, response: post.response, timeoutTimestamp: timeoutTimestamp});
         commitment = response.hash();
 
         FeeMetadata memory meta = FeeMetadata({fee: post.fee, sender: post.payer});
@@ -1293,10 +1266,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                amount,
-                path,
-                address(this),
-                block.timestamp
+                amount, path, address(this), block.timestamp
             );
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
@@ -1334,10 +1304,7 @@ abstract contract EvmHost is IIsmpHost, IHostManager, Context {
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                amount,
-                path,
-                address(this),
-                block.timestamp
+                amount, path, address(this), block.timestamp
             );
         } else {
             SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);

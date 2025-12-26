@@ -4,9 +4,9 @@ pragma solidity ^0.8.20;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import "../src/modules/HandlerV1.sol";
+import "../src/ismp/HandlerV1.sol";
 import "../src/hosts/EvmHost.sol";
-import "../src/modules/HostManager.sol";
+import "../src/ismp/HostManager.sol";
 
 import "../src/consensus/BeefyV1.sol";
 import "../src/hosts/Ethereum.sol";
@@ -18,24 +18,24 @@ import "../src/hosts/Soneium.sol";
 import "../src/hosts/Unichain.sol";
 import "../src/hosts/Sei.sol";
 
-import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
-import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
+import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
+import {TokenFaucet} from "../src/ismp/TokenFaucet.sol";
 
-import {PingModule} from "../examples/PingModule.sol";
+import {PingModule} from "../src/apps/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 
 import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IntentGateway, Params} from "../src/modules/IntentGateway.sol";
-import {UniV3UniswapV2Wrapper} from "../src/modules/UniV3UniswapV2Wrapper.sol";
+import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";
+import {UniV3UniswapV2Wrapper} from "../src/uniswapv2/UniV3UniswapV2Wrapper.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
 bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
@@ -67,12 +67,14 @@ contract DeployScript is BaseScript {
             // if existing univ2 address isn't available, deploy univ3 wrapper
             if (uniswap == address(0)) {
                 UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
-                wrapper.init(UniV3UniswapV2Wrapper.Params({
-                    WETH: config.get("WETH").toAddress(),
-                    swapRouter: config.get("SWAP_ROUTER").toAddress(),
-                    quoter: config.get("QUOTER").toAddress(),
-                    maxFee: uint24(config.get("MAX_FEE").toUint256())
-                }));
+                wrapper.init(
+                    UniV3UniswapV2Wrapper.Params({
+                        WETH: config.get("WETH").toAddress(),
+                        swapRouter: config.get("SWAP_ROUTER").toAddress(),
+                        quoter: config.get("QUOTER").toAddress(),
+                        maxFee: uint24(config.get("MAX_FEE").toUint256())
+                    })
+                );
                 uniswapV2 = address(wrapper);
             } else {
                 uniswapV2 = uniswap;
@@ -87,9 +89,11 @@ contract DeployScript is BaseScript {
             consensusClient = address(consensusClientInstance);
 
             // Deploy our own feetoken contract & faucet
-            ERC6160Ext20 feeTokenInstance = new ERC6160Ext20{salt: salt}(admin, "Hyper USD", "USD.h");
             faucet = new TokenFaucet{salt: salt}();
-            feeTokenInstance.grantRole(feeTokenInstance.getMinterRole(), address(faucet));
+            HyperFungibleTokenImpl feeTokenInstance =
+                new HyperFungibleTokenImpl{salt: salt}(admin, "Hyper USD", "USD.h");
+            // Grant minter role to faucet so it can mint tokens
+            feeTokenInstance.grantMinterRole(address(faucet));
             feeToken = address(feeTokenInstance);
             hyperbridge = StateMachine.kusama(paraId);
             decimals = 18;
@@ -127,24 +131,19 @@ contract DeployScript is BaseScript {
         manager.setIsmpHost(hostAddress);
 
         // Set the consensus state
-        EvmHost(payable(hostAddress)).setConsensusState(
-            consensusState,
-            StateMachineHeight({stateMachineId: paraId, height: 1}),
-            StateCommitment({timestamp: block.timestamp, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
-        );
+        EvmHost(payable(hostAddress))
+            .setConsensusState(
+                consensusState,
+                StateMachineHeight({stateMachineId: paraId, height: 1}),
+                StateCommitment({timestamp: block.timestamp, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
+            );
 
         // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
         // token gateway
         TokenGateway tokenGateway = new TokenGateway{salt: salt}(admin);
-        AssetMetadata[] memory assets = new AssetMetadata[](0);
-        tokenGateway.init(
-            TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: hostAddress, dispatcher: address(callDispatcher)}),
-                assets: assets
-            })
-        );
+        tokenGateway.init(TokenGatewayParams({host: hostAddress, dispatcher: address(callDispatcher)}));
 
         IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
         intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));

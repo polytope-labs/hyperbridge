@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
+import {HyperFungibleToken} from "@hyperbridge/core/apps/HyperFungibleToken.sol";
 
 /**
  * @title The TokenFaucet.
@@ -35,6 +35,6 @@ contract TokenFaucet {
         }
 
         consumers[msg.sender] = block.timestamp;
-        IERC6160Ext20(token).mint(msg.sender, 1000 * 1e18);
+        HyperFungibleToken(token).mint(msg.sender, 1000 * 1e18);
     }
 }

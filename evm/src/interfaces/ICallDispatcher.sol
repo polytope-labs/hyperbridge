@@ -14,7 +14,6 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-
 struct Call {
     // contract to call
     address to;
@@ -23,7 +22,6 @@ struct Call {
     // target contract calldata
     bytes data;
 }
-
 
 /**
  * @title The ICallDispatcher

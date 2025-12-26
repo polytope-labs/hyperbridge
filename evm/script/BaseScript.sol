@@ -17,7 +17,7 @@ abstract contract BaseScript is Script, Config {
     function setUp() public {
         // Load config
         _loadConfig(vm.envString("CONFIG"), true);
-        
+
         HOST_ADDRESS = payable(config.get("HOST").toAddress());
     }
 }

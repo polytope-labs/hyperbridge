@@ -23,22 +23,22 @@ import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
  * @notice This contract is used to dispatch calls to other contracts.
  */
 contract CallDispatcher is ICallDispatcher {
-	/**
-	 * @dev error thrown when the target is not a contract.
-	 */
-	error NotContract(address target);
+    /**
+     * @dev error thrown when the target is not a contract.
+     */
+    error NotContract(address target);
 
-	/**
-	 * @dev error thrown when a call fails.
-	 */
-	error CallFailed(address target, bytes result);
+    /**
+     * @dev error thrown when a call fails.
+     */
+    error CallFailed(address target, bytes result);
 
-	/**
-	 * @dev Receive function to accept ETH transfers
-	 */
-	receive() external payable {}
+    /**
+     * @dev Receive function to accept ETH transfers
+     */
+    receive() external payable {}
 
-	/**
+    /**
      *  @dev reverts if the target is not a contract or if any of the calls reverts.
      */
     function dispatch(bytes memory encoded) external {

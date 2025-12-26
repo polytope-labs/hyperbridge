@@ -20,31 +20,14 @@ import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-import {SelectOptions, IIntentGatewayV2} from "../interfaces/IntentGatewayV2.sol";
+import {SelectOptions, IIntentGatewayV2} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 /**
  * @title SolverAccount
  * @notice ERC-4337 and ERC-7821 compliant smart contract account for solvers
- * @dev This contract extends OpenZeppelin's Account and ERC7821 implementations and integrates with the Intent Gateway
+ * @dev This contract extends OpenZeppelin's Account and ERC7821 implementations and integrates with the IntentGateway
  *      to enable solver delegation primarily for solver selection. Solvers can delegate to this smart
  *      contract account using EIP-7702.
- *
- *      The contract supports two validation modes:
- *      1. Standard ERC-4337 validation: Solver signs the userOpHash (65-byte ECDSA signature)
- *      2. Intent solver selection: Validates session key selection and solver authorization for orders
- *
- *      Workflow for intent solver selection via ERC-4337:
- *      - User places an order with a session key
- *      - Session key signs SelectSolver(commitment, solver) using EIP-712
- *      - Solver signs an Ethereum signed message over (userOpHash, commitment, sessionKey)
- *      - UserOp is submitted with:
- *        - signature: abi.encodePacked(commitment, solverSignature, sessionSignature)
- *      - validateUserOp performs the following:
- *        1. Decodes the signature into commitment, solverSignature, and sessionSignature
- *        2. Calls IntentGatewayV2.select() with the sessionSignature to recover and validate sessionKey
- *        3. Verifies solverSignature over (userOpHash, commitment, sessionKey) using Ethereum signed message
- *      - The solver (this contract's address) is authorized to fill the order
- *
  * @author Polytope Labs
  */
 contract SolverAccount is Account, ERC7821 {
@@ -84,31 +67,12 @@ contract SolverAccount is Account, ERC7821 {
      * @notice Validates a user operation before execution
      * @dev Implements ERC-4337 validation logic with two modes:
      *
-     *      Mode 1 - Standard validation (65-byte signature):
-     *      - Delegates to parent Account implementation
-     *      - Solver signs the userOpHash directly
-     *
-     *      Mode 2 - Intent solver selection (162-byte signature):
-     *      - Signature format: abi.encodePacked(commitment, solverSignature, sessionSignature)
-     *        - commitment: 32 bytes - The order commitment hash
-     *        - solverSignature: 65 bytes - Ethereum signed message over (userOpHash, commitment, sessionKey)
-     *        - sessionSignature: 65 bytes - EIP-712 signature by session key over SelectSolver(commitment, solver)
-     *      - Validation process:
-     *        1. Decodes signature components using byte offsets
-     *        2. Calls IntentGatewayV2.select(commitment, solver, sessionSignature)
-     *           - This validates the sessionSignature and returns the recovered sessionKey address
-     *        3. Validates solverSignature over keccak256(userOpHash, commitment, sessionKey)
-     *           - Uses Ethereum signed message prefix: "\x19Ethereum Signed Message:\n32"
-     *           - Verifies the recovered signer matches address(this) (the solver account)
-     *      - Replay protection: userOpHash includes EntryPoint nonce, commitment is unique per order
-     *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
      * @param missingAccountFunds The amount of funds missing in the account to pay for gas
      * @return validationData A packed value indicating validation result and time range
-     *         - 0 indicates successful validation
-     *         - 1 indicates signature validation failure
-     *         - Other values can encode time ranges for signature validity
+     *         - SIG_VALIDATION_SUCCESS indicates successful validation
+     *         - SIG_VALIDATION_FAILED indicates signature validation failure
      */
     function validateUserOp(PackedUserOperation calldata op, bytes32 userOpHash, uint256 missingAccountFunds)
         public

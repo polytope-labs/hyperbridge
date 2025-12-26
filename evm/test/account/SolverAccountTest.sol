@@ -12,7 +12,7 @@ import {
     Params,
     DispatchInfo,
     PaymentInfo
-} from "../../src/interfaces/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";

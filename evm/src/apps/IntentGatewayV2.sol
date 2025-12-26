@@ -18,15 +18,6 @@ import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
-
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-
-import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 import {
     PaymentInfo,
     TokenInfo,
@@ -39,7 +30,16 @@ import {
     SelectOptions,
     CancelOptions,
     NewDeployment
-} from "../interfaces/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+
+import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
 /**
  * @title IntentGatewayV2
@@ -316,10 +316,40 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         // fill out the order preludes
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.source = IDispatcher(hostAddr).host();
-        order.nonce = _nonce;
-        _nonce += 1;
+        order.nonce = _nonce++;
 
+        // Calculate reduced inputs (after protocol fees) for commitment and escrow
+        uint256 inputsLen = order.inputs.length;
+        uint256 protocolFeeBps = _params.protocolFeeBps;
+        TokenInfo[] memory reducedInputs = new TokenInfo[](inputsLen);
+
+        for (uint256 i; i < inputsLen;) {
+            uint256 originalAmount = order.inputs[i].amount;
+            uint256 reducedAmount = originalAmount;
+
+            if (protocolFeeBps > 0) {
+                uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
+                reducedAmount = originalAmount - protocolFee;
+
+                // Emit DustCollected for protocol fee if non-zero
+                if (protocolFee > 0) {
+                    address token = address(uint160(uint256(order.inputs[i].token)));
+                    emit DustCollected(token, protocolFee);
+                }
+            }
+
+            reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Temporarily swap inputs to calculate commitment with reduced amounts
+        TokenInfo[] memory originalInputs = order.inputs;
+        order.inputs = reducedInputs;
         bytes32 commitment = keccak256(abi.encode(order));
+        order.inputs = originalInputs;
 
         // escrow tokens
         uint256 msgValue = msg.value;
@@ -351,7 +381,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             ICallDispatcher(dispatcher).dispatch(order.predispatch.call);
 
             // Transfer tokens from call dispatcher back to IntentGateway
-            uint256 inputsLen = order.inputs.length;
             Call[] memory transferCalls = new Call[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 address token = address(uint160(uint256(order.inputs[i].token)));
@@ -375,7 +404,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 uint256 dust = balance - requiredAmount;
                 if (dust > 0) emit DustCollected(token, dust);
 
-                _orders[commitment][token] += requiredAmount;
+                // Store reduced amount (after protocol fees) in escrow
+                _orders[commitment][token] += reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -385,8 +415,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             // Execute transfer calls from call dispatcher
             ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
         } else {
-            uint256 inputsLen = order.inputs.length;
-
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
                 address token = address(uint160(uint256(order.inputs[i].token)));
@@ -398,7 +426,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                     IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
                 }
 
-                _orders[commitment][token] += order.inputs[i].amount;
+                // Store reduced amount (after protocol fees) in escrow
+                _orders[commitment][token] += reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -425,35 +454,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             _orders[commitment][TRANSACTION_FEES] = order.fees;
         }
 
-        // Calculate and collect protocol fees if configured
-        TokenInfo[] memory inputsAfterFees;
-
-        if (_params.protocolFeeBps > 0) {
-            uint256 inputsLen = order.inputs.length;
-            inputsAfterFees = new TokenInfo[](inputsLen);
-
-            for (uint256 i; i < inputsLen;) {
-                uint256 originalAmount = order.inputs[i].amount;
-                uint256 protocolFee = (originalAmount * _params.protocolFeeBps) / 10000;
-                uint256 amountAfterFee = originalAmount - protocolFee;
-
-                // Store the reduced amount for the event
-                inputsAfterFees[i] = TokenInfo({token: order.inputs[i].token, amount: amountAfterFee});
-
-                // Emit DustCollected for protocol fee if non-zero
-                if (protocolFee > 0) {
-                    address token = address(uint160(uint256(order.inputs[i].token)));
-                    emit DustCollected(token, protocolFee);
-                }
-
-                unchecked {
-                    ++i;
-                }
-            }
-        } else {
-            inputsAfterFees = order.inputs;
-        }
-
         emit OrderPlaced({
             user: order.user,
             source: order.source,
@@ -463,7 +463,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             fees: order.fees,
             session: order.session,
             predispatch: order.predispatch.assets,
-            inputs: inputsAfterFees,
+            inputs: reducedInputs,
             beneficiary: order.output.beneficiary,
             outputs: order.output.assets
         });

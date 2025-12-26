@@ -2326,8 +2326,61 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(orderPlacedFound, "OrderPlaced event should be emitted");
         assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 10 USDC");
 
-        // Verify the gateway received the full amount
+        // Verify the gateway received the full amount (protocol fees kept as dust)
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+
+        // Verify commitment is calculated with REDUCED amounts
+        // Need to reconstruct the order exactly as the contract sees it after filling in fields
+        Order memory orderWithReducedAmount = order;
+        orderWithReducedAmount.user = bytes32(uint256(uint160(user)));
+        orderWithReducedAmount.source = host.host();
+        orderWithReducedAmount.nonce = 0; // First order
+        orderWithReducedAmount.inputs[0].amount = expectedAmountAfterFee;
+        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
+
+        // Calculate storage slot for _orders[commitment][token]
+        // _orders is at storage slot 8 (see forge inspect storage-layout)
+        // For nested mappings: keccak256(abi.encode(innerKey, keccak256(abi.encode(outerKey, baseSlot))))
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(8)));
+        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+
+        // Verify escrow storage contains REDUCED amount (not full amount)
+        uint256 escrowedAmount = uint256(vm.load(address(customGateway), escrowSlot));
+        assertEq(escrowedAmount, expectedAmountAfterFee, "Escrowed amount should be reduced (990 USDC)");
+
+        // Test redemption with reduced amount works correctly
+        TokenInfo[] memory redeemInputs = new TokenInfo[](1);
+        redeemInputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: expectedAmountAfterFee});
+
+        bytes memory body = bytes.concat(
+            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
+            abi.encode(
+                RequestBody({
+                    commitment: expectedCommitment, tokens: redeemInputs, beneficiary: bytes32(uint256(uint160(filler)))
+                })
+            )
+        );
+
+        PostRequest memory request = PostRequest({
+            source: host.host(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(customGateway)),
+            to: abi.encodePacked(address(customGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        uint256 fillerBalanceBefore = usdc.balanceOf(filler);
+        vm.prank(address(host));
+        customGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Filler receives the REDUCED amount (after protocol fees)
+        assertEq(
+            usdc.balanceOf(filler) - fillerBalanceBefore,
+            expectedAmountAfterFee,
+            "Filler should receive reduced amount (990 USDC)"
+        );
     }
 
     function testProtocolFeeWith10Percent() public {
@@ -2388,8 +2441,25 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(dustCollectedFound, "DustCollected event should be emitted");
         assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 100 USDC");
 
-        // Verify the gateway received the full amount
+        // Verify the gateway received the full amount (protocol fees kept as dust)
         assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+
+        // Verify commitment is calculated with REDUCED amounts
+        // Need to reconstruct the order exactly as the contract sees it after filling in fields
+        Order memory orderWithReducedAmount = order;
+        orderWithReducedAmount.user = bytes32(uint256(uint160(user)));
+        orderWithReducedAmount.source = host.host();
+        orderWithReducedAmount.nonce = 0; // First order
+        orderWithReducedAmount.inputs[0].amount = expectedAmountAfterFee;
+        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
+
+        // Calculate storage slot for _orders[commitment][token]
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(8)));
+        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+
+        // Verify escrow storage contains REDUCED amount
+        uint256 escrowedAmount = uint256(vm.load(address(customGateway), escrowSlot));
+        assertEq(escrowedAmount, expectedAmountAfterFee, "Escrowed amount should be reduced (900 USDC)");
     }
 
     function testProtocolFeeWithZeroPercent() public {
@@ -2463,6 +2533,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 daiAmount = 500 * 1e18; // 500 DAI
         uint256 expectedUsdcFee = (usdcAmount * 200) / 10000; // 20 USDC
         uint256 expectedDaiFee = (daiAmount * 200) / 10000; // 10 DAI
+        uint256 expectedUsdcAfterFee = usdcAmount - expectedUsdcFee; // 980 USDC
+        uint256 expectedDaiAfterFee = daiAmount - expectedDaiFee; // 490 DAI
 
         deal(address(usdc), user, usdcAmount);
         deal(address(dai), user, daiAmount);
@@ -2514,9 +2586,31 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdcDustAmount, expectedUsdcFee, "USDC protocol fee should be 20 USDC");
         assertEq(daiDustAmount, expectedDaiFee, "DAI protocol fee should be 10 DAI");
 
-        // Verify the gateway received the full amounts
+        // Verify the gateway received the full amounts (protocol fees kept as dust)
         assertEq(usdc.balanceOf(address(customGateway)), usdcAmount, "Gateway should have full USDC amount");
         assertEq(dai.balanceOf(address(customGateway)), daiAmount, "Gateway should have full DAI amount");
+
+        // Verify commitment is calculated with REDUCED amounts for both tokens
+        // Need to reconstruct the order exactly as the contract sees it after filling in fields
+        Order memory orderWithReducedAmounts = order;
+        orderWithReducedAmounts.user = bytes32(uint256(uint160(user)));
+        orderWithReducedAmounts.source = host.host();
+        orderWithReducedAmounts.nonce = 0; // First order
+        orderWithReducedAmounts.inputs[0].amount = expectedUsdcAfterFee;
+        orderWithReducedAmounts.inputs[1].amount = expectedDaiAfterFee;
+        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmounts));
+
+        // Calculate storage slots for _orders[commitment][token]
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(8)));
+        bytes32 usdcEscrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+        bytes32 daiEscrowSlot = keccak256(abi.encode(address(dai), commitmentSlot));
+
+        // Verify escrow storage contains REDUCED amounts for both tokens
+        uint256 usdcEscrowedAmount = uint256(vm.load(address(customGateway), usdcEscrowSlot));
+        uint256 daiEscrowedAmount = uint256(vm.load(address(customGateway), daiEscrowSlot));
+
+        assertEq(usdcEscrowedAmount, expectedUsdcAfterFee, "USDC escrow should be reduced (980 USDC)");
+        assertEq(daiEscrowedAmount, expectedDaiAfterFee, "DAI escrow should be reduced (490 DAI)");
     }
 
     function testProtocolFeeOrderPlacedEventHasReducedAmounts() public {
@@ -2533,7 +2627,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         uint256 inputAmount = 1000 * 1e6; // 1000 USDC
         uint256 expectedProtocolFee = (inputAmount * 500) / 10000; // 50 USDC
-        uint256 expectedAmountInEvent = inputAmount - expectedProtocolFee; // 950 USDC
 
         deal(address(usdc), user, inputAmount);
 
@@ -2580,7 +2673,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         for (uint256 i = 0; i < entries.length; i++) {
             if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
                 dustFound = true;
-                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                (, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
                 assertEq(amount, expectedProtocolFee, "Protocol fee should be 50 USDC");
             }
         }

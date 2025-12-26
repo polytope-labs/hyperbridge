@@ -444,7 +444,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * @dev Selects a solver for an order. Should be called in the same transaction as `fillOrder`.
      * @param options The options for selecting a solver.
      */
-    function select(SelectOptions calldata options) public {
+    function select(SelectOptions calldata options) public returns (address) {
         // Verify that the session key signed (commitment, options.solver) using EIP-712
         bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
         bytes32 digest = _hashTypedDataV4(structHash);
@@ -459,6 +459,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             tstore(commitment, solver)
             tstore(sessionSlot, sessionKeyBytes)
         }
+        
+        return sessionKey;
     }
 
     /**

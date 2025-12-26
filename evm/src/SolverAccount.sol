@@ -20,7 +20,7 @@ import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-import {SelectOptions, IIntentGatewayV2, Order, FillOptions, TokenInfo} from "./interfaces/IntentGatewayV2.sol";
+import {SelectOptions, IIntentGatewayV2} from "./interfaces/IntentGatewayV2.sol";
 
 /**
  * @title SolverAccount
@@ -30,44 +30,34 @@ import {SelectOptions, IIntentGatewayV2, Order, FillOptions, TokenInfo} from "./
  *      contract account using EIP-7702.
  *
  *      The contract supports two validation modes:
- *      1. Standard ERC-4337 validation: Owner signs the userOpHash (65-byte ECDSA signature)
- *      2. Intent solver selection: Owner signs EIP-712 structured data (commitment, sessionKey) to
- *         authorize the solver account to be selected for filling orders
+ *      1. Standard ERC-4337 validation: Solver signs the userOpHash (65-byte ECDSA signature)
+ *      2. Intent solver selection: Validates session key selection and solver authorization for orders
  *
  *      Workflow for intent solver selection via ERC-4337:
  *      - User places an order with a session key
- *      - Solver EOA (via EIP-7702) signs SelectSolver(commitment, sessionKey) using EIP-712
+ *      - Session key signs SelectSolver(commitment, solver) using EIP-712
+ *      - Solver signs an Ethereum signed message over (userOpHash, commitment, sessionKey)
  *      - UserOp is submitted with:
- *        - calldata: IntentGatewayV2.select(SelectOptions)
- *        - signature: abi.encodePacked(sessionKey, solverSignature)
- *      - validateUserOp verifies the signature and calldata (validation phase)
- *      - Bundler executes op.callData by calling this contract (execution phase)
- *      - Fallback function forwards the select() call to IntentGateway
- *      - The solver (this contract's address) is registered and can fill the order
+ *        - signature: abi.encodePacked(commitment, solverSignature, sessionSignature)
+ *      - validateUserOp performs the following:
+ *        1. Decodes the signature into commitment, solverSignature, and sessionSignature
+ *        2. Calls IntentGatewayV2.select() with the sessionSignature to recover and validate sessionKey
+ *        3. Verifies solverSignature over (userOpHash, commitment, sessionKey) using Ethereum signed message
+ *      - The solver (this contract's address) is authorized to fill the order
  *
  * @author Polytope Labs
  */
 contract SolverAccount is Account, ERC7821 {
-    /**
-     * @notice Thrown when an unsupported function is called via fallback
-     */
-    error UnsupportedFunction(bytes4 selector);
-
     /**
      * @notice Standard length of an ECDSA signature (r: 32 bytes, s: 32 bytes, v: 1 byte)
      */
     uint256 private constant ECDSA_SIGNATURE_LENGTH = 65;
 
     /**
-     * @notice Expected calldata length for select function (4 byte selector + 256 bytes data)
-     */
-    uint256 private constant SELECT_CALLDATA_LENGTH = 260;
-
-    /**
      * @notice Expected signature length for intent solver selection
-     * @dev abi.encodePacked(address, bytes65) = 20 + 65 = 85 bytes
+     * @dev abi.encodePacked(commitment, solverSignature, sessionSignature) = 32 + 65 + 65 = 162 bytes
      */
-    uint256 private constant INTENT_SELECT_SIGNATURE_LENGTH = 85;
+    uint256 private constant INTENT_SELECT_SIGNATURE_LENGTH = 162;
 
     /**
      * @notice Cached select function selector
@@ -81,27 +71,13 @@ contract SolverAccount is Account, ERC7821 {
     address private immutable INTENT_GATEWAY_V2;
 
     /**
-     * @notice Cached domain separator from IntentGateway
-     */
-    bytes32 private immutable DOMAIN_SEPARATOR;
-
-    /**
-     * @notice Local SELECT_SOLVER_TYPEHASH with nonce for replay protection
-     * @dev SelectSolver(bytes32 commitment,address solver,uint256 nonce)
-     */
-    bytes32 private constant SELECT_SOLVER_WITH_NONCE_TYPEHASH =
-        keccak256("SelectSolver(bytes32 commitment,address solver,uint256 nonce)");
-
-    /**
      * @notice Constructor for SolverAccount
      * @param intentGatewayV2 The IntentGatewayV2 contract address
-     * @dev The owner EOA will sign all operations on behalf of this solver account.
+     * @dev The solver EOA (via EIP-7702) will sign all operations on behalf of this solver account.
      *      The solver is identified by the deployed contract address (address(this)).
-     *      Caches domain separator to save gas on validation.
      */
     constructor(address intentGatewayV2) {
         INTENT_GATEWAY_V2 = intentGatewayV2;
-        DOMAIN_SEPARATOR = IIntentGatewayV2(intentGatewayV2).DOMAIN_SEPARATOR();
     }
 
     /**
@@ -110,19 +86,21 @@ contract SolverAccount is Account, ERC7821 {
      *
      *      Mode 1 - Standard validation (65-byte signature):
      *      - Delegates to parent Account implementation
-     *      - Owner signs the userOpHash
+     *      - Solver signs the userOpHash directly
      *
-     *      Mode 2 - Intent solver selection (85-byte signature):
-     *      - Signature format: abi.encodePacked(sessionKey, ownerSignature)
-     *      - CallData format: IntentGatewayV2.select(SelectOptions)
-     *      - Validates that:
-     *        1. Calldata length and function selector are correct for select()
-     *        2. Solver in calldata matches address(this)
-     *        3. Nonce from EntryPoint (using first 192 bits of commitment as key)
-     *        4. Owner signed EIP-712 message: SelectSolver(commitment, sessionKey, nonce)
-     *      - NOTE: This function only validates. The bundler will execute the callData
-     *        (IntentGateway.select) via this contract's fallback function after validation.
-     *      - Replay protection: Signature includes nonce from EntryPoint
+     *      Mode 2 - Intent solver selection (162-byte signature):
+     *      - Signature format: abi.encodePacked(commitment, solverSignature, sessionSignature)
+     *        - commitment: 32 bytes - The order commitment hash
+     *        - solverSignature: 65 bytes - Ethereum signed message over (userOpHash, commitment, sessionKey)
+     *        - sessionSignature: 65 bytes - EIP-712 signature by session key over SelectSolver(commitment, solver)
+     *      - Validation process:
+     *        1. Decodes signature components using byte offsets
+     *        2. Calls IntentGatewayV2.select(commitment, solver, sessionSignature)
+     *           - This validates the sessionSignature and returns the recovered sessionKey address
+     *        3. Validates solverSignature over keccak256(userOpHash, commitment, sessionKey)
+     *           - Uses Ethereum signed message prefix: "\x19Ethereum Signed Message:\n32"
+     *           - Verifies the recovered signer matches address(this) (the solver account)
+     *      - Replay protection: userOpHash includes EntryPoint nonce, commitment is unique per order
      *
      * @param op The packed user operation containing calldata, signature, and other fields
      * @param userOpHash The hash of the user operation (with EntryPoint and chain ID)
@@ -142,29 +120,29 @@ contract SolverAccount is Account, ERC7821 {
             return super.validateUserOp(op, userOpHash, missingAccountFunds);
         }
 
-        if (
-            op.callData.length != SELECT_CALLDATA_LENGTH || bytes4(op.callData[0:4]) != SELECT_SELECTOR
-                || op.signature.length != INTENT_SELECT_SIGNATURE_LENGTH
-        ) {
-            return ERC4337Utils.SIG_VALIDATION_FAILED;
-        }
+        // Expected format: abi.encodePacked(commitment, solverSignature, sessionSignature)
+        // commitment: 32 bytes, solverSignature: 65 bytes, sessionSignature: 65 bytes
+        if (op.signature.length < INTENT_SELECT_SIGNATURE_LENGTH) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        // Decode SelectOptions from calldata (skip 4-byte selector)
-        SelectOptions memory options = abi.decode(op.callData[4:], (SelectOptions));
-        if (options.solver != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        bytes32 commitment = bytes32(op.signature[0:32]);
+        bytes calldata solverSignature = op.signature[32:97];
+        bytes calldata sessionSignature = op.signature[97:162];
 
-        address sessionKey = address(bytes20(op.signature[0:20]));
-        bytes calldata solverSignature = op.signature[20:];
+        // Call IntentGatewayV2.select to recover the sessionKey
+        SelectOptions memory selectOptions =
+            SelectOptions({commitment: commitment, solver: address(this), signature: sessionSignature});
+        bytes memory selectCalldata = abi.encodeWithSelector(SELECT_SELECTOR, selectOptions);
+        (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call(selectCalldata);
 
-        // Get nonce from EntryPoint using first 192 bits of commitment as key
-        uint192 nonceKey = uint192(uint256(options.commitment) >> 64);
-        uint256 nonce = entryPoint().getNonce(address(this), nonceKey);
+        if (!success || returnData.length < 32) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
-        // Validate solver signature with nonce for replay protection
-        bytes32 structHash =
-            keccak256(abi.encode(SELECT_SOLVER_WITH_NONCE_TYPEHASH, options.commitment, sessionKey, nonce));
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
-        if (!_rawSignatureValidation(digest, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        address sessionKey = abi.decode(returnData, (address));
+
+        // Recover the solver's account from the solver signature over (userOpHash, commitment, sessionKey)
+        bytes32 messageHash = keccak256(abi.encodePacked(userOpHash, commitment, sessionKey));
+        bytes32 ethSignedMessageHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash));
+
+        if (!_rawSignatureValidation(ethSignedMessageHash, solverSignature)) return ERC4337Utils.SIG_VALIDATION_FAILED;
 
         // Pay for gas if needed
         _payPrefund(missingAccountFunds);
@@ -175,9 +153,10 @@ contract SolverAccount is Account, ERC7821 {
     /**
      * @notice Validates a raw signature against a hash
      * @dev Internal function used by the Account base contract for signature validation.
-     *      Recovers the signer from the ECDSA signature and verifies it matches the owner EOA.
-     *      This is used for standard ERC-4337 operations where the owner signs the userOpHash.
-     * @param hash The hash that was signed (typically userOpHash)
+     *      Recovers the signer from the ECDSA signature and verifies it matches address(this).
+     *      In EIP-7702 delegation, the EOA's address becomes this contract's address.
+     *      Used for both standard ERC-4337 operations and intent solver selection validation.
+     * @param hash The hash that was signed (typically userOpHash or Ethereum signed message hash)
      * @param signature The ECDSA signature to validate (65 bytes: r, s, v)
      * @return bool True if the recovered signer matches this contract's address, false otherwise
      */
@@ -200,36 +179,5 @@ contract SolverAccount is Account, ERC7821 {
         returns (bool)
     {
         return caller == address(entryPoint()) || super._erc7821AuthorizedExecutor(caller, mode, executionData);
-    }
-
-    /**
-     * @notice Fallback function to forward select calls to IntentGateway
-     * @dev Only allows calls to select(SelectOptions). All other calls will revert.
-     *
-     *      This function is called in two scenarios:
-     *      1. ERC-4337 execution: After validateUserOp succeeds, the bundler executes
-     *         the UserOp.callData by calling this contract, triggering the fallback.
-     *      2. Direct calls: Anyone can call this function directly with select() calldata.
-     *
-     *      The function forwards the call to IntentGateway to register the solver.
-     */
-    fallback() external payable {
-        // Only allow select function
-        if (msg.sig != SELECT_SELECTOR) revert UnsupportedFunction(msg.sig);
-
-        // Execute IntentGateway.select
-        (bool success, bytes memory returnData) = INTENT_GATEWAY_V2.call(msg.data);
-
-        if (!success) {
-            // Bubble up the revert reason
-            assembly {
-                revert(add(returnData, 32), mload(returnData))
-            }
-        }
-
-        // Return the result
-        assembly {
-            return(add(returnData, 32), mload(returnData))
-        }
     }
 }

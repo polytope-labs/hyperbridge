@@ -24,7 +24,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import "../src/apps/TokenGateway.sol";
-import "../src/apps/CallDispatcher.sol";
+import "../src/utils/CallDispatcher.sol";
 
 contract TokenGatewayTest is BaseTest {
     using Message for PostRequest;

@@ -322,6 +322,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         uint256 inputsLen = order.inputs.length;
         uint256 protocolFeeBps = _params.protocolFeeBps;
         TokenInfo[] memory reducedInputs;
+        bytes32 commitment;
 
         if (protocolFeeBps > 0) {
             reducedInputs = new TokenInfo[](inputsLen);
@@ -329,12 +330,10 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 uint256 originalAmount = order.inputs[i].amount;
                 uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
                 uint256 reducedAmount = originalAmount - protocolFee;
+                address token = address(uint160(uint256(order.inputs[i].token)));
 
                 // Emit DustCollected for protocol fee if non-zero
-                if (protocolFee > 0) {
-                    address token = address(uint160(uint256(order.inputs[i].token)));
-                    emit DustCollected(token, protocolFee);
-                }
+                if (protocolFee > 0) emit DustCollected(token, protocolFee);
 
                 reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
 
@@ -342,16 +341,17 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                     ++i;
                 }
             }
+
+            // Temporarily swap inputs to calculate commitment with reduced amounts
+            TokenInfo[] memory originalInputs = order.inputs;
+            order.inputs = reducedInputs;
+            commitment = keccak256(abi.encode(order));
+            order.inputs = originalInputs;
         } else {
             // No protocol fees, use order.inputs directly
             reducedInputs = order.inputs;
+            commitment = keccak256(abi.encode(order));
         }
-
-        // Temporarily swap inputs to calculate commitment with reduced amounts
-        TokenInfo[] memory originalInputs = order.inputs;
-        order.inputs = reducedInputs;
-        bytes32 commitment = keccak256(abi.encode(order));
-        order.inputs = originalInputs;
 
         // escrow tokens
         uint256 msgValue = msg.value;

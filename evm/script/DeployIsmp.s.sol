@@ -31,7 +31,7 @@ import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
-import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";

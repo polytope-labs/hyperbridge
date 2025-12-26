@@ -8,7 +8,7 @@ import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
 import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 import {CrossChainInscription} from "../src/utils/Inscriptions.sol";
-import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 

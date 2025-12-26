@@ -19,7 +19,7 @@ import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../src/utils/PingModule.sol";
 import {HandlerV1} from "../src/core/HandlerV1.sol";
-import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams, PerByteFee} from "../src/core/EvmHost.sol";

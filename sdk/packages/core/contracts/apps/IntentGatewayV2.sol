@@ -37,6 +37,10 @@ struct TokenInfo {
     uint256 amount;
 }
 
+/**
+ * @notice Information for executing calls before an order is placed on the destination chain
+ * @dev Used to specify pre-dispatch operations with associated assets
+ */
 struct DispatchInfo {
     /// @dev Assets to execute a predispatch call with
     TokenInfo[] assets;
@@ -98,6 +102,28 @@ struct Params {
     /// @dev The protocol fee in basis points charged on order inputs.
     /// 10000 = 100%, 100 = 1%, etc.
     uint256 protocolFeeBps;
+}
+
+/**
+ * @dev Struct to define the destination fee parameters.
+ */
+struct DestinationFee {
+    /// @dev The percentage of fee (in basis points) charged for the destination chain.
+    /// 10000 = 100%, 5000 = 50%, etc.
+    uint256 destinationFeeBps;
+    /// @dev The state machine ID associated with the destination fee.
+    bytes32 stateMachineId;
+}
+
+/**
+ * @dev Struct to define a parameter update request from Hyperbridge
+ * @notice Contains both general parameters and destination-specific fee configurations
+ */
+struct ParamsUpdate {
+    /// @dev The general parameters for the IntentGateway module
+    Params params;
+    /// @dev The destination fee parameters for specific chains
+    DestinationFee[] destinationFees;
 }
 
 /**

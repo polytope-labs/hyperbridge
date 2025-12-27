@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/core",
-	"version": "1.3.0",
+	"version": "1.4.0",
 	"description": "Hyperbridge Solidity SDK for dispatching & receiving cross-chain messages",
 	"author": "Polytope Labs <hello@polytope.technology>",
 	"license": "Apache-2.0",

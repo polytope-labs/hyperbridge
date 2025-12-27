@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {EvmHost, HostParams} from "./EvmHost.sol";
+import {EvmHost, HostParams} from "../core/EvmHost.sol";
 
 /**
  * @title The EthereumHost

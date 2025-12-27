@@ -4,7 +4,7 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {PingModule} from "../src/apps/PingModule.sol";
+import {PingModule} from "../src/utils/PingModule.sol";
 import {BaseScript} from "./BaseScript.sol";
 
 contract DeployScript is BaseScript {

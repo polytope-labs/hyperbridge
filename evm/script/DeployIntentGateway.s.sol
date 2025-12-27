@@ -6,7 +6,7 @@ import "stringutils/strings.sol";
 
 import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";
 import {BaseScript} from "./BaseScript.sol";
-import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;

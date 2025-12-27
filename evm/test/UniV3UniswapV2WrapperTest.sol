@@ -20,7 +20,7 @@ import "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {UniV3UniswapV2Wrapper} from "../src/uniswapv2/UniV3UniswapV2Wrapper.sol";
+import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {

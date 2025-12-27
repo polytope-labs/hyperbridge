@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 
 /**
  * @title FeeToken

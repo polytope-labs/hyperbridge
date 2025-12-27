@@ -5,10 +5,10 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "stringutils/strings.sol";
 
-import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";
+import {EvmHost, HostParams} from "../src/core/EvmHost.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {BaseScript} from "./BaseScript.sol";
-import "../src/ismp/HandlerV1.sol";
+import "../src/core/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";

@@ -21,7 +21,7 @@ import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.so
 import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
 import {IMulticallExtended} from "@uniswap/swap-router-contracts/contracts/interfaces/IMulticallExtended.sol";
 
-import {IWETH} from "../interfaces/IWETH.sol";
+import {IWETH} from "../../interfaces/IWETH.sol";
 
 /**
  * @title UniV3UniswapV2Wrapper

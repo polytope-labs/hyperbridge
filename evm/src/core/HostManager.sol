@@ -23,7 +23,7 @@ import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
-import {HostParams, IHostManager, WithdrawParams} from "../hosts/EvmHost.sol";
+import {HostParams, IHostManager, WithdrawParams} from "./EvmHost.sol";
 
 /// Host manager params
 struct HostManagerParams {

@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {UniV4UniswapV2Wrapper} from "../src/uniswapv2/UniV4UniswapV2Wrapper.sol";
+import {UniV4UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV4UniswapV2Wrapper.sol";
 import {BaseScript} from "./BaseScript.sol";
 
 contract DeployScript is BaseScript {

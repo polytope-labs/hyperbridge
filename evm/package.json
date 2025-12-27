@@ -8,11 +8,11 @@
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1"
     },
-    "author": "admin@polytope.technology",
+    "author": "hello@polytope.technology",
     "license": "ISC",
     "description": "",
     "dependencies": {
-        "@hyperbridge/core": "^1.3.0",
+        "@hyperbridge/core": "^1.4.0",
         "@openzeppelin/contracts": "^5.4.0",
         "@polytope-labs/solidity-merkle-trees": "^0.4.0",
         "@uniswap/swap-router-contracts": "^1.3.1",

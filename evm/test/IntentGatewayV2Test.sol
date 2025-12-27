@@ -20,6 +20,8 @@ import {
     IntentGatewayV2,
     Order,
     Params,
+    ParamsUpdate,
+    DestinationFee,
     TokenInfo,
     SweepDust,
     PaymentInfo,
@@ -2080,7 +2082,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             protocolFeeBps: 0
         });
 
-        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(newParams));
+        DestinationFee[] memory emptyFees = new DestinationFee[](0);
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: emptyFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2120,6 +2125,307 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(updatedParams.host, newParams.host, "Host should be updated");
         assertEq(updatedParams.dispatcher, newParams.dispatcher, "Dispatcher should be updated");
         assertEq(updatedParams.solverSelection, newParams.solverSelection, "SolverSelection should be updated");
+    }
+
+    function testOnAcceptUpdateParamsWithDestinationFees() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100
+        });
+
+        // Create destination fees
+        DestinationFee[] memory destinationFees = new DestinationFee[](2);
+        bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
+        bytes memory optimismStateMachineId = bytes("OPTIMISM");
+
+        destinationFees[0] = DestinationFee({stateMachineId: keccak256(arbitrumStateMachineId), destinationFeeBps: 50});
+
+        destinationFees[1] = DestinationFee({stateMachineId: keccak256(optimismStateMachineId), destinationFeeBps: 150});
+
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.recordLogs();
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Check events
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool paramsUpdatedFound = false;
+        uint256 destinationFeeEventsFound = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (
+                entries[i].topics[0]
+                    == keccak256(
+                        "ParamsUpdated((address,address,bool,uint256,uint256),(address,address,bool,uint256,uint256))"
+                    )
+            ) {
+                paramsUpdatedFound = true;
+            }
+
+            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(bytes32,uint256)")) {
+                destinationFeeEventsFound++;
+            }
+        }
+
+        assertTrue(paramsUpdatedFound, "ParamsUpdated event should be emitted");
+        assertEq(destinationFeeEventsFound, 2, "Should emit 2 DestinationProtocolFeeUpdated events");
+
+        // Verify params were updated
+        Params memory updatedParams = intentGateway.params();
+        assertEq(updatedParams.host, newParams.host, "Host should be updated");
+        assertEq(updatedParams.protocolFeeBps, newParams.protocolFeeBps, "ProtocolFeeBps should be updated");
+    }
+
+    function testOnAcceptUpdateParamsWithEmptyDestinationFees() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 200
+        });
+
+        // Empty destination fees array
+        DestinationFee[] memory emptyFees = new DestinationFee[](0);
+
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: emptyFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.recordLogs();
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Check events
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 destinationFeeEventsFound = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(bytes32,uint256)")) {
+                destinationFeeEventsFound++;
+            }
+        }
+
+        assertEq(destinationFeeEventsFound, 0, "Should not emit DestinationProtocolFeeUpdated events for empty array");
+
+        // Verify params were updated
+        Params memory updatedParams = intentGateway.params();
+        assertEq(updatedParams.protocolFeeBps, 200, "ProtocolFeeBps should be updated");
+    }
+
+    function testDestinationProtocolFeeUpdatedEventData() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100
+        });
+
+        bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
+        bytes32 hashedStateMachineId = keccak256(arbitrumStateMachineId);
+        uint256 feeBps = 75;
+
+        DestinationFee[] memory destinationFees = new DestinationFee[](1);
+        destinationFees[0] = DestinationFee({stateMachineId: hashedStateMachineId, destinationFeeBps: feeBps});
+
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.expectEmit(true, false, false, true);
+        emit IntentGatewayV2.DestinationProtocolFeeUpdated(hashedStateMachineId, feeBps);
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    function testPlaceOrderWithDestinationSpecificFee() public {
+        // Setup: Set default protocol fee to 1% and destination-specific fee to 0.5%
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100 // 1% default
+        });
+        customGateway.setParams(customParams);
+
+        // Set destination-specific fee via governance
+        bytes memory destinationChain = bytes("ARBITRUM");
+        bytes32 destinationHash = keccak256(destinationChain);
+
+        DestinationFee[] memory destinationFees = new DestinationFee[](1);
+        destinationFees[0] = DestinationFee({
+            stateMachineId: destinationHash,
+            destinationFeeBps: 50 // 0.5% for this destination
+        });
+
+        ParamsUpdate memory update = ParamsUpdate({params: customParams, destinationFees: destinationFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(customGateway)),
+            to: abi.encodePacked(address(customGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.prank(address(host));
+        customGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Place an order to the destination with specific fee
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedDestinationFee = (inputAmount * 50) / 10000; // 5 USDC (0.5%)
+
+        deal(address(usdc), user, inputAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: destinationChain, // Use the destination with specific fee
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Verify DustCollected event was emitted with destination-specific fee (0.5%, not default 1%)
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool dustCollectedFound = false;
+        uint256 collectedFee = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustCollectedFound = true;
+                // Decode the fee amount from event data
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                if (token == address(usdc)) {
+                    collectedFee = amount;
+                }
+            }
+        }
+
+        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
+        assertEq(
+            collectedFee, expectedDestinationFee, "Should collect destination-specific fee (0.5%), not default (1%)"
+        );
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+    }
+
+    function testPlaceOrderDestinationFeeWithFallback() public {
+        // Test that when destination fee is not set (or is 0), it falls back to default protocol fee
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100 // 1% default
+        });
+        customGateway.setParams(customParams);
+
+        // Place order to destination without specific fee set
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedDefaultFee = (inputAmount * 100) / 10000; // 10 USDC (1% default)
+
+        deal(address(usdc), user, inputAmount);
+
+        bytes memory unknownDestination = bytes("UNKNOWN_CHAIN");
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: unknownDestination,
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Verify DustCollected event was emitted with default fee (1%)
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 collectedFee = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                if (token == address(usdc)) {
+                    collectedFee = amount;
+                }
+            }
+        }
+
+        assertEq(collectedFee, expectedDefaultFee, "Should use default protocol fee when destination fee not set");
     }
 
     // ============================================

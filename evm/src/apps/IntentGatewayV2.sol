@@ -25,6 +25,8 @@ import {
     Order,
     SweepDust,
     Params,
+    ParamsUpdate,
+    DestinationFee,
     RequestBody,
     FillOptions,
     SelectOptions,
@@ -122,6 +124,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
     mapping(bytes32 => address) private _instances;
+
+    /**
+     * @dev Mapping to store destination-specific protocol fees.
+     * The key is keccak256(stateMachineId) and the value is the protocol fee in basis points.
+     * If the value is 0, falls back to the source chain protocol fee from _params.protocolFeeBps.
+     */
+    mapping(bytes32 => uint256) private _destinationProtocolFees;
 
     /// @notice Thrown when an unauthorized action is attempted.
     error Unauthorized();
@@ -226,6 +235,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     event DustSwept(address token, uint256 amount, address beneficiary);
 
+    /**
+     * @dev Emitted when a destination-specific protocol fee is updated.
+     * @param stateMachineId The hashed state machine identifier of the destination chain.
+     * @param feeBps The protocol fee in basis points for this destination.
+     */
+    event DestinationProtocolFeeUpdated(bytes32 indexed stateMachineId, uint256 feeBps);
+
     constructor(address admin) EIP712("IntentGateway", "2") {
         _admin = admin;
     }
@@ -320,7 +336,12 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
 
         // Calculate reduced inputs (after protocol fees) for commitment and escrow
         uint256 inputsLen = order.inputs.length;
-        uint256 protocolFeeBps = _params.protocolFeeBps;
+        // Use destination-specific protocol fee, fallback to source chain fee if zero
+        bytes32 destinationHash = keccak256(order.destination);
+        uint256 protocolFeeBps = _destinationProtocolFees[destinationHash];
+        if (protocolFeeBps == 0) {
+            protocolFeeBps = _params.protocolFeeBps;
+        }
         TokenInfo[] memory reducedInputs;
         bytes32 commitment;
 
@@ -745,10 +766,25 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
 
             emit NewDeploymentAdded({stateMachineId: body.stateMachineId, gateway: body.gateway});
         } else if (kind == RequestKind.UpdateParams) {
-            Params memory body = abi.decode(incoming.request.body[1:], (Params));
-            emit ParamsUpdated({previous: _params, current: body});
+            // Decode the body which includes optional destination-specific protocol fee updates
+            ParamsUpdate memory update = abi.decode(incoming.request.body[1:], (ParamsUpdate));
 
-            _params = body;
+            emit ParamsUpdated({previous: _params, current: update.params});
+            _params = update.params;
+
+            // Update destination-specific protocol fees if provided
+            for (uint256 i; i < update.destinationFees.length;) {
+                bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
+                uint256 feeBps = update.destinationFees[i].destinationFeeBps;
+
+                _destinationProtocolFees[stateMachineId] = feeBps;
+
+                emit DestinationProtocolFeeUpdated(stateMachineId, feeBps);
+
+                unchecked {
+                    ++i;
+                }
+            }
         } else if (kind == RequestKind.SweepDust) {
             SweepDust memory req = abi.decode(incoming.request.body[1:], (SweepDust));
 

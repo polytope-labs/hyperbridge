@@ -63,8 +63,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     enum RequestKind {
         /// @dev Identifies a request for redeeming an escrow.
         RedeemEscrow,
-        /// @dev Identifies a request for refunding an escrow.
-        RefundEscrow,
         /// @dev Identifies a request for recording new contract deployments
         NewDeployment,
         /// @dev Identifies a request for updating parameters.
@@ -754,9 +752,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
-            return redeem(incoming.request, kind);
-        }
+        if (kind == RequestKind.RedeemEscrow) return redeem(incoming.request);
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -814,9 +810,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * @notice Redeems the escrowed tokens for an incoming post request.
      * @dev This function is marked as internal and requires authentication.
      * @param request The incoming post request data.
-     * @param kind The kind of request.
      */
-    function redeem(PostRequest calldata request, RequestKind kind) internal authenticate(request) {
+    function redeem(PostRequest calldata request) internal authenticate(request) {
         RequestBody memory body = abi.decode(request.body[1:], (RequestBody));
         address beneficiary = address(uint160(uint256(body.beneficiary)));
 
@@ -851,11 +846,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
 
         _filled[body.commitment] = beneficiary;
 
-        if (kind == RequestKind.RefundEscrow) {
-            emit EscrowRefunded({commitment: body.commitment});
-        } else {
-            emit EscrowReleased({commitment: body.commitment});
-        }
+        emit EscrowReleased({commitment: body.commitment});
     }
 
     /**

@@ -2006,9 +2006,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Simulate RefundEscrow request
+        // Simulate RedeemEscrow request
         bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.RefundEscrow)),
+            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
             abi.encode(
                 RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
             )

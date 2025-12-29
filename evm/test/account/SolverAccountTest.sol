@@ -46,7 +46,8 @@ contract SolverAccountTest is Test {
             dispatcher: address(0x2),
             solverSelection: true,
             surplusShareBps: 5000,
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         intentGateway.setParams(params);
 

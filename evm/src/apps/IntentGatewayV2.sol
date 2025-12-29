@@ -33,6 +33,7 @@ import {
     CancelOptions,
     NewDeployment
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
+import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -82,7 +83,14 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * @dev Hex value 0x06 padded with leading zeros to fill 32 bytes
      */
     bytes32 constant FILLED_SLOT_BIG_ENDIAN_BYTES =
-        hex"0000000000000000000000000000000000000000000000000000000000000006";
+        hex"0000000000000000000000000000000000000000000000000000000000000002";
+
+    /**
+     * @dev Mapping to store the addresses associated with filled intents.
+     * The key is a bytes32 hash representing the intent, and the value is the address
+     * that filled the intent.
+     */
+    mapping(bytes32 => address) private _filled;
 
     /**
      * @dev Private variable to store the nonce value.
@@ -109,13 +117,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The inner mapping value is a uint256 representing the order amount.
      */
     mapping(bytes32 => mapping(address => uint256)) private _orders;
-
-    /**
-     * @dev Mapping to store the addresses associated with filled intents.
-     * The key is a bytes32 hash representing the intent, and the value is the address
-     * that filled the intent.
-     */
-    mapping(bytes32 => address) private _filled;
 
     /**
      * @dev Mapping to store instances of contracts.
@@ -678,6 +679,11 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         } else {
             // try to pay for dispatch with fee token
             dispatchWithFeeToken(request, msg.sender);
+        }
+
+        // Record spread with price oracle if configured
+        if (_params.priceOracle != address(0)) {
+            IIntentPriceOracle(_params.priceOracle).recordSpread(commitment, order.source, order.inputs, options.outputs);
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});

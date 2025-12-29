@@ -66,11 +66,11 @@ members = [
     "modules/pallets/relayer-incentives",
 
     # evm stuff
-    "evm/integration-tests",
-    "evm/abi",
+    # "evm/integration-tests",
+    # "evm/abi",
 
     # hyperclient
-    "modules/hyperclient",
+    # "modules/hyperclient",
 
     # simnode
     "parachain/simtests",
@@ -80,27 +80,27 @@ members = [
     "modules/utils/serde",
 
     # tesseract
-    "tesseract/messaging/primitives",
-    "tesseract/messaging/messaging",
-    "tesseract/messaging/substrate",
-    "tesseract/messaging/relayer",
-    "tesseract/messaging/evm",
-    "tesseract/messaging/fees",
-    "tesseract/messaging/fees/prisma-cli",
-    "tesseract/messaging/telemetry",
-    "tesseract/messaging/config",
-    "tesseract/messaging/fisherman",
+    # "tesseract/messaging/primitives",
+    # "tesseract/messaging/messaging",
+    # "tesseract/messaging/substrate",
+    # "tesseract/messaging/relayer",
+    # "tesseract/messaging/evm",
+    # "tesseract/messaging/fees",
+    # "tesseract/messaging/fees/prisma-cli",
+    # "tesseract/messaging/telemetry",
+    # "tesseract/messaging/config",
+    # "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
-    "tesseract/consensus/arb-host",
-    "tesseract/consensus/op-host",
-    "tesseract/consensus/bsc",
-    "tesseract/consensus/sync-committee",
-    "tesseract/consensus/grandpa",
-    "tesseract/consensus/integration-tests",
-    "tesseract/consensus/beefy",
-    "tesseract/consensus/beefy/zk",
-    "tesseract/consensus/relayer",
+    # "tesseract/consensus/arb-host",
+    # "tesseract/consensus/op-host",
+    # "tesseract/consensus/bsc",
+    # "tesseract/consensus/sync-committee",
+    # "tesseract/consensus/grandpa",
+    # "tesseract/consensus/integration-tests",
+    # "tesseract/consensus/beefy",
+    # "tesseract/consensus/beefy/zk",
+    # "tesseract/consensus/relayer",
 
 
     # Airdrop
@@ -215,7 +215,7 @@ substrate-state-machine = { version = "2503.1.0", path = "modules/ismp/state-mac
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
-ismp-solidity-abi = { path = "./evm/abi", default-features = false }
+# ismp-solidity-abi = { path = "./evm/abi", default-features = false }
 simnode-tests = { path = "parachain/simtests" }
 hyperclient = { path = "modules/hyperclient", default-features = false }
 subxt-utils = { path = "modules/utils/subxt", default-features = false }
@@ -269,25 +269,25 @@ gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features 
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
 
 # tesseract
-tesseract-primitives = { path = "tesseract/messaging/primitives" }
-tesseract-messaging = { path = "tesseract/messaging/messaging" }
-tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
-tesseract-substrate = { path = "tesseract/messaging/substrate" }
-tesseract-evm = { path = "tesseract/messaging/evm" }
-tesseract = { path = "tesseract/messaging/relayer" }
-transaction-fees = { path = "tesseract/messaging/fees" }
-telemetry-server = { path = "tesseract/messaging/telemetry" }
-tesseract-config = { path = "tesseract/messaging/config" }
+# tesseract-primitives = { path = "tesseract/messaging/primitives" }
+# tesseract-messaging = { path = "tesseract/messaging/messaging" }
+# tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
+# tesseract-substrate = { path = "tesseract/messaging/substrate" }
+# tesseract-evm = { path = "tesseract/messaging/evm" }
+# tesseract = { path = "tesseract/messaging/relayer" }
+# transaction-fees = { path = "tesseract/messaging/fees" }
+# telemetry-server = { path = "tesseract/messaging/telemetry" }
+# tesseract-config = { path = "tesseract/messaging/config" }
 
-# tesseract consensus
-arb-host = { path = "tesseract/consensus/arb-host" }
-op-host = { path = "tesseract/consensus/op-host" }
-tesseract-beefy = { path = "tesseract/consensus/beefy" }
-tesseract-bsc = { path = "tesseract/consensus/bsc" }
-tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
-tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
-tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-tesseract-consensus = { path = "tesseract/consensus/relayer" }
+# # tesseract consensus
+# arb-host = { path = "tesseract/consensus/arb-host" }
+# op-host = { path = "tesseract/consensus/op-host" }
+# tesseract-beefy = { path = "tesseract/consensus/beefy" }
+# tesseract-bsc = { path = "tesseract/consensus/bsc" }
+# tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
+# tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
+# tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
+# tesseract-consensus = { path = "tesseract/consensus/relayer" }
 
 
 [workspace.dependencies.codec]
@@ -316,13 +316,13 @@ default-features = false
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
 
-[workspace.dependencies.forge-testsuite]
-git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
+# [workspace.dependencies.forge-testsuite]
+# git = "https://github.com/polytope-labs/forge-testsuite"
+# rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 
-[workspace.dependencies.foundry-evm]
-git = "https://github.com/polytope-labs/foundry"
-rev = "1db7f747d7033a760c747fabbeef706576c88e34"
+# [workspace.dependencies.foundry-evm]
+# git = "https://github.com/polytope-labs/foundry"
+# rev = "1db7f747d7033a760c747fabbeef706576c88e34"
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"

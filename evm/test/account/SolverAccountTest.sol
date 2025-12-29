@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
-import {SolverAccount} from "../../src/SolverAccount.sol";
+import {SolverAccount} from "../../src/utils/SolverAccount.sol";
 import {IntentGatewayV2} from "../../src/apps/IntentGatewayV2.sol";
 import {
     SelectOptions,
@@ -12,7 +12,7 @@ import {
     Params,
     DispatchInfo,
     PaymentInfo
-} from "../../src/interfaces/IntentGatewayV2.sol";
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
@@ -41,8 +41,13 @@ contract SolverAccountTest is Test {
         // Deploy IntentGateway
         intentGateway = new IntentGatewayV2(address(this));
 
-        Params memory params =
-            Params({host: address(0x1), dispatcher: address(0x2), solverSelection: true, surplusShareBps: 5000});
+        Params memory params = Params({
+            host: address(0x1),
+            dispatcher: address(0x2),
+            solverSelection: true,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0
+        });
         intentGateway.setParams(params);
 
         // Deploy SolverAccount at a temporary address to get bytecode

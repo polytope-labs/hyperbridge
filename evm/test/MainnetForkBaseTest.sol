@@ -17,21 +17,21 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "../src/apps/PingModule.sol";
-import {HandlerV1} from "../src/ismp/HandlerV1.sol";
-import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
+import {PingModule} from "../src/utils/PingModule.sol";
+import {HandlerV1} from "../src/core/HandlerV1.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
-import {HostParams, PerByteFee} from "../src/hosts/EvmHost.sol";
-import {HostManagerParams, HostManager} from "../src/ismp/HostManager.sol";
+import {HostParams, PerByteFee} from "../src/core/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/core/HostManager.sol";
 
-import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
 import {PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
-import {TokenFaucet} from "../src/ismp/TokenFaucet.sol";
+import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 
 contract MainnetForkBaseTest is Test {
     /// @notice The Id of Role required to mint token

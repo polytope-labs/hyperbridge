@@ -20,7 +20,7 @@ import "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {UniV4UniswapV2Wrapper} from "../src/uniswapv2/UniV4UniswapV2Wrapper.sol";
+import {UniV4UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV4UniswapV2Wrapper.sol";
 
 contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
     address private constant UNIVERSAL_ROUTER = 0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af;

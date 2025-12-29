@@ -19,8 +19,8 @@ import "forge-std/Test.sol";
 import {BaseTest} from "./BaseTest.sol";
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
-import {HostManagerParams, HostManager} from "../src/ismp/HostManager.sol";
-import {HostParams, EvmHost} from "../src/hosts/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/core/HostManager.sol";
+import {HostParams, EvmHost} from "../src/core/EvmHost.sol";
 
 contract HostManagerTest is BaseTest {
     function HostManagerWithdraw(PostRequest memory request) public {

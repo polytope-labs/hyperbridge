@@ -18,6 +18,21 @@ import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {
+    PaymentInfo,
+    TokenInfo,
+    DispatchInfo,
+    Order,
+    SweepDust,
+    Params,
+    ParamsUpdate,
+    DestinationFee,
+    RequestBody,
+    FillOptions,
+    SelectOptions,
+    CancelOptions,
+    NewDeployment
+} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -27,19 +42,6 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
-import {
-    PaymentInfo,
-    TokenInfo,
-    DispatchInfo,
-    Order,
-    SweepDust,
-    Params,
-    RequestBody,
-    FillOptions,
-    SelectOptions,
-    CancelOptions,
-    NewDeployment
-} from "../interfaces/IntentGatewayV2.sol";
 
 /**
  * @title IntentGatewayV2
@@ -61,8 +63,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     enum RequestKind {
         /// @dev Identifies a request for redeeming an escrow.
         RedeemEscrow,
-        /// @dev Identifies a request for refunding an escrow.
-        RefundEscrow,
         /// @dev Identifies a request for recording new contract deployments
         NewDeployment,
         /// @dev Identifies a request for updating parameters.
@@ -122,6 +122,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
     mapping(bytes32 => address) private _instances;
+
+    /**
+     * @dev Mapping to store destination-specific protocol fees.
+     * The key is keccak256(stateMachineId) and the value is the protocol fee in basis points.
+     * If the value is 0, falls back to the source chain protocol fee from _params.protocolFeeBps.
+     */
+    mapping(bytes32 => uint256) private _destinationProtocolFees;
 
     /// @notice Thrown when an unauthorized action is attempted.
     error Unauthorized();
@@ -226,6 +233,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     event DustSwept(address token, uint256 amount, address beneficiary);
 
+    /**
+     * @dev Emitted when a destination-specific protocol fee is updated.
+     * @param stateMachineId The hashed state machine identifier of the destination chain.
+     * @param feeBps The protocol fee in basis points for this destination.
+     */
+    event DestinationProtocolFeeUpdated(bytes32 indexed stateMachineId, uint256 feeBps);
+
     constructor(address admin) EIP712("IntentGateway", "2") {
         _admin = admin;
     }
@@ -316,10 +330,47 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         // fill out the order preludes
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.source = IDispatcher(hostAddr).host();
-        order.nonce = _nonce;
-        _nonce += 1;
+        order.nonce = _nonce++;
 
-        bytes32 commitment = keccak256(abi.encode(order));
+        // Calculate reduced inputs (after protocol fees) for commitment and escrow
+        uint256 inputsLen = order.inputs.length;
+        // Use destination-specific protocol fee, fallback to source chain fee if zero
+        bytes32 destinationHash = keccak256(order.destination);
+        uint256 protocolFeeBps = _destinationProtocolFees[destinationHash];
+        if (protocolFeeBps == 0) {
+            protocolFeeBps = _params.protocolFeeBps;
+        }
+        TokenInfo[] memory reducedInputs;
+        bytes32 commitment;
+
+        if (protocolFeeBps > 0) {
+            reducedInputs = new TokenInfo[](inputsLen);
+            for (uint256 i; i < inputsLen;) {
+                uint256 originalAmount = order.inputs[i].amount;
+                uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
+                uint256 reducedAmount = originalAmount - protocolFee;
+                address token = address(uint160(uint256(order.inputs[i].token)));
+
+                // Emit DustCollected for protocol fee if non-zero
+                if (protocolFee > 0) emit DustCollected(token, protocolFee);
+
+                reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
+
+                unchecked {
+                    ++i;
+                }
+            }
+
+            // Temporarily swap inputs to calculate commitment with reduced amounts
+            TokenInfo[] memory originalInputs = order.inputs;
+            order.inputs = reducedInputs;
+            commitment = keccak256(abi.encode(order));
+            order.inputs = originalInputs;
+        } else {
+            // No protocol fees, use order.inputs directly
+            reducedInputs = order.inputs;
+            commitment = keccak256(abi.encode(order));
+        }
 
         // escrow tokens
         uint256 msgValue = msg.value;
@@ -351,7 +402,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             ICallDispatcher(dispatcher).dispatch(order.predispatch.call);
 
             // Transfer tokens from call dispatcher back to IntentGateway
-            uint256 inputsLen = order.inputs.length;
             Call[] memory transferCalls = new Call[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 address token = address(uint160(uint256(order.inputs[i].token)));
@@ -375,7 +425,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 uint256 dust = balance - requiredAmount;
                 if (dust > 0) emit DustCollected(token, dust);
 
-                _orders[commitment][token] += requiredAmount;
+                // Store reduced amount (after protocol fees) in escrow
+                _orders[commitment][token] += reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -385,8 +436,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             // Execute transfer calls from call dispatcher
             ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
         } else {
-            uint256 inputsLen = order.inputs.length;
-
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
                 address token = address(uint160(uint256(order.inputs[i].token)));
@@ -398,7 +447,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                     IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
                 }
 
-                _orders[commitment][token] += order.inputs[i].amount;
+                // Store reduced amount (after protocol fees) in escrow
+                _orders[commitment][token] += reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -434,7 +484,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             fees: order.fees,
             session: order.session,
             predispatch: order.predispatch.assets,
-            inputs: order.inputs,
+            inputs: reducedInputs,
             beneficiary: order.output.beneficiary,
             outputs: order.output.assets
         });
@@ -459,7 +509,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             tstore(commitment, solver)
             tstore(sessionSlot, sessionKeyBytes)
         }
-        
+
         return sessionKey;
     }
 
@@ -702,9 +752,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
-            return redeem(incoming.request, kind);
-        }
+        if (kind == RequestKind.RedeemEscrow) return redeem(incoming.request);
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -714,10 +762,25 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
 
             emit NewDeploymentAdded({stateMachineId: body.stateMachineId, gateway: body.gateway});
         } else if (kind == RequestKind.UpdateParams) {
-            Params memory body = abi.decode(incoming.request.body[1:], (Params));
-            emit ParamsUpdated({previous: _params, current: body});
+            // Decode the body which includes optional destination-specific protocol fee updates
+            ParamsUpdate memory update = abi.decode(incoming.request.body[1:], (ParamsUpdate));
 
-            _params = body;
+            emit ParamsUpdated({previous: _params, current: update.params});
+            _params = update.params;
+
+            // Update destination-specific protocol fees if provided
+            for (uint256 i; i < update.destinationFees.length;) {
+                bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
+                uint256 feeBps = update.destinationFees[i].destinationFeeBps;
+
+                _destinationProtocolFees[stateMachineId] = feeBps;
+
+                emit DestinationProtocolFeeUpdated(stateMachineId, feeBps);
+
+                unchecked {
+                    ++i;
+                }
+            }
         } else if (kind == RequestKind.SweepDust) {
             SweepDust memory req = abi.decode(incoming.request.body[1:], (SweepDust));
 
@@ -747,9 +810,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * @notice Redeems the escrowed tokens for an incoming post request.
      * @dev This function is marked as internal and requires authentication.
      * @param request The incoming post request data.
-     * @param kind The kind of request.
      */
-    function redeem(PostRequest calldata request, RequestKind kind) internal authenticate(request) {
+    function redeem(PostRequest calldata request) internal authenticate(request) {
         RequestBody memory body = abi.decode(request.body[1:], (RequestBody));
         address beneficiary = address(uint160(uint256(body.beneficiary)));
 
@@ -784,11 +846,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
 
         _filled[body.commitment] = beneficiary;
 
-        if (kind == RequestKind.RefundEscrow) {
-            emit EscrowRefunded({commitment: body.commitment});
-        } else {
-            emit EscrowReleased({commitment: body.commitment});
-        }
+        emit EscrowReleased({commitment: body.commitment});
     }
 
     /**

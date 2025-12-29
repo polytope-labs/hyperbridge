@@ -22,7 +22,7 @@ import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/apps/TokenGateway.so
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import "@hyperbridge/core/interfaces/IDispatcher.sol";
-import "../src/hosts/EvmHost.sol";
+import "../src/core/EvmHost.sol";
 import "@hyperbridge/core/libraries/Message.sol";
 
 contract EvmHostForkTest is MainnetForkBaseTest {

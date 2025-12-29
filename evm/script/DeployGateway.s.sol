@@ -4,11 +4,11 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {HyperFungibleTokenImpl} from "../src/apps/HyperFungibleTokenImpl.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
-import {TokenFaucet} from "../src/ismp/TokenFaucet.sol";
-import {CrossChainInscription} from "../src/apps/Inscriptions.sol";
-import {CallDispatcher} from "../src/apps/CallDispatcher.sol";
+import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
+import {CrossChainInscription} from "../src/utils/Inscriptions.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 

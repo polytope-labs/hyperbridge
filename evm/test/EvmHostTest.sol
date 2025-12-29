@@ -15,7 +15,7 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
-import "../src/hosts/EvmHost.sol";
+import "../src/core/EvmHost.sol";
 
 import {BaseTest} from "./BaseTest.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";

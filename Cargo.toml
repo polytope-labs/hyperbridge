@@ -134,7 +134,7 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
-polkadot-sdk = { version = "=2503.0.1", default-features = false }
+polkadot-sdk = { version = "=2503.2.0", default-features = false }
 
 # crates that can't be used in polkadot-sdk
 sp-core = { version = "36.1.0", default-features = false }
@@ -151,8 +151,8 @@ sp-api-proc-macro = "22.0.1"
 orml-xcm-support = { version = "=1.4.0", default-features = false }
 orml-traits = { version = "=1.4.0", default-features = false }
 orml-utilities = { version = "=1.4.0", default-features = false }
-sc-simnode = { version = "2503.0.0" }
-simnode-runtime-api = { version = "2503.0.0", default-features = false }
+sc-simnode = { version = "2503.1.0" }
+simnode-runtime-api = { version = "2503.1.0", default-features = false }
 sp-consensus-beefy = { version = "24.1.0" }
 sp-crypto-hashing = "0.1.0"
 
@@ -195,19 +195,19 @@ bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false
 # published crates
 ismp = { version = "1.2.0", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
-grandpa-verifier-primitives = { version = "2.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
-grandpa-verifier = { version = "2.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
-ismp-grandpa = { version = "2503.1.1", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2503.2.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "2503.1.0", path = "./modules/ismp/clients/parachain/inherent" }
-ismp-parachain-runtime-api = { version = "2503.1.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
-pallet-ismp = { version = "2503.1.0", path = "modules/pallets/ismp", default-features = false }
-pallet-ismp-rpc = { version = "2503.1.0", path = "modules/pallets/ismp/rpc" }
-pallet-ismp-runtime-api = { version = "2503.1.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "2503.1.0", path = "modules/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "2503.1.1", path = "modules/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "2503.1.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
-substrate-state-machine = { version = "2503.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+grandpa-verifier-primitives = { version = "2.2.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
+grandpa-verifier = { version = "2.2.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
+ismp-grandpa = { version = "2503.2.0", path = "./modules/ismp/clients/grandpa", default-features = false }
+ismp-parachain = { version = "2503.3.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "2503.2.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { version = "2503.2.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+pallet-ismp = { version = "2503.2.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp-rpc = { version = "2503.2.0", path = "modules/pallets/ismp/rpc" }
+pallet-ismp-runtime-api = { version = "2503.2.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
+pallet-hyperbridge = { version = "2503.2.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-token-gateway = { version = "2503.2.0", path = "modules/pallets/token-gateway", default-features = false }
+token-gateway-primitives = { version = "2503.2.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
+substrate-state-machine = { version = "2503.2.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }

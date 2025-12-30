@@ -1,6 +1,6 @@
 [package]
 name = "token-gateway-primitives"
-version = "2503.1.0"
+version = "2503.2.0"
 edition = "2021"
 description = "A collection of types used by token gateway"
 authors = ["Polytope Labs <hello@polytope.technology>"]

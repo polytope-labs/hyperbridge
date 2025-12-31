@@ -14,7 +14,7 @@ concurrency:
 
 env:
     CARGO_TERM_COLOR: always
-    FOUNDRY_PROFILE: ci
+    FOUNDRY_PROFILE: default
     BSC_URL: ${{ secrets.BSC_URL }}
     OP_URL: ${{ secrets.OP_URL }}
     SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}

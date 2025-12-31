@@ -72,7 +72,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000, // 100% to protocol, 0% to beneficiary (default)
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         intentGateway.setParams(intentParams);
 
@@ -501,7 +502,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 5000,
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         zeroFeeGateway.setParams(zeroFeeParams);
 
@@ -780,7 +782,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 5000, // 50% to protocol, 50% to beneficiary
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -857,7 +860,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 0, // 0% to protocol, 100% to beneficiary
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -919,7 +923,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000, // 100% to protocol, 0% to beneficiary
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -999,7 +1004,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 dispatcher: address(dispatcher),
                 solverSelection: false,
                 surplusShareBps: 5000,
-                protocolFeeBps: 0
+                protocolFeeBps: 0,
+            priceOracle: address(0)
             })
         );
 
@@ -1357,7 +1363,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: true,
             surplusShareBps: 10000,
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
@@ -1427,7 +1434,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: true,
             surplusShareBps: 10000,
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
@@ -2079,7 +2087,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(0x9ABC),
             solverSelection: true,
             surplusShareBps: 10000,
-            protocolFeeBps: 0
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
 
         DestinationFee[] memory emptyFees = new DestinationFee[](0);
@@ -2110,7 +2119,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "ParamsUpdated((address,address,bool,uint256,uint256),(address,address,bool,uint256,uint256))"
+                        "ParamsUpdated((address,address,bool,uint256,uint256,address),(address,address,bool,uint256,uint256,address))"
                     )
             ) {
                 eventFound = true;
@@ -2133,7 +2142,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 100
+            protocolFeeBps: 100,
+            priceOracle: address(0)
         });
 
         // Create destination fees
@@ -2173,7 +2183,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             if (
                 entries[i].topics[0]
                     == keccak256(
-                        "ParamsUpdated((address,address,bool,uint256,uint256),(address,address,bool,uint256,uint256))"
+                        "ParamsUpdated((address,address,bool,uint256,uint256,address),(address,address,bool,uint256,uint256,address))"
                     )
             ) {
                 paramsUpdatedFound = true;
@@ -2199,7 +2209,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 200
+            protocolFeeBps: 200,
+            priceOracle: address(0)
         });
 
         // Empty destination fees array
@@ -2247,7 +2258,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 100
+            protocolFeeBps: 100,
+            priceOracle: address(0)
         });
 
         bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
@@ -2286,7 +2298,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 100 // 1% default
+            protocolFeeBps: 100, // 1% default
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -2377,7 +2390,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 100 // 1% default
+            protocolFeeBps: 100, // 1% default
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -2572,7 +2586,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 100 // 1%
+            protocolFeeBps: 100, // 1%
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -2647,7 +2662,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Calculate storage slot for _orders[commitment][token]
         // _orders is at storage slot 8 (see forge inspect storage-layout)
         // For nested mappings: keccak256(abi.encode(innerKey, keccak256(abi.encode(outerKey, baseSlot))))
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(8)));
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
         bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
 
         // Verify escrow storage contains REDUCED amount (not full amount)
@@ -2697,7 +2712,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 1000 // 10%
+            protocolFeeBps: 1000, // 10%
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -2760,7 +2776,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
 
         // Calculate storage slot for _orders[commitment][token]
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(8)));
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
         bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
 
         // Verify escrow storage contains REDUCED amount
@@ -2776,7 +2792,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 0 // 0%
+            protocolFeeBps: 0, // 0%
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -2831,7 +2848,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 200 // 2%
+            protocolFeeBps: 200, // 2%
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -2907,7 +2925,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmounts));
 
         // Calculate storage slots for _orders[commitment][token]
-        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(8)));
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
         bytes32 usdcEscrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
         bytes32 daiEscrowSlot = keccak256(abi.encode(address(dai), commitmentSlot));
 
@@ -2927,7 +2945,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             dispatcher: address(dispatcher),
             solverSelection: false,
             surplusShareBps: 10000,
-            protocolFeeBps: 500 // 5%
+            protocolFeeBps: 500, // 5%
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 

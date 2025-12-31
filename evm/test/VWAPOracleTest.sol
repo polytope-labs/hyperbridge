@@ -117,10 +117,9 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(highDecToken));
-        // Should be normalized to 18 decimals: 1000 * 1e24 / 1e6 = 1000 * 1e18
-        assertEq(data.totalVolume, 1000 * 1e18, "High decimal token should normalize to 18 decimals");
-        assertEq(data.weightedSpreadSum, 0, "Equal amounts should have 0 spread");
+        int256 spread = oracle.spread(sourceChain, address(highDecToken));
+        // Equal amounts should have 0 spread (normalization is internal)
+        assertEq(spread, 0, "Equal amounts should have 0 spread");
     }
 
     // ==================== Spread Recording Tests ====================
@@ -145,9 +144,8 @@ contract VWAPOracleTest is Test {
         emit SpreadRecorded(commitment, address(dai), -50);
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
-        assertEq(data.fillCount, 1);
-        assertEq(data.totalVolume, 1000 * 1e18);
+        int256 spread = oracle.spread(sourceChain, address(dai));
+        assertEq(spread, -50);
     }
 
     function testNativeToken() public {
@@ -168,8 +166,8 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(0));
-        assertEq(data.fillCount, 1);
+        int256 spread = oracle.spread(sourceChain, address(0));
+        assertEq(spread, -50);
     }
 
     function testDifferentDecimals() public {
@@ -192,10 +190,8 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(usdc));
-        // Both normalized to 18 decimals = 1000e18
-        assertEq(data.totalVolume, 1000 * 1e18);
-        assertEq(data.weightedSpreadSum, 0); // No spread
+        int256 spread = oracle.spread(sourceChain, address(usdc));
+        assertEq(spread, 0); // No spread
     }
 
     function testRecordSpread_SkipsUnconfiguredSourceDecimals() public {
@@ -211,8 +207,8 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
-        assertEq(data.fillCount, 0, "Should skip tokens without configured decimals");
+        int256 spread = oracle.spread(sourceChain, address(dai));
+        assertEq(spread, 0, "Should return 0 for tokens without configured decimals");
     }
 
     function testMultipleFills() public {
@@ -234,9 +230,9 @@ contract VWAPOracleTest is Test {
         oracle.recordSpread(commitment1, sourceChain, inputs1, outputs1);
         oracle.recordSpread(commitment2, sourceChain, inputs2, outputs2);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
-        assertEq(data.fillCount, 2);
-        assertEq(data.totalVolume, 3000 * 1e18);
+        int256 spread = oracle.spread(sourceChain, address(dai));
+        // VWAP: (-50*1000 + 50*2000) / 3000 = 50000 / 3000 = 16.67 bps
+        assertEq(spread, 16);
     }
 
     function testMultipleTokens() public {
@@ -254,11 +250,11 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory dataDAI = oracle.spread(sourceChain, address(dai));
-        IIntentPriceOracle.CumulativeSpreadData memory dataUSDC = oracle.spread(sourceChain, address(usdc));
+        int256 spreadDAI = oracle.spread(sourceChain, address(dai));
+        int256 spreadUSDC = oracle.spread(sourceChain, address(usdc));
 
-        assertEq(dataDAI.fillCount, 1);
-        assertEq(dataUSDC.fillCount, 1);
+        assertEq(spreadDAI, -50);
+        assertEq(spreadUSDC, 50);
     }
 
     // ==================== VWAP Calculation Tests ====================
@@ -291,12 +287,9 @@ contract VWAPOracleTest is Test {
         outputs3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2991 * 1e18});
         oracle.recordSpread(commitment3, sourceChain, inputs3, outputs3);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
+        int256 vwap = oracle.spread(sourceChain, address(dai));
 
-        assertEq(data.fillCount, 3);
-        assertEq(data.totalVolume, 6000 * 1e18);
         // VWAP: (-50*1000 + 100*2000 - 30*3000) / 6000 = 10 bps
-        int256 vwap = data.weightedSpreadSum / int256(data.totalVolume);
         assertEq(vwap, 10);
     }
 
@@ -325,13 +318,10 @@ contract VWAPOracleTest is Test {
         outputs3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1003 * 1e18});
         oracle.recordSpread(keccak256("order3"), sourceChain, inputs3, outputs3);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
+        int256 vwap = oracle.spread(sourceChain, address(dai));
 
         // VWAP: (20*1000 + 50*2000 + 30*1000) / 4000 = 150000 / 4000 = 37.5 bps
-        int256 vwap = data.weightedSpreadSum / int256(data.totalVolume);
         assertEq(vwap, 37, "VWAP should be ~37 bps (rounded)");
-        assertEq(data.fillCount, 3);
-        assertEq(data.totalVolume, 4000 * 1e18);
     }
 
     function testVWAPWithAllNegativeSpreads() public {
@@ -352,10 +342,9 @@ contract VWAPOracleTest is Test {
         outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2985 * 1e18});
         oracle.recordSpread(keccak256("order2"), sourceChain, inputs2, outputs2);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
+        int256 vwap = oracle.spread(sourceChain, address(dai));
 
         // VWAP: (-100*1000 + -50*3000) / 4000 = -250000 / 4000 = -62.5 bps
-        int256 vwap = data.weightedSpreadSum / int256(data.totalVolume);
         assertEq(vwap, -62, "VWAP should be ~-62 bps (rounded)");
         assertTrue(vwap < 0, "VWAP should be negative");
     }
@@ -385,12 +374,10 @@ contract VWAPOracleTest is Test {
         outputs3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
         oracle.recordSpread(keccak256("order3"), sourceChain, inputs3, outputs3);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
+        int256 vwap = oracle.spread(sourceChain, address(dai));
 
         // VWAP: (0*1000 + 100*2000 + 0*1000) / 4000 = 200000 / 4000 = 50 bps
-        int256 vwap = data.weightedSpreadSum / int256(data.totalVolume);
         assertEq(vwap, 50, "VWAP should be 50 bps");
-        assertEq(data.fillCount, 3);
     }
 
     function testVWAPWithDifferentDecimals() public {
@@ -411,16 +398,10 @@ contract VWAPOracleTest is Test {
         outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1005 * 1e18});
         oracle.recordSpread(keccak256("order2"), sourceChain, inputs2, outputs2);
 
-        IIntentPriceOracle.CumulativeSpreadData memory dataUSDC = oracle.spread(sourceChain, address(usdc));
-        IIntentPriceOracle.CumulativeSpreadData memory dataDAI = oracle.spread(sourceChain, address(dai));
-
-        // Both should be normalized to 1000e18 volume
-        assertEq(dataUSDC.totalVolume, 1000 * 1e18, "USDC volume should normalize to 18 decimals");
-        assertEq(dataDAI.totalVolume, 1000 * 1e18, "DAI volume should be 18 decimals");
+        int256 vwapUSDC = oracle.spread(sourceChain, address(usdc));
+        int256 vwapDAI = oracle.spread(sourceChain, address(dai));
 
         // Verify spreads are tracked independently
-        int256 vwapUSDC = dataUSDC.weightedSpreadSum / int256(dataUSDC.totalVolume);
-        int256 vwapDAI = dataDAI.weightedSpreadSum / int256(dataDAI.totalVolume);
         assertEq(vwapUSDC, -50, "USDC VWAP should be -50 bps");
         assertEq(vwapDAI, 50, "DAI VWAP should be +50 bps");
     }
@@ -445,15 +426,12 @@ contract VWAPOracleTest is Test {
         outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 9890.1 * 1e18});
         oracle.recordSpread(keccak256("order2"), sourceChain, inputs2, outputs2);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
+        int256 vwap = oracle.spread(sourceChain, address(dai));
 
         // VWAP should be dominated by the large fill
         // VWAP: (500*100 + -10*9900) / 10000 = (50000 - 99000) / 10000 = -4.9 bps
-        int256 vwap = data.weightedSpreadSum / int256(data.totalVolume);
-
         // Despite small fill having +500 bps, VWAP is negative due to large volume at -10 bps
         assertTrue(vwap < 0, "VWAP should be negative despite one large positive spread");
-        assertEq(data.totalVolume, 10000 * 1e18);
     }
 
     function testVWAPWithExtremeVolumeDifferences() public {
@@ -474,15 +452,12 @@ contract VWAPOracleTest is Test {
         outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 999_000 * 1e18});
         oracle.recordSpread(keccak256("order2"), sourceChain, inputs2, outputs2);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
-
-        int256 vwap = data.weightedSpreadSum / int256(data.totalVolume);
+        int256 vwap = oracle.spread(sourceChain, address(dai));
 
         // VWAP: (1000*1 + -10*1000000) / 1000001 = (1000 - 10000000) / 1000001 ≈ -9.99 bps
         // Tiny fill's huge spread (+1000 bps) is negligible compared to large volume at -10 bps
         assertTrue(vwap < 0, "VWAP should be dominated by large volume fill");
         assertEq(vwap, -9, "VWAP should be approximately -10 bps");
-        assertEq(data.fillCount, 2);
     }
 
     function testVWAPSingleLargeFillVsManySmallFills() public {
@@ -496,8 +471,7 @@ contract VWAPOracleTest is Test {
         outputs1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 9950 * 1e18});
         oracle.recordSpread(keccak256("large"), sourceChain, inputs1, outputs1);
 
-        IIntentPriceOracle.CumulativeSpreadData memory dataSingle = oracle.spread(sourceChain, address(dai));
-        int256 vwapSingle = dataSingle.weightedSpreadSum / int256(dataSingle.totalVolume);
+        int256 vwapSingle = oracle.spread(sourceChain, address(dai));
 
         // Part 2: Many small fills (use USDC to track separately)
         for (uint256 i = 0; i < 10; i++) {
@@ -508,14 +482,11 @@ contract VWAPOracleTest is Test {
             oracle.recordSpread(keccak256(abi.encodePacked("small", i)), sourceChain, inputs, outputs);
         }
 
-        IIntentPriceOracle.CumulativeSpreadData memory dataMany = oracle.spread(sourceChain, address(usdc));
-        int256 vwapMany = dataMany.weightedSpreadSum / int256(dataMany.totalVolume);
+        int256 vwapMany = oracle.spread(sourceChain, address(usdc));
 
         // Both should have same VWAP since spread and total volume are identical
         assertEq(vwapSingle, vwapMany, "VWAP should be identical regardless of fill count");
         assertEq(vwapSingle, -50, "Both should have -50 bps VWAP");
-        assertEq(dataSingle.fillCount, 1);
-        assertEq(dataMany.fillCount, 10);
     }
 
     // ==================== Governance Tests ====================
@@ -601,8 +572,8 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
-        assertEq(data.weightedSpreadSum, 10000 * int256(1000 * 1e18));
+        int256 spread = oracle.spread(sourceChain, address(dai));
+        assertEq(spread, 10000);
     }
 
     function testMinSpread() public {
@@ -617,8 +588,8 @@ contract VWAPOracleTest is Test {
 
         oracle.recordSpread(commitment, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data = oracle.spread(sourceChain, address(dai));
-        assertEq(data.weightedSpreadSum, -10000 * int256(1000 * 1e18));
+        int256 spread = oracle.spread(sourceChain, address(dai));
+        assertEq(spread, -10000);
     }
 
     function testTimestampUpdates() public {
@@ -630,20 +601,19 @@ contract VWAPOracleTest is Test {
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
         outputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 995 * 1e18});
 
-        uint256 timestamp1 = block.timestamp;
         oracle.recordSpread(commitment1, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data1 = oracle.spread(sourceChain, address(dai));
-        assertEq(data1.lastUpdate, timestamp1);
+        int256 spread1 = oracle.spread(sourceChain, address(dai));
+        assertEq(spread1, -50);
 
         vm.warp(block.timestamp + 1000);
 
         bytes32 commitment2 = keccak256("order2");
         oracle.recordSpread(commitment2, sourceChain, inputs, outputs);
 
-        IIntentPriceOracle.CumulativeSpreadData memory data2 = oracle.spread(sourceChain, address(dai));
-        assertEq(data2.lastUpdate, timestamp1 + 1000);
-        assertGt(data2.lastUpdate, data1.lastUpdate);
+        int256 spread2 = oracle.spread(sourceChain, address(dai));
+        // After second fill with same spread, VWAP remains the same
+        assertEq(spread2, -50);
     }
 
     // ==================== Helper Functions ====================

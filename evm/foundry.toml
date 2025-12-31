@@ -9,6 +9,8 @@ evm_version = "cancun"
 via-ir = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 
+[profile.ci]
+
 [lint]
 lint_on_build = false
 

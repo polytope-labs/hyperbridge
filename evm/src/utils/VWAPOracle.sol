@@ -38,6 +38,20 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp {
     }
 
     /**
+     * @notice Struct to track cumulative spread data for weighted average calculation
+     */
+    struct CumulativeSpreadData {
+        /// @dev Sum of (spread * volume) for all fills
+        int256 weightedSpreadSum;
+        /// @dev Total volume in normalized token units (18 decimals)
+        uint256 totalVolume;
+        /// @dev Number of fills
+        uint256 fillCount;
+        /// @dev Last update timestamp
+        uint256 lastUpdate;
+    }
+
+    /**
      * @dev Struct for a single token decimal configuration
      */
     struct TokenDecimal {
@@ -111,9 +125,12 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp {
     /**
      * @inheritdoc IIntentPriceOracle
      */
-    function spread(bytes memory sourceChain, address token) external view returns (CumulativeSpreadData memory data) {
+    function spread(bytes memory sourceChain, address token) external view returns (int256) {
         bytes32 chainHash = keccak256(sourceChain);
-        return _tokenSpreads[chainHash][token];
+        CumulativeSpreadData memory data = _tokenSpreads[chainHash][token];
+        if (data.totalVolume == 0) return 0;
+
+        return data.weightedSpreadSum / int256(data.totalVolume);
     }
 
     /**

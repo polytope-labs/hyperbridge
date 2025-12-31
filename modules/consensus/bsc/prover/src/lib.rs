@@ -175,12 +175,9 @@ impl<C: Config> BscPosProver<C> {
 // occurs Validator set change happens at
 // block%EPOCH_LENGTH == validator_size / 2
 pub fn get_rotation_block(mut block: u64, validator_size: u64, epoch_length: u64) -> u64 {
-	loop {
-		if block % epoch_length == (validator_size / 2) {
-			break;
-		}
-		block += 1
-	}
+	let target = validator_size / 2;
+	let remainder = block % epoch_length;
+	let distance = (target + epoch_length - remainder) % epoch_length;
 
-	block
+	block + distance
 }

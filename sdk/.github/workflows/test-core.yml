@@ -19,7 +19,7 @@ concurrency:
     cancel-in-progress: true
 
 env:
-    FOUNDRY_PROFILE: ci
+    FOUNDRY_PROFILE: default
 
 jobs:
     compile:

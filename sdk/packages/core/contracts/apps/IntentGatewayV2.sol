@@ -102,6 +102,8 @@ struct Params {
     /// @dev The protocol fee in basis points charged on order inputs.
     /// 10000 = 100%, 100 = 1%, etc.
     uint256 protocolFeeBps;
+    /// @dev The address of the price oracle contract.
+    address priceOracle;
 }
 
 /**

@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.5.1
+
+### Patch Changes
+
+- Fix Hyperbridge delivery method
+
 ## 1.4.10
 
 ### Patch Changes

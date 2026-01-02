@@ -1896,6 +1896,8 @@ export class IndexerClient {
 
 		const { stateMachineId, consensusStateId } = this.config.source.config
 
+		const consensusStateIdToHex = toHex(consensusStateId)
+
 		// check if request receipt exists on source chain
 		const sourceChain = this.config.source
 		const hyperbridge = this.config.hyperbridge as SubstrateChain
@@ -1907,7 +1909,7 @@ export class IndexerClient {
 		logger.trace("Fetch latest stateMachineHeight")
 		const latestStateMachineHeight = await hyperbridge.latestStateMachineHeight({
 			stateId: parseStateMachineId(stateMachineId).stateId,
-			consensusStateId: consensusStateId as HexString,
+			consensusStateId: consensusStateIdToHex as HexString,
 		})
 
 		logger.trace("Query Request Proof from sourceChain")

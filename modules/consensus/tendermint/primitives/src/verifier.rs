@@ -335,6 +335,8 @@ pub enum CodecPublicKey {
 	Ed25519(Vec<u8>),
 	/// Secp256k1 keys
 	Secp256k1(Vec<u8>),
+	/// BLS12-381 keys (for BeaconKit/Berachain)
+	Bls12_381(Vec<u8>),
 }
 
 impl AsRef<CodecConsensusProof> for CodecConsensusProof {
@@ -563,6 +565,8 @@ impl CodecPublicKey {
 			CodecPublicKey::Secp256k1(key_bytes) =>
 				cometbft::public_key::PublicKey::from_raw_secp256k1(key_bytes)
 					.ok_or_else(|| format!("Invalid Secp256k1 public key")),
+			CodecPublicKey::Bls12_381(key_bytes) =>
+				Ok(cometbft::public_key::PublicKey::Bls12_381(key_bytes.clone())),
 		}
 	}
 }
@@ -657,6 +661,22 @@ impl From<&crate::CommitSig> for CodecCommitSig {
 					timestamp: timestamp.to_rfc3339(),
 					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
 				},
+			// BLS aggregated commit signatures - convert to regular commit for Codec representation
+			crate::CommitSig::BlockIdFlagAggCommit { validator_address, timestamp, signature } |
+			crate::CommitSig::BlockIdFlagAggCommitAbsent { validator_address, timestamp, signature } =>
+				CodecCommitSig::BlockIdFlagCommit {
+					validator_address: validator_address.as_bytes().to_vec(),
+					timestamp: timestamp.to_rfc3339(),
+					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
+				},
+			// BLS aggregated nil signatures - convert to regular nil for Codec representation
+			crate::CommitSig::BlockIdFlagAggNil { validator_address, timestamp, signature } |
+			crate::CommitSig::BlockIdFlagAggNilAbsent { validator_address, timestamp, signature } =>
+				CodecCommitSig::BlockIdFlagNil {
+					validator_address: validator_address.as_bytes().to_vec(),
+					timestamp: timestamp.to_rfc3339(),
+					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
+				},
 		}
 	}
 }
@@ -681,7 +701,10 @@ impl From<&cometbft::public_key::PublicKey> for CodecPublicKey {
 				let key_bytes = key.to_encoded_point(false);
 				CodecPublicKey::Secp256k1(key_bytes.as_bytes().to_vec())
 			},
-			_ => CodecPublicKey::Ed25519(pub_key.to_bytes().to_vec()),
+			cometbft::public_key::PublicKey::Bls12_381(key) =>
+				CodecPublicKey::Bls12_381(key.clone()),
+			// Handle any future key types as Ed25519 with raw bytes
+			_ => CodecPublicKey::Ed25519(pub_key.clone().to_bytes()),
 		}
 	}
 }

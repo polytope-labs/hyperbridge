@@ -2245,37 +2245,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "beacon-kit-prover"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "beacon-kit-verifier",
- "primitive-types 0.13.1",
- "reqwest 0.11.27",
- "serde",
- "ssz-rs",
- "sync-committee-primitives",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "beacon-kit-verifier"
-version = "0.1.1"
-dependencies = [
- "bls_on_arkworks",
- "hex-literal 0.4.1",
- "log",
- "parity-scale-codec",
- "primitive-types 0.13.1",
- "ssz-rs",
- "sync-committee-primitives",
- "sync-committee-verifier",
- "thiserror 2.0.12",
-]
-
-[[package]]
 name = "bech32"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3667,8 +3636,9 @@ dependencies = [
 [[package]]
 name = "cometbft"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
 dependencies = [
+ "blst",
  "bytes",
  "cometbft-proto",
  "digest 0.10.7",
@@ -3696,7 +3666,7 @@ dependencies = [
 [[package]]
 name = "cometbft-config"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
 dependencies = [
  "cometbft",
  "flex-error",
@@ -3709,11 +3679,16 @@ dependencies = [
 [[package]]
 name = "cometbft-light-client-verifier"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
 dependencies = [
+ "base64 0.22.1",
+ "blst",
  "cometbft",
+ "cometbft-proto",
  "derive_more 0.99.20",
  "flex-error",
+ "hex",
+ "prost 0.13.5",
  "serde",
  "time",
 ]
@@ -3721,7 +3696,7 @@ dependencies = [
 [[package]]
 name = "cometbft-proto"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
 dependencies = [
  "bytes",
  "flex-error",
@@ -3735,7 +3710,7 @@ dependencies = [
 [[package]]
 name = "cometbft-rpc"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/cometbft/cometbft-rs?rev=ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d#ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
 dependencies = [
  "async-trait",
  "bytes",
@@ -10689,6 +10664,28 @@ dependencies = [
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "scale-info",
+]
+
+[[package]]
+name = "ismp-beacon-kit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "evm-state-machine",
+ "geth-primitives",
+ "ismp",
+ "log",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sha2 0.10.9",
+ "sp-io 41.0.1",
+ "ssz-rs",
+ "sync-committee-primitives",
+ "tendermint-primitives",
+ "tendermint-verifier",
 ]
 
 [[package]]
@@ -28342,6 +28339,7 @@ dependencies = [
  "ibc",
  "ics23",
  "ismp",
+ "ismp-beacon-kit",
  "ismp-polygon",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -28350,6 +28348,7 @@ dependencies = [
  "reqwest 0.11.27",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tendermint-verifier",

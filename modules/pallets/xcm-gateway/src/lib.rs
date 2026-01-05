@@ -124,7 +124,7 @@ pub mod pallet {
 		/// Pallet has not been initialized
 		NotInitialized,
 		/// No protocol fees
-		ProtocolFeeBalanceExhausted
+		ProtocolFeeBalanceExhausted,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -242,21 +242,24 @@ pub mod pallet {
 		#[pallet::call_index(1)]
 		pub fn withdraw_protocol_fees(
 			origin: OriginFor<T>,
-			beneficiary: T::AccountId
+			beneficiary: T::AccountId,
 		) -> DispatchResult {
 			T::GatewayOrigin::ensure_origin(origin)?;
 			let asset_id = Location::parent();
 
 			let local_asset_id = sp_io::hashing::keccak_256(&asset_id.encode());
-			let balance = <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::balance(local_asset_id.into(), &Self::protocol_account_id());
+			let balance = <<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::balance(
+				local_asset_id.into(),
+				&Self::protocol_account_id(),
+			);
 
 			if u128::from(balance) <= 0 {
-			  Err(Error::<T>::ProtocolFeeBalanceExhausted)?
+				Err(Error::<T>::ProtocolFeeBalanceExhausted)?
 			}
 
 			// Send the dot back to assethub using xcm
 			let xcm_beneficiary: Location =
-				Junction::AccountId32 { network: None, id: beneficiary.into() }.into();
+				Junction::AccountId32 { network: None, id: beneficiary.clone().into() }.into();
 
 			let xcm_dest = VersionedLocation::V5(Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]));
 			let weight_limit = WeightLimit::Unlimited;
@@ -281,6 +284,8 @@ pub mod pallet {
 				Box::new(VersionedXcm::from(custom_xcm_on_dest)),
 				weight_limit,
 			)?;
+
+			Self::deposit_event(Event::<T>::ProtocolFeesWithdrawn { beneficiary, amount: balance });
 
 			Ok(())
 		}

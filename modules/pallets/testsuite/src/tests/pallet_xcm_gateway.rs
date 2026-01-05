@@ -22,10 +22,8 @@ use pallet_xcm_gateway::Module;
 use polkadot_sdk::{
 	sp_runtime::traits::AccountIdConversion,
 	xcm_simulator::{
-		All, AllCounted, Asset, AssetFilter, AssetId, BuyExecution, DepositAsset, Fungibility,
-		GeneralIndex, Here, InitiateTransfer, PalletInstance, ParaId, Parachain, Parent,
-		Reanchorable, SetFeesMode, TransferAsset, TransferReserveAsset, VersionedXcm, Weight, Wild,
-		Xcm,
+		All, Asset, AssetId, BuyExecution, DepositAsset, Fungibility, Here, ParaId, Parachain,
+		SetFeesMode, TransferReserveAsset, VersionedXcm, Weight, Wild, Xcm,
 	},
 };
 use sp_core::{ByteArray, H160, H256};
@@ -46,7 +44,6 @@ fn reserve_transfer_on_ah() {
 		Junction::GeneralIndex(1),
 	]))
 	.into_location();
-	let weight_limit = WeightLimit::Unlimited;
 
 	let asset_location_on_assethub = Location::new(1, Here);
 
@@ -83,8 +80,6 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 	let asset_id_on_paraa: H256 =
 		sp_io::hashing::keccak_256(&Location::new(1, Here).encode()).into();
 
-	let asset_location_on_assethub = Location::new(1, Here);
-
 	reserve_transfer_on_ah();
 
 	ParaA::execute_with(|| {
@@ -118,18 +113,6 @@ fn should_dispatch_ismp_request_when_assets_are_received_from_assethub() {
 #[test]
 fn should_process_on_accept_module_callback_correctly() {
 	MockNet::reset();
-
-	let beneficiary: Location = Junctions::X4(Arc::new([
-		Junction::AccountId32 { network: None, id: ALICE.into() },
-		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 97 }),
-			key: [1u8; 20],
-		},
-		Junction::GeneralIndex(60 * 60),
-		Junction::GeneralIndex(1),
-	]))
-	.into_location();
-	let weight_limit = WeightLimit::Unlimited;
 
 	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::new(1, Here).encode()).into();
 
@@ -224,18 +207,6 @@ fn should_process_on_timeout_module_callback_correctly() {
 
 	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::new(1, Here).encode()).into();
 
-	let beneficiary: Location = Junctions::X4(Arc::new([
-		Junction::AccountId32 { network: None, id: ALICE.into() },
-		Junction::AccountKey20 {
-			network: Some(NetworkId::Ethereum { chain_id: 97 }),
-			key: [0u8; 20],
-		},
-		Junction::GeneralIndex(60 * 60),
-		Junction::GeneralIndex(1),
-	]))
-	.into_location();
-	let weight_limit = WeightLimit::Unlimited;
-
 	reserve_transfer_on_ah();
 
 	let alice_balance = ParaB::execute_with(|| {
@@ -320,4 +291,42 @@ fn should_process_on_timeout_module_callback_correctly() {
 		let current_balance = crate::asset_hub_runtime::Assets::balance(asset_id, &ALICE);
 		assert_eq!(current_balance, alice_balance + transferred);
 	})
+}
+
+#[test]
+fn should_withdraw_protocol_fees_successfully() {
+	MockNet::reset();
+
+	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::new(1, Here).encode()).into();
+
+	// First, trigger a reserve transfer to accumulate protocol fees
+	reserve_transfer_on_ah();
+
+	ParaA::execute_with(|| {
+		let protocol_account = pallet_xcm_gateway::Pallet::<Test>::protocol_account_id();
+
+		// Verify protocol fees have accumulated
+		let protocol_balance_before = <runtime::Assets as Inspect<
+			<Test as frame_system::Config>::AccountId,
+		>>::balance(asset_id, &protocol_account);
+
+		let protocol_fee_percentage = pallet_xcm_gateway::Pallet::<Test>::protocol_fee_percentage();
+		let expected_protocol_fees = protocol_fee_percentage * SEND_AMOUNT;
+
+		assert_eq!(protocol_balance_before, expected_protocol_fees);
+		assert!(protocol_balance_before > 0, "Protocol fees should have accumulated");
+
+		// Withdraw protocol fees to BOB as beneficiary
+		assert_ok!(pallet_xcm_gateway::Pallet::<Test>::withdraw_protocol_fees(
+			frame_system::RawOrigin::Root.into(),
+			BOB
+		));
+
+		// Verify protocol account balance is now zero (all fees withdrawn)
+		let protocol_balance_after = <runtime::Assets as Inspect<
+			<Test as frame_system::Config>::AccountId,
+		>>::balance(asset_id, &protocol_account);
+
+		assert_eq!(protocol_balance_after, 0, "Protocol account should be empty after withdrawal");
+	});
 }

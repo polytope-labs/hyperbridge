@@ -15424,6 +15424,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-intents-coprocessor"
+version = "2506.2.0"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "alloy-sol-macro 0.7.7",
+ "alloy-sol-types 0.7.7",
+ "anyhow",
+ "ismp",
+ "ismp-testsuite",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-io 41.0.1",
+]
+
+[[package]]
 name = "pallet-ismp"
 version = "2506.1.0"
 dependencies = [

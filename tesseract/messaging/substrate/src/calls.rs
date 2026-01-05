@@ -16,7 +16,7 @@ use pallet_ismp::{child_trie::CHILD_TRIE_PREFIX, offchain::LeafIndexAndPos};
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
-	withdrawal::{Key, WithdrawalInputData, WithdrawalProof},
+	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use polkadot_sdk::sp_core::Pair;
@@ -36,7 +36,6 @@ use subxt::{
 	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
-use pallet_ismp_relayer::withdrawal::Signature;
 use subxt_utils::{
 	relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic,
 	values::{
@@ -324,7 +323,6 @@ where
 	<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 	H256: From<HashFor<C>>,
 {
-
 	let input_data = WithdrawalInputData { signature, dest_chain: chain, beneficiary };
 
 	let tx = subxt::dynamic::tx(

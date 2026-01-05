@@ -25,6 +25,7 @@ members = [
     "modules/pallets/token-gateway/primitives",
     "modules/pallets/token-gateway-inspector",
     "modules/pallets/hyperbridge",
+    "modules/pallets/intents-coprocessor",
     "modules/pallets/state-coprocessor",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",

@@ -297,16 +297,18 @@ impl Display for StateMachine {
 			},
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
+			// Invalid byte sequence will result in a default state machine id rendering the request
+			// invalid and undeliverable
 			StateMachine::Substrate(id) => {
 				format!(
 					"SUBSTRATE-{}",
-					String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
+					String::from_utf8(id.to_vec()).unwrap_or("XXXX".to_string())
 				)
 			},
-			StateMachine::Tendermint(id) => format!(
-				"TNDRMINT-{}",
-				String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
-			),
+			// Invalid byte sequence will result in a default state machine id rendering the request
+			// invalid and undeliverable
+			StateMachine::Tendermint(id) =>
+				format!("TNDRMINT-{}", String::from_utf8(id.to_vec()).unwrap_or("XXXX".to_string()))
 		};
 		write!(f, "{}", str)
 	}
@@ -382,5 +384,19 @@ mod tests {
 
 		assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
 		assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
+	}
+
+	#[test]
+	fn invalid_state_machine_conversions() {
+		let grandpa = StateMachine::Substrate(*b"\xf0\x28\x8c\xbc");
+		let beefy = StateMachine::Tendermint(*b"\xf0\x28\x8c\xbc");
+
+		let grandpa_string = grandpa.to_string();
+		let beefy_string = beefy.to_string();
+		dbg!(&grandpa_string);
+		dbg!(&beefy_string);
+
+		assert_eq!(grandpa_string, "SUBSTRATE-XXXX".to_string());
+		assert_eq!(beefy_string, "TNDRMINT-XXXX".to_string());
 	}
 }

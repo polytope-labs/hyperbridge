@@ -193,7 +193,7 @@ ark-ec = { version = "0.4.2", default-features = false }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
 
 # published crates
-ismp = { version = "1.2.0", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "1.2.1", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
 grandpa-verifier-primitives = { version = "2.2.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
 grandpa-verifier = { version = "2.2.0", path = "./modules/consensus/grandpa/verifier", default-features = false }

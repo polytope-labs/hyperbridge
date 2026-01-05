@@ -115,6 +115,7 @@ members = [
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
+    "tesseract/consensus/beaconkit",
 
 
     # Airdrop
@@ -325,6 +326,7 @@ tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
+tesseract-beaconkit = { path = "tesseract/consensus/beaconkit" }
 
 
 [workspace.dependencies.codec]

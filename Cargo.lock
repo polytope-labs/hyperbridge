@@ -28339,7 +28339,6 @@ dependencies = [
  "ibc",
  "ics23",
  "ismp",
- "ismp-beacon-kit",
  "ismp-polygon",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -28348,7 +28347,6 @@ dependencies = [
  "reqwest 0.11.27",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tendermint-ics23-primitives",
  "tendermint-primitives",
  "tendermint-verifier",
@@ -28450,6 +28448,33 @@ dependencies = [
  "tracing-indicatif",
  "tracing-subscriber",
  "transaction-fees",
+]
+
+[[package]]
+name = "tesseract-beaconkit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.21.7",
+ "cometbft",
+ "cometbft-rpc",
+ "ethers",
+ "geth-primitives",
+ "ismp",
+ "ismp-beacon-kit",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tendermint-primitives",
+ "tendermint-prover",
+ "tendermint-verifier",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

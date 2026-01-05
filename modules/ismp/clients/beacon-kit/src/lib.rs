@@ -226,10 +226,10 @@ fn compute_root_from_aunts(
 	let split = get_split_point(total);
 
 	let (new_index, new_total, aunt_hash) = if index < split {
-		// left side
+		// left side/branch
 		(index, split, aunts.last().ok_or_else(|| Error::Custom("Missing aunt".to_string()))?)
 	} else {
-		// right side
+		// right side/branch
 		(index - split, total - split, aunts.last().ok_or_else(|| Error::Custom("Missing aunt".to_string()))?)
 	};
 
@@ -251,8 +251,16 @@ fn compute_root_from_aunts(
 	Ok(parent_hash)
 }
 
+/// Compute leaf hash: sha256(0x00 || data)
+pub fn leaf_hash(data: &[u8]) -> [u8; 32] {
+	let mut hasher = Sha256::new();
+	hasher.update([0x00]);
+	hasher.update(data);
+	hasher.finalize().into()
+}
+
 /// Compute inner node hash: sha256(0x01 || left || right)
-fn inner_hash(left: &[u8], right: &[u8]) -> [u8; 32] {
+pub fn inner_hash(left: &[u8], right: &[u8]) -> [u8; 32] {
 	let mut hasher = Sha256::new();
 	hasher.update([0x01]);
 	hasher.update(left);
@@ -262,12 +270,87 @@ fn inner_hash(left: &[u8], right: &[u8]) -> [u8; 32] {
 
 /// Get the split point for merkle tree construction.
 /// Returns the largest power of 2 less than n.
-fn get_split_point(n: u64) -> u64 {
+pub fn get_split_point(n: u64) -> u64 {
 	if n < 1 {
 		panic!("n must be >= 1");
 	}
 	let bit_len = 64 - n.leading_zeros();
 	1u64 << (bit_len - 1)
+}
+
+/// Compute the merkle root from a list of leaf hashes
+pub fn compute_merkle_root(hashes: &[[u8; 32]]) -> [u8; 32] {
+	match hashes.len() {
+		0 => {
+			// empty tree
+			let hasher = Sha256::new();
+			hasher.finalize().into()
+		},
+		1 => hashes[0],
+		n => {
+			let split = get_split_point(n as u64) as usize;
+			let left = compute_merkle_root(&hashes[..split]);
+			let right = compute_merkle_root(&hashes[split..]);
+			inner_hash(&left, &right)
+		},
+	}
+}
+
+/// Compute the merkle proof (aunts) for a leaf at a given index
+fn compute_proof(hashes: &[[u8; 32]], index: usize) -> Vec<[u8; 32]> {
+	if hashes.len() <= 1 {
+		return vec![];
+	}
+
+	let split = get_split_point(hashes.len() as u64) as usize;
+
+	if index < split {
+		// left side/branch
+		let mut proof = compute_proof(&hashes[..split], index);
+		// Add right subtree root as aunt/sibling
+		let right_root = compute_merkle_root(&hashes[split..]);
+		proof.push(right_root);
+		proof
+	} else {
+		// right side/branch
+		let mut proof = compute_proof(&hashes[split..], index - split);
+		// Add left subtree root as aunt/sibling
+		let left_root = compute_merkle_root(&hashes[..split]);
+		proof.push(left_root);
+		proof
+	}
+}
+
+/// Generate a merkle proof for a transaction at a given index.
+///
+/// CometBFT uses a simple merkle tree where:
+/// - Leaf hash = sha256(0x00 || tx_data)
+/// - Inner hash = sha256(0x01 || left || right)
+///
+/// Returns the aunt hashes (sibling hashes) from leaf to root.
+pub fn generate_tx_merkle_proof(
+	txs: &[Vec<u8>],
+	tx_index: usize,
+) -> Result<Vec<H256>, Error> {
+	if txs.is_empty() {
+		return Err(Error::Custom("No transactions in block".to_string()));
+	}
+
+	if tx_index >= txs.len() {
+		return Err(Error::Custom(format!(
+			"Transaction index {} out of bounds (total: {})",
+			tx_index,
+			txs.len()
+		)));
+	}
+
+	// Compute leaf hashes for all transactions
+	let leaf_hashes: Vec<[u8; 32]> = txs.iter().map(|tx| leaf_hash(tx)).collect();
+
+	// Generate the proof (aunts/siblings)
+	let aunts = compute_proof(&leaf_hashes, tx_index);
+
+	Ok(aunts.into_iter().map(H256::from).collect())
 }
 
 /// BeaconKit consensus client implementation

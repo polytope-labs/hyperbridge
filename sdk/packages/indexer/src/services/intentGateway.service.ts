@@ -1,7 +1,8 @@
 import Decimal from "decimal.js"
 import { ethers } from "ethers"
 import type { Hex } from "viem"
-import { hexToBytes, bytesToHex, keccak256, encodeAbiParameters } from "viem"
+import { keccak256, encodeAbiParameters } from "viem"
+import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 
 import { OrderStatus, OrderStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
@@ -202,7 +203,7 @@ export class IntentGatewayService {
 	): Promise<{ total: string; values: string[] }> {
 		const valuesUSD = await Promise.all(
 			tokens.map(async (token) => {
-				const tokenAddress = this.bytes32ToBytes20(token.token)
+				const tokenAddress = bytes32ToBytes20(token.token)
 				let decimals = 18
 				let symbol = "eth"
 
@@ -349,16 +350,6 @@ export class IntentGatewayService {
 		})
 
 		await orderStatusMetadata.save()
-	}
-
-	static bytes32ToBytes20(bytes32: string): string {
-		if (bytes32.length === 42) {
-			return bytes32
-		}
-
-		const bytes = hexToBytes(bytes32 as Hex)
-		const addressBytes = bytes.slice(12)
-		return bytesToHex(addressBytes) as Hex
 	}
 
 	static computeOrderCommitment(order: Order): string {

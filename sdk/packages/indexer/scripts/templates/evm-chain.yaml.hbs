@@ -64,6 +64,49 @@ dataSources:
             topics:
               - 'EscrowRefunded(bytes32)'
   {{/if}}
+  {{#if config.contracts.intentGatewayV2}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: intentGatewayV2
+      address: '{{config.contracts.intentGatewayV2}}'
+    assets:
+      intentGatewayV2:
+        file: ./abis/IntentGatewayV2.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleOrderPlacedEventV2
+          filter:
+            topics:
+              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
+        - kind: ethereum/LogHandler
+          handler: handleOrderFilledEventV2
+          filter:
+            topics:
+              - 'OrderFilled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowReleasedEventV2
+          filter:
+            topics:
+              - 'EscrowReleased(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowRefundedEventV2
+          filter:
+            topics:
+              - 'EscrowRefunded(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleDustCollectedEventV2
+          filter:
+            topics:
+              - 'DustCollected(address,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handleDustSweptEventV2
+          filter:
+            topics:
+              - 'DustSwept(address,uint256,address)'
+  {{/if}}
   {{#if config.contracts.tokenGateway}}
   - kind: ethereum/Runtime
     startBlock: {{blockNumber}}

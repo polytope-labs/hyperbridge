@@ -4,6 +4,7 @@ import { OrderPlacedLog } from "@/configs/src/types/abi-interfaces/IntentGateway
 import { DEFAULT_REFERRER, IntentGatewayService, Order } from "@/services/intentGateway.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
 import { Interface } from "@ethersproject/abi"
@@ -74,15 +75,11 @@ export const handleOrderPlacedEvent = wrap(async (event: OrderPlacedLog): Promis
 
 	logger.info(`Order Commitment: ${commitment}`)
 
-	await IntentGatewayService.getOrCreateOrder(
-		{ ...order, user: IntentGatewayService.bytes32ToBytes20(order.user) as Hex },
-		graffiti,
-		{
-			transactionHash,
-			blockNumber,
-			timestamp,
-		},
-	)
+	await IntentGatewayService.getOrCreateOrder({ ...order, user: bytes32ToBytes20(order.user) as Hex }, graffiti, {
+		transactionHash,
+		blockNumber,
+		timestamp,
+	})
 
 	await IntentGatewayService.updateOrderStatus(commitment, OrderStatus.PLACED, {
 		transactionHash,

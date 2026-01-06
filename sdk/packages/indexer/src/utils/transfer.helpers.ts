@@ -1,4 +1,6 @@
 import { EthereumResult, EthereumLog } from "@subql/types-ethereum"
+import { bytesToHex, hexToBytes, pad } from "viem"
+import type { Hex } from "viem"
 
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
 import type { PriceResponse } from "./price.helpers"
@@ -55,4 +57,34 @@ export function extractAddressFromTopic(topic: string): string {
 		return ("0x" + topic.slice(26)).toLowerCase()
 	}
 	return topic.toLowerCase()
+}
+
+/**
+ * bytes20ToBytes32 converts a bytes20 address to bytes32 format by padding with zeros
+ * Ensures all addresses are stored uniformly as 32 bytes
+ */
+export function bytes20ToBytes32(bytes20: string): string {
+	// If already 32 bytes (66 chars with 0x), return as-is
+	if (bytes20.length === 66) {
+		return bytes20
+	}
+
+	// If 20 bytes (42 chars with 0x), pad to 32 bytes
+	if (bytes20.length === 42) {
+		return pad(bytes20 as Hex, { size: 32 }) as string
+	}
+
+	// If it's already 32 bytes but without proper format, ensure it's padded
+	const cleaned = bytes20.startsWith("0x") ? bytes20 : `0x${bytes20}`
+	return pad(cleaned as Hex, { size: 32 }).toLowerCase() as Hex
+}
+
+export function bytes32ToBytes20(bytes32: string): string {
+	if (bytes32.length === 42) {
+		return bytes32
+	}
+
+	const bytes = hexToBytes(bytes32 as Hex)
+	const addressBytes = bytes.slice(12)
+	return bytesToHex(addressBytes).toLowerCase() as Hex
 }

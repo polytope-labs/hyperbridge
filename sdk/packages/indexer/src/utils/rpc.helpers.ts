@@ -45,6 +45,27 @@ interface ETHGetBlockByHashResponse {
 	}
 }
 
+interface CallTracerCall {
+	from: string
+	to: string
+	gas: string
+	gasUsed: string
+	input: string
+	output?: string
+	value?: string
+	type: string
+	calls?: CallTracerCall[]
+}
+
+interface DebugTraceTransactionResponse {
+	jsonrpc: "2.0"
+	id: 1
+	error?: {
+		message: string
+	}
+	result: CallTracerCall
+}
+
 /**
  * Get EVM Block Timestamp is a function that retrieves the timestamp of a block given its hash and chain.
  * @param blockHash The hash of the block
@@ -82,6 +103,97 @@ export async function getEvmBlockTimestamp(blockHash: string, chain: string): Pr
 	}
 
 	return BigInt(block.result.timestamp)
+}
+
+/**
+ * Recursively searches through call tracer response to find a call matching the target contract address.
+ * Only searches in nested calls, not the top-level call.
+ * @param call The call object to search
+ * @param targetContractAddress The target contract address to find
+ * @returns The input (calldata) if found, null otherwise
+ */
+function findCallInputByAddress(call: CallTracerCall, targetContractAddress: string): string | null {
+	const normalizedTarget = targetContractAddress.toLowerCase()
+
+	// Recursively search nested calls only (skip the current call itself)
+	if (call.calls && Array.isArray(call.calls)) {
+		for (const nestedCall of call.calls) {
+			// Check if this nested call matches the target
+			if (nestedCall.to.toLowerCase() === normalizedTarget) {
+				return nestedCall.input
+			}
+			// Recursively search deeper nested calls
+			const result = findCallInputByAddress(nestedCall, targetContractAddress)
+			if (result !== null) {
+				return result
+			}
+		}
+	}
+
+	return null
+}
+
+/**
+ * Get Contract Call Input is a function that retrieves the input (calldata) used to call a target contract
+ * within a transaction by using debug_traceTransaction with callTracer.
+ * Only searches in nested calls, not the direct transaction call. Returns null if the transaction
+ * directly calls the target contract or if the target is not found in nested calls.
+ * @param txHash The transaction hash
+ * @param targetContractAddress The target contract address to find the call for
+ * @param chain The chain identifier (e.g., "EVM-56", "EVM-1")
+ * @returns The input (calldata) as a hex string, or null if the transaction directly calls the target or target not found in nested calls
+ * @throws Error if the RPC call fails or returns an unexpected response
+ */
+export async function getContractCallInput(
+	txHash: string,
+	targetContractAddress: string,
+	chain: string,
+): Promise<Hex | null> {
+	const rpcUrl = replaceWebsocketWithHttp(ENV_CONFIG[chain] || "")
+	if (!rpcUrl) {
+		throw new Error(`No RPC URL found for chain: ${chain}`)
+	}
+
+	const traceResponse = await fetch(rpcUrl, {
+		method: "POST",
+		headers: { accept: "application/json", "content-type": "application/json" },
+		body: JSON.stringify({
+			id: 1,
+			jsonrpc: "2.0",
+			method: "debug_traceTransaction",
+			params: [
+				txHash,
+				{
+					tracer: "callTracer",
+					tracerConfig: {
+						disableCode: true,
+					},
+				},
+			],
+		}),
+	})
+
+	const trace: DebugTraceTransactionResponse = await traceResponse.json()
+
+	if (trace.error) {
+		throw new Error(`RPC error: ${trace.error.message || JSON.stringify(trace.error)}`)
+	}
+
+	if (!trace.result) {
+		throw new Error(`Unexpected response: No result found in response ${JSON.stringify(trace)}`)
+	}
+
+	const normalizedTarget = targetContractAddress.toLowerCase()
+
+	// If the transaction directly calls the target contract, return null
+	if (trace.result.to.toLowerCase() === normalizedTarget) {
+		return null
+	}
+
+	// Search for the target contract in nested calls only
+	const input = findCallInputByAddress(trace.result, targetContractAddress)
+
+	return input ? (input as Hex) : null
 }
 
 /**

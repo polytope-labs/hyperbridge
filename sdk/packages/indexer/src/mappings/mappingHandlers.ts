@@ -20,6 +20,14 @@ export { handleOrderFilledEvent } from "@/handlers/events/intentGateway/orderFil
 export { handleEscrowReleasedEvent } from "@/handlers/events/intentGateway/escrowReleased.event.handler"
 export { handleEscrowRefundedEvent } from "@/handlers/events/intentGateway/escrowRefunded.event.handler"
 
+// Intent Gateway V2 Handlers
+export { handleOrderPlacedEventV2 } from "@/handlers/events/intentGatewayV2/orderPlacedV2.event.handler"
+export { handleOrderFilledEventV2 } from "@/handlers/events/intentGatewayV2/orderFilledV2.event.handler"
+export { handleEscrowReleasedEventV2 } from "@/handlers/events/intentGatewayV2/escrowReleasedV2.event.handler"
+export { handleEscrowRefundedEventV2 } from "@/handlers/events/intentGatewayV2/escrowRefundedV2.event.handler"
+export { handleDustCollectedEvent } from "@/handlers/events/intentGatewayV2/dustCollected.event.handler"
+export { handleDustSweptEvent } from "@/handlers/events/intentGatewayV2/dustSwept.event.handler"
+
 // Token Gateway Handlers
 export { handleAssetTeleportedEvent } from "@/handlers/events/tokenGateway/assetTeleported.event.handler"
 export { handleAssetReceivedEvent } from "@/handlers/events/tokenGateway/assetReceived.event.handler"

@@ -981,6 +981,267 @@ type OrderStatusMetadata @entity {
 }
 
 """
+Represents an order placed through the IntentGatewayV2 contract.
+This entity tracks cross-chain orders for V2 of the IntentGateway.
+"""
+type OrderV2 @entity {
+	"""
+	Unique identifier for the order (commitment)
+	"""
+	id: ID!
+
+	"""
+	Address of the user who placed the order
+	"""
+	user: String!
+
+	"""
+	Source chain identifier where the order originates from
+	"""
+	sourceChain: String!
+
+	"""
+	Destination chain identifier where the order will be executed
+	"""
+	destChain: String!
+
+	"""
+	Unique commitment hash of the order used for verification
+	"""
+	commitment: String!
+
+	"""
+	Timestamp after which the order expires
+	"""
+	deadline: BigInt!
+
+	"""
+	Sequential number to ensure uniqueness of the order
+	"""
+	nonce: BigInt!
+
+	"""
+	Total fees supplied by the user for executing the order
+	"""
+	fees: BigInt!
+
+	"""
+	Optional session key used to select winning solver
+	"""
+	session: String
+
+	"""
+	Total input value in USD
+	"""
+	inputUSD: String!
+
+	"""
+	Status of the order
+	"""
+	status: OrderStatus!
+
+	"""
+	Metatdata about the order's progression through different statuses
+	"""
+	statusMetadata: [OrderV2StatusMetadata]! @derivedFrom(field: "order")
+
+	"""
+	Predispatch assets for this order
+	"""
+	predispatchAssets: [OrderV2PredispatchAsset!]! @derivedFrom(field: "order")
+
+	"""
+	Pre dispatch calldata
+	"""
+	predispatchCalldata: String!
+
+	"""
+	Input assets for this order
+	"""
+	inputAssets: [OrderV2InputAsset!]! @derivedFrom(field: "order")
+
+	"""
+	Output assets for this order
+	"""
+	outputAssets: [OrderV2OutputAsset!]! @derivedFrom(field: "order")
+
+	"""
+	Post dispatch calldata
+	"""
+	postDispatchCalldata: String!
+
+	"""
+	Referrer address that referred the user
+	"""
+	referrer: String
+
+	"""
+	Timestamp when the order was created
+	"""
+	createdAt: Date! @index
+
+	"""
+	Block number where the order was placed
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block where the order was placed
+	"""
+	blockTimestamp: BigInt! @index
+
+	"""
+	Hash of the transaction that placed the order
+	"""
+	transactionHash: String! @index
+}
+
+"""
+Represents a predispatch asset in an OrderV2
+"""
+type OrderV2PredispatchAsset @entity {
+	"""
+	Unique identifier: {orderId}-predispatch-{index}
+	"""
+	id: ID!
+
+	"""
+	The order this asset belongs to
+	"""
+	order: OrderV2!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the predispatch assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an input asset in an OrderV2
+"""
+type OrderV2InputAsset @entity {
+	"""
+	Unique identifier: {orderId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The order this asset belongs to
+	"""
+	order: OrderV2!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset in an OrderV2
+"""
+type OrderV2OutputAsset @entity {
+	"""
+	Unique identifier: {orderId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The order this asset belongs to
+	"""
+	order: OrderV2!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the output assets array
+	"""
+	index: Int!
+
+	"""
+	Beneficiary address for this output
+	"""
+	beneficiary: String! @index
+}
+
+"""
+Metadata about the status of an OrderV2
+"""
+type OrderV2StatusMetadata @entity {
+	"""
+	The ID of the OrderV2StatusMetadata
+	"""
+	id: ID!
+
+	"""
+	The status of the order
+	"""
+	status: OrderStatus!
+
+	"""
+	The chain on which the status change occurred
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occurred
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the transaction in which the event occurred
+	"""
+	transactionHash: String!
+
+	"""
+	The order that owns this status change
+	"""
+	order: OrderV2
+
+	"""
+	The filler of the order if the order has been filled
+	"""
+	filler: String
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
 Represents a teleport of assets through the TokenGateway contract.
 This entity tracks cross-chain asset teleports.
 """
@@ -1561,4 +1822,54 @@ type UserActivity @entity {
 	Timestamp when the user was created
 	"""
 	createdAt: Date! @index
+}
+
+"""
+Represents dust collected by the protocol
+"""
+type DustCollected @entity {
+	"""
+	Unique identifier: chainId-tokenAddress
+	"""
+	id: ID!
+
+	"""
+	Token symbol
+	"""
+	tokenSymbol: String! @index
+
+	"""
+	Total amount of dust collected
+	"""
+	amount: BigInt! @index
+
+	"""
+	Timestamp when this record was last updated
+	"""
+	lastUpdated: Date! @index
+}
+
+"""
+Represents dust swept by the protocol
+"""
+type DustSwept @entity {
+	"""
+	Unique identifier: chainId-tokenAddress
+	"""
+	id: ID!
+
+	"""
+	Token symbol
+	"""
+	tokenSymbol: String! @index
+
+	"""
+	Total amount of dust swept
+	"""
+	amount: BigInt! @index
+
+	"""
+	Timestamp when this record was last updated
+	"""
+	lastUpdated: Date! @index
 }

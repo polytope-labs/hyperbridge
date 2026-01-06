@@ -1,6 +1,7 @@
 import { ENV_CONFIG } from "@/constants"
 import {
 	getBlockTimestamp,
+	getContractCallInput,
 	getEvmBlockTimestamp,
 	getSubstrateBlockTimestamp,
 	replaceWebsocketWithHttp,
@@ -71,5 +72,52 @@ describe("replaceWebsocketWithHttp", () => {
 		)
 		expect(replaceWebsocketWithHttp("https://")).toBe("https://")
 		expect(replaceWebsocketWithHttp("ws://")).toBe("http://")
+	})
+})
+
+describe("Get Contract Call Input", () => {
+	const chain = "EVM-56"
+	const directCallTxHash = "0x2f6b062f23e3dd611211afd60b4d4ab91bb2995f7ffa34a30a79541447d3ecd5" // Fill Order hash
+	const directCallTargetContractAddress = "0x1A4ee689A004B10210A1dF9f24A387Ea13359aCF" // IGV1 address
+
+	const nestedCallTxHash = "0x6990b2ed686c3f3a3e4a7fd63880aa68d022e449afedd3f33f9a6e3025215394"
+	const nestedCallTargetContractAddress = "0xef7FfbC192b26561d334c874335542B01cB09b57"
+
+	test("should fetch the input (calldata) for a target contract call within nested calls", async () => {
+		const input = await getContractCallInput(nestedCallTxHash, nestedCallTargetContractAddress, chain)
+
+		expect(input).toBeDefined()
+		if (input) {
+			expect(typeof input).toBe("string")
+			expect(input.startsWith("0x")).toBe(true)
+			expect(input.length).toBeGreaterThan(2)
+		}
+	}, 60000)
+
+	test("should return null when transaction directly calls target contract", async () => {
+		const result = await getContractCallInput(directCallTxHash, directCallTargetContractAddress, chain)
+
+		expect(result).toBeNull()
+	}, 60000)
+
+	test("should handle invalid transaction hash", async () => {
+		await expect(
+			getContractCallInput(
+				"0x0000000000000000000000000000000000000000000000000000000000000000",
+				directCallTargetContractAddress,
+				chain,
+			),
+		).rejects.toThrow()
+	}, 60000)
+
+	test("should return null when target contract not found in nested calls", async () => {
+		const result = await getContractCallInput(nestedCallTxHash, "0x0000000000000000000000000000000000000000", chain)
+		expect(result).toBeNull()
+	}, 60000)
+
+	test("should handle invalid chain parameter", async () => {
+		await expect(
+			getContractCallInput(nestedCallTxHash, nestedCallTargetContractAddress, "UNKNOWN"),
+		).rejects.toThrow("No RPC URL found for chain: UNKNOWN")
 	})
 })

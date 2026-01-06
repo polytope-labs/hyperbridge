@@ -37,6 +37,7 @@ pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
+pallet-intents-coprocessor = { workspace = true }
 pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-mmr-tree = { workspace = true }
@@ -137,6 +138,7 @@ std = [
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
     "pallet-state-coprocessor/std",
+    "pallet-intents-coprocessor/std",
     "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",
@@ -164,6 +166,7 @@ runtime-benchmarks = [
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
     "pallet-messaging-fees/runtime-benchmarks",
+    "pallet-intents-coprocessor/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

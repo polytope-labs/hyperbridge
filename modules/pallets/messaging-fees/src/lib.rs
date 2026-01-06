@@ -41,8 +41,6 @@ pub use pallet::*;
 
 use crate::types::*;
 
-#[cfg(feature = "runtime-benchmarks")]
-pub mod benchmarking;
 mod impls;
 pub mod types;
 

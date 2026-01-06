@@ -30,5 +30,5 @@ sha3 = { version = "0.10" }
 ics23 = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = {workspace = true, default-features = false }
-ibc = { workspace = true }
+ibc-core-commitment-types = { workspace = true }
 ibc-proto = { workspace = true }

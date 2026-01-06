@@ -140,14 +140,10 @@ pub struct GatewayInfo {
 pub struct Bid<AccountId, Balance> {
 	/// The filler who placed this bid
 	pub filler: AccountId,
-	/// The order commitment hash
-	pub commitment: H256,
 	/// The signed user operation (opaque bytes)
 	pub user_op: Vec<u8>,
 	/// The storage deposit paid by the filler
 	pub deposit: Balance,
-	/// Block number when the bid was placed
-	pub placed_at: u64,
 }
 
 impl IntentGatewayParams {

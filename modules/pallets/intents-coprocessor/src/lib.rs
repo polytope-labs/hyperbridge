@@ -29,7 +29,6 @@ use frame_support::{
 	ensure,
 	traits::{Currency, ReservableCurrency},
 };
-use sp_runtime::traits::Zero;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
@@ -37,6 +36,7 @@ use ismp::{
 use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
+use sp_runtime::traits::Zero;
 pub use weights::WeightInfo;
 
 use types::{Bid, GatewayInfo, IntentGatewayParams, RequestKind, TokenDecimalsUpdate, TokenInfo};
@@ -59,11 +59,10 @@ pub mod pallet {
 
 	/// The pallet's configuration trait.
 	#[pallet::config]
-	pub trait Config: polkadot_sdk::frame_system::Config<AccountId: Default> + pallet_ismp::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// The [`IsmpDispatcher`] for dispatching cross-chain requests
 		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>
-			+ ismp::host::IsmpHost
-			+ Default;
+			+ ismp::host::IsmpHost;
 
 		/// A currency implementation for handling storage deposits
 		type Currency: ReservableCurrency<Self::AccountId>;
@@ -149,7 +148,10 @@ pub mod pallet {
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {
+	impl<T: Config> Pallet<T>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
 		/// Place a bid for an order
 		///
 		/// # Parameters
@@ -179,14 +181,11 @@ pub mod pallet {
 			let deposit = T::StorageDepositFee::get();
 
 			// Reserve the deposit
-			<T as Config>::Currency::reserve(&filler, deposit).map_err(|_| Error::<T>::InsufficientBalance)?;
-
-			// Get current block number
-			let current_block = frame_system::Pallet::<T>::block_number();
-			let placed_at = Self::convert_block_number(current_block);
+			<T as Config>::Currency::reserve(&filler, deposit)
+				.map_err(|_| Error::<T>::InsufficientBalance)?;
 
 			// Store the bid
-			let bid = Bid { filler: filler.clone(), commitment, user_op, deposit, placed_at };
+			let bid = Bid { filler: filler.clone(), user_op, deposit };
 
 			Bids::<T>::insert(&commitment, &filler, bid);
 
@@ -229,10 +228,10 @@ pub mod pallet {
 		/// - `params`: Initial parameters for the gateway
 		///
 		/// # Errors
-		/// - Requires governance origin
+		/// - `GatewayNotFound`: If the gateway doesn't exist for the specified state machine
 		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::add_gateway_deployment())]
-		pub fn add_gateway_deployment(
+		#[pallet::weight(T::WeightInfo::add_deployment())]
+		pub fn add_deployment(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
 			gateway: H160,
@@ -261,8 +260,8 @@ pub mod pallet {
 		/// - `GatewayNotFound`: If no gateway exists for the state machine
 		/// - `DispatchFailed`: If cross-chain dispatch fails
 		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::update_gateway_params())]
-		pub fn update_gateway_params(
+		#[pallet::weight(T::WeightInfo::update_params())]
+		pub fn update_params(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
 			params_update: types::ParamsUpdate,
@@ -316,8 +315,8 @@ pub mod pallet {
 		/// - `GatewayNotFound`: If no gateway exists for the state machine
 		/// - `DispatchFailed`: If cross-chain dispatch fails
 		#[pallet::call_index(4)]
-		#[pallet::weight(T::WeightInfo::sweep_gateway_dust())]
-		pub fn sweep_gateway_dust(
+		#[pallet::weight(T::WeightInfo::sweep_dust())]
+		pub fn sweep_dust(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
 			sweep_dust: types::SweepDust,
@@ -355,8 +354,8 @@ pub mod pallet {
 		/// - `OracleNotFound`: If no oracle exists for the state machine
 		/// - `DispatchFailed`: If cross-chain dispatch fails
 		#[pallet::call_index(5)]
-		#[pallet::weight(T::WeightInfo::update_oracle_token_decimals())]
-		pub fn update_oracle_token_decimals(
+		#[pallet::weight(T::WeightInfo::update_token_decimals())]
+		pub fn update_token_decimals(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
 			updates: Vec<TokenDecimalsUpdate>,
@@ -383,19 +382,12 @@ pub mod pallet {
 		}
 	}
 
-	impl<T: Config> Pallet<T> {
-		/// Convert block number to u64
-		fn convert_block_number(block: BlockNumberFor<T>) -> u64 {
-			use sp_runtime::traits::UniqueSaturatedInto;
-			block.unique_saturated_into()
-		}
-
-		/// Dispatch a cross-chain message
-		fn dispatch(
-			state_machine: StateMachine,
-			to: H160,
-			body: Vec<u8>,
-		) -> DispatchResult {
+	impl<T: Config> Pallet<T>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
+		/// Dispatch a cross-chain message to a gateway contract
+		fn dispatch(state_machine: StateMachine, to: H160, body: Vec<u8>) -> DispatchResult {
 			// Create dispatcher instance
 			let dispatcher = T::Dispatcher::default();
 
@@ -411,10 +403,7 @@ pub mod pallet {
 			let dispatch_request = DispatchRequest::Post(post);
 
 			// Create fee metadata with zero fee (no actual fee payment for governance operations)
-			let dispatcher_fee = FeeMetadata {
-				payer: T::AccountId::default(),
-				fee: Zero::zero(),
-			};
+			let dispatcher_fee = FeeMetadata { payer: [0u8; 32].into(), fee: Zero::zero() };
 
 			// Dispatch via ISMP
 			let commitment = dispatcher

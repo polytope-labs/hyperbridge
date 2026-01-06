@@ -50,7 +50,6 @@ reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
 tendermint-prover = {workspace =  true, default-features = false}
-ibc = {workspace = true, default-features = false }
 ics23 = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }

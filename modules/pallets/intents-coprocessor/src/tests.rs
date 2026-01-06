@@ -174,7 +174,6 @@ fn place_bid_works() {
 		// Verify deposit was reserved
 		let bid = Bids::<Test>::get(&commitment, &filler).unwrap();
 		assert_eq!(bid.filler, filler);
-		assert_eq!(bid.commitment, commitment);
 		assert_eq!(bid.user_op, user_op);
 		assert_eq!(bid.deposit, StorageDepositFee::get());
 	});
@@ -279,7 +278,7 @@ fn retract_bid_fails_when_not_owner() {
 }
 
 #[test]
-fn add_gateway_deployment_works() {
+fn add_deployment_works() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
@@ -292,7 +291,7 @@ fn add_gateway_deployment_works() {
 			price_oracle: H160::default(),
 		};
 
-		assert_ok!(Intents::add_gateway_deployment(
+		assert_ok!(Intents::add_deployment(
 			RuntimeOrigin::root(),
 			state_machine,
 			gateway,
@@ -307,7 +306,7 @@ fn add_gateway_deployment_works() {
 }
 
 #[test]
-fn add_gateway_deployment_requires_root() {
+fn add_deployment_requires_root() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
@@ -321,19 +320,14 @@ fn add_gateway_deployment_requires_root() {
 		};
 
 		assert_noop!(
-			Intents::add_gateway_deployment(
-				RuntimeOrigin::signed(1),
-				state_machine,
-				gateway,
-				params
-			),
+			Intents::add_deployment(RuntimeOrigin::signed(1), state_machine, gateway, params),
 			sp_runtime::DispatchError::BadOrigin
 		);
 	});
 }
 
 #[test]
-fn update_gateway_params_works() {
+fn update_params_works() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
@@ -347,7 +341,7 @@ fn update_gateway_params_works() {
 		};
 
 		// Add gateway first
-		assert_ok!(Intents::add_gateway_deployment(
+		assert_ok!(Intents::add_deployment(
 			RuntimeOrigin::root(),
 			state_machine,
 			gateway,
@@ -362,7 +356,7 @@ fn update_gateway_params_works() {
 			..Default::default()
 		};
 
-		assert_ok!(Intents::update_gateway_params(
+		assert_ok!(Intents::update_params(
 			RuntimeOrigin::root(),
 			state_machine,
 			new_params.clone()
@@ -377,7 +371,7 @@ fn update_gateway_params_works() {
 }
 
 #[test]
-fn update_gateway_params_fails_when_gateway_not_found() {
+fn update_params_fails_when_gateway_not_found() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
 
@@ -385,14 +379,14 @@ fn update_gateway_params_fails_when_gateway_not_found() {
 			types::ParamsUpdate { protocol_fee_bps: Some(U256::from(200)), ..Default::default() };
 
 		assert_noop!(
-			Intents::update_gateway_params(RuntimeOrigin::root(), state_machine, params_update),
+			Intents::update_params(RuntimeOrigin::root(), state_machine, params_update),
 			Error::<Test>::GatewayNotFound
 		);
 	});
 }
 
 #[test]
-fn update_oracle_token_decimals_works() {
+fn update_token_decimals_works() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
@@ -406,28 +400,19 @@ fn update_oracle_token_decimals_works() {
 		};
 
 		// Add gateway first (which includes oracle address in params)
-		assert_ok!(Intents::add_gateway_deployment(
-			RuntimeOrigin::root(),
-			state_machine,
-			gateway,
-			params
-		));
+		assert_ok!(Intents::add_deployment(RuntimeOrigin::root(), state_machine, gateway, params));
 
 		let updates = vec![types::TokenDecimalsUpdate {
 			source_chain: vec![1u8; 10],
 			tokens: vec![types::TokenDecimal { token: H160::default(), decimals: 18 }],
 		}];
 
-		assert_ok!(Intents::update_oracle_token_decimals(
-			RuntimeOrigin::root(),
-			state_machine,
-			updates
-		));
+		assert_ok!(Intents::update_token_decimals(RuntimeOrigin::root(), state_machine, updates));
 	});
 }
 
 #[test]
-fn update_oracle_token_decimals_fails_when_gateway_not_found() {
+fn update_token_decimals_fails_when_gateway_not_found() {
 	new_test_ext().execute_with(|| {
 		let state_machine = StateMachine::Evm(1);
 
@@ -437,7 +422,7 @@ fn update_oracle_token_decimals_fails_when_gateway_not_found() {
 		}];
 
 		assert_noop!(
-			Intents::update_oracle_token_decimals(RuntimeOrigin::root(), state_machine, updates),
+			Intents::update_token_decimals(RuntimeOrigin::root(), state_machine, updates),
 			Error::<Test>::GatewayNotFound
 		);
 	});

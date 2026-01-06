@@ -1,7 +1,7 @@
 use crate::{ConsensusState, PolygonConsensusUpdate, PolygonPosHost};
 use codec::Decode;
 use cometbft::merkle::proof::ProofOps;
-use ibc::core::commitment_types::{
+use ibc_core_commitment_types::{
 	commitment::CommitmentProofBytes, merkle::MerkleProof, proto::v1::MerkleProof as RawMerkleProof,
 };
 use ics23::CommitmentProof;

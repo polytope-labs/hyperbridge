@@ -808,6 +808,8 @@ mod runtime {
 	pub type StateCoprocessor = pallet_state_coprocessor;
 	#[runtime::pallet_index(61)]
 	pub type Fishermen = pallet_fishermen;
+	#[runtime::pallet_index(65)]
+	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 	#[runtime::pallet_index(62)]
 	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
 	#[runtime::pallet_index(63)]
@@ -845,8 +847,7 @@ mod benches {
 		[pallet_balances, Balances]
 		[pallet_session, cumulus_pallet_session_benchmarking::Pallet::<Runtime>]
 		[pallet_timestamp, Timestamp]
-		// benchmarks are broken in v1.6.0
-		// [pallet_collator_selection, CollatorSelection]
+		[pallet_collator_selection, CollatorSelection]
 		// todo: benchmarking requires painful configuration steps
 		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
@@ -861,6 +862,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
+		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
 	);
@@ -1013,6 +1015,7 @@ impl_runtime_apis! {
 			TransactionPayment::length_to_fee(length)
 		}
 	}
+
 	impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
 		/// Return Block number where pallet-mmr was added to the runtime
 		fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
@@ -1128,7 +1131,7 @@ impl_runtime_apis! {
 			Vec<frame_benchmarking::BenchmarkList>,
 			Vec<frame_support::traits::StorageInfo>,
 		) {
-			use frame_benchmarking::{Benchmarking, BenchmarkList};
+			use frame_benchmarking::BenchmarkList;
 			use frame_support::traits::StorageInfoTrait;
 			use frame_system_benchmarking::Pallet as SystemBench;
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
@@ -1143,7 +1146,7 @@ impl_runtime_apis! {
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>,  alloc::string::String> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+			use frame_benchmarking::BenchmarkBatch;
 			use frame_system_benchmarking::Pallet as SystemBench;
 
 			impl frame_system_benchmarking::Config for Runtime {

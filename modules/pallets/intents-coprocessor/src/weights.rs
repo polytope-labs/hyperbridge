@@ -37,10 +37,10 @@ use core::marker::PhantomData;
 pub trait WeightInfo {
 	fn place_bid() -> Weight;
 	fn retract_bid() -> Weight;
-	fn add_gateway_deployment() -> Weight;
-	fn update_gateway_params() -> Weight;
-	fn sweep_gateway_dust() -> Weight;
-	fn update_oracle_token_decimals() -> Weight;
+	fn add_deployment() -> Weight;
+	fn update_params() -> Weight;
+	fn sweep_dust() -> Weight;
+	fn update_token_decimals() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -67,7 +67,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 	/// Storage: Gateways (r:0 w:1)
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
-	fn add_gateway_deployment() -> Weight {
+	fn add_deployment() -> Weight {
 		Weight::from_parts(30_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 2000))
 			.saturating_add(T::DbWeight::get().writes(1))
@@ -77,7 +77,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
 	/// Storage: Nonce (r:1 w:1)
 	/// Proof Skipped: Nonce (max_values: Some(1), max_size: None, mode: Measured)
-	fn update_gateway_params() -> Weight {
+	fn update_params() -> Weight {
 		Weight::from_parts(80_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 4000))
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -88,7 +88,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
 	/// Storage: Nonce (r:1 w:1)
 	/// Proof Skipped: Nonce (max_values: Some(1), max_size: None, mode: Measured)
-	fn sweep_gateway_dust() -> Weight {
+	fn sweep_dust() -> Weight {
 		Weight::from_parts(70_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 3500))
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -99,7 +99,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof Skipped: Gateways (max_values: None, max_size: None, mode: Measured)
 	/// Storage: Nonce (r:1 w:1)
 	/// Proof Skipped: Nonce (max_values: Some(1), max_size: None, mode: Measured)
-	fn update_oracle_token_decimals() -> Weight {
+	fn update_token_decimals() -> Weight {
 		Weight::from_parts(75_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 3500))
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -115,16 +115,16 @@ impl WeightInfo for () {
 	fn retract_bid() -> Weight {
 		Weight::from_parts(40_000_000, 0)
 	}
-	fn add_gateway_deployment() -> Weight {
+	fn add_deployment() -> Weight {
 		Weight::from_parts(30_000_000, 0)
 	}
-	fn update_gateway_params() -> Weight {
+	fn update_params() -> Weight {
 		Weight::from_parts(80_000_000, 0)
 	}
-	fn sweep_gateway_dust() -> Weight {
+	fn sweep_dust() -> Weight {
 		Weight::from_parts(70_000_000, 0)
 	}
-	fn update_oracle_token_decimals() -> Weight {
+	fn update_token_decimals() -> Weight {
 		Weight::from_parts(75_000_000, 0)
 	}
 }

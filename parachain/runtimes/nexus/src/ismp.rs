@@ -43,9 +43,9 @@ use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 use pallet_assets::BenchmarkHelper;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use pallet_xcm_gateway::AssetGatewayParams;
-use polkadot_sdk::{frame_support::weights::WeightToFee, sp_runtime::Weight, *};
+use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
-use sp_runtime::Permill;
+use sp_runtime::{Permill, Weight};
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;

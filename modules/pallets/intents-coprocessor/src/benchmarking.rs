@@ -25,14 +25,17 @@ use frame_system::RawOrigin;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
 
-#[benchmarks]
+#[benchmarks(
+    where
+		T::AccountId: From<[u8; 32]>
+)]
 mod benchmarks {
 	use super::*;
 
 	#[benchmark]
 	fn place_bid() {
 		let caller: T::AccountId = whitelisted_caller();
-		let commitment = H256::random();
+		let commitment = H256::repeat_byte(0xff);
 		let user_op = vec![1u8; 100];
 
 		// Fund the caller
@@ -50,7 +53,7 @@ mod benchmarks {
 	#[benchmark]
 	fn retract_bid() {
 		let caller: T::AccountId = whitelisted_caller();
-		let commitment = H256::random();
+		let commitment = H256::repeat_byte(0xff);
 		let user_op = vec![1u8; 100];
 
 		// Fund the caller
@@ -70,7 +73,7 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn add_gateway_deployment() {
+	fn add_deployment() {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -90,7 +93,7 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn update_gateway_params() {
+	fn update_params() {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -103,7 +106,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_gateway_deployment(
+		let _ = Pallet::<T>::add_deployment(
 			RawOrigin::Root.into(),
 			state_machine,
 			gateway,
@@ -121,7 +124,7 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn sweep_gateway_dust() {
+	fn sweep_dust() {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -134,21 +137,21 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_gateway_deployment(
+		let _ = Pallet::<T>::add_deployment(
 			RawOrigin::Root.into(),
 			state_machine,
 			gateway,
 			params.clone(),
 		);
 
-		let sweep_dust = types::SweepDust { beneficiary: H160::default(), outputs: vec![] };
+		let dust_params = types::SweepDust { beneficiary: H160::default(), outputs: vec![] };
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, state_machine, sweep_dust);
+		_(RawOrigin::Root, state_machine, dust_params);
 	}
 
 	#[benchmark]
-	fn update_oracle_token_decimals() {
+	fn update_token_decimals() {
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -161,12 +164,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_gateway_deployment(
-			RawOrigin::Root.into(),
-			state_machine,
-			gateway,
-			params,
-		);
+		let _ = Pallet::<T>::add_deployment(RawOrigin::Root.into(), state_machine, gateway, params);
 
 		let updates = vec![types::TokenDecimalsUpdate {
 			source_chain: vec![1u8; 10],

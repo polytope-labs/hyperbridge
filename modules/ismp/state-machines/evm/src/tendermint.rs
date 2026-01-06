@@ -15,15 +15,13 @@
 
 //! Tendermint EVM State Machine client implementation
 
-use ibc::core::{
-	commitment_types::{
-		commitment::CommitmentProofBytes,
-		merkle::{MerklePath, MerkleProof},
-		proto::v1::MerkleRoot,
-		specs::ProofSpecs,
-	},
-	host::types::path::PathBytes,
+use ibc_core_commitment_types::{
+	commitment::CommitmentProofBytes,
+	merkle::{MerklePath, MerkleProof},
+	proto::v1::MerkleRoot,
+	specs::ProofSpecs,
 };
+use ibc_core_host::types::path::PathBytes;
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,

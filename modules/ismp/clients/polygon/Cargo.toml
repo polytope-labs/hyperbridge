@@ -26,6 +26,8 @@ std = [
     "evm-state-machine/std",
     "tendermint-ics23-primitives/std",
     "tracing-subscriber/std",
+    "ibc-core-host/std",
+    "ibc-core-commitment-types/std",
 ]
 
 [dependencies]
@@ -47,4 +49,5 @@ prost = { workspace = true, default-features = false }
 evm-state-machine = { workspace = true }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false }
-ibc = { version = "0.57.0", default-features = false}
+ibc-core-commitment-types = { workspace = true, default-features = false }
+ibc-core-host = { workspace = true, default-features = false }

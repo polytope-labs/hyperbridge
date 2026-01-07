@@ -219,7 +219,7 @@ ibc = { version = "0.57.0", default-features = false }
 ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
 
 # published crates
-ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "2506.1.1", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
 crypto-utils = { version = "0.1.0", path = "modules/utils/crypto", default-features = false }
 grandpa-verifier-primitives = { version = "2506.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }

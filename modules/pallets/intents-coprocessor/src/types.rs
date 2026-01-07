@@ -137,13 +137,11 @@ pub struct GatewayInfo {
 
 /// A bid placed by a filler for an order
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct Bid<AccountId, Balance> {
+pub struct Bid<AccountId> {
 	/// The filler who placed this bid
 	pub filler: AccountId,
 	/// The signed user operation (opaque bytes)
 	pub user_op: Vec<u8>,
-	/// The storage deposit paid by the filler
-	pub deposit: Balance,
 }
 
 impl IntentGatewayParams {

@@ -25,9 +25,11 @@ pub mod types;
 mod weights;
 
 use alloc::vec::Vec;
+use codec::Encode as _;
 use frame_support::{
 	ensure,
 	traits::{Currency, ReservableCurrency},
+	BoundedVec,
 };
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -36,7 +38,8 @@ use ismp::{
 use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
-use sp_runtime::traits::Zero;
+use sp_io::offchain_index;
+use sp_runtime::traits::{ConstU32, Zero};
 pub use weights::WeightInfo;
 
 use types::{Bid, GatewayInfo, IntentGatewayParams, RequestKind, TokenDecimalsUpdate, TokenInfo};
@@ -85,6 +88,8 @@ pub mod pallet {
 
 	/// Storage for bids indexed by commitment and filler address
 	/// Allows easy discovery of all bids for a given order commitment
+	/// The actual bid data is stored in offchain storage
+	/// We store the deposit amount here for accurate refunds
 	#[pallet::storage]
 	pub type Bids<T: Config> = StorageDoubleMap<
 		_,
@@ -92,7 +97,7 @@ pub mod pallet {
 		H256, // commitment
 		Blake2_128Concat,
 		T::AccountId, // filler
-		Bid<T::AccountId, BalanceOf<T>>,
+		BalanceOf<T>, // deposit amount, actual bid data in offchain storage
 		OptionQuery,
 	>;
 
@@ -135,8 +140,6 @@ pub mod pallet {
 		BidNotFound,
 		/// The caller is not the filler who placed the bid
 		NotBidOwner,
-		/// The bid already exists for this filler and commitment
-		BidAlreadyExists,
 		/// Insufficient balance to pay storage deposit
 		InsufficientBalance,
 		/// Gateway not found for the specified state machine
@@ -156,38 +159,42 @@ pub mod pallet {
 		///
 		/// # Parameters
 		/// - `commitment`: The order commitment hash
-		/// - `user_op`: The signed user operation as opaque bytes
+		/// - `user_op`: The signed user operation as opaque bytes (max 1MB)
 		///
 		/// # Errors
-		/// - `BidAlreadyExists`: If a bid already exists for this filler and commitment
 		/// - `InsufficientBalance`: If the filler doesn't have enough balance for the deposit
-		/// - `InvalidUserOp`: If the user operation data is invalid
+		/// - `InvalidUserOp`: If the user operation data is invalid or exceeds 1MB
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::place_bid())]
 		pub fn place_bid(
 			origin: OriginFor<T>,
 			commitment: H256,
-			user_op: Vec<u8>,
+			user_op: BoundedVec<u8, ConstU32<1_048_576>>,
 		) -> DispatchResult {
 			let filler = ensure_signed(origin)?;
 
 			// Validate user_op is not empty
 			ensure!(!user_op.is_empty(), Error::<T>::InvalidUserOp);
 
-			// Ensure bid doesn't already exist
-			ensure!(!Bids::<T>::contains_key(&commitment, &filler), Error::<T>::BidAlreadyExists);
+			// If a bid already exists, unreserve the old deposit first
+			if let Some(old_deposit) = Bids::<T>::get(&commitment, &filler) {
+				<T as Config>::Currency::unreserve(&filler, old_deposit);
+			}
 
 			// Get storage deposit fee
 			let deposit = T::StorageDepositFee::get();
 
-			// Reserve the deposit
+			// Reserve the new deposit
 			<T as Config>::Currency::reserve(&filler, deposit)
 				.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-			// Store the bid
-			let bid = Bid { filler: filler.clone(), user_op, deposit };
+			// Store the bid in offchain storage
+			let bid = Bid { filler: filler.clone(), user_op: user_op.to_vec() };
+			let offchain_key = Self::offchain_bid_key(&commitment, &filler);
+			offchain_index::set(&offchain_key, &bid.encode());
 
-			Bids::<T>::insert(&commitment, &filler, bid);
+			// Store deposit amount in onchain storage for discoverability and accurate refunds
+			Bids::<T>::insert(&commitment, &filler, deposit);
 
 			Self::deposit_event(Event::BidPlaced { filler, commitment, deposit });
 
@@ -206,16 +213,20 @@ pub mod pallet {
 		pub fn retract_bid(origin: OriginFor<T>, commitment: H256) -> DispatchResult {
 			let filler = ensure_signed(origin)?;
 
-			// Get the bid
-			let bid = Bids::<T>::get(&commitment, &filler).ok_or(Error::<T>::BidNotFound)?;
+			// Get the bid deposit amount
+			let deposit = Bids::<T>::get(&commitment, &filler).ok_or(Error::<T>::BidNotFound)?;
 
 			// Unreserve the deposit
-			<T as Config>::Currency::unreserve(&filler, bid.deposit);
+			<T as Config>::Currency::unreserve(&filler, deposit);
 
-			// Remove the bid
+			// Remove the bid marker from onchain storage
 			Bids::<T>::remove(&commitment, &filler);
 
-			Self::deposit_event(Event::BidRetracted { filler, commitment, refund: bid.deposit });
+			// Clear the bid from offchain storage
+			let offchain_key = Self::offchain_bid_key(&commitment, &filler);
+			offchain_index::clear(&offchain_key);
+
+			Self::deposit_event(Event::BidRetracted { filler, commitment, refund: deposit });
 
 			Ok(())
 		}
@@ -243,6 +254,28 @@ pub mod pallet {
 			let gateway_info = GatewayInfo { gateway, params };
 
 			Gateways::<T>::insert(state_machine, gateway_info);
+
+			// Notify all existing gateways about the new deployment
+			// Only notify gateways with different addresses (same address automatically accepts)
+			for (existing_state_machine, existing_gateway_info) in Gateways::<T>::iter() {
+				// Skip if same state machine or same gateway address
+				if existing_state_machine == state_machine ||
+					existing_gateway_info.gateway == gateway
+				{
+					continue;
+				}
+
+				// Prepare cross-chain request to notify existing gateway
+				let new_deployment = types::NewDeployment {
+					state_machine_id: state_machine.to_string().into_bytes(),
+					gateway,
+				};
+				let request = RequestKind::AddDeployment(new_deployment);
+				let body = request.encode_body();
+
+				// Dispatch cross-chain message (ignore errors to not fail the whole operation)
+				let _ = Self::dispatch(existing_state_machine, existing_gateway_info.gateway, body);
+			}
 
 			Self::deposit_event(Event::GatewayDeploymentAdded { state_machine, gateway });
 
@@ -386,6 +419,15 @@ pub mod pallet {
 	where
 		T::AccountId: From<[u8; 32]>,
 	{
+		/// Dispatch a cross-chain message to a gateway contract
+		/// Generate offchain storage key for a bid
+		fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
+			let mut key = b"intents::bid::".to_vec();
+			key.extend_from_slice(commitment.as_bytes());
+			key.extend_from_slice(&filler.encode());
+			key
+		}
+
 		/// Dispatch a cross-chain message to a gateway contract
 		fn dispatch(state_machine: StateMachine, to: H160, body: Vec<u8>) -> DispatchResult {
 			// Create dispatcher instance

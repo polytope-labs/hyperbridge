@@ -23,6 +23,7 @@ sync-committee-primitives = { workspace = true, default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 base64 = { version = "0.22.1", default-features = false }
+cometbft = { workspace = true }
 
 [features]
 default = ["std"]
@@ -42,5 +43,6 @@ std = [
     "sync-committee-primitives/std",
     "ssz-rs/default",
     "ssz-rs/serde",
-    "base64/std"
+    "base64/std",
+    "cometbft/std"
 ]

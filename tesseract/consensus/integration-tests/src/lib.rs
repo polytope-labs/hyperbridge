@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+mod beaconkit;
 // mod ethereum;
 // mod grandpa;
 // mod bsc;

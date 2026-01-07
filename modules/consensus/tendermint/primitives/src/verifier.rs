@@ -315,6 +315,42 @@ pub enum CodecCommitSig {
 		/// Signature of vote
 		signature: Option<Vec<u8>>,
 	},
+	/// BLS aggregated commit - validator with the aggregated signature
+	BlockIdFlagAggCommit {
+		/// Validator address
+		validator_address: Vec<u8>,
+		/// Timestamp of vote (RFC 3339 format)
+		timestamp: String,
+		/// Aggregated BLS signature
+		signature: Option<Vec<u8>>,
+	},
+	/// BLS aggregated commit absent - validator participated in aggregate but no individual signature
+	BlockIdFlagAggCommitAbsent {
+		/// Validator address
+		validator_address: Vec<u8>,
+		/// Timestamp of vote (RFC 3339 format)
+		timestamp: String,
+		/// Signature (usually None for absent)
+		signature: Option<Vec<u8>>,
+	},
+	/// BLS aggregated nil - validator with aggregated nil signature
+	BlockIdFlagAggNil {
+		/// Validator address
+		validator_address: Vec<u8>,
+		/// Timestamp of vote (RFC 3339 format)
+		timestamp: String,
+		/// Aggregated BLS signature
+		signature: Option<Vec<u8>>,
+	},
+	/// BLS aggregated nil absent - validator participated in nil aggregate but no individual signature
+	BlockIdFlagAggNilAbsent {
+		/// Validator address
+		validator_address: Vec<u8>,
+		/// Timestamp of vote (RFC 3339 format)
+		timestamp: String,
+		/// Signature (usually None for absent)
+		signature: Option<Vec<u8>>,
+	},
 }
 
 #[derive(Encode, Decode, Debug, Clone, TypeInfo, PartialEq, Eq)]
@@ -533,6 +569,66 @@ impl CodecCommitSig {
 				};
 				Ok(crate::CommitSig::BlockIdFlagNil { validator_address, timestamp, signature })
 			},
+			CodecCommitSig::BlockIdFlagAggCommit { validator_address, timestamp, signature } => {
+				let validator_address = cometbft::account::Id::try_from(validator_address.to_vec())
+					.map_err(|e| format!("Invalid validator address: {}", e))?;
+				let timestamp = cometbft::Time::parse_from_rfc3339(timestamp)
+					.map_err(|e| format!("Invalid timestamp: {}", e))?;
+				let signature = if let Some(sig_bytes) = signature {
+					Some(
+						cometbft::Signature::try_from(sig_bytes.as_slice())
+							.map_err(|e| format!("Invalid signature: {}", e))?,
+					)
+				} else {
+					None
+				};
+				Ok(crate::CommitSig::BlockIdFlagAggCommit { validator_address, timestamp, signature })
+			},
+			CodecCommitSig::BlockIdFlagAggCommitAbsent { validator_address, timestamp, signature } => {
+				let validator_address = cometbft::account::Id::try_from(validator_address.to_vec())
+					.map_err(|e| format!("Invalid validator address: {}", e))?;
+				let timestamp = cometbft::Time::parse_from_rfc3339(timestamp)
+					.map_err(|e| format!("Invalid timestamp: {}", e))?;
+				let signature = if let Some(sig_bytes) = signature {
+					Some(
+						cometbft::Signature::try_from(sig_bytes.as_slice())
+							.map_err(|e| format!("Invalid signature: {}", e))?,
+					)
+				} else {
+					None
+				};
+				Ok(crate::CommitSig::BlockIdFlagAggCommitAbsent { validator_address, timestamp, signature })
+			},
+			CodecCommitSig::BlockIdFlagAggNil { validator_address, timestamp, signature } => {
+				let validator_address = cometbft::account::Id::try_from(validator_address.to_vec())
+					.map_err(|e| format!("Invalid validator address: {}", e))?;
+				let timestamp = cometbft::Time::parse_from_rfc3339(timestamp)
+					.map_err(|e| format!("Invalid timestamp: {}", e))?;
+				let signature = if let Some(sig_bytes) = signature {
+					Some(
+						cometbft::Signature::try_from(sig_bytes.as_slice())
+							.map_err(|e| format!("Invalid signature: {}", e))?,
+					)
+				} else {
+					None
+				};
+				Ok(crate::CommitSig::BlockIdFlagAggNil { validator_address, timestamp, signature })
+			},
+			CodecCommitSig::BlockIdFlagAggNilAbsent { validator_address, timestamp, signature } => {
+				let validator_address = cometbft::account::Id::try_from(validator_address.to_vec())
+					.map_err(|e| format!("Invalid validator address: {}", e))?;
+				let timestamp = cometbft::Time::parse_from_rfc3339(timestamp)
+					.map_err(|e| format!("Invalid timestamp: {}", e))?;
+				let signature = if let Some(sig_bytes) = signature {
+					Some(
+						cometbft::Signature::try_from(sig_bytes.as_slice())
+							.map_err(|e| format!("Invalid signature: {}", e))?,
+					)
+				} else {
+					None
+				};
+				Ok(crate::CommitSig::BlockIdFlagAggNilAbsent { validator_address, timestamp, signature })
+			},
 		}
 	}
 }
@@ -661,18 +757,28 @@ impl From<&crate::CommitSig> for CodecCommitSig {
 					timestamp: timestamp.to_rfc3339(),
 					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
 				},
-			// BLS aggregated commit signatures - convert to regular commit for Codec representation
-			crate::CommitSig::BlockIdFlagAggCommit { validator_address, timestamp, signature } |
-			crate::CommitSig::BlockIdFlagAggCommitAbsent { validator_address, timestamp, signature } =>
-				CodecCommitSig::BlockIdFlagCommit {
+			// BLS aggregated commit signatures - preserve the aggregated type
+			crate::CommitSig::BlockIdFlagAggCommit { validator_address, timestamp, signature } =>
+				CodecCommitSig::BlockIdFlagAggCommit {
 					validator_address: validator_address.as_bytes().to_vec(),
 					timestamp: timestamp.to_rfc3339(),
 					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
 				},
-			// BLS aggregated nil signatures - convert to regular nil for Codec representation
-			crate::CommitSig::BlockIdFlagAggNil { validator_address, timestamp, signature } |
+			crate::CommitSig::BlockIdFlagAggCommitAbsent { validator_address, timestamp, signature } =>
+				CodecCommitSig::BlockIdFlagAggCommitAbsent {
+					validator_address: validator_address.as_bytes().to_vec(),
+					timestamp: timestamp.to_rfc3339(),
+					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
+				},
+			// BLS aggregated nil signatures - preserve the aggregated type
+			crate::CommitSig::BlockIdFlagAggNil { validator_address, timestamp, signature } =>
+				CodecCommitSig::BlockIdFlagAggNil {
+					validator_address: validator_address.as_bytes().to_vec(),
+					timestamp: timestamp.to_rfc3339(),
+					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),
+				},
 			crate::CommitSig::BlockIdFlagAggNilAbsent { validator_address, timestamp, signature } =>
-				CodecCommitSig::BlockIdFlagNil {
+				CodecCommitSig::BlockIdFlagAggNilAbsent {
 					validator_address: validator_address.as_bytes().to_vec(),
 					timestamp: timestamp.to_rfc3339(),
 					signature: signature.as_ref().map(|sig| sig.as_bytes().to_vec()),

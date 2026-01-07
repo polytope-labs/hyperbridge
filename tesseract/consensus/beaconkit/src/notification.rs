@@ -18,7 +18,7 @@
 use crate::{BeaconKitHost, ConsensusState};
 use codec::Decode;
 use cometbft::block::Height;
-use ismp_beacon_kit::{generate_tx_merkle_proof, BeaconKitUpdate};
+use ismp_beacon_kit::BeaconKitUpdate;
 use std::{sync::Arc, vec::Vec};
 use tendermint_primitives::{
 	Client, CodecConsensusProof, ConsensusProof, TrustedState, ValidatorSet,
@@ -29,8 +29,8 @@ use tesseract_primitives::IsmpProvider;
 /// Notification logic for BeaconKit relayer
 ///
 /// This function checks for consensus updates and generates BeaconKitUpdate proofs
-/// that include both the Tendermint header proof and the transaction merkle proof
-/// for the signed beacon block.
+/// that include both the Tendermint header proof and all transactions from the block
+/// for merkle root verification.
 pub async fn consensus_notification(
 	client: &BeaconKitHost,
 	counterparty: Arc<dyn IsmpProvider>,
@@ -73,24 +73,15 @@ pub async fn consensus_notification(
 				},
 			));
 
-			// generate merkle proof for transactions in a Block
+			// Fetch all transactions from the block
 			let txs = fetch_block_txs(client, latest_height).await?;
 
 			if txs.is_empty() {
 				log::warn!(target: "tesseract", "BeaconKit: Block has no transactions, skipping update");
 				return Ok(None);
 			}
-			// first transaction is always the Beacon Block
-			let ssz_encoded_beacon_block = txs[0].clone();
-			let tx_proof = generate_tx_merkle_proof(&txs, 0)
-				.map_err(|e| anyhow::anyhow!("Failed to generate merkle proof: {}", e))?;
 
-			return Ok(Some(BeaconKitUpdate {
-				tendermint_update: tendermint_proof,
-				ssz_encoded_beacon_block,
-				tx_proof,
-				tx_total: txs.len() as u64,
-			}));
+			return Ok(Some(BeaconKitUpdate { tendermint_update: tendermint_proof, txs }));
 		},
 		false => {
 			log::trace!(target: "tesseract", "BeaconKit: No match found between onchain validator set and latest header, will begin syncing");
@@ -140,7 +131,7 @@ pub async fn consensus_notification(
 					},
 				));
 
-				// Fetch block transactions and generate merkle proof
+				// Fetch all transactions from the block
 				let txs = fetch_block_txs(client, matched_height).await?;
 
 				if txs.is_empty() {
@@ -148,16 +139,7 @@ pub async fn consensus_notification(
 					return Ok(None);
 				}
 
-				let ssz_encoded_beacon_block = txs[0].clone();
-				let tx_proof = generate_tx_merkle_proof(&txs, 0)
-					.map_err(|e| anyhow::anyhow!("Failed to generate merkle proof: {}", e))?;
-
-				return Ok(Some(BeaconKitUpdate {
-					tendermint_update: tendermint_proof,
-					ssz_encoded_beacon_block,
-					tx_proof,
-					tx_total: txs.len() as u64,
-				}));
+				return Ok(Some(BeaconKitUpdate { tendermint_update: tendermint_proof, txs }));
 			} else {
 				log::error!(target: "tesseract", "BeaconKit: Fatal error, failed to find any header that matches onchain validator set");
 			}
@@ -167,13 +149,20 @@ pub async fn consensus_notification(
 	Ok(None)
 }
 
-/// Fetch block transactions at a given height
-async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<Vec<Vec<u8>>> {
+/// Fetch all transactions from a block at the given height.
+///
+/// Returns all transactions in the block as a vector.
+/// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
+async fn fetch_block_txs(
+	client: &BeaconKitHost,
+	height: u64,
+) -> anyhow::Result<Vec<Vec<u8>>> {
 	let height = Height::try_from(height)
 		.map_err(|e| anyhow::anyhow!("Invalid height: {}", e))?;
 
 	let rpc_url = &client.host.rpc_url;
-	let request_body = serde_json::json!({
+
+	let block_request = serde_json::json!({
 		"jsonrpc": "2.0",
 		"id": "1",
 		"method": "block",
@@ -183,23 +172,23 @@ async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<
 	});
 
 	let http_client = reqwest::Client::new();
-	let response = http_client
+	let block_response = http_client
 		.post(rpc_url)
-		.json(&request_body)
+		.json(&block_request)
 		.send()
 		.await
 		.map_err(|e| anyhow::anyhow!("Block fetch request failed: {}", e))?;
 
-	if !response.status().is_success() {
-		return Err(anyhow::anyhow!("HTTP error fetching block: {}", response.status()));
+	if !block_response.status().is_success() {
+		return Err(anyhow::anyhow!("HTTP error fetching block: {}", block_response.status()));
 	}
 
-	let rpc_response: serde_json::Value = response
+	let block_json: serde_json::Value = block_response
 		.json()
 		.await
 		.map_err(|e| anyhow::anyhow!("Failed to parse block response: {}", e))?;
 
-	let txs = rpc_response
+	let txs = block_json
 		.get("result")
 		.and_then(|r| r.get("block"))
 		.and_then(|b| b.get("data"))
@@ -207,14 +196,18 @@ async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<
 		.and_then(|t| t.as_array())
 		.ok_or_else(|| anyhow::anyhow!("Failed to extract txs from block response"))?;
 
-	let mut decoded_txs = Vec::with_capacity(txs.len());
+	if txs.is_empty() {
+		return Ok(Vec::new());
+	}
+
+	let mut all_tx_bytes: Vec<Vec<u8>> = Vec::new();
 	for tx in txs {
 		let tx_str = tx.as_str().ok_or_else(|| anyhow::anyhow!("Transaction is not a string"))?;
 		let tx_bytes = base64_decode(tx_str)?;
-		decoded_txs.push(tx_bytes);
+		all_tx_bytes.push(tx_bytes);
 	}
 
-	Ok(decoded_txs)
+	Ok(all_tx_bytes)
 }
 
 /// Decode a base64 string to bytes

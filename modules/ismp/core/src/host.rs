@@ -25,7 +25,7 @@ use crate::{
 	prelude::Vec,
 	router::{IsmpRouter, PostResponse, Request, Response},
 };
-use alloc::{boxed::Box, format, string::String};
+use alloc::{boxed::Box, format, string::{String, ToString}};
 use codec::{Decode, Encode};
 use core::{fmt::Display, str::FromStr, time::Duration};
 use primitive_types::H256;

@@ -24,8 +24,13 @@ merkle-mountain-range = { workspace = true }
 polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
 
-sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "04ec4b9ec0a616fbe4c28359f6e96b0f04428d94" }
-sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "04ec4b9ec0a616fbe4c28359f6e96b0f04428d94" }
+[dependencies.sp1-beefy]
+git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+rev = "fc75e45649d7fc209015cc9ce2e1fba25fe57f6f"
+
+[dependencies.sp1-beefy-primitives]
+git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+rev = "fc75e45649d7fc209015cc9ce2e1fba25fe57f6f"
 
 [dev-dependencies]
 ethers = { workspace = true }
@@ -39,3 +44,8 @@ hex = { version = "0.4.3", features = [] }
 [dev-dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime"]
+
+[features]
+default = ["local"]
+cluster = ["sp1-beefy/cluster"]
+local = ["sp1-beefy/local"]

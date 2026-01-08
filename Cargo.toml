@@ -373,14 +373,9 @@ version = "0.5.2"
 default-features = false
 
 [workspace.dependencies.alloy-primitives]
-version = "1.4.1"
+version = "1.1.2"
 default-features = false
 features = ["rlp"]
-
-[workspace.dependencies.alloy-consensus]
-version = "1.0.30"
-default-features = false
-features = ["serde"]
 
 [workspace.dependencies.scale-info]
 version = "2.1.1"

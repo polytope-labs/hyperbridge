@@ -43,10 +43,12 @@ async fn main() -> Result<(), anyhow::Error> {
 	let mut config = tokio::fs::read_to_string(cli.config).await?.parse::<toml::Table>()?;
 
 	let prover = {
+		let sp1_prover = zk_beefy::LocalProver::new(true);
+
 		let prover_config = config
 			.remove("prover")
 			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
-		Prover::new(prover_config.try_into()?).await?
+		Prover::new(prover_config.try_into()?, sp1_prover).await?
 	};
 
 	let substrate = {

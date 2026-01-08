@@ -3636,7 +3636,7 @@ dependencies = [
 [[package]]
 name = "cometbft"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
 dependencies = [
  "blst",
  "bytes",
@@ -3666,7 +3666,7 @@ dependencies = [
 [[package]]
 name = "cometbft-config"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
 dependencies = [
  "cometbft",
  "flex-error",
@@ -3679,7 +3679,7 @@ dependencies = [
 [[package]]
 name = "cometbft-light-client-verifier"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
 dependencies = [
  "base64 0.22.1",
  "blst",
@@ -3696,7 +3696,7 @@ dependencies = [
 [[package]]
 name = "cometbft-proto"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
 dependencies = [
  "bytes",
  "flex-error",
@@ -3710,7 +3710,7 @@ dependencies = [
 [[package]]
 name = "cometbft-rpc"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/polytope-labs/cometbft-rs?rev=676cb035eaf14bfb7bd027edac66ad04c71c61b6#676cb035eaf14bfb7bd027edac66ad04c71c61b6"
+source = "git+https://github.com/polytope-labs/cometbft-rs?rev=69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d#69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8231,6 +8231,7 @@ dependencies = [
  "hyperbridge-client-machine",
  "ismp",
  "ismp-arbitrum",
+ "ismp-beacon-kit",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-optimism",
@@ -10671,7 +10672,6 @@ name = "ismp-beacon-kit"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "cometbft",
  "evm-state-machine",
  "geth-primitives",
@@ -10679,6 +10679,7 @@ dependencies = [
  "log",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
+ "polkadot-sdk",
  "primitive-types 0.13.1",
  "scale-info",
  "sha2 0.10.9",
@@ -28475,6 +28476,7 @@ dependencies = [
  "ismp-beacon-kit",
  "log",
  "parity-scale-codec",
+ "polkadot-sdk",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
  "serde",

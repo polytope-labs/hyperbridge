@@ -19,6 +19,7 @@ use crate::{BeaconKitHost, ConsensusState};
 use codec::Decode;
 use cometbft::block::Height;
 use ismp_beacon_kit::BeaconKitUpdate;
+use polkadot_sdk::sp_runtime::BoundedVec;
 use std::{sync::Arc, vec::Vec};
 use tendermint_primitives::{
 	Client, CodecConsensusProof, ConsensusProof, TrustedState, ValidatorSet,
@@ -61,7 +62,7 @@ pub async fn consensus_notification(
 
 	match validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
 		true => {
-			log::trace!(target: "tesseract", "BeaconKit: Onchain Validator set matches signed header, constructing consensus proof");
+			log::trace!(target: "tesseract-beaconkit", "BeaconKit: Onchain Validator set matches signed header, constructing consensus proof");
 			let next_validators = client.prover.next_validators(latest_height).await?;
 
 			let tendermint_proof = CodecConsensusProof::from(&ConsensusProof::new(
@@ -77,24 +78,27 @@ pub async fn consensus_notification(
 			let txs = fetch_block_txs(client, latest_height).await?;
 
 			if txs.is_empty() {
-				log::warn!(target: "tesseract", "BeaconKit: Block has no transactions, skipping update");
+				log::warn!(target: "tesseract-beaconkit", "BeaconKit: Block has no transactions, skipping update");
 				return Ok(None);
 			}
 
-			return Ok(Some(BeaconKitUpdate { tendermint_update: tendermint_proof, txs }));
+			return Ok(Some(BeaconKitUpdate {
+				tendermint_update: tendermint_proof,
+				txs: BoundedVec::truncate_from(txs),
+			}));
 		},
 		false => {
-			log::trace!(target: "tesseract", "BeaconKit: No match found between onchain validator set and latest header, will begin syncing");
+			log::trace!(target: "tesseract-beaconkit", "BeaconKit: No match found between onchain validator set and latest header, will begin syncing");
 			// Backward traversal in order to find a matching header
 			let mut height = latest_height - 1;
 			let mut matched_header = None;
 			while height > trusted_state.height {
-				log::trace!(target: "tesseract", "BeaconKit: Checking for validator set match at {height}");
+				log::trace!(target: "tesseract-beaconkit", "BeaconKit: Checking for validator set match at {height}");
 				let header_res = client.prover.signed_header(height).await;
 				let header = match header_res {
 					Ok(h) => h,
 					Err(e) => {
-						log::trace!(target: "tesseract", "BeaconKit: Error fetching header for {height}, will retry \n {e:?}");
+						log::trace!(target: "tesseract-beaconkit", "BeaconKit: Error fetching header for {height}, will retry \n {e:?}");
 						continue;
 					},
 				};
@@ -110,7 +114,7 @@ pub async fn consensus_notification(
 					true,
 				);
 				if validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
-					log::trace!(target: "tesseract", "BeaconKit: validator set match found at {height}");
+					log::trace!(target: "tesseract-beaconkit", "BeaconKit: validator set match found at {height}");
 					matched_header = Some(header);
 					break;
 				}
@@ -135,17 +139,20 @@ pub async fn consensus_notification(
 				let txs = fetch_block_txs(client, matched_height).await?;
 
 				if txs.is_empty() {
-					log::warn!(target: "tesseract", "BeaconKit: Block has no transactions at matched height, skipping update");
+					log::warn!(target: "tesseract-beaconkit", "BeaconKit: Block has no transactions at matched height, skipping update");
 					return Ok(None);
 				}
 
-				return Ok(Some(BeaconKitUpdate { tendermint_update: tendermint_proof, txs }));
+				return Ok(Some(BeaconKitUpdate {
+					tendermint_update: tendermint_proof,
+					txs: BoundedVec::truncate_from(txs),
+				}));
 			} else {
-				log::error!(target: "tesseract", "BeaconKit: Fatal error, failed to find any header that matches onchain validator set");
+				log::error!(target: "tesseract-beaconkit", "BeaconKit: Fatal error, failed to find any header that matches onchain validator set");
 			}
 		},
 	}
-	log::trace!(target: "tesseract", "BeaconKit: No new update found");
+	log::trace!(target: "tesseract-beaconkit", "BeaconKit: No new update found");
 	Ok(None)
 }
 

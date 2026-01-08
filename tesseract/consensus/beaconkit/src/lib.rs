@@ -46,6 +46,8 @@ pub struct BeaconKitHostConfig {
 	pub trusting_period_secs: Option<u64>,
 	/// Unbonding period in seconds for CreateConsensusState
 	pub unbonding_period_secs: Option<u64>,
+	/// Clock drift tolerance in seconds for header time verification.
+	pub clock_drift_secs: Option<u64>,
 }
 
 /// Top-level config for BeaconKit relayer
@@ -80,8 +82,17 @@ impl BeaconKitHost {
 	/// Create a new BeaconKitHost
 	pub async fn new(host: &BeaconKitHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
+
+		let consensus_state_id: [u8; 4] = evm
+			.consensus_state_id
+			.as_bytes()
+			.get(0..4)
+			.ok_or_else(|| anyhow::anyhow!("consensus_state_id must be at least 4 bytes"))?
+			.try_into()
+			.map_err(|_| anyhow::anyhow!("Failed to convert consensus_state_id to [u8; 4]"))?;
+
 		Ok(Self {
-			consensus_state_id: Default::default(),
+			consensus_state_id,
 			state_machine: evm.state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
@@ -100,6 +111,13 @@ impl BeaconKitHost {
 		let trusted_next_validators =
 			self.prover.next_validators(trusted_header.header.height.into()).await?;
 
+		let clock_drift = self.host.clock_drift_secs.unwrap_or(600);
+		let verification_options = tendermint_primitives::VerificationOptions::new(
+			2,
+			3,
+			clock_drift,
+		);
+
 		let trusted_state = tendermint_primitives::TrustedState::new(
 			trusted_header.header.chain_id.clone().into(),
 			trusted_header.header.height.into(),
@@ -108,8 +126,8 @@ impl BeaconKitHost {
 			trusted_validators,
 			trusted_next_validators,
 			trusted_header.header.next_validators_hash.as_bytes().try_into().unwrap(),
-			self.host.trusting_period_secs.unwrap_or(82 * 3600),
-			tendermint_primitives::VerificationOptions::default(),
+			self.host.trusting_period_secs.unwrap_or(300),
+			verification_options,
 		);
 
 		let codec_trusted_state = CodecTrustedState::from(&trusted_state);
@@ -155,7 +173,7 @@ impl IsmpHost for BeaconKitHost {
 						signer: counterparty.address(),
 					};
 					log::info!(
-						target: "tesseract",
+						target: "tesseract-beaconkit",
 						"🛰️ Transmitting BeaconKit consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -176,7 +194,7 @@ impl IsmpHost for BeaconKitHost {
 					// No update to send, just continue
 				},
 				Err(e) => {
-					log::error!(target: "tesseract","BeaconKit consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: "tesseract-beaconkit","BeaconKit consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

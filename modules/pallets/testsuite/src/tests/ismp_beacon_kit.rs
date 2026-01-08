@@ -18,6 +18,7 @@ use ismp::consensus::ConsensusClient;
 use ismp_beacon_kit::{
 	BeaconKitClient, BeaconKitUpdate, ConsensusState, BERACHAIN_MAINNET_CHAIN_ID,
 };
+use polkadot_sdk::sp_runtime::BoundedVec;
 use std::io::Read;
 use tendermint_primitives::{
 	Client, CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState,
@@ -26,23 +27,6 @@ use tendermint_primitives::{
 use tendermint_prover::CometBFTClient;
 
 use crate::runtime::{new_test_ext, set_timestamp, Ismp, Test};
-
-
-fn get_beaconkit_rpc() -> String {
-	let base_url =
-		std::env::var("BEACONKIT_COMETBFT_RPC").expect("BEACONKIT_COMETBFT_RPC must be set");
-
-	if base_url.contains("apikey=") {
-		return base_url;
-	}
-
-	if let Ok(api_key) = std::env::var("BEACONKIT_API_KEY") {
-		let separator = if base_url.contains('?') { "&" } else { "?" };
-		format!("{}{}apikey={}", base_url, separator, api_key)
-	} else {
-		base_url
-	}
-}
 
 /// Fetch all transactions from a block at the given height.
 /// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
@@ -106,7 +90,7 @@ async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 	let _ = tracing_subscriber::fmt::try_init();
 	dotenv::dotenv().ok();
 
-	let rpc_url = get_beaconkit_rpc();
+	let rpc_url = std::env::var("BEACONKIT_COMETBFT_RPC").expect("BEACONKIT_COMETBFT_RPC must be set");
 	let client = CometBFTClient::new(&rpc_url).await?;
 
 	let chain_id = client.chain_id().await?;
@@ -162,7 +146,7 @@ async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 
 	let beacon_kit_update = BeaconKitUpdate {
 		tendermint_update: CodecConsensusProof::from(&consensus_proof),
-		txs,
+		txs: BoundedVec::truncate_from(txs),
 	};
 	let encoded_proof = beacon_kit_update.encode();
 

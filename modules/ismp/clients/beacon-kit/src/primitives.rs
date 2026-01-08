@@ -13,14 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use ismp::consensus::ConsensusClientId;
-use ssz_rs::prelude::*;
-use sync_committee_primitives::consensus_types::{
-	BeaconBlock, BeaconBlockBody, ExecutionPayload,
-};
-use sync_committee_primitives::constants::BlsSignature;
+use polkadot_sdk::*;
+use sp_runtime::{traits::ConstU32, BoundedVec};
+use sync_committee_primitives::consensus_types::{BeaconBlock, BeaconBlockBody, ExecutionPayload};
 use tendermint_primitives::{CodecConsensusProof, CodecTrustedState};
 
 /// BeaconKit consensus client identifier
@@ -110,9 +108,9 @@ pub type BeaconKitExecutionPayload = ExecutionPayload<
 pub struct BeaconKitUpdate {
 	/// Tendermint consensus proof (signed header + validators) with BLS aggregation
 	pub tendermint_update: CodecConsensusProof,
-	/// All transactions in the CometBFT block.
+	/// All transactions in the CometBFT block, shouldn't exceed 2.
 	/// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
-	pub txs: Vec<Vec<u8>>,
+	pub txs: BoundedVec<Vec<u8>, ConstU32<2>>,
 }
 
 /// The trusted consensus state for BeaconKit

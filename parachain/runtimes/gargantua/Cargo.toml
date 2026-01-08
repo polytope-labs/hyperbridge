@@ -49,6 +49,7 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-beacon-kit = { workspace = true }
 ismp-tendermint = { workspace = true }
 pallet-messaging-fees = { workspace = true }
 evm-state-machine = { workspace = true }
@@ -152,6 +153,7 @@ std = [
     "ismp-optimism/std",
     "ismp-polygon/std",
     "ismp-tendermint/std",
+    "ismp-beacon-kit/std",
     "pallet-messaging-fees/std",
     "evm-state-machine/std",
     "substrate-state-machine/std"

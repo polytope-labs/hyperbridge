@@ -30,6 +30,7 @@ std = [
     "prost/std",
     "cometbft/std",
     "cometbft-proto/std",
+    "cometbft-light-client-verifier/std",
     "tendermint-primitives/std",
 ]
 

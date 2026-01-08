@@ -12,18 +12,22 @@ anyhow = { workspace = true, default-features = false, optional = true }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 primitive-types = { workspace = true, default-features = false }
 pallet-ismp-host-executive = { workspace = true, default-features = false }
-sp-io = { workspace = true }
+sp-io = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 tendermint-verifier = { workspace = true, default-features = false }
 tendermint-primitives = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
-evm-state-machine = { workspace = true }
+evm-state-machine = { workspace = true, default-features = false }
 sync-committee-primitives = { workspace = true, default-features = false }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 sha2 = { version = "0.10", default-features = false }
-base64 = { version = "0.22.1", default-features = false }
-cometbft = { workspace = true }
+cometbft = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime"]
+default-features = false
 
 [features]
 default = ["std"]
@@ -43,6 +47,7 @@ std = [
     "sync-committee-primitives/std",
     "ssz-rs/default",
     "ssz-rs/serde",
-    "base64/std",
-    "cometbft/std"
+    "sha2/std",
+    "cometbft/std",
+    "polkadot-sdk/std",
 ]

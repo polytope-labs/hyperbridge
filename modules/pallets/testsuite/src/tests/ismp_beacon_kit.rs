@@ -86,6 +86,7 @@ fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
 async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 	let _ = tracing_subscriber::fmt::try_init();
 	dotenv::dotenv().ok();

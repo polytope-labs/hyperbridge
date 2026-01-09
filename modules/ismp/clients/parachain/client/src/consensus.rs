@@ -56,7 +56,7 @@ pub const PASSET_HUB_TESTNET_CHAIN_ID: u32 = 420420422;
 pub const ASSET_HUB_MAINNET_PARA_ID: u32 = 1000;
 
 /// AssetHub mainnet EVM chain ID (TBD)
-pub const ASSET_HUB_MAINNET_CHAIN_ID: u32 = 1000;
+pub const ASSET_HUB_MAINNET_CHAIN_ID: u32 = 420420419;
 
 /// The state machine provider that resolves to a `StateMachineClient`
 pub trait ParachainStateMachineProvider<T> {

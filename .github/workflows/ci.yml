@@ -18,7 +18,7 @@ concurrency:
 
 env:
     CARGO_TERM_COLOR: always
-    FOUNDRY_PROFILE: ci
+    FOUNDRY_PROFILE: default
     BSC_URL: ${{ secrets.BSC_URL }}
     OP_URL: ${{ secrets.OP_URL }}
     SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
@@ -132,23 +132,21 @@ jobs:
                   wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
                   echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
 
-            - name: Install yarn
-              run: |
-                  curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
-                  chmod +x $HOME/bin/yarn
-                  echo "$HOME/bin" >> $GITHUB_PATH
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
 
             - name: Set up Node
               uses: actions/setup-node@v3
               with:
                   node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
-                  cache: "yarn"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
 
             - name: Install npm dependencies
               working-directory: evm
               run: |
-                  yarn install
+                  pnpm install
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -214,23 +212,21 @@ jobs:
               run: |
                   wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
                   echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
-            - name: Install yarn
-              run: |
-                  curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
-                  chmod +x $HOME/bin/yarn
-                  echo "$HOME/bin" >> $GITHUB_PATH
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
 
             - name: Set up Node
               uses: actions/setup-node@v3
               with:
                   node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
-                  cache: "yarn"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
 
             - name: Install npm dependencies
               working-directory: evm
               run: |
-                  yarn install
+                  pnpm install
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -295,23 +291,21 @@ jobs:
                   wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
                   echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
 
-            - name: Install yarn
-              run: |
-                  curl -fsSL --create-dirs -o $HOME/bin/yarn  https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
-                  chmod +x $HOME/bin/yarn
-                  echo "$HOME/bin" >> $GITHUB_PATH
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
 
             - name: Set up Node
               uses: actions/setup-node@v3
               with:
                   node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
-                  cache: "yarn"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
 
             - name: Install npm dependencies
               working-directory: evm
               run: |
-                  yarn install
+                  pnpm install
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -342,10 +336,10 @@ jobs:
             - name: Force-stop simnode
               if: always()
               run: |
-                echo "Cleaning up any leftover simnode processes..."
-                pkill -f "hyperbridge simnode" || true
-                fuser -k 9990/tcp || true
-                echo "Cleanup complete."
+                  echo "Cleaning up any leftover simnode processes..."
+                  pkill -f "hyperbridge simnode" || true
+                  fuser -k 9990/tcp || true
+                  echo "Cleanup complete."
 
             - name: Run Parachain Devnet
               run: |

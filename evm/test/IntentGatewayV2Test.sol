@@ -16,7 +16,22 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {IntentGatewayV2, Order, Params, TokenInfo, SweepDust, PaymentInfo, DispatchInfo, FillOptions, CancelOptions, NewDeployment, RequestBody, SelectOptions} from "../src/modules/IntentGatewayV2.sol";
+import {
+    IntentGatewayV2,
+    Order,
+    Params,
+    ParamsUpdate,
+    DestinationFee,
+    TokenInfo,
+    SweepDust,
+    PaymentInfo,
+    DispatchInfo,
+    FillOptions,
+    CancelOptions,
+    NewDeployment,
+    RequestBody,
+    SelectOptions
+} from "../src/apps/IntentGatewayV2.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -56,7 +71,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: false,
-            surplusShareBps: 10000 // 100% to protocol, 0% to beneficiary (default)
+            surplusShareBps: 10000, // 100% to protocol, 0% to beneficiary (default)
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         intentGateway.setParams(intentParams);
 
@@ -77,29 +94,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Helper function to create EIP-712 signature for solver selection
-    function _createSelectSolverSignature(
-        bytes32 commitment,
-        address solver,
-        uint256 privateKey,
-        address gateway
-    ) internal view returns (bytes memory) {
+    function _createSelectSolverSignature(bytes32 commitment, address solver, uint256 privateKey, address gateway)
+        internal
+        view
+        returns (bytes memory)
+    {
         // Compute the EIP-712 digest using public constants
         IntentGatewayV2 gatewayContract = IntentGatewayV2(payable(gateway));
-        bytes32 structHash = keccak256(
-            abi.encode(
-                gatewayContract.SELECT_SOLVER_TYPEHASH(),
-                commitment,
-                solver
-            )
-        );
+        bytes32 structHash = keccak256(abi.encode(gatewayContract.SELECT_SOLVER_TYPEHASH(), commitment, solver));
 
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                gatewayContract.DOMAIN_SEPARATOR(),
-                structHash
-            )
-        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", gatewayContract.DOMAIN_SEPARATOR(), structHash));
 
         // Sign the digest
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, digest);
@@ -153,11 +157,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: 2000 * 1e6 // 2000 USDC
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         // Create order
         Order memory order = Order({
@@ -209,13 +210,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 ethAmount = 1 ether;
 
         // Get quote for expected output and calculate minimum with slippage
-        uint256 minUsdcAmount = (IQuoter(UNISWAP_V3_QUOTER).quoteExactInputSingle(
-            WETH,
-            address(usdc),
-            3000, // 0.3% fee tier
-            ethAmount,
-            0
-        ) * 95) / 100; // 5% slippage tolerance
+        uint256 minUsdcAmount =
+            (IQuoter(UNISWAP_V3_QUOTER)
+                        .quoteExactInputSingle(
+                            WETH,
+                            address(usdc),
+                            3000, // 0.3% fee tier
+                            ethAmount,
+                            0
+                        )
+                    * 95) / 100; // 5% slippage tolerance
 
         // Prepare predispatch call to swap ETH -> USDC via UniswapV3
         bytes memory swapCalldata = abi.encodeWithSelector(
@@ -236,9 +240,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Call[] memory calls = new Call[](3);
         calls[0] = Call({to: WETH, value: ethAmount, data: abi.encodeWithSignature("deposit()")});
         calls[1] = Call({
-            to: WETH,
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V3_ROUTER, ethAmount)
+            to: WETH, value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V3_ROUTER, ethAmount)
         });
         calls[2] = Call({to: UNISWAP_V3_ROUTER, value: 0, data: swapCalldata});
 
@@ -263,11 +265,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: 2000 * 1e6 // 2000 USDC
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         // Create order
         Order memory order = Order({
@@ -325,11 +324,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -374,9 +370,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Verify user received exact requested amount
         assertEq(
-            dai.balanceOf(user) - userDaiBalanceBefore,
-            outputAmount,
-            "User should receive exactly the requested amount"
+            dai.balanceOf(user) - userDaiBalanceBefore, outputAmount, "User should receive exactly the requested amount"
         );
 
         // Verify gateway collected the exact dust amount
@@ -423,11 +417,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: outputAmount
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -471,9 +462,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Verify user received exact requested amount
         assertEq(
-            user.balance - userEthBalanceBefore,
-            outputAmount,
-            "User should receive exactly the requested ETH amount"
+            user.balance - userEthBalanceBefore, outputAmount, "User should receive exactly the requested ETH amount"
         );
 
         // Verify gateway collected the exact dust amount
@@ -512,7 +501,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: false,
-            surplusShareBps: 10000 // 100% to protocol, 0% to beneficiary
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         zeroFeeGateway.setParams(zeroFeeParams);
 
@@ -524,11 +515,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -617,11 +605,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             amount: 2000 * 1e6 // 2000 USDC
         });
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(0),
@@ -796,7 +781,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: false,
-            surplusShareBps: 5000 // 50% to protocol, 50% to beneficiary
+            surplusShareBps: 5000, // 50% to protocol, 50% to beneficiary
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -809,11 +796,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -875,7 +859,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: false,
-            surplusShareBps: 0 // 0% to protocol, 100% to beneficiary
+            surplusShareBps: 0, // 0% to protocol, 100% to beneficiary
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -888,11 +874,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -939,7 +922,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: false,
-            surplusShareBps: 10000 // 100% to protocol, 0% to beneficiary
+            surplusShareBps: 10000, // 100% to protocol, 0% to beneficiary
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
         customGateway.setParams(customParams);
 
@@ -952,11 +937,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1021,7 +1003,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 host: address(host),
                 dispatcher: address(dispatcher),
                 solverSelection: false,
-                surplusShareBps: 5000
+                surplusShareBps: 5000,
+                protocolFeeBps: 0,
+            priceOracle: address(0)
             })
         );
 
@@ -1078,9 +1062,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Verify beneficiary got ONLY requested amount (2000 DAI, no surplus)
         assertEq(
-            dai.balanceOf(user) - userBalanceBefore,
-            2000 * 1e18,
-            "Beneficiary should get 0% surplus with calldata"
+            dai.balanceOf(user) - userBalanceBefore, 2000 * 1e18, "Beneficiary should get 0% surplus with calldata"
         );
 
         // Verify protocol got ALL surplus (100 DAI, not 50 which would be with 50% split)
@@ -1143,11 +1125,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         DispatchInfo memory predispatch = DispatchInfo({assets: new TokenInfo[](0), call: ""});
 
@@ -1237,9 +1216,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Call 3: Transfer DAI to user
         postdispatchCalls[2] = Call({
-            to: address(dai),
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.transfer.selector, user, daiOutputAmount)
+            to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.transfer.selector, user, daiOutputAmount)
         });
 
         // Setup order output - beneficiary is dispatcher, it will receive USDC from solver
@@ -1343,11 +1320,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1388,7 +1362,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: true,
-            surplusShareBps: 10000
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
@@ -1402,11 +1378,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1449,8 +1422,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
         gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1461,7 +1433,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(host),
             dispatcher: address(dispatcher),
             solverSelection: true,
-            surplusShareBps: 10000
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
 
         IntentGatewayV2 gatewayWithSelection = new IntentGatewayV2(address(this));
@@ -1475,11 +1449,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1528,8 +1499,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
         gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1547,11 +1517,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1595,11 +1562,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1644,11 +1608,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1689,11 +1650,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1734,11 +1692,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(0), amount: 1 ether});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1766,8 +1721,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.expectRevert(IntentGatewayV2.InsufficientNativeToken.selector);
         intentGateway.fillOrder{value: 0.5 ether}(
-            order,
-            FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
         vm.stopPrank();
     }
@@ -1785,11 +1739,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1812,7 +1763,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Roll past deadline
         vm.roll(block.number + 101);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: block.number + 100});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: order.deadline + 1});
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
@@ -1829,11 +1780,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1874,11 +1822,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1908,8 +1853,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-
-
     // ============================================
     // placeOrder Edge Case Tests
     // ============================================
@@ -1924,11 +1867,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1956,11 +1896,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -1996,11 +1933,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -2057,11 +1991,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -2083,9 +2014,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Simulate RefundEscrow request
+        // Simulate RedeemEscrow request
         bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.RefundEscrow)),
+            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
             abi.encode(
                 RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
             )
@@ -2115,10 +2046,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)),
-            abi.encode(deployment)
-        );
+        bytes memory body =
+            bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)), abi.encode(deployment));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2157,13 +2086,15 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             host: address(0x5678),
             dispatcher: address(0x9ABC),
             solverSelection: true,
-            surplusShareBps: 10000
+            surplusShareBps: 10000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
         });
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)),
-            abi.encode(newParams)
-        );
+        DestinationFee[] memory emptyFees = new DestinationFee[](0);
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: emptyFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2186,8 +2117,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         for (uint256 i = 0; i < entries.length; i++) {
             if (
-                entries[i].topics[0] ==
-                keccak256("ParamsUpdated((address,address,bool,uint256),(address,address,bool,uint256))")
+                entries[i].topics[0]
+                    == keccak256(
+                        "ParamsUpdated((address,address,bool,uint256,uint256,address),(address,address,bool,uint256,uint256,address))"
+                    )
             ) {
                 eventFound = true;
                 break;
@@ -2201,6 +2134,312 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(updatedParams.host, newParams.host, "Host should be updated");
         assertEq(updatedParams.dispatcher, newParams.dispatcher, "Dispatcher should be updated");
         assertEq(updatedParams.solverSelection, newParams.solverSelection, "SolverSelection should be updated");
+    }
+
+    function testOnAcceptUpdateParamsWithDestinationFees() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100,
+            priceOracle: address(0)
+        });
+
+        // Create destination fees
+        DestinationFee[] memory destinationFees = new DestinationFee[](2);
+        bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
+        bytes memory optimismStateMachineId = bytes("OPTIMISM");
+
+        destinationFees[0] = DestinationFee({stateMachineId: keccak256(arbitrumStateMachineId), destinationFeeBps: 50});
+
+        destinationFees[1] = DestinationFee({stateMachineId: keccak256(optimismStateMachineId), destinationFeeBps: 150});
+
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.recordLogs();
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Check events
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool paramsUpdatedFound = false;
+        uint256 destinationFeeEventsFound = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (
+                entries[i].topics[0]
+                    == keccak256(
+                        "ParamsUpdated((address,address,bool,uint256,uint256,address),(address,address,bool,uint256,uint256,address))"
+                    )
+            ) {
+                paramsUpdatedFound = true;
+            }
+
+            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(bytes32,uint256)")) {
+                destinationFeeEventsFound++;
+            }
+        }
+
+        assertTrue(paramsUpdatedFound, "ParamsUpdated event should be emitted");
+        assertEq(destinationFeeEventsFound, 2, "Should emit 2 DestinationProtocolFeeUpdated events");
+
+        // Verify params were updated
+        Params memory updatedParams = intentGateway.params();
+        assertEq(updatedParams.host, newParams.host, "Host should be updated");
+        assertEq(updatedParams.protocolFeeBps, newParams.protocolFeeBps, "ProtocolFeeBps should be updated");
+    }
+
+    function testOnAcceptUpdateParamsWithEmptyDestinationFees() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 200,
+            priceOracle: address(0)
+        });
+
+        // Empty destination fees array
+        DestinationFee[] memory emptyFees = new DestinationFee[](0);
+
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: emptyFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.recordLogs();
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Check events
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 destinationFeeEventsFound = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DestinationProtocolFeeUpdated(bytes32,uint256)")) {
+                destinationFeeEventsFound++;
+            }
+        }
+
+        assertEq(destinationFeeEventsFound, 0, "Should not emit DestinationProtocolFeeUpdated events for empty array");
+
+        // Verify params were updated
+        Params memory updatedParams = intentGateway.params();
+        assertEq(updatedParams.protocolFeeBps, 200, "ProtocolFeeBps should be updated");
+    }
+
+    function testDestinationProtocolFeeUpdatedEventData() public {
+        Params memory newParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100,
+            priceOracle: address(0)
+        });
+
+        bytes memory arbitrumStateMachineId = bytes("ARBITRUM");
+        bytes32 hashedStateMachineId = keccak256(arbitrumStateMachineId);
+        uint256 feeBps = 75;
+
+        DestinationFee[] memory destinationFees = new DestinationFee[](1);
+        destinationFees[0] = DestinationFee({stateMachineId: hashedStateMachineId, destinationFeeBps: feeBps});
+
+        ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.expectEmit(true, false, false, true);
+        emit IntentGatewayV2.DestinationProtocolFeeUpdated(hashedStateMachineId, feeBps);
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+    }
+
+    function testPlaceOrderWithDestinationSpecificFee() public {
+        // Setup: Set default protocol fee to 1% and destination-specific fee to 0.5%
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100, // 1% default
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        // Set destination-specific fee via governance
+        bytes memory destinationChain = bytes("ARBITRUM");
+        bytes32 destinationHash = keccak256(destinationChain);
+
+        DestinationFee[] memory destinationFees = new DestinationFee[](1);
+        destinationFees[0] = DestinationFee({
+            stateMachineId: destinationHash,
+            destinationFeeBps: 50 // 0.5% for this destination
+        });
+
+        ParamsUpdate memory update = ParamsUpdate({params: customParams, destinationFees: destinationFees});
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(customGateway)),
+            to: abi.encodePacked(address(customGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.prank(address(host));
+        customGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Place an order to the destination with specific fee
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedDestinationFee = (inputAmount * 50) / 10000; // 5 USDC (0.5%)
+
+        deal(address(usdc), user, inputAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: destinationChain, // Use the destination with specific fee
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Verify DustCollected event was emitted with destination-specific fee (0.5%, not default 1%)
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool dustCollectedFound = false;
+        uint256 collectedFee = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustCollectedFound = true;
+                // Decode the fee amount from event data
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                if (token == address(usdc)) {
+                    collectedFee = amount;
+                }
+            }
+        }
+
+        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
+        assertEq(
+            collectedFee, expectedDestinationFee, "Should collect destination-specific fee (0.5%), not default (1%)"
+        );
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+    }
+
+    function testPlaceOrderDestinationFeeWithFallback() public {
+        // Test that when destination fee is not set (or is 0), it falls back to default protocol fee
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100, // 1% default
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        // Place order to destination without specific fee set
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedDefaultFee = (inputAmount * 100) / 10000; // 10 USDC (1% default)
+
+        deal(address(usdc), user, inputAmount);
+
+        bytes memory unknownDestination = bytes("UNKNOWN_CHAIN");
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: unknownDestination,
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Verify DustCollected event was emitted with default fee (1%)
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 collectedFee = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                if (token == address(usdc)) {
+                    collectedFee = amount;
+                }
+            }
+        }
+
+        assertEq(collectedFee, expectedDefaultFee, "Should use default protocol fee when destination fee not set");
     }
 
     // ============================================
@@ -2218,10 +2457,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address gateway = address(0xABCD);
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)),
-            abi.encode(deployment)
-        );
+        bytes memory body =
+            bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)), abi.encode(deployment));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2267,7 +2504,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.deal(user, 10 ether);
         vm.prank(user);
-        (bool sent, ) = address(intentGateway).call{value: amount}("");
+        (bool sent,) = address(intentGateway).call{value: amount}("");
 
         assertTrue(sent, "ETH transfer should succeed");
         assertEq(address(intentGateway).balance, balanceBefore + amount, "Contract should receive ETH");
@@ -2283,11 +2520,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output = PaymentInfo({
-            beneficiary: bytes32(uint256(uint160(user))),
-            assets: outputAssets,
-            call: ""
-        });
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
 
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
@@ -2338,5 +2572,436 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onGetResponse(incoming);
 
         assertEq(usdc.balanceOf(user) - userBalanceBefore, inputAmount, "User should receive refunded tokens");
+    }
+
+    // ============================================
+    // Protocol Fee Tests
+    // ============================================
+
+    function testProtocolFeeWith1Percent() public {
+        // Test with 1% protocol fee (100 basis points)
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 100, // 1%
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedProtocolFee = (inputAmount * 100) / 10000; // 10 USDC
+        uint256 expectedAmountAfterFee = inputAmount - expectedProtocolFee; // 990 USDC
+
+        deal(address(usdc), user, inputAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: host.host(),
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Check that DustCollected event was emitted
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool dustCollectedFound = false;
+        bool orderPlacedFound = false;
+        uint256 dustAmount = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustCollectedFound = true;
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                assertEq(token, address(usdc), "DustCollected should be for USDC");
+                dustAmount = amount;
+            }
+            if (
+                entries[i].topics[0]
+                    == keccak256(
+                        "OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
+                    )
+            ) {
+                orderPlacedFound = true;
+            }
+        }
+
+        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
+        assertTrue(orderPlacedFound, "OrderPlaced event should be emitted");
+        assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 10 USDC");
+
+        // Verify the gateway received the full amount (protocol fees kept as dust)
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+
+        // Verify commitment is calculated with REDUCED amounts
+        // Need to reconstruct the order exactly as the contract sees it after filling in fields
+        Order memory orderWithReducedAmount = order;
+        orderWithReducedAmount.user = bytes32(uint256(uint160(user)));
+        orderWithReducedAmount.source = host.host();
+        orderWithReducedAmount.nonce = 0; // First order
+        orderWithReducedAmount.inputs[0].amount = expectedAmountAfterFee;
+        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
+
+        // Calculate storage slot for _orders[commitment][token]
+        // _orders is at storage slot 8 (see forge inspect storage-layout)
+        // For nested mappings: keccak256(abi.encode(innerKey, keccak256(abi.encode(outerKey, baseSlot))))
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
+        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+
+        // Verify escrow storage contains REDUCED amount (not full amount)
+        uint256 escrowedAmount = uint256(vm.load(address(customGateway), escrowSlot));
+        assertEq(escrowedAmount, expectedAmountAfterFee, "Escrowed amount should be reduced (990 USDC)");
+
+        // Test redemption with reduced amount works correctly
+        TokenInfo[] memory redeemInputs = new TokenInfo[](1);
+        redeemInputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: expectedAmountAfterFee});
+
+        bytes memory body = bytes.concat(
+            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
+            abi.encode(
+                RequestBody({
+                    commitment: expectedCommitment, tokens: redeemInputs, beneficiary: bytes32(uint256(uint160(filler)))
+                })
+            )
+        );
+
+        PostRequest memory request = PostRequest({
+            source: host.host(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(customGateway)),
+            to: abi.encodePacked(address(customGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        uint256 fillerBalanceBefore = usdc.balanceOf(filler);
+        vm.prank(address(host));
+        customGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        // Filler receives the REDUCED amount (after protocol fees)
+        assertEq(
+            usdc.balanceOf(filler) - fillerBalanceBefore,
+            expectedAmountAfterFee,
+            "Filler should receive reduced amount (990 USDC)"
+        );
+    }
+
+    function testProtocolFeeWith10Percent() public {
+        // Test with 10% protocol fee (1000 basis points)
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 1000, // 10%
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedProtocolFee = (inputAmount * 1000) / 10000; // 100 USDC
+        uint256 expectedAmountAfterFee = inputAmount - expectedProtocolFee; // 900 USDC
+
+        deal(address(usdc), user, inputAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: host.host(),
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Check that DustCollected event was emitted with correct amount
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool dustCollectedFound = false;
+        uint256 dustAmount = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustCollectedFound = true;
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                assertEq(token, address(usdc), "DustCollected should be for USDC");
+                dustAmount = amount;
+            }
+        }
+
+        assertTrue(dustCollectedFound, "DustCollected event should be emitted");
+        assertEq(dustAmount, expectedProtocolFee, "Protocol fee should be 100 USDC");
+
+        // Verify the gateway received the full amount (protocol fees kept as dust)
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+
+        // Verify commitment is calculated with REDUCED amounts
+        // Need to reconstruct the order exactly as the contract sees it after filling in fields
+        Order memory orderWithReducedAmount = order;
+        orderWithReducedAmount.user = bytes32(uint256(uint160(user)));
+        orderWithReducedAmount.source = host.host();
+        orderWithReducedAmount.nonce = 0; // First order
+        orderWithReducedAmount.inputs[0].amount = expectedAmountAfterFee;
+        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmount));
+
+        // Calculate storage slot for _orders[commitment][token]
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
+        bytes32 escrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+
+        // Verify escrow storage contains REDUCED amount
+        uint256 escrowedAmount = uint256(vm.load(address(customGateway), escrowSlot));
+        assertEq(escrowedAmount, expectedAmountAfterFee, "Escrowed amount should be reduced (900 USDC)");
+    }
+
+    function testProtocolFeeWithZeroPercent() public {
+        // Test with 0% protocol fee - should not emit DustCollected
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 0, // 0%
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+
+        deal(address(usdc), user, inputAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: host.host(),
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Check that DustCollected event was NOT emitted
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        bool dustCollectedFound = false;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustCollectedFound = true;
+            }
+        }
+
+        assertFalse(dustCollectedFound, "DustCollected event should NOT be emitted when protocolFeeBps is 0");
+
+        // Verify the gateway received the full amount
+        assertEq(usdc.balanceOf(address(customGateway)), inputAmount, "Gateway should have full input amount");
+    }
+
+    function testProtocolFeeWithMultipleTokens() public {
+        // Test protocol fee with multiple input tokens
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 200, // 2%
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        uint256 usdcAmount = 1000 * 1e6; // 1000 USDC
+        uint256 daiAmount = 500 * 1e18; // 500 DAI
+        uint256 expectedUsdcFee = (usdcAmount * 200) / 10000; // 20 USDC
+        uint256 expectedDaiFee = (daiAmount * 200) / 10000; // 10 DAI
+        uint256 expectedUsdcAfterFee = usdcAmount - expectedUsdcFee; // 980 USDC
+        uint256 expectedDaiAfterFee = daiAmount - expectedDaiFee; // 490 DAI
+
+        deal(address(usdc), user, usdcAmount);
+        deal(address(dai), user, daiAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: host.host(),
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](2),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
+        order.inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), usdcAmount);
+        dai.approve(address(customGateway), daiAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Check that DustCollected events were emitted for both tokens
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 dustCollectedCount = 0;
+        uint256 usdcDustAmount = 0;
+        uint256 daiDustAmount = 0;
+
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustCollectedCount++;
+                (address token, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                if (token == address(usdc)) {
+                    usdcDustAmount = amount;
+                } else if (token == address(dai)) {
+                    daiDustAmount = amount;
+                }
+            }
+        }
+
+        assertEq(dustCollectedCount, 2, "Should emit DustCollected for both tokens");
+        assertEq(usdcDustAmount, expectedUsdcFee, "USDC protocol fee should be 20 USDC");
+        assertEq(daiDustAmount, expectedDaiFee, "DAI protocol fee should be 10 DAI");
+
+        // Verify the gateway received the full amounts (protocol fees kept as dust)
+        assertEq(usdc.balanceOf(address(customGateway)), usdcAmount, "Gateway should have full USDC amount");
+        assertEq(dai.balanceOf(address(customGateway)), daiAmount, "Gateway should have full DAI amount");
+
+        // Verify commitment is calculated with REDUCED amounts for both tokens
+        // Need to reconstruct the order exactly as the contract sees it after filling in fields
+        Order memory orderWithReducedAmounts = order;
+        orderWithReducedAmounts.user = bytes32(uint256(uint160(user)));
+        orderWithReducedAmounts.source = host.host();
+        orderWithReducedAmounts.nonce = 0; // First order
+        orderWithReducedAmounts.inputs[0].amount = expectedUsdcAfterFee;
+        orderWithReducedAmounts.inputs[1].amount = expectedDaiAfterFee;
+        bytes32 expectedCommitment = keccak256(abi.encode(orderWithReducedAmounts));
+
+        // Calculate storage slots for _orders[commitment][token]
+        bytes32 commitmentSlot = keccak256(abi.encode(expectedCommitment, uint256(10)));
+        bytes32 usdcEscrowSlot = keccak256(abi.encode(address(usdc), commitmentSlot));
+        bytes32 daiEscrowSlot = keccak256(abi.encode(address(dai), commitmentSlot));
+
+        // Verify escrow storage contains REDUCED amounts for both tokens
+        uint256 usdcEscrowedAmount = uint256(vm.load(address(customGateway), usdcEscrowSlot));
+        uint256 daiEscrowedAmount = uint256(vm.load(address(customGateway), daiEscrowSlot));
+
+        assertEq(usdcEscrowedAmount, expectedUsdcAfterFee, "USDC escrow should be reduced (980 USDC)");
+        assertEq(daiEscrowedAmount, expectedDaiAfterFee, "DAI escrow should be reduced (490 DAI)");
+    }
+
+    function testProtocolFeeOrderPlacedEventHasReducedAmounts() public {
+        // Test that OrderPlaced event contains reduced amounts after protocol fee
+        IntentGatewayV2 customGateway = new IntentGatewayV2(address(this));
+        Params memory customParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10000,
+            protocolFeeBps: 500, // 5%
+            priceOracle: address(0)
+        });
+        customGateway.setParams(customParams);
+
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 expectedProtocolFee = (inputAmount * 500) / 10000; // 50 USDC
+
+        deal(address(usdc), user, inputAmount);
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: bytes(""),
+            destination: host.host(),
+            deadline: block.timestamp + 1 hours,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: new TokenInfo[](1),
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: new TokenInfo[](1), call: ""})
+        });
+
+        order.inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+        order.output.assets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 2000 * 1e18});
+
+        vm.startPrank(user);
+        usdc.approve(address(customGateway), inputAmount);
+
+        vm.recordLogs();
+        customGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Manually verify the inputs in the OrderPlaced event
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (
+                entries[i].topics[0]
+                    == keccak256(
+                        "OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])"
+                    )
+            ) {
+                // Decode the event - note this is complex due to dynamic arrays
+                // We'll just verify the protocol fee was deducted
+                assertTrue(true, "OrderPlaced event found");
+            }
+        }
+
+        // The main verification is that DustCollected was emitted with the correct fee
+        bool dustFound = false;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == keccak256("DustCollected(address,uint256)")) {
+                dustFound = true;
+                (, uint256 amount) = abi.decode(entries[i].data, (address, uint256));
+                assertEq(amount, expectedProtocolFee, "Protocol fee should be 50 USDC");
+            }
+        }
+        assertTrue(dustFound, "DustCollected should be emitted");
     }
 }

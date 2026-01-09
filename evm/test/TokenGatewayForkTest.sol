@@ -18,10 +18,16 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "@polytope-labs/ismp-solidity/Message.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/modules/TokenGateway.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
-import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {
+    GetResponseMessage,
+    GetTimeoutMessage,
+    GetRequest,
+    PostRequest,
+    Message
+} from "@hyperbridge/core/libraries/Message.sol";
+import {TeleportParams, Body, BODY_BYTES_SIZE} from "../src/apps/TokenGateway.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract TeleportForkTest is MainnetForkBaseTest {
@@ -36,7 +42,7 @@ contract TeleportForkTest is MainnetForkBaseTest {
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));
 
         address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();
+        path[0] = IUniswapV2Router02(IHost(gateway.params().host).uniswapV2Router()).WETH();
         path[1] = address(feeToken);
 
         uint256 _fromTokenAmountIn = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];
@@ -75,7 +81,7 @@ contract TeleportForkTest is MainnetForkBaseTest {
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));
 
         address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(IIsmpHost(gateway.params().host).uniswapV2Router()).WETH();
+        path[0] = IUniswapV2Router02(IHost(gateway.params().host).uniswapV2Router()).WETH();
         path[1] = address(feeToken);
 
         uint256 messagingFeeNative = _uniswapV2Router.getAmountsIn(messagingFee, path)[0];

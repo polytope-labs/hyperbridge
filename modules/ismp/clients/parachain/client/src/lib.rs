@@ -111,6 +111,14 @@ pub mod pallet {
 		},
 	}
 
+	#[pallet::error]
+	pub enum Error<T> {
+		/// Only Parachain Consensus updates should be passed in the inherents.
+		InvalidConsensusStateId,
+		/// ValidationData must be updated only once in a block.
+		ConsensusAlreadyUpdated,
+	}
+
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		/// This allows block builders submit parachain consensus proofs as inherents. If the
@@ -122,16 +130,14 @@ pub mod pallet {
 			data: ConsensusMessage,
 		) -> DispatchResultWithPostInfo {
 			ensure_none(origin)?;
-			assert!(
-				!ConsensusUpdated::<T>::exists(),
-				"ValidationData must be updated only once in a block",
-			);
+
+			ensure!(!ConsensusUpdated::<T>::exists(), Error::<T>::ConsensusAlreadyUpdated);
+
 			let host = <T::IsmpHost>::default();
 
-			assert_eq!(
-				data.consensus_state_id,
-				parachain_consensus_state_id(host.host_state_machine()),
-				"Only parachain consensus updates should be passed in the inherents!"
+			ensure!(
+				data.consensus_state_id == parachain_consensus_state_id(host.host_state_machine()),
+				Error::<T>::InvalidConsensusStateId
 			);
 
 			// Handling error will prevent this inherent from breaking block production if there's a

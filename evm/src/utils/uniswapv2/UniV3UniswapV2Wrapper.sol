@@ -21,7 +21,7 @@ import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.so
 import {IV3SwapRouter} from "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
 import {IMulticallExtended} from "@uniswap/swap-router-contracts/contracts/interfaces/IMulticallExtended.sol";
 
-import {IWETH} from "../interfaces/IWETH.sol";
+import {IWETH} from "../../interfaces/IWETH.sol";
 
 /**
  * @title UniV3UniswapV2Wrapper
@@ -113,16 +113,15 @@ contract UniV3UniswapV2Wrapper {
      * @param deadline Unix timestamp deadline by which the transaction must confirm
      * @return amounts Array of amounts [ethSpent, tokensReceived]
      */
-    function swapExactETHForTokens(
-        uint256 amountOutMin,
-        address[] calldata path,
-        address recipient,
-        uint256 deadline
-    ) external payable returns (uint256[] memory) {
+    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address recipient, uint256 deadline)
+        external
+        payable
+        returns (uint256[] memory)
+    {
         address weth = _params.WETH;
         if (path[0] != weth) revert InvalidWethAddress();
 
-        (bool sent, ) = weth.call{value: msg.value}("");
+        (bool sent,) = weth.call{value: msg.value}("");
         if (!sent) revert DepositFailed();
 
         IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams({
@@ -135,10 +134,7 @@ contract UniV3UniswapV2Wrapper {
             sqrtPriceLimitX96: 0
         });
 
-        bytes memory swapCall = abi.encodeWithSelector(
-            IV3SwapRouter.exactInputSingle.selector,
-            params
-        );
+        bytes memory swapCall = abi.encodeWithSelector(IV3SwapRouter.exactInputSingle.selector, params);
 
         bytes[] memory data = new bytes[](1);
         data[0] = swapCall;
@@ -161,16 +157,15 @@ contract UniV3UniswapV2Wrapper {
      * @param deadline Unix timestamp deadline by which the transaction must confirm
      * @return amounts Array of amounts [ethSpent, tokensReceived]
      */
-    function swapETHForExactTokens(
-        uint256 amountOut,
-        address[] calldata path,
-        address recipient,
-        uint256 deadline
-    ) external payable returns (uint256[] memory) {
+    function swapETHForExactTokens(uint256 amountOut, address[] calldata path, address recipient, uint256 deadline)
+        external
+        payable
+        returns (uint256[] memory)
+    {
         address weth = _params.WETH;
         if (path[0] != weth) revert InvalidWethAddress();
 
-        (bool sent, ) = weth.call{value: msg.value}("");
+        (bool sent,) = weth.call{value: msg.value}("");
         if (!sent) revert DepositFailed();
 
         IV3SwapRouter.ExactOutputSingleParams memory params = IV3SwapRouter.ExactOutputSingleParams({
@@ -183,10 +178,7 @@ contract UniV3UniswapV2Wrapper {
             sqrtPriceLimitX96: 0
         });
 
-        bytes memory swapCall = abi.encodeWithSelector(
-            IV3SwapRouter.exactOutputSingle.selector,
-            params
-        );
+        bytes memory swapCall = abi.encodeWithSelector(IV3SwapRouter.exactOutputSingle.selector, params);
 
         bytes[] memory data = new bytes[](1);
         data[0] = swapCall;
@@ -198,7 +190,7 @@ contract UniV3UniswapV2Wrapper {
             uint256 refund = msg.value - spent;
             IWETH(weth).withdraw(refund);
 
-            (bool success, ) = _deployer.call{value: refund}("");
+            (bool success,) = _deployer.call{value: refund}("");
             if (!success) revert RefundFailed();
         }
 
@@ -215,15 +207,11 @@ contract UniV3UniswapV2Wrapper {
      * @param path An array of token addresses representing the path of the swap.
      * @return amounts An array of input amounts required to obtain the output amount.
      */
-    function getAmountsIn(uint amountOut, address[] calldata path) external returns (uint[] memory) {
+    function getAmountsIn(uint256 amountOut, address[] calldata path) external returns (uint256[] memory) {
         IQuoterV2.QuoteExactOutputSingleParams memory params = IQuoterV2.QuoteExactOutputSingleParams({
-            tokenIn: path[0],
-            tokenOut: path[1],
-            amount: amountOut,
-            fee: _params.maxFee,
-            sqrtPriceLimitX96: 0
+            tokenIn: path[0], tokenOut: path[1], amount: amountOut, fee: _params.maxFee, sqrtPriceLimitX96: 0
         });
-        (uint256 amountIn, , , ) = IQuoterV2(_params.quoter).quoteExactOutputSingle(params);
+        (uint256 amountIn,,,) = IQuoterV2(_params.quoter).quoteExactOutputSingle(params);
         uint256[] memory amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountOut;
@@ -236,15 +224,11 @@ contract UniV3UniswapV2Wrapper {
      * @param path An array of token addresses representing the path of the swap.
      * @return amounts An array of output amounts to be received.
      */
-    function getAmountsOut(uint amountIn, address[] calldata path) external returns (uint[] memory) {
+    function getAmountsOut(uint256 amountIn, address[] calldata path) external returns (uint256[] memory) {
         IQuoterV2.QuoteExactInputSingleParams memory params = IQuoterV2.QuoteExactInputSingleParams({
-            tokenIn: path[0],
-            tokenOut: path[1],
-            amountIn: amountIn,
-            fee: _params.maxFee,
-            sqrtPriceLimitX96: 0
+            tokenIn: path[0], tokenOut: path[1], amountIn: amountIn, fee: _params.maxFee, sqrtPriceLimitX96: 0
         });
-        (uint256 amountOut, , , ) = IQuoterV2(_params.quoter).quoteExactInputSingle(params);
+        (uint256 amountOut,,,) = IQuoterV2(_params.quoter).quoteExactInputSingle(params);
         uint256[] memory amounts = new uint256[](2);
         amounts[0] = amountIn;
         amounts[1] = amountOut;

@@ -1,0 +1,32 @@
+[package]
+name = "tesseract-beaconkit"
+version = "0.1.0"
+edition = "2021"
+description = "BeaconKit consensus relayer for tesseract"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+anyhow = {workspace = true, default-features = true}
+async-trait = "0.1.88"
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+ismp = { workspace = true }
+ismp-beacon-kit = { workspace = true }
+log = { workspace = true, default-features = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tendermint-primitives = { workspace = true }
+tendermint-verifier = { workspace = true }
+tendermint-prover = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-primitives = { workspace = true }
+tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+cometbft = { workspace = true }
+cometbft-rpc = { workspace = true }
+geth-primitives = { workspace = true }
+reqwest = { version = "0.11", features = ["json"] }
+ethers = { workspace = true, features = ["ws", "default"] }
+primitive-types = { workspace = true, default-features = true }
+polkadot-sdk = { workspace = true, features = ["sp-runtime"] }
+base64 = { version = "0.21" }
+sha2 = "0.10"
+hex = "0.4"

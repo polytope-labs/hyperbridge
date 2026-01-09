@@ -1,12 +1,12 @@
 name: CI
 
 on:
-    push:
-        branches:
-            - main
+   push:
+       branches:
+        - main
 
-    pull_request_target:
-        types: [opened, synchronize]
+#    pull_request_target:
+#        types: [opened, synchronize]
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -30,6 +30,7 @@ env:
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
+    BEACONKIT_COMETBFT_RPC: ${{secrets.BEACONKIT_COMETBFT_RPC}}
 
 jobs:
     check-wasm:
@@ -381,7 +382,7 @@ jobs:
                   git clone --branch david/electra https://github.com/polytope-labs/eth-pos-devnet.git
                   DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 docker-compose -f ./eth-pos-devnet/docker-compose.yml up -d
                   ./scripts/wait_for_tcp_port_opening.sh localhost 3500
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 8545
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 8545 
 
             - name: sync-committee electra integration tests
               run: |
@@ -394,6 +395,10 @@ jobs:
             - name: Tendermint Integration Test
               run: |
                   RUST_LOG=tendermint_prover=trace,tesseract=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
+
+            - name: Beacon Kit integration tests
+              run: |
+                cargo test -p pallet-ismp-testsuite --lib beaconkit_verify_consensus -- --nocapture --ignored   
 
             - name: Clean up docker
               if: always()

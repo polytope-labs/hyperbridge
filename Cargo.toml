@@ -40,6 +40,7 @@ members = [
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
     "modules/ismp/clients/tendermint",
+    "modules/ismp/clients/beacon-kit",
     "modules/pallets/collator-manager",
 
     # cryptography
@@ -114,6 +115,7 @@ members = [
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
+    "tesseract/consensus/beaconkit",
 
 
     # Airdrop
@@ -209,11 +211,11 @@ impl-trait-for-tuples = "0.2.3"
 ark-ec = { version = "0.4.2", default-features = false }
 bls = { package = "bls_on_arkworks", version = "0.2.2", default-features = false }
 
-# tendermint/cometbft
-cometbft = { git = "https://github.com/cometbft/cometbft-rs",  rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false, features = ["secp256k1"]}
-cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d"}
-cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
-cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
+# tendermint/cometbft (with BLS aggregation support for BeaconKit)
+cometbft = { git = "https://github.com/polytope-labs/cometbft-rs", rev = "69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d", default-features = false, features = ["secp256k1"]}
+cometbft-rpc = { git = "https://github.com/polytope-labs/cometbft-rs", package = "cometbft-rpc", features = ["http-client", "secp256k1"], rev = "69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d"}
+cometbft-proto = { git = "https://github.com/polytope-labs/cometbft-rs", package = "cometbft-proto", rev = "69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d", default-features = false }
+cometbft-light-client-verifier = { git = "https://github.com/polytope-labs/cometbft-rs", package = "cometbft-light-client-verifier", rev = "69747b2e15d9ebf91bbe4057d072b96a3e9e9a9d", default-features = false }
 ics23 = { version = "0.12.0", default-features = false }
 ibc = { version = "0.57.0", default-features = false }
 ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
@@ -258,7 +260,6 @@ tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", defaul
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
-
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
@@ -268,6 +269,7 @@ ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features 
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
 ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features = false }
+ismp-beacon-kit = { path = "modules/ismp/clients/beacon-kit", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -324,6 +326,7 @@ tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
+tesseract-beaconkit = { path = "tesseract/consensus/beaconkit" }
 
 
 [workspace.dependencies.codec]

@@ -36,9 +36,18 @@ tesseract-primitives = { workspace = true  }
 tesseract-evm = { workspace = true  }
 tesseract-sync-committee = { workspace = true, features = ["testing"] }
 tesseract-polygon = { workspace = true }
+tesseract-beaconkit = { workspace = true }
 tesseract-bsc = { workspace = true  }
 ismp-grandpa = { workspace = true  }
+ismp-beacon-kit = { workspace = true }
+cometbft = { workspace = true }
+tendermint-primitives = { workspace = true }
+tendermint-prover = { workspace = true }
 dotenv = "0.15.0"
+reqwest = { version = "0.11", features = ["json"] }
+serde_json = "1.0"
+base64 = "0.21"
+sha2 = "0.10"
 sync-committee-primitives = { workspace = true }
 transaction-fees = { workspace = true }
 tesseract-config = { workspace = true }

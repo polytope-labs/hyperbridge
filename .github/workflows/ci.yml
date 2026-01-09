@@ -121,6 +121,11 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
             - name: Add wasm toolchain
               run: |
                   rustup update nightly
@@ -162,11 +167,6 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -205,6 +205,11 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
             - name: Add wasm toolchain
               run: |
                   rustup update nightly
@@ -244,11 +249,6 @@ jobs:
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
-
             - name: Install Go
               uses: actions/setup-go@v5
               with:
@@ -286,6 +286,11 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
             - name: Add wasm toolchain
               run: |
                   rustup update nightly
@@ -321,11 +326,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

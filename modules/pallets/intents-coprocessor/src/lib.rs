@@ -53,6 +53,7 @@ pub const PALLET_INTENTS_ID: &[u8] = b"pallet-intents";
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use crate::alloc::string::ToString;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 

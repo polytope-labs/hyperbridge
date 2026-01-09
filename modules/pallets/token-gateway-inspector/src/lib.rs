@@ -23,7 +23,7 @@ use alloy_sol_types::SolValue;
 use ismp::router::PostRequest;
 use polkadot_sdk::*;
 
-use alloc::{format, vec};
+use alloc::format;
 use primitive_types::{H256, U256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -103,18 +103,18 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		pub fn is_token_gateway_request(body: &[u8]) -> Option<(H256, U256)> {
-			if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
+			if let Ok(body) = Body::abi_decode(&mut &body[1..]) {
 				return Some((
 					H256::from(body.asset_id.0),
 					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
-				))
+				));
 			}
 
-			if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
+			if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..]) {
 				return Some((
 					H256::from(body.asset_id.0),
 					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
-				))
+				));
 			}
 			None
 		}

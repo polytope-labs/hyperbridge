@@ -464,9 +464,9 @@ where
 			}
 		);
 
-		let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
+		let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..]) {
 			body.into()
-		} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
+		} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..]) {
 			body.into()
 		} else {
 			Err(anyhow!("Token Gateway: Failed to decode request body"))?
@@ -640,9 +640,9 @@ where
 	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
-				let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
+				let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..]) {
 					body.into()
-				} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
+				} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..]) {
 					body.into()
 				} else {
 					Err(anyhow!("Token Gateway: Failed to decode request body"))?

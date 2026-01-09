@@ -60,8 +60,8 @@ pub fn is_orbit_chain(id: u32) -> bool {
 /// Minimal struct for deserializing OP Stack chain data from chainList.json
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct OpStackChain {
-	chain_id: u64,
+pub struct OpStackChain {
+	pub chain_id: u64,
 }
 
 pub fn read_op_registry() -> Result<Vec<OpStackChain>, anyhow::Error> {

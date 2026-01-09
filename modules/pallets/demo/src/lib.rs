@@ -42,7 +42,7 @@ pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"ismp-ast"));
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::{vec, vec::Vec};
+	use alloc::vec::Vec;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{

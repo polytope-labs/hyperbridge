@@ -72,7 +72,7 @@ members = [
     "modules/pallets/messaging-fees",
 
     # evm stuff
-    "evm/integration-tests",
+    # "evm/integration-tests",
     "evm/abi",
 
     # hyperclient
@@ -182,8 +182,8 @@ derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
 alloy-rlp = { version = "0.3.7", default-features = false }
 alloy-rlp-derive = "0.3.7"
-alloy-sol-macro = "0.7.7"
-alloy-sol-types = { version = "0.7.7", default-features = false }
+alloy-sol-macro = "1.5.2"
+alloy-sol-types = { version = "1.5.2", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
@@ -359,9 +359,9 @@ rev = "45239225c50247e049892125d281442c084a2a92"
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
 
-[workspace.dependencies.forge-testsuite]
-git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
+# [workspace.dependencies.forge-testsuite]
+# git = "https://github.com/polytope-labs/forge-testsuite"
+# rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"

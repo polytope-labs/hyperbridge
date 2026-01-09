@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use codec::{Decode, Encode};
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
-use sp1_beefy::BeefyProver;
+pub use sp1_beefy::BeefyProver;
 use sp1_beefy_primitives::{
 	AuthoritiesProof, BeefyCommitment, KeccakHasher, MmrLeafProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex,
@@ -28,10 +28,21 @@ pub use sp1_beefy::local::LocalProver;
 mod tests;
 
 /// Consensus prover for zk BEEFY.
-#[derive(Clone)]
 pub struct Prover<R: subxt::Config, P: subxt::Config, B: BeefyProver> {
 	pub inner: beefy_prover::Prover<R, P>,
 	pub sp1_beefy: Arc<B>,
+}
+
+impl<R, P, B> Clone for Prover<R, P, B>
+where
+	R: subxt::Config,
+	P: subxt::Config,
+	B: BeefyProver,
+	beefy_prover::Prover<R, P>: Clone,
+{
+	fn clone(&self) -> Self {
+		Self { inner: self.inner.clone(), sp1_beefy: self.sp1_beefy.clone() }
+	}
 }
 
 impl<R, P, B> Prover<R, P, B>

@@ -23,6 +23,7 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 use tesseract_sync_committee::SyncCommitteeConfig;
 use tesseract_tendermint::TendermintConfig;
+use zk_beefy;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -53,7 +54,7 @@ pub enum AnyConfig {
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
-	Beefy(BeefyHost<R, P>),
+	Beefy(BeefyHost<R, P, zk_beefy::LocalProver>),
 	Grandpa(GrandpaHost<R, P>),
 }
 
@@ -164,8 +165,10 @@ impl HyperbridgeHostConfig {
 		let host = match self.host {
 			ConsensusHost::Beefy { substrate, prover, beefy } => {
 				let client = SubstrateClient::<P>::new(substrate).await?;
-				let prover = Prover::<R, P>::new(prover.clone()).await?;
-				AnyHost::Beefy(BeefyHost::<R, P>::new(beefy, prover, client).await?)
+				let prover = Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone()).await?;
+				AnyHost::Beefy(
+					BeefyHost::<R, P, zk_beefy::LocalProver>::new(beefy, prover, client).await?,
+				)
 			},
 			ConsensusHost::Grandpa(grandpa) =>
 				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?),

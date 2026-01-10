@@ -27,7 +27,8 @@ codec = { workspace = true, default-features = false }
 polkadot-sdk = { workspace = true, features = ["sp-crypto-hashing", "sp-trie", "sp-runtime"] }
 sp-core = { workspace = true, default-features = false }
 primitive-types = { workspace = true }
-ibc = { workspace = true, default-features = false }
+ibc-core-commitment-types = { workspace = true, default-features = false }
+ibc-core-host = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
 tendermint-primitives ={ workspace = true, default-features = false}
@@ -57,5 +58,7 @@ std = [
     "pallet-ismp-host-executive/std",
     "polkadot-sdk/std",
     "primitive-types/std",
-    "sp-core/std"
+    "sp-core/std",
+    "ibc-core-host/std",
+    "ibc-core-commitment-types/std",
 ]

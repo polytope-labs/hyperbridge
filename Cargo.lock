@@ -6751,7 +6751,8 @@ dependencies = [
  "hash256-std-hasher",
  "hex",
  "hex-literal 0.4.1",
- "ibc",
+ "ibc-core-commitment-types",
+ "ibc-core-host",
  "ismp",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
@@ -8237,6 +8238,7 @@ dependencies = [
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
+ "pallet-intents-coprocessor",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -10771,7 +10773,8 @@ dependencies = [
  "base64 0.22.1",
  "evm-state-machine",
  "geth-primitives",
- "ibc",
+ "ibc-core-commitment-types",
+ "ibc-core-host",
  "ismp",
  "log",
  "pallet-ismp-host-executive",
@@ -15421,6 +15424,25 @@ dependencies = [
  "polkadot-sdk-frame 0.10.0",
  "safe-mix",
  "scale-info",
+]
+
+[[package]]
+name = "pallet-intents-coprocessor"
+version = "2506.2.0"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "alloy-sol-macro 0.7.7",
+ "alloy-sol-types 0.7.7",
+ "anyhow",
+ "ismp",
+ "ismp-testsuite",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-io 41.0.1",
 ]
 
 [[package]]
@@ -28233,7 +28255,7 @@ dependencies = [
  "blake2 0.10.6",
  "blake3",
  "cometbft",
- "ibc",
+ "ibc-core-commitment-types",
  "ics23",
  "ismp",
  "polkadot-sdk",
@@ -28574,7 +28596,6 @@ dependencies = [
  "geth-primitives",
  "hex",
  "hex-literal 0.4.1",
- "ibc",
  "ics23",
  "ismp",
  "ismp-solidity-abi",
@@ -28758,7 +28779,7 @@ dependencies = [
  "cometbft-rpc",
  "ethers",
  "geth-primitives",
- "ibc",
+ "ibc-core-commitment-types",
  "ibc-proto 0.52.0",
  "ics23",
  "ismp",
@@ -28904,7 +28925,6 @@ dependencies = [
  "cometbft-rpc",
  "ethers",
  "geth-primitives",
- "ibc",
  "ibc-proto 0.52.0",
  "ics23",
  "ismp",

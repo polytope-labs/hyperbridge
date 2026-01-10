@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use crate::sp_io::hashing::keccak_256;
-use ibc::core::commitment_types::{
+use ibc_core_commitment_types::{
 	commitment::CommitmentProofBytes, merkle::MerkleProof, proto::v1::MerkleProof as RawMerkleProof,
 };
 use ics23::CommitmentProof;

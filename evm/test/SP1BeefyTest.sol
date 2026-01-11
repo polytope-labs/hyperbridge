@@ -16,7 +16,6 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
-// import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
 import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 
 import "../src/consensus/SP1Beefy.sol";

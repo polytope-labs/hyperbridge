@@ -10,6 +10,7 @@ abstract contract BaseScript is Script, Config {
     address internal admin = vm.envAddress("ADMIN");
     bytes32 public salt = keccak256(bytes(vm.envString("VERSION")));
     bytes internal consensusState = vm.envBytes("CONSENSUS_STATE");
+    bytes32 internal sp1VerificationKey = vm.envBytes32("SP1_VERIFICATION_KEY");
 
     // ============= Config Variables =============
     address payable internal HOST_ADDRESS;

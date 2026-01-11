@@ -464,14 +464,23 @@ where
 			}
 		);
 
-		let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..]) {
-			body.into()
-		} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..]) {
-			body.into()
+		// Body has 5 fixed-size fields (uint256 + bytes32 + bool + bytes32 + bytes32) = 160 bytes
+		// BodyWithCall adds dynamic bytes field, so it will be > 160 bytes
+		let body: RequestBody = if body.len() > types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+			BodyWithCall::abi_decode(&mut &body[1..])
+				.map_err(|e| anyhow!("Token Gateway: Failed to decode BodyWithCall: {e:?}"))?
+				.into()
+		} else if body.len() == types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+			Body::abi_decode_validate(&mut &body[1..])
+				.map_err(|e| anyhow!("Token Gateway: Failed to decode Body: {e:?}"))?
+				.into()
 		} else {
-			Err(anyhow!("Token Gateway: Failed to decode request body"))?
+			Err(anyhow!(
+				"Token Gateway: Invalid body length: {} bytes (expected {} or more)",
+				body.len(),
+				types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR
+			))?
 		};
-
 		let local_asset_id =
 			LocalAssets::<T>::get(H256::from(body.asset_id.0)).ok_or_else(|| {
 				ismp::error::Error::ModuleDispatchError {
@@ -640,12 +649,24 @@ where
 	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
-				let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..]) {
-					body.into()
-				} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..]) {
-					body.into()
+				// Body has 5 fixed-size fields (uint256 + bytes32 + bool + bytes32 + bytes32) = 160
+				// bytes BodyWithCall adds dynamic bytes field, so it will be > 160 bytes
+				let body: RequestBody = if body.len() > types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+					BodyWithCall::abi_decode(&mut &body[1..])
+						.map_err(|e| {
+							anyhow!("Token Gateway: Failed to decode BodyWithCall: {e:?}")
+						})?
+						.into()
+				} else if body.len() == types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+					Body::abi_decode_validate(&mut &body[1..])
+						.map_err(|e| anyhow!("Token Gateway: Failed to decode Body: {e:?}"))?
+						.into()
 				} else {
-					Err(anyhow!("Token Gateway: Failed to decode request body"))?
+					Err(anyhow!(
+						"Token Gateway: Invalid body length: {} bytes (expected {} or more)",
+						body.len(),
+						types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR
+					))?
 				};
 				let beneficiary = body.from.0.into();
 				let local_asset_id = LocalAssets::<T>::get(H256::from(body.asset_id.0))

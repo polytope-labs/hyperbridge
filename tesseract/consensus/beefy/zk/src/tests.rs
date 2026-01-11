@@ -3,9 +3,7 @@ use anyhow::anyhow;
 use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_solidity_abi::beefy::BeefyConsensusState;
 use serde::Deserialize;
-use sp1_beefy::local::LocalProver;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,

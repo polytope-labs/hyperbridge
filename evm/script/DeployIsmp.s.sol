@@ -26,7 +26,7 @@ import {PingModule} from "../src/utils/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 
-import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
@@ -60,7 +60,7 @@ contract DeployScript is BaseScript {
         if (isMainnet) {
             // deploy zk connsensus client
             SP1Verifier verifier = new SP1Verifier{salt: salt}();
-            SP1Beefy consensusClientInstance = new SP1Beefy{salt: salt}(verifier);
+            SP1Beefy consensusClientInstance = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
             consensusClient = address(consensusClientInstance);
             // use feeToken configured in environment variables
             address uniswap = config.get("UNISWAP_V2").toAddress();

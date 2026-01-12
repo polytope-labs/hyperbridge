@@ -8,6 +8,10 @@ on:
     pull_request_target:
         types: [opened, synchronize]
 
+    # pull_request:
+    #     branches:
+    #         - main
+
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
     cancel-in-progress: true
@@ -117,10 +121,25 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
             - name: Install Dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  curl -L https://sp1.succinct.xyz | bash
+                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/cargo-prove prove --version
 
             - name: Download SVM Releases List
               run: |
@@ -149,22 +168,10 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
-
             - name: Install Go
               uses: actions/setup-go@v5
               with:
                   go-version: "1.24"
-
-            - name: Add wasm toolchain
-              run: |
-                  rustup update nightly
-                  rustup target add wasm32-unknown-unknown --toolchain nightly
-                  rustup target add wasm32-unknown-unknown
-                  rustup component add rust-src
 
             - uses: Swatinem/rust-cache@v2
 
@@ -198,10 +205,25 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
             - name: Install Dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  curl -L https://sp1.succinct.xyz | bash
+                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/cargo-prove prove --version
 
             - name: Download SVM Releases List
               run: |
@@ -226,18 +248,6 @@ jobs:
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
-
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
-
-            - name: Add wasm toolchain
-              run: |
-                  rustup update nightly
-                  rustup target add wasm32-unknown-unknown --toolchain nightly
-                  rustup target add wasm32-unknown-unknown
-                  rustup component add rust-src
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -276,10 +286,25 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
             - name: Install Dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  curl -L https://sp1.succinct.xyz | bash
+                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/cargo-prove prove --version
 
             - name: Download SVM Releases List
               run: |
@@ -301,18 +326,6 @@ jobs:
               working-directory: evm
               run: |
                   pnpm install
-
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
-
-            - name: Add wasm toolchain
-              run: |
-                  rustup update nightly
-                  rustup target add wasm32-unknown-unknown --toolchain nightly
-                  rustup target add wasm32-unknown-unknown
-                  rustup component add rust-src
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

@@ -11,7 +11,7 @@ import {BaseScript} from "./BaseScript.sol";
 import "../src/core/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
-import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 
 contract DeployScript is BaseScript {
@@ -21,7 +21,7 @@ contract DeployScript is BaseScript {
         vm.startBroadcast(uint256(privateKey));
 
         SP1Verifier verifier = new SP1Verifier();
-        SP1Beefy consensusClient = new SP1Beefy(verifier);
+        SP1Beefy consensusClient = new SP1Beefy(verifier, sp1VerificationKey);
 
         // HandlerV1 handler = new HandlerV1();
         // BeefyV1 consensusClient = new BeefyV1{salt: salt}();

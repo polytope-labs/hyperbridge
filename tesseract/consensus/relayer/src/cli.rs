@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use clap::{arg, Parser};
+use clap::Parser;
 use codec::Decode;
 use ismp::host::StateMachine;
 use std::{

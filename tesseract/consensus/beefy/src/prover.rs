@@ -31,6 +31,7 @@ use sp_runtime::{
 };
 use std::{
 	collections::{HashMap, HashSet},
+	marker::PhantomData,
 	time::Duration,
 };
 use subxt::{
@@ -53,6 +54,7 @@ use ismp_solidity_abi::beefy::BeefyConsensusProof;
 use pallet_ismp_rpc::{BlockNumberOrHash, EventWithMetadata};
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::SubstrateClient;
+use zk_beefy::BeefyProver as Sp1BeefyProverTrait;
 
 use crate::{
 	extract_para_id, host::ConsensusProof, redis_utils, redis_utils::RedisConfig,
@@ -90,13 +92,13 @@ pub struct ProverConfig {
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
 /// proofs are produced when new messages are observed on the hyperbridge chain or when the
 /// authority set changes.
-pub struct BeefyProver<R: subxt::Config, P: subxt::Config> {
+pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
 	/// The prover's consensus state, this is persisted to redis
 	consensus_state: ProverConsensusState,
 	/// The hyperbridge substrate client
 	client: SubstrateClient<P>,
 	/// The beefy prover instance
-	prover: Prover<R, P>,
+	prover: Prover<R, P, B>,
 	/// Rsmq for interacting with the queue
 	rsmq: Rsmq,
 	/// Prover configuration options
@@ -109,10 +111,11 @@ pub struct BeefyProver<R: subxt::Config, P: subxt::Config> {
 /// to redis as frequently as they change. Ensuring that it can always be rehydrated.
 pub const REDIS_CONSENSUS_STATE_KEY: &'static str = "consensus_state";
 
-impl<R, P> BeefyProver<R, P>
+impl<R, P, B> BeefyProver<R, P, B>
 where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
+	B: Sp1BeefyProverTrait,
 	P::Header: Send + Sync,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + Send + Sync,
@@ -124,7 +127,7 @@ where
 	pub async fn new(
 		mut config: BeefyProverConfig,
 		client: SubstrateClient<P>,
-		prover: Prover<R, P>,
+		prover: Prover<R, P, B>,
 	) -> Result<Self, anyhow::Error> {
 		let mut connection = redis::Client::open(redis::ConnectionInfo {
 			addr: config.redis.clone().into(),
@@ -212,7 +215,7 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<Vec<u8>, anyhow::Error> {
 		let encoded = match self.prover {
-			Prover::Naive(ref naive) => {
+			Prover::Naive(ref naive, _) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
 				AbiEncode::encode(message)
@@ -666,15 +669,31 @@ where
 }
 
 /// Beefy prover, can either produce zk proofs or naive proofs
-#[derive(Clone)]
-pub enum Prover<R: subxt::Config, P: subxt::Config> {
+pub enum Prover<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
 	// The naive prover
-	Naive(beefy_prover::Prover<R, P>),
+	Naive(beefy_prover::Prover<R, P>, PhantomData<B>),
 	// zk prover
-	ZK(zk_beefy::Prover<R, P>),
+	ZK(zk_beefy::Prover<R, P, B>),
 }
 
-impl<R, P> Prover<R, P>
+impl<R, P, B> Clone for Prover<R, P, B>
+where
+	R: subxt::Config,
+	P: subxt::Config,
+	B: Sp1BeefyProverTrait,
+	beefy_prover::Prover<R, P>: Clone,
+	zk_beefy::Prover<R, P, B>: Clone,
+{
+	fn clone(&self) -> Self {
+		match self {
+			Prover::Naive(p, _) => Prover::Naive(p.clone(), PhantomData),
+			Prover::ZK(p) => Prover::ZK(p.clone()),
+		}
+	}
+}
+
+// Implementation for LocalProver
+impl<R, P> Prover<R, P, zk_beefy::LocalProver>
 where
 	R: subxt::Config,
 	P: subxt::Config,
@@ -722,19 +741,28 @@ where
 		};
 
 		let prover = if config.zk_beefy {
-			Prover::ZK(zk_beefy::Prover::new(prover))
+			let sp1_prover = zk_beefy::LocalProver::new(true);
+			Prover::ZK(zk_beefy::Prover::new(prover, sp1_prover))
 		} else {
-			Prover::Naive(prover)
+			Prover::Naive(prover, PhantomData)
 		};
 
 		Ok(prover)
 	}
+}
 
+// Common implementation for all variants
+impl<R, P, B> Prover<R, P, B>
+where
+	R: subxt::Config,
+	P: subxt::Config,
+	B: Sp1BeefyProverTrait,
+{
 	/// Return the inner prover
 	pub fn inner(&self) -> &beefy_prover::Prover<R, P> {
 		match self {
 			Prover::ZK(ref p) => &p.inner,
-			Prover::Naive(ref p) => p,
+			Prover::Naive(ref p, _) => p,
 		}
 	}
 
@@ -988,7 +1016,7 @@ mod tests {
 			tracing::info!("Wrote consensus state to redis: {prover_consensus_state:#?}");
 		};
 
-		let mut beefy_prover = BeefyProver::<Blake2SubstrateChain, _>::new(
+		let mut beefy_prover = BeefyProver::<Blake2SubstrateChain, _, zk_beefy::LocalProver>::new(
 			beefy_config.clone(),
 			substrate_client.clone(),
 			prover.clone(),

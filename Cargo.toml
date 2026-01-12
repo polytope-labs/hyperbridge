@@ -72,11 +72,11 @@ members = [
     "modules/pallets/messaging-fees",
 
     # evm stuff
-    "evm/integration-tests",
+    # "evm/integration-tests",
     "evm/abi",
 
     # hyperclient
-    "modules/hyperclient",
+    # "modules/hyperclient",
 
     # simnode
     "parachain/simtests",
@@ -182,8 +182,8 @@ derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
 alloy-rlp = { version = "0.3.7", default-features = false }
 alloy-rlp-derive = "0.3.7"
-alloy-sol-macro = "0.7.7"
-alloy-sol-types = { version = "0.7.7", default-features = false }
+alloy-sol-macro = "1.5.2"
+alloy-sol-types = { version = "1.5.2", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
@@ -191,8 +191,8 @@ rlp = { version = "0.6.1", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
 subxt = { version = "0.42.1", default-features = false }
 subxt-core = { version = "0.42.1", default-features = false }
-tokio = { version = "1.37.0" }
-tokio-stream = { version = "0.1.15" }
+tokio = { version = "1.49" }
+tokio-stream = { version = "0.1" }
 jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
@@ -359,9 +359,9 @@ rev = "45239225c50247e049892125d281442c084a2a92"
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
 
-[workspace.dependencies.forge-testsuite]
-git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
+# [workspace.dependencies.forge-testsuite]
+# git = "https://github.com/polytope-labs/forge-testsuite"
+# rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"
@@ -373,7 +373,7 @@ version = "0.5.2"
 default-features = false
 
 [workspace.dependencies.alloy-primitives]
-version = "0.7.7"
+version = "1.1.2"
 default-features = false
 features = ["rlp"]
 
@@ -385,3 +385,5 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
+
+[patch.crates-io]

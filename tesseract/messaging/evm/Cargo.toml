@@ -29,8 +29,7 @@ tokio-stream = { workspace = true }
 reqwest-retry = "0.3.0"
 reqwest-middleware = "0.2.4"
 async-recursion = "1.0.5"
-superchain-registry = { version = "0.11", default-features = false }
-op-alloy-genesis = "=0.6.2"                                          # need to pin this transitive dependency
+
 jsonrpsee = { workspace = true, features = ["ws-client"] }
 
 ismp-solidity-abi = { workspace = true, default-features = true }

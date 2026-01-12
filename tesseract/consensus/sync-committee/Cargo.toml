@@ -14,7 +14,7 @@ anyhow = "1.0.75"
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.71"
-tokio = { version = "1.32.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"

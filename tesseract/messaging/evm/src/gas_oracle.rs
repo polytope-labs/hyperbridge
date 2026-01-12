@@ -11,6 +11,7 @@ use hex_literal::hex;
 use ismp::host::StateMachine;
 use ismp_solidity_abi::evm_host::EvmHost;
 use primitive_types::U256;
+use serde::Deserialize;
 use std::{fmt::Debug, sync::Arc};
 use tesseract_primitives::Cost;
 
@@ -56,9 +57,16 @@ pub fn is_orbit_chain(id: u32) -> bool {
 	[ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID].contains(&id)
 }
 
-pub fn read_op_registry() -> Result<Vec<superchain_registry::Chain>, anyhow::Error> {
+/// Minimal struct for deserializing OP Stack chain data from chainList.json
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpStackChain {
+	pub chain_id: u64,
+}
+
+pub fn read_op_registry() -> Result<Vec<OpStackChain>, anyhow::Error> {
 	let chain_list = include_str!("../op-registry/chainList.json");
-	let chains = serde_json::from_str::<Vec<superchain_registry::Chain>>(chain_list)?;
+	let chains = serde_json::from_str::<Vec<OpStackChain>>(chain_list)?;
 	Ok(chains)
 }
 

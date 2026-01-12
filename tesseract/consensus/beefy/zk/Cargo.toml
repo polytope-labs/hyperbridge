@@ -7,7 +7,7 @@ description = "SNARK Circuits for BEEFY consensus proofs written in noir"
 
 [dependencies]
 tracing = { workspace = true }
-tokio = { version = "1.35.1", features = ["fs", "macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }
 rs_merkle = "1.4.1"
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
@@ -24,8 +24,13 @@ merkle-mountain-range = { workspace = true }
 polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
 
-sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
-sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
+[dependencies.sp1-beefy]
+git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+rev = "8f96d0f91258cce12a1a578cac51cfdcf3478cb1"
+
+[dependencies.sp1-beefy-primitives]
+git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+rev = "8f96d0f91258cce12a1a578cac51cfdcf3478cb1"
 
 [dev-dependencies]
 ethers = { workspace = true }
@@ -39,3 +44,8 @@ hex = { version = "0.4.3", features = [] }
 [dev-dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime"]
+
+[features]
+default = ["local"]
+cluster = ["sp1-beefy/cluster"]
+local = ["sp1-beefy/local"]

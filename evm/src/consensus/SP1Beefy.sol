@@ -32,10 +32,10 @@ contract SP1Beefy is IConsensus, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
-    bytes32 public _verificationKey;
+    bytes32 public immutable _verificationKey;
 
     // Sp1 verifier contract
-    ISP1Verifier internal _verifier;
+    ISP1Verifier public immutable _verifier;
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();

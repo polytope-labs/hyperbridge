@@ -108,6 +108,88 @@ describe("teleport function", () => {
 		}
 	}, 300_000)
 
+	it("should batch system.remark with teleport call", async () => {
+		// Set up the connection to a local node
+		const wsProvider = new WsProvider(process.env.BIFROST_PASEO)
+		const api = await ApiPromise.create({ provider: wsProvider })
+
+		console.log("Api connected")
+		// Set up BOB account from keyring
+		const keyring = new Keyring({ type: "sr25519" })
+		const bob = keyring.addFromUri(secret_key)
+		// Implement the Signer interface
+		const signer: Signer = createKeyringPairSigner(bob)
+
+		// Prepare test parameters
+		const params = {
+			symbol: "BNC",
+			destination: "EVM-84532",
+			recipient: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" as HexString,
+			amount: BigInt(200000000000),
+			timeout: BigInt(3600),
+			tokenGatewayAddress: hexToBytes("0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"),
+			relayerFee: BigInt(0),
+			redeem: false,
+		}
+
+		try {
+			// Create a system.remark extrinsic to batch with teleport
+			const remarkMessage = "Test remark batched with teleport"
+			const remarkExtrinsic = api.tx.system.remark(remarkMessage)
+
+			// Call the teleport function with the remark extrinsic
+			console.log("Teleport with batched remark started")
+			let dispatched = null
+			let finalized = null
+			const stream = await teleport({
+				apiPromise: api,
+				who: bob.address,
+				params,
+				options: { signer },
+				extrinsics: [remarkExtrinsic],
+			})
+
+			for await (const event of stream) {
+				console.log(event.kind)
+				if (event.kind === "Dispatched") {
+					dispatched = event
+				}
+				if (event.kind === "Finalized") {
+					finalized = event
+				}
+			}
+
+			// At least one of dispatched or finalized should be defined
+			expect(dispatched || finalized).toBeTruthy()
+
+			if (dispatched) {
+				expect(dispatched).toMatchObject(
+					expect.objectContaining({
+						kind: "Dispatched",
+						transaction_hash: expect.stringContaining("0x"),
+						block_number: expect.any(BigInt),
+						commitment: expect.stringContaining("0x"),
+					}),
+				)
+			}
+
+			if (finalized) {
+				expect(finalized).toMatchObject(
+					expect.objectContaining({
+						kind: "Finalized",
+						transaction_hash: expect.stringContaining("0x"),
+						block_number: expect.any(BigInt),
+						commitment: expect.stringContaining("0x"),
+					}),
+				)
+			}
+		} catch (error) {
+			console.log(error)
+			// The extrinsic should be decoded correctly but should fail at transaction fee payment since we are using the BOB account
+			expect(error).toBeUndefined()
+		}
+	}, 300_000)
+
 	it("should query the order status", async () => {
 		const { bscTokenGateway, bscPublicClient, bscWalletClient } = await setUp()
 		const bscIsmpHostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as HexString

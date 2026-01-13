@@ -1,13 +1,14 @@
-import { hexToBytes, pad, bytesToHex } from "viem"
-import type { ApiPromise } from "@polkadot/api"
-import { Struct, Vector, u8, u64, _void, Option, u128, bool } from "scale-ts"
-import { H256, StateMachine } from "@/utils/substrate"
-import type { HexString } from "@/types"
 import { convertStateMachineIdToEnum } from "@/chain"
-import { keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
+import type { HexString } from "@/types"
+import { H256, StateMachine } from "@/utils/substrate"
+import type { ApiPromise } from "@polkadot/api"
+import type { SignerOptions, SubmittableExtrinsic } from "@polkadot/api/types"
 import type { Option as PolakdotOption } from "@polkadot/types"
 import type { EventRecord, StorageData } from "@polkadot/types/interfaces"
-import type { SignerOptions } from "@polkadot/api/types"
+import type { ISubmittableResult } from "@polkadot/types/types"
+import { keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
+import { Option, Struct, Vector, bool, u8, u64, u128 } from "scale-ts"
+import { bytesToHex, hexToBytes, pad } from "viem"
 import type { HyperbridgeTxEvents } from "./xcmGateway"
 
 export type Params = {
@@ -58,7 +59,7 @@ export type Params = {
 const TeleportParams = Struct({
 	/// StateMachine
 	destination: StateMachine,
-	/// Receipient
+	/// Recipient
 	recepient: H256,
 	/// Amount
 	amount: u128,
@@ -116,11 +117,12 @@ async function fetchLocalAssetId(params: { api: ApiPromise; assetId: Uint8Array 
  * @param params.recipient - Recipient address
  * @param params.amount - Amount to teleport
  * @param params.timeout - Operation timeout
+ * @param params.extrinsics - An array of SubmittableExtrinsic to prepend to the teleport transaction
  * @param params.tokenGatewayAddress - Gateway contract address
+ * @param options - Signer options
  * @param params.relayerFee - Fee for the relayer
  * @param params.redeem - Whether to redeem on arrival
  * @param params.callData - Optional additional call data
- * @param options - Signer options
  * @yields {HyperbridgeTxEvents} Stream of events indicating transaction status
  * @throws Error when asset ID is unknown or transaction fails
  */
@@ -129,8 +131,9 @@ export async function teleport(teleport_param: {
 	params: Params
 	apiPromise: ApiPromise
 	options: Partial<SignerOptions>
+	extrinsics?: Array<SubmittableExtrinsic<"promise", ISubmittableResult>>
 }): Promise<ReadableStream<HyperbridgeTxEvents>> {
-	const { who, options, params, apiPromise } = teleport_param
+	const { params, apiPromise, extrinsics = [] } = teleport_param
 
 	const substrateComplianceAddr = (address: HexString, stateMachine: string) => {
 		if (stateMachine.startsWith("EVM-")) return pad(address, { size: 32, dir: "left" })
@@ -141,7 +144,6 @@ export async function teleport(teleport_param: {
 	const assetId = keccakAsU8a(params.symbol)
 
 	// Fetch scale encoded local asset id
-
 	const scaleEncodedAssetId = await fetchLocalAssetId({ api: apiPromise, assetId })
 
 	if (scaleEncodedAssetId === null) {
@@ -166,17 +168,22 @@ export async function teleport(teleport_param: {
 	const encoded = TeleportParams.enc(teleportParams)
 	const fullCallData = new Uint8Array([...scaleEncodedAssetId, ...encoded])
 
-	const tx = apiPromise.tx.tokenGateway.teleport(fullCallData)
+	const token_gateway_extrinsics = apiPromise.tx.tokenGateway.teleport(fullCallData)
+
+	const tx =
+		extrinsics.length === 0
+			? token_gateway_extrinsics
+			: apiPromise.tx.utility.batchAll([...extrinsics, token_gateway_extrinsics])
+
 	let unsub = () => {}
 	let closed = false
 
 	const stream = new ReadableStream<HyperbridgeTxEvents>(
 		{
 			async start(controller) {
-				unsub = await tx.signAndSend(who, options, async (result) => {
+				unsub = await tx.signAndSend(teleport_param.who, teleport_param.options, async (result) => {
 					try {
 						const { isInBlock, isError, dispatchError, txHash, isFinalized, status } = result
-						// @ts-expect-error Type Mismatch
 						const events = result.events as ISubmittableResult["events"]
 
 						if (isError) {

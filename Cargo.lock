@@ -17572,6 +17572,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "pharos-primitives"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "geth-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "serde",
+ "sync-committee-primitives",
+]
+
+[[package]]
+name = "pharos-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "alloy-rlp",
+ "alloy-rlp-derive",
+ "anyhow",
+ "bls_on_arkworks",
+ "bsc-verifier",
+ "ethereum-triedb",
+ "geth-primitives",
+ "hash-db",
+ "hash256-std-hasher",
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "primitive-types 0.13.1",
+ "sync-committee-primitives",
+ "sync-committee-verifier",
+ "thiserror 2.0.12",
+ "trie-db",
+]
+
+[[package]]
 name = "phf"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

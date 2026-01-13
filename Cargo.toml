@@ -59,6 +59,8 @@ members = [
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
     "modules/consensus/tendermint/ics23-primitives",
+    "modules/consensus/pharos/primitives",
+    "modules/consensus/pharos/verifier",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -260,6 +262,8 @@ tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", defaul
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
+pharos-primitives = { path = "./modules/consensus/pharos/primitives", default-features = false }
+pharos-verifier = { path = "./modules/consensus/pharos/verifier", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }

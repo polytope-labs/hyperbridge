@@ -1,0 +1,57 @@
+[package]
+name = "pharos-verifier"
+version = "0.1.0"
+edition = "2021"
+description = "Pharos consensus verifier for light client"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+pharos-primitives = { path = "../primitives", default-features = false }
+bsc-verifier = { workspace = true, default-features = false }
+sync-committee-primitives = { workspace = true, default-features = false }
+sync-committee-verifier = { workspace = true, default-features = false }
+geth-primitives = { workspace = true, default-features = false }
+ethereum-triedb = { workspace = true, default-features = false }
+ismp = { workspace = true, default-features = false }
+bls = { workspace = true }
+log = { workspace = true, default-features = false }
+anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true }
+codec = { workspace = true, features = ["derive"] }
+primitive-types = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-rlp-derive = { workspace = true }
+hash256-std-hasher = { version = "0.15.2", default-features = false }
+hash-db = { workspace = true, default-features = false }
+trie-db = { workspace = true, default-features = false }
+
+[features]
+default = ["std"]
+std = [
+    "pharos-primitives/std",
+    "bsc-verifier/std",
+    "sync-committee-primitives/std",
+    "sync-committee-verifier/std",
+    "geth-primitives/std",
+    "ethereum-triedb/std",
+    "ismp/std",
+    "log/std",
+    "anyhow/std",
+    "bls/std",
+    "codec/std",
+    "primitive-types/std",
+    "alloy-primitives/std",
+    "alloy-rlp/std",
+    "hash-db/std",
+    "trie-db/std",
+]
+
+[dependencies.hex]
+version = "0.4.3"
+default-features = false
+features = ["alloc"]
+
+[dev-dependencies]
+hex-literal = { workspace = true, default-features = true }

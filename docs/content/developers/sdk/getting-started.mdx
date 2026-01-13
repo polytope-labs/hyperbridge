@@ -16,106 +16,49 @@ Before you begin, make sure you have:
 - RPC endpoints for your source and destination chains
 - IsmpHost contract addresses for your chains
 
-## Overview
 
-The SDK uses different configuration types depending on the blockchain you're working with:
+## Installation
 
-- **EvmChain** - For EVM-compatible chains (Ethereum, BSC, Polygon, etc.)
-- **SubstrateChain** - For Substrate-based chains (Polkadot, Kusama, Hyperbridge)
-- **IndexerClient** - For querying the Hyperbridge indexer and monitoring request statuses
+Install the SDK using your preferred package manager:
 
-## EVM Chain Configuration
+<Tabs items={['pnpm', 'yarn', 'npm']}>
+<Tab value="npm">
+```bash
+npm install @hyperbridge/sdk
+```
+</Tab>
+<Tab value="yarn">
+```bash
+yarn add @hyperbridge/sdk
+```
+</Tab>
+<Tab value="pnpm">
+```bash
+pnpm add @hyperbridge/sdk
+```
+</Tab>
+</Tabs>
 
-### Parameters
+**Using Vite?** If you're using Vite, you'll need to add the Hyperbridge Vite plugin to handle WebAssembly dependencies. See the [Vite Integration guide](/developers/sdk/vite-integration) for setup instructions.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `chainId` | `number` | Yes | The EVM chain ID (e.g., 1 for Ethereum mainnet, 97 for BSC Testnet) |
-| `rpcUrl` | `string` | Yes | HTTP RPC endpoint URL for the chain |
-| `host` | `string` | Yes | IsmpHost contract address on this chain |
-| `consensusStateId` | `string` | Yes | Consensus state identifier (e.g., "BSC0", "GNO0") |
-| `stateMachineId` | `string` | No | State machine identifier (defaults to `EVM-{chainId}`) |
+## Quick Setup
 
-### Example Configurations
+### 1. Create Chain Instances
 
-**Ethereum Mainnet:**
+**EVM Chain:**
 
 ```typescript
 import { EvmChain } from "@hyperbridge/sdk"
 
-const ethereum = new EvmChain({
-  chainId: 1,
-  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY",
-  host: "0xYourIsmpHostAddress",
-  consensusStateId: "ETH0"
-})
-```
-
-**BSC Testnet:**
-
-```typescript
-const bscTestnet = new EvmChain({
-  chainId: 97,
+const sourceChain = new EvmChain({
+  chainId: 97, // BSC Testnet
   rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
   host: "0xYourIsmpHostAddress",
   consensusStateId: "BSC0"
 })
 ```
 
-**Gnosis Chiado (Testnet):**
-
-```typescript
-const gnosisChiado = new EvmChain({
-  chainId: 10200,
-  rpcUrl: "https://rpc.chiadochain.net",
-  host: "0xYourIsmpHostAddress",
-  consensusStateId: "GNO0"
-})
-```
-
-**Polygon:**
-
-```typescript
-const polygon = new EvmChain({
-  chainId: 137,
-  rpcUrl: "https://polygon-rpc.com",
-  host: "0xYourIsmpHostAddress",
-  consensusStateId: "POLY0"
-})
-```
-
-**Base:**
-
-```typescript
-const base = new EvmChain({
-  chainId: 8453,
-  rpcUrl: "https://mainnet.base.org",
-  host: "0xYourIsmpHostAddress",
-  consensusStateId: "BASE0"
-})
-```
-
-## Substrate Chain Configuration
-
-### Parameters
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `stateMachineId` | `string` | Yes | State machine identifier (e.g., "KUSAMA-4009", "POLKADOT-1000") |
-| `wsUrl` | `string` | Yes | WebSocket endpoint URL for the Substrate node |
-| `hasher` | `"Blake2" \| "Keccak"` | Yes | Hashing algorithm used by the chain |
-| `consensusStateId` | `string` | Yes | Consensus state identifier |
-
-### Hasher Types
-
-| Hasher | Description | Common Chains |
-|--------|-------------|---------------|
-| `Blake2` | Blake2 hashing algorithm | Polkadot, Kusama (native) |
-| `Keccak` | Keccak hashing algorithm | Hyperbridge, some parachains |
-
-### Example Configurations
-
-**Hyperbridge (Kusama Parachain):**
+**Substrate Chain:**
 
 ```typescript
 import { SubstrateChain } from "@hyperbridge/sdk"
@@ -131,71 +74,53 @@ const hyperbridge = new SubstrateChain({
 await hyperbridge.connect()
 ```
 
-**Polkadot:**
+For detailed configuration options and supported chains, see:
+- [EvmChain API Reference](/developers/sdk/api/evm-chain)
+- [SubstrateChain API Reference](/developers/sdk/api/substrate-chain)
 
-```typescript
-const polkadot = new SubstrateChain({
-  stateMachineId: "POLKADOT-1000",
-  wsUrl: "wss://rpc.polkadot.io",
-  hasher: "Blake2",
-  consensusStateId: "GRANDPA"
-})
+---
 
-await polkadot.connect()
-```
-
-**Kusama:**
-
-```typescript
-const kusama = new SubstrateChain({
-  stateMachineId: "KUSAMA-1000",
-  wsUrl: "wss://kusama-rpc.polkadot.io",
-  hasher: "Blake2",
-  consensusStateId: "GRANDPA"
-})
-
-await kusama.connect()
-```
-
-## Query Client Configuration
-
-The query client connects to the Hyperbridge indexer for tracking request statuses:
+### 2. Create Query Client
 
 ```typescript
 import { createQueryClient } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
-  url: "https://hyperbridge-indexer-url",
+  url: "https://hyperbridge-indexer-url"
 })
 ```
 
-### Parameters
+---
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `url` | `string` | Yes | The URL of the Hyperbridge indexer API |
-
-## IndexerClient Configuration
-
-The `IndexerClient` is used for querying the Hyperbridge indexer and monitoring cross-chain request statuses in real-time.
+### 3. Initialize IndexerClient
 
 ```typescript
-import { IndexerClient, createQueryClient } from "@hyperbridge/sdk"
+import { IndexerClient } from "@hyperbridge/sdk"
 
 const indexer = new IndexerClient({
-  queryClient: createQueryClient({ url: "https://hyperbridge-indexer-url" }),
+  queryClient,
   pollInterval: 1_000, // Poll every 1 second
   source: sourceChain,
   dest: destChain,
-  hyperbridge: hyperbridgeChain
+  hyperbridge: hyperbridge
 })
 ```
 
-For detailed configuration options, poll interval guidelines, and usage examples, see the [IndexerClient guide](/developers/sdk/indexer-client).
+**Configuration Options:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `queryClient` | `QueryClient` | Query client for the Hyperbridge indexer |
+| `pollInterval` | `number` | Polling interval in milliseconds (default: 1000) |
+| `source` | `IChain` | Source chain instance |
+| `dest` | `IChain` | Destination chain instance |
+| `hyperbridge` | `IChain` | Hyperbridge chain instance |
+
+For complete API documentation and usage examples, see the [IndexerClient API Reference](/developers/sdk/api/indexer-client).
+
+---
 
 ## Complete Example
-
-Here's a complete example that sets up the SDK and initializes the IndexerClient:
 
 ```typescript
 import { 
@@ -208,7 +133,7 @@ import {
 async function main() {
   // 1. Create query client
   const queryClient = createQueryClient({
-    url: "https://hyperbridge-indexer-url",
+    url: "https://hyperbridge-indexer-url"
   })
 
   // 2. Create chain instances
@@ -246,40 +171,33 @@ async function main() {
   })
 
   console.log("✓ SDK initialized successfully!")
+
+  // 4. Track a request (example)
+  const requestHash = "0xYourRequestHashHere"
+  
+  for await (const status of indexer.postRequestStatusStream(requestHash)) {
+    console.log(`Status: ${status.status}`)
+    
+    if (status.status === "DESTINATION" || status.status === "PENDING_TIMEOUT") {
+      break
+    }
+  }
+  
+  // Clean up
+  await hyperbridgeChain.disconnect()
 }
 
-main()
+main().catch(console.error)
 ```
 
 ## Next Steps
 
-Now that you have the SDK set up, you can:
+Now that you have the SDK set up, explore the detailed documentation:
 
-- [Use the IndexerClient](/developers/sdk/indexer-client) - Query the Hyperbridge indexer and track requests
-- [Track requests](/developers/sdk/tracking/requests) - Monitor cross-chain message statuses
-- [Work with IChain interface](/developers/sdk/ichain-interface) - Interact with different chain types
-- [Estimate fees with TokenGateway](/developers/sdk/token-gateway) - Manage cross-chain token transfers
+- **[IndexerClient API](/developers/sdk/api/indexer-client)** - Complete API reference with all methods and usage examples
+- **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration
+- **[SubstrateChain API](/developers/sdk/api/substrate-chain)** - Substrate chain methods and configuration
+- **[Tracking Requests](/developers/sdk/tracking/requests)** - Monitor cross-chain message statuses
+- **[Vite Integration](/developers/sdk/vite-integration)** - Detailed Vite plugin configuration and framework examples
 
-## Troubleshooting
-
-### Substrate Connection Issues
-
-If you encounter connection issues with Substrate chains:
-
-```typescript
-// Always await the connect() method
-await substrateChain.connect()
-
-// Check if connection is successful
-try {
-  const timestamp = await substrateChain.timestamp()
-  console.log("Connection successful!")
-} catch (error) {
-  console.error("Connection failed:", error)
-  // Check your WebSocket URL and network connectivity
-}
-```
-
-### RPC Rate Limits
-
-If you're hitting RPC rate limits, consider using a dedicated node provider or implementing request throttling in your application.
+---

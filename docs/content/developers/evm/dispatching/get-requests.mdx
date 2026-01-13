@@ -359,56 +359,66 @@ function readMultipleSlots(
 
 ## Fetching Heights
 
-Contracts can only read storage items at heights that have been processed by the Hyperbridge blockchain. You can fetch the latest height for the chain you're interested in using the `latestStateMachineHeight()` function provided by the Hyperbridge SDK.
+Contracts can only read storage items at heights that have been processed by the Hyperbridge blockchain. You can fetch the latest height for the chain you're interested in using the [`SubstrateChain.latestStateMachineHeight()`](/developers/sdk/api/substrate-chain#lateststatemachineheight) function provided by the Hyperbridge SDK.
+
+**Example:**
+
+```typescript lineNumbers
+import { SubstrateChain } from "@hyperbridge/sdk"
+
+const hyperbridge = new SubstrateChain({
+  stateMachineId: "POLKADOT-3367",
+  wsUrl: "wss://nexus.ibp.network",
+  consensusStateId: "DOT0",
+  hasher: "Keccak"
+})
+
+await hyperbridge.connect()
+
+// Get latest Ethereum height known to Hyperbridge
+const latestHeight = await hyperbridge.latestStateMachineHeight({
+  stateId: { Evm: 1 },
+  consensusStateId: "ETH0"
+})
+
+console.log(`Latest Ethereum height: ${latestHeight}`)
+```
 
 ## Fees
 
-Understanding the fee model for GET requests is important. Unlike POST requests, GET requests **only have protocol fees** - there are no relayer fees since responses are automatically delivered by the Hyperbridge protocol.
+Unlike POST requests, GET requests **only have protocol fees** - there are no relayer fees since responses are automatically delivered by the Hyperbridge protocol. These protocol fees are **non-refundable** even if the request times out.
 
-### Fee Components
+### Protocol Fee Calculation
 
-| Component | Description | Calculation | Refundable |
-|-----------|-------------|-------------|------------|
-| **Protocol Fee** | Non-refundable fee charged by Hyperbridge for processing the request | `perByteFee(dest) × (baseFee + context.length)` | ❌ No |
-
-### Protocol Fees for GET Requests
-
-GET request fees are calculated based on a base fee plus the size of your context:
+GET request fees are calculated with a minimum fee and context-based component. The per-byte fee is queried from Hyperbridge (the host), and the actual fee is the maximum of either the minimum fee (32 bytes worth) or the context-based fee:
 
 ```solidity
-protocolFee = perByteFee(destination) × (BASE_GET_REQUEST_SIZE + context.length)
+uint256 perByteFee = perByteFee(host()); // Hyperbridge per-byte fee
+uint256 minimumFee = 32 * perByteFee;     // Minimum charge (one word)
+uint256 totalFee = get.fee + (perByteFee * context.length);
+uint256 actualFee = minimumFee > totalFee ? minimumFee : totalFee;
 ```
 
-Where:
-- `BASE_GET_REQUEST_SIZE` = Fixed base size for GET request processing (typically ~200 bytes)
-- `context.length` = Size of your application-specific context data
+The `get.fee` parameter can be set to 0, making the total fee dependent only on the context size. However, even with an empty context, you'll always pay the minimum fee of 32 bytes. Larger context data increases fees linearly based on the per-byte fee.
 
-**Key Points:**
-- Protocol fees are **non-refundable** even if the request times out
-- Fees are paid in the **native token** of the source chain
-- Larger context increases fees linearly
-- No relayer fees exist for GET requests
+### Calculating Fees
 
-### Calculating GET Request Fees
-
-You can calculate the exact fee before dispatching:
+You can calculate the exact fee before dispatching by querying the per-byte fee for Hyperbridge and applying the formula above. To optimize fees, minimize your context size by using compact encoding and only including essential data. Also consider batching multiple storage keys into a single GET request rather than making multiple requests.
 
 ```solidity
-// Query the per-byte fee for the destination chain
-uint256 perByteFee = IIsmpHost(host).perByteFee(StateMachine.evm(1)); // Ethereum
+// Query the per-byte fee for Hyperbridge (the host)
+bytes memory host = IDispatcher(hostAddr).host();
+uint256 perByteFee = IDispatcher(hostAddr).perByteFee(host);
 
-// Calculate total fee
-uint256 baseSize = 200; // Approximate base size
-uint256 contextSize = context.length;
-uint256 protocolFee = perByteFee * (baseSize + contextSize);
+// Calculate minimum fee (32 bytes)
+uint256 minimumFee = 32 * perByteFee;
+
+// Calculate total fee based on context
+uint256 totalFee = 0 + (perByteFee * context.length); // get.fee = 0
+
+// Actual fee is the maximum
+uint256 actualFee = minimumFee > totalFee ? minimumFee : totalFee;
 ```
-
-### Fee Optimization Tips
-
-1. **Minimize context size** - Only include essential data in context
-2. **Reuse context patterns** - Use compact encoding schemes
-3. **Batch reads** - Request multiple storage keys in one GET request instead of multiple requests
-4. **Consider empty context** - If you can track requests another way, use empty context
 
 ## Payment Methods
 
@@ -531,7 +541,7 @@ Use the `quoteNative()` view function from your frontend to estimate how much na
 </Callout>
 
 
-## Processing GET Requests
+## Processing GET Responses
 
 Unlike POST requests, **GET requests always require manual relaying**. There is no automatic relayer network for GET responses - you or your users must deliver the response to your contract.
 
@@ -572,15 +582,7 @@ contract MyApp is HyperApp {
         override
         onlyHost
     {
-        // Decode context to understand which request timed out
-        (address user, address token) = abi.decode(
-            request.context,
-            (address, address)
-        );
-        
         // Clean up any pending state
-        // Maybe notify the user or retry
-        
         emit GetRequestTimedOut(request.commitment, user, token);
     }
 }

@@ -3,11 +3,8 @@
     "pages": [
         "overview",
         "getting-started",
-        "indexer-client",
-        "tracking",
-        "ichain-interface",
-        "token-gateway",
         "vite-integration",
+         "tracking",
         "api"
     ]
 }

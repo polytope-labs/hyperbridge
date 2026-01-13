@@ -261,7 +261,129 @@ const getRequest = await queryGetRequest({
 })
 ```
 
-## Type Definitions
+## Structs
+
+### HexString
+
+A hex-encoded string prefixed with `0x`.
+
+```typescript
+type HexString = `0x${string}`
+```
+
+---
+
+### PostRequestWithStatus
+
+A POST request with its associated status history.
+
+```typescript
+interface PostRequestWithStatus {
+  source: string
+  dest: string
+  from: HexString
+  to: HexString
+  nonce: bigint
+  body: HexString
+  timeoutTimestamp: bigint
+  statuses: Array<RequestStatusWithMetadata>
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `string` | Source state machine identifier |
+| `dest` | `string` | Destination state machine identifier |
+| `from` | `HexString` | Sending module address |
+| `to` | `HexString` | Receiving module address |
+| `nonce` | `bigint` | Request nonce |
+| `body` | `HexString` | Request body |
+| `timeoutTimestamp` | `bigint` | Timeout timestamp in seconds |
+| `statuses` | `Array<RequestStatusWithMetadata>` | Status history |
+
+---
+
+### GetRequestWithStatus
+
+A GET request with its associated status history.
+
+```typescript
+interface GetRequestWithStatus {
+  source: string
+  dest: string
+  from: HexString
+  nonce: bigint
+  height: bigint
+  keys: HexString[]
+  context: HexString
+  commitment: HexString
+  timeoutTimestamp: bigint
+  statuses: Array<RequestStatusWithMetadata>
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `string` | Source state machine identifier |
+| `dest` | `string` | Destination state machine identifier |
+| `from` | `HexString` | Sending module address |
+| `nonce` | `bigint` | Request nonce |
+| `height` | `bigint` | Block height to query |
+| `keys` | `HexString[]` | Storage keys to read |
+| `context` | `HexString` | Application metadata |
+| `commitment` | `HexString` | Request commitment hash |
+| `timeoutTimestamp` | `bigint` | Timeout timestamp in seconds |
+| `statuses` | `Array<RequestStatusWithMetadata>` | Status history |
+
+---
+
+### ResponseCommitmentWithValues
+
+A GET response with its commitment and storage values.
+
+```typescript
+interface ResponseCommitmentWithValues {
+  commitment: string
+  values: string[]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `commitment` | `string` | Response commitment hash |
+| `values` | `string[]` | Storage values in same order as requested keys |
+
+---
+
+### StateMachineUpdate
+
+Information about a state machine update on Hyperbridge.
+
+```typescript
+interface StateMachineUpdate {
+  height: number
+  chain: string
+  blockHash: string
+  blockNumber: number
+  transactionHash: string
+  transactionIndex: number
+  stateMachineId: string
+  timestamp: number
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `height` | `number` | State machine height |
+| `chain` | `string` | Chain identifier |
+| `blockHash` | `string` | Block hash |
+| `blockNumber` | `number` | Block number |
+| `transactionHash` | `string` | Transaction hash |
+| `transactionIndex` | `number` | Transaction index in block |
+| `stateMachineId` | `string` | State machine identifier |
+| `timestamp` | `number` | Update timestamp in seconds |
+
+---
 
 ### RequestStatusWithMetadata
 
@@ -278,6 +400,32 @@ type RequestStatusWithMetadata = {
 }
 ```
 
+---
+
+### BlockMetadata
+
+Metadata about a blockchain block and transaction.
+
+```typescript
+interface BlockMetadata {
+  blockHash: string
+  blockNumber: number
+  transactionHash: string
+  calldata?: string
+  timestamp?: number
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `blockHash` | `string` | Block hash |
+| `blockNumber` | `number` | Block number |
+| `transactionHash` | `string` | Transaction hash |
+| `calldata` | `string` | Optional. Transaction calldata (present for HYPERBRIDGE_FINALIZED statuses) |
+| `timestamp` | `number` | Optional. Block timestamp in seconds |
+
+---
+
 ### PostRequestTimeoutStatus
 
 ```typescript
@@ -293,6 +441,8 @@ type PostRequestTimeoutStatus = {
 }
 ```
 
+---
+
 ### RequestStatusKey
 
 ```typescript
@@ -304,6 +454,8 @@ type RequestStatusKey =
   | "DESTINATION"
 ```
 
+---
+
 ### TimeoutStatusKey
 
 ```typescript
@@ -314,6 +466,8 @@ type TimeoutStatusKey =
   | "HYPERBRIDGE_FINALIZED_TIMEOUT"
   | "TIMED_OUT"
 ```
+
+---
 
 ## Usage Notes
 
@@ -371,4 +525,3 @@ The indexer automatically resolves the hash to the corresponding request.
 
 - [Tracking Requests](/developers/sdk/tracking/requests) - Detailed guide on tracking request lifecycles
 - [Getting Started](/developers/sdk/getting-started) - Initialize IndexerClient
-- [IChain Interface](/developers/sdk/ichain-interface) - Chain instance documentation

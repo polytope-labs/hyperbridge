@@ -9,8 +9,6 @@ publish = false
 [dependencies]
 pharos-primitives = { path = "../primitives", default-features = false }
 bsc-verifier = { workspace = true, default-features = false }
-sync-committee-primitives = { workspace = true, default-features = false }
-sync-committee-verifier = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 ethereum-triedb = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
@@ -32,8 +30,6 @@ default = ["std"]
 std = [
     "pharos-primitives/std",
     "bsc-verifier/std",
-    "sync-committee-primitives/std",
-    "sync-committee-verifier/std",
     "geth-primitives/std",
     "ethereum-triedb/std",
     "ismp/std",

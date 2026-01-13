@@ -25,9 +25,10 @@ pub mod state_proof;
 use error::Error;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use pharos_primitives::{BlockProof, Config, ValidatorSet, VerifierState, VerifierStateUpdate};
+use pharos_primitives::{
+	BlsPublicKey, BlockProof, Config, ValidatorSet, VerifierState, VerifierStateUpdate,
+};
 use primitive_types::H256;
-use sync_committee_primitives::constants::BlsPublicKey;
 
 /// Domain Separation Tag for Pharos BLS signatures.
 pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
@@ -38,12 +39,20 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	update: VerifierStateUpdate,
 ) -> Result<VerifierState, Error> {
 	let update_block_number = update.block_number();
-	let current_block_number = trusted_state.finalized_block_number();
+	let current_block_number = trusted_state.finalized_block_number;
 
 	if update_block_number <= current_block_number {
 		return Err(Error::StaleUpdate {
 			current: current_block_number,
 			update: update_block_number,
+		});
+	}
+
+	let update_epoch = C::compute_epoch(update_block_number);
+	if update_epoch != trusted_state.current_epoch {
+		return Err(Error::EpochMismatch {
+			update_epoch,
+			expected_epoch: trusted_state.current_epoch,
 		});
 	}
 
@@ -67,39 +76,30 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		});
 	}
 
-	let new_validator_set = if C::is_epoch_boundary(update_block_number) {
+	let new_state = if C::is_epoch_boundary(update_block_number) {
 		// Epoch boundary block must always have validator set proof
 		let validator_set_proof = update
 			.validator_set_proof
 			.ok_or(Error::MissingValidatorSetProof { block_number: update_block_number })?;
 
-		state_proof::verify_validator_set_proof::<C, H>(
+		state_proof::verify_validator_set_proof::<H>(
 			update.header.state_root,
 			&validator_set_proof,
 		)?;
 
-		Some(validator_set_proof.validator_set)
-	} else {
-		// If not an epoch boundary, then, no validator set update expected
-		if update.validator_set_proof.is_some() {
-			return Err(Error::UnexpectedValidatorSetProof { block_number: update_block_number });
-		}
-		None
-	};
-
-	let new_state = if let Some(new_set) = new_validator_set.clone() {
 		VerifierState {
-			current_validator_set: trusted_state
-				.next_validator_set
-				.unwrap_or(trusted_state.current_validator_set),
-			next_validator_set: Some(new_set),
-			finalized_header: update.header,
+			current_validator_set: validator_set_proof.validator_set,
+			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,
 			current_epoch: C::compute_epoch(update_block_number) + 1,
 		}
 	} else {
+		if update.validator_set_proof.is_some() {
+			return Err(Error::UnexpectedValidatorSetProof { block_number: update_block_number });
+		}
+
 		VerifierState {
-			finalized_header: update.header,
+			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,
 			..trusted_state
 		}
@@ -135,21 +135,13 @@ fn verify_stake_threshold(
 ) -> Result<(), Error> {
 	let participating_stake = validator_set.participating_stake(participants);
 	let total_stake = validator_set.total_stake;
+	let required = (total_stake * 2 / 3) + 1;
 
-	// participating_stake > (2 * total_stake) / 3
-	// participating_stake * 3 > 2 * total_stake
-	let participating_times_3 = participating_stake.saturating_mul(primitive_types::U256::from(3));
-	let total_times_2 = total_stake.saturating_mul(primitive_types::U256::from(2));
-
-	if participating_times_3 <= total_times_2 {
-		return Err(Error::InsufficientStake {
-			participating: participating_stake,
-			required: (total_stake * 2 / 3) + 1,
-			total: total_stake,
-		});
+	if participating_stake >= required {
+		Ok(())
+	} else {
+		Err(Error::InsufficientStake { participating: participating_stake, required, total: total_stake })
 	}
-
-	Ok(())
 }
 
 /// Verify the BLS aggregate signature.

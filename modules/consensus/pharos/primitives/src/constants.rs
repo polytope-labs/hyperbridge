@@ -17,10 +17,8 @@
 
 use alloy_primitives::Address;
 
-/// Re-export BLS types from sync-committee-primitives
-pub use sync_committee_primitives::constants::{
-	BlsPublicKey, BlsSignature, BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN,
-};
+/// Re-export BLS types from crypto-utils
+pub use crypto_utils::{BlsPublicKey, BlsSignature, BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN};
 
 /// The staking contract address where validator set is stored.
 /// Address: 0x4100000000000000000000000000000000000000
@@ -35,6 +33,12 @@ pub const MAINNET_EPOCH_LENGTH_SECS: u64 = 4 * 60 * 60; // 14400 seconds
 
 /// Testnet (Atlantic) epoch length in seconds (0.5 hours)
 pub const TESTNET_EPOCH_LENGTH_SECS: u64 = 30 * 60; // 1800 seconds
+
+/// Pharos Mainnet chain ID
+pub const PHAROS_MAINNET_CHAIN_ID: u32 = 688600;
+
+/// Pharos Atlantic Testnet chain ID
+pub const PHAROS_ATLANTIC_CHAIN_ID: u32 = 688689;
 
 /// Configuration trait for Pharos network parameters.
 pub trait Config: Clone + Send + Sync {

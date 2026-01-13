@@ -148,12 +148,9 @@ pub struct ValidatorSetProof {
 	/// The new validator set
 	pub validator_set: ValidatorSet,
 	/// Merkle-Patricia trie proof nodes from the staking contract storage
-	/// to the state root of the block
 	pub storage_proof: Vec<Vec<u8>>,
 	/// The account proof for the staking contract
 	pub account_proof: Vec<Vec<u8>>,
-	/// The storage slot(s) being proven
-	pub storage_slots: Vec<H256>,
 }
 
 /// The trusted state maintained by the Pharos consensus client.
@@ -164,11 +161,8 @@ pub struct ValidatorSetProof {
 pub struct VerifierState {
 	/// The current (active) validator set
 	pub current_validator_set: ValidatorSet,
-	/// The next validator set (if known from a recent epoch boundary)
-	/// This becomes current_validator_set at the next epoch
-	pub next_validator_set: Option<ValidatorSet>,
-	/// The latest finalized block header
-	pub finalized_header: CodecHeader,
+	/// The latest finalized block number
+	pub finalized_block_number: u64,
 	/// The hash of the finalized header
 	pub finalized_hash: H256,
 	/// The current epoch number
@@ -179,22 +173,16 @@ impl VerifierState {
 	/// Create a new verifier state with initial trusted state
 	pub fn new(
 		initial_validator_set: ValidatorSet,
-		initial_header: CodecHeader,
+		initial_block_number: u64,
 		initial_hash: H256,
 	) -> Self {
 		let epoch = initial_validator_set.epoch;
 		Self {
 			current_validator_set: initial_validator_set,
-			next_validator_set: None,
-			finalized_header: initial_header,
+			finalized_block_number: initial_block_number,
 			finalized_hash: initial_hash,
 			current_epoch: epoch,
 		}
-	}
-
-	/// Get the block number of the finalized header
-	pub fn finalized_block_number(&self) -> u64 {
-		self.finalized_header.number.low_u64()
 	}
 }
 

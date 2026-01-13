@@ -11,7 +11,7 @@ codec = { workspace = true, features = ["derive"] }
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-rlp-derive = { workspace = true }
-sync-committee-primitives = { workspace = true, default-features = false }
+crypto-utils = { workspace = true, default-features = false }
 primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
 hex-literal = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
@@ -25,7 +25,7 @@ std = [
     "codec/std",
     "alloy-primitives/std",
     "alloy-rlp/std",
-    "sync-committee-primitives/std",
+    "crypto-utils/std",
     "primitive-types/std",
     "anyhow/std",
     "serde",

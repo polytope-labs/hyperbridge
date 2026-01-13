@@ -13,12 +13,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+//! BLS12-381 cryptographic type definitions.
 
-pub mod bls;
-pub mod ssz;
-pub mod verification;
+use crate::ssz::ByteVector;
 
-pub use bls::{BlsPublicKey, BlsSignature, BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN};
-pub use ssz::ByteVector;
+/// Length of a BLS12-381 public key in bytes (compressed G1 point).
+pub const BLS_PUBLIC_KEY_BYTES_LEN: usize = 48;
+
+/// Length of a BLS12-381 signature in bytes (compressed G2 point).
+pub const BLS_SIGNATURE_BYTES_LEN: usize = 96;
+
+/// A BLS12-381 public key (48 bytes compressed).
+pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
+
+/// A BLS12-381 signature (96 bytes compressed).
+pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;

@@ -33,7 +33,7 @@
 //! 4. Decode the validator set from the proven storage values
 
 use crate::error::Error;
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethereum_triedb::{EIP1186Layout, StorageProof};
@@ -41,7 +41,7 @@ use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use ismp::messaging::Keccak256;
 use pharos_primitives::{
-	Config, ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS,
+	ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS,
 };
 use primitive_types::{H160, H256, U256};
 use trie_db::{DBValue, Trie, TrieDBBuilder};
@@ -70,20 +70,59 @@ pub struct Account {
 
 /// This function verifies that the provided validator set is correctly stored
 /// in the staking contract at the given block.
-pub fn verify_validator_set_proof<C: Config, H: Keccak256 + Send + Sync>(
+pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	state_root: H256,
 	proof: &ValidatorSetProof,
 ) -> Result<(), Error> {
 	let account = get_staking_contract_account::<H>(&proof.account_proof, state_root)?;
 	let storage_root = H256::from_slice(account.storage_root.as_slice());
 
-	let storage_values = get_values_from_proof::<H>(
-		proof.storage_slots.iter().map(|s| s.0.to_vec()).collect(),
+	let layout = StakingContractLayout::default();
+	let validator_count = proof.validator_set.validators.len() as u64;
+
+	// Compute and fetch global storage slots (epoch, totalStake, array length, pool IDs)
+	let global_slots = layout.get_validator_set_keys::<H>(validator_count);
+	let global_values = get_values_from_proof::<H>(
+		global_slots.iter().map(|s| H::keccak256(s.as_bytes()).0.to_vec()).collect(),
 		storage_root,
 		proof.storage_proof.clone(),
 	)?;
-	let decoded_set =
-		decode_validator_set_from_storage::<H>(&proof.storage_slots, &storage_values)?;
+
+	// Extract pool IDs from the proven values
+	let pool_ids_start = 3; // After epoch, totalStake, array length
+	let mut pool_ids = Vec::new();
+	for i in 0..validator_count as usize {
+		let pool_id = global_values[pool_ids_start + i]
+			.as_ref()
+			.map(|v| {
+				let mut bytes = [0u8; 32];
+				if v.len() <= 32 {
+					bytes[32 - v.len()..].copy_from_slice(v);
+				}
+				H256::from(bytes)
+			})
+			.unwrap_or_default();
+		pool_ids.push(pool_id);
+	}
+
+	let mut validator_slots = Vec::new();
+	for pool_id in &pool_ids {
+		validator_slots.extend(layout.get_validator_keys::<H>(pool_id));
+	}
+
+	let validator_values = get_values_from_proof::<H>(
+		validator_slots.iter().map(|s| H::keccak256(s.as_bytes()).0.to_vec()).collect(),
+		storage_root,
+		proof.storage_proof.clone(),
+	)?;
+
+	let mut all_slots = global_slots;
+	all_slots.extend(validator_slots);
+
+	let mut all_values = global_values;
+	all_values.extend(validator_values);
+
+	let decoded_set = decode_validator_set_from_storage::<H>(&all_slots, &all_values)?;
 
 	verify_validator_set_matches(&proof.validator_set, &decoded_set)?;
 
@@ -103,14 +142,10 @@ fn get_staking_contract_account<H: Keccak256 + Send + Sync>(
 
 	let result = trie
 		.get(&key)
-		.map_err(|e| Error::AccountProofFailed(alloc::format!("Trie lookup failed: {:?}", e)))?
-		.ok_or_else(|| {
-			Error::AccountProofFailed("Staking contract account not found in proof".to_string())
-		})?;
+		.map_err(|_| Error::AccountTrieLookupFailed)?
+		.ok_or(Error::StakingContractNotFound)?;
 
-	let account = Account::decode(&mut &*result).map_err(|e| {
-		Error::AccountProofFailed(alloc::format!("Failed to decode account RLP: {:?}", e))
-	})?;
+	let account = Account::decode(&mut &*result).map_err(|_| Error::AccountRlpDecodeFailed)?;
 
 	Ok(account)
 }
@@ -127,9 +162,7 @@ fn get_values_from_proof<H: Keccak256 + Send + Sync>(
 
 	let mut values = Vec::new();
 	for key in keys {
-		let val = trie.get(&key).map_err(|e| {
-			Error::StorageProofFailed(alloc::format!("Storage proof lookup failed: {:?}", e))
-		})?;
+		let val = trie.get(&key).map_err(|_| Error::StorageProofLookupFailed)?;
 		values.push(val);
 	}
 
@@ -153,16 +186,12 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	values: &[Option<DBValue>],
 ) -> Result<ValidatorSet, Error> {
 	if slots.len() != values.len() {
-		return Err(Error::InvalidStateProof(
-			"Mismatch between slots and values length".to_string(),
-		));
+		return Err(Error::SlotValueLengthMismatch { slots: slots.len(), values: values.len() });
 	}
 
 	// We need 3 slots at minimum. currentEpoch, totalStake, activePoolIds length (3 slots)
 	if values.len() < 3 {
-		return Err(Error::InvalidStateProof(
-			"Insufficient storage values for validator set".to_string(),
-		));
+		return Err(Error::InsufficientStorageValues { expected: 3, got: values.len() });
 	}
 
 	// Parse global state
@@ -196,12 +225,11 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	let pool_ids_end = pool_ids_start + count;
 
 	if values.len() < pool_ids_end {
-		return Err(Error::InvalidStateProof(alloc::format!(
-			"Not enough pool IDs: expected {} for {} validators, got {}",
-			pool_ids_end,
-			count,
-			values.len()
-		)));
+		return Err(Error::InsufficientPoolIds {
+			expected: pool_ids_end,
+			validators: count,
+			got: values.len(),
+		});
 	}
 
 	let mut validator_set = ValidatorSet::new(epoch_num);
@@ -294,17 +322,15 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 /// (or 98 with "0x" prefix), so it's a long string.
 fn decode_bls_key_from_string_slot(
 	value: &Option<DBValue>,
-) -> Result<sync_committee_primitives::constants::BlsPublicKey, Error> {
+) -> Result<pharos_primitives::BlsPublicKey, Error> {
 	use alloc::string::String;
 
-	let value = value
-		.as_ref()
-		.ok_or_else(|| Error::InvalidStateProof("Missing BLS public key slot value".to_string()))?;
+	let value = value.as_ref().ok_or(Error::MissingBlsKeySlot)?;
 
 	// Check if this is a short string (last byte is even and < 64)
 	// or a long string (last byte is odd)
 	if value.is_empty() {
-		return Err(Error::InvalidStateProof("Empty BLS key slot".to_string()));
+		return Err(Error::EmptyBlsKeySlot);
 	}
 
 	let last_byte = value[value.len() - 1];
@@ -313,32 +339,23 @@ fn decode_bls_key_from_string_slot(
 		// Short string: data is in the slot, length = last_byte / 2
 		let len = (last_byte / 2) as usize;
 		if len > 31 || len > value.len() {
-			return Err(Error::InvalidStateProof("Invalid short string length".to_string()));
+			return Err(Error::InvalidBlsStringLength);
 		}
 		// String data is at the beginning of the slot
-		String::from_utf8(value[..len].to_vec())
-			.map_err(|_| Error::InvalidStateProof("Invalid UTF-8 in BLS key string".to_string()))?
+		String::from_utf8(value[..len].to_vec()).map_err(|_| Error::InvalidBlsKeyUtf8)?
 	} else {
 		// Long string: this slot contains (length * 2 + 1)
-		return Err(Error::InvalidStateProof(
-			"Long string BLS key detected - string data slots required in proof".to_string(),
-		));
+		return Err(Error::LongStringBlsKeyUnsupported);
 	};
 
 	let bls_hex = bls_hex.trim_start_matches("0x");
-	let bls_bytes = hex::decode(bls_hex)
-		.map_err(|_| Error::InvalidStateProof("Invalid hex in BLS key string".to_string()))?;
+	let bls_bytes = hex::decode(bls_hex).map_err(|_| Error::InvalidBlsKeyHex)?;
 
 	if bls_bytes.len() != 48 {
-		return Err(Error::InvalidStateProof(alloc::format!(
-			"Invalid BLS key length: expected 48, got {}",
-			bls_bytes.len()
-		)));
+		return Err(Error::InvalidBlsKeyLength { expected: 48, got: bls_bytes.len() });
 	}
 
-	bls_bytes
-		.try_into()
-		.map_err(|_| Error::InvalidStateProof("Failed to convert BLS key bytes".to_string()))
+	bls_bytes.try_into().map_err(|_| Error::BlsKeyConversionFailed)
 }
 
 /// Verify that the decoded validator set matches the claimed set.
@@ -349,57 +366,35 @@ fn verify_validator_set_matches(
 	validate_validator_set(claimed)?;
 
 	if claimed.epoch != decoded.epoch {
-		return Err(Error::InvalidStateProof(alloc::format!(
-			"Epoch mismatch: claimed {}, decoded {}",
-			claimed.epoch,
-			decoded.epoch
-		)));
+		return Err(Error::ValidatorSetEpochMismatch { claimed: claimed.epoch, decoded: decoded.epoch });
 	}
 
 	if claimed.validators.len() != decoded.validators.len() {
-		return Err(Error::InvalidStateProof(alloc::format!(
-			"Validator count mismatch: claimed {}, decoded {}",
-			claimed.validators.len(),
-			decoded.validators.len()
-		)));
+		return Err(Error::ValidatorCountMismatch {
+			claimed: claimed.validators.len(),
+			decoded: decoded.validators.len(),
+		});
 	}
 
 	if claimed.total_stake != decoded.total_stake {
-		return Err(Error::InvalidStateProof(alloc::format!(
-			"Total stake mismatch: claimed {}, decoded {}",
-			claimed.total_stake,
-			decoded.total_stake
-		)));
+		return Err(Error::TotalStakeMismatch {
+			claimed: claimed.total_stake,
+			decoded: decoded.total_stake,
+		});
 	}
 
 	for (i, (c, d)) in claimed.validators.iter().zip(decoded.validators.iter()).enumerate() {
 		if c.address != d.address {
-			return Err(Error::InvalidStateProof(alloc::format!(
-				"Validator {} address mismatch: claimed {:?}, decoded {:?}",
-				i,
-				c.address,
-				d.address
-			)));
+			return Err(Error::ValidatorAddressMismatch { index: i });
 		}
 		if c.bls_public_key != d.bls_public_key {
-			return Err(Error::InvalidStateProof(alloc::format!(
-				"Validator {} BLS key mismatch",
-				i
-			)));
+			return Err(Error::ValidatorBlsKeyMismatch { index: i });
 		}
 		if c.pool_id != d.pool_id {
-			return Err(Error::InvalidStateProof(alloc::format!(
-				"Validator {} pool ID mismatch",
-				i
-			)));
+			return Err(Error::ValidatorPoolIdMismatch { index: i });
 		}
 		if c.stake != d.stake {
-			return Err(Error::InvalidStateProof(alloc::format!(
-				"Validator {} stake mismatch: claimed {}, decoded {}",
-				i,
-				c.stake,
-				d.stake
-			)));
+			return Err(Error::ValidatorStakeMismatch { index: i, claimed: c.stake, decoded: d.stake });
 		}
 	}
 
@@ -409,7 +404,7 @@ fn verify_validator_set_matches(
 /// Validate the internal consistency of a validator set.
 pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error> {
 	if validator_set.validators.is_empty() {
-		return Err(Error::InvalidStateProof("Validator set is empty".to_string()));
+		return Err(Error::EmptyValidatorSet);
 	}
 
 	let computed_total: U256 = validator_set
@@ -418,24 +413,23 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 		.fold(U256::zero(), |acc, v| acc.saturating_add(v.stake));
 
 	if computed_total != validator_set.total_stake {
-		return Err(Error::InvalidStateProof(alloc::format!(
-			"Total stake mismatch: computed {}, claimed {}",
-			computed_total,
-			validator_set.total_stake
-		)));
+		return Err(Error::ComputedStakeMismatch {
+			computed: computed_total,
+			claimed: validator_set.total_stake,
+		});
 	}
 
 	for (i, v1) in validator_set.validators.iter().enumerate() {
 		for v2 in validator_set.validators.iter().skip(i + 1) {
 			if v1.bls_public_key == v2.bls_public_key {
-				return Err(Error::InvalidStateProof("Duplicate validator in set".to_string()));
+				return Err(Error::DuplicateValidator);
 			}
 		}
 	}
 
 	for validator in &validator_set.validators {
 		if validator.stake.is_zero() {
-			return Err(Error::InvalidStateProof("Validator has zero stake".to_string()));
+			return Err(Error::ZeroStakeValidator);
 		}
 	}
 
@@ -631,6 +625,6 @@ pub fn decode_u256_from_storage(value: &[u8]) -> Result<U256, Error> {
 		padded[32 - value.len()..].copy_from_slice(value);
 		Ok(U256::from_big_endian(&padded))
 	} else {
-		Err(Error::InvalidStateProof("Storage value too large for U256".to_string()))
+		Err(Error::StorageValueTooLarge)
 	}
 }

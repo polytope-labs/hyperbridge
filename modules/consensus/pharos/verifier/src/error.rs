@@ -15,9 +15,8 @@
 
 //! Error types for Pharos verifier.
 
-use alloc::string::String;
+use pharos_primitives::BlsPublicKey;
 use primitive_types::U256;
-use sync_committee_primitives::constants::BlsPublicKey;
 use thiserror::Error;
 
 /// Errors that can occur during Pharos block verification.
@@ -30,6 +29,15 @@ pub enum Error {
 		current: u64,
 		/// Update block number
 		update: u64,
+	},
+
+	/// The update block is not in the expected epoch
+	#[error("Epoch mismatch: update block is in epoch {update_epoch}, expected {expected_epoch}")]
+	EpochMismatch {
+		/// The epoch of the update block
+		update_epoch: u64,
+		/// The expected epoch (current verifier state epoch)
+		expected_epoch: u64,
 	},
 
 	/// A participating validator is not in the trusted validator set
@@ -78,26 +86,6 @@ pub enum Error {
 		block_number: u64,
 	},
 
-	/// Invalid state proof for validator set
-	#[error("Invalid state proof: {0}")]
-	InvalidStateProof(String),
-
-	/// Invalid merkle proof
-	#[error("Invalid merkle proof: {0}")]
-	InvalidMerkleProof(String),
-
-	/// Account proof verification failed
-	#[error("Account proof verification failed: {0}")]
-	AccountProofFailed(String),
-
-	/// Storage proof verification failed
-	#[error("Storage proof verification failed: {0}")]
-	StorageProofFailed(String),
-
-	/// General verification error
-	#[error("Verification failed: {0}")]
-	VerificationFailed(String),
-
 	/// Header hash mismatch
 	#[error("Header hash mismatch: expected {expected:?}, got {actual:?}")]
 	HeaderHashMismatch {
@@ -107,7 +95,111 @@ pub enum Error {
 		actual: primitive_types::H256,
 	},
 
-	/// Invalid header data
-	#[error("Invalid header: {0}")]
-	InvalidHeader(String),
+	/// Trie lookup failed during account proof verification
+	#[error("Account proof trie lookup failed")]
+	AccountTrieLookupFailed,
+
+	/// Staking contract account not found in the state trie
+	#[error("Staking contract account not found in proof")]
+	StakingContractNotFound,
+
+	/// Failed to decode RLP-encoded account data
+	#[error("Failed to decode account RLP data")]
+	AccountRlpDecodeFailed,
+
+	/// Storage proof lookup failed
+	#[error("Storage proof lookup failed")]
+	StorageProofLookupFailed,
+
+	/// Storage value exceeds maximum size for U256
+	#[error("Storage value too large for U256")]
+	StorageValueTooLarge,
+
+	/// Mismatch between number of storage slots and values
+	#[error("Slots and values length mismatch: {slots} slots, {values} values")]
+	SlotValueLengthMismatch { slots: usize, values: usize },
+
+	/// Not enough storage values provided for validator set
+	#[error("Insufficient storage values: expected at least {expected}, got {got}")]
+	InsufficientStorageValues { expected: usize, got: usize },
+
+	/// Not enough pool IDs provided for validators
+	#[error("Insufficient pool IDs: expected {expected} for {validators} validators, got {got}")]
+	InsufficientPoolIds { expected: usize, validators: usize, got: usize },
+
+	/// BLS public key slot value is missing
+	#[error("Missing BLS public key slot value")]
+	MissingBlsKeySlot,
+
+	/// BLS key slot is empty
+	#[error("Empty BLS key slot")]
+	EmptyBlsKeySlot,
+
+	/// Invalid short string length in BLS key slot
+	#[error("Invalid short string length in BLS key")]
+	InvalidBlsStringLength,
+
+	/// BLS key string contains invalid UTF-8
+	#[error("Invalid UTF-8 in BLS key string")]
+	InvalidBlsKeyUtf8,
+
+	/// Long string BLS keys require additional data slots
+	#[error("Long string BLS key detected - string data slots required in proof")]
+	LongStringBlsKeyUnsupported,
+
+	/// BLS key hex string is invalid
+	#[error("Invalid hex encoding in BLS key string")]
+	InvalidBlsKeyHex,
+
+	/// BLS key has incorrect byte length
+	#[error("Invalid BLS key length: expected {expected}, got {got}")]
+	InvalidBlsKeyLength { expected: usize, got: usize },
+
+	/// Failed to convert BLS key bytes to the expected type
+	#[error("Failed to convert BLS key bytes")]
+	BlsKeyConversionFailed,
+
+	/// Epoch in claimed validator set doesn't match decoded value
+	#[error("Validator set epoch mismatch: claimed {claimed}, decoded {decoded}")]
+	ValidatorSetEpochMismatch { claimed: u64, decoded: u64 },
+
+	/// Validator count doesn't match between claimed and decoded sets
+	#[error("Validator count mismatch: claimed {claimed}, decoded {decoded}")]
+	ValidatorCountMismatch { claimed: usize, decoded: usize },
+
+	/// Total stake doesn't match between claimed and decoded sets
+	#[error("Total stake mismatch: claimed {claimed}, decoded {decoded}")]
+	TotalStakeMismatch { claimed: U256, decoded: U256 },
+
+	/// Validator address doesn't match at given index
+	#[error("Validator {index} address mismatch")]
+	ValidatorAddressMismatch { index: usize },
+
+	/// Validator BLS key doesn't match at given index
+	#[error("Validator {index} BLS key mismatch")]
+	ValidatorBlsKeyMismatch { index: usize },
+
+	/// Validator pool ID doesn't match at given index
+	#[error("Validator {index} pool ID mismatch")]
+	ValidatorPoolIdMismatch { index: usize },
+
+	/// Validator stake doesn't match at given index
+	#[error("Validator {index} stake mismatch: claimed {claimed}, decoded {decoded}")]
+	ValidatorStakeMismatch { index: usize, claimed: U256, decoded: U256 },
+
+	/// Validator set contains no validators
+	#[error("Validator set is empty")]
+	EmptyValidatorSet,
+
+	/// Computed total stake doesn't match claimed total
+	#[error("Total stake mismatch: computed {computed}, claimed {claimed}")]
+	ComputedStakeMismatch { computed: U256, claimed: U256 },
+
+	/// Duplicate validator detected in the set
+	#[error("Duplicate validator in set")]
+	DuplicateValidator,
+
+	/// Validator has zero stake
+	#[error("Validator has zero stake")]
+	ZeroStakeValidator,
 }

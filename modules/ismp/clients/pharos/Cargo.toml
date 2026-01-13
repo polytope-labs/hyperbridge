@@ -1,0 +1,45 @@
+[package]
+name = "ismp-pharos"
+version = "0.1.0"
+edition = "2021"
+description = "ISMP Consensus Client for the Pharos Network"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+log = { workspace = true, default-features = false }
+anyhow = { workspace = true, default-features = false }
+codec = { workspace = true, default-features = false }
+scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
+
+ismp = { workspace = true }
+pharos-verifier = { path = "../../../consensus/pharos/verifier", default-features = false }
+pharos-primitives = { path = "../../../consensus/pharos/primitives", default-features = false }
+sync-committee-primitives = { workspace = true }
+geth-primitives = { workspace = true }
+evm-state-machine = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+pallet-ismp = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-core"]
+
+[features]
+default = ["std"]
+std = [
+    "log/std",
+    "anyhow/std",
+    "polkadot-sdk/std",
+    "codec/std",
+    "scale-info/std",
+    "pharos-verifier/std",
+    "pharos-primitives/std",
+    "ismp/std",
+    "sync-committee-primitives/std",
+    "geth-primitives/std",
+    "evm-state-machine/std",
+    "pallet-ismp-host-executive/std",
+    "pallet-ismp/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

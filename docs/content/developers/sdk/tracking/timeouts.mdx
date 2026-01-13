@@ -1,0 +1,421 @@
+---
+title: Tracking Timeouts
+description: Monitor and track requests that exceed their timeout period across Hyperbridge and source chains.
+---
+
+# Tracking Timeouts
+
+When cross-chain requests exceed their timeout period, they enter a timeout processing flow. The Hyperbridge SDK provides utilities for tracking these timed-out requests as they're processed and finalized.
+
+## Overview
+
+Timeout tracking involves:
+
+1. **Detecting timeouts** - Identifying when requests exceed their timeout period
+2. **Streaming timeout updates** - Real-time monitoring of timeout processing
+3. **Handling finalization** - Tracking when timeouts are finalized on the source chain
+4. **Recovering funds** - Understanding when locked assets are returned
+
+## Timeout Lifecycle
+
+When a request times out, it goes through these stages:
+
+```
+PENDING_TIMEOUT → HYPERBRIDGE_TIMED_OUT → SOURCE_TIMED_OUT
+```
+
+| Stage | Description |
+|-------|-------------|
+| **PENDING_TIMEOUT** | Request has exceeded its timeout period but not yet processed |
+| **HYPERBRIDGE_TIMED_OUT** | Timeout processed and finalized on Hyperbridge |
+| **SOURCE_TIMED_OUT** | Timeout finalized on source chain, funds recovered |
+
+## When Do Timeouts Occur?
+
+Requests can timeout for several reasons:
+
+- **Network congestion** - Delays in block production or finality
+- **Insufficient relayer fees** - No relayers willing to deliver the request
+- **Destination chain issues** - Downtime or problems on the destination chain
+- **Execution failures** - Request cannot be executed on destination
+
+## Detecting Timeouts
+
+Timeouts are automatically detected when using request status streams:
+
+```typescript
+import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
+
+// POST request tracking automatically detects timeouts
+for await (const status of indexer.postRequestStatusStream(commitment)) {
+  if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+    console.log("⚠️ Request has timed out!")
+    // Switch to timeout tracking
+    break
+  }
+  
+  if (status.status === RequestStatus.DESTINATION) {
+    console.log("✅ Request completed successfully")
+    break
+  }
+}
+```
+
+## Track POST Request Timeouts
+
+Once a POST request times out, use `postRequestTimeoutStream()` to monitor its timeout processing:
+
+```typescript
+import { TimeoutStatus } from "@hyperbridge/sdk"
+
+// Monitor POST request timeout
+for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+  console.log(`[${new Date().toISOString()}]`)
+  console.log(`Timeout status: ${timeout.status}`)
+  console.log(`Block height: ${timeout.blockHeight}`)
+  console.log(`Transaction hash: ${timeout.txHash}`)
+  console.log("---")
+  
+  switch (timeout.status) {
+    case TimeoutStatus.PENDING_TIMEOUT:
+      console.log("⏳ Request pending timeout processing")
+      break
+    case TimeoutStatus.HYPERBRIDGE_TIMED_OUT:
+      console.log("⏱️ Timeout processed on Hyperbridge")
+      break
+    case TimeoutStatus.SOURCE_TIMED_OUT:
+      console.log("⏱️ Timeout finalized on source chain - funds recovered")
+      break
+  }
+
+  // Break when timeout is fully processed
+  if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+    break
+  }
+}
+```
+
+## Track GET Request Timeouts
+
+Similarly, track GET request timeouts using `getRequestTimeoutStream()`:
+
+```typescript
+// Monitor GET request timeout
+for await (const timeout of indexer.getRequestTimeoutStream(commitment)) {
+  console.log(`GET timeout status: ${timeout.status}`)
+  console.log(`Block: ${timeout.blockHeight}`)
+  
+  if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+    console.log("✅ GET request timeout finalized on source chain")
+    break
+  }
+}
+```
+
+## Complete Example: Handling Both Success and Timeout
+
+Here's a complete example that tracks a request and handles both successful completion and timeout scenarios:
+
+```typescript
+import { 
+  IndexerClient, 
+  createQueryClient, 
+  EvmChain,
+  SubstrateChain,
+  postRequestCommitment,
+  RequestStatus,
+  TimeoutStatus
+} from "@hyperbridge/sdk"
+
+async function trackRequestWithTimeout(request: any) {
+  // 1. Setup chains and indexer
+  const queryClient = createQueryClient({
+    url: "https://hyperbridge-indexer-url",
+  })
+
+  const sourceChain = new EvmChain({
+    chainId: 97,
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+    host: "0xSourceHostAddress",
+    consensusStateId: "BSC0"
+  })
+
+  const destChain = new EvmChain({
+    chainId: 10200,
+    rpcUrl: "https://rpc.chiadochain.net",
+    host: "0xDestHostAddress",
+    consensusStateId: "GNO0"
+  })
+
+  const hyperbridgeChain = new SubstrateChain({
+    stateMachineId: "KUSAMA-4009",
+    wsUrl: "wss://gargantua.polytope.technology",
+    hasher: "Keccak",
+    consensusStateId: "PAS0"
+  })
+
+  await hyperbridgeChain.connect()
+
+  const indexer = new IndexerClient({
+    queryClient,
+    pollInterval: 1_000,
+    source: sourceChain,
+    dest: destChain,
+    hyperbridge: hyperbridgeChain
+  })
+
+  const commitment = postRequestCommitment(request)
+  console.log(`Tracking request: ${commitment}`)
+
+  // 2. Track request status
+  console.log("Tracking request progress...")
+  for await (const status of indexer.postRequestStatusStream(commitment)) {
+    console.log(`✓ Status: ${status.status}`)
+    
+    if (status.status === RequestStatus.DESTINATION) {
+      console.log("✅ Request completed successfully!")
+      return { success: true, timedOut: false }
+    }
+    
+    if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+      console.log("⚠️ Request exceeded timeout period")
+      break // Exit status stream, start timeout stream
+    }
+  }
+
+  // 3. Track timeout processing
+  console.log("Tracking timeout processing...")
+  for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+    console.log(`⏱️ Timeout: ${timeout.status}`)
+    
+    if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+      console.log("✅ Timeout finalized - funds recovered")
+      return { success: false, timedOut: true }
+    }
+  }
+}
+
+// Example usage
+const request = {
+  source: "EVM-97",
+  dest: "EVM-10200",
+  nonce: 1n,
+  from: "0xSourceAddress",
+  to: "0xDestAddress",
+  timeoutTimestamp: BigInt(Date.now() + 3600000), // 1 hour timeout
+  body: "0x1234..."
+}
+
+trackRequestWithTimeout(request)
+  .then(result => {
+    if (result.success) {
+      console.log("Request was delivered successfully")
+    } else if (result.timedOut) {
+      console.log("Request timed out, but funds were recovered")
+    }
+  })
+```
+
+## Parallel Tracking Pattern
+
+For more efficient tracking, you can monitor both success and timeout paths in parallel:
+
+```typescript
+async function trackRequestParallel(commitment: string) {
+  // Track both paths simultaneously
+  const statusPromise = (async () => {
+    for await (const status of indexer.postRequestStatusStream(commitment)) {
+      console.log(`Status: ${status.status}`)
+      
+      if (status.status === RequestStatus.DESTINATION) {
+        return "success"
+      }
+      
+      if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+        return "timeout_pending"
+      }
+    }
+  })()
+
+  const timeoutPromise = (async () => {
+    for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+      console.log(`Timeout: ${timeout.status}`)
+      
+      if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+        return "timeout_finalized"
+      }
+    }
+  })()
+
+  // Wait for either path to complete
+  const result = await Promise.race([statusPromise, timeoutPromise])
+  
+  console.log(`Final result: ${result}`)
+  return result
+}
+```
+
+## Timeout Status Reference
+
+### TimeoutStatus Enum
+
+| Status | Description |
+|--------|-------------|
+| `PENDING_TIMEOUT` | Request exceeded timeout, awaiting processing |
+| `HYPERBRIDGE_TIMED_OUT` | Timeout processed and finalized on Hyperbridge |
+| `SOURCE_TIMED_OUT` | Timeout finalized on source chain, assets recovered |
+
+### Status Metadata
+
+Each timeout status update includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `TimeoutStatus` | Current timeout status |
+| `blockHeight` | `bigint` | Block height where status was recorded |
+| `txHash` | `string` | Transaction hash for this status update |
+| `timestamp` | `number` | Unix timestamp of the status update |
+
+## Understanding Timeout Recovery
+
+When a request times out:
+
+1. **Hyperbridge detects timeout**: The timeout period has passed without delivery
+2. **Timeout transaction created**: A timeout transaction is created on Hyperbridge
+3. **Finalized on Hyperbridge**: The timeout is finalized, releasing commitments
+4. **Returned to source**: The timeout proof is delivered back to the source chain
+5. **Funds recovered**: Locked assets (tokens, fees) are returned to the sender
+
+```typescript
+// Timeout flow example
+console.log("1. Request sent at:", new Date())
+console.log("2. Timeout period:", request.timeoutTimestamp)
+
+// ... time passes ...
+
+// Request times out
+console.log("3. PENDING_TIMEOUT detected")
+console.log("4. HYPERBRIDGE_TIMED_OUT - timeout processed")
+console.log("5. SOURCE_TIMED_OUT - funds recovered")
+```
+
+## Best Practices
+
+### Set Appropriate Timeout Periods
+
+Choose timeout values based on expected delivery times:
+
+```typescript
+// Short timeout (5 minutes) - for urgent requests
+const urgentTimeout = BigInt(Date.now() + 300_000)
+
+// Medium timeout (1 hour) - standard use case
+const standardTimeout = BigInt(Date.now() + 3_600_000)
+
+// Long timeout (24 hours) - for low-priority requests
+const relaxedTimeout = BigInt(Date.now() + 86_400_000)
+```
+
+### Always Handle Timeouts
+
+Never assume requests will complete successfully:
+
+```typescript
+async function robustRequestTracking(commitment: string) {
+  try {
+    // Track request
+    for await (const status of indexer.postRequestStatusStream(commitment)) {
+      if (status.status === RequestStatus.DESTINATION) {
+        return { success: true }
+      }
+      
+      if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+        // Handle timeout
+        for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+          if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+            return { success: false, recovered: true }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Tracking error:", error)
+    return { success: false, recovered: false, error }
+  }
+}
+```
+
+### Monitor Timeout Rates
+
+Track how often your requests timeout to optimize settings:
+
+```typescript
+let successCount = 0
+let timeoutCount = 0
+
+async function trackWithMetrics(commitment: string) {
+  const result = await trackRequestWithTimeout(commitment)
+  
+  if (result.success) {
+    successCount++
+  } else if (result.timedOut) {
+    timeoutCount++
+  }
+  
+  const timeoutRate = timeoutCount / (successCount + timeoutCount)
+  console.log(`Timeout rate: ${(timeoutRate * 100).toFixed(2)}%`)
+  
+  if (timeoutRate > 0.1) {
+    console.warn("⚠️ High timeout rate - consider increasing timeout periods or relayer fees")
+  }
+}
+```
+
+### Break Out of Timeout Streams
+
+Always exit loops when timeout processing is complete:
+
+```typescript
+for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+  // Process timeout status...
+  
+  // IMPORTANT: Break when finalized
+  if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+    break
+  }
+}
+```
+
+### Handle Network Errors
+
+Implement retry logic for network failures:
+
+```typescript
+async function trackTimeoutWithRetry(commitment: string, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+        console.log(`Timeout status: ${timeout.status}`)
+        
+        if (timeout.status === TimeoutStatus.SOURCE_TIMED_OUT) {
+          return timeout
+        }
+      }
+    } catch (error) {
+      console.error(`Attempt ${attempt + 1} failed:`, error)
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000)) // Wait before retry
+      }
+    }
+  }
+  
+  throw new Error("Failed to track timeout after multiple attempts")
+}
+```
+
+## Next Steps
+
+- [Track POST requests](/developers/sdk/tracking-post-requests) - Monitor POST request delivery
+- [Track GET requests](/developers/sdk/tracking-get-requests) - Monitor GET request responses
+- [Explore IndexerClient](/developers/sdk/indexer-client) - Deep dive into querying capabilities
+- [Work with TokenGateway](/developers/sdk/token-gateway) - Handle token transfer timeouts

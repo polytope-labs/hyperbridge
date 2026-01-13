@@ -1,0 +1,638 @@
+---
+title: Intent Gateway
+description: The Intent Gateway is the core smart contract that enables cross-chain intent-based swaps on Hyperbridge. It allows users to place orders on one chain to receive tokens on another chain, with fillers providing liquidity and earning fees for executing these orders.
+---
+
+# Intent Gateway Smart Contract
+ 
+The Intent Gateway is the core smart contract that enables cross-chain intent-based swaps on Hyperbridge. It allows users to place orders on one chain to receive tokens on another chain, with fillers providing liquidity and earning fees for executing these orders.
+
+## Overview
+
+The Intent Gateway operates as a **cross-chain escrow and settlement system** where:
+
+1. **Users** place orders by escrowing tokens on the source chain
+2. **Fillers** provide tokens on the destination chain and earn fees
+3. **Settlement** happens automatically through ISMP messaging
+4. **Cancellations** are possible for unfilled orders
+
+## Key Concepts
+
+### Order Structure
+
+Every order in the Intent Gateway consists of:
+
+```solidity
+struct Order {
+    bytes32 user;           // Address of the user placing the order
+    bytes sourceChain;      // Source chain state machine ID
+    bytes destChain;        // Destination chain state machine ID
+    uint256 deadline;       // Block number deadline on destination chain
+    uint256 nonce;          // Unique order identifier
+    uint256 fees;           // Execution fees for fillers (in fee token)
+    PaymentInfo[] outputs;  // Tokens filler must provide on destination
+    TokenInfo[] inputs;     // Tokens user escrows on source
+    bytes callData;         // Optional calls to execute after filling
+}
+```
+
+### Token Information
+
+```solidity
+struct TokenInfo {
+    bytes32 token;    // Token address (address(0) for native token)
+    uint256 amount;   // Amount to escrow
+}
+
+struct PaymentInfo {
+    bytes32 token;        // Token address to provide
+    uint256 amount;       // Amount to provide
+    bytes32 beneficiary;  // Address to receive tokens
+}
+```
+
+### Fee Structure
+
+The Intent Gateway uses a **fixed fee model** where:
+
+- **Order fees** are predetermined amounts in the **source chain's fee token** denomination
+- **Fee tokens** are chain-specific and can have different decimals (DAI has 18, USDC has 6, etc.)
+- **Payment methods**: Users can pay fees with native tokens (ETH/BNB) or directly with fee tokens
+- **Relayer fees** are additional fees (minimum $0.25 + execution costs) for cross-chain message delivery
+
+## Order Lifecycle
+
+### 1. Order Placement
+
+When a user places an order:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│      User       │    │  IntentGateway  │    │   Fee Token     │
+│                 │    │                 │    │                 │
+│ • Creates order │───▶│ • Escrows tokens│───▶│ • Collects fees │
+│ • Sends tokens  │    │ • Generates hash│    │ • Stores in     │
+│ • Pays fees     │    │ • Emits event   │    │   contract      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Order Placement Flow                         │
+│                                                                 │
+│ 1. User approves token transfers for input amounts              │
+│ 2. User calls placeOrder() with order details + fees            │
+│ 3. Contract escrows input tokens from user                      │
+│ 4. Contract collects order fees (swapETHForExactTokens if ETH)  │
+│ 5. Contract generates unique commitment hash                    │
+│ 6. Contract emits OrderPlaced event for fillers                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Steps:**
+
+1. **Token Escrow**: Input tokens are locked in the contract
+2. **Fee Escrow**: Order fees are collected in the fee token
+3. **Commitment Generation**: A unique hash identifies the order
+4. **Event Emission**: Fillers monitor `OrderPlaced` events
+
+### 2. Order Filling
+
+Fillers monitor events and fill profitable orders:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│     Filler      │    │  Dest Gateway   │    │  Source Gateway │
+│                 │    │                 │    │                 │
+│ • Monitors      │───▶│ • Validates     │───▶│ • Receives      │
+│   events        │    │   order         │    │   settlement    │
+│ • Provides      │    │ • Transfers     │    │ • Releases      │
+│   tokens        │    │   tokens        │    │   escrow        │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Order Filling Flow                           │
+│                                                                 │
+│ 1. Filler detects OrderPlaced event on source chain             │
+│ 2. Filler evaluates profitability and decides to fill           │
+│ 3. Filler calls fillOrder() on destination chain                │
+│ 4. Contract transfers output tokens to beneficiary              │
+│ 5. Contract executes optional callData if provided              │
+│ 6. Contract dispatches settlement message to source             │
+│ 7. Contract marks order as filled to prevent double-fill        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Steps:**
+
+1. **Token Transfer**: Filler provides required tokens to beneficiary
+2. **Call Execution**: Optional smart contract calls are executed
+3. **Settlement Message**: Cross-chain message sent to source chain
+4. **Order Marking**: Order marked as filled to prevent double-spending
+
+### 3. Escrow Redemption
+
+The source chain processes the settlement:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   ISMP Host     │    │  Source Gateway │    │     Filler      │
+│                 │    │                 │    │                 │
+│ • Receives      │───▶│ • Authenticates │───▶│ • Receives      │
+│   cross-chain   │    │   message       │    │   escrowed      │
+│   message       │    │ • Processes     │    │   tokens        │
+│                 │    │   redemption    │    │ • Receives fees │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Escrow Redemption Flow                        │
+│                                                                 │
+│ 1. ISMP delivers settlement message from destination            │
+│ 2. Source gateway verifies message authenticity                 │
+│ 3. Source gateway validates request comes from known gateway    │
+│ 4. Source gateway transfers escrowed input tokens to filler     │
+│ 5. Source gateway transfers order fees to filler                │
+│ 6. Source gateway emits EscrowReleased event                    │
+│ 7. Order lifecycle complete - filler has been compensated       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Steps:**
+
+1. **Message Verification**: ISMP verifies the cross-chain message
+2. **Token Release**: Escrowed input tokens sent to filler
+3. **Fee Release**: Order fees sent to filler
+4. **Completion**: Order lifecycle complete
+
+### 4. Order Cancellation (Optional)
+
+Users can cancel unfilled, expired orders:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│      User       │    │  Source Gateway │    │  Dest Gateway   │
+│                 │    │                 │    │                 │
+│ • Initiates     │───▶│ • Validates     │───▶│ • Relayers get  │
+│   cancellation  │    │   expiration    │    │   storage       │
+│ • Pays query    │    │ • Dispatches    │    │   proof         │
+│   fees          │    │   storage query │    │                 │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Order Cancellation Flow                       │
+│                                                                 │
+│ 1. User calls cancelOrder() after order deadline has passed    │
+│ 2. Source gateway validates user is order creator              │
+│ 3. Source gateway checks order has expired (past deadline)     │
+│ 4. Source gateway dispatches GET request to query dest storage │
+│ 5. Relayers query destination and submit GET response proof    │
+│ 6. Source gateway verifies proof and refunds tokens + fees     │
+│ 7. Source gateway emits EscrowRefunded event                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Key Steps:**
+
+1. **Expiration Check**: Verify order has passed deadline
+2. **Storage Query**: Check if order was filled on destination
+3. **Proof Verification**: Confirm order status via ISMP
+4. **Refund**: Return escrowed tokens and fees to user
+
+## Core Functions
+
+### placeOrder
+
+Places a new cross-chain order by escrowing tokens and fees.
+
+```solidity
+function placeOrder(Order memory order, bytes32 graffiti) public payable
+```
+
+**Parameters:**
+
+- `order`: Order details including tokens, amounts, and destination
+- `graffiti`: Optional metadata for the order, bytes32(0) for no graffiti
+
+**Requirements:**
+
+- User must approve token transfers for input amounts
+- Must provide sufficient ETH for native token inputs
+- Order fees can be paid with native tokens (via quotes from `quoteNative()`) or directly with fee tokens
+
+**Example:**
+
+```solidity
+// Order to swap 1000 USDC on Ethereum for 1000 USDT on Arbitrum
+Order memory order = Order({
+    user: bytes32(0), // Set automatically
+    sourceChain: bytes(""), // Set automatically
+    destChain: toUtf8Bytes("EVM-42161"), // Arbitrum chainId
+    deadline: 12345678, // Block number on Arbitrum
+    nonce: 0, // Set automatically
+    fees: 2_800_000_000_000_000_000, // $2.80 in DAI (18 decimals on Ethereum)
+    outputs: [PaymentInfo({
+        token: bytes32(uint256(uint160(USDT_ADDRESS))),
+        amount: 1000_000_000, // 1000 USDT (6 decimals)
+        beneficiary: bytes32(uint256(uint160(msg.sender)))
+    })],
+    inputs: [TokenInfo({
+        token: bytes32(uint256(uint160(USDC_ADDRESS))),
+        amount: 1000_000_000 // 1000 USDC (6 decimals)
+    })],
+    callData: ""
+});
+
+// Option 1: Pay fees with native ETH
+uint256 nativeFeeAmount = intentGateway.quoteNative(dispatchPost);
+intentGateway.placeOrder{value: nativeFeeAmount}(order, bytes32(0));
+
+// Option 2: Pay fees with fee token (DAI on Ethereum)
+IERC20(DAI_ADDRESS).approve(intentGateway, order.fees);
+IERC20(USDC_ADDRESS).approve(intentGateway, 1000_000_000);
+intentGateway.placeOrder(order, bytes32(0));
+```
+
+### fillOrder
+
+Fills an existing order by providing the required output tokens.
+
+```solidity
+function fillOrder(Order calldata order, FillOptions memory options) public payable
+```
+
+**Parameters:**
+
+- `order`: The order to fill (must match original exactly)
+- `options`: Fill options including relayer fee
+
+**Requirements:**
+
+- Order must not be expired (before deadline)
+- Order must not be already filled
+- Must be called on the destination chain
+- Filler must provide all output tokens
+- Must pay relayer fees (minimum $0.25 + execution costs) with native tokens or fee tokens
+
+**Example:**
+
+```solidity
+// Fill the USDC->USDT order from above
+FillOptions memory options = FillOptions({
+    relayerFee: 300_000 // $0.25 + execution costs (USDC on Arbitrum, 6 decimals)
+});
+
+// Approve USDT transfer
+IERC20(USDT_ADDRESS).approve(intentGateway, 1000_000_000);
+
+// Option 1: Pay relayer fee with native tokens (ETH on Arbitrum)
+uint256 totalEthNeeded = /* calculate ETH needed for relayer fee */;
+intentGateway.fillOrder{value: totalEthNeeded}(order, options);
+
+// Option 2: Pay relayer fee with fee token (USDC on Arbitrum)
+IERC20(USDC_ADDRESS).approve(intentGateway, options.relayerFee);
+intentGateway.fillOrder(order, options);
+```
+
+### cancelOrder
+
+Cancels an unfilled order after it has expired.
+
+```solidity
+function cancelOrder(Order calldata order, CancelOptions memory options) public payable
+```
+
+**Parameters:**
+
+- `order`: The order to cancel
+- `options`: Cancel options including relayer fee and height proof
+
+**Requirements:**
+
+- Only order creator can cancel
+- Order must be expired (past deadline)
+- Order must not be filled
+- Must pay for GET request to query destination chain storage (with native tokens or fee tokens)
+
+**Example:**
+
+```solidity
+// Cancel expired order
+CancelOptions memory options = CancelOptions({
+    relayerFee: 250_000, // $0.25 for GET request (in source fee token)
+    height: 12345678     // Block height after deadline on destination
+});
+
+// Option 1: Pay GET request fee with native tokens
+uint256 ethNeeded = /* calculate ETH needed for GET request */;
+intentGateway.cancelOrder{value: ethNeeded}(order, options);
+
+// Option 2: Pay GET request fee with source fee token
+IERC20(DAI_ADDRESS).approve(intentGateway, /* calculated fee amount */);
+intentGateway.cancelOrder(order, options);
+```
+
+## Fee Economics
+
+### Order Fees
+
+Order fees compensate fillers for execution costs:
+
+```
+Total Filler Revenue = Order Fees
+Total Filler Costs = Fill Gas + Protocol Fees + Relayer Fees + Capital Costs
+```
+
+**Fee Components:**
+
+- **Fill Gas**: Gas to execute `fillOrder()` on destination
+- **Protocol Fees**: ISMP messaging fees (per-byte + base)
+- **Relayer Fees**: Additional fee for message delivery
+- **Capital Costs**: Opportunity cost of locked capital
+
+### Fee Token Mechanics
+
+Each chain has a designated fee token with different decimals. The fee tokens may change:
+
+- **Ethereum**: DAI (18 decimals)
+- **Arbitrum**: DAI (18 decimals)
+- **Base**: USDC (6 decimals)
+- **BSC**: USDT (18 decimals)
+
+**Fee Payment Options:**
+
+1. **Direct**: Pay in fee token via `transferFrom` (user/filler pre-approves)
+2. **Native**: Pay in ETH/native token using `quoteNative()`
+
+**Important**:
+
+- Order fees are always denominated in the **source chain's fee token**, regardless of payment method
+- Relayer fees are denominated in the **destination chain's fee token** (for fills) or **source chain's fee token** (for cancels)
+- Both users and fillers can choose either payment method for their respective fees
+
+### Example Fee Calculation
+
+For a 1000 USDC cross-chain transfer from Ethereum to Arbitrum:
+
+```
+Order Fee: 2.80 DAI (18 decimals) = 2_800_000_000_000_000_000 wei
+
+Filler Costs:
+- Fill Gas: ~$0.15 (varies by chain)
+- Protocol Fee: ~$0.95 (per-byte fee × message size)
+- Relayer Fee: $0.25 (minimum, in destination fee token)
+- Total Costs: ~$1.35
+
+Filler Profit: $2.80 - $1.35 = $1.45
+```
+
+**Important Notes:**
+
+- Even for USDC→USDC transfers, amounts may differ due to different token decimals
+- USDC on Ethereum: 6 decimals, USDC on Arbitrum: 6 decimals (same)
+- USDC on Ethereum: 6 decimals, USDT on BSC: 18 decimals (different)
+
+## Security Features
+
+### Commitment-Based Security
+
+Orders are identified by cryptographic commitments:
+
+```solidity
+bytes32 commitment = keccak256(abi.encode(order));
+```
+
+This prevents:
+
+- Order tampering
+- Replay attacks
+- Double spending
+
+### Authentication
+
+Cross-chain messages are authenticated:
+
+```solidity
+modifier authenticate(PostRequest calldata request) {
+    bytes32 module = /* extract module from request */;
+    if (instance(request.source) != module) revert Unauthorized();
+    _;
+}
+```
+
+This ensures only legitimate IntentGateway instances can trigger settlements.
+
+### Expiration Protection
+
+Orders have built-in expiration:
+
+- **Deadline**: Block number on destination chain
+- **Timeout**: Prevents indefinite escrow
+- **Cancellation**: Allows recovery
+
+## Events
+
+### OrderPlaced
+
+Emitted when a new order is created:
+
+```solidity
+event OrderPlaced(
+    bytes32 user,
+    bytes sourceChain,
+    bytes destChain,
+    uint256 deadline,
+    uint256 nonce,
+    uint256 fees,
+    PaymentInfo[] outputs,
+    TokenInfo[] inputs,
+    bytes callData
+);
+```
+
+**Usage**: Fillers monitor this event to discover new orders.
+
+### OrderFilled
+
+Emitted when an order is successfully filled:
+
+```solidity
+event OrderFilled(bytes32 indexed commitment, address filler);
+```
+
+**Usage**: Track successful fills.
+
+### EscrowReleased
+
+Emitted when escrowed tokens are released to filler:
+
+```solidity
+event EscrowReleased(bytes32 indexed commitment);
+```
+
+**Usage**: Confirm settlement completion.
+
+### EscrowRefunded
+
+Emitted when escrowed tokens are refunded to user:
+
+```solidity
+event EscrowRefunded(bytes32 indexed commitment);
+```
+
+**Usage**: Track cancelled orders and refunds.
+
+## Technical Implementation Details
+
+### Token Address Conversion
+
+The Intent Gateway uses `bytes32` for token addresses, requiring proper conversion:
+
+```typescript
+// Convert ERC20 address to bytes32 (with leading zeros)
+const tokenBytes32 = ethers.zeroPadValue(tokenAddress, 32);
+
+// Convert bytes32 back to address
+const tokenAddress = ethers.getAddress(ethers.dataSlice(tokenBytes32, 12));
+```
+
+### Chain Identification
+
+Chain identifiers can be obtained in two ways:
+
+```typescript
+// Method 1: Read from ISMP Host contract
+const sourceChain = await bscIsmpHost.read.host();
+const destChain = await gnosisChiadoIsmpHost.read.host();
+
+// Method 2: Construct from chain ID
+const destChain = ethers.toUtf8Bytes(`EVM-${chainId}`);
+```
+
+### Decimal Handling
+
+Different chains use tokens with different decimals:
+
+```typescript
+// Ethereum USDC: 6 decimals
+const ethUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
+
+// Arbitrum USDC: 6 decimals
+const arbUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
+
+// BSC USDT: 18 decimals
+const bscUSDT = ethers.parseUnits("1000", 18); // 1000_000_000_000_000_000_000
+
+// Fee tokens also vary by chain
+const ethFees = ethers.parseEther("2.8"); // DAI: 18 decimals
+const arbFees = ethers.parseUnits("2.8", 6); // USDC: 6 decimals
+```
+
+## Advanced Features
+
+### Call Data Execution
+
+Orders can include arbitrary call data:
+
+```solidity
+struct Order {
+    // ... other fields
+    bytes callData; // Encoded function calls
+}
+```
+
+**Use Cases:**
+
+- Token approvals after receiving funds
+- DEX trades with received tokens
+- Protocol interactions
+- Multi-step transactions
+
+**Example:**
+
+```solidity
+// Approve received USDC for Uniswap after fill
+bytes memory callData = abi.encodeWithSelector(
+    IERC20.approve.selector,
+    UNISWAP_ROUTER,
+    1000_000_000
+);
+
+Order memory order = Order({
+    // ... other fields
+    callData: callData
+});
+```
+
+### Multi-Token Orders
+
+Orders support multiple input/output tokens:
+
+```solidity
+// Swap USDC + ETH on source for USDT + DAI on destination
+TokenInfo[] memory inputs = new TokenInfo[](2);
+inputs[0] = TokenInfo(USDC_TOKEN, 1000_000_000);
+inputs[1] = TokenInfo(bytes32(0), 1 ether); // Native ETH
+
+PaymentInfo[] memory outputs = new PaymentInfo[](2);
+outputs[0] = PaymentInfo(USDT_TOKEN, 1000_000_000, beneficiary);
+outputs[1] = PaymentInfo(DAI_TOKEN, 1000 ether, beneficiary);
+```
+
+### Storage Queries
+
+Cancellation uses ISMP GET requests to query destination chain storage:
+
+```solidity
+// Query destination chain storage to verify order status
+bytes[] memory keys = new bytes[](1);
+keys[0] = bytes.concat(
+    abi.encodePacked(address(destinationGateway)),
+    calculateCommitmentSlotHash(commitment)
+);
+
+DispatchGet memory request = DispatchGet({
+    dest: order.destChain,
+    keys: keys,
+    timeout: 0,
+    height: uint64(options.height),
+    fee: options.relayerFee,
+    context: context
+});
+```
+
+**How it works:**
+
+1. Source gateway dispatches GET request to query destination storage slot
+2. Relayers monitor GET requests and query the destination chain directly
+3. Relayers submit GET response with proof that storage slot is empty (unfilled)
+4. Source gateway verifies proof and processes refund
+
+## Best Practices
+
+### For Users
+
+1. **Set Appropriate Fees**: Higher fees attract fillers faster
+2. **Reasonable Deadlines**: Allow sufficient time for filling
+3. **Monitor Orders**: Track order status via query client available at @hyperbridge
+4. **Handle Failures**: Implement cancellation logic for expired orders
+
+### For Fillers
+
+1. **Profitability Analysis**: Account for all costs before filling
+2. **Capital Management**: Maintain sufficient token balances
+3. **Speed Optimization**: Use premium RPC endpoints for competitive advantage
+4. **Risk Management**: Monitor for failed transactions and adjust strategies
+
+### For Integrators
+
+1. **Error Handling**: Implement robust error handling for all functions
+2. **Event Monitoring**: Use events for real-time order tracking
+3. **Fee Estimation**: Provide accurate fee estimates to users
+4. **Multi-Chain Support**: Handle different fee tokens per chain
+
+## Further Reading
+
+- [ISMP Protocol Specification](https://docs.hyperbridge.network/protocol/ismp)
+- [Hyperbridge Filler Documentation](https://docs.hyperbridge.network/developers/evm/filler)

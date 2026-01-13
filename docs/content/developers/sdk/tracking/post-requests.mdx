@@ -1,0 +1,344 @@
+---
+title: Tracking POST Requests
+description: Track POST requests throughout their lifecycle across source, Hyperbridge, and destination chains.
+---
+
+# Tracking POST Requests
+
+POST requests are used to send messages and data from a source chain to a destination chain. The Hyperbridge SDK provides utilities for tracking POST requests throughout their entire lifecycle.
+
+## Overview
+
+POST request tracking involves:
+
+1. **Calculating commitment hashes** - Unique identifiers for POST requests
+2. **Streaming status updates** - Real-time monitoring of request progress
+3. **Querying current status** - Snapshot of request state at any point
+4. **Handling timeouts** - Detecting when requests exceed their timeout period
+
+## Request Lifecycle
+
+Every POST request goes through these stages:
+
+```
+SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINATION
+```
+
+| Stage | Description |
+|-------|-------------|
+| **SOURCE_FINALIZED** | Request transaction finalized on source chain |
+| **HYPERBRIDGE_DELIVERED** | Request delivered to Hyperbridge |
+| **HYPERBRIDGE_FINALIZED** | Request finalized on Hyperbridge |
+| **DESTINATION** | Request delivered and executed on destination chain - Complete! |
+
+## Calculate Commitment Hash
+
+First, calculate the commitment hash for your POST request:
+
+```typescript
+import { postRequestCommitment } from "@hyperbridge/sdk"
+
+// Your POST request object
+const request = {
+  source: "EVM-97",
+  dest: "EVM-10200",
+  nonce: 1n,
+  from: "0x...",
+  to: "0x...",
+  timeoutTimestamp: 1234567890n,
+  body: "0x..."
+}
+
+const commitment = postRequestCommitment(request)
+console.log(`Commitment: ${commitment}`)
+```
+
+### POST Request Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `string` | Source chain state machine ID (e.g., "EVM-97") |
+| `dest` | `string` | Destination chain state machine ID |
+| `nonce` | `bigint` | Request nonce |
+| `from` | `HexString` | Sender address |
+| `to` | `HexString` | Recipient address |
+| `timeoutTimestamp` | `bigint` | Unix timestamp when request times out |
+| `body` | `HexString` | Request payload data |
+
+## Stream Status Updates
+
+Monitor the POST request status in real-time using `postRequestStatusStream()`:
+
+```typescript
+import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
+
+// Stream status updates
+for await (const status of indexer.postRequestStatusStream(commitment)) {
+  console.log(`[${new Date().toISOString()}]`)
+  console.log(`Status: ${status.status}`)
+  console.log(`Block height: ${status.blockHeight}`)
+  console.log(`Transaction hash: ${status.txHash}`)
+  console.log("---")
+
+  switch (status.status) {
+    case RequestStatus.SOURCE_FINALIZED:
+      console.log("✓ Request finalized on source chain")
+      break
+    case RequestStatus.HYPERBRIDGE_DELIVERED:
+      console.log("✓ Request delivered to Hyperbridge")
+      break
+    case RequestStatus.HYPERBRIDGE_FINALIZED:
+      console.log("✓ Request finalized on Hyperbridge")
+      break
+    case RequestStatus.DESTINATION:
+      console.log("✓ Request delivered and executed on destination - Complete!")
+      break
+    case TimeoutStatus.PENDING_TIMEOUT:
+      console.log("⏳ Request exceeded timeout - switch to timeout tracking")
+      break
+  }
+
+  // Break when the request is fully processed or timed out
+  if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+    break
+  }
+}
+```
+
+### Automatic Timeout Detection
+
+The `postRequestStatusStream()` automatically monitors timeouts. If the request exceeds its timeout period, the stream will yield `TimeoutStatus.PENDING_TIMEOUT`. When this happens, you should switch to using `postRequestTimeoutStream()` to track the timeout processing.
+
+## Query Current Status
+
+Get a snapshot of the current status without streaming:
+
+```typescript
+// Query current status
+const request = await indexer.queryRequestWithStatus(commitment)
+
+if (request) {
+  console.log("Current statuses:", request.statuses)
+  console.log("Request data:", request.request)
+  
+  // Check the latest status
+  const latestStatus = request.statuses[request.statuses.length - 1]
+  console.log(`Latest status: ${latestStatus.status}`)
+} else {
+  console.log("Request not found in indexer")
+}
+```
+
+## Direct Query (Without IndexerClient)
+
+Query POST request status directly without creating an IndexerClient:
+
+```typescript
+import { createQueryClient, queryPostRequest } from "@hyperbridge/sdk"
+
+const queryClient = createQueryClient({
+  url: "https://hyperbridge-indexer-url",
+})
+
+const commitmentHash = "0x..."
+
+const request = await queryPostRequest({ 
+  commitmentHash, 
+  queryClient 
+})
+
+if (request) {
+  console.log("Request statuses:", request.statuses)
+  console.log("Request details:", request.request)
+}
+```
+
+## Complete Example
+
+Here's a complete example that tracks a POST request from start to finish:
+
+```typescript
+import { 
+  IndexerClient, 
+  createQueryClient, 
+  EvmChain,
+  SubstrateChain,
+  postRequestCommitment,
+  RequestStatus,
+  TimeoutStatus
+} from "@hyperbridge/sdk"
+
+async function trackPostRequest() {
+  // 1. Setup chains and indexer
+  const queryClient = createQueryClient({
+    url: "https://hyperbridge-indexer-url",
+  })
+
+  const sourceChain = new EvmChain({
+    chainId: 97,
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+    host: "0xSourceHostAddress",
+    consensusStateId: "BSC0"
+  })
+
+  const destChain = new EvmChain({
+    chainId: 10200,
+    rpcUrl: "https://rpc.chiadochain.net",
+    host: "0xDestHostAddress",
+    consensusStateId: "GNO0"
+  })
+
+  const hyperbridgeChain = new SubstrateChain({
+    stateMachineId: "KUSAMA-4009",
+    wsUrl: "wss://gargantua.polytope.technology",
+    hasher: "Keccak",
+    consensusStateId: "PAS0"
+  })
+
+  await hyperbridgeChain.connect()
+
+  const indexer = new IndexerClient({
+    queryClient,
+    pollInterval: 1_000, // Poll every second
+    source: sourceChain,
+    dest: destChain,
+    hyperbridge: hyperbridgeChain
+  })
+
+  // 2. Calculate commitment hash
+  const request = {
+    source: "EVM-97",
+    dest: "EVM-10200",
+    nonce: 1n,
+    from: "0xSourceAddress",
+    to: "0xDestAddress",
+    timeoutTimestamp: BigInt(Date.now() + 3600000), // 1 hour from now
+    body: "0x1234..."
+  }
+
+  const commitment = postRequestCommitment(request)
+  console.log(`Tracking POST request: ${commitment}`)
+
+  // 3. Track request status
+  for await (const status of indexer.postRequestStatusStream(commitment)) {
+    console.log(`Status: ${status.status} at block ${status.blockHeight}`)
+    
+    if (status.status === RequestStatus.DESTINATION) {
+      console.log("✅ Request completed successfully!")
+      break
+    }
+    
+    if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+      console.log("⚠️ Request exceeded timeout - switching to timeout tracking")
+      break
+    }
+  }
+}
+
+trackPostRequest()
+```
+
+## Request Status Reference
+
+### RequestStatus Enum
+
+| Status | Description |
+|--------|-------------|
+| `SOURCE` | Request initiated on source chain |
+| `SOURCE_FINALIZED` | Request transaction finalized on source chain |
+| `HYPERBRIDGE_DELIVERED` | Request delivered to Hyperbridge |
+| `HYPERBRIDGE_FINALIZED` | Request finalized on Hyperbridge |
+| `DESTINATION` | Request delivered and executed on destination chain |
+
+### Status Metadata
+
+Each status update includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `RequestStatus` | Current status of the request |
+| `blockHeight` | `bigint` | Block height where status was recorded |
+| `txHash` | `string` | Transaction hash for this status update |
+| `timestamp` | `number` | Unix timestamp of the status update |
+
+## Best Practices
+
+### Always Break Out of Streams
+
+Always break out of async generators when done to avoid infinite polling:
+
+```typescript
+for await (const status of indexer.postRequestStatusStream(commitment)) {
+  // Process status...
+  
+  // IMPORTANT: Break when done or timed out
+  if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+    break
+  }
+}
+```
+
+### Handle Errors Gracefully
+
+Implement proper error handling for network issues:
+
+```typescript
+try {
+  for await (const status of indexer.postRequestStatusStream(commitment)) {
+    console.log(`Status: ${status.status}`)
+    
+    if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+      break
+    }
+  }
+} catch (error) {
+  console.error("Error tracking request:", error)
+  // Implement retry logic or fallback behavior
+}
+```
+
+### Track Multiple Requests
+
+Track multiple POST requests concurrently:
+
+```typescript
+async function trackMultipleRequests(commitments: string[]) {
+  const promises = commitments.map(async (commitment) => {
+    for await (const status of indexer.postRequestStatusStream(commitment)) {
+      console.log(`[${commitment}] Status: ${status.status}`)
+      
+      if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+        break
+      }
+    }
+  })
+
+  await Promise.all(promises)
+  console.log("✅ All requests tracked!")
+}
+```
+
+### Use Appropriate Poll Intervals
+
+Balance between real-time updates and API load:
+
+```typescript
+// Real-time tracking (high API load)
+const indexer = new IndexerClient({
+  pollInterval: 1_000, // 1 second
+  // ...
+})
+
+// Moderate tracking (balanced)
+const indexer = new IndexerClient({
+  pollInterval: 5_000, // 5 seconds
+  // ...
+})
+```
+
+## Next Steps
+
+- [Track GET requests](/developers/sdk/tracking-get-requests) - Query data from destination chains
+- [Handle timeouts](/developers/sdk/tracking-timeouts) - Monitor and process timed-out requests
+- [Explore IndexerClient](/developers/sdk/indexer-client) - Deep dive into querying capabilities
+- [Work with TokenGateway](/developers/sdk/token-gateway) - Track token transfer requests

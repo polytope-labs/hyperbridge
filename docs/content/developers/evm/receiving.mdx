@@ -1,0 +1,105 @@
+---
+title: Receiving Messages
+description: Learn how to receive cross-chain messages in your Hyperbridge application by implementing callback functions.
+---
+
+# Receiving Messages
+
+To receive cross-chain messages, your contract must implement the [`IApp`](/developers/evm/api/iapp) interface. This allows the `IHost` to dispatch verified messages to your contract for execution.
+
+## How It Works
+
+When Hyperbridge verifies an incoming message:
+
+1. **Relayer submits proofs** to the [`IHandler`](/developers/evm/api/ihandler)
+2. **Handler verifies** the cryptographic proofs
+3. **Host dispatches** the message to your application
+4. **Your callback executes** to process the message
+
+## Implementing Callbacks
+
+The simplest way to receive messages is by extending [`HyperApp`](/developers/evm/api/hyperapp), which provides built-in host authorization and default implementations. You only need to override the callbacks you want to handle:
+
+- **[`onAccept()`](/developers/evm/api/hyperapp#onaccept)** - Handle incoming POST requests
+- **[`onPostResponse()`](/developers/evm/api/hyperapp#onpostresponse)** - Process POST responses
+- **[`onGetResponse()`](/developers/evm/api/hyperapp#ongetresponse)** - Handle GET responses with state data
+- **[`onPostRequestTimeout()`](/developers/evm/api/hyperapp#onpostrequesttimeout)** - Cleanup when requests timeout
+- **[`onPostResponseTimeout()`](/developers/evm/api/hyperapp#onpostresponsetimeout)** - Handle response timeouts
+- **[`onGetTimeout()`](/developers/evm/api/hyperapp#ongettimeout)** - Handle GET request timeouts
+
+See the full [`IApp` API reference](/developers/evm/api/iapp) for detailed specifications of each callback.
+
+## Example
+
+```solidity
+pragma solidity ^0.8.17;
+
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {DispatchPost} from "@hyperbridge/core/interfaces/IDispatcher.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+
+contract CrossChainMessenger is HyperApp {
+    address private immutable _host;
+    
+    event MessageReceived(bytes message, bytes source);
+    
+    constructor(address host_) {
+        _host = host_;
+    }
+    
+    function host() public view override returns (address) {
+        return _host;
+    }
+    
+    // Receive messages from other chains
+    function onAccept(IncomingPostRequest calldata incoming) 
+        external 
+        override 
+        onlyHost 
+    {
+        // Decode and process the message
+        string memory message = abi.decode(incoming.request.body, (string));
+        emit MessageReceived(incoming.request.body, incoming.request.source);
+        
+        // Your business logic here
+    }
+    
+    // Optional: Handle timeouts
+    function onPostRequestTimeout(PostRequest memory request) 
+        external 
+        override 
+        onlyHost 
+    {
+        // Cleanup logic when messages timeout
+    }
+}
+```
+
+## Security Considerations
+
+**Critical:** Always restrict callbacks to the `IHost` contract using the `onlyHost` modifier. This prevents unauthorized execution of cross-chain messages. `HyperApp` provides this modifier automatically.
+
+```solidity
+function onAccept(IncomingPostRequest calldata incoming) 
+    external 
+    override 
+    onlyHost  // Required for security
+{
+    // Your logic here
+}
+```
+
+Additionally:
+- Validate the `source` chain and `from` address in requests
+- Use try-catch blocks for external calls within callbacks
+- Keep callback gas costs reasonable as relayers pay initially
+- Emit events for off-chain tracking
+
+---
+
+## Next Steps
+
+- Review the [`HyperApp` API reference](/developers/evm/api/hyperapp) for helper utilities
+- Learn about [dispatching messages](/developers/evm/dispatching)
+- Explore the [`IApp` interface](/developers/evm/api/iapp) for advanced use cases

@@ -24,7 +24,7 @@ frame-benchmarking = { workspace = true, optional = true }
 
 # local modules
 ismp = { workspace = true }
-pallet-ismp = { workspace = true, features = ["unsigned"] }
+pallet-ismp = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-ismp-demo = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }

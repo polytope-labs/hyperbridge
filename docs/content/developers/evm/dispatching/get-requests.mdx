@@ -1,0 +1,588 @@
+---
+title: GET Requests
+description: Learn how to dispatch GET requests to perform asynchronous reads of remote blockchain state via Hyperbridge.
+---
+
+# GET Requests
+
+GET requests allow contracts to perform asynchronous reads of a counterparty blockchain's state. This powerful feature enables you to read data from any chain without needing to trust oracles or intermediaries - all state reads are cryptographically verified by Hyperbridge.
+
+## Important Considerations
+
+**GET requests are read-only operations** - they cannot modify state on the destination chain. GET requests read storage directly from the blockchain's state trie and return the values through a cryptographic proof. The response is delivered via the `onGetResponse` callback in your contract.
+
+## The `DispatchGet` Struct
+
+A GET request is created using the `DispatchGet` struct:
+
+```solidity lineNumbers
+// An object for dispatching get requests 
+struct DispatchGet {
+    // bytes representation of the destination state machine
+    bytes dest;
+    // height at which to read the state machine
+    uint64 height;
+    // Storage keys to read
+    bytes[] keys;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // Hyperbridge protocol fees for processing this request.
+    uint256 fee;
+    // Application-specific metadata
+    bytes context;
+}
+```
+
+## Dispatch Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `dest` | Destination chain whose state should be read (e.g., `StateMachine.evm(1)` for Ethereum Mainnet). |
+| `height` | Block height at which to read the state. Only heights available on hyperbridge can be used.  |
+| `keys` | Array of storage keys to read. See the Storage Keys section for how to construct keys for different chain types. |
+| `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. If the timeout is set to a non-zero value, requests that have exceeded this timeout will be rejected. |
+| `fee` | Hyperbridge protocol fees for processing the request. |
+| `context` | Application-specific metadata that will be available in the `onGetResponse` callback. Use this to track which request is which. |
+
+## Dispatching a GET Request
+
+Here's a complete example of how to dispatch a GET request:
+
+```solidity lineNumbers
+function readRemoteBalance(
+    address token,
+    address account,
+    bytes memory dest
+) public payable returns (bytes32) {
+    // Calculate the storage slot for balanceOf[account]
+    bytes32 slot = keccak256(abi.encode(account, uint256(0))); // Assuming balances at slot 0
+
+    // Construct the storage key (20 bytes address + 32 bytes slot)
+    bytes[] memory keys = new bytes[](1);
+    keys[0] = bytes.concat(bytes20(token), slot);
+
+    // Encode context to track this request
+    bytes memory context = abi.encode(token, account);
+
+    DispatchGet memory request = DispatchGet({
+        dest: dest,
+        height: 0, // Latest finalized block
+        keys: keys,
+        timeout: 3600, // 1 hour
+        fee: msg.value,
+        context: new bytes(0) // empty for this use-case
+    });
+
+    return IDispatcher(_host).dispatch{value: msg.value}(request);
+}
+```
+
+### Code Breakdown
+
+1. **Calculate storage slot** - Determine the exact storage location you want to read
+2. **Construct storage keys** - Format keys according to the chain type (20 or 52 bytes for EVM)
+3. **Add context** - Encode any metadata you'll need in the callback
+4. **Create DispatchGet struct** - Populate all required fields
+5. **Dispatch the request** - Call `IDispatcher(_host).dispatch()` with the GET request and protocol fee
+6. **Return commitment hash** - The function returns a unique identifier for tracking the request
+
+## Storage Keys
+
+The `keys` parameter is an array of raw storage keys that will be used to fetch values from the counterparty chain. The method for deriving these keys depends on the type of chain you're querying.
+
+### EVM Storage Keys
+
+For EVM chains, storage keys must be either **20 bytes** or **52 bytes**:
+
+#### Contract Storage Slots
+
+Concatenation of contract address (20 bytes) + storage slot hash (32 bytes)
+
+- Use this to read specific storage slots in a contract
+- The slot hash is computed using Solidity's storage layout rules
+- Format: `bytes.concat(bytes20(contractAddress), bytes32(storageSlot))`
+
+**Example:**
+
+```solidity
+// Reading balances[account] from an ERC20 at slot 0
+address token = 0x1234...;
+address account = 0x5678...;
+bytes32 slot = keccak256(abi.encode(account, uint256(0)));
+bytes memory key = bytes.concat(bytes20(token), slot);
+```
+
+#### Account State
+
+Single contract address (20 bytes)
+
+- Use this to read account-level information
+- Returns account nonce, balance, code hash, and storage root
+- Format: `bytes20(accountAddress)`
+
+**Example:**
+
+```solidity
+// Reading account state for an address
+address account = 0x1234...;
+bytes memory key = bytes20(account);
+```
+
+### Substrate Storage Keys
+
+For Substrate/Polkadot chains, storage keys depend on the storage type:
+
+#### StorageValue
+
+<Tabs items={['Substrate', 'Solidity']}>
+<Tab value="Substrate">
+
+```rust lineNumbers
+// In Substrate pallet
+#[pallet::storage]
+pub type MyValue<T> = StorageValue<_, u128>;
+```
+
+</Tab>
+<Tab value="Solidity">
+
+```solidity lineNumbers
+// Hash the pallet name and storage item name
+bytes memory key = bytes.concat(
+    xxhash128("MyPallet"),
+    xxhash128("MyValue")
+);
+```
+
+</Tab>
+</Tabs>
+
+#### StorageMap
+
+<Tabs items={['Substrate', 'Solidity']}>
+<Tab value="Substrate">
+
+```rust lineNumbers
+// In Substrate pallet
+#[pallet::storage]
+pub type Balances<T> = StorageMap<_, Blake2_128Concat, AccountId, Balance>;
+```
+
+</Tab>
+<Tab value="Solidity">
+
+```solidity lineNumbers
+// Key construction
+bytes memory key = bytes.concat(
+    xxhash128("MyPallet"),
+    xxhash128("Balances"),
+    blake2_128(accountId),
+    accountId
+);
+```
+
+</Tab>
+</Tabs>
+
+#### StorageDoubleMap and StorageNMap
+
+For more complex storage types, consult the [Substrate storage documentation](https://docs.substrate.io/build/runtime-storage/).
+
+<Callout type="warning" title="GET Response Values are Encoded">
+All values returned in GET responses are either **RLP-encoded** or **SCALE-encoded** because they come directly from the state trie. You must use the appropriate decoding library (like `solidity-rlp` for RLP or `scale-codec` for SCALE) to decode the values before using them. Do not use `abi.decode()` on GET response values.
+</Callout>
+
+## Practical Examples
+<Accordions>
+<Accordion title="Examples Requests">
+
+<Tabs items={['Reading ERC20 Balance', 'Reading Uniswap V2 Reserves', 'Reading Multiple Slots']}>
+<Tab value="Reading ERC20 Balance">
+
+```solidity lineNumbers
+contract RemoteBalanceChecker is HyperApp {
+    address private _host;
+    
+    constructor(address host) {
+        _host = host;
+    }
+    
+    function host() public override view returns (address) {
+        return _host;
+    }
+
+    function checkRemoteBalance(
+        address token,
+        address account,
+        bytes memory destChain,
+        uint256 height
+    ) public payable returns (bytes32) {
+        // Calculate storage slot for balances[account]
+        // Assuming balances is at slot 0
+        bytes32 slot = keccak256(abi.encode(account, uint256(0)));
+        
+        // Construct 52-byte storage key
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = bytes.concat(bytes20(token), slot);
+        
+        // Use context to remember who initiated this request
+        bytes memory context = abi.encode(msg.sender, token, account);
+        
+        DispatchGet memory request = DispatchGet({
+            dest: destChain,
+            height: height,
+            keys: keys,
+            timeout: 0,
+            fee: msg.value,
+            context: context
+        });
+        
+        bytes32 commitment = IDispatcher(_host).dispatch{value: msg.value}(request);
+        
+        return commitment;
+    }
+    
+    // Receive the response
+    function onGetResponse(GetResponse memory response) 
+        external 
+        override 
+        onlyHost 
+    {
+        // Decode context
+        (address initiator, address token, address account) = abi.decode(
+            response.context,
+            (address, address, address)
+        );
+        
+        // response.values[0] could be empty if the user has no balance
+        if (response.values.length == 0) {
+            emit BalanceRetrieved(initiator, token, account, 0);
+            return;
+        }
+        
+        // Decode balance from response (values are RLP-encoded from state trie)
+        uint256 balance = RLPReader.toUint(response.values[0]);
+        
+        // Process the balance
+        emit BalanceRetrieved(initiator, token, account, balance);
+    }
+}
+```
+
+</Tab>
+
+<Tab value="Reading Uniswap V2 Reserves">
+
+```solidity lineNumbers
+contract UniswapPriceOracle is HyperApp {
+    function fetchPairReserves(address pair, bytes memory destChain, uint256 height) 
+        public 
+        payable 
+        returns (bytes32) 
+    {
+        // Uniswap V2 stores reserves at slot 8
+        bytes32 reservesSlot = bytes32(uint256(8));
+        
+        bytes[] memory keys = new bytes[](1);
+        keys[0] = bytes.concat(bytes20(pair), reservesSlot);
+        
+        DispatchGet memory request = DispatchGet({
+            dest: destChain,
+            height: height,
+            keys: keys,
+            timeout: 0, // 30 minutes
+            fee: msg.value,
+            context: abi.encode(pair)
+        });
+        
+        return IDispatcher(_host).dispatch{value: msg.value}(request);
+    }
+    
+    function onGetResponse(GetResponse memory response) 
+        external 
+        override 
+        onlyHost 
+    {
+        address pair = abi.decode(response.context, (address));
+        
+        // Decode reserves from RLP-encoded storage value
+        // The value is a packed uint256 with reserve0, reserve1, and timestamp
+        uint256 packedValue = RLPReader.toUint(response.values[0]);
+        
+        // Extract packed values (reserve0, reserve1, blockTimestampLast)
+        uint112 reserve0 = uint112(packedValue);
+        uint112 reserve1 = uint112(packedValue >> 112);
+        uint32 blockTimestampLast = uint32(packedValue >> 224);
+        
+        // Calculate price and emit event
+        uint256 price = (uint256(reserve1) * 1e18) / uint256(reserve0);
+        emit PriceUpdated(pair, price, reserve0, reserve1, blockTimestampLast);
+    }
+}
+```
+
+</Tab>
+
+<Tab value="Reading Multiple Slots">
+
+```solidity lineNumbers
+function readMultipleSlots(
+    address contract_,
+    bytes32[] memory slots,
+    uint256 height,
+    bytes memory dest
+) public payable returns (bytes32) {
+    // Construct keys for multiple slots
+    bytes[] memory keys = new bytes[](slots.length);
+    for (uint256 i = 0; i < slots.length; i++) {
+        keys[i] = bytes.concat(bytes20(contract_), slots[i]);
+    }
+    
+    DispatchGet memory getRequest = DispatchGet({
+        dest: dest,
+        height: height,
+        keys: keys,
+        timeout: 0,
+        fee: msg.value,
+        context: abi.encode(contract_, slots)
+    });
+    
+    return IDispatcher(_host).dispatch{value: msg.value}(getRequest);
+}
+```
+
+</Tab>
+</Tabs>
+
+</Accordion>
+</Accordions>
+
+## Fetching Heights
+
+Contracts can only read storage items at heights that have been processed by the Hyperbridge blockchain. You can fetch the latest height for the chain you're interested in using the `latestStateMachineHeight()` function provided by the Hyperbridge SDK.
+
+## Fees
+
+Understanding the fee model for GET requests is important. Unlike POST requests, GET requests **only have protocol fees** - there are no relayer fees since responses are automatically delivered by the Hyperbridge protocol.
+
+### Fee Components
+
+| Component | Description | Calculation | Refundable |
+|-----------|-------------|-------------|------------|
+| **Protocol Fee** | Non-refundable fee charged by Hyperbridge for processing the request | `perByteFee(dest) × (baseFee + context.length)` | ❌ No |
+
+### Protocol Fees for GET Requests
+
+GET request fees are calculated based on a base fee plus the size of your context:
+
+```solidity
+protocolFee = perByteFee(destination) × (BASE_GET_REQUEST_SIZE + context.length)
+```
+
+Where:
+- `BASE_GET_REQUEST_SIZE` = Fixed base size for GET request processing (typically ~200 bytes)
+- `context.length` = Size of your application-specific context data
+
+**Key Points:**
+- Protocol fees are **non-refundable** even if the request times out
+- Fees are paid in the **native token** of the source chain
+- Larger context increases fees linearly
+- No relayer fees exist for GET requests
+
+### Calculating GET Request Fees
+
+You can calculate the exact fee before dispatching:
+
+```solidity
+// Query the per-byte fee for the destination chain
+uint256 perByteFee = IIsmpHost(host).perByteFee(StateMachine.evm(1)); // Ethereum
+
+// Calculate total fee
+uint256 baseSize = 200; // Approximate base size
+uint256 contextSize = context.length;
+uint256 protocolFee = perByteFee * (baseSize + contextSize);
+```
+
+### Fee Optimization Tips
+
+1. **Minimize context size** - Only include essential data in context
+2. **Reuse context patterns** - Use compact encoding schemes
+3. **Batch reads** - Request multiple storage keys in one GET request instead of multiple requests
+4. **Consider empty context** - If you can track requests another way, use empty context
+
+## Payment Methods
+
+The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually a stablecoin). But it can also accept native token payments, which are automatically swapped for the `feeToken` using the local AMMs like Uniswap.
+
+
+| Token | Payment Method |
+|-------|----------------|
+| Native token (ETH, BNB, MATIC, etc.) | Sent with transaction via `msg.value` |
+| Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
+
+
+### Fee Token Payment (Recommended)
+
+If your contract extends `HyperApp`, use the `dispatchWithFeeToken()` helper which handles all fee calculations and token approvals automatically:
+
+```solidity lineNumbers
+contract MyApp is HyperApp {
+    function readRemoteState(
+        bytes memory dest,
+        bytes[] memory keys,
+        address payer
+    ) public returns (bytes32) {
+        bytes memory context = abi.encode(payer, block.timestamp);
+        
+        DispatchGet memory getRequest = DispatchGet({
+            dest: dest,
+            height: 0,
+            keys: keys,
+            timeout: 3600,
+            fee: 0,
+            context: context
+        });
+        
+        // Automatically handles:
+        // - Fee calculation
+        // - Token transfer from payer
+        // - Host approval
+        // - Dispatch
+        return dispatchWithFeeToken(getRequest, payer);
+    }
+}
+```
+
+### Native Token Payment
+
+For native token payments, dispatch directly and let the Host handle the Uniswap swap:
+
+```solidity lineNumbers
+contract MyApp is HyperApp {
+    function readRemoteStateWithNative(
+        bytes memory dest,
+        bytes[] memory keys
+    ) public payable returns (bytes32) {
+        bytes memory context = abi.encode(msg.sender, block.timestamp);
+        
+        DispatchGet memory getRequest = DispatchGet({
+            dest: dest,
+            height: 0,
+            keys: keys,
+            timeout: 3600,
+            fee: 0,
+            context: context
+        });
+        
+        // User must send enough native tokens to cover fees
+        // The Host will swap native -> feeToken via Uniswap
+        return IDispatcher(host()).dispatch{value: msg.value}(getRequest);
+    }
+}
+```
+
+## Estimating Fees
+
+When building user-facing applications, estimate fees on the client side before users submit transactions:
+
+```typescript
+import { createPublicClient, http } from 'viem'
+
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+
+const myAppAddress = '0x...'
+
+// Prepare the GetRequest struct
+const getRequest = {
+  dest: '0x...',
+  height: 0n,
+  keys: ['0x...'],
+  timeout: 3600n,
+  fee: 0n,
+  context: '0x...'
+}
+
+// Get native token cost estimate
+const nativeCost = await publicClient.readContract({
+  address: myAppAddress,
+  abi: hyperAppAbi,
+  functionName: 'quoteNative',
+  args: [getRequest]
+})
+
+// Get feeToken cost (exact)
+const feeTokenCost = await publicClient.readContract({
+  address: myAppAddress,
+  abi: hyperAppAbi,
+  functionName: 'quote',
+  args: [getRequest]
+})
+
+// Display to user or use in transaction
+console.log(`Fee in native token: ${nativeCost}`)
+console.log(`Fee in fee token: ${feeTokenCost}`)
+```
+
+<Callout type="warning" title="Estimate Fees Off-Chain">
+Use the `quoteNative()` view function from your frontend to estimate how much native token users need to send. **Do not call `quoteNative()` in smart contract transactions.** It uses Uniswap's `getAmountsIn`, making it vulnerable to sandwich attacks. Only use it off-chain for frontend fee estimation
+</Callout>
+
+
+## Processing GET Requests
+
+Unlike POST requests, **GET requests always require manual relaying**. There is no automatic relayer network for GET responses - you or your users must deliver the response to your contract.
+
+The `@hyperbridge/sdk` provides tools to track GET requests and automatically generates the calldata needed to execute the response delivery on your chain. After dispatching a GET request, use the SDK's `IndexerClient` to monitor the request status. When the response is ready, the SDK provides the proof and calldata you need to call the handler contract's response delivery function, which triggers your `onGetResponse` callback.
+
+You can make your users self-relay responses or run a server which relays responses on behalf of users. To learn more, see **[Track GET Requests](/developers/sdk/tracking/get-requests)** for monitoring request status and extracting delivery calldata, or check the **[IndexerClient API](/developers/sdk/indexer-client)** documentation.
+
+## Timeouts
+
+When a GET request times out (exceeds its specified `timeout` period), the request will be **rejected** if processing is attempted after the timeout.
+
+### Processing Timeouts
+
+When a GET request times out, it must be explicitly processed to trigger your timeout handler:
+
+```
+┌─────────────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐
+│ Request Exceeds Timeout │─────▶│ Timeout Proof Submitted │─────▶│   onGetTimeout()        │
+└─────────────────────────┘      └─────────────────────────┘      └─────────────────────────┘
+```
+
+<Callout type="info">
+**GET requests do not have relayer fees**, so there are no fees to refund on timeout. The `onGetTimeout` callback is primarily for cleanup and state management in your contract.
+</Callout>
+
+Use the `@hyperbridge/sdk` to monitor request status and detect timeouts. The SDK generates the necessary proof and submits it to the source chain, which calls your contract's `onGetTimeout` handler.
+
+For complete timeout handling with code examples, see [Tracking GET Request Timeouts](/developers/sdk/tracking/timeouts).
+
+#### Implementing the Timeout Callback
+
+Your contract must implement `onGetTimeout` to handle timed-out GET requests:
+
+```solidity lineNumbers title="MyApp.sol"
+contract MyApp is HyperApp {
+    function onGetTimeout(GetRequest memory request)
+        external
+        override
+        onlyHost
+    {
+        // Decode context to understand which request timed out
+        (address user, address token) = abi.decode(
+            request.context,
+            (address, address)
+        );
+        
+        // Clean up any pending state
+        // Maybe notify the user or retry
+        
+        emit GetRequestTimedOut(request.commitment, user, token);
+    }
+}
+```
+<br />

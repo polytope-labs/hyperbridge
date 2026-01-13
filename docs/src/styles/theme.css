@@ -1,0 +1,194 @@
+@theme {
+    --font-math: "LatinModern1959";
+    --font-mono:
+        "BerkeleyMono", "BerkeleyMonoVariable", ui-monospace, monospace;
+}
+
+@theme inline {
+    --color-brand-purple: oklch(0.77 0.12 287 / 1);
+    --color-brand-white-200: oklch(from var(--color-brand-white-500) 70% c h);
+    --color-brand-white-300: oklch(from var(--color-brand-white-500) 90% c h);
+    --color-fd-primary: var(--color-brand-purple);
+    --color-fd-card: var(--color-brand-black-500);
+    --color-fd-secondary: var(--color-brand-black-350);
+    --color-fd-accent: var(--color-brand-black-500);
+    --color-fd-accent-foreground: var(--color-brand-purple);
+    --color-fd-muted-foreground: var(--color-brand-black-100);
+}
+
+:root {
+    &.dark {
+        --color-fd-secondary: var(--color-brand-black-350);
+    }
+}
+
+.fd-steps {
+    border-color: var(--color-fd-secondary);
+}
+
+body,
+#nd-sidebar {
+    @apply bg-brand-black-600 font-sans text-brand-white-400;
+    font-synthesis: none;
+}
+
+kbd {
+    @apply font-sans font-normal text-xs;
+}
+
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-brand-black-300);
+    }
+}
+
+/* Aside */
+#nd-sidebar {
+    div > p {
+        @apply font-medium;
+    }
+}
+
+/* Aside */
+
+/*Heading */
+:where(h1, h2, h3, h4, h5):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+) {
+    @apply text-white font-medium;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    a {
+        @apply text-white;
+    }
+}
+
+/* End Heading */
+
+/* Links */
+a {
+    @apply text-brand-white-400 no-underline hover:underline;
+}
+
+a[data-active="false"] {
+    @apply text-brand-black-100 no-underline hover:underline;
+}
+
+a[data-active="true"] {
+    @apply text-brand-white-400 no-underline hover:underline;
+}
+
+aside {
+    a[data-active="true"],
+    a[data-active="false"] {
+        @apply hover:no-underline;
+    }
+}
+
+.prose + div {
+    a {
+        @apply hover:no-underline;
+    }
+}
+
+/* Prose */
+.prose a[rel] {
+    @apply text-brand-purple no-underline hover:no-underline;
+}
+
+p {
+    @apply leading-[3ex] font-[300] text-brand-white-300;
+
+    a {
+        @apply font-normal text-brand-purple;
+    }
+
+    b,
+    strong {
+        @apply font-normal font-medium text-white;
+    }
+}
+
+.prose + div {
+    a div svg + p {
+        @apply font-medium;
+    }
+}
+
+/* End Prose */
+
+/* PsuedoCode*/
+@layer math-override {
+    .ps-root {
+        @apply rounded-sm text-lg bg-brand-black-550 border rounded-2xl;
+
+        * {
+            @apply font-math;
+        }
+
+        .with-caption {
+            @apply !border-none my-0;
+
+            > p {
+                @apply font-mono text-xs !text-white p-4 flex justify-center border-y-0 indent-0 w-full;
+
+                .ps-keyword {
+                    @apply font-mono flex-1 indent-0 font-semibold whitespace-nowrap text-brand-purple;
+                    /*font-synthesis: unset !important;*/
+                }
+            }
+        }
+
+        .with-linenum {
+            @apply mt-0 border-t bg-brand-black-500 p-4 rounded-2xl font-math;
+        }
+
+        .ps-block {
+            .ps-linenum {
+                @apply font-mono tabular-nums w-[3ch] text-end text-brand-white-200;
+            }
+
+            .ps-keyword {
+                @apply text-lime-200 font-semibold;
+                font-synthesis: unset !important;
+            }
+
+            .ps-funcname {
+                @apply text-yellow-400;
+                font-synthesis: unset !important;
+            }
+        }
+    }
+}
+
+/* End PsuedoCode*/
+
+@layer code {
+    .katex > math[display="block"],
+    .katex-display {
+        @apply rounded-sm text-lg bg-brand-black-500 p-3 overflow-x-auto;
+    }
+}
+
+code,
+pre,
+kbd,
+code .line {
+    font-family: var(--font-mono);
+}
+
+/* Fix line number spacing in code blocks */
+[data-line-numbers]
+    .line:is(pre *):is(.shiki *):not(.not-fumadocs-codeblock *) {
+    padding-left: calc(var(--padding-left) + 9 * var(--spacing));
+}

@@ -1,0 +1,10 @@
+{
+  "title": "Hyperbridge Nexus",
+  "pages": [
+    "overview",
+    "host-executive",
+    "ismp",
+    "relayer"
+  ],
+  "defaultOpen": false
+}

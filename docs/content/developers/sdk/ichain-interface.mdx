@@ -1,0 +1,436 @@
+---
+title: IChain Interface
+description: Unified interface for interacting with EVM and Substrate chains in the Hyperbridge SDK.
+---
+
+# IChain Interface
+
+The `IChain` interface provides a unified abstraction for interacting with different blockchain types. Both `EvmChain` and `SubstrateChain` implement this interface, allowing you to write chain-agnostic code.
+
+## Overview
+
+The IChain interface enables:
+
+- Unified access to blockchain timestamps and state
+- State proof queries across different chain types
+- Request receipt lookups
+- State machine height and challenge period queries
+- ISMP message encoding for chain-specific submission
+
+## Core Methods
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `timestamp()` | - | `Promise<bigint>` | Returns the current timestamp of the chain in seconds |
+| `requestReceiptKey(commitment)` | `commitment: HexString` | `HexString` | Returns the state trie key for the request-receipt storage item |
+| `queryRequestReceipt(commitment)` | `commitment: HexString` | `Promise<HexString \| undefined>` | Query and return the request-receipt for the given commitment |
+| `queryStateProof(at, keys)` | `at: bigint, keys: HexString[]` | `Promise<HexString>` | Query and return the encoded storage proof for the provided keys at the given height |
+| `queryProof(message, counterparty, at?)` | `message: IMessage, counterparty: string, at?: bigint` | `Promise<HexString>` | Query and return the encoded storage proof for requests |
+| `encode(message)` | `message: IIsmpMessage` | `HexString` | Encode an ISMP message into the appropriate calldata for this chain |
+| `latestStateMachineHeight(id)` | `id: StateMachineIdParams` | `Promise<bigint>` | Get the latest state machine height for a given state machine ID |
+| `challengePeriod(id)` | `id: StateMachineIdParams` | `Promise<bigint>` | Get the challenge period for a given state machine ID |
+| `stateMachineUpdateTime(height)` | `height: StateMachineHeight` | `Promise<bigint>` | Get the update time for a statemachine height |
+
+## Configuration Property
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `config` | `IEvmConfig \| ISubstrateConfig` | Returns the configuration for this chain |
+
+## EvmChain
+
+The `EvmChain` class implements IChain for Ethereum and EVM-compatible chains.
+
+### Creating an EVM Chain
+
+```typescript
+import { EvmChain } from "@hyperbridge/sdk"
+
+const evmChain = new EvmChain({
+  chainId: 10200,
+  rpcUrl: "https://rpc.chiadochain.net",
+  host: "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
+  consensusStateId: "GNO0"
+})
+
+// EVM chains are ready to use immediately (no connect needed)
+```
+
+### EVM Configuration
+
+
+
+### EVM Examples
+
+**Query Current Timestamp:**
+
+```typescript
+const timestamp = await evmChain.timestamp()
+console.log(`Current timestamp: ${timestamp} seconds`)
+```
+
+**Query State Proof:**
+
+```typescript
+const keys = [
+  "0x1234567890abcdef...",
+  "0xfedcba0987654321..."
+]
+const blockNumber = 12345n
+
+const proof = await evmChain.queryStateProof(blockNumber, keys)
+console.log(`Encoded proof: ${proof}`)
+```
+
+**Get Latest State Machine Height:**
+
+```typescript
+const height = await evmChain.latestStateMachineHeight({
+  stateMachineId: "EVM-10200",
+  consensusStateId: "GNO0"
+})
+
+console.log(`Latest height: ${height}`)
+```
+
+**Query Challenge Period:**
+
+```typescript
+const challengePeriod = await evmChain.challengePeriod({
+  stateMachineId: "EVM-10200",
+  consensusStateId: "GNO0"
+})
+
+console.log(`Challenge period: ${challengePeriod} seconds`)
+```
+
+## SubstrateChain
+
+The `SubstrateChain` class implements IChain for Polkadot, Kusama, and other Substrate-based chains.
+
+### Creating a Substrate Chain
+
+```typescript
+import { SubstrateChain } from "@hyperbridge/sdk"
+
+const substrateChain = new SubstrateChain({
+  stateMachineId: "KUSAMA-4009",
+  wsUrl: "wss://gargantua.polytope.technology",
+  hasher: "Keccak",
+  consensusStateId: "PAS0"
+})
+
+// IMPORTANT: Must connect before using Substrate chains
+await substrateChain.connect()
+
+console.log("Connected to Substrate chain!")
+```
+
+### Substrate Configuration
+
+
+
+### Substrate Examples
+
+**Query Current Timestamp:**
+
+```typescript
+const timestamp = await substrateChain.timestamp()
+console.log(`Current timestamp: ${timestamp} seconds`)
+```
+
+**Query State Proof:**
+
+```typescript
+const keys = [
+  "0x1234567890abcdef...",
+  "0xfedcba0987654321..."
+]
+const blockNumber = 12345n
+
+const proof = await substrateChain.queryStateProof(blockNumber, keys)
+console.log(`Encoded proof: ${proof}`)
+```
+
+**Get Latest State Machine Height:**
+
+```typescript
+const height = await substrateChain.latestStateMachineHeight({
+  stateMachineId: "KUSAMA-4009",
+  consensusStateId: "PAS0"
+})
+
+console.log(`Latest height: ${height}`)
+```
+
+**Get State Machine Update Time:**
+
+```typescript
+const updateTime = await substrateChain.stateMachineUpdateTime({
+  stateMachineId: {
+    stateMachineId: "KUSAMA-4009",
+    consensusStateId: "PAS0"
+  },
+  height: 12345n
+})
+
+console.log(`Last updated: ${updateTime}`)
+```
+
+## Advanced Usage
+
+### Working with Proofs
+
+Query storage proofs for cross-chain verification:
+
+```typescript
+// Query proof at a specific height
+const keys = [
+  "0x...", // Storage key 1
+  "0x..."  // Storage key 2
+]
+const height = 12345n
+
+const proof = await sourceChain.queryStateProof(height, keys)
+
+// Use proof for cross-chain verification
+console.log(`Proof length: ${proof.length} bytes`)
+```
+
+### Query Proof for Messages
+
+```typescript
+const message = {
+  kind: "PostRequest",
+  requests: [...],
+  proof: {...}
+}
+
+const counterpartyId = "EVM-10200"
+const height = 12345n
+
+const messageProof = await sourceChain.queryProof(
+  message,
+  counterpartyId,
+  height
+)
+
+console.log(`Message proof: ${messageProof}`)
+```
+
+### Encoding ISMP Messages
+
+Encode messages for submission to the chain:
+
+```typescript
+const message: IIsmpMessage = {
+  kind: "PostRequest",
+  requests: [...],
+  proof: {...},
+  signer: "0x..."
+}
+
+// Encode for the specific chain type
+const encodedCalldata = sourceChain.encode(message)
+
+// Use encodedCalldata to submit transaction
+console.log(`Encoded calldata: ${encodedCalldata}`)
+```
+
+### Query Request Receipts
+
+Check if a request has been processed:
+
+```typescript
+const commitment = "0x..."
+
+// Get the storage key for the receipt
+const receiptKey = sourceChain.requestReceiptKey(commitment)
+
+// Query the receipt
+const receipt = await sourceChain.queryRequestReceipt(commitment)
+
+if (receipt) {
+  console.log("Request has been processed!")
+  console.log(`Receipt: ${receipt}`)
+} else {
+  console.log("Request not yet processed")
+}
+```
+
+### Challenge Period and Update Times
+
+Query consensus-related timing information:
+
+```typescript
+// Get challenge period for a state machine
+const challengePeriod = await destChain.challengePeriod({
+  stateMachineId: "KUSAMA-4009",
+  consensusStateId: "PAS0"
+})
+
+console.log(`Challenge period: ${challengePeriod} seconds`)
+
+// Get when a state machine was last updated
+const updateTime = await destChain.stateMachineUpdateTime({
+  stateMachineId: {
+    stateMachineId: "KUSAMA-4009",
+    consensusStateId: "PAS0"
+  },
+  height: 12345n
+})
+
+console.log(`Last updated at: ${new Date(Number(updateTime) * 1000).toISOString()}`)
+```
+
+## Chain-Agnostic Code
+
+Write code that works with both EVM and Substrate chains:
+
+```typescript
+async function getChainInfo(chain: IChain) {
+  // Works with both EvmChain and SubstrateChain
+  const timestamp = await chain.timestamp()
+  const config = chain.config
+  
+  console.log(`Chain type: ${config.stateMachineId}`)
+  console.log(`Current timestamp: ${timestamp}`)
+  
+  // Query state proof (works on both)
+  const proof = await chain.queryStateProof(12345n, ["0x..."])
+  console.log(`Proof retrieved: ${proof.length} bytes`)
+}
+
+// Use with EVM chain
+const evmChain = new EvmChain({ /* ... */ })
+await getChainInfo(evmChain)
+
+// Use with Substrate chain
+const substrateChain = new SubstrateChain({ /* ... */ })
+await substrateChain.connect()
+await getChainInfo(substrateChain)
+```
+
+## Complete Example
+
+Here's a complete example demonstrating IChain usage:
+
+```typescript
+import { EvmChain, SubstrateChain } from "@hyperbridge/sdk"
+
+async function demonstrateIChain() {
+  // Create EVM chain
+  const evmChain = new EvmChain({
+    chainId: 10200,
+    rpcUrl: "https://rpc.chiadochain.net",
+    host: "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
+    consensusStateId: "GNO0"
+  })
+
+  // Create Substrate chain
+  const substrateChain = new SubstrateChain({
+    stateMachineId: "KUSAMA-4009",
+    wsUrl: "wss://gargantua.polytope.technology",
+    hasher: "Keccak",
+    consensusStateId: "PAS0"
+  })
+
+  await substrateChain.connect()
+
+  // Query timestamps from both chains
+  const evmTimestamp = await evmChain.timestamp()
+  const substrateTimestamp = await substrateChain.timestamp()
+
+  console.log(`EVM timestamp: ${evmTimestamp}`)
+  console.log(`Substrate timestamp: ${substrateTimestamp}`)
+
+  // Query state proofs
+  const keys = ["0x..."]
+  const height = 12345n
+
+  const evmProof = await evmChain.queryStateProof(height, keys)
+  const substrateProof = await substrateChain.queryStateProof(height, keys)
+
+  console.log(`EVM proof: ${evmProof}`)
+  console.log(`Substrate proof: ${substrateProof}`)
+
+  // Query latest heights
+  const evmHeight = await evmChain.latestStateMachineHeight({
+    stateMachineId: "EVM-10200",
+    consensusStateId: "GNO0"
+  })
+
+  const substrateHeight = await substrateChain.latestStateMachineHeight({
+    stateMachineId: "KUSAMA-4009",
+    consensusStateId: "PAS0"
+  })
+
+  console.log(`EVM latest height: ${evmHeight}`)
+  console.log(`Substrate latest height: ${substrateHeight}`)
+}
+
+demonstrateIChain()
+```
+
+## Type Definitions
+
+### StateMachineIdParams
+
+
+
+### StateMachineHeight
+
+
+
+### IIsmpMessage
+
+
+
+## Best Practices
+
+### Always Connect Substrate Chains
+
+```typescript
+const substrateChain = new SubstrateChain({ /* ... */ })
+
+// MUST call connect before using
+await substrateChain.connect()
+
+// Now safe to use
+const timestamp = await substrateChain.timestamp()
+```
+
+### Handle Connection Errors
+
+```typescript
+try {
+  await substrateChain.connect()
+  console.log("Connected successfully!")
+} catch (error) {
+  console.error("Failed to connect:", error)
+  // Handle connection failure
+}
+```
+
+### Cache Chain Instances
+
+Create chain instances once and reuse them:
+
+```typescript
+// Good: Create once
+const evmChain = new EvmChain({ /* ... */ })
+
+// Reuse throughout your application
+await evmChain.timestamp()
+await evmChain.queryStateProof(...)
+
+// Bad: Creating multiple instances unnecessarily
+const chain1 = new EvmChain({ /* ... */ })
+const chain2 = new EvmChain({ /* ... */ }) // Unnecessary duplication
+```
+
+## Next Steps
+
+- [Track requests using chains](/developers/sdk/tracking-requests) - Monitor cross-chain messages
+- [Use TokenGateway](/developers/sdk/token-gateway) - Leverage chains for token transfers
+- [Configure chains properly](/developers/sdk/configuration) - Advanced configuration options

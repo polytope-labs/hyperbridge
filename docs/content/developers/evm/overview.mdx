@@ -1,0 +1,94 @@
+---
+title: Overview
+description: Hyperbridge is built on a cross-chain interoperability protocol referred to as the [Interoperable State Machine Protocol](/protocol/ismp). This protocol implementation lives in the [Hyperbridge Monorepo](https://github.com/polytope-labs/hyperbridge/tree/main/evm). The interfaces and SDKs are available in the [@hyperbridge/core](https://github.com/polytope-labs/hyperbridge-sdk/tree/main/packages/core) package.
+---
+# EVM Developers
+
+Hyperbridge is built on a cross-chain interoperability protocol referred to as the [Interoperable State Machine Protocol](/protocol/ismp). This protocol implementation lives in the [Hyperbridge Monorepo](https://github.com/polytope-labs/hyperbridge/tree/main/evm). The interfaces and SDKs are available in the [@hyperbridge/core](https://github.com/polytope-labs/hyperbridge-sdk/tree/main/packages/core) package.
+
+## Installation
+
+Install the `@hyperbridge/core` package in your project:
+
+<Tabs items={['pnpm', 'yarn', 'npm']}>
+<Tab value="npm">
+```bash
+npm install @hyperbridge/core
+```
+</Tab>
+<Tab value="yarn">
+```bash
+yarn add @hyperbridge/core
+```
+</Tab>
+<Tab value="pnpm">
+```bash
+pnpm add @hyperbridge/core
+```
+</Tab>
+</Tabs>
+
+Then import the interfaces in your Solidity contracts:
+
+```solidity
+import "@hyperbridge/core/contracts/interfaces/IHost.sol";
+import "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
+import "@hyperbridge/core/contracts/apps/HyperApp.sol";
+```
+
+The minimum Solidity version required is `v0.8.17`.
+
+## Overview
+
+Developers will mostly interact with these interfaces so it's a good idea to become more familiar with them. These interfaces provide EVM smart contracts with the necessary APIs to send and receive messages securely through Hyperbridge. Let's dive into its different components:
+
+### `IHost`
+
+The [`IHost`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IHost.sol) interface, which implements a subset of the [`IsmpHost`](/protocol/ismp/host), is the central core of the ISMP protocol. It is a stateful contract responsible for all protocol storage needs. It functions as a store for
+
+- Consensus states
+- State Commitments
+- Request Commitments and Receipts
+- Response Commitments and Receipts
+
+Additionally, it implements the [`IsmpDispatcher`](/protocol/ismp/dispatcher) interface, providing methods for contracts to dispatch requests and responses to the Hyperbridge.
+
+### `IHandler`
+
+The [`IHandler`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IHandler.sol) serves as the entry point for all ISMP datagrams. It is a stateless contract responsible for handling consensus and state proof verifications for all ISMP messages. Upon successful verification, it delegates storage and dispatching to relevant applications to the `IHost` contract.
+
+This decoupled design of the Handler from the Host allows independent upgrades to verification mechanisms without impacting the core protocol, enabling future adoption of more efficient consensus and state verification methods with no changes to the protocol or dependent contracts.
+
+
+### `IConsensus`
+
+The [`IConsensus`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IConsensus.sol) is an interface for verifying Hyperbridge's consensus on EVM chains. This is only used by the `IHandler` contract and is likely of no use to 3rd party developers.
+
+
+### `IDispatcher`
+
+The [`IDispatcher`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IDispatcher.sol)
+is the interface that will concern EVM developers the most. It is the interface through which cross-chain messages and state reads are dispatched.
+It provides methods for dispatching POST requests, POST responses, and GET requests.
+
+
+### `IApp`
+
+The [`IApp`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/interfaces/IApp.sol) interface defines the required APIs that contracts should provide in order to receive incoming messages. An abstract contract [`HyperApp`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/apps/HyperApp.sol) is provided for convenience, allowing developers to only override methods that they care about while also providing built-in fee estimation and host authorization.
+
+
+### `StateMachine`
+
+The [`StateMachine`](https://github.com/polytope-labs/hyperbridge-sdk/blob/main/packages/core/contracts/libraries/StateMachine.sol) is a convenience library for identifying state machines that messages are addressed to or from. Hyperbridge supports all kinds of state machines including but not limited to
+
+- EVM state machines
+- Polkadot-SDK state machines
+
+
+In the next section we'll look into hands-on examples of how to send and receive messages using ISMP.
+
+## Implementations
+
+ - [IHost (EvmHost)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L126)
+ - [IHandler (HandlerV1)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/modules/HandlerV1.sol#L57)
+ - [IConsensus (SP1Beefy)](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/consensus/SP1Beefy.sol#L31)

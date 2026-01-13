@@ -1,0 +1,494 @@
+---
+title: TokenGateway
+description: Estimate fees and manage cross-chain token transfers via Hyperbridge.
+---
+
+# TokenGateway
+
+The `TokenGateway` class provides utilities for estimating fees and managing cross-chain token transfers via Hyperbridge. It automatically calculates relayer fees and protocol fees for token teleportation across chains.
+
+## Overview
+
+TokenGateway enables:
+
+- **Automatic fee estimation** - Calculate total costs including relayer and protocol fees
+- **ERC20 address queries** - Get token contract addresses on destination chains
+- **ERC6160 support** - Work with hyper-fungible token standards
+- **Cross-chain transfers** - Teleport tokens between EVM and Substrate chains
+
+## Creating a TokenGateway
+
+```typescript
+import { TokenGateway, EvmChain } from "@hyperbridge/sdk"
+
+const sourceChain = new EvmChain({
+  chainId: 97,
+  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+  host: "0x...",
+  consensusStateId: "BSC0"
+})
+
+const destChain = new EvmChain({
+  chainId: 10200,
+  rpcUrl: "https://rpc.chiadochain.net",
+  host: "0x...",
+  consensusStateId: "GNO0"
+})
+
+// Initialize TokenGateway
+const tokenGateway = new TokenGateway({
+  source: sourceChain,
+  dest: destChain
+})
+```
+
+## Constructor Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `EvmChain` | Source chain instance (must be EVM) |
+| `dest` | `EvmChain \| SubstrateChain` | Destination chain instance |
+
+## Fee Estimation
+
+### quoteNative()
+
+Estimate the total native token cost for a token transfer, including protocol fees and relayer fees.
+
+```typescript
+import { keccak256, toHex, pad, parseEther } from "viem"
+
+const assetId = keccak256(toHex("USDC"))
+const recipientAddress = pad("0xRecipientAddress", { size: 32 })
+
+const teleportParams = {
+  amount: parseEther("100"),
+  assetId: assetId,
+  redeem: true, // Redeem as ERC20 on destination
+  to: recipientAddress,
+  dest: "EVM-10200",
+  timeout: 3600n,
+  data: "0x" // Optional call data
+}
+
+// Get native cost estimate
+const { totalNativeCost, relayerFeeInSourceFeeToken } = 
+  await tokenGateway.quoteNative(teleportParams)
+
+console.log(`Total native cost: ${totalNativeCost} wei`)
+console.log(`Relayer fee: ${relayerFeeInSourceFeeToken} wei`)
+```
+
+**Parameters:**
+
+
+
+**Returns:**
+
+
+
+## How Fee Estimation Works
+
+### For EVM Destination Chains
+
+The SDK uses a sophisticated estimation process:
+
+1. **Create dummy request** - Generates a POST request with 191 bytes of random data
+2. **Estimate gas** - Calls the destination chain to estimate gas for delivery
+3. **Convert to native** - Converts gas cost to native tokens with 1% buffer
+4. **Convert to fee token** - Uses Uniswap V2's `getAmountsOut` to convert to source fee token
+5. **Calculate total** - Returns relayer fee + protocol fee (both with 1% buffers)
+
+```typescript
+// Example: Estimating for EVM destination
+const { totalNativeCost, relayerFeeInSourceFeeToken } = 
+  await tokenGateway.quoteNative({
+    amount: parseEther("100"),
+    assetId: keccak256(toHex("USDC")),
+    redeem: true,
+    to: pad("0xRecipient", { size: 32 }),
+    dest: "EVM-10200",
+    timeout: 3600n,
+    data: "0x"
+  })
+
+// totalNativeCost includes:
+// - Relayer fee (gas cost + 1% buffer)
+// - Protocol fee (with 1% buffer)
+// - Converted to native token of source chain
+```
+
+### For Substrate Destination Chains
+
+When the destination is a Substrate chain:
+
+- **Relayer fee** is set to zero
+- Only **protocol fee** is calculated
+- No gas estimation required
+
+```typescript
+const substrateChain = new SubstrateChain({
+  stateMachineId: "KUSAMA-4009",
+  wsUrl: "wss://gargantua.polytope.technology",
+  hasher: "Keccak",
+  consensusStateId: "PAS0"
+})
+
+await substrateChain.connect()
+
+const tokenGateway = new TokenGateway({
+  source: sourceChain,
+  dest: substrateChain // Substrate destination
+})
+
+const { totalNativeCost, relayerFeeInSourceFeeToken } = 
+  await tokenGateway.quoteNative(teleportParams)
+
+// relayerFeeInSourceFeeToken will be 0n
+// totalNativeCost will only include protocol fee
+```
+
+## Token Address Queries
+
+### getErc20Address()
+
+Get the ERC20 contract address for an asset on the destination chain.
+
+```typescript
+const assetId = keccak256(toHex("USDC"))
+const erc20Address = await tokenGateway.getErc20Address(assetId)
+
+console.log(`ERC20 contract: ${erc20Address}`)
+// Output: "0x..."
+```
+
+**Parameters:**
+- `assetId: HexString` - The asset identifier (keccak256 hash of asset name)
+
+**Returns:** `Promise<string>` - ERC20 contract address
+
+### getErc6160Address()
+
+Get the ERC6160 (hyper-fungible) contract address for an asset.
+
+```typescript
+const assetId = keccak256(toHex("USDC"))
+const erc6160Address = await tokenGateway.getErc6160Address(assetId)
+
+console.log(`ERC6160 contract: ${erc6160Address}`)
+// Output: "0x..."
+```
+
+**Parameters:**
+- `assetId: HexString` - The asset identifier
+
+**Returns:** `Promise<string>` - ERC6160 contract address
+
+## Gateway Information
+
+### getInstanceAddress()
+
+Get the TokenGateway contract address on the destination chain.
+
+```typescript
+const destination = "EVM-10200"
+const gatewayAddress = await tokenGateway.getInstanceAddress(destination)
+
+console.log(`TokenGateway on ${destination}: ${gatewayAddress}`)
+// Output: "0x..."
+```
+
+**Parameters:**
+- `destination: string` - Destination state machine ID
+
+**Returns:** `Promise<string>` - TokenGateway contract address
+
+### getParams()
+
+Get the TokenGateway contract parameters.
+
+```typescript
+const params = await tokenGateway.getParams()
+
+console.log(`Host: ${params.host}`)
+console.log(`Dispatcher: ${params.dispatcher}`)
+```
+
+**Returns:**
+
+
+
+## Complete Example
+
+Here's a complete example demonstrating token transfer fee estimation:
+
+```typescript
+import { 
+  TokenGateway, 
+  EvmChain 
+} from "@hyperbridge/sdk"
+import { keccak256, toHex, pad, parseEther, formatEther } from "viem"
+
+async function estimateTokenTransfer() {
+  // Setup chains
+  const bscTestnet = new EvmChain({
+    chainId: 97,
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+    host: "0xSourceHostAddress",
+    consensusStateId: "BSC0"
+  })
+
+  const gnosisChiado = new EvmChain({
+    chainId: 10200,
+    rpcUrl: "https://rpc.chiadochain.net",
+    host: "0xDestHostAddress",
+    consensusStateId: "GNO0"
+  })
+
+  // Create TokenGateway
+  const tokenGateway = new TokenGateway({
+    source: bscTestnet,
+    dest: gnosisChiado
+  })
+
+  // Prepare transfer parameters
+  const assetId = keccak256(toHex("USDC"))
+  const recipient = pad("0xRecipientAddress", { size: 32 })
+  const amount = parseEther("100") // 100 tokens
+
+  const teleportParams = {
+    amount,
+    assetId,
+    redeem: true,
+    to: recipient,
+    dest: "EVM-10200",
+    timeout: 3600n, // 1 hour
+    data: "0x"
+  }
+
+  // Estimate fees
+  console.log("Estimating fees...")
+  const { totalNativeCost, relayerFeeInSourceFeeToken } = 
+    await tokenGateway.quoteNative(teleportParams)
+
+  console.log("\nFee Estimate:")
+  console.log(`Total cost: ${formatEther(totalNativeCost)} BNB`)
+  console.log(`Relayer fee: ${formatEther(relayerFeeInSourceFeeToken)} (in fee token)`)
+
+  // Get token addresses
+  const erc20Address = await tokenGateway.getErc20Address(assetId)
+  const erc6160Address = await tokenGateway.getErc6160Address(assetId)
+
+  console.log("\nToken Addresses:")
+  console.log(`ERC20: ${erc20Address}`)
+  console.log(`ERC6160: ${erc6160Address}`)
+
+  // Get gateway info
+  const gatewayAddress = await tokenGateway.getInstanceAddress("EVM-10200")
+  const params = await tokenGateway.getParams()
+
+  console.log("\nGateway Info:")
+  console.log(`Gateway address: ${gatewayAddress}`)
+  console.log(`Host: ${params.host}`)
+  console.log(`Dispatcher: ${params.dispatcher}`)
+}
+
+estimateTokenTransfer()
+```
+
+## Practical Usage Scenarios
+
+### Estimate Before Transfer
+
+Always estimate fees before initiating a token transfer:
+
+```typescript
+async function transferWithEstimate(
+  tokenGateway: TokenGateway,
+  params: TeleportParams
+) {
+  // Estimate fees first
+  const { totalNativeCost } = await tokenGateway.quoteNative(params)
+  
+  // Check if user has enough balance
+  const userBalance = await getUserBalance() // Your implementation
+  
+  if (userBalance < totalNativeCost) {
+    throw new Error(
+      `Insufficient balance. Need ${totalNativeCost}, have ${userBalance}`
+    )
+  }
+  
+  // Proceed with transfer
+  console.log("Initiating transfer...")
+  // Your transfer logic here
+}
+```
+
+### Dynamic Fee Display
+
+Display fees to users in real-time:
+
+```typescript
+async function displayFees(amount: bigint, assetId: string) {
+  const params = {
+    amount,
+    assetId: keccak256(toHex(assetId)),
+    redeem: true,
+    to: pad("0xRecipient", { size: 32 }),
+    dest: "EVM-10200",
+    timeout: 3600n,
+    data: "0x"
+  }
+
+  const { totalNativeCost, relayerFeeInSourceFeeToken } = 
+    await tokenGateway.quoteNative(params)
+
+  return {
+    total: formatEther(totalNativeCost),
+    relayerFee: formatEther(relayerFeeInSourceFeeToken),
+    protocolFee: formatEther(totalNativeCost - relayerFeeInSourceFeeToken)
+  }
+}
+```
+
+### Compare Costs Across Routes
+
+Compare fees for different destination chains:
+
+```typescript
+async function compareRoutes(
+  amount: bigint,
+  assetId: string,
+  destinations: EvmChain[]
+) {
+  const sourceChain = new EvmChain({ /* ... */ })
+  
+  const estimates = await Promise.all(
+    destinations.map(async (dest) => {
+      const gateway = new TokenGateway({
+        source: sourceChain,
+        dest
+      })
+      
+      const { totalNativeCost } = await gateway.quoteNative({
+        amount,
+        assetId: keccak256(toHex(assetId)),
+        redeem: true,
+        to: pad("0xRecipient", { size: 32 }),
+        dest: dest.config.stateMachineId,
+        timeout: 3600n,
+        data: "0x"
+      })
+      
+      return {
+        chainId: dest.config.chainId,
+        cost: totalNativeCost
+      }
+    })
+  )
+  
+  // Sort by cost
+  estimates.sort((a, b) => 
+    Number(a.cost - b.cost)
+  )
+  
+  console.log("Cheapest routes:", estimates)
+  return estimates
+}
+```
+
+## Best Practices
+
+### Cache TokenGateway Instances
+
+Create and reuse TokenGateway instances:
+
+```typescript
+// Good: Create once, reuse
+const tokenGateway = new TokenGateway({
+  source: sourceChain,
+  dest: destChain
+})
+
+await tokenGateway.quoteNative(params1)
+await tokenGateway.quoteNative(params2)
+await tokenGateway.getErc20Address(assetId)
+
+// Bad: Creating multiple instances
+const gateway1 = new TokenGateway({ /* ... */ })
+const gateway2 = new TokenGateway({ /* ... */ })
+```
+
+### Handle Estimation Errors
+
+Always handle potential errors during fee estimation:
+
+```typescript
+try {
+  const { totalNativeCost } = await tokenGateway.quoteNative(params)
+  console.log(`Estimated cost: ${totalNativeCost}`)
+} catch (error) {
+  console.error("Fee estimation failed:", error)
+  // Provide fallback or retry logic
+}
+```
+
+### Add Buffer for Price Fluctuations
+
+Consider adding a buffer for gas price fluctuations:
+
+```typescript
+const { totalNativeCost } = await tokenGateway.quoteNative(params)
+
+// Add 5% buffer for safety
+const costWithBuffer = (totalNativeCost * 105n) / 100n
+
+console.log(`Estimated cost: ${totalNativeCost}`)
+console.log(`With buffer: ${costWithBuffer}`)
+```
+
+### Validate Asset IDs
+
+Ensure asset IDs are properly formatted:
+
+```typescript
+import { keccak256, toHex, isHex } from "viem"
+
+function createAssetId(assetName: string): HexString {
+  // Validate input
+  if (!assetName || assetName.length === 0) {
+    throw new Error("Asset name cannot be empty")
+  }
+  
+  // Create asset ID
+  const assetId = keccak256(toHex(assetName))
+  
+  // Validate result
+  if (!isHex(assetId)) {
+    throw new Error("Invalid asset ID generated")
+  }
+  
+  return assetId
+}
+
+const assetId = createAssetId("USDC")
+```
+
+## API Reference
+
+### Methods Summary
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `quoteNative(params)` | `TeleportParams` | `Promise<QuoteNativeResult>` | Estimate native token cost for teleport |
+| `getErc20Address(assetId)` | `HexString` | `Promise<string>` | Get ERC20 contract address |
+| `getErc6160Address(assetId)` | `HexString` | `Promise<string>` | Get ERC6160 contract address |
+| `getInstanceAddress(destination)` | `string` | `Promise<string>` | Get TokenGateway address on destination |
+| `getParams()` | - | `Promise<TokenGatewayParams>` | Get contract parameters |
+
+## Next Steps
+
+- [Track token transfers](/developers/sdk/tracking-requests) - Monitor transfer status
+- [Work with different chains](/developers/sdk/ichain-interface) - Understand chain interactions
+- [Configure properly](/developers/sdk/configuration) - Advanced configuration options

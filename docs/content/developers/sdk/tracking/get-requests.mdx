@@ -1,0 +1,379 @@
+---
+title: Tracking GET Requests
+description: Track GET requests throughout their lifecycle to query data from destination chains back to the source.
+---
+
+# Tracking GET Requests
+
+GET requests are used to query data from a destination chain and return the results back to the source chain. The Hyperbridge SDK provides utilities for tracking GET requests throughout their entire lifecycle.
+
+## Overview
+
+GET request tracking involves:
+
+1. **Calculating commitment hashes** - Unique identifiers for GET requests
+2. **Streaming status updates** - Real-time monitoring of request progress
+3. **Querying current status** - Snapshot of request state at any point
+4. **Handling timeouts** - Detecting when requests exceed their timeout period
+
+## Request Lifecycle
+
+Every GET request goes through these stages:
+
+```
+SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINATION
+```
+
+| Stage | Description |
+|-------|-------------|
+| **SOURCE_FINALIZED** | GET request transaction finalized on source chain |
+| **HYPERBRIDGE_DELIVERED** | Request delivered to Hyperbridge |
+| **HYPERBRIDGE_FINALIZED** | Request finalized on Hyperbridge |
+| **DESTINATION** | Response delivered and executed on source chain - Complete! |
+
+## Calculate Commitment Hash
+
+First, calculate the commitment hash for your GET request:
+
+```typescript
+import { getRequestCommitment } from "@hyperbridge/sdk"
+
+// Your GET request object
+const getRequest = {
+  source: "EVM-97",
+  dest: "EVM-10200",
+  nonce: 1n,
+  from: "0x...",
+  keys: ["0x...", "0x..."],
+  height: 12345n,
+  timeoutTimestamp: 1234567890n,
+  context: "0x"
+}
+
+const commitment = getRequestCommitment(getRequest)
+console.log(`GET Request Commitment: ${commitment}`)
+```
+
+### GET Request Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `string` | Source chain state machine ID (e.g., "EVM-97") |
+| `dest` | `string` | Destination chain state machine ID |
+| `nonce` | `bigint` | Request nonce |
+| `from` | `HexString` | Requester address |
+| `keys` | `HexString[]` | Array of storage keys to query |
+| `height` | `bigint` | Block height to query at |
+| `timeoutTimestamp` | `bigint` | Unix timestamp when request times out |
+| `context` | `HexString` | Optional context data |
+
+## Stream Status Updates
+
+Monitor the GET request status in real-time using `getRequestStatusStream()`:
+
+```typescript
+import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
+
+// Stream status updates
+for await (const status of indexer.getRequestStatusStream(commitment)) {
+  console.log(`[${new Date().toISOString()}]`)
+  console.log(`Status: ${status.status}`)
+  console.log(`Block height: ${status.blockHeight}`)
+  console.log(`Transaction hash: ${status.txHash}`)
+  console.log("---")
+
+  switch (status.status) {
+    case RequestStatus.SOURCE_FINALIZED:
+      console.log("✓ GET request finalized on source chain")
+      break
+    case RequestStatus.HYPERBRIDGE_DELIVERED:
+      console.log("✓ Request delivered to Hyperbridge")
+      break
+    case RequestStatus.HYPERBRIDGE_FINALIZED:
+      console.log("✓ Request finalized on Hyperbridge")
+      break
+    case RequestStatus.DESTINATION:
+      console.log("✓ Response delivered and executed on source - Complete!")
+      break
+    case TimeoutStatus.PENDING_TIMEOUT:
+      console.log("⏳ Request exceeded timeout - switch to timeout tracking")
+      break
+  }
+
+  // Break when the request is fully processed or timed out
+  if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+    break
+  }
+}
+```
+
+### Automatic Timeout Detection
+
+The `getRequestStatusStream()` automatically monitors timeouts. If the request exceeds its timeout period, the stream will yield `TimeoutStatus.PENDING_TIMEOUT`. When this happens, you should switch to using `getRequestTimeoutStream()` to track the timeout processing.
+
+## Query Current Status
+
+Get a snapshot of the current status without streaming:
+
+```typescript
+// Query current status
+const request = await indexer.queryGetRequestWithStatus(commitment)
+
+if (request) {
+  console.log("Current statuses:", request.statuses)
+  console.log("Request data:", request)
+  console.log("Queried keys:", request.keys)
+  console.log("Query height:", request.height)
+  
+  // Check the latest status
+  const latestStatus = request.statuses[request.statuses.length - 1]
+  console.log(`Latest status: ${latestStatus.status}`)
+} else {
+  console.log("GET request not found in indexer")
+}
+```
+
+## Direct Query (Without IndexerClient)
+
+Query GET request status directly without creating an IndexerClient:
+
+```typescript
+import { createQueryClient, queryGetRequest } from "@hyperbridge/sdk"
+
+const queryClient = createQueryClient({
+  url: "https://hyperbridge-indexer-url",
+})
+
+const commitmentHash = "0x..."
+
+const request = await queryGetRequest({ 
+  commitmentHash, 
+  queryClient 
+})
+
+if (request) {
+  console.log("Request statuses:", request.statuses)
+  console.log("Request details:", request)
+  console.log("Storage keys queried:", request.keys)
+}
+```
+
+## Complete Example
+
+Here's a complete example that tracks a GET request from start to finish:
+
+```typescript
+import { 
+  IndexerClient, 
+  createQueryClient, 
+  EvmChain,
+  SubstrateChain,
+  getRequestCommitment,
+  RequestStatus,
+  TimeoutStatus
+} from "@hyperbridge/sdk"
+
+async function trackGetRequest() {
+  // 1. Setup chains and indexer
+  const queryClient = createQueryClient({
+    url: "https://hyperbridge-indexer-url",
+  })
+
+  const sourceChain = new EvmChain({
+    chainId: 97,
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+    host: "0xSourceHostAddress",
+    consensusStateId: "BSC0"
+  })
+
+  const destChain = new EvmChain({
+    chainId: 10200,
+    rpcUrl: "https://rpc.chiadochain.net",
+    host: "0xDestHostAddress",
+    consensusStateId: "GNO0"
+  })
+
+  const hyperbridgeChain = new SubstrateChain({
+    stateMachineId: "KUSAMA-4009",
+    wsUrl: "wss://gargantua.polytope.technology",
+    hasher: "Keccak",
+    consensusStateId: "PAS0"
+  })
+
+  await hyperbridgeChain.connect()
+
+  const indexer = new IndexerClient({
+    queryClient,
+    pollInterval: 1_000, // Poll every second
+    source: sourceChain,
+    dest: destChain,
+    hyperbridge: hyperbridgeChain
+  })
+
+  // 2. Calculate commitment hash
+  const getRequest = {
+    source: "EVM-97",
+    dest: "EVM-10200",
+    nonce: 1n,
+    from: "0xSourceAddress",
+    keys: [
+      "0x1234567890abcdef...",
+      "0xfedcba0987654321..."
+    ],
+    height: 12345n,
+    timeoutTimestamp: BigInt(Date.now() + 3600000), // 1 hour from now
+    context: "0x"
+  }
+
+  const commitment = getRequestCommitment(getRequest)
+  console.log(`Tracking GET request: ${commitment}`)
+  console.log(`Querying ${getRequest.keys.length} storage keys at height ${getRequest.height}`)
+
+  // 3. Track request status
+  for await (const status of indexer.getRequestStatusStream(commitment)) {
+    console.log(`Status: ${status.status} at block ${status.blockHeight}`)
+    
+    if (status.status === RequestStatus.DESTINATION) {
+      console.log("✅ GET request completed - response delivered to source chain!")
+      break
+    }
+    
+    if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+      console.log("⚠️ Request exceeded timeout - switching to timeout tracking")
+      break
+    }
+  }
+}
+
+trackGetRequest()
+```
+
+## Understanding GET Request Flow
+
+GET requests have a unique flow compared to POST requests:
+
+1. **Source → Hyperbridge**: GET request is sent from source chain to Hyperbridge
+2. **Hyperbridge queries destination**: Hyperbridge reads the requested storage keys from the destination chain at the specified height
+3. **Hyperbridge → Source**: The queried data is returned to the source chain as a response
+4. **Source executes callback**: The source chain receives the data and executes the callback function
+
+```typescript
+// Example: Querying token balance from destination chain
+const getRequest = {
+  source: "EVM-97",
+  dest: "EVM-10200",
+  nonce: 1n,
+  from: "0xMyContract",
+  keys: [
+    // Storage key for token balance at specific address
+    "0x..." 
+  ],
+  height: 12345n, // Query at this block height
+  timeoutTimestamp: BigInt(Date.now() + 3600000),
+  context: "0x"
+}
+```
+
+## Request Status Reference
+
+### RequestStatus Enum
+
+| Status | Description |
+|--------|-------------|
+| `SOURCE` | GET request initiated on source chain |
+| `SOURCE_FINALIZED` | Request transaction finalized on source chain |
+| `HYPERBRIDGE_DELIVERED` | Request delivered to Hyperbridge |
+| `HYPERBRIDGE_FINALIZED` | Request finalized on Hyperbridge, data queried |
+| `DESTINATION` | Response delivered and executed on source chain |
+
+### Status Metadata
+
+Each status update includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `RequestStatus` | Current status of the request |
+| `blockHeight` | `bigint` | Block height where status was recorded |
+| `txHash` | `string` | Transaction hash for this status update |
+| `timestamp` | `number` | Unix timestamp of the status update |
+
+## Best Practices
+
+### Always Break Out of Streams
+
+Always break out of async generators when done to avoid infinite polling:
+
+```typescript
+for await (const status of indexer.getRequestStatusStream(commitment)) {
+  // Process status...
+  
+  // IMPORTANT: Break when done or timed out
+  if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+    break
+  }
+}
+```
+
+### Handle Errors Gracefully
+
+Implement proper error handling for network issues:
+
+```typescript
+try {
+  for await (const status of indexer.getRequestStatusStream(commitment)) {
+    console.log(`Status: ${status.status}`)
+    
+    if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+      break
+    }
+  }
+} catch (error) {
+  console.error("Error tracking GET request:", error)
+  // Implement retry logic or fallback behavior
+}
+```
+
+### Validate Storage Keys
+
+Ensure storage keys are properly formatted:
+
+```typescript
+import { keccak256, toHex } from "viem"
+
+// Generate proper storage key
+const storageKey = keccak256(toHex("some_storage_slot"))
+
+const getRequest = {
+  // ...
+  keys: [storageKey], // Properly formatted storage key
+  // ...
+}
+```
+
+### Track Multiple GET Requests
+
+Track multiple GET requests concurrently:
+
+```typescript
+async function trackMultipleGetRequests(commitments: string[]) {
+  const promises = commitments.map(async (commitment) => {
+    for await (const status of indexer.getRequestStatusStream(commitment)) {
+      console.log(`[${commitment}] Status: ${status.status}`)
+      
+      if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
+        break
+      }
+    }
+  })
+
+  await Promise.all(promises)
+  console.log("✅ All GET requests tracked!")
+}
+```
+
+## Next Steps
+
+- [Track POST requests](/developers/sdk/tracking-post-requests) - Send messages to destination chains
+- [Handle timeouts](/developers/sdk/tracking-timeouts) - Monitor and process timed-out requests
+- [Explore IndexerClient](/developers/sdk/indexer-client) - Deep dive into querying capabilities
+- [Work with IChain interface](/developers/sdk/ichain-interface) - Query state proofs and chain data

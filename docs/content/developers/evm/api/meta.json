@@ -1,0 +1,14 @@
+{
+    "title": "API Reference",
+    "pages": [
+        "overview",
+        "ihost",
+        "idispatcher",
+        "ihandler",
+        "iconsensus",
+        "iapp",
+        "hyperapp",
+        "statemachine"
+    ],
+    "defaultOpen": false
+}

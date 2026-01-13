@@ -1,108 +1,110 @@
 import { toHex } from "viem"
 import type { ChainConfig, HexString } from "@/types"
-import {
-	addresses,
-	assets,
-	chainIds,
-	consensusStateIds,
-	coingeckoIds,
-	Chains,
-	WrappedNativeDecimals,
-	createRpcUrls,
-} from "@/configs/chain"
+import { chainConfigs, getConfigByStateMachineId, Chains } from "@/configs/chain"
 
 export class ChainConfigService {
-	private rpcUrls: Record<Chains, string>
+	private rpcUrls: Record<string, string> = {}
 
 	constructor(env: NodeJS.ProcessEnv = process.env) {
-		this.rpcUrls = createRpcUrls(env)
-	}
-
-	getChainConfig(chain: string): ChainConfig {
-		return {
-			chainId: chainIds[chain as keyof typeof chainIds],
-			rpcUrl: this.rpcUrls[chain as Chains],
-			intentGatewayAddress: this.getIntentGatewayAddress(chain),
+		for (const config of Object.values(chainConfigs)) {
+			if (config.rpcEnvKey) {
+				this.rpcUrls[config.stateMachineId] = env[config.rpcEnvKey] || config.defaultRpcUrl || ""
+			}
 		}
 	}
 
-	getIntentGatewayAddress(chain: string): `0x${string}` {
-		return addresses.IntentGateway[chain as keyof typeof addresses.IntentGateway]! as `0x${string}`
+	private getConfig(chain: string) {
+		return getConfigByStateMachineId(chain as Chains)
 	}
 
-	getTokenGatewayAddress(chain: string): `0x${string}` {
-		return addresses.TokenGateway[chain as keyof typeof addresses.TokenGateway]! as `0x${string}`
+	getChainConfig(chain: string): ChainConfig {
+		const config = this.getConfig(chain)
+		return {
+			chainId: config?.chainId ?? 0,
+			rpcUrl: this.rpcUrls[chain] ?? "",
+			intentGatewayAddress: config?.addresses.IntentGateway ?? ("0x" as `0x${string}`),
+		}
 	}
 
-	getHostAddress(chain: string): `0x${string}` {
-		return addresses.Host[chain as keyof typeof addresses.Host]! as `0x${string}`
+	getIntentGatewayAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.IntentGateway ?? "0x") as HexString
+	}
+
+	getTokenGatewayAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.TokenGateway ?? "0x") as HexString
+	}
+
+	getHostAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.Host ?? "0x") as HexString
 	}
 
 	getWrappedNativeAssetWithDecimals(chain: string): { asset: HexString; decimals: number } {
+		const config = this.getConfig(chain)
 		return {
-			asset: assets[chain as keyof typeof assets].WETH as HexString,
-			decimals: WrappedNativeDecimals[chain as keyof typeof WrappedNativeDecimals],
+			asset: (config?.assets?.WETH ?? "0x") as HexString,
+			decimals: config?.wrappedNativeDecimals ?? 18,
 		}
 	}
 
 	getDaiAsset(chain: string): HexString {
-		return assets[chain as keyof typeof assets].DAI as HexString
+		return (this.getConfig(chain)?.assets?.DAI ?? "0x") as HexString
 	}
 
 	getUsdtAsset(chain: string): HexString {
-		return assets[chain as keyof typeof assets].USDT as HexString
+		return (this.getConfig(chain)?.assets?.USDT ?? "0x") as HexString
 	}
 
 	getUsdcAsset(chain: string): HexString {
-		return assets[chain as keyof typeof assets].USDC as HexString
+		return (this.getConfig(chain)?.assets?.USDC ?? "0x") as HexString
 	}
 
 	getChainId(chain: string): number {
-		return chainIds[chain as keyof typeof chainIds]
+		return this.getConfig(chain)?.chainId ?? 0
 	}
 
 	getConsensusStateId(chain: string): HexString {
-		return toHex(consensusStateIds[chain as keyof typeof consensusStateIds])
+		const id = this.getConfig(chain)?.consensusStateId
+		return id ? toHex(id) : ("0x" as HexString)
 	}
 
 	getHyperbridgeChainId(): number {
-		return chainIds[Chains.HYPERBRIDGE_GARGANTUA]
+		return chainConfigs[4009]?.chainId ?? 4009
 	}
 
 	getRpcUrl(chain: string): string {
-		return this.rpcUrls[chain as Chains]
+		return this.rpcUrls[chain] ?? ""
 	}
 
 	getUniswapRouterV2Address(chain: string): HexString {
-		return addresses.UniswapRouter02[chain as keyof typeof addresses.UniswapRouter02]! as HexString
+		return (this.getConfig(chain)?.addresses.UniswapRouter02 ?? "0x") as HexString
 	}
 
 	getUniswapV2FactoryAddress(chain: string): HexString {
-		return addresses.UniswapV2Factory[chain as keyof typeof addresses.UniswapV2Factory]! as HexString
+		return (this.getConfig(chain)?.addresses.UniswapV2Factory ?? "0x") as HexString
 	}
 
 	getUniswapV3FactoryAddress(chain: string): HexString {
-		return addresses.UniswapV3Factory[chain as keyof typeof addresses.UniswapV3Factory]! as HexString
+		return (this.getConfig(chain)?.addresses.UniswapV3Factory ?? "0x") as HexString
 	}
 
 	getUniversalRouterAddress(chain: string): HexString {
-		return addresses.UniversalRouter[chain as keyof typeof addresses.UniversalRouter]! as HexString
+		return (this.getConfig(chain)?.addresses.UniversalRouter ?? "0x") as HexString
 	}
 
 	getUniswapV3QuoterAddress(chain: string): HexString {
-		return addresses.UniswapV3Quoter[chain as keyof typeof addresses.UniswapV3Quoter]! as HexString
+		return (this.getConfig(chain)?.addresses.UniswapV3Quoter ?? "0x") as HexString
 	}
 
 	getUniswapV4QuoterAddress(chain: string): HexString {
-		return addresses.UniswapV4Quoter[chain as keyof typeof addresses.UniswapV4Quoter]! as HexString
+		return (this.getConfig(chain)?.addresses.UniswapV4Quoter ?? "0x") as HexString
 	}
 
 	getPermit2Address(chain: string): HexString {
-		return addresses.Permit2[chain as keyof typeof addresses.Permit2]! as HexString
+		return (this.getConfig(chain)?.addresses.Permit2 ?? "0x") as HexString
 	}
 
 	getCoingeckoId(chain: string): string | undefined {
-		return coingeckoIds[chain as keyof typeof coingeckoIds]
+		return this.getConfig(chain)?.coingeckoId
 	}
 
 	getEtherscanApiKey(): string | undefined {
@@ -110,6 +112,30 @@ export class ChainConfigService {
 	}
 
 	getCalldispatcherAddress(chain: string): HexString {
-		return addresses.Calldispatcher[chain as keyof typeof addresses.Calldispatcher]! as HexString
+		return (this.getConfig(chain)?.addresses.Calldispatcher ?? "0x") as HexString
+	}
+
+	getTokenStorageSlots(
+		chain: string,
+		tokenAddress: string,
+	): { balanceSlot: number; allowanceSlot: number } | undefined {
+		const config = this.getConfig(chain)
+		if (!config?.tokenStorageSlots || !config?.assets) return undefined
+
+		const normalized = tokenAddress.toLowerCase()
+		for (const [symbol, address] of Object.entries(config.assets)) {
+			if (address.toLowerCase() === normalized) {
+				return config.tokenStorageSlots[symbol as keyof typeof config.tokenStorageSlots]
+			}
+		}
+		return undefined
+	}
+
+	getPopularTokens(chain: string): string[] {
+		return this.getConfig(chain)?.popularTokens ?? []
+	}
+
+	getIntentGatewayV2Address(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.IntentGatewayV2 ?? "0x") as HexString
 	}
 }

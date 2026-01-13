@@ -1,6 +1,6 @@
 import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
-import type { ContractFunctionArgs, Hex, Log } from "viem"
+import type { ContractFunctionArgs, Hex, Log, PublicClient } from "viem"
 import type HandlerV1 from "@/abis/handler"
 import type { IChain } from "@/chain"
 
@@ -1195,4 +1195,95 @@ export interface StorageFacade {
 	get<T>(key: string): Promise<T | undefined>
 	set<T>(key: string, value: T): Promise<void>
 	delete(key: string): Promise<void>
+}
+
+// =============================================================================
+// IntentGatewayV2 Types
+// =============================================================================
+
+export interface TokenInfoV2 {
+	token: HexString
+	amount: bigint
+}
+
+export interface PaymentInfoV2 {
+	beneficiary: HexString
+	assets: TokenInfoV2[]
+	call: HexString
+}
+
+export interface DispatchInfoV2 {
+	assets: TokenInfoV2[]
+	call: HexString
+}
+
+export interface OrderV2 {
+	id?: string
+	user: HexString
+	source: HexString
+	destination: HexString
+	deadline: bigint
+	nonce: bigint
+	fees: bigint
+	session: HexString
+	predispatch: DispatchInfoV2
+	inputs: TokenInfoV2[]
+	output: PaymentInfoV2
+}
+
+export interface FillOptionsV2 {
+	relayerFee: bigint
+	nativeDispatchFee: bigint
+	outputs: TokenInfoV2[]
+}
+
+// =============================================================================
+// ERC-4337 Types (v0.7 PackedUserOperation)
+// =============================================================================
+
+export interface PackedUserOperation {
+	sender: HexString
+	nonce: bigint
+	initCode: HexString
+	callData: HexString
+	accountGasLimits: HexString
+	preVerificationGas: bigint
+	gasFees: HexString
+	paymasterAndData: HexString
+	signature: HexString
+}
+
+export interface SubmitBidOptions {
+	order: OrderV2
+	fillOptions: FillOptionsV2
+	solverAccount: HexString
+	solverPrivateKey: HexString
+	nonce: bigint
+	entryPointAddress: HexString
+	// Estimated gas for executing fillOrder calldata
+	callGasLimit: bigint
+	// Estimated gas for validateUserOp
+	verificationGasLimit: bigint
+	// Overhead gas for bundler
+	preVerificationGas: bigint
+	// Max gas price willing to pay
+	maxFeePerGas: bigint
+	// Priority fee (tip)
+	maxPriorityFeePerGas: bigint
+}
+
+export interface EstimateFillOrderV2Params {
+	order: OrderV2
+	fillOptions: FillOptionsV2
+	solverAccountAddress: HexString
+}
+
+export interface FillOrderEstimateV2 {
+	callGasLimit: bigint
+	verificationGasLimit: bigint
+	preVerificationGas: bigint
+	maxFeePerGas: bigint
+	maxPriorityFeePerGas: bigint
+	totalGasCostWei: bigint
+	totalGasInFeeToken: bigint
 }

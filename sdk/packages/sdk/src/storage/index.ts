@@ -1,5 +1,5 @@
 import { createStorage } from "unstorage"
-// @ts-expect-error failed to resolve types
+// @ts-ignore - unstorage types don't resolve due to package.json exports
 import inMemoryDriver from "unstorage/drivers/memory"
 import { loadDriver } from "@/storage/load-driver"
 import { bytesToHex, hexToBytes } from "viem"
@@ -12,7 +12,7 @@ import {
 } from "@/chains/substrate"
 import type { IGetRequest, HexString } from "@/types"
 import type { IProof } from "@/chain"
-import type { CancellationStorageOptions, StorageDriverKey } from "@/storage/types"
+import type { CancellationStorageOptions, SessionKeyStorageOptions, StorageDriverKey } from "@/storage/types"
 
 /**
  * Encode IGetRequest to hex string using scale codec
@@ -111,4 +111,111 @@ export const STORAGE_KEYS = Object.freeze({
 	destProof: (orderId: string) => `cancel-order:${orderId}:destProof`,
 	getRequest: (orderId: string) => `cancel-order:${orderId}:getRequest`,
 	sourceProof: (orderId: string) => `cancel-order:${orderId}:sourceProof`,
+})
+
+/**
+ * Session key data stored for each order
+ */
+export interface SessionKeyData {
+	/**
+	 * The private key as a hex string
+	 */
+	privateKey: HexString
+
+	/**
+	 * The derived public address
+	 */
+	address: HexString
+
+	/**
+	 * The order commitment this session key is associated with
+	 */
+	commitment: HexString
+
+	/**
+	 * Timestamp when the session key was created
+	 */
+	createdAt: number
+}
+
+/**
+ * Creates a session key storage instance for IntentGatewayV2 orders.
+ * The storage is used to persist session key private keys so they can be
+ * used later to sign solver selection messages.
+ *
+ * @param options - Optional configuration for the storage driver
+ * @returns A storage instance with methods to get, set, and remove session keys
+ */
+export function createSessionKeyStorage(options: SessionKeyStorageOptions = {}) {
+	const key = options.env ?? detectEnvironment()
+	const driver = loadDriver({ key, options }) ?? inMemoryDriver()
+	const baseStorage = createStorage({ driver })
+
+	const SESSION_KEY_PREFIX = "session-key:"
+
+	/**
+	 * Gets a session key by order commitment
+	 */
+	const getSessionKey = async (commitment: HexString): Promise<SessionKeyData | null> => {
+		const storageKey = `${SESSION_KEY_PREFIX}${commitment}`
+		const value = await baseStorage.getItem<string>(storageKey)
+		if (!value) return null
+
+		try {
+			return JSON.parse(value) as SessionKeyData
+		} catch {
+			return null
+		}
+	}
+
+	/**
+	 * Stores a session key for an order commitment
+	 */
+	const setSessionKey = async (commitment: HexString, data: SessionKeyData): Promise<void> => {
+		const storageKey = `${SESSION_KEY_PREFIX}${commitment}`
+		await baseStorage.setItem(storageKey, JSON.stringify(data))
+	}
+
+	/**
+	 * Removes a session key by order commitment
+	 */
+	const removeSessionKey = async (commitment: HexString): Promise<void> => {
+		const storageKey = `${SESSION_KEY_PREFIX}${commitment}`
+		await baseStorage.removeItem(storageKey)
+	}
+
+	/**
+	 * Lists all stored session keys
+	 */
+	const listSessionKeys = async (): Promise<SessionKeyData[]> => {
+		const keys = await baseStorage.getKeys(SESSION_KEY_PREFIX)
+		const sessionKeys: SessionKeyData[] = []
+
+		for (const key of keys) {
+			const value = await baseStorage.getItem<string>(key)
+			if (value) {
+				try {
+					sessionKeys.push(JSON.parse(value) as SessionKeyData)
+				} catch {
+					// Skip invalid entries
+				}
+			}
+		}
+
+		return sessionKeys
+	}
+
+	return Object.freeze({
+		getSessionKey,
+		setSessionKey,
+		removeSessionKey,
+		listSessionKeys,
+	})
+}
+
+/**
+ * Storage keys for session key storage
+ */
+export const SESSION_KEY_STORAGE_KEYS = Object.freeze({
+	sessionKey: (commitment: string) => `session-key:${commitment}`,
 })

@@ -14,37 +14,28 @@ import {
 	decodeFunctionResult,
 	decodeFunctionData,
 	parseUnits,
-	erc20Abi,
 	encodeAbiParameters,
+	Chain,
 } from "viem"
-import { bsc, bscTestnet, mainnet, polygon, sepolia } from "viem/chains"
-import {
-	ChainConfig,
-	FillerConfig,
-	type HexString,
-	IGetRequest,
-	IHyperbridgeConfig,
-	Order,
-	TokenInfo,
-	PaymentInfo,
-	RequestStatus,
-} from "@/types"
+import { arbitrum, base, bsc, bscTestnet, mainnet, polygon, sepolia } from "viem/chains"
+import { ChainConfig, type HexString, Order, TokenInfo, PaymentInfo } from "@/types"
 import {
 	orderCommitment,
-	hexToString,
 	bytes20ToBytes32,
-	bytes32ToBytes20,
 	DEFAULT_GRAFFITI,
 	getStorageSlot,
 	ADDRESS_ZERO,
 	ERC20Method,
-	getGasPriceFromEtherscan,
-	getRequestCommitment,
+	MOCK_ADDRESS,
+	EvmLanguage,
+	calculateBalanceMappingLocation,
+	calculateAllowanceMappingLocation,
 } from "@/utils"
 import EVM_HOST from "@/abis/evmHost"
 import { EvmChain, EvmChainParams, IProof, SubstrateChain, getChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents"
 import { ChainConfigService } from "@/configs/ChainConfigService"
+import { chainConfigs } from "@/configs/chain"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import IntentGatewayABI from "@/abis/IntentGateway"
 import erc6160 from "@/abis/erc6160"
@@ -285,6 +276,10 @@ describe.sequential("Intents protocol tests", () => {
 
 describe.sequential("Swap Tests", () => {
 	const mainnetId = "EVM-1"
+	const bscMainnetId = "EVM-56"
+	const polygonMainnetId = "EVM-137"
+	const arbitrumMainnetId = "EVM-42161"
+	const baseMainnetId = "EVM-8453"
 
 	let intentGateway: IntentGateway
 	let chainConfigService: ChainConfigService
@@ -1283,6 +1278,141 @@ describe.sequential("Swap Tests", () => {
 		console.log("Native token amount:", nativeTokenAmount)
 
 		assert(estimatedFee > 0n)
+	}, 1_000_000)
+
+	it.skip("Get the base balance and allowance slot of USDT, USDC, WETH for the defined chains using reverse engineering", async () => {
+		// Functions to find the base slot for balance mapping
+		function findBaseBalanceSlot(fullSlotHex: HexString, holderAddress: string, language: EvmLanguage): bigint {
+			// Try different slot numbers until we find a match
+			for (let slot = 0n; slot < 2000n; slot++) {
+				const calculated = calculateBalanceMappingLocation(slot, holderAddress, language)
+				if (calculated.toLowerCase() === fullSlotHex.toLowerCase()) {
+					return slot
+				}
+			}
+
+			// Try Vyper if Solidity didn't work
+			if (language === EvmLanguage.Solidity) {
+				return findBaseBalanceSlot(fullSlotHex, holderAddress, EvmLanguage.Vyper)
+			}
+
+			throw new Error("Could not find base balance slot")
+		}
+
+		// Function to find the base slot for allowance mapping
+		function findBaseAllowanceSlot(
+			fullSlotHex: HexString,
+			ownerAddress: string,
+			spenderAddress: string,
+			language: EvmLanguage,
+		): bigint {
+			// Try different slot numbers until we find a match
+			for (let slot = 0n; slot < 2000n; slot++) {
+				const calculated = calculateAllowanceMappingLocation(slot, ownerAddress, spenderAddress, language)
+				if (calculated.toLowerCase() === fullSlotHex.toLowerCase()) {
+					return slot
+				}
+			}
+
+			// Try Vyper if Solidity didn't work
+			if (language === EvmLanguage.Solidity) {
+				return findBaseAllowanceSlot(fullSlotHex, ownerAddress, spenderAddress, EvmLanguage.Vyper)
+			}
+
+			throw new Error("Could not find base allowance slot")
+		}
+
+		const supportedChains: [string, string, Chain][] = [
+			[mainnetId, process.env.ETH_MAINNET!, mainnet],
+			[bscMainnetId, process.env.BSC_MAINNET!, bsc],
+			[polygonMainnetId, process.env.POLYGON_MAINNET!, polygon],
+			[arbitrumMainnetId, process.env.ARBITRUM_MAINNET!, arbitrum],
+			[baseMainnetId, process.env.BASE_MAINNET!, base],
+		]
+
+		console.log("\n=== TOKEN STORAGE SLOTS BY CHAIN ===\n")
+
+		for (const [chainId, rpcUrl, viemConfig] of supportedChains) {
+			console.log(`\n📍 Chain: ${viemConfig.name} (${chainId})`)
+			console.log("─".repeat(80))
+
+			const supportedAssets = [
+				{ name: "USDT", address: chainConfigService.getUsdtAsset(chainId) },
+				{ name: "USDC", address: chainConfigService.getUsdcAsset(chainId) },
+				{ name: "WETH", address: chainConfigService.getWrappedNativeAssetWithDecimals(chainId).asset },
+			]
+
+			const client = createPublicClient({
+				chain: viemConfig,
+				transport: http(rpcUrl),
+			})
+
+			const intentGatewayAddress = chainConfigService.getIntentGatewayAddress(chainId)
+
+			for (const { name, address } of supportedAssets) {
+				try {
+					console.log(`\n  Token: ${name} (${address})`)
+
+					// Get balance storage slot
+					const balanceSlotHex = (await getStorageSlot(
+						client as any,
+						address,
+						(ERC20Method.BALANCE_OF + bytes20ToBytes32(MOCK_ADDRESS).slice(2)) as HexString,
+					)) as HexString
+
+					// Find base balance slot
+					let baseBalanceSlot: bigint
+					let balanceLanguage: EvmLanguage
+					try {
+						baseBalanceSlot = findBaseBalanceSlot(balanceSlotHex, MOCK_ADDRESS, EvmLanguage.Solidity)
+						balanceLanguage = EvmLanguage.Solidity
+					} catch {
+						baseBalanceSlot = findBaseBalanceSlot(balanceSlotHex, MOCK_ADDRESS, EvmLanguage.Vyper)
+						balanceLanguage = EvmLanguage.Vyper
+					}
+
+					console.log(`    ✓ Balance Slot: ${baseBalanceSlot} (${balanceLanguage})`)
+					console.log(`      Full Slot Hex: ${balanceSlotHex}`)
+
+					// Get allowance storage slot
+					const allowanceSlotHex = (await getStorageSlot(
+						client as any,
+						address,
+						(ERC20Method.ALLOWANCE +
+							bytes20ToBytes32(MOCK_ADDRESS).slice(2) +
+							bytes20ToBytes32(intentGatewayAddress).slice(2)) as HexString,
+					)) as HexString
+
+					// Find base allowance slot
+					let baseAllowanceSlot: bigint
+					let allowanceLanguage: EvmLanguage
+					try {
+						baseAllowanceSlot = findBaseAllowanceSlot(
+							allowanceSlotHex,
+							MOCK_ADDRESS,
+							intentGatewayAddress,
+							EvmLanguage.Solidity,
+						)
+						allowanceLanguage = EvmLanguage.Solidity
+					} catch {
+						baseAllowanceSlot = findBaseAllowanceSlot(
+							allowanceSlotHex,
+							MOCK_ADDRESS,
+							intentGatewayAddress,
+							EvmLanguage.Vyper,
+						)
+						allowanceLanguage = EvmLanguage.Vyper
+					}
+
+					console.log(`    ✓ Allowance Slot: ${baseAllowanceSlot} (${allowanceLanguage})`)
+					console.log(`      Full Slot Hex: ${allowanceSlotHex}`)
+				} catch (error) {
+					console.log(`    ❌ Error: ${error instanceof Error ? error.message : String(error)}`)
+				}
+			}
+		}
+
+		console.log("\n" + "=".repeat(80) + "\n")
 	}, 1_000_000)
 })
 

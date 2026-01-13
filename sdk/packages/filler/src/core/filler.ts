@@ -1,4 +1,4 @@
-import { chainIds, retryPromise } from "@hyperbridge/sdk"
+import { getChainId, retryPromise } from "@hyperbridge/sdk"
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
 import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "@hyperbridge/sdk"
@@ -7,8 +7,6 @@ import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { CacheService } from "@/services/CacheService"
 import { getLogger } from "@/services/Logger"
-
-import { PublicClient } from "viem"
 import { generatePrivateKey } from "viem/accounts"
 
 export class IntentFiller {
@@ -98,7 +96,7 @@ export class IntentFiller {
 					},
 				)
 				const requiredConfirmations = this.config.confirmationPolicy.getConfirmationBlocks(
-					chainIds[order.sourceChain as keyof typeof chainIds],
+					getChainId(order.sourceChain)!,
 					orderValue.inputUsdValue.toNumber(),
 				)
 				this.logger.info(
@@ -154,7 +152,7 @@ export class IntentFiller {
 				}
 
 				// Get the chain-specific queue
-				const chainQueue = this.chainQueues.get(chainIds[order.destChain as keyof typeof chainIds]!)
+				const chainQueue = this.chainQueues.get(getChainId(order.destChain)!)
 				if (!chainQueue) {
 					this.logger.error({ chain: order.destChain }, "No queue configured for chain")
 					return

@@ -15,7 +15,6 @@ import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import universalRouter from "@/abis/universalRouter"
 import { UniversalRouterCommands } from "@/utils"
 import { PERMIT2_ABI } from "@/abis/permit2"
-import { popularTokens } from "@/configs/chain"
 
 const COMMON_FEE_TIERS = [100, 500, 2500, 3000, 10000]
 
@@ -1440,7 +1439,7 @@ export class Swap {
 		evmChainID: string,
 		protocol?: "v2" | "v3",
 	): Promise<{ pairAddress: HexString; intermediateToken: HexString }> {
-		const chainPopularTokens = popularTokens[evmChainID as keyof typeof popularTokens]
+		const chainPopularTokens = this.chainConfigService.getPopularTokens(evmChainID)
 
 		if (chainPopularTokens.length === 0) {
 			throw new Error(`No suitable intermediate tokens found for chain ${evmChainID}`)

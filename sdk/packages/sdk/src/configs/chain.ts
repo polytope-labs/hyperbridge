@@ -13,308 +13,392 @@ export enum Chains {
 	UNICHAIN_MAINNET = "EVM-130",
 }
 
-type AddressMap = {
-	[key: string]: {
-		[K in Chains]?: `0x${string}`
+export interface ChainConfigData {
+	chainId: number
+	stateMachineId: Chains
+	viemChain?: Chain
+	wrappedNativeDecimals?: number
+	assets?: {
+		WETH: string
+		DAI: string
+		USDC: string
+		USDT: string
 	}
+	tokenStorageSlots?: {
+		USDT?: { balanceSlot: number; allowanceSlot: number }
+		USDC?: { balanceSlot: number; allowanceSlot: number }
+		WETH?: { balanceSlot: number; allowanceSlot: number }
+		DAI?: { balanceSlot: number; allowanceSlot: number }
+	}
+	addresses: {
+		IntentGateway?: `0x${string}`
+		IntentGatewayV2?: `0x${string}`
+		TokenGateway?: `0x${string}`
+		Host?: `0x${string}`
+		UniswapRouter02?: `0x${string}`
+		UniswapV2Factory?: `0x${string}`
+		UniswapV3Factory?: `0x${string}`
+		UniversalRouter?: `0x${string}`
+		UniswapV3Quoter?: `0x${string}`
+		UniswapV4Quoter?: `0x${string}`
+		Calldispatcher?: `0x${string}`
+		Permit2?: `0x${string}`
+	}
+	rpcEnvKey?: string
+	defaultRpcUrl?: string
+	consensusStateId: string
+	coingeckoId: string
+	popularTokens?: string[]
 }
 
-type RpcMap = Record<Chains, string>
-
-export const chainIds = {
-	[Chains.BSC_CHAPEL]: 97,
-	[Chains.GNOSIS_CHIADO]: 10200,
-	[Chains.HYPERBRIDGE_GARGANTUA]: 4009,
-	[Chains.SEPOLIA]: 11155111,
-	[Chains.MAINNET]: 1,
-	[Chains.BSC_MAINNET]: 56,
-	[Chains.ARBITRUM_MAINNET]: 42161,
-	[Chains.BASE_MAINNET]: 8453,
-	[Chains.POLYGON_MAINNET]: 137,
-	[Chains.UNICHAIN_MAINNET]: 130,
-} as const
-
-export type ChainId = typeof chainIds
-
-export const viemChains: Record<string, Chain> = {
-	"97": bscTestnet,
-	"10200": gnosisChiado,
-	"11155111": sepolia,
-	"1": mainnet,
-	"56": bsc,
-	"42161": arbitrum,
-	"8453": base,
-	"137": polygon,
-	"130": unichain,
+// All chain configuration in one place - add new chains here
+export const chainConfigs: Record<number, ChainConfigData> = {
+	97: {
+		chainId: 97,
+		stateMachineId: Chains.BSC_CHAPEL,
+		viemChain: bscTestnet,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0xae13d989dac2f0debff460ac112a837c89baa7cd",
+			DAI: "0x1938165569a5463327fb206be06d8d9253aa06b7",
+			USDC: "0xc625ec7d30a4b1aaefb1304610cdacd0d606ac92",
+			USDT: "0xc043f483373072f7f27420d6e7d7ad269c018e18",
+		},
+		addresses: {
+			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
+			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			Host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
+			UniswapRouter02: "0x9639379819420704457B07A0C33B678D9E0F8Df0",
+			UniswapV2Factory: "0x12e036669DA18F4A2777853d6e2136b32AceEC86",
+			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
+			UniversalRouter: "0xcc6d5ece3d4a57245bf5a2f64f3ed9179b81f714",
+			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
+			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
+		},
+		rpcEnvKey: "BSC_CHAPEL",
+		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
+		consensusStateId: "BSC0",
+		coingeckoId: "binance-smart-chain",
+		popularTokens: [
+			"0xae13d989dac2f0debff460ac112a837c89baa7cd",
+			"0xC625ec7D30A4b1AAEfb1304610CdAcD0d606aC92",
+			"0xc043f483373072f7f27420d6e7d7ad269c018e18",
+			"0x1938165569A5463327fb206bE06d8D9253aa06b7",
+		],
+	},
+	10200: {
+		chainId: 10200,
+		stateMachineId: Chains.GNOSIS_CHIADO,
+		viemChain: gnosisChiado,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x0000000000000000000000000000000000000000",
+			USDC: "0x50b1d3c7c073c9caa1ef207365a2c9c976bd70b9",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		addresses: {
+			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
+			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			Host: "0x58a41b89f4871725e5d898d98ef4bf917601c5eb",
+			UniswapRouter02: "0x0000000000000000000000000000000000000000",
+			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
+			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
+		},
+		rpcEnvKey: "GNOSIS_CHIADO",
+		defaultRpcUrl: "https://gnosis-chiado-rpc.publicnode.com",
+		consensusStateId: "GNO0",
+		coingeckoId: "gnosis",
+		popularTokens: ["0x50B1d3c7c073c9caa1Ef207365A2c9C976bD70b9"],
+	},
+	4009: {
+		chainId: 4009,
+		stateMachineId: Chains.HYPERBRIDGE_GARGANTUA,
+		addresses: {},
+		rpcEnvKey: "HYPERBRIDGE_GARGANTUA",
+		defaultRpcUrl: "",
+		consensusStateId: "PAS0",
+		coingeckoId: "hyperbridge",
+	},
+	11155111: {
+		chainId: 11155111,
+		stateMachineId: Chains.SEPOLIA,
+		viemChain: sepolia,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x7b79995e5f793a07bc00c21412e50ecae098e7f9",
+			USDC: "0x0000000000000000000000000000000000000000",
+			USDT: "0x0000000000000000000000000000000000000000",
+			DAI: "0x0000000000000000000000000000000000000000",
+		},
+		addresses: {
+			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
+			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			Host: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
+			UniswapRouter02: "0x0000000000000000000000000000000000000000",
+			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
+			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
+			Calldispatcher: "0xC7f13b6D03A0A7F3239d38897503E90553ABe155",
+		},
+		rpcEnvKey: "SEPOLIA",
+		defaultRpcUrl: "https://1rpc.io/sepolia",
+		consensusStateId: "ETH0",
+		coingeckoId: "ethereum",
+		popularTokens: ["0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"],
+	},
+	1: {
+		chainId: 1,
+		stateMachineId: Chains.MAINNET,
+		viemChain: mainnet,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+			DAI: "0x6b175474e89094c44da98b954eedeac495271d0f",
+			USDC: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+			USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+		},
+		tokenStorageSlots: {
+			USDT: { balanceSlot: 2, allowanceSlot: 5 },
+			USDC: { balanceSlot: 9, allowanceSlot: 10 },
+			WETH: { balanceSlot: 3, allowanceSlot: 4 },
+			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+		},
+		addresses: {
+			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
+			Host: "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20",
+			UniswapRouter02: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+			UniswapV2Factory: "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",
+			UniswapV3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+			UniversalRouter: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+			UniswapV3Quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+			UniswapV4Quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
+			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		},
+		rpcEnvKey: "ETH_MAINNET",
+		defaultRpcUrl: "https://eth-mainnet.g.alchemy.com/v2/demo",
+		consensusStateId: "ETH0",
+		coingeckoId: "ethereum",
+		popularTokens: [
+			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+			"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+			"0xdAC17F958D2ee523a2206206994597C13D831ec7",
+			"0x6B175474E89094C44Da98b954EedeAC495271d0F",
+		],
+	},
+	56: {
+		chainId: 56,
+		stateMachineId: Chains.BSC_MAINNET,
+		viemChain: bsc,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
+			DAI: "0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3",
+			USDC: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+			USDT: "0x55d398326f99059ff775485246999027b3197955",
+		},
+		tokenStorageSlots: {
+			USDT: { balanceSlot: 1, allowanceSlot: 2 },
+			USDC: { balanceSlot: 1, allowanceSlot: 2 },
+			WETH: { balanceSlot: 3, allowanceSlot: 4 },
+			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+		},
+		addresses: {
+			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
+			Host: "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
+			UniswapRouter02: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+			UniswapV2Factory: "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73",
+			UniswapV3Factory: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
+			UniversalRouter: "0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB",
+			UniswapV3Quoter: "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997",
+			UniswapV4Quoter: "0xd0737C9762912dD34c3271197E362Aa736Df0926",
+			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		},
+		rpcEnvKey: "BSC_MAINNET",
+		defaultRpcUrl: "https://binance.llamarpc.com",
+		consensusStateId: "BSC0",
+		coingeckoId: "binance-smart-chain",
+		popularTokens: [
+			"0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",
+			"0x000Ae314E2A2172a039B26378814C252734f556A",
+			"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d",
+			"0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+			"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+			"0x55d398326f99059fF775485246999027B3197955",
+			"0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
+		],
+	},
+	42161: {
+		chainId: 42161,
+		stateMachineId: Chains.ARBITRUM_MAINNET,
+		viemChain: arbitrum,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+			DAI: "0xda10009cbd5d07dd0cecc66161fc93d7c9000da1",
+			USDC: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+			USDT: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
+		},
+		tokenStorageSlots: {
+			USDT: { balanceSlot: 51, allowanceSlot: 52 },
+			USDC: { balanceSlot: 9, allowanceSlot: 10 },
+			WETH: { balanceSlot: 51, allowanceSlot: 52 },
+			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+		},
+		addresses: {
+			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
+			Host: "0xE05AFD4Eb2ce6d65c40e1048381BD0Ef8b4B299e",
+			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+			UniswapV2Factory: "0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9",
+			UniswapV3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+			UniversalRouter: "0xa51afafe0263b40edaef0df8781ea9aa03e381a3",
+			UniswapV3Quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+			UniswapV4Quoter: "0x3972c00f7ed4885e145823eb7c655375d275a1c5",
+			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		},
+		rpcEnvKey: "ARBITRUM_MAINNET",
+		defaultRpcUrl: "https://arbitrum-one.public.blastapi.io",
+		consensusStateId: "ETH0",
+		coingeckoId: "arbitrum-one",
+		popularTokens: [
+			"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+			"0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+			"0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+			"0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+		],
+	},
+	8453: {
+		chainId: 8453,
+		stateMachineId: Chains.BASE_MAINNET,
+		viemChain: base,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x4200000000000000000000000000000000000006",
+			DAI: "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",
+			USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+			USDT: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+		},
+		tokenStorageSlots: {
+			USDT: { balanceSlot: 0, allowanceSlot: 1 },
+			USDC: { balanceSlot: 9, allowanceSlot: 10 },
+			WETH: { balanceSlot: 3, allowanceSlot: 4 },
+			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+		},
+		addresses: {
+			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
+			Host: "0x6FFe92e4d7a9D589549644544780e6725E84b248",
+			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+			UniswapV2Factory: "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6",
+			UniswapV3Factory: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
+			UniversalRouter: "0x6ff5693b99212da76ad316178a184ab56d299b43",
+			UniswapV3Quoter: "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
+			UniswapV4Quoter: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
+			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		},
+		rpcEnvKey: "BASE_MAINNET",
+		defaultRpcUrl: "https://base-mainnet.public.blastapi.io",
+		consensusStateId: "ETH0",
+		coingeckoId: "base",
+		popularTokens: [
+			"0x4200000000000000000000000000000000000006",
+			"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			"0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
+			"0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
+		],
+	},
+	137: {
+		chainId: 137,
+		stateMachineId: Chains.POLYGON_MAINNET,
+		viemChain: polygon,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270",
+			DAI: "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
+			USDC: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+			USDT: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+		},
+		tokenStorageSlots: {
+			USDT: { balanceSlot: 0, allowanceSlot: 1 },
+			USDC: { balanceSlot: 9, allowanceSlot: 10 },
+			WETH: { balanceSlot: 3, allowanceSlot: 4 },
+			DAI: { balanceSlot: 0, allowanceSlot: 0 },
+		},
+		addresses: {
+			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
+			Host: "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a",
+			UniswapRouter02: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
+			UniswapV2Factory: "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32",
+			UniswapV3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+			UniversalRouter: "0x1095692a6237d83c6a72f3f5efedb9a670c49223",
+			UniswapV3Quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+			UniswapV4Quoter: "0xb3d5c3dfc3a7aebff71895a7191796bffc2c81b9",
+			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		},
+		rpcEnvKey: "POLYGON_MAINNET",
+		defaultRpcUrl: "https://polygon-bor-rpc.publicnode.com",
+		consensusStateId: "POLY",
+		coingeckoId: "polygon-pos",
+		popularTokens: [
+			"0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+			"0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+			"0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+			"0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
+		],
+	},
+	130: {
+		chainId: 130,
+		stateMachineId: Chains.UNICHAIN_MAINNET,
+		viemChain: unichain,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x4200000000000000000000000000000000000006",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0x078d782b760474a361dda0af3839290b0ef57ad6",
+			USDT: "0x9151434b16b9763660705744891fa906f660ecc5",
+		},
+		addresses: {
+			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
+			Host: "0x2A17C1c3616Bbc33FCe5aF5B965F166ba76cEDAf",
+			UniswapRouter02: "0x284f11109359a7e1306c3e447ef14d38400063ff",
+			UniswapV2Factory: "0x1F98400000000000000000000000000000000002",
+			UniswapV3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+			UniversalRouter: "0xef740bf23acae26f6492b10de645d6b98dc8eaf3",
+			UniswapV3Quoter: "0x385a5cf5f83e99f7bb2852b6a19c3538b9fa7658",
+			UniswapV4Quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
+			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+		},
+		rpcEnvKey: "UNICHAIN_MAINNET",
+		defaultRpcUrl: "https://unichain.api.onfinality.io/public",
+		consensusStateId: "ETH0",
+		coingeckoId: "ethereum",
+		popularTokens: [
+			"0x4200000000000000000000000000000000000006",
+			"0x078d782b760474a361dda0af3839290b0ef57ad6",
+			"0x9151434b16b9763660705744891fa906f660ecc5",
+			"0x0000000000000000000000000000000000000000",
+		],
+	},
 }
 
-export const WrappedNativeDecimals = {
-	[Chains.BSC_CHAPEL]: 18,
-	[Chains.GNOSIS_CHIADO]: 18,
-	[Chains.SEPOLIA]: 18,
-	[Chains.MAINNET]: 18,
-	[Chains.BSC_MAINNET]: 18,
-	[Chains.ARBITRUM_MAINNET]: 18,
-	[Chains.BASE_MAINNET]: 18,
-	[Chains.POLYGON_MAINNET]: 18,
-	[Chains.UNICHAIN_MAINNET]: 18,
-}
+// Lookup by state machine ID
+const configsByStateMachineId = Object.fromEntries(
+	Object.values(chainConfigs).map((c) => [c.stateMachineId, c]),
+) as Record<Chains, ChainConfigData>
 
-export const assets = {
-	[Chains.BSC_CHAPEL]: {
-		WETH: "0xae13d989dac2f0debff460ac112a837c89baa7cd".toLowerCase(),
-		DAI: "0x1938165569A5463327fb206bE06d8D9253aa06b7".toLowerCase(),
-		USDC: "0xC625ec7D30A4b1AAEfb1304610CdAcD0d606aC92".toLowerCase(),
-		USDT: "0xc043f483373072f7f27420d6e7d7ad269c018e18".toLowerCase(),
-	},
-	[Chains.GNOSIS_CHIADO]: {
-		WETH: "0x0000000000000000000000000000000000000000".toLowerCase(),
-		USDC: "0x50B1d3c7c073c9caa1Ef207365A2c9C976bD70b9".toLowerCase(),
-		DAI: "0x0000000000000000000000000000000000000000".toLowerCase(),
-		USDT: "0x0000000000000000000000000000000000000000".toLowerCase(),
-	},
-	[Chains.SEPOLIA]: {
-		WETH: "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9".toLowerCase(),
-		USDC: "0x0000000000000000000000000000000000000000".toLowerCase(),
-		USDT: "0x0000000000000000000000000000000000000000".toLowerCase(),
-		DAI: "0x0000000000000000000000000000000000000000".toLowerCase(),
-	},
-	[Chains.MAINNET]: {
-		WETH: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".toLowerCase(),
-		DAI: "0x6B175474E89094C44Da98b954EedeAC495271d0F".toLowerCase(),
-		USDC: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48".toLowerCase(),
-		USDT: "0xdAC17F958D2ee523a2206206994597C13D831ec7".toLowerCase(),
-	},
-	[Chains.BSC_MAINNET]: {
-		WETH: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".toLowerCase(),
-		DAI: "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3".toLowerCase(),
-		USDC: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d".toLowerCase(),
-		USDT: "0x55d398326f99059fF775485246999027B3197955".toLowerCase(),
-	},
-	[Chains.ARBITRUM_MAINNET]: {
-		WETH: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1".toLowerCase(),
-		DAI: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1".toLowerCase(),
-		USDC: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831".toLowerCase(),
-		USDT: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9".toLowerCase(),
-	},
-	[Chains.BASE_MAINNET]: {
-		WETH: "0x4200000000000000000000000000000000000006".toLowerCase(),
-		DAI: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb".toLowerCase(),
-		USDC: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".toLowerCase(),
-		USDT: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2".toLowerCase(),
-	},
-	[Chains.POLYGON_MAINNET]: {
-		WETH: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270".toLowerCase(),
-		DAI: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063".toLowerCase(),
-		USDC: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359".toLowerCase(),
-		USDT: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F".toLowerCase(),
-	},
-	[Chains.UNICHAIN_MAINNET]: {
-		WETH: "0x4200000000000000000000000000000000000006".toLowerCase(),
-		DAI: "0x0000000000000000000000000000000000000000".toLowerCase(),
-		USDC: "0x078d782b760474a361dda0af3839290b0ef57ad6".toLowerCase(),
-		USDT: "0x9151434b16b9763660705744891fa906f660ecc5".toLowerCase(),
-	},
-}
+export const getConfigByStateMachineId = (id: Chains): ChainConfigData | undefined => configsByStateMachineId[id]
 
-export const addresses: AddressMap = {
-	IntentGateway: {
-		[Chains.BSC_CHAPEL]: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
-		[Chains.GNOSIS_CHIADO]: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
-		[Chains.SEPOLIA]: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
-		[Chains.MAINNET]: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-		[Chains.BSC_MAINNET]: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-		[Chains.ARBITRUM_MAINNET]: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-		[Chains.BASE_MAINNET]: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-		[Chains.POLYGON_MAINNET]: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-		[Chains.UNICHAIN_MAINNET]: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
-	},
-	TokenGateway: {
-		[Chains.BSC_CHAPEL]: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-		[Chains.GNOSIS_CHIADO]: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-		[Chains.SEPOLIA]: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
-		[Chains.MAINNET]: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
-		[Chains.BSC_MAINNET]: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
-		[Chains.ARBITRUM_MAINNET]: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
-		[Chains.BASE_MAINNET]: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
-		[Chains.POLYGON_MAINNET]: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
-		[Chains.UNICHAIN_MAINNET]: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
-	},
-	Host: {
-		[Chains.BSC_CHAPEL]: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
-		[Chains.GNOSIS_CHIADO]: "0x58a41b89f4871725e5d898d98ef4bf917601c5eb",
-		[Chains.SEPOLIA]: "0x2EdB74C269948b60ec1000040E104cef0eABaae8",
-		[Chains.MAINNET]: "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20",
-		[Chains.BSC_MAINNET]: "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
-		[Chains.ARBITRUM_MAINNET]: "0xE05AFD4Eb2ce6d65c40e1048381BD0Ef8b4B299e",
-		[Chains.BASE_MAINNET]: "0x6FFe92e4d7a9D589549644544780e6725E84b248",
-		[Chains.POLYGON_MAINNET]: "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a",
-		[Chains.UNICHAIN_MAINNET]: "0x2A17C1c3616Bbc33FCe5aF5B965F166ba76cEDAf",
-	},
-	UniswapRouter02: {
-		[Chains.BSC_CHAPEL]: "0x9639379819420704457B07A0C33B678D9E0F8Df0",
-		[Chains.GNOSIS_CHIADO]: "0x0000000000000000000000000000000000000000",
-		[Chains.SEPOLIA]: "0x0000000000000000000000000000000000000000",
-		[Chains.MAINNET]: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-		[Chains.BSC_MAINNET]: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
-		[Chains.ARBITRUM_MAINNET]: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
-		[Chains.BASE_MAINNET]: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
-		[Chains.POLYGON_MAINNET]: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
-		[Chains.UNICHAIN_MAINNET]: "0x284f11109359a7e1306c3e447ef14d38400063ff",
-	},
-	UniswapV2Factory: {
-		[Chains.BSC_CHAPEL]: "0x12e036669DA18F4A2777853d6e2136b32AceEC86",
-		[Chains.GNOSIS_CHIADO]: "0x0000000000000000000000000000000000000000",
-		[Chains.SEPOLIA]: "0x0000000000000000000000000000000000000000",
-		[Chains.MAINNET]: "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",
-		[Chains.BSC_MAINNET]: "0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73",
-		[Chains.ARBITRUM_MAINNET]: "0xf1D7CC64Fb4452F05c498126312eBE29f30Fbcf9",
-		[Chains.BASE_MAINNET]: "0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6",
-		[Chains.POLYGON_MAINNET]: "0x5757371414417b8C6CAad45bAeF941aBc7d3Ab32",
-		[Chains.UNICHAIN_MAINNET]: "0x1F98400000000000000000000000000000000002",
-	},
-	UniswapV3Factory: {
-		[Chains.BSC_CHAPEL]: "0x0000000000000000000000000000000000000000",
-		[Chains.GNOSIS_CHIADO]: "0x0000000000000000000000000000000000000000",
-		[Chains.SEPOLIA]: "0x0000000000000000000000000000000000000000",
-		[Chains.MAINNET]: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-		[Chains.BSC_MAINNET]: "0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865",
-		[Chains.ARBITRUM_MAINNET]: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-		[Chains.BASE_MAINNET]: "0x33128a8fC17869897dcE68Ed026d694621f6FDfD",
-		[Chains.POLYGON_MAINNET]: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-		[Chains.UNICHAIN_MAINNET]: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-	},
-	UniversalRouter: {
-		[Chains.BSC_CHAPEL]: "0xcc6d5ece3d4a57245bf5a2f64f3ed9179b81f714",
-		[Chains.MAINNET]: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
-		[Chains.BSC_MAINNET]: "0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB",
-		[Chains.ARBITRUM_MAINNET]: "0xa51afafe0263b40edaef0df8781ea9aa03e381a3",
-		[Chains.BASE_MAINNET]: "0x6ff5693b99212da76ad316178a184ab56d299b43",
-		[Chains.POLYGON_MAINNET]: "0x1095692a6237d83c6a72f3f5efedb9a670c49223",
-		[Chains.UNICHAIN_MAINNET]: "0xef740bf23acae26f6492b10de645d6b98dc8eaf3",
-	},
-	UniswapV3Quoter: {
-		[Chains.BSC_CHAPEL]: "0x0000000000000000000000000000000000000000",
-		[Chains.MAINNET]: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
-		[Chains.BSC_MAINNET]: "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997",
-		[Chains.ARBITRUM_MAINNET]: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
-		[Chains.BASE_MAINNET]: "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
-		[Chains.POLYGON_MAINNET]: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
-		[Chains.UNICHAIN_MAINNET]: "0x385a5cf5f83e99f7bb2852b6a19c3538b9fa7658",
-	},
-	UniswapV4Quoter: {
-		[Chains.BSC_CHAPEL]: "0x0000000000000000000000000000000000000000",
-		[Chains.MAINNET]: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
-		[Chains.BSC_MAINNET]: "0xd0737C9762912dD34c3271197E362Aa736Df0926",
-		[Chains.ARBITRUM_MAINNET]: "0x3972c00f7ed4885e145823eb7c655375d275a1c5",
-		[Chains.BASE_MAINNET]: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
-		[Chains.POLYGON_MAINNET]: "0xb3d5c3dfc3a7aebff71895a7191796bffc2c81b9",
-		[Chains.UNICHAIN_MAINNET]: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
-	},
-	Calldispatcher: {
-		[Chains.SEPOLIA]: "0xC7f13b6D03A0A7F3239d38897503E90553ABe155",
-		[Chains.MAINNET]: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
-		[Chains.BSC_MAINNET]: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
-		[Chains.ARBITRUM_MAINNET]: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
-		[Chains.BASE_MAINNET]: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
-		[Chains.POLYGON_MAINNET]: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
-		[Chains.UNICHAIN_MAINNET]: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
-	},
-	Permit2: {
-		[Chains.MAINNET]: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-		[Chains.BSC_MAINNET]: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-		[Chains.ARBITRUM_MAINNET]: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-		[Chains.BASE_MAINNET]: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-		[Chains.POLYGON_MAINNET]: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-		[Chains.UNICHAIN_MAINNET]: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-	},
-}
+export const getChainId = (stateMachineId: string): number | undefined =>
+	configsByStateMachineId[stateMachineId as Chains]?.chainId
 
-export const createRpcUrls = (env: NodeJS.ProcessEnv): RpcMap => ({
-	[Chains.BSC_CHAPEL]: env.BSC_CHAPEL || "https://bnb-testnet.api.onfinality.io/public",
-	[Chains.GNOSIS_CHIADO]: env.GNOSIS_CHIADO || "https://gnosis-chiado-rpc.publicnode.com",
-	[Chains.HYPERBRIDGE_GARGANTUA]: env.HYPERBRIDGE_GARGANTUA || "",
-	[Chains.SEPOLIA]: env.SEPOLIA || "https://1rpc.io/sepolia",
-	[Chains.MAINNET]: env.ETH_MAINNET || "https://eth-mainnet.g.alchemy.com/v2/demo",
-	[Chains.BSC_MAINNET]: env.BSC_MAINNET || "https://binance.llamarpc.com",
-	[Chains.ARBITRUM_MAINNET]: env.ARBITRUM_MAINNET || "https://arbitrum-one.public.blastapi.io",
-	[Chains.BASE_MAINNET]: env.BASE_MAINNET || "https://base-mainnet.public.blastapi.io",
-	[Chains.POLYGON_MAINNET]: env.POLYGON_MAINNET || "https://polygon-bor-rpc.publicnode.com",
-	[Chains.UNICHAIN_MAINNET]: env.UNICHAIN_MAINNET || "https://unichain.api.onfinality.io/public",
-})
-
-export const consensusStateIds = {
-	[Chains.BSC_CHAPEL]: "BSC0",
-	[Chains.GNOSIS_CHIADO]: "GNO0",
-	[Chains.HYPERBRIDGE_GARGANTUA]: "PAS0",
-	[Chains.SEPOLIA]: "ETH0",
-	[Chains.MAINNET]: "ETH0",
-	[Chains.BSC_MAINNET]: "BSC0",
-	[Chains.ARBITRUM_MAINNET]: "ETH0",
-	[Chains.BASE_MAINNET]: "ETH0",
-	[Chains.POLYGON_MAINNET]: "POLY",
-	[Chains.UNICHAIN_MAINNET]: "ETH0",
-}
-
-export const coingeckoIds = {
-	[Chains.BSC_CHAPEL]: "binance-smart-chain",
-	[Chains.GNOSIS_CHIADO]: "gnosis",
-	[Chains.HYPERBRIDGE_GARGANTUA]: "hyperbridge",
-	[Chains.SEPOLIA]: "ethereum",
-	[Chains.MAINNET]: "ethereum",
-	[Chains.BSC_MAINNET]: "binance-smart-chain",
-	[Chains.ARBITRUM_MAINNET]: "arbitrum-one",
-	[Chains.BASE_MAINNET]: "base",
-	[Chains.POLYGON_MAINNET]: "polygon-pos",
-	[Chains.UNICHAIN_MAINNET]: "ethereum",
-}
-
-export const popularTokens = {
-	[Chains.BSC_CHAPEL]: [
-		"0xae13d989dac2f0debff460ac112a837c89baa7cd",
-		"0xC625ec7D30A4b1AAEfb1304610CdAcD0d606aC92",
-		"0xc043f483373072f7f27420d6e7d7ad269c018e18",
-		"0x1938165569A5463327fb206bE06d8D9253aa06b7",
-	],
-	[Chains.GNOSIS_CHIADO]: ["0x50B1d3c7c073c9caa1Ef207365A2c9C976bD70b9"],
-	[Chains.SEPOLIA]: ["0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"],
-	[Chains.MAINNET]: [
-		"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-		"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-		"0xdAC17F958D2ee523a2206206994597C13D831ec7",
-		"0x6B175474E89094C44Da98b954EedeAC495271d0F",
-	],
-	[Chains.BSC_MAINNET]: [
-		"0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82",
-		"0x000Ae314E2A2172a039B26378814C252734f556A",
-		"0x8d0d000ee44948fc98c9b98a4fa4921476f08b0d",
-		"0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
-		"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
-		"0x55d398326f99059fF775485246999027B3197955",
-		"0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",
-	],
-	[Chains.ARBITRUM_MAINNET]: [
-		"0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
-		"0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
-		"0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
-		"0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
-	],
-	[Chains.BASE_MAINNET]: [
-		"0x4200000000000000000000000000000000000006",
-		"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-		"0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2",
-		"0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb",
-	],
-	[Chains.POLYGON_MAINNET]: [
-		"0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
-		"0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
-		"0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
-		"0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063",
-	],
-	[Chains.UNICHAIN_MAINNET]: [
-		"0x4200000000000000000000000000000000000006",
-		"0x078d782b760474a361dda0af3839290b0ef57ad6",
-		"0x9151434b16b9763660705744891fa906f660ecc5",
-		"0x0000000000000000000000000000000000000000",
-	],
-}
+export const getViemChain = (chainId: number): Chain | undefined => chainConfigs[chainId]?.viemChain

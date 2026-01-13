@@ -7,4 +7,9 @@ export interface CancellationStorageOptions {
 	basePath?: string
 }
 
+export interface SessionKeyStorageOptions {
+	env?: StorageDriverKey
+	basePath?: string
+}
+
 export type LoadDriver = ({ key }: { key: StorageDriverKey; options?: CancellationStorageOptions }) => Driver | null

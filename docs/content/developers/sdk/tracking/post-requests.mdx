@@ -1,20 +1,11 @@
 ---
-title: Tracking POST Requests
+title: POST Requests
 description: Track POST requests throughout their lifecycle across source, Hyperbridge, and destination chains.
 ---
 
 # Tracking POST Requests
 
-POST requests are used to send messages and data from a source chain to a destination chain. The Hyperbridge SDK provides utilities for tracking POST requests throughout their entire lifecycle.
-
-## Overview
-
-POST request tracking involves:
-
-1. **Calculating commitment hashes** - Unique identifiers for POST requests
-2. **Streaming status updates** - Real-time monitoring of request progress
-3. **Querying current status** - Snapshot of request state at any point
-4. **Handling timeouts** - Detecting when requests exceed their timeout period
+The Hyperbridge SDK provides tracking utilities to monitor your cross-chain messages as they move from the source chain, through Hyperbridge and finally to the destination chain. You'll use these tools when you need visibility into message delivery status, want to trigger actions at specific stages of the journey, self-relay cross-chain requests, or need to detect and handle timeout scenarios. The SDK offers both real-time streaming and point-in-time querying to fit different application needs.
 
 ## Request Lifecycle
 
@@ -26,9 +17,9 @@ SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINA
 
 | Stage | Description |
 |-------|-------------|
-| **SOURCE_FINALIZED** | Request transaction finalized on source chain |
-| **HYPERBRIDGE_DELIVERED** | Request delivered to Hyperbridge |
-| **HYPERBRIDGE_FINALIZED** | Request finalized on Hyperbridge (includes calldata for destination) |
+| **SOURCE_FINALIZED** | Finality proofs of the transaction have been verified by hyperbridge |
+| **HYPERBRIDGE_DELIVERED** | Request has been verified and delivered to Hyperbridge |
+| **HYPERBRIDGE_FINALIZED** | Hyperbridge has finalized the block where the request was delivered (this status includes calldata for destination) |
 | **DESTINATION** | Request delivered and executed on destination chain - Complete! |
 
 ## Calculate Commitment Hash
@@ -65,9 +56,9 @@ console.log(`Commitment: ${commitment}`)
 | `timeoutTimestamp` | `bigint` | Unix timestamp when request times out |
 | `body` | `HexString` | Request payload data |
 
-## Stream Status Updates
+## Status Updates
 
-Monitor the POST request status in real-time using `postRequestStatusStream()`:
+Now you are ready to monitor the POST request status in real-time using `postRequestStatusStream()`. This method returns an [async generator](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function*) that polls the indexer at your configured interval and yields status objects containing the current stage, block information, transaction hashes, and metadata. The stream automatically detects timeout scenarios and continues until the request reaches its destination or exceeds its timeout period. Remember to break out of the loop when tracking is complete.
 
 ```typescript
 import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
@@ -110,11 +101,20 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
 }
 ```
 
-### Using Calldata from HYPERBRIDGE_FINALIZED
+### Self Relaying Requests
 
 When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes a `calldata` field containing the encoded transaction data for `IHandler.handlePostRequests()`. This calldata contains the cryptographic proofs needed to deliver the request to the destination chain.
 
-```typescript
+
+**Note:** While the calldata is provided for transparency and advanced use cases, relayers will handle submitting proofs to the destination chain automatically only if a relayer fee was specified when dispatching the POST request. If no relayer fee was provided, you'll need to manually submit this calldata yourself or implement custom relaying logic.
+
+If you need to manually submit the calldata (for self-relaying or custom relayer implementations), here's how to do it:
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { decodeFunctionData, createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { ABI as HandlerABI } from "@hyperbridge/sdk/abis/handler"
+
 for await (const status of indexer.postRequestStatusStream(commitment)) {
   if (status.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
     // Extract the calldata for destination chain submission
@@ -124,26 +124,6 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
     console.log(`Calldata for destination: ${calldata}`)
     console.log(`Hyperbridge TX: ${transactionHash}`)
     
-    // This calldata can be submitted to the destination chain's IHandler contract
-    // to deliver the request. Typically, relayers handle this automatically.
-  }
-}
-```
-
-**Note:** While the calldata is provided for transparency and advanced use cases, relayers typically handle submitting proofs to the destination chain automatically. You generally don't need to manually submit this calldata unless you're implementing custom relaying logic.
-
-### Submitting Calldata to Destination Chain
-
-If you need to manually submit the calldata (for self-relaying or custom relayer implementations), here's how to do it:
-
-```typescript
-import { decodeFunctionData, createWalletClient, http } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
-import HandlerABI from "@hyperbridge/sdk/abis/handler"
-
-// Inside your status stream when HYPERBRIDGE_FINALIZED is received
-for await (const status of indexer.postRequestStatusStream(commitment)) {
-  if (status.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
     // 1. Decode the calldata to extract function arguments
     const { args, functionName } = decodeFunctionData({
       abi: HandlerABI.ABI,
@@ -161,7 +141,17 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
     })
     
     // 3. Get the Handler contract instance
-    const handlerAddress = "0xDestinationHandlerAddress"
+    // Use the Host contract to retrieve Handler address,
+    // it is not recommended to hardcode the address
+    // because it can be changed by hyperbridge governance
+    const destHost = getContract({
+      address: destHostAddress,
+      abi: EvmHostABI.ABI,
+      client: sourcePublicClient,
+    })
+    const hostParams = await destHost.read.hostParams()
+    const handlerAddress = hostParams.handler
+
     
     try {
       // 4. Submit the transaction to the destination chain's Handler
@@ -185,26 +175,25 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
       console.error("Error submitting calldata:", error)
     }
     
+    // don't forget to terminate the stream
     break
   }
 }
 ```
 
-**Key Points:**
-- The calldata decodes to `handlePostRequests(address host, PostRequestMessage memory message)`
-- You need write access to the destination chain (wallet with gas tokens)
-- The Handler contract address can be found in the destination chain's Host contract
-- Transaction will fail if the proof is invalid or request was already delivered
+The calldata decodes to [`IHandler.handlePostRequests(address, PostRequestMessage)`](/developers/evm/api/ihandler#handlepostrequests) on the destination chain's Handler contract. You'll need gas tokens on the destination chain to submit the transaction. Host contract addresses for each supported network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages. The transaction will fail if the cryptographic proof is invalid or if the request was already delivered.
 
-### Automatic Timeout Detection
+### Timeout Detection
 
-The `postRequestStatusStream()` automatically monitors timeouts. If the request exceeds its timeout period, the stream will yield `TimeoutStatus.PENDING_TIMEOUT`. When this happens, you should switch to using `postRequestTimeoutStream()` to track the timeout processing.
+The `postRequestStatusStream()` stream automatically monitors timeouts by comparing the current timestamp against the request's `timeoutTimestamp`. If the request exceeds its timeout period, the stream yields `TimeoutStatus.PENDING_TIMEOUT`. 
 
-## Query Current Status
+At this point, Switch to [`postRequestTimeoutStream()`](/developers/sdk/api/indexer-client#postrequesttimeoutstreamhash) to track this timeout processing through its stages. See the [timeout tracking guide](/developers/sdk/tracking/timeouts) for complete examples and best practices.
+
+### Query Current Status
 
 Get a snapshot of the current status without streaming:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 // Query current status
 const request = await indexer.queryRequestWithStatus(commitment)
 
@@ -220,11 +209,11 @@ if (request) {
 }
 ```
 
-## Direct Query (Without IndexerClient)
+### Direct Query (Without IndexerClient)
 
 Query POST request status directly without creating an IndexerClient:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { createQueryClient, queryPostRequest } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
@@ -242,91 +231,6 @@ if (request) {
   console.log("Request statuses:", request.statuses)
   console.log("Request details:", request.request)
 }
-```
-
-## Complete Example
-
-Here's a complete example that tracks a POST request from start to finish:
-
-```typescript
-import { 
-  IndexerClient, 
-  createQueryClient, 
-  EvmChain,
-  SubstrateChain,
-  postRequestCommitment,
-  RequestStatus,
-  TimeoutStatus
-} from "@hyperbridge/sdk"
-
-async function trackPostRequest() {
-  // 1. Setup chains and indexer
-  const queryClient = createQueryClient({
-    url: "https://hyperbridge-indexer-url",
-  })
-
-  const sourceChain = new EvmChain({
-    chainId: 97,
-    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-    host: "0xSourceHostAddress",
-    consensusStateId: "BSC0"
-  })
-
-  const destChain = new EvmChain({
-    chainId: 10200,
-    rpcUrl: "https://rpc.chiadochain.net",
-    host: "0xDestHostAddress",
-    consensusStateId: "GNO0"
-  })
-
-  const hyperbridgeChain = new SubstrateChain({
-    stateMachineId: "KUSAMA-4009",
-    wsUrl: "wss://gargantua.polytope.technology",
-    hasher: "Keccak",
-    consensusStateId: "PAS0"
-  })
-
-  await hyperbridgeChain.connect()
-
-  const indexer = new IndexerClient({
-    queryClient,
-    pollInterval: 1_000, // Poll every second
-    source: sourceChain,
-    dest: destChain,
-    hyperbridge: hyperbridgeChain
-  })
-
-  // 2. Calculate commitment hash
-  const request = {
-    source: "EVM-97",
-    dest: "EVM-10200",
-    nonce: 1n,
-    from: "0xSourceAddress",
-    to: "0xDestAddress",
-    timeoutTimestamp: BigInt(Date.now() + 3600000), // 1 hour from now
-    body: "0x1234..."
-  }
-
-  const commitment = postRequestCommitment(request)
-  console.log(`Tracking POST request: ${commitment}`)
-
-  // 3. Track request status
-  for await (const status of indexer.postRequestStatusStream(commitment)) {
-    console.log(`Status: ${status.status} at block ${status.blockHeight}`)
-    
-    if (status.status === RequestStatus.DESTINATION) {
-      console.log("✅ Request completed successfully!")
-      break
-    }
-    
-    if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
-      console.log("⚠️ Request exceeded timeout - switching to timeout tracking")
-      break
-    }
-  }
-}
-
-trackPostRequest()
 ```
 
 ## Request Status Reference
@@ -360,7 +264,7 @@ Each status update includes:
 
 Always break out of async generators when done to avoid infinite polling:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 for await (const status of indexer.postRequestStatusStream(commitment)) {
   // Process status...
   
@@ -375,7 +279,7 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
 
 Implement proper error handling for network issues:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 try {
   for await (const status of indexer.postRequestStatusStream(commitment)) {
     console.log(`Status: ${status.status}`)
@@ -390,47 +294,4 @@ try {
 }
 ```
 
-### Track Multiple Requests
-
-Track multiple POST requests concurrently:
-
-```typescript
-async function trackMultipleRequests(commitments: string[]) {
-  const promises = commitments.map(async (commitment) => {
-    for await (const status of indexer.postRequestStatusStream(commitment)) {
-      console.log(`[${commitment}] Status: ${status.status}`)
-      
-      if (status.status === RequestStatus.DESTINATION || status.status === TimeoutStatus.PENDING_TIMEOUT) {
-        break
-      }
-    }
-  })
-
-  await Promise.all(promises)
-  console.log("✅ All requests tracked!")
-}
-```
-
-### Use Appropriate Poll Intervals
-
-Balance between real-time updates and API load:
-
-```typescript
-// Real-time tracking (high API load)
-const indexer = new IndexerClient({
-  pollInterval: 1_000, // 1 second
-  // ...
-})
-
-// Moderate tracking (balanced)
-const indexer = new IndexerClient({
-  pollInterval: 5_000, // 5 seconds
-  // ...
-})
-```
-
-## Next Steps
-
-- [Track GET requests](/developers/sdk/tracking-get-requests) - Query data from destination chains
-- [Handle timeouts](/developers/sdk/tracking-timeouts) - Monitor and process timed-out requests
-- [Explore IndexerClient](/developers/sdk/indexer-client) - Deep dive into querying capabilities
+---

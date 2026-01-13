@@ -11,11 +11,18 @@ export function baseOptions(): BaseLayoutProps {
             title: (
                 <div className="px-2">
                     <Image
-                        src={"/logo.svg"}
+                        src={"/logo_black.svg"}
                         alt="Hyperbridge Logo"
                         width={149}
                         height={32}
-                        className="min-h-8"
+                        className="min-h-8 dark:hidden"
+                    />
+                    <Image
+                        src={"/logo_white.svg"}
+                        alt="Hyperbridge Logo"
+                        width={149}
+                        height={32}
+                        className="min-h-8 hidden dark:block"
                     />
                     <span className="sr-only">Hyperbridge Docs</span>
                 </div>

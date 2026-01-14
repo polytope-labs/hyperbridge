@@ -90,9 +90,8 @@ impl ValidatorSet {
 	/// Check if participating stake meets the 2/3 + 1 threshold
 	pub fn has_supermajority(&self, participants: &[BlsPublicKey]) -> bool {
 		let participating = self.participating_stake(participants);
-		// Check: participating_stake > (2 * total_stake) / 3
-		// Rearranged to avoid overflow: participating_stake * 3 > 2 * total_stake
-		participating.saturating_mul(U256::from(3)) > self.total_stake.saturating_mul(U256::from(2))
+		let required = (self.total_stake * 2 / 3) + 1;
+		participating >= required
 	}
 }
 

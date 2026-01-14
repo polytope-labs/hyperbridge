@@ -89,10 +89,10 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	)?;
 
 	// Extract pool IDs from the proven values
-	let pool_ids_start = 3; // After epoch, totalStake, array length
+	let pool_set_start = 3; // After epoch, totalStake, array length
 	let mut pool_ids = Vec::new();
 	for i in 0..validator_count as usize {
-		let pool_id = global_values[pool_ids_start + i]
+		let pool_id = global_values[pool_set_start + i]
 			.as_ref()
 			.map(|v| {
 				let mut bytes = [0u8; 32];
@@ -177,10 +177,10 @@ fn get_values_from_proof<H: Keccak256 + Send + Sync>(
 /// ## Pharos Storage Layout
 ///
 /// The contract at `0x4100000000000000000000000000000000000000` uses:
+/// - Slot 0: validators mapping (mapping(bytes32 => Validator))
 /// - Slot 5: currentEpoch (uint256)
 /// - Slot 6: totalStake (uint256)
-/// - Slot 1: activePoolIds array (length at slot, elements at keccak256(slot))
-/// - Slot 0: validators mapping (mapping(bytes32 => Validator))
+/// - Slot 22: activePoolSets (EnumerableSet._values array)
 fn decode_validator_set_from_storage<H: Keccak256>(
 	slots: &[H256],
 	values: &[Option<DBValue>],
@@ -189,7 +189,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 		return Err(Error::SlotValueLengthMismatch { slots: slots.len(), values: values.len() });
 	}
 
-	// We need 3 slots at minimum. currentEpoch, totalStake, activePoolIds length (3 slots)
+	// We need 3 slots at minimum: currentEpoch, totalStake, activePoolSets length
 	if values.len() < 3 {
 		return Err(Error::InsufficientStorageValues { expected: 3, got: values.len() });
 	}
@@ -209,7 +209,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 		.transpose()?
 		.unwrap_or_default();
 
-	// Index 2: activePoolIds array length
+	// Index 2: activePoolSets array length (slot 22)
 	let validator_count = values[2]
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
@@ -219,10 +219,9 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	let count = validator_count.low_u64() as usize;
 	let epoch_num = epoch.low_u64();
 
-	// Each validator needs: poolId (1) + validator data (4) = 5 slots
-	// But the proof structure may vary based on what's included
-	let pool_ids_start = 3;
-	let pool_ids_end = pool_ids_start + count;
+	// Pool IDs start at index 3 (after currentEpoch, totalStake, array length)
+	let pool_set_start = 3;
+	let pool_ids_end = pool_set_start + count;
 
 	if values.len() < pool_ids_end {
 		return Err(Error::InsufficientPoolIds {
@@ -235,8 +234,12 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	let mut validator_set = ValidatorSet::new(epoch_num);
 	validator_set.total_stake = total_stake;
 
-	// Slots per validator in the detailed proof
-	const VALIDATOR_FIELDS: usize = 4; // blsPublicKey slot, totalStake, owner, poolId
+	// Slots per validator in the detailed proof:
+	// - 1 BLS string slot (header)
+	// - 3 BLS data slots (for long string)
+	// - 1 totalStake
+	// - 1 owner
+	const VALIDATOR_FIELDS: usize = 6;
 
 	let validators_data_start = pool_ids_end;
 	let expected_total = validators_data_start + (count * VALIDATOR_FIELDS);
@@ -244,8 +247,8 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	// If we have detailed validator data
 	if values.len() >= expected_total {
 		for i in 0..count {
-			// Pool ID from activePoolIds array
-			let pool_id = values[pool_ids_start + i]
+			// Pool ID from activePoolSets array
+			let pool_id = values[pool_set_start + i]
 				.as_ref()
 				.map(|v| {
 					let mut bytes = [0u8; 32];
@@ -258,20 +261,20 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 
 			let base_idx = validators_data_start + (i * VALIDATOR_FIELDS);
 
-			// BLS public key is stored as a string in Solidity
-			// The slot contains either the string data (if short) or a pointer
-			// For now, we expect the proof to include the decoded BLS key bytes
-			let bls_key = decode_bls_key_from_string_slot(&values[base_idx])?;
+			// BLS public key: string slot at base_idx, data slots at base_idx+1..base_idx+4
+			let bls_string_slot = &values[base_idx];
+			let bls_data_slots = &values[base_idx + 1..base_idx + 4];
+			let bls_key = decode_bls_key_from_string_slot(bls_string_slot, Some(bls_data_slots))?;
 
-			// totalStake
-			let stake = values[base_idx + 1]
+			// totalStake at base_idx + 4
+			let stake = values[base_idx + 4]
 				.as_ref()
 				.map(|v| decode_u256_from_storage(v))
 				.transpose()?
 				.unwrap_or_default();
 
-			// owner (address, 20 bytes, right-aligned in 32-byte slot)
-			let address = values[base_idx + 2]
+			// owner (address, 20 bytes, right-aligned in 32-byte slot) at base_idx + 5
+			let address = values[base_idx + 5]
 				.as_ref()
 				.map(|v| {
 					if v.len() >= 20 {
@@ -315,37 +318,64 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 /// Decode BLS public key from a Solidity string storage slot.
 ///
 /// In Solidity, strings are stored as:
-/// - Short strings (< 32 bytes): data is stored directly in the slot
+/// - Short strings (< 32 bytes): data is stored directly in the slot, length in lowest byte
 /// - Long strings (>= 32 bytes): slot contains (length * 2 + 1), data at keccak256(slot)
 ///
 /// The BLS public key is a 48-byte value, typically stored as a 96-character hex string
-/// (or 98 with "0x" prefix), so it's a long string.
+/// (or 98 with "0x" prefix), so it's a long string requiring 3 data slots.
 fn decode_bls_key_from_string_slot(
-	value: &Option<DBValue>,
+	header_value: &Option<DBValue>,
+	data_slots: Option<&[Option<DBValue>]>,
 ) -> Result<pharos_primitives::BlsPublicKey, Error> {
 	use alloc::string::String;
 
-	let value = value.as_ref().ok_or(Error::MissingBlsKeySlot)?;
+	let header = header_value.as_ref().ok_or(Error::MissingBlsKeySlot)?;
 
-	// Check if this is a short string (last byte is even and < 64)
-	// or a long string (last byte is odd)
-	if value.is_empty() {
+	if header.is_empty() {
 		return Err(Error::EmptyBlsKeySlot);
 	}
 
-	let last_byte = value[value.len() - 1];
+	let header_val = decode_u256_from_storage(header)?;
+	let header_bytes = header_val.to_big_endian();
+	let lowest_byte = header_bytes[31];
 
-	let bls_hex: String = if last_byte & 1 == 0 {
-		// Short string: data is in the slot, length = last_byte / 2
-		let len = (last_byte / 2) as usize;
-		if len > 31 || len > value.len() {
+	let bls_hex: String = if lowest_byte & 1 == 0 {
+		// Short string: data is in the slot, length = lowest_byte / 2
+		let len = (lowest_byte / 2) as usize;
+		if len > 31 {
 			return Err(Error::InvalidBlsStringLength);
 		}
-		// String data is at the beginning of the slot
-		String::from_utf8(value[..len].to_vec()).map_err(|_| Error::InvalidBlsKeyUtf8)?
+		// String data is stored in the high bytes of the slot
+		String::from_utf8(header_bytes[..len].to_vec()).map_err(|_| Error::InvalidBlsKeyUtf8)?
 	} else {
-		// Long string: this slot contains (length * 2 + 1)
-		return Err(Error::LongStringBlsKeyUnsupported);
+		// Long string: header contains (length * 2 + 1)
+		let length = (header_val - 1) / 2;
+		let str_len = length.low_u64() as usize;
+
+		// For BLS keys, we expect a 96 or 98 character hex string
+		// This requires 3 data slots (ceil(96/32) = 3)
+		let data_slots = data_slots.ok_or(Error::LongStringBlsKeyUnsupported)?;
+
+		let slots_needed = (str_len + 31) / 32;
+		if data_slots.len() < slots_needed {
+			return Err(Error::InsufficientStorageValues {
+				expected: slots_needed,
+				got: data_slots.len(),
+			});
+		}
+
+		let mut string_data = Vec::with_capacity(str_len);
+		for (i, slot_value) in data_slots.iter().take(slots_needed).enumerate() {
+			let slot_data = slot_value.as_ref().ok_or(Error::MissingBlsKeySlot)?;
+			let decoded = decode_u256_from_storage(slot_data)?;
+			let bytes = decoded.to_big_endian();
+
+			let remaining = str_len - (i * 32);
+			let take = remaining.min(32);
+			string_data.extend_from_slice(&bytes[..take]);
+		}
+
+		String::from_utf8(string_data).map_err(|_| Error::InvalidBlsKeyUtf8)?
 	};
 
 	let bls_hex = bls_hex.trim_start_matches("0x");
@@ -439,23 +469,52 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 /// Storage layout information for the Pharos staking contract.
 ///
 /// Based on the actual Pharos staking contract at `0x4100000000000000000000000000000000000000`.
-/// https://silken-muskox-24e.notion.site/Pharos-Staking-Contract-2b18ec314f7580c1b885e2fa8d8a70e9
 ///
-/// ## Contract Storage Layout
+/// ## Contract Storage Layout (StakingStorageV1)
 ///
 /// ```solidity
-/// abstract contract StakingStorageV1 is IStaking {
-///     mapping(bytes32 => Validator) public validators;  // slot 0
-///     bytes32[] public activePoolIds;                   // slot 1
-///     bytes32[] public pendingAddPoolIds;               // slot 2
-///     bytes32[] public pendingUpdatePoolIds;            // slot 3
-///     bytes32[] public pendingExitPoolIds;              // slot 4
-///     uint256 public currentEpoch;                      // slot 5
-///     uint256 public totalStake;                        // slot 6
-///     IChainConfig public cfg;                          // slot 7
-///     mapping(address => uint256) public pendingWithdrawStakes; // slot 8
-/// }
+/// mapping(bytes32 => Validator) public validators;               // slot 0
+/// bytes32[] public activePoolIds;                                // slot 1
+/// bytes32[] public pendingAddPoolIds;                            // slot 2
+/// bytes32[] public pendingUpdatePoolIds;                         // slot 3
+/// bytes32[] public pendingExitPoolIds;                           // slot 4
+/// uint256 public currentEpoch;                                   // slot 5
+/// uint256 public totalStake;                                     // slot 6
+/// IChainConfig public cfg;                                       // slot 7
+/// mapping(address => uint256) public pendingWithdrawStakes;      // slot 8
+/// uint256 public totalSupply;                                    // slot 9
+/// uint256 public currentInflationRate;                           // slot 10
+/// uint256 public lastInflationAdjustmentTime;                    // slot 11
+/// uint256 public lastInflationTotalSupplySnapshot;               // slot 12
+/// address internal implAddress;                                  // slot 13
+/// ```
 ///
+/// ## Contract Storage Layout (StakingStorageV2)
+///
+/// ```solidity
+/// uint256 lastEpochStartTime;                                    // slot 14
+/// mapping(bytes32 => mapping(address => Delegator)) delegators;  // slot 15
+/// mapping(bytes32 => mapping(address => bool)) validatorWhitelists; // slot 16
+/// mapping(bytes32 => uint256) accumulatedRewardPerShares;        // slot 17
+/// mapping(bytes32 => uint256) commissionRates;                   // slot 18
+/// mapping(bytes32 => bool) delegationEnabledMapping;             // slot 19
+/// mapping(bytes32 => uint256) delegatorCounts;                   // slot 20
+/// PendingUndelegation[] pendingUndelegations;                    // slot 21
+/// EnumerableSet.Bytes32Set activePoolSets;                       // slot 22-23
+/// EnumerableSet.Bytes32Set pendingAddPoolSets;                   // slot 24-25
+/// EnumerableSet.Bytes32Set pendingUpdatePoolSets;                // slot 26-27
+/// EnumerableSet.Bytes32Set pendingExitPoolSets;                  // slot 28-29
+/// ```
+///
+/// OpenZeppelin's EnumerableSet uses 2 storage slots:
+/// - Slot N: The internal values array (bytes32[])
+/// - Slot N+1: The indices mapping (mapping(bytes32 => uint256))
+///
+/// Active pool IDs are stored in `activePoolSets._values` at slot 22.
+///
+/// ## Validator Struct
+///
+/// ```solidity
 /// struct Validator {
 ///     string description;          // offset 0
 ///     string publicKey;            // offset 1
@@ -476,8 +535,8 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 pub struct StakingContractLayout {
 	/// Storage slot for the validators mapping
 	pub validators_mapping_slot: u64,
-	/// Storage slot for activePoolIds array
-	pub active_pool_ids_slot: u64,
+	/// Storage slot for activePoolSets (EnumerableSet._values)
+	pub active_pool_set_slot: u64,
 	/// Storage slot for currentEpoch
 	pub current_epoch_slot: u64,
 	/// Storage slot for totalStake
@@ -539,7 +598,7 @@ impl Default for StakingContractLayout {
 	fn default() -> Self {
 		Self {
 			validators_mapping_slot: 0,
-			active_pool_ids_slot: 1,
+			active_pool_set_slot: 22,
 			current_epoch_slot: 5,
 			total_stake_slot: 6,
 		}
@@ -589,28 +648,51 @@ impl StakingContractLayout {
 		keys.push(self.raw_slot_key(self.current_epoch_slot));
 		keys.push(self.raw_slot_key(self.total_stake_slot));
 
-		keys.push(self.raw_slot_key(self.active_pool_ids_slot));
+		keys.push(self.raw_slot_key(self.active_pool_set_slot));
 
 		for i in 0..validator_count {
-			keys.push(self.array_element_key::<H>(self.active_pool_ids_slot, i));
+			keys.push(self.array_element_key::<H>(self.active_pool_set_slot, i));
 		}
 
 		keys
 	}
 
 	/// Get storage keys for a specific validator's data.
+	///
+	/// Returns keys for:
+	/// - BLS public key string slot (offset 3)
+	/// - BLS public key data slots (3 slots for long string at keccak256(string_slot))
+	/// - totalStake (offset 8)
+	/// - owner (offset 9)
 	pub fn get_validator_keys<H: Keccak256>(&self, pool_id: &H256) -> Vec<H256> {
 		let offsets = ValidatorStructOffsets::default();
 		let mut keys = Vec::new();
 
-		keys.push(self.validator_field_slot::<H>(pool_id, offsets.bls_public_key));
+		// BLS public key string slot (stores length for long strings)
+		let bls_string_slot = self.validator_field_slot::<H>(pool_id, offsets.bls_public_key);
+		keys.push(bls_string_slot);
+
+		// BLS public key data slots (for long strings)
+		// Data is stored at keccak256(string_slot) and continues for 3 slots
+		// (96-char hex string needs ceil(96/32) = 3 slots)
+		let bls_data_base = self.string_data_slot::<H>(&bls_string_slot);
+		let bls_data_base_pos = U256::from_big_endian(bls_data_base.as_bytes());
+		for i in 0..BLS_STRING_DATA_SLOTS {
+			let slot_pos = bls_data_base_pos + U256::from(i);
+			keys.push(H256(slot_pos.to_big_endian()));
+		}
+
+		// Other validator fields
 		keys.push(self.validator_field_slot::<H>(pool_id, offsets.total_stake));
 		keys.push(self.validator_field_slot::<H>(pool_id, offsets.owner));
-		keys.push(self.validator_field_slot::<H>(pool_id, offsets.pool_id));
 
 		keys
 	}
 }
+
+/// Number of storage slots needed for BLS public key string data.
+/// BLS keys are 48 bytes = 96 hex chars = 3 slots (ceil(96/32))
+const BLS_STRING_DATA_SLOTS: u64 = 3;
 
 /// Decode a U256 value from RLP-encoded storage value.
 pub fn decode_u256_from_storage(value: &[u8]) -> Result<U256, Error> {

@@ -1,0 +1,62 @@
+---
+title: Overview
+description: Hyperbridge Protocol Specification
+---
+
+# Protocol Specification
+
+This document serves as the canonical specification for the Hyperbridge protocol. It is frequently updated to reflect the latest changes in the protocol. It is divided into the following sections:
+
+## Cryptographic Primitives
+
+Hyperbridge is at it's fundamental level a coprocessor for expensive cryptographic operations needed to confirm the correctness of cross-chain messages. This section details all of the cryptographic primitives used in within the various sub-systems in Hyperbridge. These primitives are used to produce and verify the correctness of consensus proofs, consensus fault proofs, state proofs and state transition validity proofs. The primitives are:
+
+- [Hash Functions](/protocol/primitives/hash-functions)
+- Merkle Trees
+  - [Binary Merkle Trees](/protocol/primitives/merkle-trees/binary)
+  - [Merkle Mountain Ranges](/protocol/primitives/merkle-trees/mountain-range)
+  - [Merkle Patricia Tries](/protocol/primitives/merkle-trees/patricia-trie)
+- [Digital Signatures](/protocol/primitives/digital-signatures)
+- [Polynomial Commitment Schemes](/protocol/primitives/polynomial-commitments)
+- [Verkle Tries](/protocol/primitives/verkle-tries)
+- [APK Proofs](/protocol/primitives/apk-proofs)
+
+## Interoperability Proofs
+
+Interoperability proofs are the cryptographic proofs that attest to the validity of cross-chain messages. These consists of **consensus proofs** which convinces a blockchain of the finalized chain of it's counterparty. **State proofs** which attest to some portions of the **finalized state** of a counterparty chain. Combined, these proofs can be used to mediate secure communication between blockchains.
+
+- [State Machine Proofs](/protocol/interoperability/state-machine-proofs)
+- [Consensus Proofs](/protocol/interoperability/consensus-proofs)
+
+## Interoperable State Machine Protocol
+
+The Interoperable State Machine Protocol (ISMP) is a simplified protocol for cross-chain interoperability. The goal of ISMP is to provide secure cross-chain messaging and state reads. The protocol is designed to be simple and easy to implement, while still providing the necessary security guarantees.
+
+- [Host Interface](/protocol/ismp/host)
+- [Consensus Client](/protocol/ismp/consensus)
+- [State Machine Client](/protocol/ismp/state-machine)
+- [Router](/protocol/ismp/router)
+- [Dispatcher](/protocol/ismp/dispatcher)
+- [Requests](/protocol/ismp/requests)
+- [Responses](/protocol/ismp/responses)
+- [Timeouts](/protocol/ismp/timeouts)
+- [Proxies](/protocol/ismp/proxies)
+
+## Consensus Algorithms
+
+These are the algorithms that are used to verify the consensus mechanism for a given chain. Different chains can have different consensus mechanisms, and so different algorithms are needed to verify the correctness of each mechanism. The consensus verification algorithms implemented in Hyperbridge are:
+
+- [GRANDPA (Polkadot)](/protocol/consensus/grandpa)
+- [BEEFY (Polkadot)](/protocol/consensus/beefy)
+- [Sync Committee (Ethereum)](/protocol/consensus/sync-committee)
+- [Casper FFG (Ethereum)](/protocol/consensus/casper-ffg)
+- [Parlia (Bsc)](/protocol/consensus/parlia)
+
+## State Machine Algorithms
+
+These are the algorithms that are used to verify the state commitments for a given state machine. In this context, these are the state commitments posted to it's consensus layer. Where the hyperbridge protocol must leverage the state trie scheme for it's consensus layer to verify the finalized state of a state machine. The state machine verification algorithms implemented in Hyperbridge are:
+
+- [Parachain](/protocol/state-machine/parachain)
+- [Fault Dispute Games (Op Stack)](/protocol/state-machine/fault-dispute-games)
+- [L2 Oracle (Op Stack)](/protocol/state-machine/l2-oracle)
+- [Orbit (Arbitrum)](/protocol/state-machine/arbitrum-orbit)

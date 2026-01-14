@@ -1,0 +1,189 @@
+---
+title: Host Interface
+description: The Host interface specification for ISMP compatible host state machines.
+---
+
+
+# The Host Interface
+
+The `IsmpHost` defines the storage interface that a host blockchain must implement for it to be compatible with the ISMP protocol. The interface is primarily used by the ISMP handlers. These handlers are tasked with modifying the host and executing the relevant storage operations for a particular _handler message_. The host assumes that all key-value pairs will be stored in a _state trie_. Where a _state commitment_ and _state proof_ can be obtained to verify their existence or lack thereof.
+
+Notably, the handlers are agnostic to the underlying storage mechanism and allows for the storage of requests and responses in an overlay tree. This overlay tree can be selected to minimize the state proof verification cost, consequently reducing the verification cost of outgoing requests and responses.
+
+```rust showLineNumbers
+/// Defines the necessary interfaces that must be satisfied by a state machine for it be ISMP
+/// compatible.
+pub trait IsmpHost {
+    /// Should return the state machine type for the host.
+    fn host_state_machine(&self) -> StateMachine;
+
+    /// Should return the latest height of the state machine
+    fn latest_commitment_height(&self, id: StateMachineId) -> Result<u64, Error>;
+
+    /// Should return the state machine at the given height
+    fn state_machine_commitment(
+        &self,
+        height: StateMachineHeight,
+    ) -> Result<StateCommitment, Error>;
+
+    /// Should return the host timestamp when this consensus client was last updated
+    fn consensus_update_time(
+        &self,
+        consensus_state_id: ConsensusStateId,
+    ) -> Result<Duration, Error>;
+
+    /// Should return the host timestamp when this state machine height was committed
+    fn state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
+    ) -> Result<Duration, Error>;
+
+    /// Should return the registered consensus client id for this consensus state id
+    fn consensus_client_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+    ) -> Option<ConsensusClientId>;
+
+    /// Should return the encoded consensus state for a consensus state id provided
+    fn consensus_state(&self, consensus_state_id: ConsensusStateId) -> Result<Vec<u8>, Error>;
+
+    /// Should return the current timestamp on the host state machine
+    fn timestamp(&self) -> Duration;
+
+    /// Checks if a consensus state is frozen
+    fn is_consensus_client_frozen(&self, consensus_state_id: ConsensusStateId)
+        -> Result<(), Error>;
+
+    /// Should return an error if request commitment does not exist in storage
+    fn request_commitment(&self, req: H256) -> Result<(), Error>;
+
+    /// Should return an error if request commitment does not exist in storage
+    fn response_commitment(&self, req: H256) -> Result<(), Error>;
+
+    /// Increment and return the next available nonce for an outgoing request.
+    fn next_nonce(&self) -> u64;
+
+    /// Should return Some(()) if a receipt for this request exists in storage
+    fn request_receipt(&self, req: &Request) -> Option<()>;
+
+    /// Should return Some(()) if a response has been received for the given request
+    /// Implementors should store both the request and response objects
+    fn response_receipt(&self, res: &Response) -> Option<()>;
+
+    /// Store a map of consensus_state_id to the consensus_client_id
+    /// Should return an error if the consensus_state_id already exists
+    fn store_consensus_state_id(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        client_id: ConsensusClientId,
+    ) -> Result<(), Error>;
+
+    /// Store an encoded consensus state
+    fn store_consensus_state(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        consensus_state: Vec<u8>,
+    ) -> Result<(), Error>;
+
+    /// Store the unbonding period for a consensus state.
+    fn store_unbonding_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error>;
+
+    /// Store the timestamp when the consensus client was updated
+    fn store_consensus_update_time(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        timestamp: Duration,
+    ) -> Result<(), Error>;
+
+    /// Store the timestamp when the state machine height was committed
+    fn store_state_machine_update_time(
+        &self,
+        state_machine_height: StateMachineHeight,
+        timestamp: Duration,
+    ) -> Result<(), Error>;
+
+    /// Store the timestamp when the state machine was updated
+    fn store_state_machine_commitment(
+        &self,
+        height: StateMachineHeight,
+        state: StateCommitment,
+    ) -> Result<(), Error>;
+
+    /// Freeze a consensus state with the given identifier
+    fn freeze_consensus_client(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error>;
+
+    /// Store latest height for a state machine
+    fn store_latest_commitment_height(&self, height: StateMachineHeight) -> Result<(), Error>;
+
+    /// Delete a request commitment from storage, used when a request is timed out.
+    /// Make sure to refund the user their relayer fee here.
+    fn delete_request_commitment(&self, req: &Request) -> Result<(), Error>;
+
+    /// Delete a request commitment from storage, used when a response is timed out.
+    /// Make sure to refund the user their relayer fee here.
+    /// Also delete the request from the responded map.
+    fn delete_response_commitment(&self, res: &PostResponse) -> Result<(), Error>;
+
+    /// Stores a receipt for an incoming request after it is successfully routed to a module.
+    /// Prevents duplicate incoming requests from being processed. Includes the relayer account
+    fn store_request_receipt(&self, req: &Request, signer: &Vec<u8>) -> Result<(), Error>;
+
+    /// Stores a receipt that shows that the given request has received a response.
+    /// Includes the relayer account
+    /// Implementors should map the request commitment to the response object commitment.
+    fn store_response_receipt(&self, req: &Response, signer: &Vec<u8>) -> Result<(), Error>;
+
+    /// Should return a handle to the consensus client based on the id
+    fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
+
+    /// Should return the configured delay period for a consensus state
+    fn challenge_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;
+
+    /// Set the challenge period in seconds for a consensus state.
+    fn store_challenge_period(
+        &self,
+        consensus_state_id: ConsensusStateId,
+        period: u64,
+    ) -> Result<(), Error>;
+
+    /// Check if the client has expired since the last update
+    fn is_expired(&self, consensus_state_id: ConsensusStateId) -> Result<(), Error> {
+        let host_timestamp = self.timestamp();
+        let unbonding_period = self
+            .unbonding_period(consensus_state_id)
+            .ok_or(Error::UnnbondingPeriodNotConfigured { consensus_state_id })?;
+        let last_update = self.consensus_update_time(consensus_state_id)?;
+        if host_timestamp.saturating_sub(last_update) >= unbonding_period {
+            Err(Error::UnbondingPeriodElapsed { consensus_state_id })?
+        }
+
+        Ok(())
+    }
+
+    /// return the coprocessor state machine that is allowed to proxy requests.
+    fn allowed_proxy(&self) -> Option<StateMachine>;
+
+    /// Checks if the host allows this state machine to proxy requests.
+    fn is_allowed_proxy(&self, source: &StateMachine) -> bool {
+        self.allowed_proxy().map(|proxy| proxy == *source).unwrap_or(false)
+    }
+
+    /// Return the unbonding period (i.e the time it takes for a validator's deposit to be unstaked
+    /// from the network)
+    fn unbonding_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;
+
+    /// Return a handle to the router
+    fn ismp_router(&self) -> Box<dyn IsmpRouter>;
+
+    /// Is the current host playing the role of router?
+    fn is_router(&self) -> bool {
+        self.allowed_proxy()
+            .map(|proxy| proxy == self.host_state_machine())
+            .unwrap_or(false)
+    }
+}
+```

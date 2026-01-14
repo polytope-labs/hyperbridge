@@ -67,4 +67,3 @@ runtime-benchmarks = [
     "polkadot-sdk/frame-benchmarking",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]
-unsigned = []

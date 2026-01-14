@@ -1,0 +1,226 @@
+---
+title: Timeouts
+description: Monitor and track requests that exceed their timeout period across Hyperbridge and source chains.
+---
+
+# POST Request Timeouts
+
+When cross-chain requests exceed their timeout period, they enter a timeout processing flow. The Hyperbridge SDK provides utilities for tracking these timed-out requests as they're processed and finalized.
+
+Timeout tracking involves detecting when requests exceed their timeout period, streaming real-time updates during timeout processing, tracking finalization on both Hyperbridge and the source chain, extracting calldata, and executing the recovery transaction to reclaim any locked assets.
+
+## Timeout Lifecycle
+
+When a request times out, it goes through these stages:
+
+```
+PENDING_TIMEOUT → DESTINATION_FINALIZED_TIMEOUT → HYPERBRIDGE_TIMED_OUT → HYPERBRIDGE_FINALIZED_TIMEOUT → TIMED_OUT
+```
+
+| Stage | Description |
+|-------|-------------|
+| **PENDING_TIMEOUT** | Request has exceeded its timeout period but not yet processed |
+| **DESTINATION_FINALIZED_TIMEOUT** | The destination chain has finalized the block height whose timestamp exceeds the request's timeout |
+| **HYPERBRIDGE_TIMED_OUT** | Timeout processed on Hyperbridge, the associated request has been deleted from the Hyperbridge state |
+| **HYPERBRIDGE_FINALIZED_TIMEOUT** | Hyperbridge has finalized the block where the request was deleted (this status includes calldata for destination) |
+| **TIMED_OUT** | Timeout transaction has been executed on the source chain - Complete! |
+
+### When Do Timeouts Occur?
+
+Requests can timeout for several reasons:
+
+- **Network congestion** - Delays in block production or finality
+- **Insufficient relayer fees** - No relayers willing to deliver the request
+- **Destination chain issues** - Downtime or problems on the destination chain
+- **Execution failures** - Request cannot be executed on destination
+
+### Detecting Timeouts
+
+Timeouts are automatically detected when using request status streams:
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
+
+// POST request tracking automatically detects timeouts
+for await (const status of indexer.postRequestStatusStream(commitment)) {
+  if (status.status === TimeoutStatus.PENDING_TIMEOUT) {
+    console.log("⚠️ Request has timed out!")
+    // Switch to timeout tracking
+    break
+  }
+  
+  if (status.status === RequestStatus.DESTINATION) {
+    console.log("✅ Request completed successfully")
+    break
+  }
+}
+```
+
+### Track POST Request Timeouts
+
+Once a POST request times out, use `postRequestTimeoutStream()` to monitor its timeout processing:
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { TimeoutStatus } from "@hyperbridge/sdk"
+
+// Monitor POST request timeout
+for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+  console.log(`[${new Date().toISOString()}]`)
+  console.log(`Timeout status: ${timeout.status}`)
+  console.log(`Block height: ${timeout.blockHeight}`)
+  console.log(`Transaction hash: ${timeout.txHash}`)
+  console.log("---")
+  
+  switch (timeout.status) {
+    case TimeoutStatus.PENDING_TIMEOUT:
+      console.log("⏳ Request pending timeout processing")
+      break
+    case TimeoutStatus.DESTINATION_FINALIZED_TIMEOUT:
+      console.log("🔄 Destination chain finalized timeout block")
+      break
+    case TimeoutStatus.HYPERBRIDGE_TIMED_OUT:
+      console.log("⏱️ Timeout processed on Hyperbridge")
+      break
+    case TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT:
+      console.log("✅ Hyperbridge finalized timeout - calldata ready")
+      break
+    case TimeoutStatus.TIMED_OUT:
+      console.log("✅ Timeout finalized on source chain - funds recovered")
+      break
+  }
+
+  // Break when timeout is fully processed
+  if (timeout.status === TimeoutStatus.TIMED_OUT) {
+    break
+  }
+}
+```
+
+### Executing Timeout Transactions on Source Chain
+
+The `HYPERBRIDGE_FINALIZED_TIMEOUT` status includes the calldata needed to execute the timeout transaction on the source chain:
+
+```typescript lineNumbers
+import { decodeFunctionData, getContract, createPublicClient, createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { TimeoutStatus } from "@hyperbridge/sdk"
+import HANDLER_ABI from "@hyperbridge/sdk/abis/handler"
+import EVM_HOST_ABI from "@hyperbridge/sdk/abis/evmHost"
+
+// Setup clients
+const account = privateKeyToAccount("0x...")
+const publicClient = createPublicClient({
+  chain: sourceChain,
+  transport: http()
+})
+const walletClient = createWalletClient({
+  account,
+  chain: sourceChain,
+  transport: http()
+})
+
+// Monitor timeout and execute when calldata is ready
+for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+  if (timeout.status === TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT) {
+    console.log("Calldata ready for execution")
+    
+    // Decode the calldata to inspect it
+    const { args, functionName } = decodeFunctionData({
+      abi: HANDLER_ABI,
+      data: timeout.metadata.calldata as `0x${string}`
+    })
+    
+    console.log(`Function: ${functionName}`) // "handlePostRequestTimeouts"
+    
+    // Get the handler contract address from the host
+    const host = getContract({
+      address: sourceChainHostAddress,
+      abi: EVM_HOST_ABI,
+      client: publicClient
+    })
+    
+    const hostParams = await host.read.hostParams()
+    
+    // Get the handler contract
+    const handler = getContract({
+      address: hostParams.handler,
+      abi: HANDLER_ABI,
+      client: { public: publicClient, wallet: walletClient }
+    })
+    
+    // Execute the timeout transaction
+    const hash = await handler.write.handlePostRequestTimeouts(args as any)
+    
+    // Wait for confirmation
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash,
+      confirmations: 1
+    })
+    
+    console.log(`✅ Timeout executed: ${hash}`)
+  }
+  
+  if (timeout.status === TimeoutStatus.TIMED_OUT) {
+    console.log("✅ Timeout finalized on source chain - funds recovered")
+    break
+  }
+}
+```
+
+Alternatively, you can send the raw calldata directly to the handler contract:
+
+```typescript lineNumbers
+// Direct execution with raw calldata
+for await (const timeout of indexer.postRequestTimeoutStream(commitment)) {
+  if (timeout.status === TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT) {
+    // Get handler address
+    const host = getContract({
+      address: sourceChainHostAddress,
+      abi: EVM_HOST_ABI,
+      client: publicClient
+    })
+    const hostParams = await host.read.hostParams()
+    
+    // Send transaction with raw calldata
+    const hash = await walletClient.sendTransaction({
+      to: hostParams.handler,
+      data: timeout.metadata.calldata as `0x${string}`,
+      account
+    })
+    
+    await publicClient.waitForTransactionReceipt({ hash })
+    console.log(`✅ Timeout executed: ${hash}`)
+  }
+  
+  if (timeout.status === TimeoutStatus.TIMED_OUT) {
+    break
+  }
+}
+```
+
+## Timeout Status Reference
+
+### TimeoutStatus Enum
+
+| Status | Description |
+|--------|-------------|
+| `PENDING_TIMEOUT` | Request exceeded timeout, awaiting processing |
+| `DESTINATION_FINALIZED_TIMEOUT` | Destination chain finalized timeout block |
+| `HYPERBRIDGE_TIMED_OUT` | Timeout processed on Hyperbridge, request deleted |
+| `HYPERBRIDGE_FINALIZED_TIMEOUT` | Hyperbridge finalized timeout, calldata ready for source chain |
+| `TIMED_OUT` | Timeout finalized on source chain, assets recovered |
+
+### Status Metadata
+
+Each timeout status update includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `TimeoutStatus` | Current timeout status |
+| `blockHeight` | `bigint` | Block height where status was recorded |
+| `txHash` | `string` | Transaction hash for this status update |
+| `timestamp` | `number` | Unix timestamp of the status update |
+| `calldata` | `string` | (Optional) Encoded calldata for executing timeout on source chain (available in `HYPERBRIDGE_FINALIZED_TIMEOUT`) |
+
+
+----

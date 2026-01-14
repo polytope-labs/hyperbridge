@@ -1,0 +1,546 @@
+---
+title: SubstrateChain
+description: API reference for SubstrateChain - interact with Substrate-based chains in the Hyperbridge protocol.
+---
+
+# SubstrateChain
+
+The `SubstrateChain` class provides methods for interacting with Substrate-based chains (Polkadot parachains, including Hyperbridge) in the Hyperbridge protocol. It handles MMR proof generation, child trie queries, and cross-chain message verification.
+
+```typescript lineNumbers
+class SubstrateChain implements IChain
+```
+
+## Constructor
+
+### new SubstrateChain(params)
+
+Creates a new SubstrateChain instance for a Substrate-based blockchain.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.stateMachineId` | `string` | State machine identifier (e.g., "POLKADOT-3367") |
+| `params.wsUrl` | `string` | WebSocket URL for the Substrate node (must be an archive node) |
+| `params.consensusStateId` | `string` | Consensus state identifier on Hyperbridge |
+| `params.hasher` | `"Blake2" \| "Keccak"` | Hashing algorithm used by the chain |
+
+**Returns:** `SubstrateChain`
+
+**Example:**
+
+```typescript lineNumbers
+import { SubstrateChain } from "@hyperbridge/sdk"
+
+const hyperbridgeChain = new SubstrateChain({
+  stateMachineId: "POLKADOT-3367",
+  wsUrl: "wss://hyperbridge-rpc.polkadot.io",
+  consensusStateId: "DOT0",
+  hasher: "Keccak"
+})
+
+// Must connect before using
+await hyperbridgeChain.connect()
+```
+
+---
+
+## Properties
+
+### api
+
+The Polkadot.js API instance for interacting with the Substrate chain.
+
+**Type:** `ApiPromise | undefined`
+
+**Note:** Only available after calling `connect()`
+
+**Example:**
+
+```typescript lineNumbers
+await substrateChain.connect()
+const blockHash = await substrateChain.api?.rpc.chain.getBlockHash()
+```
+
+---
+
+### config
+
+Returns the chain configuration object.
+
+**Type:** `ISubstrateConfig`
+
+**Returns:**
+
+```typescript lineNumbers
+{
+  wsUrl: string
+  consensusStateId: string
+  hasher: "Blake2" | "Keccak"
+  stateMachineId: string
+}
+```
+
+---
+
+## Functions
+
+### connect()
+
+Connects to the Substrate chain using the WebSocket URL. Must be called before using other methods.
+
+```typescript lineNumbers
+async connect(): Promise<void>
+```
+
+**Returns:** `Promise<void>`
+
+**Example:**
+
+```typescript lineNumbers
+const chain = new SubstrateChain({
+  stateMachineId: "POLKADOT-3367",
+  wsUrl: "wss://rpc-url",
+  consensusStateId: "DOT0",
+  hasher: "Keccak"
+})
+
+await chain.connect()
+// Now ready to use
+```
+
+---
+
+### disconnect()
+
+Disconnects from the Substrate chain and cleans up resources.
+
+```typescript lineNumbers
+async disconnect(): Promise<void>
+```
+
+**Returns:** `Promise<void>`
+
+**Example:**
+
+```typescript lineNumbers
+await chain.disconnect()
+```
+
+---
+
+### requestReceiptKey()
+
+Derives the storage key for a request receipt in the ISMP child trie.
+
+```typescript lineNumbers
+requestReceiptKey(key: HexString): HexString
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key` | `HexString` | The request commitment hash |
+
+**Returns:** `HexString` - The storage key for the request receipt
+
+---
+
+### requestCommitmentKey()
+
+Derives the storage key for a request commitment in the ISMP child trie.
+
+```typescript lineNumbers
+requestCommitmentKey(key: HexString): HexString
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `key` | `HexString` | The request commitment hash |
+
+**Returns:** `HexString` - The storage key for the request commitment
+
+---
+
+### queryRequestCommitment()
+
+Queries a request commitment from the ISMP child trie storage.
+
+```typescript lineNumbers
+async queryRequestCommitment(
+  commitment: HexString
+): Promise<HexString | undefined>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `commitment` | `HexString` | The commitment hash to look up |
+
+**Returns:** `Promise<HexString | undefined>` - The commitment data if found, `undefined` otherwise
+
+**Example:**
+
+```typescript lineNumbers
+const commitment = await chain.queryRequestCommitment(commitmentHash)
+if (commitment) {
+  console.log("Commitment found:", commitment)
+}
+```
+
+---
+
+### queryRequestReceipt()
+
+Queries the request receipt to determine if a request has been delivered.
+
+```typescript lineNumbers
+async queryRequestReceipt(
+  commitment: HexString
+): Promise<HexString | undefined>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `commitment` | `HexString` | The request commitment hash |
+
+**Returns:** `Promise<HexString | undefined>` - The relayer address that delivered the request, or `undefined` if not yet delivered
+
+**Example:**
+
+```typescript lineNumbers
+const relayer = await chain.queryRequestReceipt(commitmentHash)
+if (relayer) {
+  console.log(`Request delivered by: ${relayer}`)
+}
+```
+
+---
+
+### timestamp()
+
+Returns the current timestamp of the chain.
+
+```typescript lineNumbers
+async timestamp(): Promise<bigint>
+```
+
+**Returns:** `Promise<bigint>` - Current timestamp in seconds
+
+**Example:**
+
+```typescript lineNumbers
+const currentTime = await chain.timestamp()
+console.log(`Chain time: ${currentTime}`)
+```
+
+---
+
+### queryProof()
+
+Queries cryptographic proofs for cross-chain message verification. Generates MMR proofs for EVM chains or state proofs for Substrate chains.
+
+```typescript lineNumbers
+async queryProof(
+  message: IMessage,
+  counterparty: string,
+  at?: bigint
+): Promise<HexString>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `message` | `IMessage` | The message containing requests or responses |
+| `counterparty` | `string` | The counterparty chain's state machine ID |
+| `at` | `bigint` | Optional. Block number to query at (defaults to latest) |
+
+**Returns:** `Promise<HexString>` - Encoded proof (MMR proof for EVM, state proof for Substrate)
+
+**Example:**
+
+```typescript lineNumbers
+const proof = await chain.queryProof(
+  message,
+  "EVM-1",
+  18000000n
+)
+```
+
+---
+
+### submitUnsigned()
+
+Submits an unsigned extrinsic to the Substrate chain for handling cross-chain messages.
+
+```typescript lineNumbers
+async submitUnsigned(message: IIsmpMessage): Promise<{
+  transactionHash: string
+  blockHash: string
+  blockNumber: number
+}>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `message` | `IIsmpMessage` | The ISMP message to submit |
+
+**Returns:** Promise resolving to an object with:
+- `transactionHash` - The transaction hash
+- `blockHash` - The block hash where the transaction was included
+- `blockNumber` - The block number
+
+**Example:**
+
+```typescript lineNumbers
+const result = await chain.submitUnsigned(message)
+console.log(`Submitted in block ${result.blockNumber}`)
+console.log(`TX hash: ${result.transactionHash}`)
+```
+
+---
+
+### queryStateProof()
+
+Queries storage proofs for specific keys from the ISMP child trie at a given block height.
+
+```typescript lineNumbers
+async queryStateProof(
+  at: bigint,
+  keys: HexString[]
+): Promise<HexString>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `at` | `bigint` | Block number to query at |
+| `keys` | `HexString[]` | Storage keys to fetch proofs for |
+
+**Returns:** `Promise<HexString>` - Encoded state proof from the child trie
+
+**Example:**
+
+```typescript lineNumbers
+const proof = await chain.queryStateProof(
+  18000000n,
+  ["0x1234...", "0x5678..."]
+)
+```
+
+---
+
+### latestStateMachineHeight()
+
+Gets the latest known height for a state machine.
+
+```typescript lineNumbers
+async latestStateMachineHeight(
+  stateMachineId: StateMachineIdParams
+): Promise<bigint>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `stateMachineId` | `StateMachineIdParams` | The state machine identifier |
+
+**Returns:** `Promise<bigint>` - Latest state machine height
+
+**Example:**
+
+```typescript lineNumbers
+const height = await chain.latestStateMachineHeight({
+  stateId: { Ethereum: 1 }
+})
+console.log(`Latest Ethereum height: ${height}`)
+```
+
+---
+
+## Important Notes
+
+### Connection Management
+
+**Critical:** Always call `connect()` before using any query methods. The Polkadot.js API must be initialized first.
+
+```typescript lineNumbers
+const chain = new SubstrateChain(config)
+await chain.connect()  // Required!
+
+// Now you can use the chain
+const timestamp = await chain.timestamp()
+
+// Clean up when done
+await chain.disconnect()
+```
+
+---
+
+### Archive Node Requirement
+
+The WebSocket URL must point to an archive node. Regular nodes only retain recent state and cannot provide:
+- Historical storage proofs
+- Child trie queries for older blocks
+- MMR proofs for timeout scenarios
+
+---
+
+### Child Trie Storage
+
+Substrate chains store ISMP data in a child trie named "ISMP". This provides isolated storage for:
+- Request commitments
+- Request receipts
+- Response data
+
+All ISMP-related queries go through the child trie storage system.
+
+---
+
+### Hasher Configuration
+
+The `hasher` parameter specifies the hashing algorithm:
+- **Keccak** - Used by Hyperbridge (Nexus, Gargantua)
+- **Blake2** - Default for most Substrate chains
+
+Using the wrong hasher will cause proof verification failures.
+
+---
+
+## Usage Example
+
+```typescript lineNumbers
+import { SubstrateChain } from "@hyperbridge/sdk"
+
+// Create and connect to Hyperbridge
+const hyperbridge = new SubstrateChain({
+  stateMachineId: "POLKADOT-3367",
+  wsUrl: "wss://hyperbridge-rpc.polkadot.io",
+  consensusStateId: "DOT0",
+  hasher: "Keccak"
+})
+
+await hyperbridge.connect()
+
+try {
+  // Query current timestamp
+  const time = await hyperbridge.timestamp()
+  console.log(`Current time: ${time}`)
+  
+  // Check if a request was delivered
+  const receipt = await hyperbridge.queryRequestReceipt(commitmentHash)
+  if (receipt) {
+    console.log(`Delivered by: ${receipt}`)
+  }
+  
+  // Get latest state machine height
+  const height = await hyperbridge.latestStateMachineHeight({
+    stateId: { Ethereum: 1 }
+  })
+  console.log(`Latest Ethereum height: ${height}`)
+  
+} finally {
+  // Always disconnect when done
+  await hyperbridge.disconnect()
+}
+```
+
+---
+
+## Structs
+
+### HexString
+
+A hex-encoded string prefixed with `0x`.
+
+```typescript lineNumbers
+type HexString = `0x${string}`
+```
+
+---
+
+### ISubstrateConfig
+
+Configuration object for a Substrate chain.
+
+```typescript lineNumbers
+interface ISubstrateConfig {
+  wsUrl: string
+  consensusStateId: string
+  hasher: "Keccak" | "Blake2"
+  stateMachineId: string
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `wsUrl` | `string` | WebSocket RPC URL |
+| `consensusStateId` | `string` | Consensus state identifier on Hyperbridge |
+| `hasher` | `"Keccak" \| "Blake2"` | Hashing algorithm used by the chain |
+| `stateMachineId` | `string` | State machine identifier (e.g., "POLKADOT-3367") |
+
+---
+
+### StateMachineIdParams
+
+Parameters identifying a state machine.
+
+```typescript lineNumbers
+interface StateMachineIdParams {
+  stateId: { 
+    Evm?: number
+    Substrate?: HexString
+    Polkadot?: number
+    Kusama?: number 
+  }
+  consensusStateId: HexString
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stateId` | `object` | State identifier (one of Evm, Substrate, Polkadot, or Kusama) |
+| `consensusStateId` | `HexString` | Consensus state identifier |
+
+---
+
+### IMessage
+
+Union type for batch requests or responses.
+
+```typescript lineNumbers
+type IMessage = 
+  | { Requests: HexString[] } 
+  | { Responses: HexString[] }
+```
+
+---
+
+### IIsmpMessage
+
+ISMP message format for Substrate chains.
+
+```typescript lineNumbers
+interface IIsmpMessage {
+  // Message data structure for submitting unsigned extrinsics
+}
+```
+
+---
+
+## Related
+
+- [EvmChain](/developers/sdk/api/evm-chain) - For EVM-compatible chains
+- [IndexerClient](/developers/sdk/api/indexer-client) - For querying cross-chain request status

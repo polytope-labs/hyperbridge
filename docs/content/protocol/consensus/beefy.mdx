@@ -1,0 +1,65 @@
+---
+title: BEEFY (Polkadot)
+description: Bridge Efficiency Enabling Finality Yielder, a protocol for cheap finality proofs on Polkadot.
+---
+
+# BEEFY
+
+The BEEFY<sup>[2]</sup> protocol is a secondary finality protocol for the Polkadot relay chain. It is designed to produce much cheaper consensus proofs for Polkadot and all its parachains, cheap enough that it can be verified on any chain. Previously, Polkadot leveraged GRANDPA, an asynchronous finality gadget. Its GHOST-based algorithm meant that consensus proofs consisted of entire chains of headers from each validator. This is because GRANDPA is asynchronous and does not vote immediately on blocks. Instead it votes on the best chain it has seen so far, weighted by some arbitrary metric. This results in massive data costs for light clients. Moreover, GRANDPA's use of the ED25519 signature scheme, which is neither amenable to aggregation nor efficient to verify on EVM chains due to the lack of necessary precompiles, made it both data and compute intensive.
+
+BEEFY addresses all of these issues by first introducing a merkle mountain range (MMR) accumulator to track all blocks in the chain. This eliminates the need to reveal all headers in the chain. Since with only the MMR root, the ancestry of any header in the chain can be cheaply verified. BEEFY also introduces 2 new signature schemes, ECDSA and BLS. ECDSA is used as a temporary solution for bridging to EVM chains which only have the ECDSA precompile. Eventually with [EIP-2573](https://eips.ethereum.org/EIPS/eip-2537), BLS will be used for its aggregation properties, in combination with the [APK proofs scheme](/protocol/cryptography/apk-proofs) which allows for **accountable aggregation** of BLS public keys. Combined, BEEFY proofs will produce the most efficient and cheap to verify consensus proofs of any blockchain. Thereby Propelling Polkadot and its parachains to be highly interoperable with any blockchain.
+
+
+## MMR Leaf
+
+The `pallet-beefy-mmr` module inserts a mmr leaf at every block into the block ancestry mmr tree. The leaf contains the following.
+
+
+```rust showLineNumbers
+type H256 = [u8; 32];
+
+struct BeefyNextAuthoritySet {
+    id: u64,
+    len: u32,
+    keyset_commitment: H256,
+}
+
+struct MmrLeaf {
+    version: u8,
+    parent_number_and_hash: (u32, H256),
+    beefy_next_authority_set: BeefyNextAuthoritySet,
+    leaf_extra: H256,
+}
+```
+
+Since the leaf is inserted during block execution, it is unable to learn what is the current block's hash, so it points to the parent block number and hash instead. It also includes the next authority set, which is the set of validators that will be responsible for the next epoch. Finally, the `leaf_extra` field is the merkle root of all parachain headers which have been finalized at the current relay chain block.
+
+The `BeefyNextAuthoritySet` struct holds identifier, length and merkle root (`keyset_commitment`) of the public keys of the next authority set. This commitment can be used to verify the signatures from the validators in the next authority set. Light clients can observe the `BeefyNextAuthoritySet` for when the authority set changes. Light clients are also initialized with the initial authority set commitment so they can verify the initial block.
+
+## Algorithm
+
+Validators are essentially signing the latest mmr root. These signatures can be found in the [justifications](https://spec.polkadot.network/sect-finality#defn-grandpa-justification) portion of the relay chain block. With signatures over the latest mmr root, consensus clients must:
+
+ - Verify that that the signatures are from a known authority set (either current ot next) using the authority set commitment.
+ - Verify the latest leaf in the mmr tree, so they can be aware of the latest finalized block number and hash.
+ - Optionally verify the merkle proofs any parachain headers that they are interested in, using the `leaf_extra` field.
+ - Optionally rotate the authority set commitment to the next authority set commitment, if the authority set has changed.
+
+ ### Implementation
+
+ - [BEEFY.sol](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/consensus/BeefyV1.sol)
+
+
+## zkBEEFY
+
+While BLS precompiles are not yet available on popular EVM chains, we unfortunately have to use ECDSA signatures to prove BEEFY finality. Although ECDSA signatures are cheap to verify, the number of signatures creates high verification cost and prevents frequent posting of consensus proofs for faster finality. This is because ECDSA signatures do not support aggregation, and the verification cost increases linearly with the number of validators.
+
+A workaround for would be to leverage a SNARK circuit to perform the verification of these signatures alongside their membership proofs in the `keyset_commitment`. This effectively to amortizes the cost of verification, making it constant no matter how large the validator set grows. For this, we leverage the [barretenberg](https://github.com/AztecProtocol/barretenberg) framework by the aztec team, which is able to prove the verification of secp256k1 signatures in less than 2s. This ensures fast proving times for generating the zkBEEFY cosnensus proof.
+
+### Implementation
+
+- [zkBEEFY.sol](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/consensus/ZkBeefy.sol)
+
+## References
+
+${^{[1]}}$. [Polkadot Protocol Specification 6.7. BEEFY: Bridge Efficiency Enabling Finality Yielder](https://spec.polkadot.network/sect-finality#sect-grandpa-beefy)

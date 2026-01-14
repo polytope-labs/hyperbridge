@@ -1,0 +1,9 @@
+{
+  "title": "Parachains",
+  "pages": [
+    "overview",
+    "ismp-parachain-inherent",
+    "ismp-parachain-runtime-api"
+  ],
+  "defaultOpen": false
+}

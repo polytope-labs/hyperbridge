@@ -1,31 +1,44 @@
 {
-  "name": "hyperbridge-protocol-specification",
+  "name": "new-docs",
   "version": "0.0.0",
-  "type": "module",
+  "private": true,
   "scripts": {
-    "dev": "while true; do vocs dev --host && break; done",
-    "build": "vocs build && node ./fixTrailingSlash.js",
-    "preview": "vocs preview"
+    "build": "next build",
+    "dev": "next dev --port=4010",
+    "start": "next start",
+    "types:check": "fumadocs-mdx && tsc --noEmit",
+    "postinstall": "fumadocs-mdx",
+    "lint": "biome check",
+    "format": "biome format --write"
   },
   "dependencies": {
-    "@types/react": "latest",
-    "fs-extra": "^11.2.0",
-    "glob": "^10.4.1",
-    "i": "^0.3.7",
-    "prettier": "^3.2.2",
-    "react": "latest",
-    "react-dom": "latest",
-    "rehype-katex": "^7.0.0",
-    "rehype-stringify": "^10.0.0",
+    "@hyperbridge/ui": "^0.0.33",
+    "fumadocs-core": "16.2.3",
+    "fumadocs-mdx": "14.1.0",
+    "fumadocs-ui": "16.2.3",
+    "katex": "^0.16.27",
+    "lucide-react": "^0.552.0",
+    "next": "16.0.10",
+    "pseudocode": "^2.4.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "rehype-katex": "^7.0.1",
+    "rehype-parse": "^9.0.1",
+    "rehype-stringify": "^10.0.1",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
-    "remark-rehype": "^11.1.0",
-    "sitemap-ts": "^1.7.3",
-    "typescript": "latest",
-    "vocs": "latest"
+    "remark-rehype": "^11.1.2"
   },
   "devDependencies": {
-    "vite-plugin-radar": "^0.9.2"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+    "@biomejs/biome": "^2.3.8",
+    "@tailwindcss/postcss": "^4.1.16",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "baseline-browser-mapping": "^2.9.5",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.16",
+    "typescript": "^5.9.3"
+  }
 }

@@ -1,0 +1,87 @@
+---
+title: Parlia (Bsc)
+description: The Binance Smart Chain (BSC) utilizes a custom BFT consensus protocol based on Delegated Proof of Staked to achieve fast Finality. This protocol combines elements of DPos and PoA. As a BFT protocol it employs slashing of staked funds to disincentivize malicious behaviour.
+---
+
+# Parlia
+
+The Binance Smart Chain (BSC) utilizes a custom BFT consensus protocol based on Delegated Proof of Staked to achieve fast Finality. This protocol combines elements of DPos and PoA.
+As a BFT protocol it employs slashing of staked funds to disincentivize malicious behaviour.
+
+**Fast Finality**: It produces finality proofs every 6 seconds translating to a two-block confirmation delay for transactions on the BSC network.
+
+**Delegated Proof of Stake (PoS)**: This mechanism promotes decentralization by allowing users to delegate their stake (tokens) to validators they trust. Validators with more delegated stake have a higher chance of being elected to produce blocks and earn transaction fees as rewards.
+Unlike some PoS systems, BSC avoids inflation by solely distributing transaction fees as validator rewards. BSC aims to strike a balance between speed, security, and decentralization.
+
+## Epoch
+
+21 Validators elected at the start of every epoch take turns to produce blocks for a period that lasts 1000 blocks which is equivalent to 10 minutes.
+
+## Reaching Consensus Through Secure Voting
+
+Validators in the BSC network employ the BLS scheme to securely cast votes. These votes determine the validity and finality of blocks.
+
+**What Validators Vote On**:
+
+Each `VoteData` object pertains to a specific pair of blocks:
+
+**Target Block**: This is the block being proposed for justification.
+**Source Block**: This is a previously justified block serving as a reference point.
+
+**Vote Validity and Finality**:
+
+For a target block to be considered justified (considered valid by a large enough majority), it requires votes from more than two-thirds of the validators (represented as (2/3 * N) where N is the total number of validators). Additionally, at least one more unique validator needs to participate to reach the required threshold of (2/3 * N) + 1 votes.
+
+**Finalizing the Source Block**:
+
+When a target block receives sufficient justification votes, the corresponding source block (the reference point) is considered finalized.
+
+```rust showLineNumbers
+type H160 = [u8; 20];
+type H256 = [u8; 32];
+type BlsSignature = [u8; 96];
+type BlsPublicKey = [u8; 48];
+
+struct ValidatorInfo {
+	pub address: H160,
+	pub bls_public_key: BlsPublicKey,
+}
+
+struct VoteData {
+	pub source_number: u64,
+	pub source_hash: H256,
+	pub target_number: u64,
+	pub target_hash: H256,
+}
+
+struct VoteAttestationData {
+	pub vote_address_set: u64,
+	pub agg_signature: BlsSignature,
+	pub data: VoteData,
+	pub extra: Vec<u8>,
+}
+
+struct ExtraData {
+	pub extra_vanity: Vec<u8>,
+	pub validator_size: u8,
+	pub validators: Vec<ValidatorInfo>,
+	pub extra_seal: Vec<u8>,
+	pub agg_signature: BlsSignature,
+	pub vote_data: VoteData,
+	pub vote_address_set: u64,
+}
+```
+
+## Authority Set Rotation
+
+The BSC consensus protocol implements a mechanism for periodically rotating the validator set. However, to prevent disruptions and safeguard against malicious updates, newly elected validators don't immediately begin producing blocks.
+
+**Here's how the transition works**:
+
+During an epoch change, the BLS public keys of the validators elected for the next epoch are incorporated into the extra data field of the epoch header. This allows light clients to verify the correctness of the new validator set.
+There's a built-in delay before new validators can start producing blocks. They must wait until at least `epoch_block + N / 2` blocks have been produced since the epoch began. Here, N represents the size of the previous validator set.
+This delay serves a crucial purpose: it grants light clients sufficient time to react to potentially fraudulent validator set updates. This helps mitigate the risk of malicious actors manipulating the validator set for their own gain.
+
+### Implementation
+
+- [ismp-bsc](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/bsc/src/lib.rs)

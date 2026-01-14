@@ -1,0 +1,210 @@
+---
+title: Getting Started
+description: Quick start guide for initializing the Hyperbridge SDK and creating your first cross-chain connection.
+---
+
+# Getting Started
+
+This guide will walk you through setting up the Hyperbridge SDK and creating your first cross-chain connection.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- Node.js 22+ installed
+- Basic knowledge of TypeScript/JavaScript
+- RPC endpoints for your source and destination chains
+- IsmpHost contract addresses for your chains
+
+
+## Installation
+
+Install the SDK using your preferred package manager:
+
+<Tabs items={['pnpm', 'yarn', 'npm']}>
+<Tab value="npm">
+```bash lineNumbers
+npm install @hyperbridge/sdk
+```
+</Tab>
+<Tab value="yarn">
+```bash lineNumbers
+yarn add @hyperbridge/sdk
+```
+</Tab>
+<Tab value="pnpm">
+```bash lineNumbers
+pnpm add @hyperbridge/sdk
+```
+</Tab>
+</Tabs>
+
+**Using Vite?** If you're using Vite, you'll need to add the Hyperbridge Vite plugin to handle WebAssembly dependencies. See the [Vite Integration guide](/developers/sdk/vite-integration) for setup instructions.
+
+## Quick Setup
+
+### 1. Create Chain Instances
+
+**EVM Chain:**
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { EvmChain } from "@hyperbridge/sdk"
+
+const sourceChain = new EvmChain({
+  chainId: 97, // BSC Testnet
+  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+  host: "0xYourIsmpHostAddress",
+  consensusStateId: "BSC0"
+})
+```
+
+**Substrate Chain:**
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { SubstrateChain } from "@hyperbridge/sdk"
+
+const hyperbridge = new SubstrateChain({
+  stateMachineId: "KUSAMA-4009",
+  wsUrl: "wss://gargantua.polytope.technology",
+  hasher: "Keccak",
+  consensusStateId: "PAS0"
+})
+
+// Must connect before using
+await hyperbridge.connect()
+```
+
+For detailed configuration options and supported chains, see:
+- [EvmChain API Reference](/developers/sdk/api/evm-chain)
+- [SubstrateChain API Reference](/developers/sdk/api/substrate-chain)
+
+---
+
+### 2. Create Query Client
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { createQueryClient } from "@hyperbridge/sdk"
+
+const queryClient = createQueryClient({
+  url: "https://gargantua.indexer.polytope.technology"
+})
+```
+
+Polytope Labs provides a free indexer service for both mainnet and testnet. The endpoints are actually GraphQL APIs, so a GraphiQL playground is available at the endpoints as well.
+
+| Network | Indexer URL |
+|---------|-------------|
+| Mainnet | https://nexus.indexer.polytope.technology |
+| Testnet | https://gargantua.indexer.polytope.technology |
+
+---
+
+### 3. Initialize IndexerClient
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { IndexerClient } from "@hyperbridge/sdk"
+
+const indexer = new IndexerClient({
+  queryClient,
+  pollInterval: 1_000, // Poll every 1 second
+  source: sourceChain,
+  dest: destChain,
+  hyperbridge: hyperbridge
+})
+```
+
+**Configuration Options:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `queryClient` | `QueryClient` | Query client for the Hyperbridge indexer |
+| `pollInterval` | `number` | Polling interval in milliseconds (default: 1000) |
+| `source` | `IChain` | Source chain instance |
+| `dest` | `IChain` | Destination chain instance |
+| `hyperbridge` | `IChain` | Hyperbridge chain instance |
+
+For complete API documentation and usage examples, see the [IndexerClient API Reference](/developers/sdk/api/indexer-client).
+
+---
+
+## Complete Example
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { 
+  IndexerClient, 
+  createQueryClient, 
+  EvmChain,
+  SubstrateChain 
+} from "@hyperbridge/sdk"
+
+async function main() {
+  // 1. Create query client
+  const queryClient = createQueryClient({
+    url: "https://gargantua.indexer.polytope.technology"
+  })
+
+  // 2. Create chain instances
+  const sourceChain = new EvmChain({
+    chainId: 97,
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+    host: "0xSourceHostAddress",
+    consensusStateId: "BSC0"
+  })
+
+  const destChain = new EvmChain({
+    chainId: 10200,
+    rpcUrl: "https://rpc.chiadochain.net",
+    host: "0xDestHostAddress",
+    consensusStateId: "GNO0"
+  })
+
+  const hyperbridgeChain = new SubstrateChain({
+    stateMachineId: "KUSAMA-4009",
+    wsUrl: "wss://gargantua.polytope.technology",
+    hasher: "Keccak",
+    consensusStateId: "PAS0"
+  })
+
+  // Connect to Substrate chain
+  await hyperbridgeChain.connect()
+
+  // 3. Initialize IndexerClient
+  const indexer = new IndexerClient({
+    queryClient,
+    pollInterval: 1_000,
+    source: sourceChain,
+    dest: destChain,
+    hyperbridge: hyperbridgeChain
+  })
+
+  console.log("✓ SDK initialized successfully!")
+
+  // 4. Track a request (example)
+  const requestHash = "0xYourRequestHashHere"
+  
+  for await (const status of indexer.postRequestStatusStream(requestHash)) {
+    console.log(`Status: ${status.status}`)
+    
+    if (status.status === "DESTINATION" || status.status === "PENDING_TIMEOUT") {
+      break
+    }
+  }
+  
+  // Clean up
+  await hyperbridgeChain.disconnect()
+}
+
+main().catch(console.error)
+```
+
+## Next Steps
+
+Now that you have the SDK set up, explore the detailed documentation:
+
+- **[IndexerClient API](/developers/sdk/api/indexer-client)** - Complete API reference with all methods and usage examples
+- **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration
+- **[SubstrateChain API](/developers/sdk/api/substrate-chain)** - Substrate chain methods and configuration
+- **[Tracking Requests](/developers/sdk/tracking/requests)** - Monitor cross-chain message statuses
+- **[Vite Integration](/developers/sdk/vite-integration)** - Detailed Vite plugin configuration and framework examples
+
+---

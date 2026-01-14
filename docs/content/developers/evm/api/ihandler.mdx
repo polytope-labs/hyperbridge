@@ -1,0 +1,686 @@
+---
+title: IHandler
+description: API reference for IHandler - interface for verifying and processing ISMP messages.
+---
+
+# IHandler
+
+Interface for verifying and processing ISMP messages. The handler validates consensus proofs and state proofs before dispatching messages to applications.
+
+```solidity lineNumbers
+interface IHandler
+```
+
+## Overview
+
+The Handler is responsible for:
+- Verifying consensus proofs from Hyperbridge
+- Processing and validating incoming POST requests
+- Processing and validating incoming POST responses
+- Processing and validating GET responses
+- Handling timeout proofs for all message types
+- Ensuring messages haven't timed out before delivery
+- Preventing duplicate message delivery
+
+All handler methods are **permissionless** - anyone can call them to relay messages.
+
+---
+
+## Functions
+
+### handleConsensus()
+
+Processes a consensus proof to update the consensus state and store new state commitments.
+
+```solidity lineNumbers
+function handleConsensus(
+    address host, 
+    bytes memory proof
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `proof` | `bytes` | Encoded consensus proof from Hyperbridge |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Retrieves current consensus state from host
+2. Calls consensus client to verify proof
+3. Updates consensus state in host if valid
+4. Stores new state commitments for finalized blocks
+5. Updates latest state machine heights
+
+**Reverts:**
+- If consensus client verification fails
+- If proof is for a stale height
+- If authority set is unknown
+- If host is frozen
+
+---
+
+### handlePostRequests()
+
+Processes and delivers POST requests to destination applications.
+
+```solidity lineNumbers
+function handlePostRequests(
+    address host,
+    PostRequestProof memory proof
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `proof` | `PostRequestProof` | Struct containing proof and requests |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Verifies state proof against stored commitment
+2. For each request:
+   - Validates destination matches this chain
+   - Checks request hasn't timed out
+   - Checks for duplicate delivery
+   - Dispatches to destination application
+   - Stores request receipt with relayer address
+
+**Reverts:**
+- `InvalidMessageDestination()` - Request not for this chain
+- `MessageTimedOut()` - Request exceeded timeout
+- `DuplicateMessage()` - Request already delivered
+- `InvalidProof()` - State proof verification failed
+- `HostFrozen()` - Host is frozen
+
+---
+
+### handlePostRequestTimeouts()
+
+Processes timed-out POST requests and triggers refunds.
+
+```solidity lineNumbers
+function handlePostRequestTimeouts(
+    address host,
+    PostTimeout memory timeout
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `timeout` | `PostTimeout` | Struct containing timeout proof and requests |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Verifies timeout proof
+2. For each request:
+   - Validates timeout timestamp has passed
+   - Calls `onPostRequestTimeout()` on source application
+   - Refunds relayer fee to payer (only if callback succeeds)
+
+**Important:**
+- Application timeout callback is called **before** refund
+- If callback reverts, no refund occurs
+- Timeout can be resubmitted until callback succeeds
+
+**Reverts:**
+- `MessageNotTimedOut()` - Timeout period not elapsed
+- `UnknownMessage()` - Request not found
+
+---
+
+### handlePostResponses()
+
+Processes and delivers POST responses to source applications.
+
+```solidity lineNumbers
+function handlePostResponses(
+    address host,
+    PostResponseProof memory proof
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `proof` | `PostResponseProof` | Struct containing proof and responses |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Verifies state proof against stored commitment
+2. For each response:
+   - Validates destination matches this chain
+   - Checks response hasn't timed out
+   - Verifies response is for a known request
+   - Checks request hasn't been responded to already
+   - Dispatches to source application
+   - Stores response receipt
+
+**Reverts:**
+- `InvalidMessageDestination()` - Response not for this chain
+- `MessageTimedOut()` - Response exceeded timeout
+- `UnknownMessage()` - Request not found
+- `DuplicateResponse()` - Request already responded to
+- `InvalidProof()` - State proof verification failed
+
+---
+
+### handlePostResponseTimeouts()
+
+Processes timed-out POST responses and triggers refunds.
+
+```solidity lineNumbers
+function handlePostResponseTimeouts(
+    address host,
+    PostResponseTimeout memory timeout
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `timeout` | `PostResponseTimeout` | Struct containing timeout proof and responses |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Verifies timeout proof
+2. For each response:
+   - Validates timeout timestamp has passed
+   - Calls `onPostResponseTimeout()` on source application
+   - Refunds relayer fee to payer (only if callback succeeds)
+
+**Important:**
+- Application timeout callback is called **before** refund
+- If callback reverts, no refund occurs
+- Timeout can be resubmitted until callback succeeds
+
+**Reverts:**
+- `MessageNotTimedOut()` - Timeout period not elapsed
+- `UnknownMessage()` - Response not found
+
+---
+
+### handleGetResponses()
+
+Processes and delivers GET responses with state data to source applications.
+
+```solidity lineNumbers
+function handleGetResponses(
+    address host,
+    GetResponseProof memory proof
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `proof` | `GetResponseProof` | Struct containing proof and responses with state data |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. Verifies state proof against stored commitment
+2. For each response:
+   - Validates destination matches this chain
+   - Checks response hasn't timed out
+   - Verifies response is for a known request
+   - Validates storage proofs for each key
+   - RLP-decodes storage values
+   - Dispatches to source application
+
+**Important:**
+- Storage values are RLP-encoded from the state trie
+- Values are provided in same order as requested keys
+- Empty storage slots return empty bytes
+
+**Reverts:**
+- `InvalidMessageDestination()` - Response not for this chain
+- `MessageTimedOut()` - Response exceeded timeout
+- `UnknownMessage()` - Request not found
+- `InvalidProof()` - State proof verification failed
+
+---
+
+### handleGetRequestTimeouts()
+
+Processes timed-out GET requests.
+
+```solidity lineNumbers
+function handleGetRequestTimeouts(
+    address host,
+    GetTimeout memory timeout
+) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `address` | The IHost contract address |
+| `timeout` | `GetTimeout` | Struct containing timed-out GET requests |
+
+**Access:** Permissionless (can be called by anyone)
+
+**Process:**
+1. For each request:
+   - Validates timeout timestamp has passed
+   - Calls `onGetTimeout()` on source application
+
+**Important:**
+- GET requests have no relayer fees, so no refunds occur
+- Primarily for cleanup and state management
+
+**Reverts:**
+- `MessageNotTimedOut()` - Timeout period not elapsed
+- `UnknownMessage()` - Request not found
+
+---
+
+
+## Events
+
+The IHandler interface does not define any events directly. Events are emitted by the implementation contract.
+
+---
+
+## Structs
+
+### PostRequestProof
+
+Contains state proof and POST requests to be delivered.
+
+```solidity lineNumbers
+struct PostRequestProof {
+    bytes proof;
+    PostRequestLeaf[] requests;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `proof` | `bytes` | Merkle proof for the state |
+| `requests` | `PostRequestLeaf[]` | Array of requests with their metadata |
+
+---
+
+### PostResponseProof
+
+Contains state proof and POST responses to be delivered.
+
+```solidity lineNumbers
+struct PostResponseProof {
+    bytes proof;
+    PostResponseLeaf[] responses;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `proof` | `bytes` | Merkle proof for the state |
+| `responses` | `PostResponseLeaf[]` | Array of responses with their metadata |
+
+---
+
+### GetResponseProof
+
+Contains state proof and GET responses with storage values.
+
+```solidity lineNumbers
+struct GetResponseProof {
+    bytes proof;
+    GetResponseLeaf[] responses;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `proof` | `bytes` | Merkle proof for the state |
+| `responses` | `GetResponseLeaf[]` | Array of responses with storage data |
+
+---
+
+### PostTimeout
+
+Contains timeout proof and timed-out POST requests.
+
+```solidity lineNumbers
+struct PostTimeout {
+    bytes timeoutProof;
+    PostRequestLeaf[] requests;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timeoutProof` | `bytes` | Proof that timeout period has elapsed |
+| `requests` | `PostRequestLeaf[]` | Array of timed-out requests |
+
+---
+
+### PostResponseTimeout
+
+Contains timeout proof and timed-out POST responses.
+
+```solidity lineNumbers
+struct PostResponseTimeout {
+    bytes timeoutProof;
+    PostResponseLeaf[] responses;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timeoutProof` | `bytes` | Proof that timeout period has elapsed |
+| `responses` | `PostResponseLeaf[]` | Array of timed-out responses |
+
+---
+
+### GetTimeout
+
+Contains timed-out GET requests.
+
+```solidity lineNumbers
+struct GetTimeout {
+    GetRequest[] requests;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `requests` | `GetRequest[]` | Array of timed-out GET requests |
+
+---
+
+### PostRequest
+
+Represents a cross-chain message request.
+
+```solidity lineNumbers
+struct PostRequest {
+    bytes source;
+    bytes dest;
+    uint64 nonce;
+    bytes from;
+    bytes to;
+    uint64 timeoutTimestamp;
+    bytes body;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `bytes` | Source chain identifier |
+| `dest` | `bytes` | Destination chain identifier |
+| `nonce` | `uint64` | Unique nonce for this request on the source chain |
+| `from` | `bytes` | Source application address that initiated this request |
+| `to` | `bytes` | Destination application address to receive this request |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when this request expires |
+| `body` | `bytes` | Request payload to be delivered to the destination |
+
+---
+
+### PostResponse
+
+Represents a response to a cross-chain POST request.
+
+```solidity lineNumbers
+struct PostResponse {
+    PostRequest request;
+    bytes response;
+    uint64 timeoutTimestamp;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The original request being responded to |
+| `response` | `bytes` | Response payload to send back to the requester |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when this response expires |
+
+---
+
+### GetRequest
+
+Represents a cross-chain state query request.
+
+```solidity lineNumbers
+struct GetRequest {
+    bytes source;
+    bytes dest;
+    uint64 nonce;
+    address from;
+    uint64 timeoutTimestamp;
+    bytes[] keys;
+    uint64 height;
+    bytes context;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `bytes` | Source chain identifier where the query originated |
+| `dest` | `bytes` | Destination chain identifier to query |
+| `nonce` | `uint64` | Unique nonce for this request on the source chain |
+| `from` | `address` | Address of the application that initiated this query |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when this query expires |
+| `keys` | `bytes[]` | Storage keys to retrieve from the destination chain |
+| `height` | `uint64` | Block height at which to read the state (0 for latest) |
+| `context` | `bytes` | Application-specific metadata for tracking the query |
+
+---
+
+### GetResponse
+
+Represents a response to a cross-chain state query.
+
+```solidity lineNumbers
+struct GetResponse {
+    GetRequest request;
+    StorageValue[] values;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `GetRequest` | The original GET request being responded to |
+| `values` | `StorageValue[]` | Retrieved storage values from the queried chain |
+
+---
+
+### StorageValue
+
+Represents a storage key-value pair.
+
+```solidity lineNumbers
+struct StorageValue {
+    bytes key;
+    bytes value;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | `bytes` | Storage key |
+| `value` | `bytes` | RLP-encoded storage value |
+
+---
+
+### PostRequestLeaf
+
+Represents a POST request with metadata for proof verification.
+
+```solidity lineNumbers
+struct PostRequestLeaf {
+    PostRequest request;
+    uint256 index;
+    bytes32[] kIndex;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The POST request |
+| `index` | `uint256` | Index in the commitment tree |
+| `kIndex` | `bytes32[]` | Merkle path indices |
+
+---
+
+### PostResponseLeaf
+
+Represents a POST response with metadata for proof verification.
+
+```solidity lineNumbers
+struct PostResponseLeaf {
+    PostResponse response;
+    uint256 index;
+    bytes32[] kIndex;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `response` | `PostResponse` | The POST response |
+| `index` | `uint256` | Index in the commitment tree |
+| `kIndex` | `bytes32[]` | Merkle path indices |
+
+---
+
+### GetResponseLeaf
+
+Represents a GET response with storage data and proof.
+
+```solidity lineNumbers
+struct GetResponseLeaf {
+    GetRequest request;
+    bytes[] values;
+    bytes[] proof;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `GetRequest` | The original GET request |
+| `values` | `bytes[]` | RLP-encoded storage values |
+| `proof` | `bytes[]` | Storage proofs for each key |
+
+---
+
+## Errors
+
+Errors that can occur during message handling.
+
+---
+
+### ConsensusClientExpired
+
+```solidity lineNumbers
+error ConsensusClientExpired()
+```
+
+Thrown when consensus state hasn't been updated within the unbonding period.
+
+---
+
+### HostFrozen
+
+```solidity lineNumbers
+error HostFrozen()
+```
+
+Thrown when attempting to process messages while host is frozen.
+
+---
+
+### ChallengePeriodNotElapsed
+
+```solidity lineNumbers
+error ChallengePeriodNotElapsed()
+```
+
+Thrown when trying to use a state commitment before challenge period ends.
+
+---
+
+### StateCommitmentNotFound
+
+```solidity lineNumbers
+error StateCommitmentNotFound()
+```
+
+Thrown when referenced state commitment doesn't exist.
+
+---
+
+### InvalidMessageDestination
+
+```solidity lineNumbers
+error InvalidMessageDestination()
+```
+
+Thrown when message destination doesn't match current chain.
+
+---
+
+### MessageTimedOut
+
+```solidity lineNumbers
+error MessageTimedOut()
+```
+
+Thrown when message has exceeded its timeout period.
+
+---
+
+### MessageNotTimedOut
+
+```solidity lineNumbers
+error MessageNotTimedOut()
+```
+
+Thrown when attempting to process timeout before timeout period elapsed.
+
+---
+
+### DuplicateMessage
+
+```solidity lineNumbers
+error DuplicateMessage()
+```
+
+Thrown when message has already been delivered.
+
+---
+
+### DuplicateResponse
+
+```solidity lineNumbers
+error DuplicateResponse()
+```
+
+Thrown when request has already received a response.
+
+---
+
+### UnknownMessage
+
+```solidity lineNumbers
+error UnknownMessage()
+```
+
+Thrown when request/response commitment is not found.
+
+---
+
+### InvalidProof
+
+```solidity lineNumbers
+error InvalidProof()
+```
+
+Thrown when state proof verification fails.
+
+---

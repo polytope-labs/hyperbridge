@@ -1,0 +1,296 @@
+---
+title: Collators (Block Producer)
+description: This guide outlines the complete process of leveraging a Relayer's hardwork and accrued revenue to become a Collator on the network.
+---
+
+# Becoming a Collator
+
+This guide outlines the complete process of leveraging a Relayer's hardwork and accrued revenue to become a Collator on the network.
+Our system is designed to reward active and reliable participants by allowing them to use their earnings as a reputation score, which is the primary factor in Collator
+selection. By becoming a Collator, a Relayer plays a more direct role in the network's liveness guarantees and block production.
+
+## Who is a Collator
+Collators are Block producers for the Hyperbridge Blockchain. Collators are essential for keeping the Hyperbridge chain live and processing transactions.
+For their vital contributions, Collators are directly rewarded from the network Treasury. Each successful Block authored earns the collator `0.7 $BRIDGE`.
+This creates a consistent and reliable revenue stream, with a total of approximately `4,000,000 $BRIDGE` allocated annually for collator rewards,
+distributed among the active set based on their block production performance.
+
+The primary responsibility for Collators on Hyperbridge are:
+
+- **Collecting Transactions**: They gather transactions from users.
+- **Producing Blocks**: They ensure the production of Blocks.
+- **Submitting to Polkadot Validators**: They submit Blocks  along with proof to the relay chain validators, in this case, Polkadot.
+
+## The Relayer-Collator Relationship
+
+In the Hyperbridge ecosystem, the path to becoming a collator begins with being a successful relayer. The two roles are intrinsically linked:
+
+- **Relayers are the proving ground**: By relaying messages, you demonstrate your technical competence and commitment to the network's operation.
+- **Next step is becoming a Collator**: The collator set is exclusively selected from the pool of active relayers. Your economic activity as a relayer is
+the only way to gain the reputation required to be considered for a collator position.
+
+This creates a meritocratic system where the most dedicated and effective network participants are promoted to roles with greater responsibility and rewards.
+
+## Core Concepts: Stash, Controller, and Reputation
+
+Before diving deep into the steps required, it is important to understand the two-account model and the tokens involved:
+
+- ** Stash Account(Cold)**: It holds your $BRIDGE bond, and is ideally kept offline in a "cold" wallet for maximum security.
+It is used only for high-value transactions like bondin and designating a controller.
+- **Controller Account(Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer and a collator node.Controller
+    - It's the account that accrues Reputation.
+    - It's the account that sets Session Keys.
+    - This is the account you use as your relayer's signer.
+
+### The Tokens
+- **The Hyperbridge Token(`$BRIDGE`)**: This is the primary token a Relayer earns as a reward for relaying messages. It is the real transferable asset that reflects or represents your earnings.
+    - Your Stash account must bond $BRIDGE to become a candidate.
+    - Your Controller account receives $BRIDGE rewards for producing blocks.
+    - Your Controller account earns $BRIDGE for relaying messages.
+
+- **The Reputation Asset**: This is a special, non-transferable asset that acts as a Relayer's reputation score. It is designed to mirrror a Relayer's Hyperbridge token earnings.
+The ratio of this asset to a Relayer's `$BRIDGE` earnings is 1 to 1. For every `$BRIDGE` token earned by a Relayer, an equal amount of the Reputation Asset is automatically minted to the Relayer's account.
+
+**Key Insight**: Your reputation score is directly tied to your success as a Relayer which is driven by your Controller account. The more messages you relay, the more `$BRIDGE` you earn,
+the higher your reputation score becomes, and the better your chances of being selected as a Collator
+
+## The path to becoming a Collator
+The process involves four main stages: Accruing reputation score/asset, preparing your node, bonding as a candidate, and registering your controller.
+
+### Step 1: Accrue Reputation by Relaying Messages with Your Controller Account
+This is the foundation of the entire system. The primary goal is to be an active and reliable relayer.
+
+**Why Relayers**: Hyperbridge's Collator selection mechanism is based on proven economic activity on Hyperbridge. By rewarding relayers with reputation, we ensure that our collators are experienced,
+active, and invested participants in the network success. This meritocratic system ensures liveness guarantees are upheld by selecting for proven value creation.
+
+**Action**: Continue to relay messages or/and consensus proofs between connected chains using a dedicated Controller account as the signer
+
+**Outcome**: For every reward you receive in `$BRIDGE` to your Controller account, the `pallet-messaging-relayer-fees` and `pallet-consensus-incentives` will automatically mint an equivalent amount of the Reputation Asset
+to that same Controller account. You can always find your Reputation Asset balance under the Polkadot JS UI by going to `Developer > Chain State > Assets > Account`.
+
+<figure>
+  <img src="/asset_account_balance.png" alt="Reputation Asset Account Balance   " />
+  <figcaption style={{ textAlign: "center" }}>How to check Reputation Asset Account Balance</figcaption>
+</figure>
+
+### Step 2: Prepare Your Collator Node and Session Keys
+To be a collator, you must run a full node and have set of hot keys known as session keys, available in your node's keystore. These keys are used for signing blocks.
+
+#### A Note on Key Types
+
+You will be working with two types of keys:
+
+- **Controller Account Key (sr25519)**: This is your main account key known as the controller account. It holds your reputation and is used to sign transactions. This key is what you used as the `signer` field in the `[hyperbridge]`
+section of the messaging and consensus relayer config.
+- **Session Key (aura)**: This is a "hot" key that lives on your collator node and is used for the high-frequency task of signing blocks.
+
+**Generating a secure Account Key(If you don't have one)**: Your relayer's `signing` key will become your main collator account.
+You can generate a new, secure `sr25519` key for this purpose using the `subkey` tool.
+
+1. **Install Subkey**: if you don't have it, install it with the following command:
+
+```
+cargo install subkey
+```
+
+2. **Generate a Key**: Run the following command to generate a new key:
+
+```
+subkey generate --scheme sr25519
+```
+
+<figure>
+  <img src="/sample_subscan_generated.png" alt="Sample Key Generation with subscan  " />
+  <figcaption style={{ textAlign: "center" }}>How to generate controller account key</figcaption>
+</figure>
+
+
+3.**Securely Store Your Keys**: The command will output a mnemonic phrase, a private key, and a public address. Securely backup your mnemonic phrase.
+This is the master key to your account. The hexadecimal private key is what you will use as the signer in the `[hyperbridge]` section of both the messaging and consensus relayer configurations.
+
+You can see a sample consensus relayer config showing the signing key which is the controller account as the key we generated using subkey:
+```toml lineNumbers
+# Hyperbridge consensus client config, required.
+[hyperbridge]
+# Specifies the consensus mechanism of the Hyperbridge chain.
+# "grandpa" is used for Substrate-based chains utilizing the GRANDPA finality gadget.
+# "beefy" is used for chains utilizing the BEEFY finality gadget
+type = "grandpa"
+
+# Configuration specific to the GRANDPA consensus client.
+[hyperbridge.grandpa]
+# The WebSocket RPC endpoint for a Standalone or Relay Chain.
+rpc = "wss://localhost:443"
+# The expected time duration for a block slot in milliseconds.
+slot_duration = 6000
+# A list of parachain IDs that are connected to this relay chain and should be monitored.
+para_ids = [4009]
+
+# Configuration for the Hyperbridge parachain itself.
+[hyperbridge.substrate]
+# The WebSocket RPC endpoint for the Hyperbridge parachain.
+rpc_ws = "wss://localhost:443"
+# The state machine identifier for the Hyperbridge parachain.
+state_machine = "KUSAMA-4009"
+# Relayer account seed.
+signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
+...
+```
+
+You can see a sample messaging relayer config showing the signing key which is the controller account as the key we generated using subkey:
+```toml lineNumbers
+# Hyperbridge messaging config, required
+[hyperbridge]
+state_machine = "KUSAMA-4009"
+
+# Hyperbridge node ws rpc endpoint.
+rpc_ws = "ws://127.0.0.1:9944" # example endpoint
+
+signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
+
+# Hyperbridge's consensus state id
+# Only add this if relaying to a solochain.
+# Relaying between solochains and parachains with the
+# same relayer instance is not supported.
+# For Paseo Testnet: PAS0
+# For Polkadot Mainnet: DOT0
+# consensus_state_id = "PAS0"
+
+[bsc]
+type = "evm"
+poll_interval = 60
+state_machine = "EVM-97"
+rpc_urls = [
+	"https://bsc-rpc.network",
+]
+consensus_state_id = "BSC0"
+ismp_host = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7"
+signer = ""
+tracing_batch_size = 5
+query_batch_size = 10000
+
+# Relayer config, required
+[relayer]
+# Define your profitability configuration.
+# 0 -> 0% i.e relay all requests, even unprofitable ones.
+# 1 -> 1%. ie fees provided for requests must be
+# profitable by at least 1%. etc.
+minimum_profit_percentage = 1
+
+# How frequently to initiate withdrawals in seconds
+# defaults to 24 hours
+withdrawal_frequency = 86400
+
+# Minimum amount to withdraw when auto-withdrawing
+# defaults to $100
+minimum_withdrawal_amount = 100
+
+# If not empty, tesseract will only deliver requests
+# to the specified state-machines
+delivery_endpoints = [
+    "EVM-97",
+]
+
+```
+
+
+**Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
+Ensure it is stable and has a reliable network connection.
+
+**Action 2: Generate session Keys**: On your running collator node, you will need to generate your session keys by making an `author_rotateKeys` RPC Call.
+You can do this with a curl command:
+
+
+```bash lineNumbers
+curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method": "author_rotateKeys", "params":[]}' http://localhost:9990
+```
+
+<figure>
+  <img src="/rotate_keys.png" alt="Author rotate keys" />
+  <figcaption style={{ textAlign: "center" }}>Result showing when you rotate keys</figcaption>
+</figure>
+
+
+Note: Replace 9990 with your node's RPC port if it is different.
+This command will return a long hex string. This is your session key public key
+
+**Action 3: Link your keys**: You must now tell the blockchain that your Controller account (`AccountId`) will use these new session keys for collating.
+You do this by calling the `session.setKeys` extrinsic from your Controller account.
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot UI.
+- Select your Controller account(the one with the reputation score).
+    Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
+- Choose the `session` pallet and the `setKeys` extrinsic.
+- Paste the entire hex string from the previous step into the `keys` field.
+- Leave the `proof` field empty (0x0).
+- Sign and submit the transaction.
+
+**Final Action: Prepare Your Node for Block Production**:
+After you have successfully registered as a candidate, you should restart your node with the `--collator` flag. This prepares your
+node to start producing blocks as soon as you are selected for the active set.
+
+<figure>
+  <img src="/set_collator_keys.png" alt="Setting session keys" />
+  <figcaption style={{ textAlign: "center" }}>How to set Session Keys</figcaption>
+</figure>
+
+
+### Step 3: Register as a Candidate By Bonding Funds from your Stash Account
+Now that the node is ready and your keys are linked, you can now declare your intention to becoming a Collator.
+
+**Candidacy Bond**: To register as a candidate, your controller account must have a `$BRIDGE` token of at least the minimum candidacy bond, which is 200,000 $BRIDGE.
+**Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your Stash account.
+- Choose the `collatorSelection` pallet and the `registerAsCandidate` extrinsic.
+- Sign and submit the transaction.
+
+<figure>
+  <img src="/register_as_candidate_with_stash.png" alt="Registering as candidate using Stash Account" />
+  <figcaption style={{ textAlign: "center" }}>How to register as candidate using your Stash Account</figcaption>
+</figure>
+
+
+This transaction will lock your bond and add your Stash account to the candidate pool.
+
+### Step 4: Link your Controller to your Stash
+This is the final and most important step. You must now create the on-chain link between your bonded Stash account and your operational Controller account.
+**Action**: Call the collatorManager.register extrinsic
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your Stash account(the same one from Step 3).
+- Choose the `collatorManager` pallet and the `register` extrinsic.
+- In the `controller` field, select your `Controller` account (the one with the reputation and session keys).
+
+<figure>
+  <img src="/register_controller.png" alt="Registering Your Controller" />
+  <figcaption style={{ textAlign: "center" }}>How to register your Controller Account</figcaption>
+</figure>
+
+This tells the network: "I  bonded the Stash, designate this Controller to perform collator duties on my behalf."
+
+## The selection process & what happens next
+
+At the beginning of each new session, our `pallet-collator-manager` runs it's selection logic:
+
+- It fetches the list of all bonded candidates(Stash accounts) from `pallet-collator-selection` who have set their session keys.
+- It uses it's `Controller` map to find the linked `Controller` account for each stash.
+- It filters this list, keeping only the candidates whose `Controller` has set valid session keys.
+- It ranks the remaining candidates from highest to lowest based on their Controller's Reputation Asset balance.
+- It selects the top candidates to fill the available collator slots for the new session.
+
+
+If you are selected:
+
+- Your Controller's Reputation Asset balance will be burned. This is somewhat like your stake for the session.
+- Your node(run by your Controller) will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--collator` flag
+- Bear in mind that as you are still performing your duties of relaying messages or consensus proofs, your Controller will keep stacking `$BRIDGE` rewards
+and your reputation asset will start increasing too, allowing you to compete for a spot in future sessions.
+
+If you are not selected:
+
+- You remain in the candidate pool.
+- Continue relaying messages with your Controller to increase your Reputation Asset balance and improve your chances of being selected in the next session.
+
+This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.

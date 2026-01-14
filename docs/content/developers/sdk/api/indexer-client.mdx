@@ -1,0 +1,527 @@
+---
+title: IndexerClient
+description: API reference for the IndexerClient class - query the Hyperbridge indexer and monitor cross-chain request statuses.
+---
+
+# IndexerClient
+
+The `IndexerClient` class provides methods for querying the Hyperbridge indexer and monitoring cross-chain request statuses in real-time.
+
+## Constructor
+
+### new IndexerClient(config)
+
+Creates a new IndexerClient instance.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `config.queryClient` | `QueryClient` | Query client instance for the Hyperbridge indexer |
+| `config.pollInterval` | `number` | Polling interval in milliseconds (default: 1000) |
+| `config.source` | `IChain` | Source chain instance (EvmChain or SubstrateChain) |
+| `config.dest` | `IChain` | Destination chain instance (EvmChain or SubstrateChain) |
+| `config.hyperbridge` | `IChain` | Hyperbridge chain instance (typically SubstrateChain) |
+
+**Returns:** `IndexerClient`
+
+**Example:**
+
+```typescript lineNumbers
+const indexer = new IndexerClient({
+  queryClient: createQueryClient({ url: "https://indexer-url" }),
+  pollInterval: 1_000,
+  source: sourceChain,
+  dest: destChain,
+  hyperbridge: hyperbridgeChain
+})
+```
+
+## Instance Methods
+
+### postRequestStatusStream(hash)
+
+Creates an async generator that streams status updates for a POST request. The stream automatically monitors both request progress and timeout events. Terminates when the request reaches a terminal state (DESTINATION or PENDING_TIMEOUT).
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `hash` | `HexString` | Request commitment hash, or transaction hash from any chain in the request lifecycle |
+
+**Returns:** `AsyncGenerator<RequestStatusWithMetadata, void>`
+
+**Yields:**
+
+| Status | Description |
+|--------|-------------|
+| `RequestStatus.SOURCE` | Request dispatched from source chain |
+| `RequestStatus.SOURCE_FINALIZED` | Request finalized on source chain |
+| `RequestStatus.HYPERBRIDGE_DELIVERED` | Request delivered to Hyperbridge |
+| `RequestStatus.HYPERBRIDGE_FINALIZED` | Request finalized on Hyperbridge |
+| `RequestStatus.DESTINATION` | Request executed on destination chain (terminal) |
+| `TimeoutStatus.PENDING_TIMEOUT` | Request exceeded timeout period (terminal) |
+
+**Example:**
+
+```typescript lineNumbers
+for await (const status of indexer.postRequestStatusStream(requestHash)) {
+  console.log(`Status: ${status.status}`)
+  console.log(`Block: ${status.metadata.blockNumber}`)
+  console.log(`TX: ${status.metadata.transactionHash}`)
+  
+  if (status.status === "DESTINATION" || status.status === "PENDING_TIMEOUT") {
+    break
+  }
+}
+```
+
+---
+
+### getRequestStatusStream(hash)
+
+Creates an async generator that streams status updates for a GET request. Terminates when the request reaches a terminal state.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `hash` | `HexString` | Request commitment hash, or transaction hash from any chain in the request lifecycle |
+
+**Returns:** `AsyncGenerator<RequestStatusWithMetadata, void>`
+
+**Yields:** Same status types as `postRequestStatusStream()`
+
+**Example:**
+
+```typescript lineNumbers
+for await (const status of indexer.getRequestStatusStream(requestHash)) {
+  console.log(`GET Request Status: ${status.status}`)
+  
+  if (status.status === "DESTINATION" || status.status === "PENDING_TIMEOUT") {
+    break
+  }
+}
+```
+
+---
+
+### postRequestTimeoutStream(hash)
+
+Creates an async generator that streams timeout processing status updates for a POST request. Use this method when `postRequestStatusStream()` yields `TimeoutStatus.PENDING_TIMEOUT`.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `hash` | `HexString` | Request commitment hash |
+
+**Returns:** `AsyncGenerator<PostRequestTimeoutStatus, void>`
+
+**Yields:**
+
+| Status | Description |
+|--------|-------------|
+| `TimeoutStatus.PENDING_TIMEOUT` | Request has exceeded timeout period |
+| `TimeoutStatus.DESTINATION_FINALIZED_TIMEOUT` | Timeout finalized on destination |
+| `TimeoutStatus.HYPERBRIDGE_TIMED_OUT` | Timeout message delivered to Hyperbridge |
+| `TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT` | Timeout finalized on Hyperbridge |
+| `TimeoutStatus.TIMED_OUT` | Timeout finalized on source chain (terminal) |
+
+**Example:**
+
+```typescript lineNumbers
+// After receiving PENDING_TIMEOUT status
+for await (const status of indexer.postRequestTimeoutStream(requestHash)) {
+  console.log(`Timeout Status: ${status.status}`)
+  
+  if (status.status === "TIMED_OUT") {
+    console.log("Request timeout complete")
+    break
+  }
+}
+```
+
+---
+
+### getRequestTimeoutStream(hash)
+
+Creates an async generator that streams timeout processing status updates for a GET request.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `hash` | `HexString` | Request commitment hash |
+
+**Returns:** `AsyncGenerator<PostRequestTimeoutStatus, void>`
+
+**Yields:** Same status types as `postRequestTimeoutStream()`
+
+---
+
+### queryRequestWithStatus(commitment)
+
+Queries the current status of a request without streaming.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `commitment` | `HexString` | Request commitment hash |
+
+**Returns:** `Promise<PostRequestWithStatus | undefined>`
+
+**Example:**
+
+```typescript lineNumbers
+const request = await indexer.queryRequestWithStatus(commitmentHash)
+if (request) {
+  console.log("Current Status:", request.status)
+  console.log("Request Data:", request.data)
+}
+```
+
+---
+
+### queryGetRequestWithStatus(hash)
+
+Queries the current status of a GET request without streaming.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `hash` | `HexString` | Request commitment hash |
+
+**Returns:** `Promise<GetRequestWithStatus | undefined>`
+
+**Example:**
+
+```typescript lineNumbers
+const getRequest = await indexer.queryGetRequestWithStatus(commitmentHash)
+if (getRequest) {
+  console.log("Current Status:", getRequest.status)
+}
+```
+
+## Standalone Query Functions
+
+These functions allow querying the indexer directly without creating an IndexerClient instance.
+
+### queryPostRequest(params)
+
+Queries POST request data and status from the indexer.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.commitmentHash` | `string` | Request commitment hash |
+| `params.queryClient` | `QueryClient` | Query client instance |
+
+**Returns:** `Promise<PostRequestWithStatus>`
+
+**Example:**
+
+```typescript lineNumbers
+import { queryPostRequest, createQueryClient } from "@hyperbridge/sdk"
+
+const queryClient = createQueryClient({ url: "https://indexer-url" })
+const request = await queryPostRequest({
+  commitmentHash: "0x...",
+  queryClient
+})
+```
+
+---
+
+### queryGetRequest(params)
+
+Queries GET request data and status from the indexer.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.commitmentHash` | `string` | Request commitment hash |
+| `params.queryClient` | `QueryClient` | Query client instance |
+
+**Returns:** `Promise<GetRequestWithStatus>`
+
+**Example:**
+
+```typescript lineNumbers
+import { queryGetRequest, createQueryClient } from "@hyperbridge/sdk"
+
+const queryClient = createQueryClient({ url: "https://indexer-url" })
+const getRequest = await queryGetRequest({
+  commitmentHash: "0x...",
+  queryClient
+})
+```
+
+## Structs
+
+### HexString
+
+A hex-encoded string prefixed with `0x`.
+
+```typescript lineNumbers
+type HexString = `0x${string}`
+```
+
+---
+
+### PostRequestWithStatus
+
+A POST request with its associated status history.
+
+```typescript lineNumbers
+interface PostRequestWithStatus {
+  source: string
+  dest: string
+  from: HexString
+  to: HexString
+  nonce: bigint
+  body: HexString
+  timeoutTimestamp: bigint
+  statuses: Array<RequestStatusWithMetadata>
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `string` | Source state machine identifier |
+| `dest` | `string` | Destination state machine identifier |
+| `from` | `HexString` | Sending module address |
+| `to` | `HexString` | Receiving module address |
+| `nonce` | `bigint` | Request nonce |
+| `body` | `HexString` | Request body |
+| `timeoutTimestamp` | `bigint` | Timeout timestamp in seconds |
+| `statuses` | `Array<RequestStatusWithMetadata>` | Status history |
+
+---
+
+### GetRequestWithStatus
+
+A GET request with its associated status history.
+
+```typescript lineNumbers
+interface GetRequestWithStatus {
+  source: string
+  dest: string
+  from: HexString
+  nonce: bigint
+  height: bigint
+  keys: HexString[]
+  context: HexString
+  commitment: HexString
+  timeoutTimestamp: bigint
+  statuses: Array<RequestStatusWithMetadata>
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `string` | Source state machine identifier |
+| `dest` | `string` | Destination state machine identifier |
+| `from` | `HexString` | Sending module address |
+| `nonce` | `bigint` | Request nonce |
+| `height` | `bigint` | Block height to query |
+| `keys` | `HexString[]` | Storage keys to read |
+| `context` | `HexString` | Application metadata |
+| `commitment` | `HexString` | Request commitment hash |
+| `timeoutTimestamp` | `bigint` | Timeout timestamp in seconds |
+| `statuses` | `Array<RequestStatusWithMetadata>` | Status history |
+
+---
+
+### ResponseCommitmentWithValues
+
+A GET response with its commitment and storage values.
+
+```typescript lineNumbers
+interface ResponseCommitmentWithValues {
+  commitment: string
+  values: string[]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `commitment` | `string` | Response commitment hash |
+| `values` | `string[]` | Storage values in same order as requested keys |
+
+---
+
+### StateMachineUpdate
+
+Information about a state machine update on Hyperbridge.
+
+```typescript lineNumbers
+interface StateMachineUpdate {
+  height: number
+  chain: string
+  blockHash: string
+  blockNumber: number
+  transactionHash: string
+  transactionIndex: number
+  stateMachineId: string
+  timestamp: number
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `height` | `number` | State machine height |
+| `chain` | `string` | Chain identifier |
+| `blockHash` | `string` | Block hash |
+| `blockNumber` | `number` | Block number |
+| `transactionHash` | `string` | Transaction hash |
+| `transactionIndex` | `number` | Transaction index in block |
+| `stateMachineId` | `string` | State machine identifier |
+| `timestamp` | `number` | Update timestamp in seconds |
+
+---
+
+### RequestStatusWithMetadata
+
+```typescript lineNumbers
+type RequestStatusWithMetadata = {
+  status: RequestStatusKey
+  metadata: {
+    blockHash: string
+    blockNumber: number
+    transactionHash: string
+    timestamp?: number
+    calldata?: HexString  // Only present for HYPERBRIDGE_FINALIZED status
+  }
+}
+```
+
+---
+
+### BlockMetadata
+
+Metadata about a blockchain block and transaction.
+
+```typescript lineNumbers
+interface BlockMetadata {
+  blockHash: string
+  blockNumber: number
+  transactionHash: string
+  calldata?: string
+  timestamp?: number
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `blockHash` | `string` | Block hash |
+| `blockNumber` | `number` | Block number |
+| `transactionHash` | `string` | Transaction hash |
+| `calldata` | `string` | Optional. Transaction calldata (present for HYPERBRIDGE_FINALIZED statuses) |
+| `timestamp` | `number` | Optional. Block timestamp in seconds |
+
+---
+
+### PostRequestTimeoutStatus
+
+```typescript lineNumbers
+type PostRequestTimeoutStatus = {
+  status: TimeoutStatusKey
+  metadata: {
+    blockHash: string
+    blockNumber: number
+    transactionHash: string
+    timestamp?: number
+    calldata?: HexString  // Only present for HYPERBRIDGE_FINALIZED_TIMEOUT status
+  }
+}
+```
+
+---
+
+### RequestStatusKey
+
+```typescript lineNumbers
+type RequestStatusKey = 
+  | "SOURCE"
+  | "SOURCE_FINALIZED"
+  | "HYPERBRIDGE_DELIVERED"
+  | "HYPERBRIDGE_FINALIZED"
+  | "DESTINATION"
+```
+
+---
+
+### TimeoutStatusKey
+
+```typescript lineNumbers
+type TimeoutStatusKey = 
+  | "PENDING_TIMEOUT"
+  | "DESTINATION_FINALIZED_TIMEOUT"
+  | "HYPERBRIDGE_TIMED_OUT"
+  | "HYPERBRIDGE_FINALIZED_TIMEOUT"
+  | "TIMED_OUT"
+```
+
+---
+
+## Usage Notes
+
+### Stream Lifecycle
+
+- Async generators created by stream methods must be properly terminated
+- Always break out of loops when a terminal status is reached
+- Use `for await...of` loops or manual iteration with `.next()`
+- Streams automatically poll at the configured `pollInterval`
+
+### Terminal States
+
+**Request Status Streams:**
+- `RequestStatus.DESTINATION` - Request successfully executed
+- `TimeoutStatus.PENDING_TIMEOUT` - Request timed out (switch to timeout stream)
+
+**Timeout Status Streams:**
+- `TimeoutStatus.TIMED_OUT` - Timeout processing complete
+
+### Error Handling
+
+Stream methods may throw errors for:
+- Network connectivity issues
+- Invalid commitment hashes
+- Chain RPC failures
+
+Implement try-catch blocks around stream iterations to handle errors gracefully.
+
+**Example:**
+
+```typescript lineNumbers
+try {
+  for await (const status of indexer.postRequestStatusStream(hash)) {
+    console.log(status)
+    if (status.status === "DESTINATION") break
+  }
+} catch (error) {
+  console.error("Stream error:", error)
+  // Handle error appropriately
+}
+```
+
+### Hash Resolution
+
+All stream methods accept multiple hash types:
+- Request commitment hash
+- Source chain transaction hash
+- Hyperbridge transaction hash
+- Destination chain transaction hash
+- Timeout transaction hash
+
+The indexer automatically resolves the hash to the corresponding request.
+
+## Related
+
+- [Tracking Requests](/developers/sdk/tracking/requests) - Detailed guide on tracking request lifecycles
+- [Getting Started](/developers/sdk/getting-started) - Initialize IndexerClient

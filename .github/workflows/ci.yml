@@ -5,12 +5,12 @@ on:
         branches:
             - main
 
-    pull_request_target:
-        types: [opened, synchronize]
+    # pull_request_target:
+    #     types: [opened, synchronize]
 
-    # pull_request:
-    #     branches:
-    #         - main
+    pull_request:
+        branches:
+            - main
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -36,10 +36,37 @@ env:
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
 
 jobs:
+    changes:
+        runs-on: ubuntu-latest
+        outputs:
+            rust: ${{ steps.filter.outputs.rust }}
+            solidity: ${{ steps.filter.outputs.solidity }}
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      rust:
+                        - '**/*.rs'
+                        - '**/*.toml'
+                        - '**/Cargo.lock'
+                        - 'modules/**'
+                        - 'parachain/**'
+                        - 'tesseract/**'
+                        - 'scripts/**'
+                      solidity:
+                        - 'evm/**/*.sol'
+                        - 'evm/**/foundry.toml'
+                        - 'evm/**/package.json'
+
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft == false
+        needs: changes
+        if: github.event.pull_request.draft != true && needs.changes.outputs.rust == 'true'
         strategy:
             matrix:
                 crate: [gargantua-runtime, nexus-runtime]
@@ -98,7 +125,8 @@ jobs:
     check-workspace:
         name: Check Workspace
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft == false
+        needs: changes
+        if: github.event.pull_request.draft != true && needs.changes.outputs.rust == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -182,7 +210,8 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft == false
+        needs: changes
+        if: github.event.pull_request.draft != true && needs.changes.outputs.rust == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -263,7 +292,8 @@ jobs:
     integration-tests:
         name: Integration Tests
         runs-on: arc-runner-kvm
-        if: github.event.pull_request.draft == false
+        needs: changes
+        if: github.event.pull_request.draft != true && needs.changes.outputs.rust == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -425,7 +455,8 @@ jobs:
     check-solidity:
         name: Check ismp-solidity
         runs-on: ubuntu-latest
-        if: github.event.pull_request.draft == false
+        needs: changes
+        if: github.event.pull_request.draft != true && needs.changes.outputs.solidity == 'true'
         steps:
             - uses: actions/checkout@v3
               with:

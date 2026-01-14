@@ -85,7 +85,7 @@ relayer_fee = gas_price_to_usd(destination_gas_price * destination_gas_cost) + r
 
 ## Pay in BRIDGE tokens 
 
-The easiest way to pay Hyperbridge, will be simply to set up your own [messaging relayer](/developers/network/relayer/messaging/relayer) and pay Hyperbridge in it's native token: BRIDGE. In this manner, you don't have to pay for dispatching requests on your chain, and payments for request happen entirely offchain at the point of relaying requests to Hyperbridge. This has a few upsides such as fewer pallets in your runtime and less configuration overhead.
+The easiest way to pay Hyperbridge, will be simply to set up your own [messaging relayer](/developers/network/messaging-relayer) and pay Hyperbridge in it's native token: BRIDGE. In this manner, you don't have to pay for dispatching requests on your chain, and payments for request happen entirely offchain at the point of relaying requests to Hyperbridge. This has a few upsides such as fewer pallets in your runtime and less configuration overhead.
 
 But these upsides however come at the cost of maintaining your own offchain relayer, as you're unable to rely on Hyperbridge's permissionless relayers. This is because without `pallet-hyperbridge`, your runtime has no way of incentivizing 3rd party relayers to relay messages on your behalf.
 

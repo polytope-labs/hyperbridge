@@ -371,7 +371,7 @@ To learn how to self-relay requests:
 
 1. **[Get Started with the SDK](/developers/sdk/getting-started)** - Install and set up the Hyperbridge SDK
 2. **[Track POST Requests](/developers/sdk/tracking/post-requests)** - Monitor request status and extract delivery calldata
-3. **[IndexerClient API](/developers/sdk/indexer-client)** - Use the `postRequestStatusStream()` method to get calldata when `HYPERBRIDGE_FINALIZED` status is reached
+3. **[IndexerClient API](/developers/sdk/api/indexer-client)** - Use the `postRequestStatusStream()` method to get calldata when `HYPERBRIDGE_FINALIZED` status is reached
 
 The SDK automatically generates the proof and calldata you need to call the handler contract's `IHandler.handlePostRequests` function on the destination chain. You can make your users self-relay requests or run a server which can relay requests on behalf of users.
 

@@ -547,7 +547,7 @@ Unlike POST requests, **GET requests always require manual relaying**. There is 
 
 The `@hyperbridge/sdk` provides tools to track GET requests and automatically generates the calldata needed to execute the response delivery on your chain. After dispatching a GET request, use the SDK's `IndexerClient` to monitor the request status. When the response is ready, the SDK provides the proof and calldata you need to call the handler contract's response delivery function, which triggers your `onGetResponse` callback.
 
-You can make your users self-relay responses or run a server which relays responses on behalf of users. To learn more, see **[Track GET Requests](/developers/sdk/tracking/get-requests)** for monitoring request status and extracting delivery calldata, or check the **[IndexerClient API](/developers/sdk/indexer-client)** documentation.
+You can make your users self-relay responses or run a server which relays responses on behalf of users. To learn more, see **[Track GET Requests](/developers/sdk/tracking/get-requests)** for monitoring request status and extracting delivery calldata, or check the **[IndexerClient API](/developers/sdk/api/indexer-client)** documentation.
 
 ## Timeouts
 

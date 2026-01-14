@@ -241,7 +241,7 @@ The `pallet_ismp::Pallet<T>` implements the neccessary interfaces for the ISMP f
 | Interface | Description |
 |-----------|-------------|
 | [`IsmpHost`](/protocol/ismp/host) | Pallet ISMP implements `IsmpHost` interface providing all the storage and cryptographic requirements for the ISMP handlers. Modules that need to interact with the low-level ISMP framework can use this interface to access the necessary storage items they wish to read. <Callout title={'IMPORTANT'} type={"warn"}>It is **not recommended** for 3rd-party modules to alter the storage items directly, unless you absolutely know what you are doing.</Callout> |
-| [`IsmpDispatcher`](/protocol/ismp/dispatcher) | It implements `IsmpDispatcher` allowing it to dispatch requests and responses. This is the low-level ISMP framework dispatcher. It can be used to dispatch requests that are not addressed to Hyperbridge and perhaps meant for other state machines. Dispatching requests to be Hyperbridge should be done throught the [`pallet-hyperbridge`](/developers/polkadot/fees#pallet-hyperbridge) module. Which also implements the `IsmpDispatcher` interface but collects the necessary fees. |
+| [`IsmpDispatcher`](/protocol/ismp/dispatcher) | It implements `IsmpDispatcher` allowing it to dispatch requests and responses. This is the low-level ISMP framework dispatcher. It can be used to dispatch requests that are not addressed to Hyperbridge and perhaps meant for other state machines. Dispatching requests to be Hyperbridge should be done throught the [`pallet-hyperbridge`](/developers/polkadot/fees) module. Which also implements the `IsmpDispatcher` interface but collects the necessary fees. |
 
 
 ## Calls

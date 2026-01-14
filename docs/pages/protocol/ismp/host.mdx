@@ -140,13 +140,13 @@ pub trait IsmpHost {
     /// Should return a handle to the consensus client based on the id
     fn consensus_client(&self, id: ConsensusClientId) -> Result<Box<dyn ConsensusClient>, Error>;
 
-    /// Should return the configured delay period for a consensus state
-    fn challenge_period(&self, consensus_state_id: ConsensusStateId) -> Option<Duration>;
+    /// Should return the configured delay period for a state machine
+    fn challenge_period(&self, state_machine: StateMachineId) -> Option<Duration>;
 
-    /// Set the challenge period in seconds for a consensus state.
+    /// Set the challenge period in seconds for a state machine.
     fn store_challenge_period(
         &self,
-        consensus_state_id: ConsensusStateId,
+        state_machine: StateMachineId,
         period: u64,
     ) -> Result<(), Error>;
 

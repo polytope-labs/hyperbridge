@@ -22,7 +22,7 @@ The Intent Gateway operates as a **cross-chain escrow and settlement system** wh
 
 Every order in the Intent Gateway consists of:
 
-```solidity
+```solidity lineNumbers
 struct Order {
     bytes32 user;           // Address of the user placing the order
     bytes sourceChain;      // Source chain state machine ID
@@ -38,7 +38,7 @@ struct Order {
 
 ### Token Information
 
-```solidity
+```solidity lineNumbers
 struct TokenInfo {
     bytes32 token;    // Token address (address(0) for native token)
     uint256 amount;   // Amount to escrow
@@ -206,7 +206,7 @@ Users can cancel unfilled, expired orders:
 
 Places a new cross-chain order by escrowing tokens and fees.
 
-```solidity
+```solidity lineNumbers
 function placeOrder(Order memory order, bytes32 graffiti) public payable
 ```
 
@@ -223,7 +223,7 @@ function placeOrder(Order memory order, bytes32 graffiti) public payable
 
 **Example:**
 
-```solidity
+```solidity lineNumbers
 // Order to swap 1000 USDC on Ethereum for 1000 USDT on Arbitrum
 Order memory order = Order({
     user: bytes32(0), // Set automatically
@@ -258,7 +258,7 @@ intentGateway.placeOrder(order, bytes32(0));
 
 Fills an existing order by providing the required output tokens.
 
-```solidity
+```solidity lineNumbers
 function fillOrder(Order calldata order, FillOptions memory options) public payable
 ```
 
@@ -277,7 +277,7 @@ function fillOrder(Order calldata order, FillOptions memory options) public paya
 
 **Example:**
 
-```solidity
+```solidity lineNumbers
 // Fill the USDC->USDT order from above
 FillOptions memory options = FillOptions({
     relayerFee: 300_000 // $0.25 + execution costs (USDC on Arbitrum, 6 decimals)
@@ -299,7 +299,7 @@ intentGateway.fillOrder(order, options);
 
 Cancels an unfilled order after it has expired.
 
-```solidity
+```solidity lineNumbers
 function cancelOrder(Order calldata order, CancelOptions memory options) public payable
 ```
 
@@ -317,7 +317,7 @@ function cancelOrder(Order calldata order, CancelOptions memory options) public 
 
 **Example:**
 
-```solidity
+```solidity lineNumbers
 // Cancel expired order
 CancelOptions memory options = CancelOptions({
     relayerFee: 250_000, // $0.25 for GET request (in source fee token)
@@ -399,7 +399,7 @@ Filler Profit: $2.80 - $1.35 = $1.45
 
 Orders are identified by cryptographic commitments:
 
-```solidity
+```solidity lineNumbers
 bytes32 commitment = keccak256(abi.encode(order));
 ```
 
@@ -413,7 +413,7 @@ This prevents:
 
 Cross-chain messages are authenticated:
 
-```solidity
+```solidity lineNumbers
 modifier authenticate(PostRequest calldata request) {
     bytes32 module = /* extract module from request */;
     if (instance(request.source) != module) revert Unauthorized();
@@ -437,7 +437,7 @@ Orders have built-in expiration:
 
 Emitted when a new order is created:
 
-```solidity
+```solidity lineNumbers
 event OrderPlaced(
     bytes32 user,
     bytes sourceChain,
@@ -457,7 +457,7 @@ event OrderPlaced(
 
 Emitted when an order is successfully filled:
 
-```solidity
+```solidity lineNumbers
 event OrderFilled(bytes32 indexed commitment, address filler);
 ```
 
@@ -467,7 +467,7 @@ event OrderFilled(bytes32 indexed commitment, address filler);
 
 Emitted when escrowed tokens are released to filler:
 
-```solidity
+```solidity lineNumbers
 event EscrowReleased(bytes32 indexed commitment);
 ```
 
@@ -477,7 +477,7 @@ event EscrowReleased(bytes32 indexed commitment);
 
 Emitted when escrowed tokens are refunded to user:
 
-```solidity
+```solidity lineNumbers
 event EscrowRefunded(bytes32 indexed commitment);
 ```
 
@@ -489,7 +489,7 @@ event EscrowRefunded(bytes32 indexed commitment);
 
 The Intent Gateway uses `bytes32` for token addresses, requiring proper conversion:
 
-```typescript
+```typescript lineNumbers
 // Convert ERC20 address to bytes32 (with leading zeros)
 const tokenBytes32 = ethers.zeroPadValue(tokenAddress, 32);
 
@@ -501,7 +501,7 @@ const tokenAddress = ethers.getAddress(ethers.dataSlice(tokenBytes32, 12));
 
 Chain identifiers can be obtained in two ways:
 
-```typescript
+```typescript lineNumbers
 // Method 1: Read from ISMP Host contract
 const sourceChain = await bscIsmpHost.read.host();
 const destChain = await gnosisChiadoIsmpHost.read.host();
@@ -514,7 +514,7 @@ const destChain = ethers.toUtf8Bytes(`EVM-${chainId}`);
 
 Different chains use tokens with different decimals:
 
-```typescript
+```typescript lineNumbers
 // Ethereum USDC: 6 decimals
 const ethUSDC = ethers.parseUnits("1000", 6); // 1000_000_000
 
@@ -535,7 +535,7 @@ const arbFees = ethers.parseUnits("2.8", 6); // USDC: 6 decimals
 
 Orders can include arbitrary call data:
 
-```solidity
+```solidity lineNumbers
 struct Order {
     // ... other fields
     bytes callData; // Encoded function calls
@@ -551,7 +551,7 @@ struct Order {
 
 **Example:**
 
-```solidity
+```solidity lineNumbers
 // Approve received USDC for Uniswap after fill
 bytes memory callData = abi.encodeWithSelector(
     IERC20.approve.selector,
@@ -569,7 +569,7 @@ Order memory order = Order({
 
 Orders support multiple input/output tokens:
 
-```solidity
+```solidity lineNumbers
 // Swap USDC + ETH on source for USDT + DAI on destination
 TokenInfo[] memory inputs = new TokenInfo[](2);
 inputs[0] = TokenInfo(USDC_TOKEN, 1000_000_000);
@@ -584,7 +584,7 @@ outputs[1] = PaymentInfo(DAI_TOKEN, 1000 ether, beneficiary);
 
 Cancellation uses ISMP GET requests to query destination chain storage:
 
-```solidity
+```solidity lineNumbers
 // Query destination chain storage to verify order status
 bytes[] memory keys = new bytes[](1);
 keys[0] = bytes.concat(

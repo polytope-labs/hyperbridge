@@ -49,7 +49,7 @@ struct DispatchPost {
 
 Here's a complete example of how to dispatch a POST request:
 
-```solidity lineNumbers title="MyApp.sol"
+```solidity lineNumbers title=MyApp.sol
 function sendMessage(
     bytes memory message,
     uint64 timeout,
@@ -115,7 +115,7 @@ function dispatch(DispatchPost memory post) external payable notFrozen returns (
 
 Protocol fees are calculated per byte of the request body:
 
-```solidity lineNumbers
+```solidity lineNumbers title=MyApp.sol
 // Get the per-byte fee for destination chain
 uint256 perByteFee = IDispatcher(host).perByteFee(post.dest);
 
@@ -130,7 +130,7 @@ The minimum charge is **32 bytes** (one word), even for smaller messages. Per-by
 
 Relayer fees incentivize third-party relayers to deliver your message to the destination chain:
 
-```solidity lineNumbers
+```solidity lineNumbers title=MyApp.sol
 DispatchPost memory post = DispatchPost({
     // ... other fields
     fee: relayerFee,  // Optional: set to 0 for self-relay
@@ -165,7 +165,7 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 
 Your contract must extend `HyperApp`, which allows you to use the `dispatchWithFeeToken()` helper which handles all fee calculations and token approvals automatically:
 
-```solidity lineNumbers title="MyApp.sol"
+```solidity lineNumbers title=MyApp.sol
 contract MyApp is HyperApp {
     function sendMessage(
         bytes memory message,
@@ -197,7 +197,7 @@ contract MyApp is HyperApp {
 
 For native token payments, dispatch directly and let the Host handle the Uniswap swap:
 
-```solidity lineNumbers title="MyApp.sol"
+```solidity lineNumbers title=MyApp.sol
 contract MyApp is HyperApp {
     function sendMessageWithNative(
         bytes memory message,
@@ -225,7 +225,7 @@ contract MyApp is HyperApp {
 
 When building user-facing applications, estimate fees on the client side before users submit transactions:
 
-```typescript lineNumbers title="client.ts" icon="typescript"
+```typescript lineNumbers title=client.ts icon=typescript
 import { createPublicClient, http, parseEther } from 'viem'
 import { mainnet } from 'viem/chains'
 
@@ -287,7 +287,7 @@ Use the `quoteNative()` view function from your frontend to estimate how much na
 
 If gas prices spike after dispatching a request, you can increase the relayer fee to incentivize delivery:
 
-```solidity lineNumbers
+```solidity lineNumbers title=MyApp.sol
 // Get the request commitment from the dispatch call
 bytes32 commitment = IDispatcher(host).dispatch{value: nativeCost}(post);
 

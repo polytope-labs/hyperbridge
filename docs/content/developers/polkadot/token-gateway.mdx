@@ -39,7 +39,7 @@ Priviledged calls must be dispatched by [`CreateOrigin`](https://docs.rs/pallet-
 
 The first step is to implement the pallet config for the runtime.
 
-```rust
+```rust lineNumbers
 use frame_support::parameter_types;
 use ismp::module::IsmpModule;
 use ismp::router::IsmpRouter;
@@ -111,7 +111,7 @@ Setting up token gateway for use involves a few simple steps.
    The process of registering assets involves dispatching a request to create the asset on hyperbridge after which hyperbridge dispatches requests to deploy the asset on all chains specified in the initial request.<br/><br/>
 
    The types involved in asset creation are described below:
-```rust
+```rust lineNumbers
 pub struct GatewayAssetRegistration {
 	/// The asset name
 	pub name: BoundedVec<u8, ConstU32<20>>,
@@ -167,7 +167,7 @@ The precision for ERC6160 assets deployed on EVM should always be set to 18.
 
 To make a crosschain transfer the `teleport` extrinsic should must be dispatched with the correct parameters.
 
-```rust
+```rust lineNumbers
 pub struct TeleportParams<AssetId, Balance> {
 	/// Asset Id registered on Hyperbridge
 	pub asset_id: AssetId,

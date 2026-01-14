@@ -26,7 +26,7 @@ SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINA
 
 First, calculate the commitment hash for your POST request:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { postRequestCommitment } from "@hyperbridge/sdk"
 
 // Your POST request object
@@ -60,7 +60,7 @@ console.log(`Commitment: ${commitment}`)
 
 Now you are ready to monitor the POST request status in real-time using `postRequestStatusStream()`. This method returns an [async generator](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function*) that polls the indexer at your configured interval and yields status objects containing the current stage, block information, transaction hashes, and metadata. The stream automatically detects timeout scenarios and continues until the request reaches its destination or exceeds its timeout period. Remember to break out of the loop when tracking is complete.
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
 
 // Stream status updates

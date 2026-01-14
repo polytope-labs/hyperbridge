@@ -7,7 +7,7 @@ description: API reference for IHost - the central contract managing ISMP protoc
 
 The central contract that manages the state of the ISMP protocol. Every chain has one `IHost` deployment that acts as the coordinator for all cross-chain communication.
 
-```solidity
+```solidity lineNumbers
 interface IHost is IDispatcher
 ```
 
@@ -31,7 +31,7 @@ The Host contract is responsible for:
 
 Returns the administrator address that can update host parameters.
 
-```solidity
+```solidity lineNumbers
 function admin() external returns (address)
 ```
 
@@ -45,7 +45,7 @@ function admin() external returns (address)
 
 Returns the current timestamp of the host.
 
-```solidity
+```solidity lineNumbers
 function timestamp() external view returns (uint256)
 ```
 
@@ -59,7 +59,7 @@ function timestamp() external view returns (uint256)
 
 Returns the address of the consensus client contract responsible for verifying Hyperbridge finality.
 
-```solidity
+```solidity lineNumbers
 function consensusClient() external view returns (address)
 ```
 
@@ -73,7 +73,7 @@ function consensusClient() external view returns (address)
 
 Returns the current encoded consensus state (authority set, latest height, etc.).
 
-```solidity
+```solidity lineNumbers
 function consensusState() external view returns (bytes memory)
 ```
 
@@ -87,7 +87,7 @@ function consensusState() external view returns (bytes memory)
 
 Returns the timestamp of the last consensus state update.
 
-```solidity
+```solidity lineNumbers
 function consensusUpdateTime() external view returns (uint256)
 ```
 
@@ -101,7 +101,7 @@ function consensusUpdateTime() external view returns (uint256)
 
 Returns the latest finalized height for a given state machine.
 
-```solidity
+```solidity lineNumbers
 function latestStateMachineHeight(uint256 stateMachineId) external view returns (uint256)
 ```
 
@@ -119,7 +119,7 @@ function latestStateMachineHeight(uint256 stateMachineId) external view returns 
 
 Returns the challenge period in seconds during which state commitments can be vetoed by fishermen.
 
-```solidity
+```solidity lineNumbers
 function challengePeriod() external view returns (uint256)
 ```
 
@@ -133,7 +133,7 @@ function challengePeriod() external view returns (uint256)
 
 Returns the unstaking period in seconds for fishermen who veto state commitments.
 
-```solidity
+```solidity lineNumbers
 function unStakingPeriod() external view returns (uint256)
 ```
 
@@ -147,7 +147,7 @@ function unStakingPeriod() external view returns (uint256)
 
 Returns the fee charged to 3rd party applications for accessing Hyperbridge state commitments.
 
-```solidity
+```solidity lineNumbers
 function stateCommitmentFee() external view returns (uint256)
 ```
 
@@ -161,7 +161,7 @@ function stateCommitmentFee() external view returns (uint256)
 
 Retrieves the state commitment at a specific height. Charges the `stateCommitmentFee`.
 
-```solidity
+```solidity lineNumbers
 function stateMachineCommitment(StateMachineHeight memory height) 
     external 
     payable 
@@ -187,7 +187,7 @@ function stateMachineCommitment(StateMachineHeight memory height)
 
 Returns the timestamp when a state commitment was stored.
 
-```solidity
+```solidity lineNumbers
 function stateMachineCommitmentUpdateTime(StateMachineHeight memory height) 
     external 
     returns (uint256)
@@ -207,7 +207,7 @@ function stateMachineCommitmentUpdateTime(StateMachineHeight memory height)
 
 Returns the fisherman address who vetoed a state machine commitment.
 
-```solidity
+```solidity lineNumbers
 function vetoes(uint256 paraId, uint256 height) external view returns (address)
 ```
 
@@ -226,7 +226,7 @@ function vetoes(uint256 paraId, uint256 height) external view returns (address)
 
 Checks if a request has received a response.
 
-```solidity
+```solidity lineNumbers
 function responded(bytes32 commitment) external view returns (bool)
 ```
 
@@ -244,7 +244,7 @@ function responded(bytes32 commitment) external view returns (bool)
 
 Returns the relayer address that delivered the request.
 
-```solidity
+```solidity lineNumbers
 function requestReceipts(bytes32 commitment) external view returns (address)
 ```
 
@@ -262,7 +262,7 @@ function requestReceipts(bytes32 commitment) external view returns (address)
 
 Returns the response receipt containing the response commitment and relayer address.
 
-```solidity
+```solidity lineNumbers
 function responseReceipts(bytes32 commitment) external view returns (ResponseReceipt memory)
 ```
 
@@ -280,7 +280,7 @@ function responseReceipts(bytes32 commitment) external view returns (ResponseRec
 
 Returns fee metadata for an outgoing request.
 
-```solidity
+```solidity lineNumbers
 function requestCommitments(bytes32 commitment) external view returns (FeeMetadata memory)
 ```
 
@@ -298,7 +298,7 @@ function requestCommitments(bytes32 commitment) external view returns (FeeMetada
 
 Returns fee metadata for an outgoing response.
 
-```solidity
+```solidity lineNumbers
 function responseCommitments(bytes32 commitment) external view returns (FeeMetadata memory)
 ```
 
@@ -316,7 +316,7 @@ function responseCommitments(bytes32 commitment) external view returns (FeeMetad
 
 Sets the frozen state of the host. When frozen, certain operations are restricted.
 
-```solidity
+```solidity lineNumbers
 function setFrozenState(FrozenStatus newState) external
 ```
 
@@ -338,7 +338,7 @@ function setFrozenState(FrozenStatus newState) external
 
 Stores a new consensus state. Called by the handler after verifying consensus proofs.
 
-```solidity
+```solidity lineNumbers
 function storeConsensusState(bytes memory state) external
 ```
 
@@ -354,7 +354,7 @@ function storeConsensusState(bytes memory state) external
 
 Stores a state commitment at a specific height. Called by the handler after verifying state proofs.
 
-```solidity
+```solidity lineNumbers
 function storeStateMachineCommitment(
     StateMachineHeight memory height, 
     StateCommitment memory commitment
@@ -374,7 +374,7 @@ function storeStateMachineCommitment(
 
 Deletes a state commitment (called when vetoed by a fisherman).
 
-```solidity
+```solidity lineNumbers
 function deleteStateMachineCommitment(
     StateMachineHeight memory height, 
     address fisherman
@@ -394,7 +394,7 @@ function deleteStateMachineCommitment(
 
 Dispatches an incoming POST request to the destination application's `onAccept()` callback.
 
-```solidity
+```solidity lineNumbers
 function dispatchIncoming(PostRequest memory request, address relayer) external
 ```
 
@@ -411,7 +411,7 @@ function dispatchIncoming(PostRequest memory request, address relayer) external
 
 Dispatches an incoming POST response to the source application's `onPostResponse()` callback.
 
-```solidity
+```solidity lineNumbers
 function dispatchIncoming(PostResponse memory response, address relayer) external
 ```
 
@@ -428,7 +428,7 @@ function dispatchIncoming(PostResponse memory response, address relayer) externa
 
 Dispatches an incoming GET response to the source application's `onGetResponse()` callback.
 
-```solidity
+```solidity lineNumbers
 function dispatchIncoming(GetResponse memory response, address relayer) external
 ```
 
@@ -445,7 +445,7 @@ function dispatchIncoming(GetResponse memory response, address relayer) external
 
 Dispatches a timed-out GET request to the source application's `onGetTimeout()` callback.
 
-```solidity
+```solidity lineNumbers
 function dispatchTimeOut(
     GetRequest memory timeout, 
     FeeMetadata memory meta, 
@@ -469,7 +469,7 @@ function dispatchTimeOut(
 
 Dispatches a timed-out POST request to the source application's `onPostRequestTimeout()` callback. If the callback succeeds, refunds the relayer fee to the payer.
 
-```solidity
+```solidity lineNumbers
 function dispatchTimeOut(
     PostRequest memory timeout, 
     FeeMetadata memory meta, 
@@ -493,7 +493,7 @@ function dispatchTimeOut(
 
 Dispatches a timed-out POST response to the source application's `onPostResponseTimeout()` callback. If the callback succeeds, refunds the relayer fee to the payer.
 
-```solidity
+```solidity lineNumbers
 function dispatchTimeOut(
     PostResponse memory timeout, 
     FeeMetadata memory meta, 
@@ -523,7 +523,7 @@ function dispatchTimeOut(
 
 Emitted when an incoming POST request is delivered to an application.
 
-```solidity
+```solidity lineNumbers
 event PostRequestHandled(
     bytes32 indexed commitment,
     address relayer
@@ -541,7 +541,7 @@ event PostRequestHandled(
 
 Emitted when an outgoing POST request timeout is handled.
 
-```solidity
+```solidity lineNumbers
 event PostRequestTimeoutHandled(
     bytes32 indexed commitment,
     string dest
@@ -559,7 +559,7 @@ event PostRequestTimeoutHandled(
 
 Emitted when an incoming POST response is delivered to an application.
 
-```solidity
+```solidity lineNumbers
 event PostResponseHandled(
     bytes32 indexed commitment,
     address relayer
@@ -577,7 +577,7 @@ event PostResponseHandled(
 
 Emitted when an outgoing POST response timeout is handled.
 
-```solidity
+```solidity lineNumbers
 event PostResponseTimeoutHandled(
     bytes32 indexed commitment,
     string dest
@@ -595,7 +595,7 @@ event PostResponseTimeoutHandled(
 
 Emitted when an incoming GET request is delivered to an application.
 
-```solidity
+```solidity lineNumbers
 event GetRequestHandled(
     bytes32 indexed commitment,
     address relayer
@@ -613,7 +613,7 @@ event GetRequestHandled(
 
 Emitted when an outgoing GET request timeout is handled.
 
-```solidity
+```solidity lineNumbers
 event GetRequestTimeoutHandled(
     bytes32 indexed commitment,
     string dest
@@ -631,7 +631,7 @@ event GetRequestTimeoutHandled(
 
 Emitted when new heights are finalized for a state machine.
 
-```solidity
+```solidity lineNumbers
 event StateMachineUpdated(
     string stateMachineId,
     uint256 height
@@ -649,7 +649,7 @@ event StateMachineUpdated(
 
 Emitted when a state commitment is vetoed by a fisherman.
 
-```solidity
+```solidity lineNumbers
 event StateCommitmentVetoed(
     string stateMachineId,
     uint256 height,
@@ -673,7 +673,7 @@ event StateCommitmentVetoed(
 
 Emitted when the frozen status of the host changes.
 
-```solidity
+```solidity lineNumbers
 event HostFrozen(
     FrozenStatus status
 )
@@ -689,7 +689,7 @@ event HostFrozen(
 
 Emitted when the host parameters are updated.
 
-```solidity
+```solidity lineNumbers
 event HostParamsUpdated(
     HostParams oldParams,
     HostParams newParams
@@ -707,7 +707,7 @@ event HostParamsUpdated(
 
 Emitted when the host processes a withdrawal.
 
-```solidity
+```solidity lineNumbers
 event HostWithdrawal(
     uint256 amount,
     address beneficiary,
@@ -727,7 +727,7 @@ event HostWithdrawal(
 
 Emitted when an application accesses the Hyperbridge state commitment.
 
-```solidity
+```solidity lineNumbers
 event StateCommitmentRead(
     address indexed caller,
     uint256 fee
@@ -745,7 +745,7 @@ event StateCommitmentRead(
 
 ### StateMachineHeight
 
-```solidity
+```solidity lineNumbers
 struct StateMachineHeight {
     uint256 stateMachineId;
     uint256 height;
@@ -761,7 +761,7 @@ struct StateMachineHeight {
 
 ### StateCommitment
 
-```solidity
+```solidity lineNumbers
 struct StateCommitment {
     uint256 timestamp;
     bytes32 overlayRoot;
@@ -779,7 +779,7 @@ struct StateCommitment {
 
 ### FeeMetadata
 
-```solidity
+```solidity lineNumbers
 struct FeeMetadata {
     address sender;
     uint256 fee;
@@ -795,7 +795,7 @@ struct FeeMetadata {
 
 ### ResponseReceipt
 
-```solidity
+```solidity lineNumbers
 struct ResponseReceipt {
     bytes32 responseCommitment;
     address relayer;
@@ -811,7 +811,7 @@ struct ResponseReceipt {
 
 ### FrozenStatus
 
-```solidity
+```solidity lineNumbers
 enum FrozenStatus {
     None,
     Incoming,

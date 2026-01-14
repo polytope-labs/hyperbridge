@@ -31,7 +31,7 @@ See the full [`IApp` API reference](/developers/evm/api/iapp) for detailed speci
 
 ## Example
 
-```solidity
+```solidity lineNumbers title="CrossChainMessenger.sol" icon="solidity"
 pragma solidity ^0.8.17;
 
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
@@ -80,7 +80,7 @@ contract CrossChainMessenger is HyperApp {
 
 **Critical:** Always restrict callbacks to the `IHost` contract using the `onlyHost` modifier. This prevents unauthorized execution of cross-chain messages. `HyperApp` provides this modifier automatically.
 
-```solidity
+```solidity lineNumbers
 function onAccept(IncomingPostRequest calldata incoming) 
     external 
     override 
@@ -97,9 +97,3 @@ Additionally:
 - Emit events for off-chain tracking
 
 ---
-
-## Next Steps
-
-- Review the [`HyperApp` API reference](/developers/evm/api/hyperapp) for helper utilities
-- Learn about [dispatching messages](/developers/evm/dispatching)
-- Explore the [`IApp` interface](/developers/evm/api/iapp) for advanced use cases

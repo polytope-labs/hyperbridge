@@ -20,7 +20,7 @@ The Vite plugin automatically:
 
 The plugin is included with the SDK package, so no additional installation is required:
 
-```bash
+```bash lineNumbers
 npm install @hyperbridge/sdk
 ```
 
@@ -30,7 +30,7 @@ npm install @hyperbridge/sdk
 
 Add the Hyperbridge plugin to your Vite configuration:
 
-```typescript
+```typescript lineNumbers title="vite.config.ts" icon=typescript
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import hyperbridge from "@hyperbridge/sdk/plugins/vite"
@@ -47,7 +47,7 @@ export default defineConfig({
 
 Configure the plugin with custom options:
 
-```typescript
+```typescript lineNumbers title="vite.config.ts" icon=typescript
 import { defineConfig } from "vite"
 import hyperbridge from "@hyperbridge/sdk/plugins/vite"
 
@@ -82,8 +82,7 @@ export default defineConfig({
 
 ### React with Vite
 
-```typescript
-// vite.config.ts
+```typescript lineNumbers title="vite.config.ts" icon=typescript
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import hyperbridge from "@hyperbridge/sdk/plugins/vite"
@@ -105,8 +104,7 @@ export default defineConfig({
 
 ### Vue with Vite
 
-```typescript
-// vite.config.ts
+```typescript lineNumbers title="vite.config.ts" icon=typescript
 import { defineConfig } from "vite"
 import vue from "@vitejs/plugin-vue"
 import hyperbridge from "@hyperbridge/sdk/plugins/vite"
@@ -121,8 +119,7 @@ export default defineConfig({
 
 ### Svelte with Vite
 
-```typescript
-// vite.config.ts
+```typescript lineNumbers title="vite.config.ts" icon=typescript
 import { defineConfig } from "vite"
 import { svelte } from "@sveltejs/vite-plugin-svelte"
 import hyperbridge from "@hyperbridge/sdk/plugins/vite"
@@ -137,8 +134,7 @@ export default defineConfig({
 
 ### Vanilla TypeScript
 
-```typescript
-// vite.config.ts
+```typescript lineNumbers title="vite.config.ts" icon=typescript
 import { defineConfig } from "vite"
 import hyperbridge from "@hyperbridge/sdk/plugins/vite"
 

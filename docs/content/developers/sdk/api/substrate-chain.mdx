@@ -7,7 +7,7 @@ description: API reference for SubstrateChain - interact with Substrate-based ch
 
 The `SubstrateChain` class provides methods for interacting with Substrate-based chains (Polkadot parachains, including Hyperbridge) in the Hyperbridge protocol. It handles MMR proof generation, child trie queries, and cross-chain message verification.
 
-```typescript
+```typescript lineNumbers
 class SubstrateChain implements IChain
 ```
 
@@ -30,7 +30,7 @@ Creates a new SubstrateChain instance for a Substrate-based blockchain.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 import { SubstrateChain } from "@hyperbridge/sdk"
 
 const hyperbridgeChain = new SubstrateChain({
@@ -58,7 +58,7 @@ The Polkadot.js API instance for interacting with the Substrate chain.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 await substrateChain.connect()
 const blockHash = await substrateChain.api?.rpc.chain.getBlockHash()
 ```
@@ -73,7 +73,7 @@ Returns the chain configuration object.
 
 **Returns:**
 
-```typescript
+```typescript lineNumbers
 {
   wsUrl: string
   consensusStateId: string
@@ -90,7 +90,7 @@ Returns the chain configuration object.
 
 Connects to the Substrate chain using the WebSocket URL. Must be called before using other methods.
 
-```typescript
+```typescript lineNumbers
 async connect(): Promise<void>
 ```
 
@@ -98,7 +98,7 @@ async connect(): Promise<void>
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const chain = new SubstrateChain({
   stateMachineId: "POLKADOT-3367",
   wsUrl: "wss://rpc-url",
@@ -116,7 +116,7 @@ await chain.connect()
 
 Disconnects from the Substrate chain and cleans up resources.
 
-```typescript
+```typescript lineNumbers
 async disconnect(): Promise<void>
 ```
 
@@ -124,7 +124,7 @@ async disconnect(): Promise<void>
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 await chain.disconnect()
 ```
 
@@ -134,7 +134,7 @@ await chain.disconnect()
 
 Derives the storage key for a request receipt in the ISMP child trie.
 
-```typescript
+```typescript lineNumbers
 requestReceiptKey(key: HexString): HexString
 ```
 
@@ -152,7 +152,7 @@ requestReceiptKey(key: HexString): HexString
 
 Derives the storage key for a request commitment in the ISMP child trie.
 
-```typescript
+```typescript lineNumbers
 requestCommitmentKey(key: HexString): HexString
 ```
 
@@ -170,7 +170,7 @@ requestCommitmentKey(key: HexString): HexString
 
 Queries a request commitment from the ISMP child trie storage.
 
-```typescript
+```typescript lineNumbers
 async queryRequestCommitment(
   commitment: HexString
 ): Promise<HexString | undefined>
@@ -186,7 +186,7 @@ async queryRequestCommitment(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const commitment = await chain.queryRequestCommitment(commitmentHash)
 if (commitment) {
   console.log("Commitment found:", commitment)
@@ -199,7 +199,7 @@ if (commitment) {
 
 Queries the request receipt to determine if a request has been delivered.
 
-```typescript
+```typescript lineNumbers
 async queryRequestReceipt(
   commitment: HexString
 ): Promise<HexString | undefined>
@@ -215,7 +215,7 @@ async queryRequestReceipt(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const relayer = await chain.queryRequestReceipt(commitmentHash)
 if (relayer) {
   console.log(`Request delivered by: ${relayer}`)
@@ -228,7 +228,7 @@ if (relayer) {
 
 Returns the current timestamp of the chain.
 
-```typescript
+```typescript lineNumbers
 async timestamp(): Promise<bigint>
 ```
 
@@ -236,7 +236,7 @@ async timestamp(): Promise<bigint>
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const currentTime = await chain.timestamp()
 console.log(`Chain time: ${currentTime}`)
 ```
@@ -247,7 +247,7 @@ console.log(`Chain time: ${currentTime}`)
 
 Queries cryptographic proofs for cross-chain message verification. Generates MMR proofs for EVM chains or state proofs for Substrate chains.
 
-```typescript
+```typescript lineNumbers
 async queryProof(
   message: IMessage,
   counterparty: string,
@@ -267,7 +267,7 @@ async queryProof(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const proof = await chain.queryProof(
   message,
   "EVM-1",
@@ -281,7 +281,7 @@ const proof = await chain.queryProof(
 
 Submits an unsigned extrinsic to the Substrate chain for handling cross-chain messages.
 
-```typescript
+```typescript lineNumbers
 async submitUnsigned(message: IIsmpMessage): Promise<{
   transactionHash: string
   blockHash: string
@@ -302,7 +302,7 @@ async submitUnsigned(message: IIsmpMessage): Promise<{
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const result = await chain.submitUnsigned(message)
 console.log(`Submitted in block ${result.blockNumber}`)
 console.log(`TX hash: ${result.transactionHash}`)
@@ -314,7 +314,7 @@ console.log(`TX hash: ${result.transactionHash}`)
 
 Queries storage proofs for specific keys from the ISMP child trie at a given block height.
 
-```typescript
+```typescript lineNumbers
 async queryStateProof(
   at: bigint,
   keys: HexString[]
@@ -332,7 +332,7 @@ async queryStateProof(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const proof = await chain.queryStateProof(
   18000000n,
   ["0x1234...", "0x5678..."]
@@ -345,7 +345,7 @@ const proof = await chain.queryStateProof(
 
 Gets the latest known height for a state machine.
 
-```typescript
+```typescript lineNumbers
 async latestStateMachineHeight(
   stateMachineId: StateMachineIdParams
 ): Promise<bigint>
@@ -361,7 +361,7 @@ async latestStateMachineHeight(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const height = await chain.latestStateMachineHeight({
   stateId: { Ethereum: 1 }
 })
@@ -376,7 +376,7 @@ console.log(`Latest Ethereum height: ${height}`)
 
 **Critical:** Always call `connect()` before using any query methods. The Polkadot.js API must be initialized first.
 
-```typescript
+```typescript lineNumbers
 const chain = new SubstrateChain(config)
 await chain.connect()  // Required!
 
@@ -421,7 +421,7 @@ Using the wrong hasher will cause proof verification failures.
 
 ## Usage Example
 
-```typescript
+```typescript lineNumbers
 import { SubstrateChain } from "@hyperbridge/sdk"
 
 // Create and connect to Hyperbridge
@@ -465,7 +465,7 @@ try {
 
 A hex-encoded string prefixed with `0x`.
 
-```typescript
+```typescript lineNumbers
 type HexString = `0x${string}`
 ```
 
@@ -475,7 +475,7 @@ type HexString = `0x${string}`
 
 Configuration object for a Substrate chain.
 
-```typescript
+```typescript lineNumbers
 interface ISubstrateConfig {
   wsUrl: string
   consensusStateId: string
@@ -497,7 +497,7 @@ interface ISubstrateConfig {
 
 Parameters identifying a state machine.
 
-```typescript
+```typescript lineNumbers
 interface StateMachineIdParams {
   stateId: { 
     Evm?: number
@@ -520,7 +520,7 @@ interface StateMachineIdParams {
 
 Union type for batch requests or responses.
 
-```typescript
+```typescript lineNumbers
 type IMessage = 
   | { Requests: HexString[] } 
   | { Responses: HexString[] }
@@ -532,7 +532,7 @@ type IMessage =
 
 ISMP message format for Substrate chains.
 
-```typescript
+```typescript lineNumbers
 interface IIsmpMessage {
   // Message data structure for submitting unsigned extrinsics
 }

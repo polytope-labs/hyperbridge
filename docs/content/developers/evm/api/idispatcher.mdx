@@ -7,7 +7,7 @@ description: API reference for IDispatcher - interface for dispatching cross-cha
 
 Interface for dispatching outgoing cross-chain messages. Applications use these methods to send POST requests, GET queries, and POST responses through Hyperbridge.
 
-```solidity
+```solidity lineNumbers
 interface IDispatcher
 ```
 
@@ -30,7 +30,7 @@ All dispatch methods support both native token and fee token payments.
 
 Returns the state machine identifier for this host.
 
-```solidity
+```solidity lineNumbers
 function host() external view returns (bytes memory)
 ```
 
@@ -44,7 +44,7 @@ function host() external view returns (bytes memory)
 
 Returns the state machine identifier for the connected Hyperbridge instance.
 
-```solidity
+```solidity lineNumbers
 function hyperbridge() external view returns (bytes memory)
 ```
 
@@ -58,7 +58,7 @@ function hyperbridge() external view returns (bytes memory)
 
 Returns the current frozen status of the host.
 
-```solidity
+```solidity lineNumbers
 function frozen() external view returns (FrozenStatus)
 ```
 
@@ -72,7 +72,7 @@ function frozen() external view returns (FrozenStatus)
 
 Returns the ERC-20 token address used for fee payments. Typically a stablecoin.
 
-```solidity
+```solidity lineNumbers
 function feeToken() external view returns (address)
 ```
 
@@ -86,7 +86,7 @@ function feeToken() external view returns (address)
 
 Returns the Uniswap V2 router address used for swapping native tokens to fee tokens.
 
-```solidity
+```solidity lineNumbers
 function uniswapV2Router() external view returns (address)
 ```
 
@@ -100,7 +100,7 @@ function uniswapV2Router() external view returns (address)
 
 Returns the next available nonce for outgoing requests.
 
-```solidity
+```solidity lineNumbers
 function nonce() external view returns (uint256)
 ```
 
@@ -114,7 +114,7 @@ function nonce() external view returns (uint256)
 
 Returns the per-byte protocol fee for messages to a destination chain.
 
-```solidity
+```solidity lineNumbers
 function perByteFee(bytes memory dest) external view returns (uint256)
 ```
 
@@ -135,7 +135,7 @@ function perByteFee(bytes memory dest) external view returns (uint256)
 
 Dispatches a POST request to another chain.
 
-```solidity
+```solidity lineNumbers
 function dispatch(DispatchPost memory request) 
     external 
     payable 
@@ -160,7 +160,7 @@ function dispatch(DispatchPost memory request)
 
 Dispatches a GET request to query state on another chain.
 
-```solidity
+```solidity lineNumbers
 function dispatch(DispatchGet memory request) 
     external 
     payable 
@@ -185,7 +185,7 @@ function dispatch(DispatchGet memory request)
 
 Dispatches a POST response to reply to a received request.
 
-```solidity
+```solidity lineNumbers
 function dispatch(DispatchPostResponse memory response) 
     external 
     payable 
@@ -210,7 +210,7 @@ function dispatch(DispatchPostResponse memory response)
 
 Increases the relayer fee for a pending request to incentivize faster delivery.
 
-```solidity
+```solidity lineNumbers
 function fundRequest(bytes32 commitment, uint256 amount) external payable
 ```
 
@@ -235,7 +235,7 @@ function fundRequest(bytes32 commitment, uint256 amount) external payable
 
 Increases the relayer fee for a pending response to incentivize faster delivery.
 
-```solidity
+```solidity lineNumbers
 function fundResponse(bytes32 commitment, uint256 amount) external payable
 ```
 
@@ -262,7 +262,7 @@ function fundResponse(bytes32 commitment, uint256 amount) external payable
 
 Emitted when a new POST request is dispatched.
 
-```solidity
+```solidity lineNumbers
 event PostRequestEvent(
     string source,
     string dest,
@@ -292,7 +292,7 @@ event PostRequestEvent(
 
 Emitted when a new POST response is dispatched.
 
-```solidity
+```solidity lineNumbers
 event PostResponseEvent(
     string source,
     string dest,
@@ -326,7 +326,7 @@ event PostResponseEvent(
 
 Emitted when a new GET request is dispatched.
 
-```solidity
+```solidity lineNumbers
 event GetRequestEvent(
     string source,
     string dest,
@@ -358,7 +358,7 @@ event GetRequestEvent(
 
 Emitted when a POST or GET request is funded with additional fees.
 
-```solidity
+```solidity lineNumbers
 event RequestFunded(
     bytes32 indexed commitment,
     uint256 newFee
@@ -376,7 +376,7 @@ event RequestFunded(
 
 Emitted when a POST response is funded with additional fees.
 
-```solidity
+```solidity lineNumbers
 event PostResponseFunded(
     bytes32 indexed commitment,
     uint256 newFee
@@ -396,7 +396,7 @@ event PostResponseFunded(
 
 Parameters for dispatching a POST request.
 
-```solidity
+```solidity lineNumbers
 struct DispatchPost {
     bytes dest;
     bytes to;
@@ -422,7 +422,7 @@ struct DispatchPost {
 
 Parameters for dispatching a GET request.
 
-```solidity
+```solidity lineNumbers
 struct DispatchGet {
     bytes dest;
     uint64 height;
@@ -448,7 +448,7 @@ struct DispatchGet {
 
 Parameters for dispatching a POST response.
 
-```solidity
+```solidity lineNumbers
 struct DispatchPostResponse {
     PostRequest request;
     bytes response;
@@ -472,7 +472,7 @@ struct DispatchPostResponse {
 
 Represents a POST request.
 
-```solidity
+```solidity lineNumbers
 struct PostRequest {
     bytes source;
     bytes dest;
@@ -498,7 +498,7 @@ struct PostRequest {
 
 ### FrozenStatus
 
-```solidity
+```solidity lineNumbers
 enum FrozenStatus {
     None,
     Incoming,

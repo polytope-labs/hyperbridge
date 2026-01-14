@@ -36,7 +36,7 @@ Think of it as an automated market maker for cross-chain transactions - users pa
 
 Docker Hub provides pre-built images that are ready to run:
 
-```bash
+```bash lineNumbers
 # Pull the latest image
 docker pull polytopelabs/hyperbridge-filler:latest
 
@@ -54,7 +54,7 @@ docker run -d \
 
 Install from NPM if you want to add custom strategies or modify the code:
 
-```bash
+```bash lineNumbers
 # Install globally
 npm install -g @hyperbridge/filler
 
@@ -69,7 +69,7 @@ filler run -c filler-config.toml
 
 ### Option 3: Library Usage
 
-```typescript
+```typescript lineNumbers
 import { IntentFiller, BasicFiller, ConfirmationPolicy } from "@hyperbridge/filler"
 import { FillerConfigService } from "@hyperbridge/filler"
 
@@ -154,7 +154,7 @@ The filler supports multiple strategies for different use cases. Each strategy i
 - Limited to exact token matches
 - Cannot capture arbitrage opportunities
 
-```typescript
+```typescript lineNumbers
 const strategy = new BasicFiller("0x...", configService)
 ```
 
@@ -186,7 +186,7 @@ const strategy = new BasicFiller("0x...", configService)
 - Slippage risk on swaps
 - Requires DEX liquidity
 
-```typescript
+```typescript lineNumbers
 // WARNING: Only use on testnets for now
 const strategy = new StableSwapFiller("0x...", configService)
 ```
@@ -195,7 +195,7 @@ const strategy = new StableSwapFiller("0x...", configService)
 
 The filler evaluates all configured strategies for each order and automatically selects the most profitable one. You can run multiple strategies simultaneously:
 
-```toml
+```toml lineNumbers
 # Recommended: Use only BasicFiller for production
 [[strategies]]
 type = "basic"
@@ -284,7 +284,7 @@ Profit: $2.80 - $1.30 = $1.50
 
 You can implement custom strategies for specialized use cases:
 
-```typescript
+```typescript lineNumbers
 import { FillerStrategy, Order, ExecutionResult } from "@hyperbridge/filler"
 
 class MyArbitrageStrategy implements FillerStrategy {
@@ -331,7 +331,7 @@ Confirmations = Linear interpolation between min/max based on order value
 
 #### Configuration Format
 
-```toml
+```toml lineNumbers
 [confirmationPolicies."1"]  # Ethereum mainnet
 minAmount = "1000"      # 1000 USD
 maxAmount = "10000"    # 10000 USD
@@ -391,7 +391,7 @@ Docker provides the easiest way to run the filler in production with proper isol
 
 ### Quick Docker Setup
 
-```bash
+```bash lineNumbers
 # 1. Clone the repository
 git clone <hyperbridge-sdk-repo>
 cd packages/filler
@@ -409,7 +409,7 @@ cp filler-config-example.toml config.toml
 
 The `docker.sh` script provides convenient commands:
 
-```bash
+```bash lineNumbers
 # Build the Docker image
 ./scripts/docker.sh build
 
@@ -429,7 +429,7 @@ The `docker.sh` script provides convenient commands:
 
 If you prefer manual control:
 
-```bash
+```bash lineNumbers
 # Build image
 docker build -t polytopelabs/hyperbridge-filler:latest -f scripts/Dockerfile .
 
@@ -455,7 +455,7 @@ docker stop hyperbridge-filler
 
 For production deployments with monitoring and persistence:
 
-```yaml
+```yaml lineNumbers
 version: "3.8"
 
 services:
@@ -487,7 +487,7 @@ volumes:
 
 #### Environment Variables
 
-```bash
+```bash lineNumbers
 # Override config values with environment variables
 PRIVATE_KEY=0x...                           # Your private key
 MAX_CONCURRENT_ORDERS=5                     # Order processing concurrency
@@ -497,7 +497,7 @@ COINGECKO_API_KEY=your_coingecko_pro_key   # CoinGecko Pro API key (required)
 
 ### Filler Configuration
 
-```toml
+```toml lineNumbers
 [filler]
 privateKey = "0x..."                 # Your private key (use env var in production)
 maxConcurrentOrders = 5              # Max orders processed simultaneously
@@ -514,7 +514,7 @@ apiKey = "your_coingecko_pro_key"    # Pro plan needed for unlimited requests
 
 Here's a comprehensive configuration file for a multi-chain filler:
 
-```toml
+```toml lineNumbers
 # Main filler configuration
 [filler]
 privateKey = "0x..."                    # Your private key (use env var in production)
@@ -585,7 +585,7 @@ maxConfirmations = 10                   # ~10 seconds
 
 The filler emits events you can listen to for monitoring and analytics:
 
-```typescript
+```typescript lineNumbers
 import { IntentFiller } from "@hyperbridge/filler"
 
 const filler = new IntentFiller(chainConfigs, strategies, config, configService)
@@ -641,7 +641,7 @@ filler.monitor.on("newOrder", async ({ order }) => {
 
 ### Initial Setup Checklist
 
-```bash
+```bash lineNumbers
 # 1. Install filler
 npm install -g @hyperbridge/filler
 
@@ -698,7 +698,7 @@ tail -f filler.log
 
 **Solutions**:
 
-```bash
+```bash lineNumbers
 # Check your token balances
 filler balance -c config.toml
 
@@ -717,7 +717,7 @@ maxConfirmations = 20 # Reduce from 30
 
 **Solutions**:
 
-```bash
+```bash lineNumbers
 # Check balances on all chains
 # Ensure you have:
 # - Native tokens for gas
@@ -736,7 +736,7 @@ maxConfirmations = 20 # Reduce from 30
 
 **Solutions**:
 
-```toml
+```toml lineNumbers
 # Use ONLY premium RPC providers with advanced features
 [[chains]]
 chainId = 1
@@ -756,7 +756,7 @@ maxConcurrentOrders = 3  # Reduce from 5
 
 **Solutions**:
 
-```toml
+```toml lineNumbers
 # Reduce confirmation requirements (higher risk)
 [confirmationPolicies."1"]
 minConfirmations = 3  # More aggressive

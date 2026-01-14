@@ -104,7 +104,7 @@ Concatenation of contract address (20 bytes) + storage slot hash (32 bytes)
 
 **Example:**
 
-```solidity
+```solidity lineNumbers
 // Reading balances[account] from an ERC20 at slot 0
 address token = 0x1234...;
 address account = 0x5678...;
@@ -122,7 +122,7 @@ Single contract address (20 bytes)
 
 **Example:**
 
-```solidity
+```solidity lineNumbers
 // Reading account state for an address
 address account = 0x1234...;
 bytes memory key = bytes20(account);
@@ -199,7 +199,7 @@ All values returned in GET responses are either **RLP-encoded** or **SCALE-encod
 <Tabs items={['Reading ERC20 Balance', 'Reading Uniswap V2 Reserves', 'Reading Multiple Slots']}>
 <Tab value="Reading ERC20 Balance">
 
-```solidity lineNumbers
+```solidity lineNumbers title="RemoteBalanceChecker.sol"
 contract RemoteBalanceChecker is HyperApp {
     address private _host;
     
@@ -273,7 +273,7 @@ contract RemoteBalanceChecker is HyperApp {
 
 <Tab value="Reading Uniswap V2 Reserves">
 
-```solidity lineNumbers
+```solidity lineNumbers title="UniswapPriceOracle.sol" icon="solidity"
 contract UniswapPriceOracle is HyperApp {
     function fetchPairReserves(address pair, bytes memory destChain, uint256 height) 
         public 
@@ -325,7 +325,7 @@ contract UniswapPriceOracle is HyperApp {
 
 <Tab value="Reading Multiple Slots">
 
-```solidity lineNumbers
+```solidity lineNumbers title="MultipleSlotReader.sol" icon="solidity"
 function readMultipleSlots(
     address contract_,
     bytes32[] memory slots,
@@ -363,7 +363,7 @@ Contracts can only read storage items at heights that have been processed by the
 
 **Example:**
 
-```typescript lineNumbers
+```typescript lineNumbers title="fetchHeight.ts" icon="typescript"
 import { SubstrateChain } from "@hyperbridge/sdk"
 
 const hyperbridge = new SubstrateChain({
@@ -392,7 +392,7 @@ Unlike POST requests, GET requests **only have protocol fees** - there are no re
 
 GET request fees are calculated with a minimum fee and context-based component. The per-byte fee is queried from Hyperbridge (the host), and the actual fee is the maximum of either the minimum fee (32 bytes worth) or the context-based fee:
 
-```solidity
+```solidity lineNumbers
 uint256 perByteFee = perByteFee(host()); // Hyperbridge per-byte fee
 uint256 minimumFee = 32 * perByteFee;     // Minimum charge (one word)
 uint256 totalFee = get.fee + (perByteFee * context.length);
@@ -405,7 +405,7 @@ The `get.fee` parameter can be set to 0, making the total fee dependent only on 
 
 You can calculate the exact fee before dispatching by querying the per-byte fee for Hyperbridge and applying the formula above. To optimize fees, minimize your context size by using compact encoding and only including essential data. Also consider batching multiple storage keys into a single GET request rather than making multiple requests.
 
-```solidity
+```solidity lineNumbers
 // Query the per-byte fee for Hyperbridge (the host)
 bytes memory host = IDispatcher(hostAddr).host();
 uint256 perByteFee = IDispatcher(hostAddr).perByteFee(host);
@@ -435,7 +435,7 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 
 If your contract extends `HyperApp`, use the `dispatchWithFeeToken()` helper which handles all fee calculations and token approvals automatically:
 
-```solidity lineNumbers
+```solidity lineNumbers title="MyApp.sol" icon="solidity"
 contract MyApp is HyperApp {
     function readRemoteState(
         bytes memory dest,
@@ -467,7 +467,7 @@ contract MyApp is HyperApp {
 
 For native token payments, dispatch directly and let the Host handle the Uniswap swap:
 
-```solidity lineNumbers
+```solidity lineNumbers title="MyApp.sol" icon="solidity"
 contract MyApp is HyperApp {
     function readRemoteStateWithNative(
         bytes memory dest,
@@ -495,7 +495,7 @@ contract MyApp is HyperApp {
 
 When building user-facing applications, estimate fees on the client side before users submit transactions:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon="typescript"
 import { createPublicClient, http } from 'viem'
 
 const publicClient = createPublicClient({

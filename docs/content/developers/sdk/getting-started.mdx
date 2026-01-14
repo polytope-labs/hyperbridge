@@ -23,17 +23,17 @@ Install the SDK using your preferred package manager:
 
 <Tabs items={['pnpm', 'yarn', 'npm']}>
 <Tab value="npm">
-```bash
+```bash lineNumbers
 npm install @hyperbridge/sdk
 ```
 </Tab>
 <Tab value="yarn">
-```bash
+```bash lineNumbers
 yarn add @hyperbridge/sdk
 ```
 </Tab>
 <Tab value="pnpm">
-```bash
+```bash lineNumbers
 pnpm add @hyperbridge/sdk
 ```
 </Tab>
@@ -47,7 +47,7 @@ pnpm add @hyperbridge/sdk
 
 **EVM Chain:**
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { EvmChain } from "@hyperbridge/sdk"
 
 const sourceChain = new EvmChain({
@@ -60,7 +60,7 @@ const sourceChain = new EvmChain({
 
 **Substrate Chain:**
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { SubstrateChain } from "@hyperbridge/sdk"
 
 const hyperbridge = new SubstrateChain({
@@ -82,19 +82,26 @@ For detailed configuration options and supported chains, see:
 
 ### 2. Create Query Client
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { createQueryClient } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
-  url: "https://hyperbridge-indexer-url"
+  url: "https://gargantua.indexer.polytope.technology"
 })
 ```
+
+Polytope Labs provides a free indexer service for both mainnet and testnet. The endpoints are actually GraphQL APIs, so a GraphiQL playground is available at the endpoints as well.
+
+| Network | Indexer URL |
+|---------|-------------|
+| Mainnet | https://nexus.indexer.polytope.technology |
+| Testnet | https://gargantua.indexer.polytope.technology |
 
 ---
 
 ### 3. Initialize IndexerClient
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { IndexerClient } from "@hyperbridge/sdk"
 
 const indexer = new IndexerClient({
@@ -122,7 +129,7 @@ For complete API documentation and usage examples, see the [IndexerClient API Re
 
 ## Complete Example
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { 
   IndexerClient, 
   createQueryClient, 
@@ -133,7 +140,7 @@ import {
 async function main() {
   // 1. Create query client
   const queryClient = createQueryClient({
-    url: "https://hyperbridge-indexer-url"
+    url: "https://gargantua.indexer.polytope.technology"
   })
 
   // 2. Create chain instances

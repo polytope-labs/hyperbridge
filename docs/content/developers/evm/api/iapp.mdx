@@ -7,7 +7,7 @@ description: API reference for IApp - interface that applications must implement
 
 Interface that applications must implement to receive cross-chain messages from Hyperbridge. All callbacks are called by the Host contract when messages are delivered.
 
-```solidity
+```solidity lineNumbers
 interface IApp
 ```
 
@@ -29,7 +29,7 @@ Applications implementing `IApp` can:
 
 Called when a POST request is delivered to your application.
 
-```solidity
+```solidity lineNumbers
 function onAccept(IncomingPostRequest calldata incoming) external
 ```
 
@@ -58,7 +58,7 @@ function onAccept(IncomingPostRequest calldata incoming) external
 
 Called when a POST request you sent has timed out on the destination chain.
 
-```solidity
+```solidity lineNumbers
 function onPostRequestTimeout(PostRequest memory request) external
 ```
 
@@ -87,7 +87,7 @@ function onPostRequestTimeout(PostRequest memory request) external
 
 Called when a POST response is delivered to your application.
 
-```solidity
+```solidity lineNumbers
 function onPostResponse(IncomingPostResponse memory incoming) external
 ```
 
@@ -110,7 +110,7 @@ function onPostResponse(IncomingPostResponse memory incoming) external
 
 Called when a POST response you sent has timed out.
 
-```solidity
+```solidity lineNumbers
 function onPostResponseTimeout(PostResponse memory response) external
 ```
 
@@ -131,7 +131,7 @@ function onPostResponseTimeout(PostResponse memory response) external
 
 Called when a GET response with queried state data is delivered to your application.
 
-```solidity
+```solidity lineNumbers
 function onGetResponse(IncomingGetResponse memory incoming) external
 ```
 
@@ -160,7 +160,7 @@ function onGetResponse(IncomingGetResponse memory incoming) external
 
 Called when a GET request you sent has timed out.
 
-```solidity
+```solidity lineNumbers
 function onGetTimeout(GetRequest memory request) external
 ```
 
@@ -188,7 +188,7 @@ The IApp interface does not define any events. Applications are free to emit the
 
 Encapsulates an incoming POST request with relayer information.
 
-```solidity
+```solidity lineNumbers
 struct IncomingPostRequest {
     PostRequest request;
     address relayer;
@@ -206,7 +206,7 @@ struct IncomingPostRequest {
 
 Encapsulates an incoming POST response with relayer information.
 
-```solidity
+```solidity lineNumbers
 struct IncomingPostResponse {
     PostResponse response;
     address relayer;
@@ -224,7 +224,7 @@ struct IncomingPostResponse {
 
 Encapsulates an incoming GET response with relayer information.
 
-```solidity
+```solidity lineNumbers
 struct IncomingGetResponse {
     GetResponse response;
     address relayer;
@@ -242,7 +242,7 @@ struct IncomingGetResponse {
 
 Represents a POST request.
 
-```solidity
+```solidity lineNumbers
 struct PostRequest {
     bytes source;
     bytes dest;
@@ -270,7 +270,7 @@ struct PostRequest {
 
 Represents a POST response.
 
-```solidity
+```solidity lineNumbers
 struct PostResponse {
     PostRequest request;
     bytes response;
@@ -290,7 +290,7 @@ struct PostResponse {
 
 Represents a GET request.
 
-```solidity
+```solidity lineNumbers
 struct GetRequest {
     bytes source;
     bytes dest;
@@ -320,7 +320,7 @@ struct GetRequest {
 
 Represents a GET response with state data.
 
-```solidity
+```solidity lineNumbers
 struct GetResponse {
     GetRequest request;
     bytes[] values;

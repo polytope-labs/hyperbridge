@@ -66,7 +66,7 @@ Solochains require an offchain consensus relayer to exchange consensus proofs wi
 
 The tesseract consensus relayer is closed-source at this time, but is available as a docker image at the official docker repository [polytopelabs/tesseract-consensus](https://hub.docker.com/r/polytopelabs/tesseract-consensus)
 
-```bash
+```bash lineNumbers
 docker pull polytopelabs/tesseract-consensus:latest
 ```
 
@@ -146,7 +146,7 @@ maximum_update_intervals = [
 
 Before running the relayer, you must first initialize Hyperbridge's consensus state on your solochain. The consensus relayer can query Hyperbridge to retrieve this initial state for you. For instance, here's how you can log the consensus state of the Hyperbridge testnet on Paseo:
 
-```bash
+```bash lineNumbers
 docker run \
 --network=host \
 -v /path/to/consensus.toml:/root/consensus.toml \
@@ -172,7 +172,7 @@ This should print out a potentially long hex string. Next you'll use this hex st
 
 Once this is completed on your solochain, the same will need to also be executed on Hyperbridge. In similar fashion you can log the initial consensus of your solochain and [create an issue on our github](https://github.com/polytope-labs/hyperbridge/issues/new) to be added to the Hyperbridge testnet. On Hyperbridge mainnet, you'll instead submit a governance proposal for this.
 
-```bash
+```bash lineNumbers
 docker run \
     --network=host \
     -v /path/to/consensus.toml:/root/consensus.toml \
@@ -185,7 +185,7 @@ docker run \
 
 Once all consensus states are set up, running the relayer is as easy as:
 
-```bash
+```bash lineNumbers
 docker run -d \
     --name=consensus \
     --restart=always \
@@ -197,7 +197,7 @@ docker run -d \
 
 Access it's logs via
 
-```bash
+```bash lineNumbers
 docker logs -f consensus -n=${maximum_number_of_previous_log_lines}
 ```
 

@@ -12,7 +12,7 @@ Please note that building the Tesseract relayer from source is not supported at 
 
 You can install a prebuilt binary for the Tesseract consensus relayer with the following bash script
 
-```bash
+```bash lineNumbers
 LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract-consensus/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-consensus-$LATEST_TAG/tesseract-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
@@ -22,7 +22,7 @@ cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
 
 or a 1-liner
 
-```bash
+```bash lineNumbers
 LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract-consensus/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-consensus-$LATEST_TAG/tesseract-installer.sh | sh
 ```
@@ -31,7 +31,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbrid
 
 Tesseract Consensus is available at the official docker repository [`polytopelabs/tesseract-consensus`](https://hub.docker.com/r/polytopelabs/tesseract-consensus)
 
-```bash
+```bash lineNumbers
 docker pull polytopelabs/tesseract-consensus:latest
 ```
 
@@ -39,7 +39,7 @@ docker pull polytopelabs/tesseract-consensus:latest
 
 The tesseract consensus relayer command line interface expects two arguments, which are the paths to its configuration file and optional base state machine to use for consensus initialization.
 If you're running it in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration file on your host into the docker container.
-```bash
+```bash lineNumbers
 docker run -d \
   --name=tesseract-consensus \
   --network=host \
@@ -52,7 +52,7 @@ docker run -d \
 
 Access its logs using
 
-```bash
+```bash lineNumbers
 docker logs -f tesseract-consensus
 ```
 
@@ -67,7 +67,7 @@ and then append the configuration blocks for each network you wish to relay.
 
 ### Base configuration (Required)
 
-```toml
+```toml lineNumbers
 # Hyperbridge consensus client config, required.
 # This section defines how the relayer connects to and interprets the Hyperbridge chain.
 [hyperbridge]
@@ -131,7 +131,7 @@ Now, you can choose between any of the networks Hyperbridge supports for your re
 
 #### Ethereum
 
-```toml
+```toml lineNumbers
 # Configuration for Ethereum Mainet.
 [ethereum]
 # The type of chain configuration. "evm" is for standard EVM-compatible chains.
@@ -165,7 +165,7 @@ consensus_update_frequency = 60
 
 #### Arbitrum
 
-```toml
+```toml lineNumbers
 # Configuration for an Arbitrum Orbit chain (L2).
 [arbitrum]
 # The type of chain configuration. "arbitrum_orbit" is for Arbitrum L2s.
@@ -204,7 +204,7 @@ l1_consensus_state_id = "ETH0"
 ```
 
 #### Optimism
-```toml
+```toml lineNumbers
 # Configuration for an OP Stack chain (L2).
 [optimism]
 # The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
@@ -246,7 +246,7 @@ l1_consensus_state_id = "ETH0"
 
 
 #### Base
-```toml
+```toml lineNumbers
 # Configuration for an OP Stack chain (L2).
 [base]
 # The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
@@ -287,7 +287,7 @@ l1_consensus_state_id = "ETH0"
 
 
 #### Soneium
-```toml
+```toml lineNumbers
 # Configuration for an OP Stack chain (L2).
 [soneium]
 # The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
@@ -328,7 +328,7 @@ l1_consensus_state_id = "ETH0"
 
 
 #### BSC
-```toml
+```toml lineNumbers
 # Configuration for BSC.
 [bsc]
 # The type of chain configuration. "bsc" is for the Binance Smart Chain.
@@ -359,7 +359,7 @@ epoch_length = 1000
 ```
 
 #### Gnosis
-```toml
+```toml lineNumbers
 # Configuration for Gnosis.
 [gnosis]
 # The type of chain configuration. "evm" is for standard EVM-compatible chains.
@@ -392,7 +392,7 @@ consensus_update_frequency = 60
 ```
 
 #### Unichain
-```toml
+```toml lineNumbers
 # Configuration for an OP Stack chain (L2).
 [unichain]
 # The type of chain configuration. "op_stack" is for Optimism L2s and other OP Stack chains.
@@ -432,7 +432,7 @@ l1_consensus_state_id = "ETH0"
 ```
 
 #### Polygon
-```toml
+```toml lineNumbers
 [polygon]
 type = "polygon"
 # Polygon state machine id

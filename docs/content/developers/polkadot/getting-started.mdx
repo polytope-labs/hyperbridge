@@ -13,7 +13,7 @@ The connection between Hyperbridge and Polkadot-SDK chains is mediated by a few 
 
 This is the core module of the Interoperable state machine protocol for Polkadot-SDK chains. It exposes APIs and calls that allow the runtime to send and receive ISMP messages respectively. You can add the [`pallet-ismp`](https://docs.rs/pallet-ismp) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add pallet-ismp
 ```
 
@@ -21,7 +21,7 @@ cargo add pallet-ismp
 
 This ISMP runtime API exposes necessary storage items to the client subsystems, specifically in this case the RPC subsystem. But you can also build custom client subsytems that leverage this runtime API. You can add the [`pallet-ismp-runtime-api`](https://docs.rs/pallet-ismp-runtime-api) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add pallet-ismp-runtime-api
 ```
 
@@ -29,7 +29,7 @@ cargo add pallet-ismp-runtime-api
 
 The Pallet ISMP RPC module exposes the necessary RPC APIs that are required by the [tesseract messaging relayer](/developers/network/messaging-relayer) and [tesseract consensus relayer](/developers/network/consensus-relayer), and other alternative relayer implementations. This is required for any kind of offchain relayer process. You can add the [`pallet-ismp-rpc`](https://docs.rs/pallet-ismp-rpc) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add pallet-ismp-rpc
 ```
 
@@ -37,7 +37,7 @@ cargo add pallet-ismp-rpc
 
 For parachain runtimes that want to connect to Hyperbridge, They will do so by means of the parachain consensus client. Which is leverages the relay chain as the source of truth for finalized sibling parachain state commitments. You can add the [`ismp-parachain`](https://docs.rs/ismp-parachain) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add ismp-parachain
 ```
 
@@ -46,7 +46,7 @@ cargo add ismp-parachain
 
 The parachain inherent greatly simplifies the infrastructure required for parachains to exchange messages with Hyperbridge by turning collators into consensus relayers. Specifically this inherent will automatically include sibling parachain headers and their proofs into every block keeping the parachain up to date with the latest finalized state of Hyperbridge and any other sibling parachain that is configured. Without this, a seperate consensus relayer will need to be run offchain. You can add the [`ismp-parachain-inherent`](https://docs.rs/ismp-parachain-inherent) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add ismp-parachain-inherent
 ```
 
@@ -54,7 +54,7 @@ cargo add ismp-parachain-inherent
 
 The Parachain inherent provider requires some runtime APIs to access which parachains are configured by the runtime to be included in the inherent. You can add the [`ismp-parachain-runtime-api`](https://docs.rs/ismp-parachain-runtime-api) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add ismp-parachain-runtime-api
 ```
 
@@ -62,7 +62,7 @@ cargo add ismp-parachain-runtime-api
 
 Solochains that want to connect to Hyperbridge will do so by means of the GRANDPA consensus client. This consensus client is capable of verifying GRANDPA consensus proofs of standalone chains as well as relay chains. You can add the [`ismp-grandpa`](https://docs.rs/ismp-grandpa) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add ismp-grandpa
 ```
 
@@ -70,7 +70,7 @@ cargo add ismp-grandpa
 
 The Pallet Hyperbridge provides an implementation of the `IsmpDispatcher` which collects the Hyperbridge protocol fees, as well as an `IsmpModule` for processing cross-chain messages from Hyperbridge. These cross-chain messages may either be withdrawal requests may be for either relayer fees, or protocol fees. The IsmpModule may also receive cross-chain messages from Hyperbridge to adjust it's protocol fees as decided by governance. This module is optional and is only needed if Polkadot-SDK chains opt to pay Hyperbridge protocol fees onchain, they may also do so offchain by running their own relayers and paying Hyperbridge it's native token when they relay messages to Hyperbridge. You can add the [`pallet-hyperbridge`](https://docs.rs/pallet-hyperbridge) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add pallet-hyperbridge
 ```
 
@@ -78,7 +78,7 @@ cargo add pallet-hyperbridge
 
 The Pallet Token Gateway is an application-layer module that leverages Hyperbridge for token bridging. It works with any implementation of the `fungibles::*` traits eg. [`pallet-assets`](https://docs.rs/pallet-assets) and [`orml-tokens`](https://docs.rs/orml-tokens). Allowing runtimes to send and receive assets from any of Hyperbridge's connected chains even EVM ones. You can add the [`pallet-token-gateway`](https://docs.rs/pallet-token-gateway) to your runtime like so
 
-```bash
+```bash lineNumbers
 cargo add pallet-token-gateway
 ```
 

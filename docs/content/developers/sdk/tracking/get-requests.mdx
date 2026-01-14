@@ -34,7 +34,7 @@ SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINA
 
 First, calculate the commitment hash for your GET request:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 import { getRequestCommitment } from "@hyperbridge/sdk"
 
 // Your GET request object
@@ -235,7 +235,7 @@ Each status update includes:
 
 Always break out of async generators when done to avoid infinite polling:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 for await (const status of indexer.getRequestStatusStream(commitment)) {
   // Process status...
   
@@ -250,7 +250,7 @@ for await (const status of indexer.getRequestStatusStream(commitment)) {
 
 Implement proper error handling for network issues:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon=typescript
 try {
   for await (const status of indexer.getRequestStatusStream(commitment)) {
     console.log(`Status: ${status.status}`)

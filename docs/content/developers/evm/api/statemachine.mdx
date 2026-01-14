@@ -7,7 +7,7 @@ description: API reference for StateMachine - utility library for creating and p
 
 Utility library for encoding and decoding state machine identifiers. Used to specify source and destination chains when dispatching cross-chain messages.
 
-```solidity
+```solidity lineNumbers
 library StateMachine
 ```
 
@@ -29,7 +29,7 @@ State machine identifiers are used throughout Hyperbridge to specify which chain
 
 Creates an EVM state machine identifier from a chain ID.
 
-```solidity
+```solidity lineNumbers
 function evm(uint256 chainId) internal pure returns (bytes memory)
 ```
 
@@ -47,7 +47,7 @@ function evm(uint256 chainId) internal pure returns (bytes memory)
 
 Creates a Substrate/Polkadot state machine identifier.
 
-```solidity
+```solidity lineNumbers
 function substrate(bytes memory id) internal pure returns (bytes memory)
 ```
 
@@ -65,7 +65,7 @@ function substrate(bytes memory id) internal pure returns (bytes memory)
 
 Extracts the chain ID from an EVM state machine identifier.
 
-```solidity
+```solidity lineNumbers
 function parseStateMachineId(bytes memory id) 
     internal 
     pure 
@@ -86,7 +86,7 @@ function parseStateMachineId(bytes memory id)
 
 Compares two state machine identifiers for equality.
 
-```solidity
+```solidity lineNumbers
 function equals(bytes memory a, bytes memory b) 
     internal 
     pure 

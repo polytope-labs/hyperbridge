@@ -99,13 +99,13 @@ Understanding the fee model is crucial for dispatching POST responses. Like POST
 
 Protocol fees for POST responses are calculated identically to POST requests:
 
-```solidity
+```solidity lineNumbers
 protocolFee = perByteFee(destination) × max(response.length, 32)
 ```
 
 The `perByteFee` varies by destination chain and can be queried:
 
-```solidity
+```solidity lineNumbers
 // Query protocol fee for a response
 uint256 perByteFee = IDispatcher(host).perByteFee(StateMachine.evm(1)); // Ethereum
 uint256 responseSize = max(responseData.length, 32);
@@ -118,7 +118,7 @@ Protocol fees are **non-refundable** even if the response times out. The minimum
 
 Relayer fees for POST responses are optional and work the same way as POST requests:
 
-```solidity
+```solidity lineNumbers
 struct DispatchPostResponse {
     // ... other fields
     uint256 fee;      // Relayer fee amount (in feeToken)
@@ -145,7 +145,7 @@ POST responses require payment in two different tokens depending on the fee type
 
 Your contract must extend `HyperApp`, which allows you to use the `dispatchWithFeeToken()` helper which handles all fee calculations and token approvals automatically:
 
-```solidity lineNumbers
+```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
     function onPostRequest(PostRequest memory request) 
         external 
@@ -177,7 +177,7 @@ contract MyApp is HyperApp {
 
 For native token payments, dispatch directly and let the Host handle the Uniswap swap:
 
-```solidity lineNumbers
+```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
     function sendResponseWithNative(
         PostRequest memory request,
@@ -200,7 +200,7 @@ contract MyApp is HyperApp {
 
 When building user-facing applications, estimate fees on the client side before users submit transactions:
 
-```typescript
+```typescript lineNumbers title="client.ts" icon="typescript"
 import { createPublicClient, http } from 'viem'
 
 const publicClient = createPublicClient({
@@ -260,7 +260,7 @@ Use the `quoteNative()` view function from your frontend to estimate how much na
 
 If you've dispatched a response but it hasn't been delivered yet, you can increase the relayer fee to incentivize faster delivery:
 
-```solidity
+```solidity lineNumbers
 // Get the response commitment from the dispatch call
 bytes32 commitment = IDispatcher(host).dispatch{value: nativeCost}(postResponse);
 

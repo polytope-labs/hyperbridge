@@ -27,7 +27,7 @@ Creates a new IndexerClient instance.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const indexer = new IndexerClient({
   queryClient: createQueryClient({ url: "https://indexer-url" }),
   pollInterval: 1_000,
@@ -64,7 +64,7 @@ Creates an async generator that streams status updates for a POST request. The s
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 for await (const status of indexer.postRequestStatusStream(requestHash)) {
   console.log(`Status: ${status.status}`)
   console.log(`Block: ${status.metadata.blockNumber}`)
@@ -94,7 +94,7 @@ Creates an async generator that streams status updates for a GET request. Termin
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 for await (const status of indexer.getRequestStatusStream(requestHash)) {
   console.log(`GET Request Status: ${status.status}`)
   
@@ -130,7 +130,7 @@ Creates an async generator that streams timeout processing status updates for a 
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 // After receiving PENDING_TIMEOUT status
 for await (const status of indexer.postRequestTimeoutStream(requestHash)) {
   console.log(`Timeout Status: ${status.status}`)
@@ -174,7 +174,7 @@ Queries the current status of a request without streaming.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const request = await indexer.queryRequestWithStatus(commitmentHash)
 if (request) {
   console.log("Current Status:", request.status)
@@ -198,7 +198,7 @@ Queries the current status of a GET request without streaming.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const getRequest = await indexer.queryGetRequestWithStatus(commitmentHash)
 if (getRequest) {
   console.log("Current Status:", getRequest.status)
@@ -224,7 +224,7 @@ Queries POST request data and status from the indexer.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 import { queryPostRequest, createQueryClient } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({ url: "https://indexer-url" })
@@ -251,7 +251,7 @@ Queries GET request data and status from the indexer.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 import { queryGetRequest, createQueryClient } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({ url: "https://indexer-url" })
@@ -267,7 +267,7 @@ const getRequest = await queryGetRequest({
 
 A hex-encoded string prefixed with `0x`.
 
-```typescript
+```typescript lineNumbers
 type HexString = `0x${string}`
 ```
 
@@ -277,7 +277,7 @@ type HexString = `0x${string}`
 
 A POST request with its associated status history.
 
-```typescript
+```typescript lineNumbers
 interface PostRequestWithStatus {
   source: string
   dest: string
@@ -307,7 +307,7 @@ interface PostRequestWithStatus {
 
 A GET request with its associated status history.
 
-```typescript
+```typescript lineNumbers
 interface GetRequestWithStatus {
   source: string
   dest: string
@@ -341,7 +341,7 @@ interface GetRequestWithStatus {
 
 A GET response with its commitment and storage values.
 
-```typescript
+```typescript lineNumbers
 interface ResponseCommitmentWithValues {
   commitment: string
   values: string[]
@@ -359,7 +359,7 @@ interface ResponseCommitmentWithValues {
 
 Information about a state machine update on Hyperbridge.
 
-```typescript
+```typescript lineNumbers
 interface StateMachineUpdate {
   height: number
   chain: string
@@ -387,7 +387,7 @@ interface StateMachineUpdate {
 
 ### RequestStatusWithMetadata
 
-```typescript
+```typescript lineNumbers
 type RequestStatusWithMetadata = {
   status: RequestStatusKey
   metadata: {
@@ -406,7 +406,7 @@ type RequestStatusWithMetadata = {
 
 Metadata about a blockchain block and transaction.
 
-```typescript
+```typescript lineNumbers
 interface BlockMetadata {
   blockHash: string
   blockNumber: number
@@ -428,7 +428,7 @@ interface BlockMetadata {
 
 ### PostRequestTimeoutStatus
 
-```typescript
+```typescript lineNumbers
 type PostRequestTimeoutStatus = {
   status: TimeoutStatusKey
   metadata: {
@@ -445,7 +445,7 @@ type PostRequestTimeoutStatus = {
 
 ### RequestStatusKey
 
-```typescript
+```typescript lineNumbers
 type RequestStatusKey = 
   | "SOURCE"
   | "SOURCE_FINALIZED"
@@ -458,7 +458,7 @@ type RequestStatusKey =
 
 ### TimeoutStatusKey
 
-```typescript
+```typescript lineNumbers
 type TimeoutStatusKey = 
   | "PENDING_TIMEOUT"
   | "DESTINATION_FINALIZED_TIMEOUT"
@@ -498,7 +498,7 @@ Implement try-catch blocks around stream iterations to handle errors gracefully.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 try {
   for await (const status of indexer.postRequestStatusStream(hash)) {
     console.log(status)

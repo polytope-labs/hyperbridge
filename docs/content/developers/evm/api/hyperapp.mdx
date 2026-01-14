@@ -7,7 +7,7 @@ description: API reference for HyperApp - abstract base contract for building cr
 
 Abstract base contract for building cross-chain applications on Hyperbridge. Provides a simplified interface for implementing `IApp` with built-in utilities for fee estimation, host authorization, and cross-chain message handling.
 
-```solidity
+```solidity lineNumbers
 abstract contract HyperApp is IApp
 ```
 
@@ -25,7 +25,7 @@ The key benefits include less boilerplate code compared to implementing `IApp` d
 
 Must be implemented by inheriting contracts to specify the Host address for the current chain.
 
-```solidity
+```solidity lineNumbers
 function host() public view virtual returns (address)
 ```
 
@@ -42,7 +42,7 @@ function host() public view virtual returns (address)
 
 Returns the fee in the fee token for dispatching a POST request.
 
-```solidity
+```solidity lineNumbers
 function quote(DispatchPost memory request) public view returns (uint256)
 ```
 
@@ -60,7 +60,7 @@ function quote(DispatchPost memory request) public view returns (uint256)
 
 Returns the fee in the fee token for dispatching a GET request.
 
-```solidity
+```solidity lineNumbers
 function quote(DispatchGet memory request) public view returns (uint256)
 ```
 
@@ -78,7 +78,7 @@ function quote(DispatchGet memory request) public view returns (uint256)
 
 Returns the fee in the fee token for dispatching a POST response.
 
-```solidity
+```solidity lineNumbers
 function quote(DispatchPostResponse memory response) public view returns (uint256)
 ```
 
@@ -94,7 +94,7 @@ function quote(DispatchPostResponse memory response) public view returns (uint25
 
 Returns the fee in the native token (e.g., ETH) for dispatching a POST request.
 
-```solidity
+```solidity lineNumbers
 function quoteNative(DispatchPost memory request) public view returns (uint256)
 ```
 
@@ -115,7 +115,7 @@ function quoteNative(DispatchPost memory request) public view returns (uint256)
 
 Returns the fee in the native token for dispatching a GET request.
 
-```solidity
+```solidity lineNumbers
 function quoteNative(DispatchGet memory request) public view returns (uint256)
 ```
 
@@ -131,7 +131,7 @@ function quoteNative(DispatchGet memory request) public view returns (uint256)
 
 Returns the fee in the native token for dispatching a POST response.
 
-```solidity
+```solidity lineNumbers
 function quoteNative(DispatchPostResponse memory response) public view returns (uint256)
 ```
 
@@ -147,7 +147,7 @@ function quoteNative(DispatchPostResponse memory response) public view returns (
 
 Dispatches a POST request using the fee token for payment, handling approvals automatically.
 
-```solidity
+```solidity lineNumbers
 function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32)
 ```
 
@@ -174,7 +174,7 @@ function dispatchWithFeeToken(DispatchPost memory request, address payer) intern
 
 Dispatches a POST response using the fee token for payment, handling approvals automatically.
 
-```solidity
+```solidity lineNumbers
 function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal returns (bytes32)
 ```
 
@@ -191,7 +191,7 @@ function dispatchWithFeeToken(DispatchPostResponse memory response, address paye
 
 Dispatches a GET request using the fee token for payment, handling approvals automatically.
 
-```solidity
+```solidity lineNumbers
 function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32)
 ```
 
@@ -208,7 +208,7 @@ function dispatchWithFeeToken(DispatchGet memory request, address payer) interna
 
 Called when a POST request is received. Override to handle incoming messages. Default implementation reverts with `UnexpectedCall()`.
 
-```solidity
+```solidity lineNumbers
 function onAccept(IncomingPostRequest calldata incoming) external virtual onlyHost
 ```
 
@@ -224,7 +224,7 @@ function onAccept(IncomingPostRequest calldata incoming) external virtual onlyHo
 
 Called when a POST request you sent has timed out. Override to handle cleanup. Default implementation reverts with `UnexpectedCall()`.
 
-```solidity
+```solidity lineNumbers
 function onPostRequestTimeout(PostRequest memory request) external virtual onlyHost
 ```
 
@@ -242,7 +242,7 @@ function onPostRequestTimeout(PostRequest memory request) external virtual onlyH
 
 Called when a POST response is received. Override to handle responses. Default implementation reverts with `UnexpectedCall()`.
 
-```solidity
+```solidity lineNumbers
 function onPostResponse(IncomingPostResponse memory incoming) external virtual onlyHost
 ```
 
@@ -258,7 +258,7 @@ function onPostResponse(IncomingPostResponse memory incoming) external virtual o
 
 Called when a POST response you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
 
-```solidity
+```solidity lineNumbers
 function onPostResponseTimeout(PostResponse memory response) external virtual onlyHost
 ```
 
@@ -274,7 +274,7 @@ function onPostResponseTimeout(PostResponse memory response) external virtual on
 
 Called when a GET response is received. Override to process state data. Default implementation reverts with `UnexpectedCall()`.
 
-```solidity
+```solidity lineNumbers
 function onGetResponse(IncomingGetResponse memory incoming) external virtual onlyHost
 ```
 
@@ -292,7 +292,7 @@ function onGetResponse(IncomingGetResponse memory incoming) external virtual onl
 
 Called when a GET request you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
 
-```solidity
+```solidity lineNumbers
 function onGetTimeout(GetRequest memory request) external virtual onlyHost
 ```
 
@@ -310,7 +310,7 @@ function onGetTimeout(GetRequest memory request) external virtual onlyHost
 
 Thrown when a function restricted to the Host is called by another address.
 
-```solidity
+```solidity lineNumbers
 error UnauthorizedCall()
 ```
 
@@ -320,7 +320,7 @@ error UnauthorizedCall()
 
 Thrown when a callback is invoked but not overridden by the inheriting contract.
 
-```solidity
+```solidity lineNumbers
 error UnexpectedCall()
 ```
 

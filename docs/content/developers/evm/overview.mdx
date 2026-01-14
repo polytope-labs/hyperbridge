@@ -12,17 +12,17 @@ Install the `@hyperbridge/core` package in your project:
 
 <Tabs items={['pnpm', 'yarn', 'npm']}>
 <Tab value="npm">
-```bash
+```bash lineNumbers
 npm install @hyperbridge/core
 ```
 </Tab>
 <Tab value="yarn">
-```bash
+```bash lineNumbers
 yarn add @hyperbridge/core
 ```
 </Tab>
 <Tab value="pnpm">
-```bash
+```bash lineNumbers
 pnpm add @hyperbridge/core
 ```
 </Tab>
@@ -30,7 +30,7 @@ pnpm add @hyperbridge/core
 
 Then import the interfaces in your Solidity contracts:
 
-```solidity
+```solidity title="YourContract.sol" lineNumbers
 import "@hyperbridge/core/contracts/interfaces/IHost.sol";
 import "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
 import "@hyperbridge/core/contracts/apps/HyperApp.sol";

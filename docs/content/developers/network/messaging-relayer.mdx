@@ -11,7 +11,7 @@ The Hyperbridge messaging relayer (tesseract) can be obtained through a variety 
 
 You can install a prebuilt binary for the Tesseract relayer with the following bash script
 
-```bash
+```bash lineNumbers
 LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-$LATEST_TAG/tesseract-x86_64-unknown-linux-gnu.tar.gz
 tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
@@ -21,7 +21,7 @@ cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
 
 or a 1-liner
 
-```bash
+```bash lineNumbers
 LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-$LATEST_TAG/tesseract-installer.sh | sh
 ```
@@ -30,7 +30,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbrid
 
 Tesseract is available at the official docker repository [`polytopelabs/tesseract`](https://hub.docker.com/r/polytopelabs/tesseract)
 
-```bash
+```bash lineNumbers
 docker pull polytopelabs/tesseract:latest
 ```
 
@@ -88,7 +88,7 @@ Building the Tesseract relayer requires some dependencies
 
 If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
 
-```bash
+```bash lineNumbers
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 </Step>
@@ -98,7 +98,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 Download a local copy of the repo and checkout the latest release version.
 
-```bash
+```bash lineNumbers
 # fetch the latest tag from docker hub
 LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
 git clone https://github.com/polytope-labs/hyperbridge.git
@@ -110,7 +110,7 @@ git checkout tesseract-${LATEST_TAG}
 <Step>
 ### Build the tesseract relayer
 
-```bash
+```bash lineNumbers
 cargo build --release -p tesseract
 ```
 
@@ -121,7 +121,7 @@ Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the
 following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if
 using Zsh. Replace `source` with `.` if necessary.
 
-```bash
+```bash lineNumbers
 # add .local/bin to path if it doesn't exist
 export RC_PATH=${HOME}/.bashrc
 echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ${RC_PATH}
@@ -138,7 +138,7 @@ mv target/release/tesseract $HOME/.local/bin/
 
 The tesseract relayer command line interface expects two arguments, which are the paths to its configuration file and database file. If you're running it in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker container. Tesseract will write its database to that directory once it's initialized.
 
-```bash
+```bash lineNumbers
 docker run -d \
   --name=tesseract \
   --network=host \
@@ -151,7 +151,7 @@ docker run -d \
 
 Access its logs using
 
-```bash
+```bash lineNumbers
 docker logs -f tesseract
 ```
 
@@ -163,7 +163,7 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 
 The configuration file is a toml file that at the moment, that expects the following configuration options:
 
-```toml
+```toml lineNumbers
 # Hyperbridge config, required
 [hyperbridge]
 # For mainnet "POLKADOT-3367"
@@ -396,13 +396,13 @@ In the fee accumulation phase, tesseract submits state proofs of messages all de
 
 Stop any running relayer instances, run the following command in the terminal and wait for it to complete. The command will submit proofs for messages delivered to all chains present in the config file.
 
-```bash
+```bash lineNumbers
 tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees
 ```
 
 When accumulating fees the required state machine update to verify the proofs might not yet be available on hyperbridge, by default accumulating fees for those state machines will be skipped. To wait for all state machine updates.
 
-```bash
+```bash lineNumbers
 tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees --wait
 ```
 
@@ -413,7 +413,7 @@ To initiate a withdrawal from hyperbridge, a relayer needs to submit a transacti
 <br />
 To use this feature run the following command:
 
-```bash
+```bash lineNumbers
 tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db accumulate-fees --withdraw
 ```
 

@@ -7,7 +7,7 @@ description: API reference for IHandler - interface for verifying and processing
 
 Interface for verifying and processing ISMP messages. The handler validates consensus proofs and state proofs before dispatching messages to applications.
 
-```solidity
+```solidity lineNumbers
 interface IHandler
 ```
 
@@ -32,7 +32,7 @@ All handler methods are **permissionless** - anyone can call them to relay messa
 
 Processes a consensus proof to update the consensus state and store new state commitments.
 
-```solidity
+```solidity lineNumbers
 function handleConsensus(
     address host, 
     bytes memory proof
@@ -65,7 +65,7 @@ function handleConsensus(
 
 Processes and delivers POST requests to destination applications.
 
-```solidity
+```solidity lineNumbers
 function handlePostRequests(
     address host,
     PostRequestProof memory proof
@@ -101,7 +101,7 @@ function handlePostRequests(
 
 Processes timed-out POST requests and triggers refunds.
 
-```solidity
+```solidity lineNumbers
 function handlePostRequestTimeouts(
     address host,
     PostTimeout memory timeout
@@ -137,7 +137,7 @@ function handlePostRequestTimeouts(
 
 Processes and delivers POST responses to source applications.
 
-```solidity
+```solidity lineNumbers
 function handlePostResponses(
     address host,
     PostResponseProof memory proof
@@ -174,7 +174,7 @@ function handlePostResponses(
 
 Processes timed-out POST responses and triggers refunds.
 
-```solidity
+```solidity lineNumbers
 function handlePostResponseTimeouts(
     address host,
     PostResponseTimeout memory timeout
@@ -210,7 +210,7 @@ function handlePostResponseTimeouts(
 
 Processes and delivers GET responses with state data to source applications.
 
-```solidity
+```solidity lineNumbers
 function handleGetResponses(
     address host,
     GetResponseProof memory proof
@@ -251,7 +251,7 @@ function handleGetResponses(
 
 Processes timed-out GET requests.
 
-```solidity
+```solidity lineNumbers
 function handleGetRequestTimeouts(
     address host,
     GetTimeout memory timeout
@@ -293,7 +293,7 @@ The IHandler interface does not define any events directly. Events are emitted b
 
 Contains state proof and POST requests to be delivered.
 
-```solidity
+```solidity lineNumbers
 struct PostRequestProof {
     bytes proof;
     PostRequestLeaf[] requests;
@@ -311,7 +311,7 @@ struct PostRequestProof {
 
 Contains state proof and POST responses to be delivered.
 
-```solidity
+```solidity lineNumbers
 struct PostResponseProof {
     bytes proof;
     PostResponseLeaf[] responses;
@@ -329,7 +329,7 @@ struct PostResponseProof {
 
 Contains state proof and GET responses with storage values.
 
-```solidity
+```solidity lineNumbers
 struct GetResponseProof {
     bytes proof;
     GetResponseLeaf[] responses;
@@ -347,7 +347,7 @@ struct GetResponseProof {
 
 Contains timeout proof and timed-out POST requests.
 
-```solidity
+```solidity lineNumbers
 struct PostTimeout {
     bytes timeoutProof;
     PostRequestLeaf[] requests;
@@ -365,7 +365,7 @@ struct PostTimeout {
 
 Contains timeout proof and timed-out POST responses.
 
-```solidity
+```solidity lineNumbers
 struct PostResponseTimeout {
     bytes timeoutProof;
     PostResponseLeaf[] responses;
@@ -383,7 +383,7 @@ struct PostResponseTimeout {
 
 Contains timed-out GET requests.
 
-```solidity
+```solidity lineNumbers
 struct GetTimeout {
     GetRequest[] requests;
 }
@@ -399,7 +399,7 @@ struct GetTimeout {
 
 Represents a cross-chain message request.
 
-```solidity
+```solidity lineNumbers
 struct PostRequest {
     bytes source;
     bytes dest;
@@ -427,7 +427,7 @@ struct PostRequest {
 
 Represents a response to a cross-chain POST request.
 
-```solidity
+```solidity lineNumbers
 struct PostResponse {
     PostRequest request;
     bytes response;
@@ -447,7 +447,7 @@ struct PostResponse {
 
 Represents a cross-chain state query request.
 
-```solidity
+```solidity lineNumbers
 struct GetRequest {
     bytes source;
     bytes dest;
@@ -477,7 +477,7 @@ struct GetRequest {
 
 Represents a response to a cross-chain state query.
 
-```solidity
+```solidity lineNumbers
 struct GetResponse {
     GetRequest request;
     StorageValue[] values;
@@ -495,7 +495,7 @@ struct GetResponse {
 
 Represents a storage key-value pair.
 
-```solidity
+```solidity lineNumbers
 struct StorageValue {
     bytes key;
     bytes value;
@@ -513,7 +513,7 @@ struct StorageValue {
 
 Represents a POST request with metadata for proof verification.
 
-```solidity
+```solidity lineNumbers
 struct PostRequestLeaf {
     PostRequest request;
     uint256 index;
@@ -533,7 +533,7 @@ struct PostRequestLeaf {
 
 Represents a POST response with metadata for proof verification.
 
-```solidity
+```solidity lineNumbers
 struct PostResponseLeaf {
     PostResponse response;
     uint256 index;
@@ -553,7 +553,7 @@ struct PostResponseLeaf {
 
 Represents a GET response with storage data and proof.
 
-```solidity
+```solidity lineNumbers
 struct GetResponseLeaf {
     GetRequest request;
     bytes[] values;
@@ -577,7 +577,7 @@ Errors that can occur during message handling.
 
 ### ConsensusClientExpired
 
-```solidity
+```solidity lineNumbers
 error ConsensusClientExpired()
 ```
 
@@ -587,7 +587,7 @@ Thrown when consensus state hasn't been updated within the unbonding period.
 
 ### HostFrozen
 
-```solidity
+```solidity lineNumbers
 error HostFrozen()
 ```
 
@@ -597,7 +597,7 @@ Thrown when attempting to process messages while host is frozen.
 
 ### ChallengePeriodNotElapsed
 
-```solidity
+```solidity lineNumbers
 error ChallengePeriodNotElapsed()
 ```
 
@@ -607,7 +607,7 @@ Thrown when trying to use a state commitment before challenge period ends.
 
 ### StateCommitmentNotFound
 
-```solidity
+```solidity lineNumbers
 error StateCommitmentNotFound()
 ```
 
@@ -617,7 +617,7 @@ Thrown when referenced state commitment doesn't exist.
 
 ### InvalidMessageDestination
 
-```solidity
+```solidity lineNumbers
 error InvalidMessageDestination()
 ```
 
@@ -627,7 +627,7 @@ Thrown when message destination doesn't match current chain.
 
 ### MessageTimedOut
 
-```solidity
+```solidity lineNumbers
 error MessageTimedOut()
 ```
 
@@ -637,7 +637,7 @@ Thrown when message has exceeded its timeout period.
 
 ### MessageNotTimedOut
 
-```solidity
+```solidity lineNumbers
 error MessageNotTimedOut()
 ```
 
@@ -647,7 +647,7 @@ Thrown when attempting to process timeout before timeout period elapsed.
 
 ### DuplicateMessage
 
-```solidity
+```solidity lineNumbers
 error DuplicateMessage()
 ```
 
@@ -657,7 +657,7 @@ Thrown when message has already been delivered.
 
 ### DuplicateResponse
 
-```solidity
+```solidity lineNumbers
 error DuplicateResponse()
 ```
 
@@ -667,7 +667,7 @@ Thrown when request has already received a response.
 
 ### UnknownMessage
 
-```solidity
+```solidity lineNumbers
 error UnknownMessage()
 ```
 
@@ -677,7 +677,7 @@ Thrown when request/response commitment is not found.
 
 ### InvalidProof
 
-```solidity
+```solidity lineNumbers
 error InvalidProof()
 ```
 

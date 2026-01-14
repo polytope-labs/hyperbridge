@@ -7,7 +7,7 @@ description: API reference for EvmChain - interact with EVM-compatible chains in
 
 The `EvmChain` class provides methods for interacting with EVM-compatible chains (Ethereum, Arbitrum, Optimism, Base, etc.) in the Hyperbridge protocol. It handles proof generation, state queries, and cross-chain message verification.
 
-```typescript
+```typescript lineNumbers
 class EvmChain implements IChain
 ```
 
@@ -30,7 +30,7 @@ Creates a new EvmChain instance for an EVM-compatible blockchain.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 import { EvmChain } from "@hyperbridge/sdk"
 
 const ethereumChain = new EvmChain({
@@ -59,7 +59,7 @@ The underlying Viem PublicClient instance used for blockchain interactions.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const block = await evmChain.client.getBlock({ blockTag: "latest" })
 ```
 
@@ -73,7 +73,7 @@ The IsmpHost contract address on this chain.
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 console.log(`Host address: ${evmChain.host}`)
 ```
 
@@ -87,7 +87,7 @@ Returns the chain configuration object.
 
 **Returns:**
 
-```typescript
+```typescript lineNumbers
 {
   rpcUrl: string
   stateMachineId: string // Format: "EVM-{chainId}"
@@ -112,7 +112,7 @@ The chain configuration service for managing protocol parameters.
 
 Derives the storage key for a request receipt in the IsmpHost contract.
 
-```typescript
+```typescript lineNumbers
 requestReceiptKey(commitment: HexString): HexString
 ```
 
@@ -130,7 +130,7 @@ requestReceiptKey(commitment: HexString): HexString
 
 Queries the request receipt to determine if a request has been delivered and by whom.
 
-```typescript
+```typescript lineNumbers
 async queryRequestReceipt(commitment: HexString): Promise<HexString | undefined>
 ```
 
@@ -144,7 +144,7 @@ async queryRequestReceipt(commitment: HexString): Promise<HexString | undefined>
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const relayer = await evmChain.queryRequestReceipt(commitmentHash)
 if (relayer) {
   console.log(`Request delivered by: ${relayer}`)
@@ -159,7 +159,7 @@ if (relayer) {
 
 Queries cryptographic proofs for cross-chain message verification.
 
-```typescript
+```typescript lineNumbers
 async queryProof(
   message: IMessage, 
   counterparty: string, 
@@ -185,7 +185,7 @@ async queryProof(
 
 Queries storage proofs for specific keys at a given block height.
 
-```typescript
+```typescript lineNumbers
 async queryStateProof(
   at: bigint, 
   keys: HexString[], 
@@ -205,7 +205,7 @@ async queryStateProof(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const proof = await evmChain.queryStateProof(
   18000000n,
   ["0x1234...", "0x5678..."],
@@ -219,7 +219,7 @@ const proof = await evmChain.queryStateProof(
 
 Returns the current timestamp of the chain according to the IsmpHost contract.
 
-```typescript
+```typescript lineNumbers
 async timestamp(): Promise<bigint>
 ```
 
@@ -227,7 +227,7 @@ async timestamp(): Promise<bigint>
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const currentTime = await evmChain.timestamp()
 console.log(`Chain time: ${currentTime}`)
 ```
@@ -238,7 +238,7 @@ console.log(`Chain time: ${currentTime}`)
 
 Gets the latest known height for a state machine on Hyperbridge as recorded on this chain.
 
-```typescript
+```typescript lineNumbers
 async latestStateMachineHeight(
   stateMachineId: StateMachineIdParams
 ): Promise<bigint>
@@ -254,7 +254,7 @@ async latestStateMachineHeight(
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const height = await evmChain.latestStateMachineHeight({
   stateId: { Polkadot: 3367 }
 })
@@ -267,7 +267,7 @@ console.log(`Latest Hyperbridge height: ${height}`)
 
 Retrieves the fee token address and decimals from the IsmpHost contract.
 
-```typescript
+```typescript lineNumbers
 async getFeeTokenWithDecimals(): Promise<{
   address: HexString
   decimals: number
@@ -280,7 +280,7 @@ async getFeeTokenWithDecimals(): Promise<{
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const { address, decimals } = await evmChain.getFeeTokenWithDecimals()
 console.log(`Fee token: ${address} (${decimals} decimals)`)
 ```
@@ -291,7 +291,7 @@ console.log(`Fee token: ${address} (${decimals} decimals)`)
 
 Gets the current nonce from the IsmpHost contract.
 
-```typescript
+```typescript lineNumbers
 async getHostNonce(): Promise<bigint>
 ```
 
@@ -299,7 +299,7 @@ async getHostNonce(): Promise<bigint>
 
 **Example:**
 
-```typescript
+```typescript lineNumbers
 const nonce = await evmChain.getHostNonce()
 console.log(`Host nonce: ${nonce}`)
 ```
@@ -356,7 +356,7 @@ For custom chains, specify the appropriate `consensusStateId` based on how the c
 
 A hex-encoded string prefixed with `0x`.
 
-```typescript
+```typescript lineNumbers
 type HexString = `0x${string}`
 ```
 
@@ -366,7 +366,7 @@ type HexString = `0x${string}`
 
 Parameters for creating an EVM chain instance.
 
-```typescript
+```typescript lineNumbers
 interface EvmChainParams {
   chainId: number
   rpcUrl: string
@@ -388,7 +388,7 @@ interface EvmChainParams {
 
 Configuration object for an EVM chain.
 
-```typescript
+```typescript lineNumbers
 interface IEvmConfig {
   rpcUrl: string
   stateMachineId: string
@@ -410,7 +410,7 @@ interface IEvmConfig {
 
 Parameters identifying a state machine.
 
-```typescript
+```typescript lineNumbers
 interface StateMachineIdParams {
   stateId: { 
     Evm?: number
@@ -433,7 +433,7 @@ interface StateMachineIdParams {
 
 Union type for batch requests or responses.
 
-```typescript
+```typescript lineNumbers
 type IMessage = 
   | { Requests: HexString[] } 
   | { Responses: HexString[] }
@@ -445,7 +445,7 @@ type IMessage =
 
 Parameters for querying storage proofs.
 
-```typescript
+```typescript lineNumbers
 interface GetProofParameters {
   address: HexString
   storageKeys: HexString[]

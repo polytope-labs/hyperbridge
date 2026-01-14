@@ -7,7 +7,7 @@ description: API reference for IConsensus - interface for consensus clients that
 
 Interface for consensus clients that verify Hyperbridge's finality. Each consensus client implements specific consensus algorithms to validate state commitments.
 
-```solidity
+```solidity lineNumbers
 interface IConsensus
 ```
 
@@ -32,7 +32,7 @@ Consensus clients are responsible for:
 
 Verifies a consensus proof and returns the new consensus state along with newly finalized intermediate states.
 
-```solidity
+```solidity lineNumbers
 function verifyConsensus(
     bytes calldata encodedState,
     bytes calldata encodedProof
@@ -74,7 +74,7 @@ function verifyConsensus(
 
 ERC-165 interface detection.
 
-```solidity
+```solidity lineNumbers
 function supportsInterface(bytes4 interfaceId) external view returns (bool)
 ```
 
@@ -100,7 +100,7 @@ The `IConsensus` interface does not define any events directly. Events are emitt
 
 Represents a finalized state commitment for a specific state machine at a specific height.
 
-```solidity
+```solidity lineNumbers
 struct IntermediateState {
     uint256 stateMachineId;
     uint256 height;
@@ -123,7 +123,7 @@ Returned by `verifyConsensus()` to indicate which state machines have new finali
 
 A cryptographic commitment to a state machine's state.
 
-```solidity
+```solidity lineNumbers
 struct StateCommitment {
     uint256 timestamp;
     bytes32 overlayRoot;
@@ -143,7 +143,7 @@ struct StateCommitment {
 
 State maintained by BEEFY consensus clients.
 
-```solidity
+```solidity lineNumbers
 struct BeefyConsensusState {
     uint256 latestHeight;
     AuthoritySetCommitment currentAuthoritySet;
@@ -163,7 +163,7 @@ struct BeefyConsensusState {
 
 Merkle commitment to a BEEFY authority set.
 
-```solidity
+```solidity lineNumbers
 struct AuthoritySetCommitment {
     uint256 id;
     uint256 len;

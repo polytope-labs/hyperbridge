@@ -109,7 +109,7 @@ subkey generate --scheme sr25519
 This is the master key to your account. The hexadecimal private key is what you will use as the signer in the `[hyperbridge]` section of both the messaging and consensus relayer configurations.
 
 You can see a sample consensus relayer config showing the signing key which is the controller account as the key we generated using subkey:
-```toml
+```toml lineNumbers
 # Hyperbridge consensus client config, required.
 [hyperbridge]
 # Specifies the consensus mechanism of the Hyperbridge chain.
@@ -138,7 +138,7 @@ signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
 ```
 
 You can see a sample messaging relayer config showing the signing key which is the controller account as the key we generated using subkey:
-```toml
+```toml lineNumbers
 # Hyperbridge messaging config, required
 [hyperbridge]
 state_machine = "KUSAMA-4009"
@@ -201,7 +201,7 @@ Ensure it is stable and has a reliable network connection.
 You can do this with a curl command:
 
 
-```bash
+```bash lineNumbers
 curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method": "author_rotateKeys", "params":[]}' http://localhost:9990
 ```
 

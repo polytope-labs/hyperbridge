@@ -149,7 +149,7 @@ for await (const status of indexer.getRequestStatusStream(commitment)) {
 }
 ```
 
-When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes calldata for [`IHandler.handleGetResponses(address, GetResponseProof)`](/developers/evm/api/ihandler#handlegetresponses) containing the queried data and cryptographic proofs. You must submit this calldata to the source chain's Handler contract to complete the request and deliver the response to your application. You'll need gas tokens on the source chain for submission. Host contract addresses for each network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages.
+When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes calldata for [`IHandler.handleGetResponses(IHost, GetResponseMessage)`](/developers/evm/api/ihandler#handlegetresponses) containing the queried data and cryptographic proofs. You must submit this calldata to the source chain's Handler contract to complete the request and deliver the response to your application. You'll need gas tokens on the source chain for submission. Host contract addresses for each network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages.
 
 ### Timeout Detection
 

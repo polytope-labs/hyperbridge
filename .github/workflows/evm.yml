@@ -1,0 +1,71 @@
+name: EVM CI
+
+on:
+    push:
+        branches:
+            - main
+        paths:
+            - "evm/**/*.sol"
+            - "evm/**/foundry.toml"
+            - "evm/**/package.json"
+            - "evm/**/*.ts"
+            - "evm/**/*.js"
+            - ".github/workflows/evm.yml"
+
+    # pull_request_target:
+    #     types: [opened, synchronize]
+    #     paths:
+    #         - "evm/**/*.sol"
+    #         - "evm/**/foundry.toml"
+    #         - "evm/**/package.json"
+    #         - "evm/**/*.ts"
+    #         - "evm/**/*.js"
+    #         - ".github/workflows/evm.yml"
+
+concurrency:
+    group: evm-ci-${{ github.head_ref || github.ref_name }}
+    cancel-in-progress: true
+
+env:
+    FOUNDRY_PROFILE: default
+
+jobs:
+    check-evm:
+        name: Check EVM Contracts
+        runs-on: ubuntu-latest
+        if: github.event.pull_request.draft != true
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  submodules: recursive
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 9
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 20
+                  cache: "pnpm"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Run Forge build
+              run: |
+                  cd evm
+                  pnpm install
+                  forge --version
+                  forge build --sizes
+              id: build
+
+            - name: Run Forge tests
+              run: |
+                  cd evm
+                  pnpm install
+                  forge test -vvv
+              id: test

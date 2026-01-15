@@ -81,16 +81,18 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 			.validator_set_proof
 			.ok_or(Error::MissingValidatorSetProof { block_number: update_block_number })?;
 
+		let next_epoch = C::compute_epoch(update_block_number) + 1;
 		let new_validator_set = state_proof::verify_validator_set_proof::<H>(
 			update.header.state_root,
 			&validator_set_proof,
+			next_epoch,
 		)?;
 
 		VerifierState {
 			current_validator_set: new_validator_set,
 			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,
-			current_epoch: C::compute_epoch(update_block_number) + 1,
+			current_epoch: next_epoch,
 		}
 	} else {
 		if update.validator_set_proof.is_some() {

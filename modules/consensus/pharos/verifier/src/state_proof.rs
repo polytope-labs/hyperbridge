@@ -42,9 +42,12 @@ use trie_db::DBValue;
 
 /// This function verifies that the provided validator set is correctly stored
 /// in the staking contract at the given block.
+///
+/// The `epoch` parameter is the epoch this validator set will be valid for,
 pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	state_root: H256,
 	proof: &ValidatorSetProof,
+	epoch: u64,
 ) -> Result<ValidatorSet, Error> {
 	let account = get_contract_account::<H>(
 		proof.account_proof.clone(),
@@ -56,9 +59,8 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 
 	let layout = StakingContractLayout::default();
 
-	// Compute and fetch global storage slots (epoch, totalStake, array length, pool IDs)
+	// Compute and fetch global storage slots (totalStake, array length, pool IDs)
 	let base_slots = vec![
-		layout.raw_slot_key(layout.current_epoch_slot),
 		layout.raw_slot_key(layout.total_stake_slot),
 		layout.raw_slot_key(layout.active_pool_set_slot),
 	];
@@ -70,7 +72,7 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	.map_err(|_| Error::StorageProofLookupFailed)?;
 
 	// validator count from the proof (slot 22 = activePoolSets array length)
-	let validator_count = base_values[2]
+	let validator_count = base_values[1]
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
 		.transpose()?
@@ -126,7 +128,7 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	all_values.extend(pool_id_values);
 	all_values.extend(validator_values);
 
-	let decoded_set = decode_validator_set_from_storage::<H>(&all_slots, &all_values)?;
+	let decoded_set = decode_validator_set_from_storage::<H>(&all_slots, &all_values, epoch)?;
 
 	validate_validator_set(&decoded_set)?;
 
@@ -142,49 +144,41 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 ///
 /// The contract at `0x4100000000000000000000000000000000000000` uses:
 /// - Slot 0: validators mapping (mapping(bytes32 => Validator))
-/// - Slot 5: currentEpoch (uint256)
 /// - Slot 6: totalStake (uint256)
 /// - Slot 22: activePoolSets (EnumerableSet._values array)
 fn decode_validator_set_from_storage<H: Keccak256>(
 	slots: &[H256],
 	values: &[Option<DBValue>],
+	epoch: u64,
 ) -> Result<ValidatorSet, Error> {
 	if slots.len() != values.len() {
 		return Err(Error::SlotValueLengthMismatch { slots: slots.len(), values: values.len() });
 	}
 
-	// We need 3 slots at minimum: currentEpoch, totalStake, activePoolSets length
-	if values.len() < 3 {
-		return Err(Error::InsufficientStorageValues { expected: 3, got: values.len() });
+	// We need 2 slots at minimum: totalStake, activePoolSets length
+	if values.len() < 2 {
+		return Err(Error::InsufficientStorageValues { expected: 2, got: values.len() });
 	}
 
 	// Parse global state
-	// Index 0: currentEpoch
-	let epoch = values[0]
+	// Index 0: totalStake
+	let total_stake = values[0]
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
 		.transpose()?
 		.unwrap_or_default();
 
-	// Index 1: totalStake
-	let total_stake = values[1]
-		.as_ref()
-		.map(|v| decode_u256_from_storage(v))
-		.transpose()?
-		.unwrap_or_default();
-
-	// Index 2: activePoolSets array length (slot 22)
-	let validator_count = values[2]
+	// Index 1: activePoolSets array length (slot 22)
+	let validator_count = values[1]
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
 		.transpose()?
 		.unwrap_or_default();
 
 	let count = validator_count.low_u64() as usize;
-	let epoch_num = epoch.low_u64();
 
-	// Pool IDs start at index 3 (after currentEpoch, totalStake, array length)
-	let pool_set_start = 3;
+	// Pool IDs start at index 2 (after totalStake, array length)
+	let pool_set_start = 2;
 	let pool_ids_end = pool_set_start + count;
 
 	if values.len() < pool_ids_end {
@@ -195,7 +189,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 		});
 	}
 
-	let mut validator_set = ValidatorSet::new(epoch_num);
+	let mut validator_set = ValidatorSet::new(epoch);
 	validator_set.total_stake = total_stake;
 
 	// Slots per validator in the detailed proof:
@@ -440,8 +434,6 @@ pub struct StakingContractLayout {
 	pub validators_mapping_slot: u64,
 	/// Storage slot for activePoolSets (EnumerableSet._values)
 	pub active_pool_set_slot: u64,
-	/// Storage slot for currentEpoch
-	pub current_epoch_slot: u64,
 	/// Storage slot for totalStake
 	pub total_stake_slot: u64,
 }
@@ -499,12 +491,7 @@ impl Default for ValidatorStructOffsets {
 
 impl Default for StakingContractLayout {
 	fn default() -> Self {
-		Self {
-			validators_mapping_slot: 0,
-			active_pool_set_slot: 22,
-			current_epoch_slot: 5,
-			total_stake_slot: 6,
-		}
+		Self { validators_mapping_slot: 0, active_pool_set_slot: 22, total_stake_slot: 6 }
 	}
 }
 

@@ -14,8 +14,8 @@ sp_api::impl_runtime_apis! {
             <Runtime as pallet_ismp::Config>::HostStateMachine::get()
         }
 
-        fn challenge_period(consensus_state_id: [u8; 4]) -> Option<u64> {
-            pallet_ismp::Pallet::<Runtime>::challenge_period(consensus_state_id)
+        fn challenge_period(state_machine_id: [u8; 4]) -> Option<u64> {
+            pallet_ismp::Pallet::<Runtime>::challenge_period(state_machine_id)
         }
 
         /// Fetch all ISMP events and their extrinsic metadata, should only be called from runtime-api.

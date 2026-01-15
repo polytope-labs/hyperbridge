@@ -138,7 +138,7 @@ POST responses require payment in two different tokens depending on the fee type
 
 | Token | Payment Method |
 |-------|----------------|
-| Native token (ETH, BNB, MATIC, etc.) | Sent with transaction via `msg.value` |
+| Native token (ETH, BNB, POL, DOT etc.) | Sent with transaction via `msg.value` |
 | Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
 
 ### Fee Token Payment (Recommended)
@@ -329,6 +329,6 @@ To learn how to self-relay responses:
 
 1. **[Get Started with the SDK](/developers/sdk/getting-started)** - Install and set up the Hyperbridge SDK
 2. **[Track POST Requests](/developers/sdk/tracking/post-requests)** - Monitor response status and extract delivery calldata
-3. **[IndexerClient API](/developers/sdk/indexer-client)** - Use the `postRequestStatusStream()` method to get calldata when response is ready for delivery
+3. **[IndexerClient API](/developers/sdk/api/indexer-client)** - Use the `postRequestStatusStream()` method to get calldata when response is ready for delivery
 
 The SDK automatically generates the proof and calldata you need to call the handler contract's `handlePostResponses` function on the destination chain. You can make your users self-relay responses or run a server which can relay responses on behalf of users.

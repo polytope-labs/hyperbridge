@@ -7,6 +7,9 @@ export const metadata: Metadata = {
         template: "%s - Hyperbridge Documentation",
         default: "Hyperbridge Documentation",
     },
+    openGraph: {
+        images: "/og.png",
+    },
 };
 
 export default function Layout({ children }: LayoutProps<"/">) {

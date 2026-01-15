@@ -181,7 +181,7 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
 }
 ```
 
-The calldata decodes to [`IHandler.handlePostRequests(address, PostRequestMessage)`](/developers/evm/api/ihandler#handlepostrequests) on the destination chain's Handler contract. You'll need gas tokens on the destination chain to submit the transaction. Host contract addresses for each supported network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages. The transaction will fail if the cryptographic proof is invalid or if the request was already delivered.
+The calldata decodes to [`IHandler.handlePostRequests(IHost, PostRequestMessage)`](/developers/evm/api/ihandler#handlepostrequests) on the destination chain's Handler contract. You'll need gas tokens on the destination chain to submit the transaction. Host contract addresses for each supported network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages. The transaction will fail if the cryptographic proof is invalid or if the request was already delivered.
 
 ### Timeout Detection
 

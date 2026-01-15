@@ -34,14 +34,14 @@ Processes a consensus proof to update the consensus state and store new state co
 
 ```solidity lineNumbers
 function handleConsensus(
-    address host, 
-    bytes memory proof
+    IHost host, 
+    bytes calldata proof
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
+| `host` | `IHost` | The IHost contract |
 | `proof` | `bytes` | Encoded consensus proof from Hyperbridge |
 
 **Access:** Permissionless (can be called by anyone)
@@ -67,15 +67,15 @@ Processes and delivers POST requests to destination applications.
 
 ```solidity lineNumbers
 function handlePostRequests(
-    address host,
-    PostRequestProof memory proof
+    IHost host,
+    PostRequestMessage calldata request
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
-| `proof` | `PostRequestProof` | Struct containing proof and requests |
+| `host` | `IHost` | The IHost contract |
+| `request` | `PostRequestMessage` | Struct containing proof and requests |
 
 **Access:** Permissionless (can be called by anyone)
 
@@ -103,15 +103,15 @@ Processes timed-out POST requests and triggers refunds.
 
 ```solidity lineNumbers
 function handlePostRequestTimeouts(
-    address host,
-    PostTimeout memory timeout
+    IHost host,
+    PostRequestTimeoutMessage calldata message
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
-| `timeout` | `PostTimeout` | Struct containing timeout proof and requests |
+| `host` | `IHost` | The IHost contract |
+| `message` | `PostRequestTimeoutMessage` | Struct containing timeout proof and requests |
 
 **Access:** Permissionless (can be called by anyone)
 
@@ -139,15 +139,15 @@ Processes and delivers POST responses to source applications.
 
 ```solidity lineNumbers
 function handlePostResponses(
-    address host,
-    PostResponseProof memory proof
+    IHost host,
+    PostResponseMessage calldata response
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
-| `proof` | `PostResponseProof` | Struct containing proof and responses |
+| `host` | `IHost` | The IHost contract |
+| `response` | `PostResponseMessage` | Struct containing proof and responses |
 
 **Access:** Permissionless (can be called by anyone)
 
@@ -176,15 +176,15 @@ Processes timed-out POST responses and triggers refunds.
 
 ```solidity lineNumbers
 function handlePostResponseTimeouts(
-    address host,
-    PostResponseTimeout memory timeout
+    IHost host,
+    PostResponseTimeoutMessage calldata message
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
-| `timeout` | `PostResponseTimeout` | Struct containing timeout proof and responses |
+| `host` | `IHost` | The IHost contract |
+| `message` | `PostResponseTimeoutMessage` | Struct containing timeout proof and responses |
 
 **Access:** Permissionless (can be called by anyone)
 
@@ -212,15 +212,15 @@ Processes and delivers GET responses with state data to source applications.
 
 ```solidity lineNumbers
 function handleGetResponses(
-    address host,
-    GetResponseProof memory proof
+    IHost host,
+    GetResponseMessage calldata message
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
-| `proof` | `GetResponseProof` | Struct containing proof and responses with state data |
+| `host` | `IHost` | The IHost contract |
+| `message` | `GetResponseMessage` | Struct containing proof and responses |
 
 **Access:** Permissionless (can be called by anyone)
 
@@ -249,34 +249,42 @@ function handleGetResponses(
 
 ### handleGetRequestTimeouts()
 
-Processes timed-out GET requests.
+Processes timed-out GET requests with cryptographic proof.
 
 ```solidity lineNumbers
 function handleGetRequestTimeouts(
-    address host,
-    GetTimeout memory timeout
+    IHost host,
+    GetTimeoutMessage calldata message
 ) external
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `host` | `address` | The IHost contract address |
-| `timeout` | `GetTimeout` | Struct containing timed-out GET requests |
+| `host` | `IHost` | The IHost contract |
+| `message` | `GetTimeoutMessage` | Struct containing timed-out GET requests, height, and proof |
 
 **Access:** Permissionless (can be called by anyone)
 
 **Process:**
-1. For each request:
-   - Validates timeout timestamp has passed
-   - Calls `onGetTimeout()` on source application
+1. Validates challenge period has elapsed for the state commitment
+2. Fetches state commitment at the specified height
+3. For each timed-out request:
+   - Verifies timeout timestamp has passed
+   - Verifies request commitment exists
+   - Verifies non-membership proof (request was not processed on destination)
+   - Calls `onGetTimeout()` on source application via `host.dispatchTimeOut()`
 
 **Important:**
+- Requires a non-membership proof showing the request was not processed on the destination chain
 - GET requests have no relayer fees, so no refunds occur
 - Primarily for cleanup and state management
 
 **Reverts:**
+- `ChallengePeriodNotElapsed()` - Challenge period not yet passed
+- `StateCommitmentNotFound()` - State commitment doesn't exist at specified height
 - `MessageNotTimedOut()` - Timeout period not elapsed
-- `UnknownMessage()` - Request not found
+- `UnknownMessage()` - Request commitment not found
+- `InvalidProof()` - Non-membership proof verification failed
 
 ---
 
@@ -289,109 +297,139 @@ The IHandler interface does not define any events directly. Events are emitted b
 
 ## Structs
 
-### PostRequestProof
+### Proof
 
-Contains state proof and POST requests to be delivered.
+Merkle Mountain Range proof for message verification.
 
 ```solidity lineNumbers
-struct PostRequestProof {
-    bytes proof;
+struct Proof {
+    StateMachineHeight height;
+    bytes32[] multiproof;
+    uint256 leafCount;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `height` | `StateMachineHeight` | State machine height where this proof is anchored |
+| `multiproof` | `bytes32[]` | Array of merkle tree nodes forming the inclusion proof |
+| `leafCount` | `uint256` | Total number of leaves in the MMR at this height |
+
+---
+
+### PostRequestMessage
+
+Batch of POST requests with their merkle proof.
+
+```solidity lineNumbers
+struct PostRequestMessage {
+    Proof proof;
     PostRequestLeaf[] requests;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `proof` | `bytes` | Merkle proof for the state |
-| `requests` | `PostRequestLeaf[]` | Array of requests with their metadata |
+| `proof` | `Proof` | Merkle proof for verifying the requests |
+| `requests` | `PostRequestLeaf[]` | Array of POST requests as MMR leaves |
 
 ---
 
-### PostResponseProof
+### PostResponseMessage
 
-Contains state proof and POST responses to be delivered.
+Batch of POST responses with their merkle proof.
 
 ```solidity lineNumbers
-struct PostResponseProof {
-    bytes proof;
+struct PostResponseMessage {
+    Proof proof;
     PostResponseLeaf[] responses;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `proof` | `bytes` | Merkle proof for the state |
-| `responses` | `PostResponseLeaf[]` | Array of responses with their metadata |
+| `proof` | `Proof` | Merkle proof for verifying the responses |
+| `responses` | `PostResponseLeaf[]` | Array of POST responses as MMR leaves |
 
 ---
 
-### GetResponseProof
+### GetResponseMessage
 
-Contains state proof and GET responses with storage values.
+Batch of GET responses with their merkle proof.
 
 ```solidity lineNumbers
-struct GetResponseProof {
-    bytes proof;
+struct GetResponseMessage {
+    Proof proof;
     GetResponseLeaf[] responses;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `proof` | `bytes` | Merkle proof for the state |
-| `responses` | `GetResponseLeaf[]` | Array of responses with storage data |
+| `proof` | `Proof` | Merkle proof for verifying the responses |
+| `responses` | `GetResponseLeaf[]` | Array of GET responses as MMR leaves |
 
 ---
 
-### PostTimeout
+### PostRequestTimeoutMessage
 
-Contains timeout proof and timed-out POST requests.
+Batch of timed-out POST requests with their non-membership proof.
 
 ```solidity lineNumbers
-struct PostTimeout {
-    bytes timeoutProof;
-    PostRequestLeaf[] requests;
+struct PostRequestTimeoutMessage {
+    PostRequest[] timeouts;
+    StateMachineHeight height;
+    bytes[] proof;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `timeoutProof` | `bytes` | Proof that timeout period has elapsed |
-| `requests` | `PostRequestLeaf[]` | Array of timed-out requests |
+| `timeouts` | `PostRequest[]` | Array of POST requests that have timed out |
+| `height` | `StateMachineHeight` | Height at which the timeout proof is generated |
+| `proof` | `bytes[]` | Non-membership proof showing requests were not processed |
 
 ---
 
-### PostResponseTimeout
+### PostResponseTimeoutMessage
 
-Contains timeout proof and timed-out POST responses.
+Batch of timed-out POST responses with their non-membership proof.
 
 ```solidity lineNumbers
-struct PostResponseTimeout {
-    bytes timeoutProof;
-    PostResponseLeaf[] responses;
+struct PostResponseTimeoutMessage {
+    PostResponse[] timeouts;
+    StateMachineHeight height;
+    bytes[] proof;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `timeoutProof` | `bytes` | Proof that timeout period has elapsed |
-| `responses` | `PostResponseLeaf[]` | Array of timed-out responses |
+| `timeouts` | `PostResponse[]` | Array of POST responses that have timed out |
+| `height` | `StateMachineHeight` | Height at which the timeout proof is generated |
+| `proof` | `bytes[]` | Non-membership proof showing responses were not processed |
 
 ---
 
-### GetTimeout
 
-Contains timed-out GET requests.
+
+### GetTimeoutMessage
+
+Contains timed-out GET requests with cryptographic proof for timeout processing.
 
 ```solidity lineNumbers
-struct GetTimeout {
-    GetRequest[] requests;
+struct GetTimeoutMessage {
+    GetRequest[] timeouts;
+    StateMachineHeight height;
+    bytes[] proof;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `requests` | `GetRequest[]` | Array of timed-out GET requests |
+| `timeouts` | `GetRequest[]` | Array of GET requests that have timed out |
+| `height` | `StateMachineHeight` | Height at which the timeout proof is generated |
+| `proof` | `bytes[]` | Non-membership proof showing requests were not processed on destination chain |
 
 ---
 
@@ -511,61 +549,61 @@ struct StorageValue {
 
 ### PostRequestLeaf
 
-Represents a POST request with metadata for proof verification.
+Represents a POST request as a leaf in a Merkle Mountain Range tree.
 
 ```solidity lineNumbers
 struct PostRequestLeaf {
     PostRequest request;
     uint256 index;
-    bytes32[] kIndex;
+    uint256 kIndex;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `request` | `PostRequest` | The POST request |
-| `index` | `uint256` | Index in the commitment tree |
-| `kIndex` | `bytes32[]` | Merkle path indices |
+| `request` | `PostRequest` | The POST request data |
+| `index` | `uint256` | Position in the MMR leaves array |
+| `kIndex` | `uint256` | K-index for MMR proof generation |
 
 ---
 
 ### PostResponseLeaf
 
-Represents a POST response with metadata for proof verification.
+Represents a POST response as a leaf in a Merkle Mountain Range tree.
 
 ```solidity lineNumbers
 struct PostResponseLeaf {
     PostResponse response;
     uint256 index;
-    bytes32[] kIndex;
+    uint256 kIndex;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `response` | `PostResponse` | The POST response |
-| `index` | `uint256` | Index in the commitment tree |
-| `kIndex` | `bytes32[]` | Merkle path indices |
+| `response` | `PostResponse` | The POST response data |
+| `index` | `uint256` | Position in the MMR leaves array |
+| `kIndex` | `uint256` | K-index for MMR proof generation |
 
 ---
 
 ### GetResponseLeaf
 
-Represents a GET response with storage data and proof.
+Represents a GET response as a leaf in a Merkle Mountain Range tree.
 
 ```solidity lineNumbers
 struct GetResponseLeaf {
-    GetRequest request;
-    bytes[] values;
-    bytes[] proof;
+    GetResponse response;
+    uint256 index;
+    uint256 kIndex;
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `request` | `GetRequest` | The original GET request |
-| `values` | `bytes[]` | RLP-encoded storage values |
-| `proof` | `bytes[]` | Storage proofs for each key |
+| `response` | `GetResponse` | The GET response data |
+| `index` | `uint256` | Position in the MMR leaves array |
+| `kIndex` | `uint256` | K-index for MMR proof generation |
 
 ---
 
@@ -652,16 +690,6 @@ error DuplicateMessage()
 ```
 
 Thrown when message has already been delivered.
-
----
-
-### DuplicateResponse
-
-```solidity lineNumbers
-error DuplicateResponse()
-```
-
-Thrown when request has already received a response.
 
 ---
 

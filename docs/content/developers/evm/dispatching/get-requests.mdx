@@ -386,11 +386,11 @@ console.log(`Latest Ethereum height: ${latestHeight}`)
 
 ## Fees
 
-Unlike POST requests, GET requests **only have protocol fees** - there are no relayer fees since responses are automatically delivered by the Hyperbridge protocol. These protocol fees are **non-refundable** even if the request times out.
+Unlike POST requests, GET requests **only have protocol fees** - there are no relayer fees since responses are automatically delivered by the Hyperbridge protocol. These protocol fees are **non-refundable** even if the request times out. 
 
 ### Protocol Fee Calculation
 
-GET request fees are calculated with a minimum fee and context-based component. The per-byte fee is queried from Hyperbridge (the host), and the actual fee is the maximum of either the minimum fee (32 bytes worth) or the context-based fee:
+Currently, GET request fees are calculated with a minimum fee and context-based component, **In the future this may change**. The per-byte fee is queried from Hyperbridge (the host), and the actual fee is the maximum of either the minimum fee (32 bytes worth) or the context-based fee:
 
 ```solidity lineNumbers
 uint256 perByteFee = perByteFee(host()); // Hyperbridge per-byte fee
@@ -427,7 +427,7 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 
 | Token | Payment Method |
 |-------|----------------|
-| Native token (ETH, BNB, MATIC, etc.) | Sent with transaction via `msg.value` |
+| Native token (ETH, BNB, POL, DOT etc.) | Sent with transaction via `msg.value` |
 | Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
 
 
@@ -491,7 +491,7 @@ contract MyApp is HyperApp {
 }
 ```
 
-## Estimating Fees
+### Estimating Fees
 
 When building user-facing applications, estimate fees on the client side before users submit transactions:
 
@@ -547,11 +547,27 @@ Unlike POST requests, **GET requests always require manual relaying**. There is 
 
 The `@hyperbridge/sdk` provides tools to track GET requests and automatically generates the calldata needed to execute the response delivery on your chain. After dispatching a GET request, use the SDK's `IndexerClient` to monitor the request status. When the response is ready, the SDK provides the proof and calldata you need to call the handler contract's response delivery function, which triggers your `onGetResponse` callback.
 
-You can make your users self-relay responses or run a server which relays responses on behalf of users. To learn more, see **[Track GET Requests](/developers/sdk/tracking/get-requests)** for monitoring request status and extracting delivery calldata, or check the **[IndexerClient API](/developers/sdk/indexer-client)** documentation.
+You can make your users self-relay responses or run a server which relays responses on behalf of users. To learn more, see **[Track GET Requests](/developers/sdk/tracking/get-requests)** for monitoring request status and extracting delivery calldata, or check the **[IndexerClient API](/developers/sdk/api/indexer-client)** documentation.
 
 ## Timeouts
 
-When a GET request times out (exceeds its specified `timeout` period), the request will be **rejected** if processing is attempted after the timeout.
+Timeouts are optional for GET requests and typically unnecessary for most applications. However, if your use case requires time-sensitive data, you can specify a non-zero `timeout` period—any requests that exceed this duration will be **rejected** during processing.
+
+Like [POST request timeouts](/developers/evm/dispatching/post-requests#timeouts), GET request timeouts require a cryptographic proof from the destination chain showing the timeout period has elapsed. Anyone can submit the timeout proof by calling [`IHandler.handleGetRequestTimeouts()`](/developers/evm/api/ihandler#handlegettimeouttimeouts). Unlike POST requests, GET requests don't have relayer fees, so there are no refunds to process on timeout.
+
+The timeout is specified in seconds when dispatching the GET request:
+
+```solidity lineNumbers title="Dispatching with timeout"
+DispatchGet memory get = DispatchGet({
+    dest: StateMachine.evm(137),  // Polygon
+    keys: keys,
+    height: 0,
+    timeout: 3600,  // 1 hour timeout
+    context: context
+});
+
+IDispatcher(host).dispatch(get);
+```
 
 ### Processing Timeouts
 
@@ -560,20 +576,34 @@ When a GET request times out, it must be explicitly processed to trigger your ti
 ```
 ┌─────────────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐
 │ Request Exceeds Timeout │─────▶│ Timeout Proof Submitted │─────▶│   onGetTimeout()        │
+│  (timeout period passed)│      │   to IHandler           │      │  (cleanup & rollback)   │
 └─────────────────────────┘      └─────────────────────────┘      └─────────────────────────┘
 ```
 
+To process a timed-out GET request, you need to construct a [`GetTimeoutMessage`](/developers/evm/api/ihandler#gettimeoutmessage) struct containing the cryptographic proof and the timed-out requests, then call the handler:
+
+```solidity lineNumbers title="Processing a timeout"
+// Build the GetTimeoutMessage struct with timed-out requests and proof
+GetTimeoutMessage memory message = GetTimeoutMessage({
+    timeouts: timedOutRequests,  // Array of GetRequest[]
+    height: height,              // StateMachineHeight where timeout proof was generated
+    proof: proofs                // Non-membership proofs showing requests weren't processed
+});
+
+// Process the timeout (permissionless call)
+IHandler(handler).handleGetRequestTimeouts(
+    host,      // IHost contract
+    message    // GetTimeoutMessage struct
+);
+```
+
 <Callout type="info">
-**GET requests do not have relayer fees**, so there are no fees to refund on timeout. The `onGetTimeout` callback is primarily for cleanup and state management in your contract.
+**GET requests do not have relayer fees**, so there are no fees to refund on timeout. The [`onGetTimeout()`](/developers/evm/api/iapp#ongettimeout) callback is primarily for cleanup and state management in your contract.
 </Callout>
 
-Use the `@hyperbridge/sdk` to monitor request status and detect timeouts. The SDK generates the necessary proof and submits it to the source chain, which calls your contract's `onGetTimeout` handler.
+### Implementing the Timeout Callback
 
-For complete timeout handling with code examples, see [Tracking GET Request Timeouts](/developers/sdk/tracking/timeouts).
-
-#### Implementing the Timeout Callback
-
-Your contract must implement `onGetTimeout` to handle timed-out GET requests:
+Your contract must implement [`onGetTimeout()`](/developers/evm/api/iapp#ongettimeout) to handle timed-out GET requests:
 
 ```solidity lineNumbers title="MyApp.sol"
 contract MyApp is HyperApp {
@@ -582,9 +612,20 @@ contract MyApp is HyperApp {
         override
         onlyHost
     {
-        // Clean up any pending state
-        emit GetRequestTimedOut(request.commitment, user, token);
+        // Clean up any pending state associated with the request
+        bytes32 commitment = request.hash();
+        
+        // Remove tracked request
+        delete pendingRequests[commitment];
+        
+        // Emit event for off-chain tracking
+        emit GetRequestTimedOut(commitment, request.dest, request.keys);
     }
 }
 ```
+
+<Callout type="warning">
+The [`onGetTimeout()`](/developers/evm/api/iapp#ongettimeout) callback can only be called by the [Host contract](/developers/evm/api/ihost). Always use the `onlyHost` modifier to protect this function.
+</Callout>
+
 <br />

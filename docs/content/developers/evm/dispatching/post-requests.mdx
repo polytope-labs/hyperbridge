@@ -157,7 +157,7 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 
 | Token | Payment Method |
 |-------|----------------|
-| Native token (ETH, BNB, MATIC, etc.) | Sent with transaction via `msg.value` |
+| Native token (ETH, BNB, POL, DOT etc.) | Sent with transaction via `msg.value` |
 | Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
 
 
@@ -307,6 +307,21 @@ IDispatcher(host).fundRequest(commitment, additionalFee);
 
 Note that `fundRequest` only increases the **relayer fee** (protocol fee cannot be changed). The additional fee goes to the `payer` address if the request times out. This function can be called multiple times to incrementally increase fees and only works for pending requests.
 
+
+## Self Relayed Requests
+
+Self-relaying allows you to deliver POST requests to the destination chain yourself, instead of relying on the Hyperbridge relayer network. This is useful when you want full control over delivery timing, need to save on relayer fees, or want to guarantee delivery for critical requests.
+
+The `@hyperbridge/sdk` provides tools to track POST requests and automatically generates the calldata needed to execute [`handlePostRequests()`](/developers/evm/api/ihandler#handlepostrequests) on the destination chain's [`IHandler`](/developers/evm/api/ihandler) contract.
+
+To learn how to self-relay requests:
+
+1. **[Get Started with the SDK](/developers/sdk/getting-started)** - Install and set up the Hyperbridge SDK
+2. **[Track POST Requests](/developers/sdk/tracking/post-requests)** - Monitor request status and extract delivery calldata
+3. **[IndexerClient API](/developers/sdk/api/indexer-client)** - Use the [`postRequestStatusStream()`](/developers/sdk/api/indexer-client#postrequeststatusstream) method to get calldata when `HYPERBRIDGE_FINALIZED` status is reached
+
+The SDK automatically generates the [`PostRequestMessage`](/developers/evm/api/ihandler#postrequestmessage) proof and calldata you need to call the [`IHandler.handlePostRequests()`](/developers/evm/api/ihandler#handlepostrequests) function on the destination chain. You can make your users self-relay requests or run a server which can relay requests on behalf of users.
+
 ## Timeouts
 
 When a POST request times out (exceeds its specified `timeout` period), The request will be **rejected on the destination** if delivery is attempted.
@@ -360,20 +375,5 @@ contract MyApp is HyperApp {
     }
 }
 ```
-
-## Self Relayed Requests
-
-Self-relaying allows you to deliver POST requests to the destination chain yourself, instead of relying on the Hyperbridge relayer network. This is useful when you want full control over delivery timing, need to save on relayer fees, or want to guarantee delivery for critical requests.
-
-The `@hyperbridge/sdk` provides tools to track POST requests and automatically generates the calldata needed to execute `handlePostRequests` on the destination chain's handler contract.
-
-To learn how to self-relay requests:
-
-1. **[Get Started with the SDK](/developers/sdk/getting-started)** - Install and set up the Hyperbridge SDK
-2. **[Track POST Requests](/developers/sdk/tracking/post-requests)** - Monitor request status and extract delivery calldata
-3. **[IndexerClient API](/developers/sdk/indexer-client)** - Use the `postRequestStatusStream()` method to get calldata when `HYPERBRIDGE_FINALIZED` status is reached
-
-The SDK automatically generates the proof and calldata you need to call the handler contract's `IHandler.handlePostRequests` function on the destination chain. You can make your users self-relay requests or run a server which can relay requests on behalf of users.
-
 
 <br />

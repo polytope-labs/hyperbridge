@@ -1,4 +1,5 @@
 {
     "title": "Dispatching Messages",
-    "pages": ["post-requests", "post-responses", "get-requests"]
+    "defaultOpen": true,
+    "pages": ["post-requests", "get-requests"]
 }

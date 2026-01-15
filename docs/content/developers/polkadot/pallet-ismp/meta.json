@@ -1,9 +1,9 @@
 {
   "title": "Pallet ISMP",
+  "defaultOpen": false,
   "pages": [
     "overview",
     "pallet-ismp-rpc",
     "pallet-ismp-runtime-api"
-  ],
-  "defaultOpen": false
+  ]
 }

@@ -34,54 +34,65 @@
 
 use crate::error::Error;
 use alloc::vec::Vec;
-use alloy_rlp::Decodable;
-use ethereum_triedb::{EIP1186Layout, StorageProof};
-use evm_state_machine::types::Account;
-use hash256_std_hasher::Hash256StdHasher;
-use hash_db::Hasher;
+use evm_state_machine::{get_contract_account, get_values_from_proof};
 use ismp::messaging::Keccak256;
 use pharos_primitives::{ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS};
-use primitive_types::{H160, H256, U256};
-use trie_db::{DBValue, Trie, TrieDBBuilder};
-
-/// Keccak256 hasher for trie operations.
-pub struct KeccakHasher<H: Keccak256>(core::marker::PhantomData<H>);
-
-impl<H: Keccak256 + Send + Sync> Hasher for KeccakHasher<H> {
-	type Out = H256;
-	type StdHasher = Hash256StdHasher;
-	const LENGTH: usize = 32;
-
-	fn hash(x: &[u8]) -> Self::Out {
-		H::keccak256(x)
-	}
-}
+use primitive_types::{H256, U256};
+use trie_db::DBValue;
 
 /// This function verifies that the provided validator set is correctly stored
 /// in the staking contract at the given block.
 pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	state_root: H256,
 	proof: &ValidatorSetProof,
-) -> Result<(), Error> {
-	let account = get_staking_contract_account::<H>(&proof.account_proof, state_root)?;
+) -> Result<ValidatorSet, Error> {
+	let account = get_contract_account::<H>(
+		proof.account_proof.clone(),
+		STAKING_CONTRACT_ADDRESS.as_slice(),
+		state_root,
+	)
+	.map_err(|_| Error::AccountTrieLookupFailed)?;
 	let storage_root = H256::from_slice(account.storage_root.as_slice());
 
 	let layout = StakingContractLayout::default();
-	let validator_count = proof.validator_set.validators.len() as u64;
 
 	// Compute and fetch global storage slots (epoch, totalStake, array length, pool IDs)
-	let global_slots = layout.get_validator_set_keys::<H>(validator_count);
-	let global_values = get_values_from_proof::<H>(
-		global_slots.iter().map(|s| H::keccak256(s.as_bytes()).0.to_vec()).collect(),
+	let base_slots = vec![
+		layout.raw_slot_key(layout.current_epoch_slot),
+		layout.raw_slot_key(layout.total_stake_slot),
+		layout.raw_slot_key(layout.active_pool_set_slot),
+	];
+	let base_values = get_values_from_proof::<H>(
+		base_slots.iter().map(|s| H::keccak256(s.as_bytes()).0.to_vec()).collect(),
 		storage_root,
 		proof.storage_proof.clone(),
-	)?;
+	)
+	.map_err(|_| Error::StorageProofLookupFailed)?;
 
-	// Extract pool IDs from the proven values
-	let pool_set_start = 3; // After epoch, totalStake, array length
+	// validator count from the proof (slot 22 = activePoolSets array length)
+	let validator_count = base_values[2]
+		.as_ref()
+		.map(|v| decode_u256_from_storage(v))
+		.transpose()?
+		.unwrap_or_default()
+		.low_u64();
+
+	let mut pool_id_slots = Vec::new();
+	for i in 0..validator_count {
+		pool_id_slots.push(layout.array_element_key::<H>(layout.active_pool_set_slot, i));
+	}
+
+	let pool_id_values = get_values_from_proof::<H>(
+		pool_id_slots.iter().map(|s| H::keccak256(s.as_bytes()).0.to_vec()).collect(),
+		storage_root,
+		proof.storage_proof.clone(),
+	)
+	.map_err(|_| Error::StorageProofLookupFailed)?;
+
+	// Extract pool IDs
 	let mut pool_ids = Vec::new();
-	for i in 0..validator_count as usize {
-		let pool_id = global_values[pool_set_start + i]
+	for value in &pool_id_values {
+		let pool_id = value
 			.as_ref()
 			.map(|v| {
 				let mut bytes = [0u8; 32];
@@ -94,6 +105,7 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 		pool_ids.push(pool_id);
 	}
 
+	// validator for each pool ID
 	let mut validator_slots = Vec::new();
 	for pool_id in &pool_ids {
 		validator_slots.extend(layout.get_validator_keys::<H>(pool_id));
@@ -103,59 +115,22 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 		validator_slots.iter().map(|s| H::keccak256(s.as_bytes()).0.to_vec()).collect(),
 		storage_root,
 		proof.storage_proof.clone(),
-	)?;
+	)
+	.map_err(|_| Error::StorageProofLookupFailed)?;
 
-	let mut all_slots = global_slots;
+	let mut all_slots = base_slots;
+	all_slots.extend(pool_id_slots);
 	all_slots.extend(validator_slots);
 
-	let mut all_values = global_values;
+	let mut all_values = base_values;
+	all_values.extend(pool_id_values);
 	all_values.extend(validator_values);
 
 	let decoded_set = decode_validator_set_from_storage::<H>(&all_slots, &all_values)?;
 
-	verify_validator_set_matches(&proof.validator_set, &decoded_set)?;
+	validate_validator_set(&decoded_set)?;
 
-	Ok(())
-}
-
-/// Get the staking contract account from the account proof.
-fn get_staking_contract_account<H: Keccak256 + Send + Sync>(
-	account_proof: &[Vec<u8>],
-	state_root: H256,
-) -> Result<Account, Error> {
-	let db = StorageProof::new(account_proof.to_vec()).into_memory_db::<KeccakHasher<H>>();
-	let trie = TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&db, &state_root).build();
-
-	let contract_address = STAKING_CONTRACT_ADDRESS.as_slice();
-	let key = H::keccak256(contract_address).0;
-
-	let result = trie
-		.get(&key)
-		.map_err(|_| Error::AccountTrieLookupFailed)?
-		.ok_or(Error::StakingContractNotFound)?;
-
-	let account = Account::decode(&mut &*result).map_err(|_| Error::AccountRlpDecodeFailed)?;
-
-	Ok(account)
-}
-
-/// Get values from storage proof.
-fn get_values_from_proof<H: Keccak256 + Send + Sync>(
-	keys: Vec<Vec<u8>>,
-	storage_root: H256,
-	proof: Vec<Vec<u8>>,
-) -> Result<Vec<Option<DBValue>>, Error> {
-	let proof_db = StorageProof::new(proof).into_memory_db::<KeccakHasher<H>>();
-	let trie =
-		TrieDBBuilder::<EIP1186Layout<KeccakHasher<H>>>::new(&proof_db, &storage_root).build();
-
-	let mut values = Vec::new();
-	for key in keys {
-		let val = trie.get(&key).map_err(|_| Error::StorageProofLookupFailed)?;
-		values.push(val);
-	}
-
-	Ok(values)
+	Ok(decoded_set)
 }
 
 /// Decode validator set from storage values.
@@ -227,8 +202,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	// - 1 BLS string slot (header)
 	// - 3 BLS data slots (for long string)
 	// - 1 totalStake
-	// - 1 owner
-	const VALIDATOR_FIELDS: usize = 6;
+	const VALIDATOR_FIELDS: usize = 5;
 
 	let validators_data_start = pool_ids_end;
 	let expected_total = validators_data_start + (count * VALIDATOR_FIELDS);
@@ -262,24 +236,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 				.transpose()?
 				.unwrap_or_default();
 
-			// owner (address, 20 bytes, right-aligned in 32-byte slot) at base_idx + 5
-			let address = values[base_idx + 5]
-				.as_ref()
-				.map(|v| {
-					if v.len() >= 20 {
-						let start = v.len() - 20;
-						H160::from_slice(&v[start..])
-					} else {
-						let mut padded = [0u8; 20];
-						if !v.is_empty() {
-							padded[20 - v.len()..].copy_from_slice(v);
-						}
-						H160::from_slice(&padded)
-					}
-				})
-				.unwrap_or_default();
-
-			let validator = ValidatorInfo { address, bls_public_key: bls_key, pool_id, stake };
+			let validator = ValidatorInfo { bls_public_key: bls_key, pool_id, stake };
 
 			validator_set.validators.push(validator);
 		}
@@ -375,56 +332,6 @@ fn decode_bls_key_from_string_slot(
 	}
 
 	bls_bytes.try_into().map_err(|_| Error::BlsKeyConversionFailed)
-}
-
-/// Verify that the decoded validator set matches the claimed set.
-fn verify_validator_set_matches(
-	claimed: &ValidatorSet,
-	decoded: &ValidatorSet,
-) -> Result<(), Error> {
-	validate_validator_set(claimed)?;
-
-	if claimed.epoch != decoded.epoch {
-		return Err(Error::ValidatorSetEpochMismatch {
-			claimed: claimed.epoch,
-			decoded: decoded.epoch,
-		});
-	}
-
-	if claimed.validators.len() != decoded.validators.len() {
-		return Err(Error::ValidatorCountMismatch {
-			claimed: claimed.validators.len(),
-			decoded: decoded.validators.len(),
-		});
-	}
-
-	if claimed.total_stake != decoded.total_stake {
-		return Err(Error::TotalStakeMismatch {
-			claimed: claimed.total_stake,
-			decoded: decoded.total_stake,
-		});
-	}
-
-	for (i, (c, d)) in claimed.validators.iter().zip(decoded.validators.iter()).enumerate() {
-		if c.address != d.address {
-			return Err(Error::ValidatorAddressMismatch { index: i });
-		}
-		if c.bls_public_key != d.bls_public_key {
-			return Err(Error::ValidatorBlsKeyMismatch { index: i });
-		}
-		if c.pool_id != d.pool_id {
-			return Err(Error::ValidatorPoolIdMismatch { index: i });
-		}
-		if c.stake != d.stake {
-			return Err(Error::ValidatorStakeMismatch {
-				index: i,
-				claimed: c.stake,
-				decoded: d.stake,
-			});
-		}
-	}
-
-	Ok(())
 }
 
 /// Validate the internal consistency of a validator set.
@@ -637,29 +544,12 @@ impl StakingContractLayout {
 		H::keccak256(string_slot.as_bytes())
 	}
 
-	/// Get storage keys needed to read the validator set.
-	pub fn get_validator_set_keys<H: Keccak256>(&self, validator_count: u64) -> Vec<H256> {
-		let mut keys = Vec::new();
-
-		keys.push(self.raw_slot_key(self.current_epoch_slot));
-		keys.push(self.raw_slot_key(self.total_stake_slot));
-
-		keys.push(self.raw_slot_key(self.active_pool_set_slot));
-
-		for i in 0..validator_count {
-			keys.push(self.array_element_key::<H>(self.active_pool_set_slot, i));
-		}
-
-		keys
-	}
-
 	/// Get storage keys for a specific validator's data.
 	///
 	/// Returns keys for:
 	/// - BLS public key string slot (offset 3)
 	/// - BLS public key data slots (3 slots for long string at keccak256(string_slot))
 	/// - totalStake (offset 8)
-	/// - owner (offset 9)
 	pub fn get_validator_keys<H: Keccak256>(&self, pool_id: &H256) -> Vec<H256> {
 		let offsets = ValidatorStructOffsets::default();
 		let mut keys = Vec::new();
@@ -678,9 +568,8 @@ impl StakingContractLayout {
 			keys.push(H256(slot_pos.to_big_endian()));
 		}
 
-		// Other validator fields
+		// totalStake field
 		keys.push(self.validator_field_slot::<H>(pool_id, offsets.total_stake));
-		keys.push(self.validator_field_slot::<H>(pool_id, offsets.owner));
 
 		keys
 	}

@@ -19,7 +19,7 @@ use crate::constants::BlsPublicKey;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
 use geth_primitives::CodecHeader;
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H256, U256};
 
 /// Unique identifier for a validator pool in the staking contract
 pub type PoolId = H256;
@@ -31,8 +31,6 @@ pub type PoolId = H256;
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValidatorInfo {
-	/// The validator's Ethereum address
-	pub address: H160,
 	/// The validator's BLS public key (48 bytes compressed)
 	pub bls_public_key: BlsPublicKey,
 	/// The validator's pool ID in the staking contract
@@ -140,12 +138,10 @@ impl BlockProof {
 /// State proof for validator set stored in the staking contract.
 ///
 /// This proof is required when the validator set changes at epoch boundaries.
-/// It proves the new validator set against the state root of the epoch boundary block.
+/// The validator set is decoded directly from the proof
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValidatorSetProof {
-	/// The new validator set
-	pub validator_set: ValidatorSet,
 	/// Merkle-Patricia trie proof nodes from the staking contract storage
 	pub storage_proof: Vec<Vec<u8>>,
 	/// The account proof for the staking contract

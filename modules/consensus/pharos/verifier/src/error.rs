@@ -99,14 +99,6 @@ pub enum Error {
 	#[error("Account proof trie lookup failed")]
 	AccountTrieLookupFailed,
 
-	/// Staking contract account not found in the state trie
-	#[error("Staking contract account not found in proof")]
-	StakingContractNotFound,
-
-	/// Failed to decode RLP-encoded account data
-	#[error("Failed to decode account RLP data")]
-	AccountRlpDecodeFailed,
-
 	/// Storage proof lookup failed
 	#[error("Storage proof lookup failed")]
 	StorageProofLookupFailed,
@@ -158,34 +150,6 @@ pub enum Error {
 	/// Failed to convert BLS key bytes to the expected type
 	#[error("Failed to convert BLS key bytes")]
 	BlsKeyConversionFailed,
-
-	/// Epoch in claimed validator set doesn't match decoded value
-	#[error("Validator set epoch mismatch: claimed {claimed}, decoded {decoded}")]
-	ValidatorSetEpochMismatch { claimed: u64, decoded: u64 },
-
-	/// Validator count doesn't match between claimed and decoded sets
-	#[error("Validator count mismatch: claimed {claimed}, decoded {decoded}")]
-	ValidatorCountMismatch { claimed: usize, decoded: usize },
-
-	/// Total stake doesn't match between claimed and decoded sets
-	#[error("Total stake mismatch: claimed {claimed}, decoded {decoded}")]
-	TotalStakeMismatch { claimed: U256, decoded: U256 },
-
-	/// Validator address doesn't match at given index
-	#[error("Validator {index} address mismatch")]
-	ValidatorAddressMismatch { index: usize },
-
-	/// Validator BLS key doesn't match at given index
-	#[error("Validator {index} BLS key mismatch")]
-	ValidatorBlsKeyMismatch { index: usize },
-
-	/// Validator pool ID doesn't match at given index
-	#[error("Validator {index} pool ID mismatch")]
-	ValidatorPoolIdMismatch { index: usize },
-
-	/// Validator stake doesn't match at given index
-	#[error("Validator {index} stake mismatch: claimed {claimed}, decoded {decoded}")]
-	ValidatorStakeMismatch { index: usize, claimed: U256, decoded: U256 },
 
 	/// Validator set contains no validators
 	#[error("Validator set is empty")]

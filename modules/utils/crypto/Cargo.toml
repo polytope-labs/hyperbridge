@@ -20,6 +20,7 @@ hex = { version = "0.4", default-features = false, features = ["alloc"] }
 serde = { workspace = true, optional = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 serde-hex-utils = { workspace = true, default-features = false }
+bls = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -35,4 +36,5 @@ std = [
     "ssz-rs/default",
     "ssz-rs/serde",
     "serde-hex-utils/std",
+    "bls/std",
 ]

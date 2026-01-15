@@ -20,5 +20,8 @@ pub mod bls;
 pub mod ssz;
 pub mod verification;
 
-pub use bls::{BlsPublicKey, BlsSignature, BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN};
+pub use bls::{
+	aggregate_public_keys, pubkey_to_projective, BlsPublicKey, BlsSignature,
+	BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN,
+};
 pub use ssz::ByteVector;

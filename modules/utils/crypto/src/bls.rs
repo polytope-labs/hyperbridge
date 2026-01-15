@@ -13,9 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! BLS12-381 cryptographic type definitions.
+//! BLS12-381 cryptographic type definitions and utilities.
 
 use crate::ssz::ByteVector;
+use alloc::vec::Vec;
+use bls::{errors::BLSError, types::G1ProjectivePoint};
 
 /// Length of a BLS12-381 public key in bytes (compressed G1 point).
 pub const BLS_PUBLIC_KEY_BYTES_LEN: usize = 48;
@@ -28,3 +30,19 @@ pub type BlsPublicKey = ByteVector<BLS_PUBLIC_KEY_BYTES_LEN>;
 
 /// A BLS12-381 signature (96 bytes compressed).
 pub type BlsSignature = ByteVector<BLS_SIGNATURE_BYTES_LEN>;
+
+/// Convert a compressed BLS public key to a projective point.
+pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> Result<G1ProjectivePoint, BLSError> {
+	let affine_point = bls::pubkey_to_point(&compressed_key.to_vec())?;
+	Ok(affine_point.into())
+}
+
+/// Aggregate multiple BLS public keys into a single public key.
+pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
+	let aggregate = keys
+		.iter()
+		.filter_map(|key| pubkey_to_projective(key).ok())
+		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
+
+	bls::point_to_pubkey(aggregate.into())
+}

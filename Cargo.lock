@@ -3014,8 +3014,8 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
- "ark-ec 0.4.2",
  "bls_on_arkworks",
+ "crypto-utils",
  "geth-primitives",
  "ismp",
  "log",
@@ -3024,7 +3024,6 @@ dependencies = [
  "primitive-types 0.13.1",
  "ssz-rs",
  "sync-committee-primitives",
- "sync-committee-verifier",
 ]
 
 [[package]]
@@ -4308,6 +4307,7 @@ name = "crypto-utils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bls_on_arkworks",
  "hex",
  "parity-scale-codec",
  "scale-info",
@@ -17617,11 +17617,11 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-rlp",
- "alloy-rlp-derive",
  "anyhow",
  "bls_on_arkworks",
- "bsc-verifier",
+ "crypto-utils",
  "ethereum-triedb",
+ "evm-state-machine",
  "geth-primitives",
  "hash-db",
  "hash256-std-hasher",

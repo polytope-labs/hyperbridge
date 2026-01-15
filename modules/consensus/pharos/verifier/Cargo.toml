@@ -7,10 +7,11 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
-pharos-primitives = { path = "../primitives", default-features = false }
-bsc-verifier = { workspace = true, default-features = false }
+pharos-primitives = { workspace = true, default-features = false }
+crypto-utils = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 ethereum-triedb = { workspace = true, default-features = false }
+evm-state-machine = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 bls = { workspace = true }
 log = { workspace = true, default-features = false }
@@ -20,7 +21,6 @@ codec = { workspace = true, features = ["derive"] }
 primitive-types = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
-alloy-rlp-derive = { workspace = true }
 hash256-std-hasher = { version = "0.15.2", default-features = false }
 hash-db = { workspace = true, default-features = false }
 trie-db = { workspace = true, default-features = false }
@@ -29,9 +29,10 @@ trie-db = { workspace = true, default-features = false }
 default = ["std"]
 std = [
     "pharos-primitives/std",
-    "bsc-verifier/std",
+    "crypto-utils/std",
     "geth-primitives/std",
     "ethereum-triedb/std",
+    "evm-state-machine/std",
     "ismp/std",
     "log/std",
     "anyhow/std",

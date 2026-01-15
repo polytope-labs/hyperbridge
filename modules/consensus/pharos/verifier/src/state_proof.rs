@@ -35,14 +35,12 @@
 use crate::error::Error;
 use alloc::vec::Vec;
 use alloy_rlp::Decodable;
-use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethereum_triedb::{EIP1186Layout, StorageProof};
+use evm_state_machine::types::Account;
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
 use ismp::messaging::Keccak256;
-use pharos_primitives::{
-	ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS,
-};
+use pharos_primitives::{ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS};
 use primitive_types::{H160, H256, U256};
 use trie_db::{DBValue, Trie, TrieDBBuilder};
 
@@ -57,15 +55,6 @@ impl<H: Keccak256 + Send + Sync> Hasher for KeccakHasher<H> {
 	fn hash(x: &[u8]) -> Self::Out {
 		H::keccak256(x)
 	}
-}
-
-/// The ethereum account stored in the global state trie.
-#[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
-pub struct Account {
-	pub nonce: u64,
-	pub balance: alloy_primitives::U256,
-	pub storage_root: alloy_primitives::B256,
-	pub code_hash: alloy_primitives::B256,
 }
 
 /// This function verifies that the provided validator set is correctly stored
@@ -396,7 +385,10 @@ fn verify_validator_set_matches(
 	validate_validator_set(claimed)?;
 
 	if claimed.epoch != decoded.epoch {
-		return Err(Error::ValidatorSetEpochMismatch { claimed: claimed.epoch, decoded: decoded.epoch });
+		return Err(Error::ValidatorSetEpochMismatch {
+			claimed: claimed.epoch,
+			decoded: decoded.epoch,
+		});
 	}
 
 	if claimed.validators.len() != decoded.validators.len() {
@@ -424,7 +416,11 @@ fn verify_validator_set_matches(
 			return Err(Error::ValidatorPoolIdMismatch { index: i });
 		}
 		if c.stake != d.stake {
-			return Err(Error::ValidatorStakeMismatch { index: i, claimed: c.stake, decoded: d.stake });
+			return Err(Error::ValidatorStakeMismatch {
+				index: i,
+				claimed: c.stake,
+				decoded: d.stake,
+			});
 		}
 	}
 

@@ -23,12 +23,11 @@ pub mod error;
 pub mod state_proof;
 
 use error::Error;
-use geth_primitives::{CodecHeader, Header};
+use geth_primitives::Header;
 use ismp::messaging::Keccak256;
 use pharos_primitives::{
-	BlsPublicKey, BlockProof, Config, ValidatorSet, VerifierState, VerifierStateUpdate,
+	BlockProof, BlsPublicKey, Config, ValidatorSet, VerifierState, VerifierStateUpdate,
 };
-use primitive_types::H256;
 
 /// Domain Separation Tag for Pharos BLS signatures.
 pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
@@ -68,7 +67,7 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 
 	verify_bls_signature(&update.block_proof.participant_keys, &update.block_proof)?;
 
-	let computed_hash = compute_header_hash::<H>(&update.header);
+	let computed_hash = Header::from(&update.header).hash::<H>();
 	if computed_hash != update.block_proof.block_hash {
 		return Err(Error::HeaderHashMismatch {
 			expected: update.block_proof.block_hash,
@@ -108,15 +107,6 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	Ok(new_state)
 }
 
-/// Compute the hash of a block header using RLP encoding and Keccak256.
-///
-/// This follows the standard Ethereum header hash computation.
-pub fn compute_header_hash<H: Keccak256>(header: &CodecHeader) -> H256 {
-	let rlp_header = Header::from(header);
-	let encoding = alloy_rlp::encode(&rlp_header);
-	H::keccak256(&encoding)
-}
-
 /// Verify that all participating validators are members of the trusted validator set.
 fn verify_validator_membership(
 	validator_set: &ValidatorSet,
@@ -140,7 +130,11 @@ fn verify_stake_threshold(
 	if participating_stake >= required {
 		Ok(())
 	} else {
-		Err(Error::InsufficientStake { participating: participating_stake, required, total: total_stake })
+		Err(Error::InsufficientStake {
+			participating: participating_stake,
+			required,
+			total: total_stake,
+		})
 	}
 }
 
@@ -153,7 +147,7 @@ fn verify_bls_signature(
 		return Err(Error::NoParticipants);
 	}
 
-	let aggregate_pubkey = bsc_verifier::aggregate_public_keys(participants);
+	let aggregate_pubkey = crypto_utils::aggregate_public_keys(participants);
 
 	// The message signed is the block_proof_hash
 	let message = block_proof.block_proof_hash.as_bytes().to_vec();

@@ -386,6 +386,9 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            - name: Build Hyperbridge Binary
+              run: cargo build --release -p hyperbridge
+
             - name: Setup Parachain Devnet
               run: |
                   cd ../
@@ -423,7 +426,7 @@ jobs:
 
     ethereum-tests:
         name: Ethereum Sync Committee Tests
-        runs-on: arc-runner-kvm
+        runs-on: ubuntu-22.04
         if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
@@ -489,7 +492,7 @@ jobs:
 
     bsc-tests:
         name: Binance Smart Chain Tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-22.04
         if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
@@ -542,7 +545,7 @@ jobs:
 
     tendermint-tests:
         name: Tendermint Tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-22.04
         if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission

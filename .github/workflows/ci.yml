@@ -476,7 +476,7 @@ jobs:
             - name: Setup Eth POS Devnet
               run: |
                   git clone --branch david/electra https://github.com/polytope-labs/eth-pos-devnet.git
-                  DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 docker-compose -f ./eth-pos-devnet/docker-compose.yml up -d
+                  DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 docker compose -f ./eth-pos-devnet/docker-compose.yml up -d
                   ./scripts/wait_for_tcp_port_opening.sh localhost 3500
                   ./scripts/wait_for_tcp_port_opening.sh localhost 8545
 

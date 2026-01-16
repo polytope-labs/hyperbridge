@@ -2,7 +2,7 @@ import { DocsBody, DocsPage } from "fumadocs-ui/layouts/docs/page";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getPageProtocolImage, protocolSource } from "@/lib/source";
+import { protocolSource } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
 
 export default async function Page(props: PageProps<"/protocol/[[...slug]]">) {
@@ -41,7 +41,7 @@ export async function generateMetadata(
         title: page.data.title,
         description: page.data.description,
         openGraph: {
-            images: getPageProtocolImage(page).url,
+            images: "/og.png",
         },
     };
 }

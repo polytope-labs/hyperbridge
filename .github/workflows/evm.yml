@@ -26,6 +26,7 @@ concurrency:
 
 env:
     FOUNDRY_PROFILE: default
+    MAINNET_FORK_URL: ${{ secrets.MAINNET_FORK_URL }}
 
 jobs:
     check-evm:

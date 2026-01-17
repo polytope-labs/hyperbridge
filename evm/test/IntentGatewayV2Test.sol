@@ -1005,7 +1005,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
                 solverSelection: false,
                 surplusShareBps: 5000,
                 protocolFeeBps: 0,
-            priceOracle: address(0)
+                priceOracle: address(0)
             })
         );
 
@@ -1242,14 +1242,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             output: output
         });
 
+        // Record gateway balance before order placement
+        uint256 gatewayUsdcBefore = usdc.balanceOf(address(intentGateway));
+
         // User places order
         vm.startPrank(user);
         usdc.approve(address(intentGateway), inputAmount);
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        // Record balances before fill
-        uint256 gatewayUsdcBefore = usdc.balanceOf(address(intentGateway));
+        // Record user DAI balance before fill
         uint256 userDaiBalanceBefore = dai.balanceOf(user);
 
         // Filler fills order - sends USDC to dispatcher
@@ -1274,16 +1276,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(usdc.balanceOf(address(dispatcher)), 0, "Dispatcher should have 0 USDC after sweep");
 
         // Verify IntentGateway received the refunded USDC (difference between what solver sent and what swap used)
+        // Note: Gateway balance change = +escrow (from user) - escrow (to solver) + swept dust
+        // Net change should be approximately the swept dust amount
         uint256 gatewayUsdcAfter = usdc.balanceOf(address(intentGateway));
         uint256 refundedUsdc = solverUsdcAmount - usdcNeeded;
-        assertGt(gatewayUsdcAfter - gatewayUsdcBefore, 0, "IntentGateway should receive refunded USDC");
+        uint256 netChange = gatewayUsdcAfter - gatewayUsdcBefore;
+        assertGt(netChange, 0, "IntentGateway should receive refunded USDC");
 
-        // The refunded amount should be approximately the difference (allowing for small swap variance)
+        // The net change should be approximately the refunded amount (allowing for small swap variance)
+        // This accounts for: user escrow in (+1000), solver redemption out (-1000), dust swept in (+refunded)
         assertApproxEqAbs(
-            gatewayUsdcAfter - gatewayUsdcBefore,
+            netChange,
             refundedUsdc,
             5 * 1e6, // 5 USDC tolerance for swap price variance
-            "Gateway should receive approximately the refunded USDC"
+            "Gateway net balance change should be approximately the refunded USDC"
         );
 
         // Check DustCollected event was emitted for swept USDC
@@ -1828,7 +1834,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         Order memory order = Order({
             user: bytes32(uint256(uint160(user))),
             source: host.host(),
-            destination: host.host(),
+            destination: bytes("DEST_CHAIN"), // Different chain for cross-chain test
             deadline: block.number + 100,
             nonce: 0,
             fees: 0,

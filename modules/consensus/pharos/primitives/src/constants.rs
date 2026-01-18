@@ -18,7 +18,9 @@
 use alloy_primitives::Address;
 
 /// Re-export BLS types from crypto-utils
-pub use crypto_utils::{BlsPublicKey, BlsSignature, BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN};
+pub use crypto_utils::{
+	BlsPublicKey, BlsSignature, BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN,
+};
 
 /// The staking contract address where validator set is stored.
 /// Address: 0x4100000000000000000000000000000000000000

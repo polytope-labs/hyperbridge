@@ -17612,6 +17612,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "pharos-prover"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "alloy-rlp",
+ "anyhow",
+ "ethabi",
+ "geth-primitives",
+ "hex",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-verifier",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tiny-keccak",
+ "tokio",
+]
+
+[[package]]
 name = "pharos-verifier"
 version = "0.1.0"
 dependencies = [

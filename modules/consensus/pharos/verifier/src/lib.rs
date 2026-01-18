@@ -28,6 +28,7 @@ use ismp::messaging::Keccak256;
 use pharos_primitives::{
 	BlockProof, BlsPublicKey, Config, ValidatorSet, VerifierState, VerifierStateUpdate,
 };
+use primitive_types::H256;
 
 /// Domain Separation Tag for Pharos BLS signatures.
 pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
@@ -65,15 +66,9 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		&update.block_proof.participant_keys,
 	)?;
 
-	verify_bls_signature(&update.block_proof.participant_keys, &update.block_proof)?;
-
 	let computed_hash = Header::from(&update.header).hash::<H>();
-	if computed_hash != update.block_proof.block_hash {
-		return Err(Error::HeaderHashMismatch {
-			expected: update.block_proof.block_hash,
-			actual: computed_hash,
-		});
-	}
+
+	verify_bls_signature(&update.block_proof.participant_keys, &update.block_proof, computed_hash)?;
 
 	let new_state = if C::is_epoch_boundary(update_block_number) {
 		// Epoch boundary block must always have validator set proof
@@ -144,6 +139,7 @@ fn verify_stake_threshold(
 fn verify_bls_signature(
 	participants: &[BlsPublicKey],
 	block_proof: &BlockProof,
+	block_proof_hash: H256,
 ) -> Result<(), Error> {
 	if participants.is_empty() {
 		return Err(Error::NoParticipants);
@@ -152,7 +148,7 @@ fn verify_bls_signature(
 	let aggregate_pubkey = crypto_utils::aggregate_public_keys(participants);
 
 	// The message signed is the block_proof_hash
-	let message = block_proof.block_proof_hash.as_bytes().to_vec();
+	let message = block_proof_hash.as_bytes().to_vec();
 
 	let is_valid = bls::verify(
 		&aggregate_pubkey,

@@ -76,7 +76,7 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
 		.transpose()?
-		.unwrap_or_default()
+		.ok_or(Error::MissingStorageValue { field: "activePoolSets length" })?
 		.low_u64();
 
 	let mut pool_id_slots = Vec::new();
@@ -103,7 +103,7 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 				}
 				H256::from(bytes)
 			})
-			.unwrap_or_default();
+			.ok_or(Error::MissingStorageValue { field: "pool ID" })?;
 		pool_ids.push(pool_id);
 	}
 
@@ -166,14 +166,14 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
 		.transpose()?
-		.unwrap_or_default();
+		.ok_or(Error::MissingStorageValue { field: "totalStake" })?;
 
 	// Index 1: activePoolSets array length (slot 22)
 	let validator_count = values[1]
 		.as_ref()
 		.map(|v| decode_u256_from_storage(v))
 		.transpose()?
-		.unwrap_or_default();
+		.ok_or(Error::MissingStorageValue { field: "activePoolSets length" })?;
 
 	let count = validator_count.low_u64() as usize;
 
@@ -214,7 +214,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 					}
 					H256::from(bytes)
 				})
-				.unwrap_or_default();
+				.ok_or(Error::MissingStorageValue { field: "pool ID" })?;
 
 			let base_idx = validators_data_start + (i * VALIDATOR_FIELDS);
 
@@ -228,26 +228,22 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 				.as_ref()
 				.map(|v| decode_u256_from_storage(v))
 				.transpose()?
-				.unwrap_or_default();
+				.ok_or(Error::MissingStorageValue { field: "validator stake" })?;
 
 			let validator = ValidatorInfo { bls_public_key: bls_key, pool_id, stake };
 
-			validator_set.validators.push(validator);
+			if !validator_set.add_validator(validator) {
+				return Err(Error::DuplicateValidator);
+			}
 		}
 	} else {
-		// Minimal proof - only pool IDs, no detailed validator data
-		// This is used when the validator set is provided separately
-		// and only pool IDs need to be verified
-		log::warn!(
-			"Minimal validator proof: only {} values provided, expected {} for full decoding",
-			values.len(),
-			expected_total
-		);
+		// Minimal proof - we need full validator data to decode the validator set
+		return Err(Error::IncompleteValidatorProof { expected: expected_total, got: values.len() });
 	}
 
 	log::debug!(
 		"Decoded validator set: {} validators, epoch {}, total stake {}",
-		validator_set.validators.len(),
+		validator_set.len(),
 		validator_set.epoch,
 		validator_set.total_stake
 	);
@@ -330,28 +326,8 @@ fn decode_bls_key_from_string_slot(
 
 /// Validate the internal consistency of a validator set.
 pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error> {
-	if validator_set.validators.is_empty() {
+	if validator_set.is_empty() {
 		return Err(Error::EmptyValidatorSet);
-	}
-
-	let computed_total: U256 = validator_set
-		.validators
-		.iter()
-		.fold(U256::zero(), |acc, v| acc.saturating_add(v.stake));
-
-	if computed_total != validator_set.total_stake {
-		return Err(Error::ComputedStakeMismatch {
-			computed: computed_total,
-			claimed: validator_set.total_stake,
-		});
-	}
-
-	for (i, v1) in validator_set.validators.iter().enumerate() {
-		for v2 in validator_set.validators.iter().skip(i + 1) {
-			if v1.bls_public_key == v2.bls_public_key {
-				return Err(Error::DuplicateValidator);
-			}
-		}
 	}
 
 	for validator in &validator_set.validators {

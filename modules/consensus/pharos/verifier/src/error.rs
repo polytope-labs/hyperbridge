@@ -86,15 +86,6 @@ pub enum Error {
 		block_number: u64,
 	},
 
-	/// Header hash mismatch
-	#[error("Header hash mismatch: expected {expected:?}, got {actual:?}")]
-	HeaderHashMismatch {
-		/// Expected hash
-		expected: primitive_types::H256,
-		/// Actual hash
-		actual: primitive_types::H256,
-	},
-
 	/// Trie lookup failed during account proof verification
 	#[error("Account proof trie lookup failed")]
 	AccountTrieLookupFailed,
@@ -166,4 +157,20 @@ pub enum Error {
 	/// Validator has zero stake
 	#[error("Validator has zero stake")]
 	ZeroStakeValidator,
+
+	/// Missing required storage value at a specific slot
+	#[error("Missing required storage value for {field}")]
+	MissingStorageValue {
+		/// Description of the missing field
+		field: &'static str,
+	},
+
+	/// Incomplete validator proof data
+	#[error("Incomplete validator proof: expected {expected} values, got {got}")]
+	IncompleteValidatorProof {
+		/// Expected number of values
+		expected: usize,
+		/// Actual number of values
+		got: usize,
+	},
 }

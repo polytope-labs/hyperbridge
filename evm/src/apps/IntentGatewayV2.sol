@@ -41,14 +41,13 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-
 import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
 /**
  * @title IntentGatewayV2
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
+ * @dev The IntentGateway allows for the creation and fulfillment of same-chain & cross-chain orders.
  */
 contract IntentGatewayV2 is HyperApp, EIP712 {
     using SafeERC20 for IERC20;
@@ -90,13 +89,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The key is a bytes32 hash representing the intent, and the value is the address
      * that filled the intent.
      */
-    mapping(bytes32 => address) private _filled;
+    mapping(bytes32 => address) public _filled;
 
     /**
      * @dev Private variable to store the nonce value.
      * This nonce is used to ensure the uniqueness of orders.
      */
-    uint256 private _nonce;
+    uint256 public _nonce;
 
     /**
      * @dev Private variable to store the parameters for the IntentGateway module.
@@ -116,20 +115,20 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The inner mapping key is an address representing the escrowed token contract.
      * The inner mapping value is a uint256 representing the order amount.
      */
-    mapping(bytes32 => mapping(address => uint256)) private _orders;
+    mapping(bytes32 => mapping(address => uint256)) public _orders;
 
     /**
      * @dev Mapping to store instances of contracts.
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
-    mapping(bytes32 => address) private _instances;
+    mapping(bytes32 => address) public _instances;
 
     /**
      * @dev Mapping to store destination-specific protocol fees.
      * The key is keccak256(stateMachineId) and the value is the protocol fee in basis points.
      * If the value is 0, falls back to the source chain protocol fee from _params.protocolFeeBps.
      */
-    mapping(bytes32 => uint256) private _destinationProtocolFees;
+    mapping(bytes32 => uint256) public _destinationProtocolFees;
 
     /// @notice Thrown when an unauthorized action is attempted.
     error Unauthorized();

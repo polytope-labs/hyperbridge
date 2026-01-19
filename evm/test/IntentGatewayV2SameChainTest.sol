@@ -248,6 +248,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         assertEq(
             usdc.balanceOf(solver), solverUsdcBefore + amountAfterFee, "Solver should receive amount after protocol fee"
         );
+
+        // Verify protocol retained its fee
+        assertEq(
+            usdc.balanceOf(address(gatewayWithFees)), expectedFee, "Gateway should retain protocol fee"
+        );
     }
 
     function testSameChainSwap_WithSurplus() public {
@@ -354,6 +359,10 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         usdc.approve(address(intentGateway), inputAmount);
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
+
+        // Verify gateway holds the USDC
+        assertEq(usdc.balanceOf(address(intentGateway)), inputAmount, "Gateway should hold full amount");
+        assertEq(usdc.balanceOf(user), userUsdcBefore - inputAmount, "User balance should decrease by input amount");
 
         // Update order fields
         order.user = bytes32(uint256(uint160(user)));
@@ -569,6 +578,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Solver fills order
         vm.startPrank(solver);
+        uint256 userDaiBefore = dai.balanceOf(user);
         uint256 solverEthBefore = solver.balance;
         dai.approve(address(intentGateway), daiAmount);
 
@@ -581,6 +591,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // Verify swap completed
         assertEq(solver.balance, solverEthBefore + ethAmount, "Solver should receive ETH");
         assertEq(address(intentGateway).balance, 0, "Gateway should have no ETH left");
+        assertEq(dai.balanceOf(user), userDaiBefore + daiAmount, "User should receive DAI");
     }
 
     function testSameChainCancel_WithETH() public {

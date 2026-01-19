@@ -1,0 +1,20 @@
+[package]
+name = "pharos-prover"
+version = "0.1.0"
+edition = "2021"
+description = "Pharos consensus prover"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+pharos-primitives = { path = "../primitives" }
+pharos-verifier = { path = "../verifier" }
+geth-primitives = { workspace = true }
+primitive-types = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { package = "serde_json", version = "1.0.99" }
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+hex = { workspace = true }
+ethabi = { workspace = true }

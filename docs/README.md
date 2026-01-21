@@ -35,7 +35,21 @@ A `source.config.ts` config file has been included, you can customise different 
 
 Read the [Introduction](https://fumadocs.dev/docs/mdx) for further details.
 
+## SEO & Sitemap
+
+The project is configured to automatically generate a sitemap on build using [next-sitemap](https://github.com/iamvishnusankar/next-sitemap).
+
+- **Configuration**: `next-sitemap.config.js` (configured with `outDir: "./out"`)
+- **Build Command**: `pnpm build` (runs `next build && next-sitemap`)
+- **Output**: Generated directly to the build output directory
+  - `out/sitemap.xml` - Main sitemap with all pages
+  - `out/robots.txt` - Search engine crawler instructions
+
+The sitemap is automatically updated every time you run the build command and includes all static routes from the documentation. Note: The sitemap is generated directly to `out/`, not to `public/`, as this is a static export build.
+
 ## Learn More
+</text>
+
 
 To learn more about Next.js and Fumadocs, take a look at the following
 resources:

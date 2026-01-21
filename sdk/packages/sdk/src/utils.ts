@@ -275,7 +275,7 @@ export function orderV2Commitment(order: OrderV2): HexString {
 	const orderType = placeOrderAbi?.inputs?.[0]
 	if (!orderType) throw new Error("Could not find Order type in ABI")
 
-	const encoded = encodeAbiParameters([orderType], [order])
+	const encoded = encodeAbiParameters([orderType], [order as any])
 	return keccak256(encoded)
 }
 
@@ -670,6 +670,21 @@ export enum UniversalRouterCommands {
 }
 
 /**
+ * Shape of a call in the debug call tracer response.
+ */
+interface CallTracerCall {
+	from: string
+	to: string
+	gas?: string
+	gasUsed?: string
+	input: string
+	output?: string
+	value?: string
+	type?: string
+	calls?: CallTracerCall[]
+}
+
+/**
  * Retrieves the storage slot for a contract call using debug_traceCall
  *
  * This function uses the Ethereum debug API to trace contract execution and identify
@@ -866,7 +881,7 @@ export function getRecordedStorageSlot(
  * @param toDecimals - The target decimal precision
  * @returns The adjusted fee amount with the target decimal precision
  */
-export function adjustFeeDecimals(feeInFeeToken: bigint, fromDecimals: number, toDecimals: number): bigint {
+export function adjustDecimals(feeInFeeToken: bigint, fromDecimals: number, toDecimals: number): bigint {
 	if (fromDecimals === toDecimals) return feeInFeeToken
 	if (fromDecimals < toDecimals) {
 		const scaleFactor = BigInt(10 ** (toDecimals - fromDecimals))
@@ -886,6 +901,85 @@ export const USE_ETHERSCAN_CHAINS = new Set(["EVM-137", "EVM-56", "EVM-1"])
  * Testnet chains
  */
 export const TESTNET_CHAINS = new Set(["EVM-10200", "EVM-97"])
+
+/**
+ * Recursively searches through call tracer response to find a call matching the target contract address.
+ * Searches only in nested calls; the top-level call should be handled by the caller.
+ * @param call The call object to search
+ * @param targetContractAddress The target contract address to find
+ * @returns The input (calldata) if found, null otherwise
+ */
+function findCallInputByAddress(call: CallTracerCall, targetContractAddress: string): string | null {
+	const normalizedTarget = targetContractAddress.toLowerCase()
+
+	if (call.calls && Array.isArray(call.calls)) {
+		for (const nestedCall of call.calls) {
+			if (nestedCall.to.toLowerCase() === normalizedTarget) {
+				return nestedCall.input
+			}
+			const result = findCallInputByAddress(nestedCall, targetContractAddress)
+			if (result !== null) {
+				return result
+			}
+		}
+	}
+
+	return null
+}
+
+/**
+ * Retrieves the calldata used to call a target contract within a transaction using debug_traceTransaction
+ * with the callTracer. Unlike the indexer helper, this returns the calldata whether the target is called
+ * directly by the transaction or via nested calls.
+ *
+ * @param client - viem PublicClient connected to an RPC node with debug API enabled
+ * @param txHash - The transaction hash
+ * @param targetContractAddress - The target contract address to find the call for
+ * @returns The input (calldata) as a hex string, or null if the target is not found in the trace
+ * @throws Error if the RPC call fails or returns an unexpected response
+ */
+export async function getContractCallInput(
+	client: PublicClient,
+	txHash: HexString,
+	targetContractAddress: string,
+): Promise<HexString | null> {
+	const traceClient = client.extend((client) => ({
+		async traceTransaction(hash: HexString): Promise<CallTracerCall> {
+			// Cast to any to bypass viem's strict RPC method typing for debug_* methods
+			const debugClient: any = client
+			return debugClient.request({
+				method: "debug_traceTransaction",
+				params: [
+					hash,
+					{
+						tracer: "callTracer",
+						tracerConfig: {
+							disableCode: true,
+						},
+					},
+				],
+			}) as Promise<CallTracerCall>
+		},
+	}))
+
+	const trace = await traceClient.traceTransaction(txHash)
+
+	if (!trace) {
+		throw new Error("Unexpected response: No result found in debug_traceTransaction response")
+	}
+
+	const normalizedTarget = targetContractAddress.toLowerCase()
+
+	// If the top-level transaction directly calls the target contract, return its input
+	if (trace.to.toLowerCase() === normalizedTarget) {
+		return trace.input as HexString
+	}
+
+	// Otherwise search for the target contract in nested calls
+	const input = findCallInputByAddress(trace, targetContractAddress)
+
+	return input ? (input as HexString) : null
+}
 
 /**
  * Replace Websocket with HTTP is a function that replaces a websocket URL with an HTTP URL.

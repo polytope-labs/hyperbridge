@@ -16,7 +16,7 @@ export {
 	getStorageSlot,
 	ERC20Method,
 	fetchPrice,
-	adjustFeeDecimals,
+	adjustDecimals,
 	DEFAULT_GRAFFITI,
 	maxBigInt,
 	getGasPriceFromEtherscan,
@@ -24,6 +24,7 @@ export {
 	TESTNET_CHAINS,
 	retryPromise,
 	orderV2Commitment,
+	getContractCallInput,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/protocols/intentsV2"

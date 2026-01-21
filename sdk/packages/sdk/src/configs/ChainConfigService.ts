@@ -1,6 +1,6 @@
 import { toHex } from "viem"
 import type { ChainConfig, HexString } from "@/types"
-import { chainConfigs, getConfigByStateMachineId, Chains } from "@/configs/chain"
+import { chainConfigs, getConfigByStateMachineId, Chains, hyperbridgeAddress } from "@/configs/chain"
 
 export class ChainConfigService {
 	private rpcUrls: Record<string, string> = {}
@@ -137,5 +137,9 @@ export class ChainConfigService {
 
 	getIntentGatewayV2Address(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.IntentGatewayV2 ?? "0x") as HexString
+	}
+
+	getHyperbridgeAddress(): string {
+		return hyperbridgeAddress
 	}
 }

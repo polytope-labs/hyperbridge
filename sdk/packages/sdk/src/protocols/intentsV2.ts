@@ -7,7 +7,6 @@ import {
 	pad,
 	maxUint256,
 	type Hex,
-	type PublicClient,
 	formatUnits,
 	parseUnits,
 } from "viem"
@@ -30,12 +29,9 @@ import {
 	bytes32ToBytes20,
 	bytes20ToBytes32,
 	ERC20Method,
-	getStorageSlot,
 	retryPromise,
-	getGasPriceFromEtherscan,
-	USE_ETHERSCAN_CHAINS,
 	fetchPrice,
-	adjustFeeDecimals,
+	adjustDecimals,
 	constructRedeemEscrowRequestBody,
 	MOCK_ADDRESS,
 	getRecordedStorageSlot,
@@ -59,12 +55,21 @@ export const DEFAULT_GRAFFITI = "0x000000000000000000000000000000000000000000000
 export class IntentGatewayV2 {
 	private readonly storage: ReturnType<typeof createSessionKeyStorage>
 	private readonly swap: Swap = new Swap()
+	private readonly feeTokenCache: Map<string, { address: HexString; decimals: number }> = new Map()
 	constructor(
 		public readonly source: EvmChain,
 		public readonly dest: EvmChain,
 		storageOptions?: SessionKeyStorageOptions,
 	) {
 		this.storage = createSessionKeyStorage(storageOptions)
+		this.initFeeTokenCache()
+	}
+
+	private async initFeeTokenCache(): Promise<void> {
+		const sourceFeeToken = await this.source.getFeeTokenWithDecimals()
+		this.feeTokenCache.set(this.source.config.stateMachineId, sourceFeeToken)
+		const destFeeToken = await this.dest.getFeeTokenWithDecimals()
+		this.feeTokenCache.set(this.dest.config.stateMachineId, destFeeToken)
 	}
 
 	// =========================================================================
@@ -155,7 +160,7 @@ export class IntentGatewayV2 {
 
 	/** Estimates gas costs for fillOrder execution via ERC-4337 */
 	async estimateFillOrderV2(params: EstimateFillOrderV2Params): Promise<FillOrderEstimateV2> {
-		const { order, fillOptions, solverAccountAddress } = params
+		const { order, solverAccountAddress } = params
 
 		const totalEthValue = order.output.assets
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
@@ -163,7 +168,7 @@ export class IntentGatewayV2 {
 
 		const testValue = toHex(maxUint256 / 2n)
 		const intentGatewayV2Address = this.dest.configService.getIntentGatewayV2Address(order.destination)
-		const stateOverrides = await this.buildTokenStateOverrides(
+		const stateOverrides = this.buildTokenStateOverrides(
 			this.dest.config.stateMachineId,
 			order.output.assets,
 			solverAccountAddress,
@@ -181,14 +186,14 @@ export class IntentGatewayV2 {
 		// Estimate fillOrder gas (callGasLimit)
 		let callGasLimit: bigint
 		const postRequestGas = 400_000n
-		const sourceFeeToken = await this.source.getFeeTokenWithDecimals()
-		const destFeeToken = await this.dest.getFeeTokenWithDecimals()
+		const sourceFeeToken = this.feeTokenCache.get(this.source.config.stateMachineId)!
+		const destFeeToken = this.feeTokenCache.get(this.dest.config.stateMachineId)!
 		const postRequestFeeInSourceFeeToken = await this.convertGasToFeeToken(
 			postRequestGas as bigint,
 			"source",
 			params.order.source,
 		)
-		const postRequestFeeInDestFeeToken = adjustFeeDecimals(
+		let postRequestFeeInDestFeeToken = adjustDecimals(
 			postRequestFeeInSourceFeeToken,
 			sourceFeeToken.decimals,
 			destFeeToken.decimals,
@@ -213,13 +218,21 @@ export class IntentGatewayV2 {
 
 		// Buffer 0.5%
 		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
+		postRequestFeeInDestFeeToken = postRequestFeeInDestFeeToken + (postRequestFeeInDestFeeToken * 1005n) / 1000n
 
+		if (!params.fillOptions) {
+			params.fillOptions = {
+				relayerFee: postRequestFeeInDestFeeToken,
+				nativeDispatchFee: protocolFeeInNativeToken,
+				outputs: order.output.assets,
+			}
+		}
 		try {
 			callGasLimit = await this.dest.client.estimateContractGas({
 				abi: IntentGatewayV2ABI.ABI,
 				address: this.dest.configService.getIntentGatewayV2Address(order.destination),
 				functionName: "fillOrder",
-				args: [order, fillOptions],
+				args: [order, params.fillOptions],
 				account: solverAccountAddress,
 				value: totalEthValue + protocolFeeInNativeToken,
 				stateOverride: stateOverrides as any,
@@ -257,6 +270,7 @@ export class IntentGatewayV2 {
 			maxPriorityFeePerGas,
 			totalGasCostWei,
 			totalGasInFeeToken,
+			fillOptions: params.fillOptions,
 		}
 	}
 
@@ -367,14 +381,14 @@ export class IntentGatewayV2 {
 	// =========================================================================
 
 	/** Builds state overrides for token balances and allowances to enable gas estimation */
-	private async buildTokenStateOverrides(
+	private buildTokenStateOverrides(
 		chain: string,
 		outputAssets: { token: HexString; amount: bigint }[],
 		accountAddress: HexString,
 		spenderAddress: HexString,
 		testValue: HexString,
 		intentGatewayV2Address?: HexString,
-	): Promise<{ address: HexString; balance?: bigint; stateDiff?: { slot: HexString; value: HexString }[] }[]> {
+	): { address: HexString; balance?: bigint; stateDiff?: { slot: HexString; value: HexString }[] }[] {
 		const overrides: { address: HexString; stateDiff: { slot: HexString; value: HexString }[] }[] = []
 
 		// Params struct starts at slot 4, and slot 5 contains dispatcher + solverSelection packed
@@ -384,13 +398,9 @@ export class IntentGatewayV2 {
 		// - chars 26-65 (40 chars, 20 bytes): dispatcher
 		if (intentGatewayV2Address) {
 			const paramsSlot5 = pad(toHex(5n), { size: 32 }) as HexString
-			const currentSlot5Value = await this.dest.client.getStorageAt({
-				address: intentGatewayV2Address,
-				slot: paramsSlot5,
-			})
-			// Set solverSelection to 0x00 while preserving dispatcher
-			const currentValue = currentSlot5Value || "0x" + "0".repeat(64)
-			const newSlot5Value = (currentValue.slice(0, 24) + "00" + currentValue.slice(26)) as HexString
+			const dispatcherAddress = this.dest.configService.getCalldispatcherAddress(chain)
+			// Set solverSelection to 0x00, padding is zeros, dispatcher from config
+			const newSlot5Value = ("0x" + "0".repeat(22) + "00" + dispatcherAddress.slice(2).toLowerCase()) as HexString
 			overrides.push({
 				address: intentGatewayV2Address,
 				stateDiff: [{ slot: paramsSlot5, value: newSlot5Value }],
@@ -453,7 +463,7 @@ export class IntentGatewayV2 {
 		const gasPrice = await retryPromise(() => client.getGasPrice(), { maxRetries: 3, backoffMs: 250 })
 		const gasCostInWei = gasEstimate * gasPrice
 		const wethAddr = this[gasEstimateIn].configService.getWrappedNativeAssetWithDecimals(evmChainID).asset
-		const feeToken = await this[gasEstimateIn].getFeeTokenWithDecimals()
+		const feeToken = this.feeTokenCache.get(evmChainID)!
 
 		try {
 			const { amountOut } = await this.swap.findBestProtocolWithAmountIn(

@@ -637,6 +637,33 @@ export interface DecodedOrderPlacedLog extends Log {
 	transactionHash: HexString
 }
 
+export interface DecodedOrderV2PlacedLog extends Log {
+	eventName: string
+	args: {
+		user: HexString
+		source: Hex
+		destination: Hex
+		deadline: bigint
+		nonce: bigint
+		fees: bigint
+		session: HexString
+		beneficiary: HexString
+		predispatch: Array<{
+			token: HexString
+			amount: bigint
+		}>
+		inputs: Array<{
+			token: HexString
+			amount: bigint
+		}>
+		outputs: Array<{
+			token: HexString
+			amount: bigint
+		}>
+	}
+	transactionHash: HexString
+}
+
 export interface DecodedPostRequestEvent extends Log {
 	eventName: string
 	args: {
@@ -829,6 +856,13 @@ export interface FillerConfig {
 		 */
 		maxRechecks?: number
 	}
+
+	/**
+	 * Watch-only mode: per-chain configuration to monitor and log orders without executing fills
+	 * Maps chainId to boolean. If a chain is not in this map, defaults to false (normal execution)
+	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
+	 */
+	watchOnly?: Record<number, boolean>
 }
 
 /**
@@ -1220,8 +1254,8 @@ export interface DispatchInfoV2 {
 export interface OrderV2 {
 	id?: string
 	user: HexString
-	source: HexString
-	destination: HexString
+	source: string
+	destination: string
 	deadline: bigint
 	nonce: bigint
 	fees: bigint
@@ -1229,6 +1263,7 @@ export interface OrderV2 {
 	predispatch: DispatchInfoV2
 	inputs: TokenInfoV2[]
 	output: PaymentInfoV2
+	transactionHash?: HexString
 }
 
 export interface FillOptionsV2 {
@@ -1274,11 +1309,12 @@ export interface SubmitBidOptions {
 
 export interface EstimateFillOrderV2Params {
 	order: OrderV2
-	fillOptions: FillOptionsV2
 	solverAccountAddress: HexString
+	fillOptions?: FillOptionsV2
 }
 
 export interface FillOrderEstimateV2 {
+	fillOptions: FillOptionsV2
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
@@ -1286,4 +1322,29 @@ export interface FillOrderEstimateV2 {
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
 	totalGasInFeeToken: bigint
+}
+
+/**
+ * Result of submitting a bid to Hyperbridge
+ */
+export interface BidSubmissionResult {
+	/**
+	 * Whether the bid submission was successful
+	 */
+	success: boolean
+
+	/**
+	 * Block hash where the bid was included
+	 */
+	blockHash?: HexString
+
+	/**
+	 * Extrinsic hash of the bid transaction
+	 */
+	extrinsicHash?: HexString
+
+	/**
+	 * Error message if submission failed
+	 */
+	error?: string
 }

@@ -402,3 +402,5 @@ export const getChainId = (stateMachineId: string): number | undefined =>
 	configsByStateMachineId[stateMachineId as Chains]?.chainId
 
 export const getViemChain = (chainId: number): Chain | undefined => chainConfigs[chainId]?.viemChain
+
+export const hyperbridgeAddress = ""

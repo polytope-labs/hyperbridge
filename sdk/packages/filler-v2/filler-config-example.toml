@@ -1,0 +1,146 @@
+# Hyperbridge Intent Filler Simplified Configuration
+# This is a minimal configuration file that leverages the SDK's built-in chain configurations
+# Copy this file to filler-config.toml and update with your actual values
+
+# Filler configuration
+[filler]
+privateKey = ""  # Replace with your actual EVM private key (not required if all chains are watchOnly)
+maxConcurrentOrders = 5
+
+# Directory for persistent data storage (bid transaction hashes, etc.)
+# Bid storage enables later cleanup and fund recovery from Hyperbridge
+# Default: ".filler-data" in current working directory
+# dataDir = "/path/to/data"
+
+# ===== Solver Selection Mode Configuration =====
+# Required when solver selection is active on any chain
+
+# Substrate private key for signing Hyperbridge extrinsics
+# Can be a hex seed (without 0x prefix) or mnemonic phrase
+# Note: Submitting bids to Hyperbridge requires BRIDGE tokens for transaction fees
+substratePrivateKey = ""
+
+# Hyperbridge WebSocket URL
+hyperbridgeWsUrl = ""
+
+# ERC-4337 EntryPoint contract address
+entryPointAddress = ""
+
+# Address of the deployed SolverAccount.sol contract
+# The filler's EOA will delegate to this contract via EIP-7702
+# This enables the filler to participate in solver selection mode
+solverAccountContractAddress = ""
+
+# Watch-only mode configuration
+# Option 1: Global watch-only (all chains)
+# watchOnly = true
+
+# Option 2: Per-chain watch-only configuration
+# [filler.watchOnly]
+# "1" = true   # Ethereum Mainnet - watch only
+# "56" = false  # BSC Mainnet - normal execution
+# "137" = true  # Polygon Mainnet - watch only
+
+# Logging configuration
+[filler.logging]
+level = "debug"  # Options: trace, debug, info, warn, error
+
+# Pending queue configuration
+[filler.pendingQueue]
+maxRechecks = 10
+recheckDelayMs = 30000  # 30 seconds
+
+# Strategy configuration
+# You can configure multiple strategies
+# All strategies use the filler.privateKey from above
+[[strategies]]
+type = "basic"
+# Filler's basis points (bps) for profit margin
+# This is the minimum profit margin the filler expects from each order
+# E.g., 50 = 0.5%, meaning if user sends 100 USDC, filler expects to keep at least 0.5 USDC
+# The filler will only fill orders where the output amount >= input amount * (1 - fillerBps/10000)
+fillerBps = 50
+
+
+# Chain configuration - RPC URLs are required
+# All other chain data (addresses, assets, etc.) comes from the SDK automatically
+[[chains]]
+chainId = 1  # Ethereum Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 56  # BSC Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 42161  # Arbitrum Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 8453  # Base Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 137  # Polygon Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+[[chains]]
+chainId = 130  # Unichain Mainnet
+rpcUrl = ""  # Required: your RPC URL
+
+
+# Confirmation policies per chain
+# The chain ID should match the numeric ID from the chain configuration
+[confirmationPolicies."97"]  # BSC Testnet
+minAmount = "1"      # 1 USD 
+maxAmount = "1000"   # 1000 USD 
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."10200"]  # Gnosis Chiado
+minAmount = "1"      # 1 USD 
+maxAmount = "1000"   # 1000 USD 
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."1"]  # Ethereum Mainnet
+minAmount = "5"      # 5 USD 
+maxAmount = "5000"   # 5000 USD 
+minConfirmations = 3
+maxConfirmations = 12
+
+[confirmationPolicies."56"]  # BSC Mainnet
+minAmount = "1"      # 1 USD 
+maxAmount = "5000"   # 5000 USD 
+minConfirmations = 3
+maxConfirmations = 15
+
+[confirmationPolicies."11155111"]  # Sepolia
+minAmount = "1"      # 1 USD 
+maxAmount = "1000"   # 1000 USD 
+minConfirmations = 1
+maxConfirmations = 5
+
+[confirmationPolicies."42161"]  # Arbitrum Mainnet
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
+minConfirmations = 2
+maxConfirmations = 10
+
+[confirmationPolicies."8453"]  # Base Mainnet
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
+minConfirmations = 2
+maxConfirmations = 10
+
+[confirmationPolicies."137"]  # Polygon Mainnet
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
+minConfirmations = 2
+maxConfirmations = 10
+
+[confirmationPolicies."130"]  # Unichain Mainnet
+minAmount = "2"      # 2 USD 
+maxAmount = "8000"   # 8000 USD 
+minConfirmations = 2
+maxConfirmations = 10

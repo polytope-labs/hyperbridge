@@ -4,7 +4,7 @@ import {
 	ExecutionResult,
 	HexString,
 	FillOptions,
-	adjustFeeDecimals,
+	adjustDecimals,
 	bytes32ToBytes20,
 	TESTNET_CHAINS,
 } from "@hyperbridge/sdk"
@@ -81,7 +81,7 @@ export class BasicFiller implements FillerStrategy {
 					? parseUnits("0", 6)
 					: totalGasEstimateInFeeToken
 
-			const orderFeeInDestFeeToken = adjustFeeDecimals(order.fees, sourceFeeTokenDecimals, destFeeTokenDecimals)
+			const orderFeeInDestFeeToken = adjustDecimals(order.fees, sourceFeeTokenDecimals, destFeeTokenDecimals)
 
 			const profit =
 				orderFeeInDestFeeToken > totalGasEstimateInFeeToken

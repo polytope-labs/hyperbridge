@@ -29,7 +29,7 @@ import {
 } from "@/types"
 import {
 	ADDRESS_ZERO,
-	adjustFeeDecimals,
+	adjustDecimals,
 	bytes20ToBytes32,
 	bytes32ToBytes20,
 	constructRedeemEscrowRequestBody,
@@ -125,7 +125,7 @@ export class IntentGateway {
 		const postGasWithIncentive = postGasEstimateInSourceFeeToken + (postGasEstimateInSourceFeeToken * 1n) / 100n
 		const relayerFeeInSourceFeeToken = maxBigInt(postGasWithIncentive, minRelayerFee)
 
-		const relayerFeeInDestFeeToken = adjustFeeDecimals(
+		const relayerFeeInDestFeeToken = adjustDecimals(
 			relayerFeeInSourceFeeToken,
 			sourceChainFeeTokenDecimals,
 			destChainFeeTokenDecimals,
@@ -258,13 +258,13 @@ export class IntentGateway {
 			"dest",
 			orderWithCommitment.destChain,
 		)
-		const fillGasInSourceFeeToken = adjustFeeDecimals(
+		const fillGasInSourceFeeToken = adjustDecimals(
 			fillGasInDestFeeToken,
 			destChainFeeTokenDecimals,
 			sourceChainFeeTokenDecimals,
 		)
 
-		const protocolFeeInSourceFeeToken = adjustFeeDecimals(
+		const protocolFeeInSourceFeeToken = adjustDecimals(
 			await this.dest.quote(postRequest),
 			destChainFeeTokenDecimals,
 			sourceChainFeeTokenDecimals,

@@ -19,7 +19,7 @@ import {
 	getGasPriceFromEtherscan,
 	USE_ETHERSCAN_CHAINS,
 	retryPromise,
-	adjustFeeDecimals,
+	adjustDecimals,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -714,7 +714,7 @@ export class ContractInteractionService {
 				},
 			)
 
-			return adjustFeeDecimals(quoteIn.result[0], feeToken.decimals, targetDecimals)
+			return adjustDecimals(quoteIn.result[0], feeToken.decimals, targetDecimals)
 		} catch {
 			// Testnet block
 			this.logger.warn({ chain }, "On-chain quote failed, falling back to price API")

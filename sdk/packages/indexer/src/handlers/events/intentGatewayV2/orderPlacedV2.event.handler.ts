@@ -42,6 +42,13 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 					graffiti = bytes20ToBytes32(decodedArgs[1] as string) as Hex
 					logger.info(`Using ${stringify(graffiti)} as graffiti`)
 				}
+
+				if (decodedOrder?.outputs) {
+					decodedOrder.outputs.assets = args[10].map((token) => ({
+						token: token[0] as Hex,
+						amount: BigInt(token[1].toString()),
+					}))
+				}
 			}
 		} catch (e: any) {
 			logger.info(
@@ -78,6 +85,13 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 							graffiti = bytes20ToBytes32(decodedArgs[1] as string) as Hex
 							logger.info(`Using ${stringify(graffiti)} as graffiti`)
 						}
+
+						if (decodedOrder?.outputs) {
+							decodedOrder.outputs.assets = args[10].map((token) => ({
+								token: token[0] as Hex,
+								amount: BigInt(token[1].toString()),
+							}))
+						}
 					}
 				} else {
 					logger.warn(`IntentGateway call not found in nested calls for transaction: ${transactionHash}`)
@@ -93,19 +107,7 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 	}
 
 	if (decodedOrder) {
-		const order: OrderV2 = {
-			id: "",
-			user: decodedOrder.user as Hex,
-			sourceChain: decodedOrder.sourceChain,
-			destChain: decodedOrder.destChain,
-			deadline: decodedOrder.deadline,
-			nonce: decodedOrder.nonce,
-			fees: decodedOrder.fees,
-			session: decodedOrder.session as Hex,
-			predispatch: decodedOrder.predispatch,
-			inputs: decodedOrder.inputs,
-			outputs: decodedOrder.outputs,
-		}
+		const order: OrderV2 = decodedOrder
 
 		logger.info(
 			`[Intent Gateway V2] Computing Order Commitment: ${stringify({

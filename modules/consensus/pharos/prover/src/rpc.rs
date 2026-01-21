@@ -118,6 +118,25 @@ pub struct RpcStorageProof {
 	pub proof: Vec<String>,
 }
 
+/// Validator info from `debug_getValidatorInfo`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcValidatorInfo {
+	pub bls_key: String,
+	pub identity_key: String,
+	pub staking: String,
+	#[serde(rename = "validatorID")]
+	pub validator_id: String,
+}
+
+/// Response from `debug_getValidatorInfo`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcValidatorInfoResponse {
+	pub block_number: String,
+	pub validator_set: Vec<RpcValidatorInfo>,
+}
+
 /// RPC client for Pharos node.
 pub struct PharosRpcClient {
 	endpoint: String,
@@ -191,6 +210,18 @@ impl PharosRpcClient {
 		let result: String = self.call("eth_blockNumber", Vec::<()>::new()).await?;
 		u64::from_str_radix(result.trim_start_matches("0x"), 16)
 			.map_err(|_| ProverError::InvalidNumber)
+	}
+
+	/// Fetch validator info using `debug_getValidatorInfo`.
+	pub async fn get_validator_info(
+		&self,
+		block_number: Option<u64>,
+	) -> Result<RpcValidatorInfoResponse, ProverError> {
+		let block_param = match block_number {
+			Some(n) => format!("0x{:x}", n),
+			None => "latest".to_string(),
+		};
+		self.call("debug_getValidatorInfo", vec![block_param]).await
 	}
 }
 

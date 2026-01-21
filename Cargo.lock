@@ -15597,6 +15597,7 @@ dependencies = [
  "ismp",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-pharos",
  "ismp-sync-committee",
  "ismp-testsuite",
  "log",
@@ -15618,6 +15619,8 @@ dependencies = [
  "pallet-token-governor",
  "pallet-xcm-gateway",
  "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-prover",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
@@ -28843,6 +28846,30 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "transaction-fees",
+]
+
+[[package]]
+name = "tesseract-pharos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ethers",
+ "geth-primitives",
+ "ismp",
+ "ismp-pharos",
+ "log",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-prover",
+ "pharos-verifier",
+ "primitive-types 0.13.1",
+ "serde",
+ "serde_json",
+ "sp-core 37.0.0",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
 ]
 
 [[package]]

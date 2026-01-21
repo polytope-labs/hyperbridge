@@ -52,6 +52,9 @@ hyperbridge-client-machine =  {workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 ismp-grandpa = { workspace = true, default-features = true }
+ismp-pharos = { workspace = true, default-features = true }
+pharos-primitives = { workspace = true, default-features = true }
+pharos-prover = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
 log = { workspace = true }
 primitive-types = { workspace = true }

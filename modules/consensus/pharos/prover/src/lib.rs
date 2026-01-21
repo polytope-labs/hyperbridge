@@ -22,16 +22,21 @@ pub use error::ProverError;
 
 use geth_primitives::CodecHeader;
 use pharos_primitives::{
-	BlockProof, Config, ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
+	BlsPublicKey, BlockProof, Config, ValidatorInfo, ValidatorSet, ValidatorSetProof,
+	VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
 };
 use pharos_verifier::state_proof::StakingContractLayout;
 use primitive_types::{H160, H256, U256};
-use rpc::{hex_to_bytes, hex_to_h256, hex_to_u64, PharosRpcClient, RpcBlock, RpcBlockProof};
-use std::marker::PhantomData;
+use rpc::{
+	hex_to_bytes, hex_to_h256, hex_to_u64, PharosRpcClient, RpcBlock, RpcBlockProof,
+	RpcValidatorInfo,
+};
+use std::{marker::PhantomData, sync::Arc};
 
 /// Pharos prover for constructing light client updates.
+#[derive(Clone)]
 pub struct PharosProver<C: Config> {
-	rpc: PharosRpcClient,
+	pub rpc: Arc<PharosRpcClient>,
 	storage_layout: StakingContractLayout,
 	_config: PhantomData<C>,
 }
@@ -40,7 +45,7 @@ impl<C: Config> PharosProver<C> {
 	/// Create a new prover with the given RPC endpoint.
 	pub fn new(endpoint: impl Into<String>) -> Self {
 		Self {
-			rpc: PharosRpcClient::new(endpoint),
+			rpc: Arc::new(PharosRpcClient::new(endpoint)),
 			storage_layout: StakingContractLayout::default(),
 			_config: PhantomData,
 		}
@@ -48,7 +53,11 @@ impl<C: Config> PharosProver<C> {
 
 	/// Create a new prover with a custom storage layout.
 	pub fn with_storage_layout(endpoint: impl Into<String>, layout: StakingContractLayout) -> Self {
-		Self { rpc: PharosRpcClient::new(endpoint), storage_layout: layout, _config: PhantomData }
+		Self {
+			rpc: Arc::new(PharosRpcClient::new(endpoint)),
+			storage_layout: layout,
+			_config: PhantomData,
+		}
 	}
 
 	/// Fetch the latest block number from the node.
@@ -85,6 +94,45 @@ impl<C: Config> PharosProver<C> {
 	pub async fn fetch_block_proof(&self, block_number: u64) -> Result<BlockProof, ProverError> {
 		let rpc_proof = self.rpc.get_block_proof(block_number).await?;
 		self.convert_rpc_block_proof(&rpc_proof)
+	}
+
+	/// Build a ValidatorSet from RPC validator info.
+	pub fn build_validator_set(
+		&self,
+		validators: &[RpcValidatorInfo],
+		epoch: u64,
+	) -> Result<ValidatorSet, ProverError> {
+		let mut validator_set = ValidatorSet::new(epoch);
+
+		for v in validators {
+			let bls_key_bytes = hex_to_bytes(&v.bls_key)?;
+			let len = bls_key_bytes.len();
+			let bls_public_key: BlsPublicKey =
+				bls_key_bytes.try_into().map_err(|_| ProverError::InvalidBlsKeyLength(len))?;
+
+			let pool_id_bytes = hex_to_bytes(&v.validator_id)?;
+			let pool_id = if pool_id_bytes.len() == 32 {
+				H256::from_slice(&pool_id_bytes)
+			} else {
+				let mut padded = [0u8; 32];
+				let start = 32usize.saturating_sub(pool_id_bytes.len());
+				padded[start..].copy_from_slice(&pool_id_bytes);
+				H256::from(padded)
+			};
+
+			let stake = Self::parse_stake(&v.staking)?;
+
+			let info = ValidatorInfo { bls_public_key, pool_id, stake };
+			validator_set.add_validator(info);
+		}
+
+		Ok(validator_set)
+	}
+
+	/// Parse a hex stake value to U256.
+	fn parse_stake(hex: &str) -> Result<U256, ProverError> {
+		let hex = hex.trim_start_matches("0x");
+		U256::from_str_radix(hex, 16).map_err(|_| ProverError::InvalidNumber)
 	}
 
 	/// Fetch validator set proof for an epoch boundary block.

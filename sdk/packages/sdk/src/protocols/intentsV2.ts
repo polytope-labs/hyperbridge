@@ -127,7 +127,7 @@ export class IntentGatewayV2 {
 			args: [order, fillOptions],
 		}) as HexString
 		const commitment = orderV2Commitment(order)
-		const accountGasLimits = this.packGasLimits(callGasLimit, verificationGasLimit)
+		const accountGasLimits = this.packGasLimits(verificationGasLimit, callGasLimit)
 		const gasFees = this.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
 
 		const userOp: PackedUserOperation = {
@@ -283,13 +283,14 @@ export class IntentGatewayV2 {
 		commitment: HexString,
 		solverAddress: HexString,
 		domainSeparator: HexString,
+		sessionKeyData?: SessionKeyData,
 	): Promise<HexString | null> {
-		const sessionKeyData = await this.storage.getSessionKey(commitment)
-		if (!sessionKeyData) {
+		const sessionKeyData_ = sessionKeyData ?? await this.storage.getSessionKey(commitment)
+		if (!sessionKeyData_) {
 			return null
 		}
 
-		const account = privateKeyToAccount(sessionKeyData.privateKey as Hex)
+		const account = privateKeyToAccount(sessionKeyData_.privateKey as Hex)
 
 		const structHash = keccak256(
 			encodeAbiParameters(
@@ -343,11 +344,11 @@ export class IntentGatewayV2 {
 	// Gas Packing Utilities
 	// =========================================================================
 
-	/** Packs callGasLimit and verificationGasLimit into bytes32 */
-	packGasLimits(callGasLimit: bigint, verificationGasLimit: bigint): HexString {
-		const callGasHex = pad(toHex(callGasLimit), { size: 16 })
+	/** Packs verificationGasLimit and callGasLimit into bytes32) */
+	packGasLimits(verificationGasLimit: bigint, callGasLimit: bigint): HexString {
 		const verificationGasHex = pad(toHex(verificationGasLimit), { size: 16 })
-		return concat([callGasHex, verificationGasHex]) as HexString
+		const callGasHex = pad(toHex(callGasLimit), { size: 16 })
+		return concat([verificationGasHex, callGasHex]) as HexString
 	}
 
 	/** Packs maxPriorityFeePerGas and maxFeePerGas into bytes32 */

@@ -9488,7 +9488,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "clap",
  "futures",
@@ -10703,7 +10703,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain-inherent"
-version = "2506.1.0"
+version = "2506.1.1"
 dependencies = [
  "anyhow",
  "async-trait",

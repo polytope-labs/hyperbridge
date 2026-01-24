@@ -3,7 +3,7 @@ set -e
 set -o xtrace
 
 declare -a testnet=("SEPOLIA" "ARBITRUM_SEPOLIA" "OPTIMISM_SEPOLIA" "BASE_SEPOLIA" "BSC_TESTNET" "GNOSIS_CHIADO")
-declare -a mainnet=("ETHEREUM" "ARBITRUM" "OPTIMISM" "BASE" "BNB" "GNOSIS" "POLYGON" "UNICHAIN")
+declare -a mainnet=("ETHEREUM" "ARBITRUM" "OPTIMISM" "BASE" "BSC" "GNOSIS" "SONEIUM" "POLYGON" "UNICHAIN")
 
 if [ "$2" == "mainnet" ]; then
    for i in "${mainnet[@]}"; do

@@ -96,15 +96,15 @@ INTENT_GATEWAY = "0x1A4ee689A004B10210A1dF9f24A387Ea13359aCF"
 [137.bool]
 is_mainnet = true
 
-[1301]
+[130]
 endpoint_url = "${UNICHAIN_RPC_URL}"
 
-[1301.address]
+[130.address]
 UNISWAP_V2 = "0x284f11109359a7e1306c3e447ef14d38400063ff"
 FEE_TOKEN = "0x078d782b760474a361dda0af3839290b0ef57ad6"
 HOST = "0x2A17C1c3616Bbc33FCe5aF5B965F166ba76cEDAf"
 
-[1301.bool]
+[130.bool]
 is_mainnet = true
 
 [57073]

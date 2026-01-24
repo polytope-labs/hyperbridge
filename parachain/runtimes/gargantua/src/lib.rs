@@ -397,7 +397,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -726,6 +726,20 @@ impl pallet_messaging_fees::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 }
 
+parameter_types! {
+	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
+}
+
+impl pallet_collator_manager::Config for Runtime {
+	type ReputationAsset = ReputationAsset;
+	type Balance = Balance;
+	type NativeCurrency = Balances;
+	type LockId = CollatorBondLockId;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type IncentivesManager = MessagingFees;
+	type WeightInfo = ();
+}
 
 parameter_types! {
 	pub const MinVestedTransfer: Balance = EXISTENTIAL_DEPOSIT;
@@ -863,6 +877,9 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type MessagingFees = pallet_messaging_fees;
+	#[runtime::pallet_index(87)]
+	pub type CollatorManager = pallet_collator_manager;
+
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }

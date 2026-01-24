@@ -8228,6 +8228,7 @@ dependencies = [
  "log",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
+ "pallet-collator-manager",
  "pallet-fishermen",
  "pallet-ismp",
  "pallet-ismp-demo",

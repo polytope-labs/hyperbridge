@@ -189,6 +189,13 @@ pub mod pallet {
 			/// The new controller account.
 			new_controller: T::AccountId,
 		},
+		/// A collator was rewarded for authoring a block.
+		CollatorRewarded {
+			/// The collator who authored the block.
+			collator: T::AccountId,
+			/// The reward amount.
+			amount: <T as pallet::Config>::Balance,
+		},
 	}
 
 	#[pallet::call]
@@ -263,12 +270,19 @@ pub mod pallet {
 			if reward > Zero::zero() {
 				let treasury_account = T::TreasuryAccount::get().into_account_truncating();
 
-				let _ = T::NativeCurrency::transfer(
+				let result = T::NativeCurrency::transfer(
 					&treasury_account,
 					&author,
 					reward,
 					frame_support::traits::ExistenceRequirement::KeepAlive,
 				);
+
+				if result.is_ok() {
+					Self::deposit_event(Event::CollatorRewarded {
+						collator: author,
+						amount: reward,
+					});
+				}
 			}
 		}
 	}

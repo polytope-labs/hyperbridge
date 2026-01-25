@@ -1,0 +1,32 @@
+---
+title: How to get USD.h from the Faucet
+description: Learn how to obtain testnet USD.h tokens using the Hyperbridge Faucet. This guide walks you through the process of requesting and receiving USD.h for development and testing on the Hyperbridge network.
+---
+
+# How to get USD.h from the Faucet
+
+You'll need USD.h tokens to dipatch messages such as [POST](/developers/evm/dispatching/post-requests) and [GET Requests](/developers/evm/dispatching/get-requests). 
+
+## Steps to Obtain USD.h from the Faucet
+
+1. **Access the Faucet Contract**  
+    Visit the [Faucet contract "Write Contract" page](https://sepolia.etherscan.io/address/0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3#writeContract) in your web browser. N.B: This contract is the same on all EVM chains.
+
+2. **Connect Your Wallet**  
+    Ensure you have a small amount of the native token of the chain you want to test on for gas fee (0.0002 ETH is usually more than enough on Sepolia). Click "Connect to Web3", a disclaimer alert will pop-up, accept it and a modal to select your preferred wallet provider will take its place. Select the wallet provider you want to use and connect your wallet. Once your wallet is connected, the red icon in front of "Connect to Web3" will change to green, and the text will chage to "Connected - Web3 [shortened form of your wallet address].
+
+3. **Request USD.h Tokens**  
+    Toggle open the tab labelled "1. drip (0x67a5cd06)" underneath the icon for connecting wallets. In the textbox that appears, labelled "token (address)", [fee token's contract address](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177), then click "Write". The faucet will send 1000 USD.h to your address for testing purposes.
+
+4. **Confirm Receipt**  
+    Check your wallet to ensure the USD.h tokens have arrived. You can view your balance by using the appropraite testnet block explorer.
+
+## Troubleshooting
+
+- Ensure that you have not exceeded the faucet's limit of one request per day
+- Check that you have sufficient gas fee in the native token of the testnet chain (ETH for sepolia, testnet BNB for BNB Chain) 
+- Make sure you are inputting the [fee token contract address](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177) and not something else (like your development wallet address) into the "token (address)" textbox 
+
+For additional support, visit the [Hyperbridge Discord](https://discord.gg/hyperbridge) or consult the [official documentation](https://docs.hyperbridge.network/).
+
+By following these steps, you'll be ready to develop and test on the Hyperbridge protocol using USD.h tokens.

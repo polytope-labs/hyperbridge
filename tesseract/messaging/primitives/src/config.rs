@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub struct RelayerConfig {
 	/// Modules we're interested in relaying
 	pub module_filter: Option<Vec<String>>,
-	/// Minimum profit percentage. e.g. 5 -> 5%, 10 -> 10%
+	/// Minimum profit in basis points. e.g. 500 -> 5%, 1000 -> 10%
 	pub minimum_profit_percentage: u32,
 	/// How frequently to initiate withdrawals in seconds.
 	pub withdrawal_frequency: Option<u64>,

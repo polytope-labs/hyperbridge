@@ -202,11 +202,11 @@ consensus_state_id = "PAS0"
 
 # Relayer config, required
 [relayer]
-# Define your profitability configuration.
+# Define your profitability configuration in basis points.
 # 0 -> 0% i.e relay all requests, even unprofitable ones.
-# 1 -> 1%. ie fees provided for requests must be
+# 100 -> 1%. ie fees provided for requests must be
 # profitable by at least 1%. etc.
-minimum_profit_percentage = 1
+minimum_profit_percentage = 100
 
 # How frequently to initiate withdrawals in seconds
 # defaults to 24 hours
@@ -306,10 +306,10 @@ signer = ""
 # tracing_batch_size = 5
 
 # (Optional)
-# Percentage buffer to add to gas prices
+# Buffer to add to gas prices in basis points
 # to increase likelihood of the transactions
-# going through e.g 1%, 2%
-# gas_price_buffer = 1
+# going through e.g 100 (1%), 200 (2%), 500 (5%)
+# gas_price_buffer = 100
 
 # (Optional)
 # The execution client implementation,

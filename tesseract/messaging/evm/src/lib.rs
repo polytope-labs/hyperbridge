@@ -74,8 +74,8 @@ pub struct EvmConfig {
 	pub query_batch_size: Option<u64>,
 	/// Polling frequency for state machine updates in seconds
 	pub poll_interval: Option<u64>,
-	/// An optional buffer to add to gas price as a percentage of the current gas price
-	/// to increase likelihood of the transactions going through e.g 1%, 2%
+	/// An optional buffer to add to gas price in basis points
+	/// to increase likelihood of the transactions going through e.g 100 (1%), 200 (2%)
 	pub gas_price_buffer: Option<u32>,
 	/// The client type the rpc is running, defaults to Geth
 	pub client_type: Option<ClientType>,

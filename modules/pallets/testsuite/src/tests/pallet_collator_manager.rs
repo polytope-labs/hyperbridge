@@ -396,7 +396,6 @@ fn validator_registration_returns_true_when_controller_has_session_keys() {
 		let stash = ALICE;
 		let controller = BOB;
 
-
 		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		assert_ok!(CollatorManager::register(
 			RuntimeOrigin::signed(stash.clone()),
@@ -416,7 +415,6 @@ fn validator_registration_returns_false_after_controller_changed_without_new_key
 		let old_controller = BOB;
 		let new_controller = CHARLIE;
 
-
 		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
 		assert_ok!(CollatorManager::register(
 			RuntimeOrigin::signed(stash.clone()),
@@ -431,7 +429,6 @@ fn validator_registration_returns_false_after_controller_changed_without_new_key
 		));
 
 		assert!(!CollatorManager::is_registered(&stash));
-
 
 		set_session_keys(new_controller.clone());
 		assert!(CollatorManager::is_registered(&stash));

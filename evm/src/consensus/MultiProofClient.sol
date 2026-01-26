@@ -16,8 +16,6 @@ pragma solidity ^0.8.20;
 
 import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
-import {SP1Beefy} from "./SP1Beefy.sol";
-import {BeefyV1} from "./BeefyV1.sol";
 
 /**
  * @title The Multi-Proof Consensus Client.
@@ -30,16 +28,16 @@ contract MultiProofClient is IConsensus, ERC165 {
     // Proof type enum
     enum ProofType {
         // 0x00 - BeefyV1 naive proof
-        Naive, 
+        Naive,
         // 0x01 - SP1Beefy ZK proof
-        ZK 
+        ZK
     }
 
     // SP1 Beefy consensus client
-    SP1Beefy public immutable sp1Beefy;
+    IConsensus public immutable sp1Beefy;
 
     // BeefyV1 consensus client
-    BeefyV1 public immutable beefyV1;
+    IConsensus public immutable beefyV1;
 
     // Invalid proof type provided
     error InvalidProofType(uint8 proofType);
@@ -47,7 +45,7 @@ contract MultiProofClient is IConsensus, ERC165 {
     // Empty proof provided
     error EmptyProof();
 
-    constructor(SP1Beefy _sp1Beefy, BeefyV1 _beefyV1) {
+    constructor(IConsensus _sp1Beefy, IConsensus _beefyV1) {
         sp1Beefy = _sp1Beefy;
         beefyV1 = _beefyV1;
     }
@@ -66,7 +64,6 @@ contract MultiProofClient is IConsensus, ERC165 {
      */
     function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
         external
-        view
         returns (bytes memory, IntermediateState[] memory)
     {
         if (encodedProof.length == 0) revert EmptyProof();

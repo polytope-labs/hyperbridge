@@ -111,6 +111,12 @@ pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrai
 /// to redis as frequently as they change. Ensuring that it can always be rehydrated.
 pub const REDIS_CONSENSUS_STATE_KEY: &'static str = "consensus_state";
 
+/// Proof type identifier for naive proofs (BeefyV1)
+pub const PROOF_TYPE_NAIVE: u8 = 0x00;
+
+/// Proof type identifier for ZK proofs (SP1Beefy)
+pub const PROOF_TYPE_ZK: u8 = 0x01;
+
 impl<R, P, B> BeefyProver<R, P, B>
 where
 	R: subxt::Config + Send + Sync + Clone,
@@ -218,12 +224,11 @@ where
 			Prover::Naive(ref naive, _) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
-				AbiEncode::encode(message)
+				[&[PROOF_TYPE_NAIVE], AbiEncode::encode(message).as_slice()].concat()
 			},
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				let encoded = AbiEncode::encode(message);
-				encoded
+				[&[PROOF_TYPE_ZK], AbiEncode::encode(message).as_slice()].concat()
 			},
 		};
 

@@ -18,12 +18,16 @@ contract DeployScript is BaseScript {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
-
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
+        console.log("CallDispatcher deployed at:", address(callDispatcher));
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
+        console.log("TokenGateway deployed at:", address(gateway));
+
         gateway.init(TokenGatewayParams({host: HOST_ADDRESS, dispatcher: address(callDispatcher)}));
+        console.log("TokenGateway initialized");
     }
 }

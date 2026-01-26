@@ -16,7 +16,7 @@ lint_on_build = false
 
 [rpc_endpoints]
 # testnet
-ethereum-sepolia = "${SEPOLIA_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
 optimism-sepolia = "${OPTIMISM_SEPOLIA_RPC_URL}"
 arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
@@ -40,7 +40,7 @@ sei = "${SEI_RPC_URL}"
 
 [etherscan]
 # testnet
-ethereum-sepolia = { chain = 11155111, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+sepolia = { chain = 11155111, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 optimism-sepolia = { chain = 11155420, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 arbitrum-sepolia = { chain = 421614, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 base-sepolia = { chain = 84532, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }

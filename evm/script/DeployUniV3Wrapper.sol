@@ -12,20 +12,22 @@ import {DispatchPost, DispatchGet, IDispatcher, PostRequest} from "@hyperbridge/
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
-
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         address swapRouter = config.get("SWAP_ROUTER").toAddress();
         address quoter = config.get("QUOTER").toAddress();
         uint24 maxFee = uint24(config.get("MAX_FEE").toUint256());
         address uniswapV2 = IDispatcher(HOST_ADDRESS).uniswapV2Router();
 
         UniV3UniswapV2Wrapper wrapper = new UniV3UniswapV2Wrapper{salt: salt}(admin);
+        console.log("UniV3UniswapV2Wrapper deployed at:", address(wrapper));
+
         wrapper.init(
             UniV3UniswapV2Wrapper.Params({
                 WETH: IUniswapV2Router02(uniswapV2).WETH(), swapRouter: swapRouter, quoter: quoter, maxFee: maxFee
             })
         );
-        vm.stopBroadcast();
+        console.log("UniV3UniswapV2Wrapper initialized");
     }
 }

@@ -82,5 +82,6 @@ interface IConsensus {
      */
     function verifyConsensus(bytes memory trustedState, bytes memory proof)
         external
+        view
         returns (bytes memory, IntermediateState[] memory);
 }

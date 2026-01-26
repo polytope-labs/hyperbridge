@@ -37,7 +37,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			Currency, ExistenceRequirement, Get, LockIdentifier, LockableCurrency,
-			ReservableCurrency, SignedImbalance, WithdrawReasons,
+			ReservableCurrency, SignedImbalance, ValidatorRegistration, WithdrawReasons,
 			fungible::{self, Inspect, Mutate},
 			tokens::{Fortitude, Precision, Preservation},
 		},
@@ -554,6 +554,22 @@ pub mod pallet {
 			balance: Self::Balance,
 		) -> SignedImbalance<Self::Balance, Self::PositiveImbalance> {
 			T::NativeCurrency::make_free_balance_be(who, balance)
+		}
+	}
+
+	/// Implementation of `ValidatorRegistration` that checks if a stash account
+	/// has a registered controller with valid session keys.
+	impl<T: Config> ValidatorRegistration<T::AccountId> for Pallet<T>
+	where
+		T::AccountId: Into<<T as pallet_session::Config>::ValidatorId> + Clone,
+	{
+		fn is_registered(stash: &T::AccountId) -> bool {
+			if let Some(controller) = Controller::<T>::get(stash) {
+				let validator_id: <T as pallet_session::Config>::ValidatorId = controller.into();
+				pallet_session::NextKeys::<T>::get(&validator_id).is_some()
+			} else {
+				false
+			}
 		}
 	}
 }

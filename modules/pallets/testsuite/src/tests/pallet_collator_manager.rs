@@ -12,6 +12,7 @@ use polkadot_sdk::{
 		assert_err, assert_ok,
 		traits::{
 			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
+			ValidatorRegistration,
 		},
 	},
 	pallet_authorship::EventHandler,
@@ -361,5 +362,78 @@ fn deregister_works() {
 
 		assert_eq!(pallet_collator_manager::Controller::<Test>::get(&stash), None);
 		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&controller), None);
+	});
+}
+
+#[test]
+fn validator_registration_returns_false_when_no_controller() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+
+		assert!(!CollatorManager::is_registered(&stash));
+	});
+}
+
+#[test]
+fn validator_registration_returns_false_when_controller_has_no_session_keys() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let controller = BOB;
+
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+
+		assert!(!CollatorManager::is_registered(&stash));
+	});
+}
+
+#[test]
+fn validator_registration_returns_true_when_controller_has_session_keys() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let controller = BOB;
+
+
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+
+		set_session_keys(controller.clone());
+
+		assert!(CollatorManager::is_registered(&stash));
+	});
+}
+
+#[test]
+fn validator_registration_returns_false_after_controller_changed_without_new_keys() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let old_controller = BOB;
+		let new_controller = CHARLIE;
+
+
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			old_controller.clone()
+		));
+		set_session_keys(old_controller.clone());
+		assert!(CollatorManager::is_registered(&stash));
+
+		assert_ok!(CollatorManager::set_controller(
+			RuntimeOrigin::signed(stash.clone()),
+			new_controller.clone()
+		));
+
+		assert!(!CollatorManager::is_registered(&stash));
+
+
+		set_session_keys(new_controller.clone());
+		assert!(CollatorManager::is_registered(&stash));
 	});
 }

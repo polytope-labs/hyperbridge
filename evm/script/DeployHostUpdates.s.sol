@@ -20,15 +20,16 @@ contract DeployScript is BaseScript {
     function run() external {
         vm.startBroadcast(uint256(privateKey));
 
-        SP1Verifier verifier = new SP1Verifier();
-        SP1Beefy consensusClient = new SP1Beefy(verifier, sp1VerificationKey);
+        SP1Verifier verifier = new SP1Verifier{salt: salt}();
+        SP1Beefy consensusClient = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+        console.log("Consensus client address:", address(consensusClient));
 
         // HandlerV1 handler = new HandlerV1();
         // BeefyV1 consensusClient = new BeefyV1{salt: salt}();
 
-        HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
-        params.consensusClient = address(consensusClient);
+        // HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
+        // params.consensusClient = address(consensusClient);
         // params.handler = address(handler);
-        EvmHost(HOST_ADDRESS).updateHostParams(params);
+        // EvmHost(HOST_ADDRESS).updateHostParams(params);
     }
 }

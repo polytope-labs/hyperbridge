@@ -11,16 +11,15 @@ import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        address admin = vm.envAddress("ADMIN");
-
-        vm.startBroadcast(uint256(privateKey));
-
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
-        intentGateway.setParams(Params({host: HOST_ADDRESS, dispatcher: config.get("CALL_DISPATCHER").toAddress()}));
-
-        vm.stopBroadcast();
         console.log("IntentGateway deployed at:", address(intentGateway));
+
+        intentGateway.setParams(Params({host: HOST_ADDRESS, dispatcher: config.get("CALL_DISPATCHER").toAddress()}));
+        console.log("IntentGateway configured");
+
         config.set("INTENT_GATEWAY", address(intentGateway));
     }
 }

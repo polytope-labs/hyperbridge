@@ -114,7 +114,7 @@ async fn setup_clients() -> Result<
 			consensus_state_id: "ARB0".to_string(),
 			ismp_host: hex!("3435bD7e5895356535459D6087D1eB982DAd90e7").into(),
 			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
-			gas_price_buffer: Some(8),
+			gas_price_buffer: Some(800),
 			..Default::default()
 		};
 
@@ -146,7 +146,7 @@ async fn setup_clients() -> Result<
 			consensus_state_id: "OPT0".to_string(),
 			ismp_host: hex!("6d51b678836d8060d980605d2999eF211809f3C2").into(),
 			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
-			gas_price_buffer: Some(5),
+			gas_price_buffer: Some(500),
 			..Default::default()
 		};
 

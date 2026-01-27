@@ -46,9 +46,9 @@ contract DeployScript is BaseScript {
     address private pingDispatcher = vm.envAddress("DISPATCHER");
     uint256 private paraId = vm.envUint("PARA_ID");
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
-
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         uint256 decimals;
         address uniswapV2;
         address consensusClient;
@@ -162,8 +162,6 @@ contract DeployScript is BaseScript {
         config.set("CALL_DISPATCHER", address(callDispatcher));
         config.set("TOKEN_GATEWAY", address(tokenGateway));
         config.set("INTENT_GATEWAY", address(intentGateway));
-
-        vm.stopBroadcast();
     }
 
     function initHost(HostParams memory params) public returns (address) {

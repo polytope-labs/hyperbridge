@@ -171,11 +171,11 @@ query_batch_size = 10000
 
 # Relayer config, required
 [relayer]
-# Define your profitability configuration.
+# Define your profitability configuration in basis points.
 # 0 -> 0% i.e relay all requests, even unprofitable ones.
-# 1 -> 1%. ie fees provided for requests must be
+# 100 -> 1%. ie fees provided for requests must be
 # profitable by at least 1%. etc.
-minimum_profit_percentage = 1
+minimum_profit_percentage = 100
 
 # How frequently to initiate withdrawals in seconds
 # defaults to 24 hours

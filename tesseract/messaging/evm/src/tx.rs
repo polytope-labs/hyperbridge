@@ -293,7 +293,7 @@ pub async fn generate_contract_calls(
 	// Only use gas price buffer when submitting transactions
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
 		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(100u32);
+			U256::from(10000u32);
 		gas_price = gas_price + buffer
 	}
 

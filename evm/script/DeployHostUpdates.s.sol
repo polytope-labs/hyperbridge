@@ -12,23 +12,37 @@ import "../src/core/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
-import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
+import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
+        // Deploy consensus clients
+        BeefyV1 beefyV1 = new BeefyV1{salt: salt}();
+        console.log("BeefyV1 deployed at:", address(beefyV1));
 
-        SP1Verifier verifier = new SP1Verifier();
-        SP1Beefy consensusClient = new SP1Beefy(verifier, sp1VerificationKey);
+        SP1Verifier verifier = new SP1Verifier{salt: salt}();
+        console.log("SP1Verifier deployed at:", address(verifier));
 
-        // HandlerV1 handler = new HandlerV1();
-        // BeefyV1 consensusClient = new BeefyV1{salt: salt}();
+        SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+        console.log("SP1Beefy deployed at:", address(sp1));
 
-        HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
-        params.consensusClient = address(consensusClient);
-        // params.handler = address(handler);
-        EvmHost(HOST_ADDRESS).updateHostParams(params);
+        MultiProofClient consensusClient = new MultiProofClient{salt: salt}(IConsensus(sp1), IConsensus(beefyV1));
+        console.log("MultiProofClient deployed at:", address(consensusClient));
+
+        // Update host params if not mainnet
+        bool isMainnet = config.get("is_mainnet").toBool();
+        console.log("Is mainnet:", isMainnet);
+
+        if (!isMainnet) {
+            HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
+            params.consensusClient = address(consensusClient);
+            EvmHost(HOST_ADDRESS).updateHostParams(params);
+            console.log("Host params updated with new consensus client");
+        }
     }
 }

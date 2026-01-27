@@ -112,6 +112,8 @@ frame_support::construct_runtime!(
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
+		IsmpParachain: ismp_parachain,
+		IsmpBeefy: ismp_beefy,
 	}
 );
 
@@ -255,6 +257,12 @@ impl pallet_ismp::Config for Test {
 		ismp_sync_committee::SyncCommitteeConsensusClient<Ismp, Sepolia, Test, ()>,
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
+			Test,
+			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
+		>,
+		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
+		ismp_beefy::consensus::BeefyConsensusClient<
+			Ismp,
 			Test,
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
@@ -416,6 +424,16 @@ impl ismp_grandpa::Config for Test {
 	type IsmpHost = Ismp;
 	type WeightInfo = ();
 	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_parachain::Config for Test {
+	type IsmpHost = Ismp;
+	type WeightInfo = ();
+	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_beefy::Config for Test {
+	type IsmpHost = Ismp;
 }
 
 parameter_types! {

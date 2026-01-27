@@ -55,6 +55,13 @@ ismp-grandpa = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
 log = { workspace = true }
 primitive-types = { workspace = true }
+ismp-parachain = { workspace = true, default-features = true }
+ismp-beefy = { workspace = true, default-features = true }
+beefy-prover = { workspace = true }
+beefy-verifier-primitives = { workspace = true }
+subxt-core = { workspace = true, default-features = true }
+futures = { workspace = true }
+tokio = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -93,6 +100,7 @@ features = [
     "pallet-authorship",
     "cumulus-primitives-parachain-inherent",
     "xcm-emulator",
+    "sp-consensus-beefy"
 ]
 
 

@@ -13,6 +13,7 @@ mod common;
 mod pallet_bridge_airdrop;
 mod pallet_collator_manager;
 mod pallet_consensus_incentives;
+mod pallet_ismp_beefy;
 mod pallet_messaging_fees;
 mod pallet_token_gateway;
 mod substrate_evm_state_machine;

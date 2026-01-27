@@ -42,6 +42,7 @@ members = [
     "modules/ismp/clients/polygon",
     "modules/ismp/clients/tendermint",
     "modules/pallets/collator-manager",
+    "modules/ismp/clients/beefy",
 
     # cryptography
     "modules/consensus/sync-committee/prover",
@@ -49,6 +50,7 @@ members = [
     "modules/consensus/sync-committee/primitives",
     "modules/consensus/beefy/primitives",
     "modules/consensus/beefy/prover",
+    "modules/consensus/beefy/verifier",
     "modules/consensus/geth-primitives",
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
@@ -205,6 +207,7 @@ reqwest-middleware = "0.2.4"
 reqwest = { version="0.11.14", features=["json"]}
 prost = { version = "0.13.0", default-features = false }
 impl-trait-for-tuples = "0.2.3"
+k256 = { version = "0.13.3", default-features = false, features = ["ecdsa"] }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
@@ -249,6 +252,7 @@ subxt-utils = { path = "modules/utils/subxt", default-features = false }
 # consensus provers & verifiers
 beefy-verifier-primitives = { path = "./modules/consensus/beefy/primitives", default-features = false }
 beefy-prover = { path = "./modules/consensus/beefy/prover" }
+beefy-verifier = { path = "./modules/consensus/beefy/verifier" }
 bsc-prover = { path = "./modules/consensus/bsc/prover" }
 bsc-verifier = { path = "./modules/consensus/bsc/verifier", default-features = false }
 geth-primitives = { path = "./modules/consensus/geth-primitives", default-features = false }
@@ -290,6 +294,7 @@ pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default
 pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
+ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false}
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
@@ -386,4 +391,6 @@ features = ["derive"]
 version = "0.5.0"
 default-features = false
 
-[patch.crates-io]
+[workspace.dependencies.rs_merkle]
+version = "1.2.0"
+default-features = false

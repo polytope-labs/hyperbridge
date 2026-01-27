@@ -40,6 +40,8 @@ futures = "0.3.27"
 envy = "0.4.2"
 subxt-utils = { workspace = true, default-features = true }
 hex = { version = "0.4.3", features = [] }
+beefy-prover = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }
 
 [dev-dependencies.polkadot-sdk]
 workspace = true

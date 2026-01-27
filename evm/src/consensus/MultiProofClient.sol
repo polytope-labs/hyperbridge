@@ -64,6 +64,7 @@ contract MultiProofClient is IConsensus, ERC165 {
      */
     function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
         external
+        view
         returns (bytes memory, IntermediateState[] memory)
     {
         if (encodedProof.length == 0) revert EmptyProof();

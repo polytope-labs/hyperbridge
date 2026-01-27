@@ -26,11 +26,11 @@ hex-literal = "0.4.1"
 
 [dependencies.sp1-beefy]
 git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "8f96d0f91258cce12a1a578cac51cfdcf3478cb1"
+rev = "86053ef4effd884111f182ee9749404d6acbb305"
 
 [dependencies.sp1-beefy-primitives]
 git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "8f96d0f91258cce12a1a578cac51cfdcf3478cb1"
+rev = "86053ef4effd884111f182ee9749404d6acbb305"
 
 [dev-dependencies]
 ethers = { workspace = true }
@@ -40,6 +40,8 @@ futures = "0.3.27"
 envy = "0.4.2"
 subxt-utils = { workspace = true, default-features = true }
 hex = { version = "0.4.3", features = [] }
+beefy-prover = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }
 
 [dev-dependencies.polkadot-sdk]
 workspace = true

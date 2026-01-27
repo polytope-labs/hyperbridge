@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@hyperbridge/core':
-        specifier: ^1.5.1
-        version: 1.5.1
+        specifier: ^1.5.2
+        version: 1.5.2
       '@openzeppelin/contracts':
         specifier: ^5.4.0
         version: 5.4.0
@@ -114,8 +114,8 @@ packages:
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
 
-  '@hyperbridge/core@1.5.1':
-    resolution: {integrity: sha512-9hdNAX3CMc5FmLq8GzVr2tL31tBV8vJJmtn4rKWATcgV6XUxW3CL3zG+ZNRs9te2sVrb7GEnsqH42bdiul74fQ==}
+  '@hyperbridge/core@1.5.2':
+    resolution: {integrity: sha512-+RmuJQ8GB8zZpkRT9Ir/2fZa4fzW3lSYvTmAR4rTxpZRitej4K8yjaKPpZiaRjGbj1QCnQkOIWB/hpJ+Pxkz1w==}
 
   '@noble/curves@1.4.2':
     resolution: {integrity: sha512-TavHr8qycMChk8UwMld0ZDRvatedkzWfH8IiaeGCfymOP5i0hSCozz9vHOL0nkwk7HRMlFnAiKpS2jrUmSybcw==}
@@ -1100,7 +1100,7 @@ snapshots:
 
   '@fastify/busboy@2.1.1': {}
 
-  '@hyperbridge/core@1.5.1':
+  '@hyperbridge/core@1.5.2':
     dependencies:
       '@openzeppelin/contracts': 5.4.0
       '@polytope-labs/solidity-merkle-trees': 0.3.4

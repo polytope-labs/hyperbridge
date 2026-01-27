@@ -10,11 +10,13 @@ import {BaseScript} from "./BaseScript.sol";
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         CrossChainInscription module = new CrossChainInscription{salt: salt}(admin);
-        module.setHost(HOST_ADDRESS);
+        console.log("CrossChainInscription deployed at:", address(module));
 
-        vm.stopBroadcast();
+        module.setHost(HOST_ADDRESS);
+        console.log("Host configured");
     }
 }

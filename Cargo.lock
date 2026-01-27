@@ -26256,7 +26256,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=8f96d0f91258cce12a1a578cac51cfdcf3478cb1#8f96d0f91258cce12a1a578cac51cfdcf3478cb1"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=86053ef4effd884111f182ee9749404d6acbb305#86053ef4effd884111f182ee9749404d6acbb305"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "anyhow",
@@ -26266,7 +26266,6 @@ dependencies = [
  "hex",
  "primitive-types 0.12.2",
  "sp1-beefy-primitives",
- "sp1-build",
  "sp1-cluster-artifact",
  "sp1-cluster-common",
  "sp1-prover",
@@ -26278,7 +26277,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=8f96d0f91258cce12a1a578cac51cfdcf3478cb1#8f96d0f91258cce12a1a578cac51cfdcf3478cb1"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=86053ef4effd884111f182ee9749404d6acbb305#86053ef4effd884111f182ee9749404d6acbb305"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "parity-scale-codec",

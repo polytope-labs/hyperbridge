@@ -5,59 +5,44 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 import "stringutils/strings.sol";
 
-import {EvmHost, HostParams} from "../src/hosts/EvmHost.sol";
+import {EvmHost, HostParams} from "../src/core/EvmHost.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {BaseScript} from "./BaseScript.sol";
-import "../src/modules/HandlerV1.sol";
+import "../src/core/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
-import {SP1Verifier} from "@sp1-contracts/v4.0.0-rc.3/SP1VerifierGroth16.sol";
-import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
+import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
+import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
+        // Deploy consensus clients
+        BeefyV1 beefyV1 = new BeefyV1{salt: salt}();
+        console.log("BeefyV1 deployed at:", address(beefyV1));
 
-        SP1Verifier verifier = new SP1Verifier();
-        SP1Beefy consensusClient = new SP1Beefy(verifier);
+        SP1Verifier verifier = new SP1Verifier{salt: salt}();
+        console.log("SP1Verifier deployed at:", address(verifier));
 
-        // HandlerV1 handler = new HandlerV1();
-        // BeefyV1 consensusClient = new BeefyV1{salt: salt}();
+        SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+        console.log("SP1Beefy deployed at:", address(sp1));
 
-        // if (host.toSlice().startsWith("ethereum".toSlice())) {
-        //     HostParams memory params = EvmHost(ETHEREUM_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(ETHEREUM_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("arbitrum".toSlice())) {
-        //     HostParams memory params = EvmHost(ARBITRUM_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(ARBITRUM_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("optimism".toSlice())) {
-        //     HostParams memory params = EvmHost(OPTIMISM_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(OPTIMISM_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("base".toSlice())) {
-        //     HostParams memory params = EvmHost(BASE_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(BASE_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("bsc".toSlice())) {
-        //     HostParams memory params = EvmHost(BNB_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(BNB_HOST).updateHostParams(params);
-        // } else if (host.toSlice().startsWith("gnosis".toSlice())) {
-        //     HostParams memory params = EvmHost(GNOSIS_HOST).hostParams();
-        //     params.consensusClient = address(consensusClient);
-        //     // params.handler = address(handler);
-        //     EvmHost(GNOSIS_HOST).updateHostParams(params);
-        // } else {
-        //     revert("Unknown Host");
-        // }
+        MultiProofClient consensusClient = new MultiProofClient{salt: salt}(IConsensus(sp1), IConsensus(beefyV1));
+        console.log("MultiProofClient deployed at:", address(consensusClient));
+
+        // Update host params if not mainnet
+        bool isMainnet = config.get("is_mainnet").toBool();
+        console.log("Is mainnet:", isMainnet);
+
+        if (!isMainnet) {
+            HostParams memory params = EvmHost(HOST_ADDRESS).hostParams();
+            params.consensusClient = address(consensusClient);
+            EvmHost(HOST_ADDRESS).updateHostParams(params);
+            console.log("Host params updated with new consensus client");
+        }
     }
 }

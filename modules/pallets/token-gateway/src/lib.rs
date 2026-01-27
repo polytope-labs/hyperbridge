@@ -32,7 +32,7 @@ use frame_support::{
 	ensure,
 	traits::{
 		fungibles::{self, Mutate},
-		tokens::{fungible::Mutate as FungibleMutate, Preservation},
+		tokens::Preservation,
 		Currency, ExistenceRequirement,
 	},
 };
@@ -46,7 +46,7 @@ use ismp::{
 
 use sp_core::{Get, H160, U256};
 use sp_runtime::{traits::Dispatchable, MultiSignature};
-use token_gateway_primitives::{PALLET_TOKEN_GATEWAY_ID, TOKEN_GOVERNOR_ID};
+use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 use types::{AssetId, Body, BodyWithCall, EvmToSubstrate, RequestBody, SubstrateCalldata};
 
 use alloc::{string::ToString, vec, vec::Vec};
@@ -63,8 +63,6 @@ const ETHEREUM_MESSAGE_PREFIX: &'static str = "\x19Ethereum Signed Message:\n";
 #[frame_support::pallet]
 pub mod pallet {
 	use alloc::collections::BTreeMap;
-	use pallet_hyperbridge::PALLET_HYPERBRIDGE;
-	use sp_runtime::traits::AccountIdConversion;
 	use types::{AssetRegistration, PrecisionUpdate, TeleportParams};
 
 	use super::*;
@@ -80,9 +78,6 @@ pub mod pallet {
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 	};
-	use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
-	use sp_runtime::traits::Zero;
-	use token_gateway_primitives::{GatewayAssetUpdate, RemoteERC6160AssetRegistration};
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -396,127 +391,12 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
-		///
-		/// This works by dispatching a request to the TokenGateway module on each requested chain
-		/// to create the asset.
-		/// `native` should be true if this asset originates from this chain
-		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::create_erc6160_asset(asset.precision.len() as u32))]
-		pub fn create_erc6160_asset(
-			origin: OriginFor<T>,
-			asset: AssetRegistration<AssetId<T>>,
-		) -> DispatchResult {
-			T::CreateOrigin::ensure_origin(origin)?;
-			let who = T::AssetAdmin::get();
-			// charge hyperbridge fees
-			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
-				pallet_hyperbridge::Pallet::<T>::host_params();
-
-			if asset_registration_fee != Zero::zero() {
-				T::Currency::transfer(
-					&who,
-					&PALLET_HYPERBRIDGE.into_account_truncating(),
-					asset_registration_fee.into(),
-					Preservation::Expendable,
-				)?;
-			}
-
-			let asset_id: H256 = sp_io::hashing::keccak_256(asset.reg.symbol.as_ref()).into();
-			// If the local asset id already exists we do not change it's metadata we only store
-			// the mapping to its token gateway asset id
-
-			SupportedAssets::<T>::insert(asset.local_id.clone(), asset_id.clone());
-			NativeAssets::<T>::insert(asset.local_id.clone(), asset.native);
-			LocalAssets::<T>::insert(asset_id, asset.local_id.clone());
-			for (state_machine, precision) in asset.precision {
-				Precisions::<T>::insert(asset.local_id.clone(), state_machine, precision);
-			}
-
-			let dispatcher = <T as Config>::Dispatcher::default();
-			let dispatch_post = DispatchPost {
-				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
-				to: TOKEN_GOVERNOR_ID.to_vec(),
-				timeout: 0,
-				body: { RemoteERC6160AssetRegistration::CreateAsset(asset.reg).encode() },
-			};
-
-			let metadata = FeeMetadata { payer: who, fee: Default::default() };
-
-			let commitment = dispatcher
-				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::DispatchError)?;
-			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
-
-			Ok(())
-		}
-
-		/// Registers a multi-chain ERC6160 asset. The asset should not already exist.
-		///
-		/// This works by dispatching a request to the TokenGateway module on each requested chain
-		/// to create the asset.
-		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::update_erc6160_asset())]
-		pub fn update_erc6160_asset(
-			origin: OriginFor<T>,
-			asset: GatewayAssetUpdate,
-		) -> DispatchResult {
-			T::CreateOrigin::ensure_origin(origin)?;
-			let who = T::AssetAdmin::get();
-
-			// charge hyperbridge fees
-			let VersionedHostParams::V1(SubstrateHostParams { asset_registration_fee, .. }) =
-				pallet_hyperbridge::Pallet::<T>::host_params();
-
-			if asset_registration_fee != Zero::zero() {
-				T::Currency::transfer(
-					&who,
-					&PALLET_HYPERBRIDGE.into_account_truncating(),
-					asset_registration_fee.into(),
-					Preservation::Expendable,
-				)?;
-			}
-
-			let dispatcher = <T as Config>::Dispatcher::default();
-			let dispatch_post = DispatchPost {
-				dest: T::Coprocessor::get().ok_or_else(|| Error::<T>::CoprocessorNotConfigured)?,
-				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
-				to: TOKEN_GOVERNOR_ID.to_vec(),
-				timeout: 0,
-				body: { RemoteERC6160AssetRegistration::UpdateAsset(asset).encode() },
-			};
-
-			let metadata = FeeMetadata { payer: who, fee: Default::default() };
-
-			let commitment = dispatcher
-				.dispatch_request(DispatchRequest::Post(dispatch_post), metadata)
-				.map_err(|_| Error::<T>::DispatchError)?;
-			Self::deposit_event(Event::<T>::ERC6160AssetRegistrationDispatched { commitment });
-
-			Ok(())
-		}
-
-		/// Update the precision for an existing asset
-		#[pallet::call_index(4)]
-		#[pallet::weight(T::WeightInfo::update_asset_precision(update.precisions.len() as u32))]
-		pub fn update_asset_precision(
-			origin: OriginFor<T>,
-			update: PrecisionUpdate<AssetId<T>>,
-		) -> DispatchResult {
-			T::CreateOrigin::ensure_origin(origin)?;
-			for (chain, precision) in update.precisions {
-				Precisions::<T>::insert(update.asset_id.clone(), chain, precision);
-			}
-			Ok(())
-		}
-
 		/// Registers a multi-chain ERC6160 asset without sending any dispatch request.
 		/// You should use register_asset_locally when you want to enable token gateway transfers
 		/// for an asset that already exists on an external chain.
-		#[pallet::call_index(5)]
-		#[pallet::weight(T::WeightInfo::register_asset_locally(asset.precision.len() as u32))]
-		pub fn register_asset_locally(
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::WeightInfo::create_erc6160_asset(asset.precision.len() as u32))]
+		pub fn create_erc6160_asset(
 			origin: OriginFor<T>,
 			asset: AssetRegistration<AssetId<T>>,
 		) -> DispatchResult {
@@ -536,6 +416,20 @@ pub mod pallet {
 				asset_id,
 			});
 
+			Ok(())
+		}
+
+		/// Update the precision for an existing asset
+		#[pallet::call_index(4)]
+		#[pallet::weight(T::WeightInfo::update_asset_precision(update.precisions.len() as u32))]
+		pub fn update_asset_precision(
+			origin: OriginFor<T>,
+			update: PrecisionUpdate<AssetId<T>>,
+		) -> DispatchResult {
+			T::CreateOrigin::ensure_origin(origin)?;
+			for (chain, precision) in update.precisions {
+				Precisions::<T>::insert(update.asset_id.clone(), chain, precision);
+			}
 			Ok(())
 		}
 	}
@@ -570,14 +464,23 @@ where
 			}
 		);
 
-		let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
-			body.into()
-		} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
-			body.into()
+		// Body has 5 fixed-size fields (uint256 + bytes32 + bool + bytes32 + bytes32) = 160 bytes
+		// BodyWithCall adds dynamic bytes field, so it will be > 160 bytes
+		let body: RequestBody = if body.len() > types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+			BodyWithCall::abi_decode(&mut &body[1..])
+				.map_err(|e| anyhow!("Token Gateway: Failed to decode BodyWithCall: {e:?}"))?
+				.into()
+		} else if body.len() == types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+			Body::abi_decode_validate(&mut &body[1..])
+				.map_err(|e| anyhow!("Token Gateway: Failed to decode Body: {e:?}"))?
+				.into()
 		} else {
-			Err(anyhow!("Token Gateway: Failed to decode request body"))?
+			Err(anyhow!(
+				"Token Gateway: Invalid body length: {} bytes (expected {} or more)",
+				body.len(),
+				types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR
+			))?
 		};
-
 		let local_asset_id =
 			LocalAssets::<T>::get(H256::from(body.asset_id.0)).ok_or_else(|| {
 				ismp::error::Error::ModuleDispatchError {
@@ -746,12 +649,24 @@ where
 	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, source, dest, nonce, .. })) => {
-				let body: RequestBody = if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
-					body.into()
-				} else if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
-					body.into()
+				// Body has 5 fixed-size fields (uint256 + bytes32 + bool + bytes32 + bytes32) = 160
+				// bytes BodyWithCall adds dynamic bytes field, so it will be > 160 bytes
+				let body: RequestBody = if body.len() > types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+					BodyWithCall::abi_decode(&mut &body[1..])
+						.map_err(|e| {
+							anyhow!("Token Gateway: Failed to decode BodyWithCall: {e:?}")
+						})?
+						.into()
+				} else if body.len() == types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+					Body::abi_decode_validate(&mut &body[1..])
+						.map_err(|e| anyhow!("Token Gateway: Failed to decode Body: {e:?}"))?
+						.into()
 				} else {
-					Err(anyhow!("Token Gateway: Failed to decode request body"))?
+					Err(anyhow!(
+						"Token Gateway: Invalid body length: {} bytes (expected {} or more)",
+						body.len(),
+						types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR
+					))?
 				};
 				let beneficiary = body.from.0.into();
 				let local_asset_id = LocalAssets::<T>::get(H256::from(body.asset_id.0))

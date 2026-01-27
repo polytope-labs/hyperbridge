@@ -1,0 +1,168 @@
+---
+title: Common Relayer Errors
+description: List of commonly seen errors with their explanation and tips on how to fix them.
+---
+
+# Common Relayer Errors
+
+List of commonly seen errors with their explanation and tips on how to fix them.
+
+
+## Insufficient funds for gas
+
+```bash lineNumbers
+ERROR tesseract_messaging: Failed to submit transaction to Evm(42161): Middleware error: (code: -32000, message: insufficient funds for gas * price + value: address <your-relayer-address> have 0 want 323200000000000, data: None
+```
+
+This error means your relayer account balance on the destination chain is insufficient to submit a transaction <br/>
+
+<Callout title={'How to Fix'} type={"success"}>
+  Fund your relayer account with the native gas token
+</Callout>
+
+## Debug trace frame not found!
+
+```bash lineNumbers
+ERROR tesseract_evm::provider: Debug trace frame not found!
+```
+
+This error signifies that the `debug_TraceCall` call for a message failed, this could be that the message execution failed or the rpc does not provide debug trace logs.<br/>
+
+<Callout title={'How to Fix'} type={"success"}> Check with your rpc and ensure they provide debug trace logs for the `debug_TraceCall` RPC, in the case where message execution fails, the error can be safely ignored</Callout>
+
+
+## Please ensure the contract and method you're calling exist
+
+```bash lineNumbers
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(8453): Invalid name: please ensure the contract and method you're calling exist! failed to decode empty bytes. if you're using jsonrpc this is likely due to jsonrpc returning `0x` in case contract or method don't exist
+```
+
+This error signifies misconfiured rpc endpoints or `ismp_host` addresses.<br/>
+<Callout title={'How to Fix'} type={"success"}>
+Check your config file to ensure all `ismp_host` addresses and rpc endpoints are correctly configured
+</Callout>
+
+## Error encountered while querying state_machine_update_time
+
+```bash lineNumbers
+ERROR tesseract: Messaging task Evm(56)->Polkadot(3367) encountered an error: StreamError("Error encountered while querying state_machine_update_time Middleware error: (code: -32000, message: header not found, data: None)")
+```
+
+This error means the rpc endpoint failed to return a valid response for a block header query<br/>
+<Callout title={'How to Fix'} type={"success"}>
+Check that your rpc node is an archive node and full synced
+</Callout>
+
+## Failed to submit unsigned extrinsic
+
+```bash lineNumbers
+ERROR tesseract_messaging: Failed to submit transaction to Polkadot(3367): Failed to submit unsigned extrinsic
+```
+
+This error means the relayer is trying to submit a duplicate transaction to hyperbridge<br/>
+<Callout title={'How to Fix'} type={"success"}>
+You can safely ignore
+</Callout>
+
+## The method debug_traceCall does not exist
+
+```bash lineNumbers
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(56): Middleware error: (code: -32601, message: The method debug_traceCall does not exist/is not available, data: None)
+```
+
+This error means your rpc endpoint does not provide the `debug_traceCall` method<br/>
+<Callout title={'How to Fix'} type={"success"}>
+If running a private rpc node ensure the  `debug` namespace is enabled, otherwise contact your rpc provider
+</Callout>
+
+<Callout title={'How to Fix'} type={"success"}>
+The relayer automatically recovers from this, to reduce the frequency of this error ensure your network is stable and your 
+rpc nodes are highly available
+</Callout>
+
+## Failed to submit transaction to Evm(10): Transaction reverted
+
+```bash lineNumbers
+ERROR tesseract_messaging: Failed to submit transaction to Evm(10): Transaction reverted
+```
+
+This error means the relayer is tried to submit a duplicate transaction<br/>
+<Callout title={'How to Fix'} type={"success"}>
+You can safely ignore
+</Callout>
+
+## API key is not allowed to access method
+
+```bash lineNumbers
+ERROR tesseract_messaging: Error while handling POLKADOT-3367 on Evm(100): Middleware error: (code: -32053, message: API key is not allowed to access method, data: None)
+```
+
+This means the your rpc provider limits access to some endpoints<br/>
+<Callout title={'How to Fix'} type={"success"}>
+Upgrade your rpc to a premium plan
+</Callout>
+
+## Error fetching latest block height
+
+```bash lineNumbers
+ERROR tesseract: Messaging task Evm(56)->Polkadot(3367) encountered an error: StreamError("Error fetching latest block height on Evm(56) JsonRpcClientError(MiddlewareError(Middleware((code: -32603, message: request failed or timed out, data: None))))")
+```
+
+This is usually caused by a network issue or invalid response from the rpc node<br/>
+<Callout title={'How to Fix'} type={"success"}>
+The relayer automatically recovers from this, to reduce the frequency of this error ensure your network is stable and your
+rpc nodes are highly available
+</Callout>
+## Request failed or timed out
+
+```bash lineNumbers
+ERROR tesseract_evm::provider: Error while querying events in range 43812202..43812204 from Evm(56): Middleware error: (code: -32603, message: request failed or timed out, data: None)
+```
+
+This is usually caused by a network issue or invalid response from the rpc node<br/>
+<Callout title={'How to Fix'} type={"success"}>
+The relayer automatically recovers from this, to reduce the frequency of this error ensure your network is stable and your
+rpc nodes are highly available
+</Callout>
+## Internal server error
+```bash lineNumbers
+ERROR tesseract_evm::provider: Error while querying events in range 43816145..43816147 from Evm(56): Middleware error: (code: -32603, message: internal server error, data: None)
+```
+
+This is usually caused by a network issue or invalid response from the rpc node<br/>
+
+<Callout title={'How to Fix'} type={"success"}>
+The relayer automatically recovers from this, to reduce the frequency of this error ensure your network is stable and your
+rpc nodes are highly available
+</Callout>
+
+## Error accummulating some fees
+
+```bash lineNumbers
+ERROR tesseract_messaging: Error accummulating some fees, receipts have been stored in the db, you can try again manually
+```
+
+This error means the relayer encountered some error while accumulating fees on hyperbridge<br/>
+<Callout title={'How to Fix'} type={"success"}>
+Try using the fee accumulation CLI to complete the process
+</Callout>
+
+
+## Missing trie node
+
+```bash lineNumbers
+ERROR tesseract_messaging: Error while handling EVM-56 on Polkadot(3367): Middleware error: (code: -32000, message: missing trie node baf71a6410ba54b32b02056415efe6b22060c20aff9c399d9b6308d0a88c3d09 (path ) state 0xbaf71a6410ba54b32b02056415efe6b22060c20aff9c399d9b6308d0a88c3d09 is not available, data: None)
+```
+
+This error signifies that your rpc node is not archive<br/>
+<Callout title={'How to Fix'} type={"success"}>
+Upgrade your rpc node to an archive node
+</Callout>
+
+## Disconnected from telemetry
+
+```bash lineNumbers
+ERROR tesseract::cli: Disconnected from telemetry with: Text(
+```
+
+This error can be safely ignored as telemetry is not a critical function of the relayer

@@ -16,6 +16,8 @@ pub use cometbft::{
 
 /// Client implementations for different Tendermint variants
 pub mod client;
+/// Chain-specific key layouts and builders
+pub mod keys;
 /// Core proof generation functionality
 pub mod prover;
 

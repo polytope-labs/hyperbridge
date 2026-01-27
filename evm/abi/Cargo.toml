@@ -10,7 +10,7 @@ publish = false
 [build-dependencies]
 anyhow.workspace = true
 ethers-contract-abigen = { workspace = true }
-forge-testsuite = { workspace = true }
+ethers-solc = { workspace = true }
 
 [dependencies]
 primitive-types = { workspace = true }

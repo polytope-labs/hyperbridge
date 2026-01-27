@@ -31,15 +31,20 @@ use ismp::{
 use primitive_types::{H160, H256};
 
 pub mod prelude {
-	pub use alloc::{boxed::Box, string::ToString, vec, vec::Vec};
+	pub use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 }
 
 use pallet_ismp_host_executive::EvmHosts;
 use prelude::*;
 
 pub mod presets;
+pub mod substrate_evm;
+pub mod tendermint;
 pub mod types;
 pub mod utils;
+
+pub use substrate_evm::SubstrateEvmStateMachine;
+pub use tendermint::TendermintEvmStateMachine;
 pub use utils::*;
 
 pub fn verify_membership<H: Keccak256 + Send + Sync>(
@@ -112,6 +117,17 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		};
 
 		entry.push((key, slot_hash));
+	}
+
+	// Ensure there is a proof for all contract addresses
+	let result = contract_to_keys
+		.clone()
+		.into_keys()
+		.all(|contract| evm_state_proof.storage_proof.contains_key(&contract));
+	if !result {
+		Err(Error::Custom(
+			"The storage proof is incomplete, missing some contract proofs".to_string(),
+		))?
 	}
 
 	for (contract_address, storage_proof) in evm_state_proof.storage_proof {

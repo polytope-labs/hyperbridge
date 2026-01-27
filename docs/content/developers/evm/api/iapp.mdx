@@ -1,0 +1,335 @@
+---
+title: IApp
+description: API reference for IApp - interface that applications must implement to receive cross-chain messages.
+---
+
+# IApp
+
+Interface that applications must implement to receive cross-chain messages from Hyperbridge. All callbacks are called by the Host contract when messages are delivered.
+
+```solidity lineNumbers
+interface IApp
+```
+
+## Overview
+
+Applications implementing `IApp` can:
+- Receive POST requests from other chains
+- Receive POST responses to requests they sent
+- Receive GET responses with queried state data
+- Handle timeouts for sent messages
+
+**Recommendation:** Extend the `HyperApp` abstract contract which provides a batteries-included implementation with helper utilities.
+
+---
+
+## Functions
+
+### onAccept()
+
+Called when a POST request is delivered to your application.
+
+```solidity lineNumbers
+function onAccept(IncomingPostRequest calldata incoming) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `incoming` | `IncomingPostRequest` | Struct containing request and relayer info |
+
+**Access:** Only callable by the Host contract
+
+**Use Cases:**
+- Receiving cross-chain messages
+- Processing deposits or transfers
+- Executing remote commands
+- Optionally sending a response back
+
+**Best Practices:**
+- Always validate the source chain/application
+- Decode and validate request data before processing
+- Use try-catch for external calls
+- Emit events for tracking
+- Keep gas costs reasonable
+
+---
+
+### onPostRequestTimeout()
+
+Called when a POST request you sent has timed out on the destination chain.
+
+```solidity lineNumbers
+function onPostRequestTimeout(PostRequest memory request) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `PostRequest` | The timed-out POST request |
+
+**Access:** Only callable by the Host contract
+
+**Important:**
+- Called **before** refunding relayer fees
+- If this callback reverts, fees are NOT refunded
+- Can be called multiple times until it succeeds
+- Must be idempotent
+
+**Best Practices:**
+- Make callback idempotent (can be called multiple times)
+- Don't revert unless absolutely necessary
+- Update internal state to reflect timeout
+- Refund users or cleanup resources
+- Keep gas costs low
+
+---
+
+### onPostResponse()
+
+Called when a POST response is delivered to your application.
+
+```solidity lineNumbers
+function onPostResponse(IncomingPostResponse memory incoming) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `incoming` | `IncomingPostResponse` | Struct containing response and relayer info |
+
+**Access:** Only callable by the Host contract
+
+**Best Practices:**
+- Track pending requests to match with responses
+- Validate response data
+- Handle both success and failure cases
+- Clean up request state
+- Emit events for monitoring
+
+---
+
+### onPostResponseTimeout()
+
+Called when a POST response you sent has timed out.
+
+```solidity lineNumbers
+function onPostResponseTimeout(PostResponse memory response) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `response` | `PostResponse` | The timed-out POST response |
+
+**Access:** Only callable by the Host contract
+
+**Important:**
+- Called **before** refunding relayer fees
+- If this callback reverts, fees are NOT refunded
+- Must be idempotent
+
+---
+
+### onGetResponse()
+
+Called when a GET response with queried state data is delivered to your application.
+
+```solidity lineNumbers
+function onGetResponse(IncomingGetResponse memory incoming) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `incoming` | `IncomingGetResponse` | Struct containing response with state data and relayer info |
+
+**Access:** Only callable by the Host contract
+
+**Important:**
+- Values are **RLP-encoded** from the state trie
+- Must use an RLP decoder library (e.g., `solidity-rlp`)
+- Values are in the same order as requested keys
+- Empty storage slots return empty bytes
+
+**Best Practices:**
+- Always use RLP decoder, never `abi.decode()`
+- Handle empty storage values (uninitialized slots)
+- Use context to track which query this is for
+- Validate decoded values are reasonable
+- Handle multiple keys in order
+
+---
+
+### onGetTimeout()
+
+Called when a GET request you sent has timed out.
+
+```solidity lineNumbers
+function onGetTimeout(GetRequest memory request) external
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `GetRequest` | The timed-out GET request |
+
+**Access:** Only callable by the Host contract
+
+**Important:**
+- GET requests have no relayer fees, so no refunds occur
+- Primarily for cleanup and state management
+
+---
+
+## Events
+
+The IApp interface does not define any events. Applications are free to emit their own events in callback implementations.
+
+---
+
+## Structs
+
+### IncomingPostRequest
+
+Encapsulates an incoming POST request with relayer information.
+
+```solidity lineNumbers
+struct IncomingPostRequest {
+    PostRequest request;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The POST request |
+| `relayer` | `address` | Who delivered the request |
+
+---
+
+### IncomingPostResponse
+
+Encapsulates an incoming POST response with relayer information.
+
+```solidity lineNumbers
+struct IncomingPostResponse {
+    PostResponse response;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `response` | `PostResponse` | The POST response |
+| `relayer` | `address` | Who delivered the response |
+
+---
+
+### IncomingGetResponse
+
+Encapsulates an incoming GET response with relayer information.
+
+```solidity lineNumbers
+struct IncomingGetResponse {
+    GetResponse response;
+    address relayer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `response` | `GetResponse` | The GET response with state data |
+| `relayer` | `address` | Who delivered the response |
+
+---
+
+### PostRequest
+
+Represents a POST request.
+
+```solidity lineNumbers
+struct PostRequest {
+    bytes source;
+    bytes dest;
+    uint64 nonce;
+    uint64 timeoutTimestamp;
+    bytes from;
+    bytes to;
+    bytes body;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `bytes` | Source state machine identifier |
+| `dest` | `bytes` | Destination state machine identifier |
+| `nonce` | `uint64` | Unique request nonce |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when request times out |
+| `from` | `bytes` | Source application address |
+| `to` | `bytes` | Destination application address |
+| `body` | `bytes` | Request payload |
+
+---
+
+### PostResponse
+
+Represents a POST response.
+
+```solidity lineNumbers
+struct PostResponse {
+    PostRequest request;
+    bytes response;
+    uint64 timeoutTimestamp;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The original POST request |
+| `response` | `bytes` | Response payload |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when response times out |
+
+---
+
+### GetRequest
+
+Represents a GET request.
+
+```solidity lineNumbers
+struct GetRequest {
+    bytes source;
+    bytes dest;
+    uint64 nonce;
+    uint64 height;
+    uint64 timeoutTimestamp;
+    bytes from;
+    bytes[] keys;
+    bytes context;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `bytes` | Source state machine identifier |
+| `dest` | `bytes` | Destination state machine identifier |
+| `nonce` | `uint64` | Unique request nonce |
+| `height` | `uint64` | Block height to query |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when request times out |
+| `from` | `bytes` | Source application address |
+| `keys` | `bytes[]` | Storage keys to read |
+| `context` | `bytes` | Application-specific metadata |
+
+---
+
+### GetResponse
+
+Represents a GET response with state data.
+
+```solidity lineNumbers
+struct GetResponse {
+    GetRequest request;
+    bytes[] values;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `GetRequest` | The original GET request |
+| `values` | `bytes[]` | RLP-encoded storage values in same order as keys |
+
+---

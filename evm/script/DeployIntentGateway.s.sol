@@ -4,23 +4,22 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {IntentGateway, Params} from "../src/modules/IntentGateway.sol";
+import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";
 import {BaseScript} from "./BaseScript.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        address admin = vm.envAddress("ADMIN");
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
+        IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
+        console.log("IntentGateway deployed at:", address(intentGateway));
 
-        vm.startBroadcast(uint256(privateKey));
-        CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
+        intentGateway.setParams(Params({host: HOST_ADDRESS, dispatcher: config.get("CALL_DISPATCHER").toAddress()}));
+        console.log("IntentGateway configured");
 
-        IntentGateway gateway = new IntentGateway{salt: salt}(admin);
-        gateway.setParams(Params({host: HOST_ADDRESS, dispatcher: address(callDispatcher)}));
-
-        vm.stopBroadcast();
-        console.log("IntentGateway deployed at:", address(gateway));
+        config.set("INTENT_GATEWAY", address(intentGateway));
     }
 }

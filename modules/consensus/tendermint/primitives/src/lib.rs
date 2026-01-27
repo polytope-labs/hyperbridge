@@ -25,3 +25,5 @@ pub use verifier::{
 pub mod prover;
 
 pub use prover::{Client, ProverError};
+pub mod keys;
+pub use keys::{DefaultEvmKeys, EvmStoreKeys, SeiEvmKeys};

@@ -29,8 +29,7 @@ tokio-stream = { workspace = true }
 reqwest-retry = "0.3.0"
 reqwest-middleware = "0.2.4"
 async-recursion = "1.0.5"
-superchain-registry = { version = "0.11", default-features = false }
-op-alloy-genesis = "=0.6.2"                                          # need to pin this transitive dependency
+
 jsonrpsee = { workspace = true, features = ["ws-client"] }
 
 ismp-solidity-abi = { workspace = true, default-features = true }
@@ -49,6 +48,12 @@ ismp-testsuite = { workspace = true, default-features = true }
 reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
+tendermint-prover = {workspace =  true, default-features = false}
+ics23 = { workspace = true, default-features = false }
+tendermint-ics23-primitives = { workspace = true, default-features = false }
+prost = { workspace = true, default-features = false }
+cometbft = {workspace = true, default-features = false}
+tendermint-primitives = {workspace = true, default-features = false}
 
 [dependencies.polkadot-sdk]
 workspace = true

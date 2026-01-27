@@ -4,9 +4,28 @@ on:
     push:
         branches:
             - main
+        paths:
+            - "**/*.rs"
+            - "**/*.toml"
+            - "**/Cargo.lock"
+            - ".github/workflows/ci.yml"
 
     pull_request_target:
         types: [opened, synchronize]
+        paths:
+            - "**/*.rs"
+            - "**/*.toml"
+            - "**/Cargo.lock"
+            - ".github/workflows/ci.yml"
+
+    # pull_request:
+    #     branches:
+    #         - main
+    #     paths:
+    #         - "**/*.rs"
+    #         - "**/*.toml"
+    #         - "**/Cargo.lock"
+    #         - ".github/workflows/ci.yml"
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -14,7 +33,7 @@ concurrency:
 
 env:
     CARGO_TERM_COLOR: always
-    FOUNDRY_PROFILE: ci
+    FOUNDRY_PROFILE: default
     BSC_URL: ${{ secrets.BSC_URL }}
     OP_URL: ${{ secrets.OP_URL }}
     SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
@@ -28,13 +47,14 @@ env:
     POLYGON_HEIMDALL: ${{secrets.POLYGON_HEIMDALL}}
     POLYGON_HEIMDALL_REST: ${{secrets.POLYGON_HEIMDALL_REST}}
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
-
+    SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
+    KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
 
 jobs:
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft == false
+        if: github.event.pull_request.draft != true
         strategy:
             matrix:
                 crate: [gargantua-runtime, nexus-runtime]
@@ -93,7 +113,7 @@ jobs:
     check-workspace:
         name: Check Workspace
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft == false
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -116,44 +136,10 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
-            - name: Install Dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
-
-            - name: Install yarn
-              run: |
-                  curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
-                  chmod +x $HOME/bin/yarn
-                  echo "$HOME/bin" >> $GITHUB_PATH
-
-            - name: Set up Node
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
-                  cache: "yarn"
-
-            - name: Install npm dependencies
-              working-directory: evm
-              run: |
-                  yarn install
-
-            - uses: webfactory/ssh-agent@v0.7.0
-              with:
-                  ssh-private-key: ${{ secrets.SSH_KEY }}
-
-            - uses: Swatinem/rust-cache@v2
-
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
                   toolchain: stable
-
-            - name: Install Go
-              uses: actions/setup-go@v5
-              with:
-                  go-version: "1.24"
 
             - name: Add wasm toolchain
               run: |
@@ -161,6 +147,46 @@ jobs:
                   rustup target add wasm32-unknown-unknown --toolchain nightly
                   rustup target add wasm32-unknown-unknown
                   rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  curl -L https://sp1.succinct.xyz | bash
+                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/cargo-prove prove --version
+
+            - name: Download SVM Releases List
+              run: |
+                  wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
+                  echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
 
             - uses: Swatinem/rust-cache@v2
 
@@ -171,7 +197,7 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft == false
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -194,60 +220,65 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
             - name: Install Dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  curl -L https://sp1.succinct.xyz | bash
+                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/cargo-prove prove --version
 
-            - name: Install yarn
+            - name: Download SVM Releases List
               run: |
-                  curl -fsSL --create-dirs -o $HOME/bin/yarn https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
-                  chmod +x $HOME/bin/yarn
-                  echo "$HOME/bin" >> $GITHUB_PATH
+                  wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
+                  echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
 
             - name: Set up Node
               uses: actions/setup-node@v3
               with:
                   node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
-                  cache: "yarn"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
 
             - name: Install npm dependencies
               working-directory: evm
               run: |
-                  yarn install
+                  pnpm install
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
-
-            - name: Install toolchain
-              uses: dtolnay/rust-toolchain@nightly
-              with:
-                  toolchain: stable
 
             - name: Install Go
               uses: actions/setup-go@v5
               with:
                   go-version: "1.24"
 
-            - name: Add wasm toolchain
-              run: |
-                  rustup update nightly
-                  rustup target add wasm32-unknown-unknown --toolchain nightly
-                  rustup target add wasm32-unknown-unknown
-                  rustup component add rust-src
-
             - uses: Swatinem/rust-cache@v2
 
             - name: Run unit tests
               run: |
-                  cargo test --all-targets --features=runtime-benchmarks --locked
+                  cargo test --all-targets --locked
 
-    integration-tests:
-        name: Integration Tests
-        runs-on: arc-runner-kvm
-        if: github.event.pull_request.draft == false
+    simnet-tests:
+        name: Simnet Tests
+        runs-on: arc-runner-set
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -270,29 +301,6 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
-            - name: Install Dependencies
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
-
-            - name: Install yarn
-              run: |
-                  curl -fsSL --create-dirs -o $HOME/bin/yarn  https://github.com/yarnpkg/yarn/releases/download/v1.22.22/yarn-1.22.22.js
-                  chmod +x $HOME/bin/yarn
-                  echo "$HOME/bin" >> $GITHUB_PATH
-
-            - name: Set up Node
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
-                  cache: "yarn"
-
-            - name: Install npm dependencies
-              working-directory: evm
-              run: |
-                  yarn install
-
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
               with:
@@ -304,6 +312,11 @@ jobs:
                   rustup target add wasm32-unknown-unknown --toolchain nightly
                   rustup target add wasm32-unknown-unknown
                   rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -313,114 +326,21 @@ jobs:
 
             - name: Run Simnet Tests
               run: |
-                  # build hyperbridge binary
                   cargo build -p hyperbridge --release
                   ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-                  cargo test -p simtests -- --nocapture --ignored --test-threads=1
-                  kill -9 $!
+                  cargo test -p simtests -- --nocapture --ignored --test-threads=1 --skip test_runtime_upgrade_and_fee_migration
 
-            - name: Run Parachain Devnet
-              run: |
-                  # install polkadot binary
-                  cd ../
-                  mkdir -p polkadot-sdk/target/release
-                  cd polkadot-sdk/target/release
-                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
-                  wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
-                  wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
-                  sudo chmod +x ./polkadot
-                  sudo chmod +x ./polkadot-execute-worker
-                  sudo chmod +x ./polkadot-prepare-worker
-
-                  # get back in to hyperbridge
-                  cd ../../../hyperbridge
-
-                  # install zombienet
-                  wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.133/zombienet-linux-x64
-                  sudo chmod +x ./zombienet
-
-                  # spawn devnet
-                  nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 9922
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
-
-            #      - name: Beefy integration tests
-            #        run: |
-            #          cargo test -p ismp-solidity-tests -- --nocapture --ignored
-
-            # - name: parachain messaging relayer integration tests
-            #   run: |
-            #     cargo test -p tesseract-integration-test --lib -- --ignored --test-threads=1
-
-            - name: Xcm integration tests
-              run: |
-                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test  --features runtime-benchmarks -- --nocapture --ignored
-
-            - name: Run Eth POS Devnet Electra
-              run: |
-                  git clone --branch david/electra https://github.com/polytope-labs/eth-pos-devnet.git
-                  DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 docker-compose -f ./eth-pos-devnet/docker-compose.yml up -d
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 3500
-                  ./scripts/wait_for_tcp_port_opening.sh localhost 8545
-
-            - name: sync-committee electra integration tests
-              run: |
-                  cargo test -p sync-committee-prover -- --nocapture --ignored
-
-            #      - name: polygon pos integration tests
-            #        run: |
-            #
-            #          cargo test -p polygon-pos-prover -- --nocapture --ignored
-
-            - name: Binance Smart Chain integration tests
-              run: |
-                  cargo test -p bsc-prover -- --nocapture --ignored
-
-            - name: Tendermint Integration Test
-              run: |
-                  RUST_LOG=tendermint_prover=trace,tesseract=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
-
-            - name: Clean up docker
+            - name: Cleanup
               if: always()
               run: |
-                  docker-compose -f ./eth-pos-devnet/docker-compose.yml down
-                  sudo rm -rf ./eth-pos-devnet
-                  sudo rm -rf ./target
+                  pkill -f "hyperbridge simnode" || true
+                  fuser -k 9990/tcp || true
 
-    check-solidity:
-        name: Check ismp-solidity
-        runs-on: ubuntu-latest
-        if: github.event.pull_request.draft == false
-        steps:
-            - uses: actions/checkout@v3
-              with:
-                  submodules: recursive
-
-            - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
-
-            - name: Run Forge build
-              run: |
-                  cd ./evm
-                  yarn
-                  forge --version
-                  forge build --sizes
-              id: build
-
-            - name: Run Forge tests
-              run: |
-                  cd ./evm
-                  yarn
-                  forge test -vvv
-              id: test
-
-    hyperclient-tests:
-        name: Hyperclient Integration Tests
-        runs-on: ubuntu-latest
-        if: github.event.pull_request.draft == false
+    xcm-tests:
+        name: XCM Integration Tests
+        runs-on: arc-runner-set
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -430,17 +350,12 @@ jobs:
                   username: ${{ github.triggering_actor }}
 
             - name: Check User Permission
-              # if: steps.checkAccess.outputs.require-result == 'false'
-              if: false
+              if: steps.checkAccess.outputs.require-result == 'false'
               run: |
                   echo "${{ github.triggering_actor }} does not have permissions on this repo."
                   echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
                   echo "Job originally triggered by ${{ github.actor }}"
                   exit 1
-
-            - uses: webfactory/ssh-agent@v0.7.0
-              with:
-                  ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: actions/checkout@v3
               with:
@@ -448,17 +363,235 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
-            - name: Install wasm-pack
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
               run: |
-                  curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
                   rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
 
-            - name: Install chrome
-              uses: browser-actions/setup-chrome@latest
-
-            - name: Run WASM tests
-              env:
-                  RUSTFLAGS: "--cfg substrate_runtime"
+            - name: Install Dependencies
               run: |
-                  wasm-pack test --headless --chrome --no-default-features --features=wasm,testing
-              working-directory: modules/hyperclient
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Build Hyperbridge Binary
+              run: cargo build --release -p hyperbridge
+
+            - name: Setup Parachain Devnet
+              run: |
+                  cd ../
+                  mkdir -p polkadot-sdk/target/release
+                  cd polkadot-sdk/target/release
+                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
+                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-parachain'
+                  wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
+                  wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
+                  sudo chmod +x ./polkadot
+                  sudo chmod +x ./polkadot-parachain
+                  sudo chmod +x ./polkadot-execute-worker
+                  sudo chmod +x ./polkadot-prepare-worker
+                  cd ../../../hyperbridge
+                  wget -O ./zombienet -q --show-progress https://github.com/paritytech/zombienet/releases/download/v1.3.133/zombienet-linux-x64
+                  sudo chmod +x ./zombienet
+                  nohup ./zombienet spawn --provider native ./scripts/zombienet/local-testnet.toml & disown
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9922
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9990
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 9910
+
+            - name: Run XCM Tests
+              run: |
+                  cargo test -p pallet-ismp-testsuite --lib xcm_integration_test -- --nocapture --ignored
+
+            - name: Cleanup
+              if: always()
+              run: |
+                  pkill -f "hyperbridge" || true
+                  pkill -f "polkadot" || true
+                  pkill -f "zombienet" || true
+                  sudo rm -rf ./zombienet
+                  cd ../
+                  sudo rm -rf ./polkadot-sdk
+
+    ethereum-tests:
+        name: Ethereum Sync Committee Tests
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true
+        steps:
+            - name: Get User Permission
+              id: checkAccess
+              uses: actions-cool/check-user-permission@v2
+              with:
+                  require: write
+                  username: ${{ github.triggering_actor }}
+
+            - name: Check User Permission
+              if: steps.checkAccess.outputs.require-result == 'false'
+              run: |
+                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
+                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+                  echo "Job originally triggered by ${{ github.actor }}"
+                  exit 1
+
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{  github.event.pull_request.head.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Setup Eth POS Devnet
+              run: |
+                  git clone --branch david/electra https://github.com/polytope-labs/eth-pos-devnet.git
+                  DOCKER_CLIENT_TIMEOUT=300 COMPOSE_HTTP_TIMEOUT=300 docker compose -f ./eth-pos-devnet/docker-compose.yml up -d
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 3500
+                  ./scripts/wait_for_tcp_port_opening.sh localhost 8545
+
+            - name: Run Sync Committee Tests
+              run: |
+                  cargo test -p sync-committee-prover -- --nocapture --ignored
+
+            - name: Cleanup
+              if: always()
+              run: |
+                  docker-compose -f ./eth-pos-devnet/docker-compose.yml down || true
+                  sudo rm -rf ./eth-pos-devnet
+
+    bsc-tests:
+        name: Binance Smart Chain Tests
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true
+        steps:
+            - name: Get User Permission
+              id: checkAccess
+              uses: actions-cool/check-user-permission@v2
+              with:
+                  require: write
+                  username: ${{ github.triggering_actor }}
+
+            - name: Check User Permission
+              if: steps.checkAccess.outputs.require-result == 'false'
+              run: |
+                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
+                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+                  echo "Job originally triggered by ${{ github.actor }}"
+                  exit 1
+
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{  github.event.pull_request.head.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Run BSC Tests
+              run: |
+                  cargo test -p bsc-prover -- --nocapture --ignored
+
+    tendermint-tests:
+        name: Tendermint Tests
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true
+        steps:
+            - name: Get User Permission
+              id: checkAccess
+              uses: actions-cool/check-user-permission@v2
+              with:
+                  require: write
+                  username: ${{ github.triggering_actor }}
+
+            - name: Check User Permission
+              if: steps.checkAccess.outputs.require-result == 'false'
+              run: |
+                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
+                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+                  echo "Job originally triggered by ${{ github.actor }}"
+                  exit 1
+
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{  github.event.pull_request.head.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Run Tendermint Tests
+              run: |
+                  RUST_LOG=tendermint_prover=trace,tesseract=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored

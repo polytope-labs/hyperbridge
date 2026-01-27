@@ -1,29 +1,28 @@
 {
-	"name": "evm",
-	"version": "1.0.0",
-	"main": "index.js",
-	"directories": {
-		"example": "examples",
-		"lib": "lib",
-		"test": "test"
-	},
-	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
-	},
-	"author": "",
-	"license": "ISC",
-	"description": "",
-	"dependencies": {
-		"@polytope-labs/erc6160": "^0.3.1",
-		"@polytope-labs/ismp-solidity": "^0.7.3",
-		"@polytope-labs/ismp-solidity-v1": "npm:@polytope-labs/ismp-solidity@^1.1.0",
-		"@polytope-labs/solidity-merkle-trees": "^0.3.4",
-		"@uniswap/v2-periphery": "^1.1.0-beta.0",
-		"@uniswap/v3-core": "^1.0.1",
-		"@uniswap/v3-periphery": "^1.4.4",
-		"openzeppelin-solidity": "4.8.1",
-		"prettier": "^3.3.3",
-		"prettier-plugin-solidity": "^1.3.1"
-	},
-	"packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+    "name": "hyperbridge-evm",
+    "version": "1.0.0",
+    "directories": {
+        "lib": "lib",
+        "test": "test"
+    },
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "hello@polytope.technology",
+    "license": "ISC",
+    "description": "",
+    "dependencies": {
+        "@hyperbridge/core": "^1.5.2",
+        "@openzeppelin/contracts": "^5.4.0",
+        "@polytope-labs/solidity-merkle-trees": "^0.4.0",
+        "@uniswap/swap-router-contracts": "^1.3.1",
+        "@uniswap/universal-router": "github:Uniswap/universal-router",
+        "@uniswap/v2-periphery": "^1.1.0-beta.0",
+        "@uniswap/v3-core": "^1.0.1",
+        "@uniswap/v3-periphery": "^1.4.4",
+        "@uniswap/v4-core": "github:Uniswap/v4-core",
+        "@uniswap/v4-periphery": "github:Uniswap/v4-periphery",
+        "prettier": "^3.3.3",
+        "prettier-plugin-solidity": "^1.3.1"
+    }
 }

@@ -18,7 +18,7 @@ tendermint-primitives = { workspace = true }
 tendermint-verifier = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
-tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 cometbft = { workspace = true }
 cometbft-rpc = { workspace = true }
 geth-primitives = { workspace = true }
@@ -29,7 +29,6 @@ sha2 = { version = "0.10.7" }
 sha3 = { version = "0.10" }
 ics23 = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
-prost = {workspace = true, default-features = false}
-ibc = { version = "0.57.0", default-features = false}
-ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
-
+prost = {workspace = true, default-features = false }
+ibc-core-commitment-types = { workspace = true }
+ibc-proto = { workspace = true }

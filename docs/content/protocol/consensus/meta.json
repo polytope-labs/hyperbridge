@@ -1,0 +1,11 @@
+{
+  "title": "Consensus Algorithms",
+  "pages": [
+    "grandpa",
+    "beefy",
+    "sync-committee",
+    "casper-ffg",
+    "parlia",
+    "..."
+  ]
+}

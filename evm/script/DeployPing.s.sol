@@ -4,22 +4,22 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-
-import {PingModule} from "../examples/PingModule.sol";
+import {PingModule} from "../src/utils/PingModule.sol";
 import {BaseScript} from "./BaseScript.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        address admin = vm.envAddress("ADMIN");
-        address tokenFaucet = vm.envAddress("TOKEN_FAUCET");
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
+        address tokenFaucet = config.get("TOKEN_FAUCET").toAddress();
+        console.log("Token Faucet:", tokenFaucet);
 
-        vm.startBroadcast(uint256(privateKey));
         PingModule ping = new PingModule{salt: salt}(admin);
-        ping.setIsmpHost(HOST_ADDRESS, tokenFaucet);
+        console.log("PingModule deployed at:", address(ping));
 
-        vm.stopBroadcast();
+        ping.setIsmpHost(HOST_ADDRESS, tokenFaucet);
+        console.log("ISMP Host configured");
     }
 }

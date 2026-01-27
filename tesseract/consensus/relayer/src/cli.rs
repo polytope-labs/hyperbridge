@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use clap::{arg, Parser};
+use clap::Parser;
 use codec::Decode;
 use ismp::host::StateMachine;
 use std::{
@@ -229,6 +229,11 @@ pub async fn create_client_map(
 				client
 			},
 			AnyConfig::Polygon(config) => {
+				let client = config.into_client().await?;
+				client
+			},
+
+			AnyConfig::Tendermint(config) => {
 				let client = config.into_client().await?;
 				client
 			},

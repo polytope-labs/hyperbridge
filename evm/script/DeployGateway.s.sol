@@ -4,14 +4,13 @@ pragma solidity ^0.8.17;
 import "forge-std/Script.sol";
 import "stringutils/strings.sol";
 
-import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import {IERC6160Ext20} from "@polytope-labs/erc6160/interfaces/IERC6160Ext20.sol";
-import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
-import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
-import {CrossChainInscription} from "../src/modules/Inscriptions.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
+import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
+import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
+import {CrossChainInscription} from "../src/utils/Inscriptions.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
-import {IIsmpHost} from "@polytope-labs/ismp-solidity/IIsmpHost.sol";
+import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 
 contract DeployScript is BaseScript {
     using strings for *;
@@ -19,18 +18,16 @@ contract DeployScript is BaseScript {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER ROLE");
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
-
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
+        console.log("CallDispatcher deployed at:", address(callDispatcher));
 
         TokenGateway gateway = new TokenGateway{salt: salt}(admin);
-        AssetMetadata[] memory assets = new AssetMetadata[](0);
-        gateway.init(
-            TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: HOST_ADDRESS, dispatcher: address(callDispatcher)}),
-                assets: assets
-            })
-        );
+        console.log("TokenGateway deployed at:", address(gateway));
+
+        gateway.init(TokenGatewayParams({host: HOST_ADDRESS, dispatcher: address(callDispatcher)}));
+        console.log("TokenGateway initialized");
     }
 }

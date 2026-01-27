@@ -17,8 +17,14 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 
 import {BaseTest} from "./BaseTest.sol";
-import {GetResponseMessage, GetTimeoutMessage, GetRequest, PostRequest, Message} from "@polytope-labs/ismp-solidity/Message.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {
+    GetResponseMessage,
+    GetTimeoutMessage,
+    GetRequest,
+    PostRequest,
+    Message
+} from "@hyperbridge/core/libraries/Message.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 contract GetRequestTest is BaseTest {
     using Message for PostRequest;

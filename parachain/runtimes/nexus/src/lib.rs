@@ -229,7 +229,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 5_400,
+	spec_version: 6_300,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -415,7 +415,7 @@ impl pallet_timestamp::Config for Runtime {
 
 impl pallet_authorship::Config for Runtime {
 	type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Aura>;
-	type EventHandler = (CollatorSelection,);
+	type EventHandler = (CollatorManager,);
 }
 
 parameter_types! {
@@ -874,7 +874,7 @@ impl pallet_messaging_fees::Config for Runtime {
 		>,
 	>;
 	type PriceOracle = FixedPriceOracle;
-	type WeightInfo = ();
+	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
 }
 
@@ -887,6 +887,17 @@ impl pallet_collator_manager::Config for Runtime {
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
+	type TreasuryAccount = TreasuryPalletId;
+	type AdminOrigin = EitherOfDiverse<
+		EnsureRoot<AccountId>,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type IncentivesManager = MessagingFees;
+	type WeightInfo = ();
 }
 
 pub struct FixedPriceOracle;
@@ -1034,6 +1045,8 @@ mod runtime {
 	pub type CollatorManager = pallet_collator_manager;
 
 	// consensus clients
+	#[runtime::pallet_index(254)]
+	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -1352,7 +1365,7 @@ impl_runtime_apis! {
 			Vec<frame_benchmarking::BenchmarkList>,
 			Vec<frame_support::traits::StorageInfo>,
 		) {
-			use frame_benchmarking::{Benchmarking, BenchmarkList};
+			use frame_benchmarking::BenchmarkList;
 			use frame_support::traits::StorageInfoTrait;
 			use frame_system_benchmarking::Pallet as SystemBench;
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
@@ -1367,7 +1380,7 @@ impl_runtime_apis! {
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+			use frame_benchmarking::BenchmarkBatch;
 			use frame_system_benchmarking::Pallet as SystemBench;
 
 			impl frame_system_benchmarking::Config for Runtime {

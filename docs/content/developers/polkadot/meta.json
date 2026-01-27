@@ -1,0 +1,14 @@
+{
+  "title": "Polkadot SDK",
+  "pages": [
+    "getting-started",
+    "pallet-ismp",
+    "parachains",
+    "solochains",
+    "dispatching",
+    "receiving",
+    "token-gateway",
+    "fees",
+    "..."
+  ]
+}

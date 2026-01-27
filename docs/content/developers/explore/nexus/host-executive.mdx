@@ -1,0 +1,15 @@
+---
+title: Pallet Host Executive
+description: The Hyperbridge protocol encompasses more than just the Hyperbridge Nexus blockchain, it also includes contracts or modules on its connected chains. These modules, which are governed by the Hyperbridge protocol, are responsible for collecting relayer and protocol revenue for cross-chain operations.
+---
+
+# Pallet Host Executive
+
+The Hyperbridge protocol encompasses more than just the Hyperbridge nexus blockchain, it also includes contracts or modules on its connected chains. These modules, which are governed by the Hyperbridge protocol, are responsible for collecting relayer and protocol revenue for cross-chain operations. They are managed from Hyperbridge through the `HostManager` interface. This interface allows the Hyperbridge protocol to dispatch cross-chain governance actions which may either withdraw any accrued protocol or relayer revenue or modify its fee structure or other protocol parameters.
+
+The `HostExecutive` module on Hyperbridge is the module responsible for managing the `HostManager` across all connected chains. It tracks any relevant protocol parameters for each chain and allows the Hyperbridge governance to dispatch any protocol parameter changes to the connected chains. It is named after the corporate structure of a multi-~chain~national company, where the "Executive" is responsible for managing the "Regional Manager".
+
+
+## Implementation
+
+ - [pallet-ismp-host-executive](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/host-executive/src/lib.rs)

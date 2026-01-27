@@ -16,7 +16,7 @@
 //! BEEFY consensus prover
 
 use anyhow::anyhow;
-use clap::{arg, Parser};
+use clap::Parser;
 use tesseract_beefy::prover::{BeefyProver, Prover};
 use tesseract_consensus::logging;
 use tesseract_substrate::{
@@ -59,7 +59,7 @@ async fn main() -> Result<(), anyhow::Error> {
 	let mut beefy_prover = {
 		let beefy_config =
 			config.remove("beefy").ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
-		BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain>::new(
+		BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::LocalProver>::new(
 			beefy_config.try_into()?,
 			substrate,
 			prover,

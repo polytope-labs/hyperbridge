@@ -1,0 +1,10 @@
+{
+  "title": "State Machine Algorithms",
+  "pages": [
+    "parachain",
+    "fault-dispute-games",
+    "l2-oracle",
+    "arbitrum-orbit",
+    "..."
+  ]
+}

@@ -68,16 +68,14 @@ pub struct EvmConfig {
 	pub ismp_host: H160,
 	/// Relayer account private key
 	pub signer: String,
-	/// Etherscan API key
-	pub etherscan_api_key: String,
 	/// Batch size to parallelize tracing
 	pub tracing_batch_size: Option<usize>,
 	/// Batch size when querying events
 	pub query_batch_size: Option<u64>,
 	/// Polling frequency for state machine updates in seconds
 	pub poll_interval: Option<u64>,
-	/// An optional buffer to add to gas price as a percentage of the current gas price
-	/// to increase likelihood of the transactions going through e.g 1%, 2%
+	/// An optional buffer to add to gas price in basis points
+	/// to increase likelihood of the transactions going through e.g 100 (1%), 200 (2%)
 	pub gas_price_buffer: Option<u32>,
 	/// The client type the rpc is running, defaults to Geth
 	pub client_type: Option<ClientType>,
@@ -106,7 +104,6 @@ impl Default for EvmConfig {
 			consensus_state_id: Default::default(),
 			ismp_host: Default::default(),
 			signer: Default::default(),
-			etherscan_api_key: Default::default(),
 			tracing_batch_size: Default::default(),
 			query_batch_size: Default::default(),
 			poll_interval: Default::default(),
@@ -132,7 +129,7 @@ pub struct EvmClient {
 	/// Latest state machine height.
 	initial_height: u64,
 	/// Config
-	config: EvmConfig,
+	pub config: EvmConfig,
 	/// EVM chain Id.
 	pub chain_id: u64,
 	/// Client type

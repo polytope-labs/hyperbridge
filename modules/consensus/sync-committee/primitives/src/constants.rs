@@ -82,6 +82,9 @@ pub const PENDING_DEPOSITS_LIMIT: usize = 2usize.saturating_pow(27);
 pub const PENDING_PARTIAL_WITHDRAWALS_LIMIT: usize = 2usize.saturating_pow(27);
 pub const PENDING_CONSOLIDATIONS_LIMIT: usize = 2usize.saturating_pow(18);
 
+pub const PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM: usize = 64;
+pub const PROPOSER_LOOK_AHEAD_LIMIT_GNO: usize = 32;
+
 pub trait Config {
 	const SLOTS_PER_EPOCH: Slot;
 	const GENESIS_VALIDATORS_ROOT: [u8; 32];
@@ -106,6 +109,8 @@ pub trait Config {
 	const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64;
 	const ELECTRA_FORK_VERSION: Version;
 	const ELECTRA_FORK_EPOCH: Epoch;
+	const FULU_FORK_VERSION: Version;
+	const FULU_FORK_EPOCH: Epoch;
 	const ID: [u8; 4];
 }
 
@@ -143,6 +148,8 @@ pub mod sepolia {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("90000074");
 		const ELECTRA_FORK_EPOCH: Epoch = 222464;
+		const FULU_FORK_EPOCH: Epoch = 272640;
+		const FULU_FORK_VERSION: Version = hex_literal::hex!("90000075");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
@@ -178,6 +185,8 @@ pub mod mainnet {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000000");
 		const ELECTRA_FORK_EPOCH: Epoch = 364032;
+		const FULU_FORK_EPOCH: Epoch = 411392;
+		const FULU_FORK_VERSION: Version = hex_literal::hex!("06000000");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }
@@ -213,6 +222,8 @@ pub mod gnosis {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000064");
 		const ELECTRA_FORK_EPOCH: Epoch = 1337856;
+		const FULU_FORK_EPOCH: Epoch = u64::MAX;
+		const FULU_FORK_VERSION: Version = hex_literal::hex!("06000064");
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 
@@ -244,6 +255,8 @@ pub mod gnosis {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("0500006f");
 		const ELECTRA_FORK_EPOCH: Epoch = 948224;
+		const FULU_FORK_EPOCH: Epoch = u64::MAX;
+		const FULU_FORK_VERSION: Version = hex_literal::hex!("0600006f");
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
 }
@@ -253,37 +266,7 @@ pub mod devnet {
 	use hex_literal::hex;
 
 	#[derive(Default)]
-	pub struct Devnet;
-	#[derive(Default)]
 	pub struct ElectraDevnet;
-
-	impl Config for Devnet {
-		const SLOTS_PER_EPOCH: Slot = 32;
-		const GENESIS_VALIDATORS_ROOT: [u8; 32] =
-			hex_literal::hex!("83431ec7fcf92cfc44947fc0418e831c25e1d0806590231c439830db7ad54fda");
-		const BELLATRIX_FORK_VERSION: Version = hex!("52525502");
-		const ALTAIR_FORK_VERSION: Version = hex!("52525501");
-		const GENESIS_FORK_VERSION: Version = hex!("52525500");
-		const ALTAIR_FORK_EPOCH: Epoch = 0;
-		const BELLATRIX_FORK_EPOCH: Epoch = 0;
-		const CAPELLA_FORK_EPOCH: Epoch = 0;
-		const CAPELLA_FORK_VERSION: Version = hex!("52525503");
-		const DENEB_FORK_EPOCH: Epoch = 0;
-		const DENEB_FORK_VERSION: Version = hex!("52525504");
-		const EPOCHS_PER_SYNC_COMMITTEE_PERIOD: Epoch = 4;
-		const EXECUTION_PAYLOAD_STATE_ROOT_INDEX: u64 = 34;
-		const EXECUTION_PAYLOAD_BLOCK_NUMBER_INDEX: u64 = 38;
-		const EXECUTION_PAYLOAD_TIMESTAMP_INDEX: u64 = 41;
-		const EXECUTION_PAYLOAD_INDEX: u64 = EXECUTION_PAYLOAD_INDEX;
-		const NEXT_SYNC_COMMITTEE_INDEX: u64 = NEXT_SYNC_COMMITTEE_INDEX;
-		const FINALIZED_ROOT_INDEX: u64 = FINALIZED_ROOT_INDEX;
-		const FINALIZED_ROOT_INDEX_LOG2: u64 = FINALIZED_ROOT_INDEX_LOG2;
-		const EXECUTION_PAYLOAD_INDEX_LOG2: u64 = EXECUTION_PAYLOAD_INDEX_LOG2;
-		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = NEXT_SYNC_COMMITTEE_INDEX_LOG2;
-		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("52525505");
-		const ELECTRA_FORK_EPOCH: Epoch = Epoch::MAX;
-		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
-	}
 
 	impl Config for ElectraDevnet {
 		const SLOTS_PER_EPOCH: Slot = 32;
@@ -310,6 +293,8 @@ pub mod devnet {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("52525505");
 		const ELECTRA_FORK_EPOCH: Epoch = 0;
+		const FULU_FORK_EPOCH: Epoch = u64::MAX;
+		const FULU_FORK_VERSION: Version = hex_literal::hex!("52525506");
 		const ID: [u8; 4] = BEACON_CONSENSUS_ID;
 	}
 }

@@ -3,7 +3,7 @@ use reqwest_eventsource::EventSource;
 
 use ssz_rs::{calculate_multi_merkle_root, is_valid_merkle_branch, GeneralizedIndex, Merkleized};
 use sync_committee_primitives::{
-	constants::{devnet::Devnet, Root, ETH1_DATA_VOTES_BOUND_ETH},
+	constants::{Root, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM},
 	types::VerifierState,
 	util::compute_epoch_at_slot,
 };
@@ -110,9 +110,12 @@ async fn test_execution_payload_proof() {
 
 	let mut finalized_state = sync_committee_prover.fetch_beacon_state("head").await.unwrap();
 	let block_id = finalized_state.slot.to_string();
-	let execution_payload_proof =
-		prove_execution_payload::<ElectraDevnet, ETH1_DATA_VOTES_BOUND_ETH>(&mut finalized_state)
-			.unwrap();
+	let execution_payload_proof = prove_execution_payload::<
+		ElectraDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>(&mut finalized_state)
+	.unwrap();
 
 	let finalized_header = sync_committee_prover.fetch_header(&block_id).await.unwrap();
 
@@ -169,6 +172,7 @@ async fn test_sync_committee_update_proof() {
 	let sync_committee_proof = prove_sync_committee_update::<
 		ElectraDevnet,
 		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
 	>(&mut finalized_state)
 	.unwrap();
 
@@ -285,7 +289,11 @@ async fn test_switch_provider_middleware() {
 		"http://localhost:3500".to_string(),
 	];
 
-	let prover = SyncCommitteeProver::<Devnet, ETH1_DATA_VOTES_BOUND_ETH>::new(providers);
+	let prover = SyncCommitteeProver::<
+		ElectraDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>::new(providers);
 	let res = prover.fetch_finalized_checkpoint(None).await;
 	assert!(res.is_ok())
 }
@@ -298,9 +306,15 @@ pub struct EventResponse {
 	pub execution_optimistic: bool,
 }
 
-fn setup_prover() -> SyncCommitteeProver<ElectraDevnet, ETH1_DATA_VOTES_BOUND_ETH> {
+fn setup_prover(
+) -> SyncCommitteeProver<ElectraDevnet, ETH1_DATA_VOTES_BOUND_ETH, PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM>
+{
 	dotenv::dotenv().ok();
 	let consensus_url =
 		std::env::var("CONSENSUS_NODE_URL").unwrap_or("http://localhost:3500".to_string());
-	SyncCommitteeProver::<ElectraDevnet, ETH1_DATA_VOTES_BOUND_ETH>::new(vec![consensus_url])
+	SyncCommitteeProver::<
+		ElectraDevnet,
+		ETH1_DATA_VOTES_BOUND_ETH,
+		PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
+	>::new(vec![consensus_url])
 }

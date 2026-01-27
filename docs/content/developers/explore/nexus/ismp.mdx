@@ -1,0 +1,64 @@
+---
+title: Pallet ISMP
+description: The ISMP module is the central module of the Hyperbridge blockchain. It is the core innovation that makes the Hyperbridge protocol possible.
+---
+
+# Pallet ISMP
+
+The `pallet-ismp` is the central module of the Hyperbridge blockchain. It is the core innovation that makes the Hyperbridge protocol possible. It is responsible for:
+
+ - Verifying the consensus proofs and managing the state commitments of its connected chains through the use of "consensus clients".
+ - Verifying and aggregating the cross-chain messages that are relayed from its connected chains.
+ - Managing various consensus clients on behalf of its connected chains.
+
+ ## Consensus Clients
+
+ The Hyperbridge blockchain uses "consensus clients" to verify the consensus proofs of its connected chains. A consensus client is a module that is responsible for verifying the consensus proofs which attest to the finality of some state commitment of a specific blockchain. Any blockchain that produces consensus proofs can be connected to the Hyperbridge blockchain through a consensus client. The `pallet-ismp` module manages the consensus clients on behalf of the connected chains. The consensus clients currently supported by the Hyperbridge protocol are:
+
+  - [Parachain Consensus Client](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/parachain/client)
+  - [Sync Committee Consensus Client](https://github.com/polytope-labs/hyperbridge/tree/main/modules/ismp/clients/sync-committee)
+  - [Binance Smart Chain Consensus Client](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/clients/bsc/src/lib.rs)
+
+## Cross-Chain Messages
+
+The `pallet-ismp` module is also responsible for verifying the legitimacy of cross-chain messages between the connected chains. Cross-chain messages that are sent from one chain to another must first be verified and aggregated on the Hyperbridge blockchain. The Hyperbridge blockchain accumulates these messages into a [merkle mountain range tree](/protocol/cryptography/merkle-trees/mountain-range), this tree serves as a secondary state commitment scheme. It was chosen for its space-efficient membership proofs as opposed to the base-16 merkle patricia trie. Merkle mountain range proofs are used by relayers to authenticate the cross-chain messages that are to be delivered to a destination chain. In the future, messages will be accumulated into a more efficient [Verkle trie](/protocol/cryptography/verkle-tries).
+
+## State Commitments
+
+The `pallet-ismp` module is responsible for tracking the state commitments of the connected chains. A state commitment is a cryptographic commitment to the state of a blockchain at a specific height. It is the output of consensus proof verification by a consensus client. The state commitment is used to verify the authenticity of cross-chain messages that need to be aggregated from connected chains.
+
+## State Proofs
+
+`pallet-ismp` also stores the commitments for requests and responses in the state trie, for which state proofs may be obtained for their existence. These proofs are used to authenticate cross-chain messages. It leverages two primary data structures:
+
+ - **Child Trie**: This is the primary storage location for all commitments. It offers a compact representation, leading to smaller verification proofs and reduced processing costs.
+ - **Merkle Mountain Range Tree**: This secondary merkle commitment scheme provides even smaller proofs and more economical verification on the Ethereum Virtual Machine (EVM). This translates to lower gas fees for users sending messages to EVM chains.
+
+## Offchain Storage
+
+To ensure verifiability, ISMP stores commitment hashes onchain. These commitment hashes act like unique fingerprints, allowing anyone to confirm the existence of the original data (requests and responses) without storing it directly on the blockchain.
+
+Requests and responses themselves are stored in an off-chain database. This approach offers two key advantages:
+
+ - **Reduced Runtime Storage Size**: By keeping only commitment hashes on-chain, ISMP minimizes the blockchain's storage footprint. This is crucial for maintaining reasonable storage requirements for full nodes, especially as the network scales.
+ - **Efficient Pruning**: Off-chain storage allows for efficient deletion (pruning) of delivered requests and responses. This helps prevent the blockchain from becoming bloated with historical data.
+
+### Challenge: Chain Reorgs
+
+ISMP utilizes an off-chain database for storing requests and responses. While this approach offers storage efficiency, it introduces some potential issues:
+
+**Fork Susceptibility**: The off-chain database isn't aware of chain reorgs. If a reorg occurs, the database could become corrupted, leading to inconsistencies and preventing the generation of accurate Merkle Mountain Range (MMR) proofs. These proofs are crucial for verifying data integrity.
+
+### Solution: Background Canonicalization
+
+To mitigate this risk, ISMP employs a background task that continuously monitors the network. Whenever the relay chain finalizes a parachain block (meaning the block becomes permanent and irreversible), this task automatically "canonicalizes" the off-chain database.
+
+ - **Canonicalization**: This process ensures the database reflects the final, validated state of the chain. It essentially cleans up any inconsistencies caused by potential reorgs.
+
+ - **Impact on Proof Generation**: As a consequence of this approach, generating MMR proofs for off-chain data becomes available only after the corresponding block finalizes.
+
+
+## Implementation
+
+- [pallet-ismp](https://github.com/polytope-labs/hyperbridge/tree/main/modules/pallets/ismp)
+ - [mmr-gadget](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/mmr/gadget/src/lib.rs)

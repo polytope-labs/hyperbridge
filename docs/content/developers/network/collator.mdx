@@ -286,19 +286,6 @@ At the beginning of each new session, our `pallet-collator-manager` runs its sel
 - It ranks the remaining candidates from highest to lowest based on their Controller's Reputation Asset balance.
 - It selects the top candidates to fill the available collator slots for the new session.
 
-### Technical Note: Validator Registration
-
-The stash/controller separation is enforced through a custom `ValidatorRegistration` implementation in `pallet-collator-manager`.
-When `pallet-collator-selection` checks if a candidate is valid, it calls `ValidatorRegistration::is_registered(stash)`.
-Our implementation:
-
-1. Looks up the **Controller** account mapped to the given **Stash** via the `Controller` storage map
-2. Checks if that **Controller** has registered session keys in `pallet-session`
-3. Returns `true` only if both conditions are met
-
-This differs from the default implementation (which expects the stash account itself to have session keys) and enables our
-two-account security model where the Stash remains a cold wallet while the Controller handles operational duties.
-
 
 If you are selected:
 

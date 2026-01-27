@@ -62,7 +62,7 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 		para: para_client.clone(),
 		para_rpc,
 		para_rpc_client,
-		para_ids: vec![2030],
+		para_ids: vec![3367],
 		query_batch_size: Some(100),
 	};
 
@@ -209,7 +209,7 @@ async fn test_verify_consensus() {
 	let (initial_state, beefy_consensus_proof) = setup().await;
 	let mut ext = new_test_ext();
 	ext.execute_with(|| {
-		Parachains::<Test>::insert(2030, 12000);
+		Parachains::<Test>::insert(3367, 12000);
 
 		let host = Ismp::default();
 		let consensus_client = host.consensus_client(BEEFY_CONSENSUS_ID).unwrap();
@@ -236,7 +236,7 @@ async fn test_verify_consensus() {
 		assert_eq!(
 			state_machine,
 			StateMachineId {
-				state_id: StateMachine::Kusama(2030),
+				state_id: StateMachine::Kusama(3367),
 				consensus_state_id: b"BEEF".to_vec().try_into().unwrap()
 			}
 		);

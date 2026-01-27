@@ -163,10 +163,6 @@ fn verify_mmr_update_proof<H: Keccak256 + Send + Sync>(
 
 		let authority_address_hash = H::keccak256(&eth_address);
 
-		if i < 5 {
-			println!("[{:?}] - {:?}", sig.index, H256::from(authority_address_hash));
-		}
-
 		authority_leaves.push(authority_address_hash.into());
 		authority_indices.push(sig.index as usize);
 	}

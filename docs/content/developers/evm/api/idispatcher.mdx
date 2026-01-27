@@ -1,0 +1,517 @@
+---
+title: IDispatcher
+description: API reference for IDispatcher - interface for dispatching cross-chain messages.
+---
+
+# IDispatcher
+
+Interface for dispatching outgoing cross-chain messages. Applications use these methods to send POST requests, GET queries, and POST responses through Hyperbridge.
+
+```solidity lineNumbers
+interface IDispatcher
+```
+
+## Overview
+
+The Dispatcher provides methods for:
+- Dispatching POST requests to other chains
+- Dispatching GET requests to query remote state
+- Dispatching POST responses to reply to requests
+- Funding in-flight messages with additional fees
+- Querying protocol configuration and fees
+
+All dispatch methods support both native token and fee token payments.
+
+---
+
+## Functions
+
+### host()
+
+Returns the state machine identifier for this host.
+
+```solidity lineNumbers
+function host() external view returns (bytes memory)
+```
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bytes` | The host's state machine identifier (e.g., "EVM-1" for Ethereum) |
+
+---
+
+### hyperbridge()
+
+Returns the state machine identifier for the connected Hyperbridge instance.
+
+```solidity lineNumbers
+function hyperbridge() external view returns (bytes memory)
+```
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bytes` | Hyperbridge's state machine identifier |
+
+---
+
+### frozen()
+
+Returns the current frozen status of the host.
+
+```solidity lineNumbers
+function frozen() external view returns (FrozenStatus)
+```
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `FrozenStatus` | Enum: None, Incoming, Outgoing, or All |
+
+---
+
+### feeToken()
+
+Returns the ERC-20 token address used for fee payments. Typically a stablecoin.
+
+```solidity lineNumbers
+function feeToken() external view returns (address)
+```
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `address` | The fee token contract address |
+
+---
+
+### uniswapV2Router()
+
+Returns the Uniswap V2 router address used for swapping native tokens to fee tokens.
+
+```solidity lineNumbers
+function uniswapV2Router() external view returns (address)
+```
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `address` | The Uniswap V2 router contract address |
+
+---
+
+### nonce()
+
+Returns the next available nonce for outgoing requests.
+
+```solidity lineNumbers
+function nonce() external view returns (uint256)
+```
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `uint256` | The next nonce value |
+
+---
+
+### perByteFee()
+
+Returns the per-byte protocol fee for messages to a destination chain.
+
+```solidity lineNumbers
+function perByteFee(bytes memory dest) external view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `dest` | `bytes` | The destination state machine identifier |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `uint256` | Fee in fee token per byte of message body |
+
+**Fee Calculation:**
+`protocolFee = feePerByte × max(32, messageBody.length)`
+
+---
+
+### dispatch(DispatchPost)
+
+Dispatches a POST request to another chain.
+
+```solidity lineNumbers
+function dispatch(DispatchPost memory request) 
+    external 
+    payable 
+    returns (bytes32 commitment)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchPost` | The POST request struct |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| `commitment` | `bytes32` | Request commitment hash for tracking |
+
+**Payment:**
+- **Native token** (`msg.value`): Automatically swapped to fee token via Uniswap
+- **Fee token**: Transferred from caller (requires prior approval)
+
+---
+
+### dispatch(DispatchGet)
+
+Dispatches a GET request to query state on another chain.
+
+```solidity lineNumbers
+function dispatch(DispatchGet memory request) 
+    external 
+    payable 
+    returns (bytes32 commitment)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchGet` | The GET request struct |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| `commitment` | `bytes32` | Request commitment hash for tracking |
+
+**Payment:**
+- **Native token** (`msg.value`): Automatically swapped to fee token via Uniswap
+- **Fee token**: Transferred from caller (requires prior approval)
+
+---
+
+### dispatch(DispatchPostResponse)
+
+Dispatches a POST response to reply to a received request.
+
+```solidity lineNumbers
+function dispatch(DispatchPostResponse memory response) 
+    external 
+    payable 
+    returns (bytes32 commitment)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `response` | `DispatchPostResponse` | The POST response struct |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| `commitment` | `bytes32` | Response commitment hash for tracking |
+
+**Payment:**
+- **Native token** (`msg.value`): Automatically swapped to fee token via Uniswap
+- **Fee token**: Transferred from caller (requires prior approval)
+
+---
+
+### fundRequest()
+
+Increases the relayer fee for a pending request to incentivize faster delivery.
+
+```solidity lineNumbers
+function fundRequest(bytes32 commitment, uint256 amount) external payable
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `commitment` | `bytes32` | The request commitment hash |
+| `amount` | `uint256` | Additional relayer fee in fee token |
+
+**Payment:**
+- **Native token** (`msg.value`): Automatically swapped to fee token via Uniswap
+- **Fee token**: Transferred from caller (requires prior approval)
+
+**Behavior:**
+- Only increases **relayer fee** (protocol fee cannot be changed)
+- Additional fee refunded to `payer` if request times out
+- Can be called multiple times for incremental increases
+- If request already delivered, funds donated to protocol
+
+---
+
+### fundResponse()
+
+Increases the relayer fee for a pending response to incentivize faster delivery.
+
+```solidity lineNumbers
+function fundResponse(bytes32 commitment, uint256 amount) external payable
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `commitment` | `bytes32` | The response commitment hash |
+| `amount` | `uint256` | Additional relayer fee in fee token |
+
+**Payment:**
+- **Native token** (`msg.value`): Automatically swapped to fee token via Uniswap
+- **Fee token**: Transferred from caller (requires prior approval)
+
+**Behavior:**
+- Only increases **relayer fee** (protocol fee cannot be changed)
+- Additional fee refunded to `payer` if response times out
+- Can be called multiple times for incremental increases
+- If response already delivered, funds donated to protocol
+
+---
+
+## Events
+
+### PostRequestEvent
+
+Emitted when a new POST request is dispatched.
+
+```solidity lineNumbers
+event PostRequestEvent(
+    string source,
+    string dest,
+    address indexed from,
+    bytes to,
+    uint256 nonce,
+    uint256 timeoutTimestamp,
+    bytes body,
+    uint256 fee
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `string` | Source of this request |
+| `dest` | `string` | The destination chain for this request |
+| `from` | `address` | The contract that initiated this request |
+| `to` | `bytes` | The intended recipient module of this request |
+| `nonce` | `uint256` | Monotonically increasing nonce |
+| `timeoutTimestamp` | `uint256` | The timestamp at which this request will be considered as timed out |
+| `body` | `bytes` | The serialized request body |
+| `fee` | `uint256` | The associated relayer fee |
+
+---
+
+### PostResponseEvent
+
+Emitted when a new POST response is dispatched.
+
+```solidity lineNumbers
+event PostResponseEvent(
+    string source,
+    string dest,
+    address indexed from,
+    bytes to,
+    uint256 nonce,
+    uint256 timeoutTimestamp,
+    bytes body,
+    bytes response,
+    uint256 responseTimeoutTimestamp,
+    uint256 fee
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `string` | Source of this response |
+| `dest` | `string` | The destination chain for this response |
+| `from` | `address` | The contract that initiated this response |
+| `to` | `bytes` | The intended recipient module of this response |
+| `nonce` | `uint256` | Monotonically increasing nonce |
+| `timeoutTimestamp` | `uint256` | The timestamp at which this request will be considered as timed out |
+| `body` | `bytes` | The serialized request body |
+| `response` | `bytes` | The serialized response body |
+| `responseTimeoutTimestamp` | `uint256` | The timestamp at which this response will be considered as timed out |
+| `fee` | `uint256` | The associated relayer fee |
+
+---
+
+### GetRequestEvent
+
+Emitted when a new GET request is dispatched.
+
+```solidity lineNumbers
+event GetRequestEvent(
+    string source,
+    string dest,
+    address indexed from,
+    bytes[] keys,
+    uint256 height,
+    uint256 nonce,
+    uint256 timeoutTimestamp,
+    bytes context,
+    uint256 fee
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | `string` | Source of this request |
+| `dest` | `string` | The destination chain for this request |
+| `from` | `address` | The contract that initiated this request |
+| `keys` | `bytes[]` | The requested storage keys |
+| `height` | `uint256` | The height for the requested keys |
+| `nonce` | `uint256` | Monotonically increasing nonce |
+| `timeoutTimestamp` | `uint256` | The timestamp at which this request will be considered as timed out |
+| `context` | `bytes` | Some application-specific metadata relating to this request |
+| `fee` | `uint256` | The associated protocol fee |
+
+---
+
+### RequestFunded
+
+Emitted when a POST or GET request is funded with additional fees.
+
+```solidity lineNumbers
+event RequestFunded(
+    bytes32 indexed commitment,
+    uint256 newFee
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `commitment` | `bytes32` | Commitment of the request |
+| `newFee` | `uint256` | The updated fee available for relayers |
+
+---
+
+### PostResponseFunded
+
+Emitted when a POST response is funded with additional fees.
+
+```solidity lineNumbers
+event PostResponseFunded(
+    bytes32 indexed commitment,
+    uint256 newFee
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `commitment` | `bytes32` | Commitment of the response |
+| `newFee` | `uint256` | The updated fee available for relayers |
+
+---
+
+## Structs
+
+### DispatchPost
+
+Parameters for dispatching a POST request.
+
+```solidity lineNumbers
+struct DispatchPost {
+    bytes dest;
+    bytes to;
+    bytes body;
+    uint64 timeout;
+    uint256 fee;
+    address payer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dest` | `bytes` | Destination state machine identifier |
+| `to` | `bytes` | Destination application address |
+| `body` | `bytes` | Message payload |
+| `timeout` | `uint64` | Timeout in seconds from dispatch time |
+| `fee` | `uint256` | Relayer fee in fee token |
+| `payer` | `address` | Address to refund on timeout |
+
+---
+
+### DispatchGet
+
+Parameters for dispatching a GET request.
+
+```solidity lineNumbers
+struct DispatchGet {
+    bytes dest;
+    uint64 height;
+    bytes[] keys;
+    uint64 timeout;
+    uint256 fee;
+    bytes context;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dest` | `bytes` | Destination state machine identifier |
+| `height` | `uint64` | Block height to query (0 for latest) |
+| `keys` | `bytes[]` | Storage keys to read |
+| `timeout` | `uint64` | Timeout in seconds from dispatch time |
+| `fee` | `uint256` | Total protocol fee |
+| `context` | `bytes` | Application-specific metadata |
+
+---
+
+### DispatchPostResponse
+
+Parameters for dispatching a POST response.
+
+```solidity lineNumbers
+struct DispatchPostResponse {
+    PostRequest request;
+    bytes response;
+    uint64 timeout;
+    uint256 fee;
+    address payer;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `request` | `PostRequest` | The original POST request |
+| `response` | `bytes` | Response payload |
+| `timeout` | `uint64` | Timeout in seconds from dispatch time |
+| `fee` | `uint256` | Relayer fee in fee token |
+| `payer` | `address` | Address to refund on timeout |
+
+---
+
+### PostRequest
+
+Represents a POST request.
+
+```solidity lineNumbers
+struct PostRequest {
+    bytes source;
+    bytes dest;
+    uint64 nonce;
+    uint64 timeoutTimestamp;
+    bytes from;
+    bytes to;
+    bytes body;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source` | `bytes` | Source state machine identifier |
+| `dest` | `bytes` | Destination state machine identifier |
+| `nonce` | `uint64` | Unique request nonce |
+| `timeoutTimestamp` | `uint64` | Unix timestamp when request times out |
+| `from` | `bytes` | Source application address |
+| `to` | `bytes` | Destination application address |
+| `body` | `bytes` | Request payload |
+
+---
+
+### FrozenStatus
+
+```solidity lineNumbers
+enum FrozenStatus {
+    None,
+    Incoming,
+    Outgoing,
+    All
+}
+```
+
+| Value | Description |
+|-------|-------------|
+| `None` | Normal operation, no restrictions |
+| `Incoming` | Incoming messages are frozen |
+| `Outgoing` | Outgoing messages are frozen |
+| `All` | All operations are frozen |
+
+---

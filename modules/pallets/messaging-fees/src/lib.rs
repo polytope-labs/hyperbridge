@@ -31,10 +31,7 @@ use frame_support::{
 	traits::Get,
 };
 use frame_system::pallet_prelude::*;
-use polkadot_sdk::{
-	sp_runtime::{traits::OpaqueKeys, KeyTypeId},
-	*,
-};
+use polkadot_sdk::*;
 
 use ismp::{
 	dispatcher::IsmpDispatcher,
@@ -47,15 +44,23 @@ use crate::types::*;
 mod impls;
 pub mod types;
 
+/// A trait for managing messaging incentives, primarily for resetting them.
+pub trait IncentivesManager {
+	/// Resets any accumulated incentive data, called at the start of a new session.
+	fn reset_incentives();
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use crate::frame_support::traits::fungible;
-	use frame_support::PalletId;
+	use frame_support::{pallet_prelude::StorageVersion, PalletId};
 	use polkadot_sdk::sp_core::H256;
 
 	use super::*;
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 	#[pallet::pallet]
+	#[pallet::storage_version(STORAGE_VERSION)]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
@@ -86,7 +91,6 @@ pub mod pallet {
 			Self::AccountId,
 			Balance = <Self as pallet_ismp::Config>::Balance,
 		>;
-
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;
 	}
@@ -193,24 +197,9 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> pallet_session::SessionHandler<T::AccountId> for Pallet<T> {
-	const KEY_TYPE_IDS: &'static [KeyTypeId] = &[];
-
-	fn on_genesis_session<Ks: OpaqueKeys>(_validators: &[(T::AccountId, Ks)]) {}
-
-	fn on_new_session<Ks: OpaqueKeys>(
-		changed: bool,
-		_validators: &[(T::AccountId, Ks)],
-		_queued_validators: &[(T::AccountId, Ks)],
-	) {
-		if !changed {
-			return;
-		}
-
+impl<T: Config> IncentivesManager for Pallet<T> {
+	fn reset_incentives() {
 		TotalBytesProcessed::<T>::kill();
-
 		Self::deposit_event(Event::IncentivesReset);
 	}
-
-	fn on_disabled(_validator_index: u32) {}
 }

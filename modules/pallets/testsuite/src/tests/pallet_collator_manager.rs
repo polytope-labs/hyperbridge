@@ -14,10 +14,13 @@ use polkadot_sdk::{
 			fungible::Mutate as BalanceMutate, fungibles::Mutate, OnInitialize, ReservableCurrency,
 		},
 	},
+	pallet_authorship::EventHandler,
 	pallet_balances::BalanceLock,
 	sp_core::{sr25519::Pair, Pair as _},
+	sp_runtime::traits::AccountIdConversion,
 	*,
 };
+use sp_core::crypto::AccountId32;
 
 fn create_reputation_asset() {
 	assert_ok!(Assets::force_create(
@@ -50,6 +53,7 @@ fn set_reputation_balance(who: &<Test as frame_system::Config>::AccountId, amoun
 fn register_candidate(who: <Test as frame_system::Config>::AccountId) {
 	let bond = 10 * UNIT;
 	set_reputation_balance(&who, bond);
+	set_session_keys(who.clone());
 	assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(who.clone())));
 }
 
@@ -64,6 +68,11 @@ fn set_session_keys(who: <Test as frame_system::Config>::AccountId) {
 fn test_new_collators_are_selected_based_on_reputation() {
 	new_test_ext().execute_with(|| {
 		create_reputation_asset();
+		let charlie_stash = AccountId32::new([13; 32]);
+		Balances::set_balance(&charlie_stash, INITIAL_BALANCE);
+
+		let dave_stash = AccountId32::new([14; 32]);
+		Balances::set_balance(&dave_stash, INITIAL_BALANCE);
 
 		set_session_keys(ALICE);
 		set_session_keys(BOB);
@@ -83,9 +92,19 @@ fn test_new_collators_are_selected_based_on_reputation() {
 
 		set_session_keys(CHARLIE);
 		set_session_keys(DAVE);
-		register_candidate(CHARLIE);
-		register_candidate(DAVE);
+		register_candidate(charlie_stash.clone());
+		register_candidate(dave_stash.clone());
 
+		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(charlie_stash.clone()),
+			CHARLIE
+		));
+
+		assert_ok!(CollatorManager::reserve(&dave_stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(RuntimeOrigin::signed(dave_stash.clone()), DAVE));
+
+		set_reputation_balance(&CHARLIE, 20 * UNIT);
 		set_reputation_balance(&DAVE, 20 * UNIT);
 
 		Session::on_initialize(2);
@@ -105,6 +124,9 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 	new_test_ext().execute_with(|| {
 		create_reputation_asset();
 
+		let charlie_stash = AccountId32::new([13; 32]);
+		Balances::set_balance(&charlie_stash, INITIAL_BALANCE);
+
 		set_session_keys(ALICE);
 		set_session_keys(BOB);
 		pallet_session::Validators::<Test>::put(vec![ALICE, BOB]);
@@ -122,9 +144,16 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 		]);
 		set_reputation_balance(&ALICE, 50 * UNIT);
 		set_reputation_balance(&BOB, 30 * UNIT);
+		set_reputation_balance(&CHARLIE, 40 * UNIT);
 
 		set_session_keys(CHARLIE);
-		register_candidate(CHARLIE);
+		register_candidate(charlie_stash.clone());
+
+		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(charlie_stash.clone()),
+			CHARLIE
+		));
 
 		Session::on_initialize(2);
 		Session::on_initialize(3);
@@ -232,5 +261,105 @@ fn test_collator_candidate_bonding_works_with_vesting_tokens() {
 		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), bond_amount);
 		let lock = get_collator_bond_lock(&CHARLIE).expect("collator bond lock should exist");
 		assert_eq!(lock.amount, bond_amount);
+	});
+}
+
+#[test]
+fn set_collator_reward_works() {
+	new_test_ext().execute_with(|| {
+		let new_reward = 100 * UNIT;
+		assert_ne!(CollatorManager::collator_reward(), new_reward);
+
+		assert_ok!(CollatorManager::set_collator_reward(RuntimeOrigin::root(), new_reward));
+
+		assert_eq!(CollatorManager::collator_reward(), new_reward);
+	});
+}
+
+#[test]
+fn note_author_pays_reward_from_treasury() {
+	new_test_ext().execute_with(|| {
+		let reward_amount = 50 * UNIT;
+		let treasury = <Test as pallet_collator_manager::Config>::TreasuryAccount::get()
+			.into_account_truncating();
+
+		Balances::set_balance(&treasury, 1000 * UNIT);
+		assert_ok!(CollatorManager::set_collator_reward(RuntimeOrigin::root(), reward_amount));
+
+		let author_initial_balance = Balances::free_balance(&ALICE);
+		let treasury_initial_balance = Balances::free_balance(&treasury);
+
+		CollatorManager::note_author(ALICE);
+
+		let author_final_balance = Balances::free_balance(&ALICE);
+		let treasury_final_balance = Balances::free_balance(&treasury);
+
+		assert_eq!(author_final_balance, author_initial_balance + reward_amount);
+		assert_eq!(treasury_final_balance, treasury_initial_balance - reward_amount);
+	});
+}
+
+#[test]
+fn register_controller_works() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let controller = BOB;
+
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+
+		assert_eq!(
+			pallet_collator_manager::Controller::<Test>::get(&stash),
+			Some(controller.clone())
+		);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&controller), Some(stash));
+	});
+}
+
+#[test]
+fn set_controller_works() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let old_controller = BOB;
+		let new_controller = CHARLIE;
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			old_controller.clone()
+		));
+
+		assert_ok!(CollatorManager::set_controller(
+			RuntimeOrigin::signed(stash.clone()),
+			new_controller.clone()
+		));
+
+		assert_eq!(
+			pallet_collator_manager::Controller::<Test>::get(&stash),
+			Some(new_controller.clone())
+		);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&old_controller), None);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&new_controller), Some(stash));
+	});
+}
+
+#[test]
+fn deregister_works() {
+	new_test_ext().execute_with(|| {
+		let stash = ALICE;
+		let controller = BOB;
+		assert_ok!(CollatorManager::reserve(&stash, 100 * UNIT));
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(stash.clone()),
+			controller.clone()
+		));
+
+		assert_ok!(CollatorManager::deregister(RuntimeOrigin::signed(stash.clone())));
+
+		assert_eq!(pallet_collator_manager::Controller::<Test>::get(&stash), None);
+		assert_eq!(pallet_collator_manager::Stash::<Test>::get(&controller), None);
 	});
 }

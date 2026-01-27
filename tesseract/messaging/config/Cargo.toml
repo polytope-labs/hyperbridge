@@ -8,6 +8,9 @@ publish = false
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-evm = { workspace = true }
+tesseract-evm-tendermint = { workspace = true }
+tesseract-substrate-evm = { workspace = true }
+tendermint-primitives = { workspace = true, default-features = false }
 
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }

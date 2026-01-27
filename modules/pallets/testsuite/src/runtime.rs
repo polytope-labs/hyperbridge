@@ -42,9 +42,13 @@ use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
 use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
-	frame_support::{traits::LockIdentifier, weights::WeightToFee},
+	frame_support::{
+		traits::{FindAuthor, LockIdentifier},
+		weights::WeightToFee,
+	},
 	pallet_session::{disabling::UpToLimitDisablingStrategy, SessionHandler},
 	sp_runtime::{app_crypto::AppCrypto, traits::OpaqueKeys, Weight},
+	xcm_simulator::{GeneralIndex, Junctions::X3, Location, PalletInstance, Parachain},
 };
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
@@ -60,8 +64,9 @@ use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
 use pallet_messaging_fees::types::PriceOracle;
+use polkadot_sdk::frame_support::dispatch::DispatchClass;
 use substrate_state_machine::SubstrateStateMachine;
-
+use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 pub const BOB: AccountId32 = AccountId32::new([2; 32]);
 pub const CHARLIE: AccountId32 = AccountId32::new([3; 32]);
@@ -105,6 +110,8 @@ frame_support::construct_runtime!(
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
 		CollatorManager: pallet_collator_manager,
+		MsgQueue: mock_message_queue,
+		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
 		IsmpBeefy: ismp_beefy,
 	}
@@ -178,6 +185,18 @@ impl pallet_sudo::Config for Test {
 	type WeightInfo = ();
 }
 
+parameter_types! {
+	pub TestBlockWeights: frame_system::limits::BlockWeights =
+		frame_system::limits::BlockWeights::builder()
+			.base_block(Weight::from_parts(10_000_000, 0))
+			.for_class(DispatchClass::all(), |w| {
+				w.base_extrinsic = Weight::from_parts(5_000_000, 0);
+				w.max_total = Some(Weight::from_parts(2_000_000_000_000, u64::MAX));
+			})
+			.build()
+			.unwrap();
+}
+
 #[derive_impl(frame_system::config_preludes::ParaChainDefaultConfig as frame_system::DefaultConfig)]
 impl frame_system::Config for Test {
 	type BaseCallFilter = frame_support::traits::Everything;
@@ -190,7 +209,7 @@ impl frame_system::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
 	type BlockHashCount = ConstU64<250>;
 	type DbWeight = ();
-	type BlockWeights = ();
+	type BlockWeights = TestBlockWeights;
 	type RuntimeTask = ();
 	type BlockLength = ();
 	type Version = ();
@@ -371,6 +390,24 @@ impl pallet_collator_manager::Config for Test {
 	type Balance = Balance;
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
+	type TreasuryAccount = TreasuryAccount;
+	type AdminOrigin = EnsureRoot<AccountId32>;
+	type IncentivesManager = MessagingRelayerIncentives;
+	type WeightInfo = ();
+}
+
+pub struct MockFindAuthor;
+impl FindAuthor<AccountId32> for MockFindAuthor {
+	fn find_author<'a, I>(_digests: I) -> Option<AccountId32>
+	where
+		I: 'a + IntoIterator<Item = (frame_support::ConsensusEngineId, &'a [u8])>,
+	{
+		None
+	}
+}
+impl pallet_authorship::Config for Test {
+	type FindAuthor = MockFindAuthor;
+	type EventHandler = CollatorManager;
 }
 
 impl pallet_token_gateway_inspector::Config for Test {

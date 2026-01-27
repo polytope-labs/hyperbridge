@@ -19,11 +19,10 @@
 
 extern crate alloc;
 
-use alloy_sol_types::SolValue;
 use ismp::router::PostRequest;
 use polkadot_sdk::*;
 
-use alloc::{format, vec};
+use alloc::format;
 use primitive_types::{H256, U256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -32,10 +31,11 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloy_sol_types::SolType;
 	use frame_support::{pallet_prelude::*, Blake2_128Concat};
 
 	use ismp::host::StateMachine;
-	use pallet_token_gateway::types::Body;
+	use pallet_token_gateway::types::{Body, BodyWithCall};
 	use pallet_token_governor::StandaloneChainAssets;
 	use polkadot_sdk::{
 		frame_support::dispatch::DispatchResult, frame_system::pallet_prelude::OriginFor,
@@ -102,8 +102,29 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		pub fn is_token_gateway_request(body: &[u8]) -> Option<Body> {
-			Body::abi_decode(&mut &body[1..], true).ok()
+		pub fn is_token_gateway_request(body: &[u8]) -> Option<(H256, U256)> {
+			// Body has 5 fixed-size fields (uint256 + bytes32 + bool + bytes32 + bytes32) = 160
+			// bytes BodyWithCall adds dynamic bytes field, so it will be > 160 bytes
+			// Check length first to avoid trial-and-error decoding
+			if body.len() > pallet_token_gateway::types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+				if let Ok(body) = <BodyWithCall as SolType>::abi_decode(&mut &body[1..]) {
+					log::trace!("Decoded BodyWithCall: {body:#?}");
+					return Some((
+						H256::from(body.asset_id.0),
+						U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					));
+				}
+			} else if body.len() == pallet_token_gateway::types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR
+			{
+				if let Ok(body) = <Body as SolType>::abi_decode_validate(&mut &body[1..]) {
+					log::trace!("Decoded Body: {body:#?}");
+					return Some((
+						H256::from(body.asset_id.0),
+						U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					));
+				}
+			}
+			None
 		}
 
 		pub fn inspect_request(post: &PostRequest) -> Result<(), ismp::Error> {
@@ -116,12 +137,11 @@ pub mod pallet {
 				return Ok(());
 			}
 
-			if let Some(body) = Self::is_token_gateway_request(&body) {
+			if let Some((asset_id, amount)) = Self::is_token_gateway_request(&body) {
 				// There's no need to record when the destination is EVM because we don't perform
 				// the balance check when the source is EVM
 				if !dest.is_evm() {
-					InflowBalances::<T>::try_mutate(dest, H256::from(body.asset_id.0), |val| {
-						let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
+					InflowBalances::<T>::try_mutate(dest, asset_id, |val| {
 						*val += amount;
 						Ok::<_, ()>(())
 					})
@@ -133,20 +153,18 @@ pub mod pallet {
 				}
 
 				let is_native =
-					StandaloneChainAssets::<T>::get(source, H256::from(body.asset_id.0))
-						.unwrap_or_default();
+					StandaloneChainAssets::<T>::get(source, asset_id).unwrap_or_default();
 				// We don't check when the source is EVM because the contract issuing the request
 				// cannot be malicious, And if there's a consensus fault, it will be caught by
 				// fishermen during the challenge period
 				if !is_native && !source.is_evm() {
-					let balance = InflowBalances::<T>::get(source, H256::from(body.asset_id.0));
-					let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
+					let balance = InflowBalances::<T>::get(source, asset_id);
 					if amount > balance {
 						Err(ismp::Error::Custom(format!("Illegal Token Gateway request")))?;
 						Pallet::<T>::deposit_event(Event::<T>::IllegalRequest { source })
 					}
 
-					InflowBalances::<T>::try_mutate(source, H256::from(body.asset_id.0), |val| {
+					InflowBalances::<T>::try_mutate(source, asset_id, |val| {
 						*val -= amount;
 						Ok::<_, ()>(())
 					})
@@ -170,13 +188,11 @@ pub mod pallet {
 				return Ok(());
 			}
 
-			if let Some(body) = Self::is_token_gateway_request(&body) {
+			if let Some((asset_id, amount)) = Self::is_token_gateway_request(&body) {
 				let is_native =
-					StandaloneChainAssets::<T>::get(source, H256::from(body.asset_id.0))
-						.unwrap_or_default();
+					StandaloneChainAssets::<T>::get(source, asset_id).unwrap_or_default();
 				if !is_native && !source.is_evm() {
-					InflowBalances::<T>::try_mutate(source, H256::from(body.asset_id.0), |val| {
-						let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
+					InflowBalances::<T>::try_mutate(source, asset_id, |val| {
 						*val += amount;
 						Ok::<_, ()>(())
 					})
@@ -188,8 +204,7 @@ pub mod pallet {
 				}
 
 				if !dest.is_evm() {
-					InflowBalances::<T>::try_mutate(dest, H256::from(body.asset_id.0), |val| {
-						let amount = U256::from_big_endian(&body.amount.to_be_bytes::<32>());
+					InflowBalances::<T>::try_mutate(dest, asset_id, |val| {
 						*val -= amount;
 						Ok::<_, ()>(())
 					})

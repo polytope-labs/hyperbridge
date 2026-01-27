@@ -2,11 +2,7 @@
 
 use codec::{Decode, Encode};
 use polkadot_sdk::{
-	frame_support::traits::{
-		fungible::{Inspect, Mutate},
-		Get,
-	},
-	pallet_session::SessionHandler,
+	frame_support::traits::fungible::{Inspect, Mutate},
 	sp_runtime::{
 		traits::{AccountIdConversion, OpaqueKeys},
 		KeyTypeId, Weight,
@@ -26,7 +22,7 @@ use ismp::{
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_ismp_relayer::withdrawal::Signature;
-use pallet_messaging_fees::TotalBytesProcessed;
+use pallet_messaging_fees::{IncentivesManager, TotalBytesProcessed};
 
 use crate::{
 	runtime::{
@@ -372,13 +368,7 @@ fn test_on_new_session_resets_state() {
 		TotalBytesProcessed::<Test>::put(500);
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 500);
 
-		let validators: Vec<(AccountId32, MockOpaqueKeys)> = vec![];
-		let queued_validators: Vec<(AccountId32, MockOpaqueKeys)> = vec![];
-		pallet_messaging_fees::Pallet::<Test>::on_new_session(
-			true,
-			&validators,
-			&queued_validators,
-		);
+		pallet_messaging_fees::Pallet::<Test>::reset_incentives();
 
 		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
 	});

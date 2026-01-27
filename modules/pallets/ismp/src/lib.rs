@@ -56,8 +56,6 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::{BlockNumberFor, *};
-	#[cfg(feature = "unsigned")]
-	use ismp::messaging::Message;
 	use ismp::{
 		consensus::{
 			ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineHeight,
@@ -66,17 +64,16 @@ pub mod pallet {
 		events::{RequestResponseHandled, TimeoutHandled},
 		handlers,
 		host::{IsmpHost, StateMachine},
-		messaging::CreateConsensusState,
+		messaging::{CreateConsensusState, Message},
 		router::IsmpRouter,
 	};
 	use sp_core::{storage::ChildInfo, H256};
-	#[cfg(feature = "unsigned")]
-	use sp_runtime::transaction_validity::{
-		InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
-		ValidTransaction,
-	};
 	use sp_runtime::{
 		traits::{AccountIdConversion, AtLeast32BitUnsigned},
+		transaction_validity::{
+			InvalidTransaction, TransactionSource, TransactionValidity, TransactionValidityError,
+			ValidTransaction,
+		},
 		FixedPointOperand,
 	};
 	use sp_std::prelude::*;
@@ -301,7 +298,6 @@ pub mod pallet {
 		/// - `messages`: the messages to handle or process.
 		///
 		/// Emits different message events based on the Message received if successful.
-		#[cfg(feature = "unsigned")]
 		#[pallet::weight(weight())]
 		#[pallet::call_index(0)]
 		#[frame_support::transactional]
@@ -504,7 +500,6 @@ pub mod pallet {
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.
-	#[cfg(feature = "unsigned")]
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T> {
 		type Call = Call<T>;
@@ -516,7 +511,7 @@ pub mod pallet {
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			use ismp::{
-				messaging::{hash_request, ConsensusMessage, FraudProofMessage, RequestMessage},
+				messaging::{hash_request, FraudProofMessage, RequestMessage},
 				router::Request,
 			};
 			let messages = match call {
@@ -524,14 +519,32 @@ pub mod pallet {
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
-			Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
+			let events =
+				Self::execute(messages.clone()).map_err(|_| InvalidTransaction::BadProof)?;
+
+			if let Some((state_machine_id, latest_height)) = events.iter().find_map(|event| {
+				if let ismp::events::Event::StateMachineUpdated(state_machine_updated_event) = event
+				{
+					Some((
+						state_machine_updated_event.state_machine_id.clone(),
+						state_machine_updated_event.latest_height,
+					))
+				} else {
+					None
+				}
+			}) {
+				return Ok(ValidTransaction {
+					priority: latest_height,
+					requires: vec![],
+					provides: vec![sp_io::hashing::keccak_256(&state_machine_id.encode()).to_vec()],
+					longevity: 25,
+					propagate: true,
+				});
+			}
 
 			let mut requests = messages
 				.into_iter()
 				.map(|message| match message {
-					Message::Consensus(ConsensusMessage { consensus_proof, .. }) => {
-						vec![H256(sp_io::hashing::keccak_256(&consensus_proof))]
-					},
 					Message::FraudProof(FraudProofMessage { proof_1, proof_2, .. }) => vec![
 						H256(sp_io::hashing::keccak_256(&proof_1)),
 						H256(sp_io::hashing::keccak_256(&proof_2)),
@@ -550,9 +563,14 @@ pub mod pallet {
 						.iter()
 						.map(|request| hash_request::<Pallet<T>>(request))
 						.collect::<Vec<_>>(),
+					_ => vec![],
 				})
 				.collect::<Vec<_>>();
 			requests.sort();
+
+			if requests.is_empty() {
+				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
+			}
 
 			// this is so we can reject duplicate batches at the mempool level
 			let msg_hash = sp_io::hashing::keccak_256(&requests.encode()).to_vec();

@@ -24,7 +24,7 @@ frame-benchmarking = { workspace = true, optional = true }
 
 # local modules
 ismp = { workspace = true }
-pallet-ismp = { workspace = true, features = ["unsigned"] }
+pallet-ismp = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-ismp-demo = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
@@ -37,6 +37,7 @@ pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
+pallet-intents-coprocessor = { workspace = true }
 pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-mmr-tree = { workspace = true }
@@ -49,6 +50,10 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-tendermint = { workspace = true }
+pallet-messaging-fees = { workspace = true }
+evm-state-machine = { workspace = true }
+substrate-state-machine = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -107,7 +112,8 @@ features = [
     "pallet-collator-selection",
     "staging-parachain-info",
     "parachains-common",
-    "pallet-vesting"
+    "pallet-vesting",
+    "sp-weights"
 ]
 
 [features]
@@ -132,6 +138,7 @@ std = [
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
     "pallet-state-coprocessor/std",
+    "pallet-intents-coprocessor/std",
     "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",
@@ -146,6 +153,10 @@ std = [
     "ismp-arbitrum/std",
     "ismp-optimism/std",
     "ismp-polygon/std",
+    "ismp-tendermint/std",
+    "pallet-messaging-fees/std",
+    "evm-state-machine/std",
+    "substrate-state-machine/std"
 ]
 runtime-benchmarks = [
     "hex-literal",
@@ -154,6 +165,8 @@ runtime-benchmarks = [
     "polkadot-sdk/runtime-benchmarks",
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
+    "pallet-messaging-fees/runtime-benchmarks",
+    "pallet-intents-coprocessor/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

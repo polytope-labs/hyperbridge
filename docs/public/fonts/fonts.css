@@ -1,0 +1,113 @@
+@font-face {
+    font-family: Aeonik;
+    font-weight: 700;
+    src: url("/fonts/Aeonik-Bold.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 700;
+    font-style: italic;
+    src: url("/fonts/Aeonik-BoldItalic.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 300;
+    src: url("/fonts/Aeonik-Light.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 300;
+    font-style: italic;
+    src: url("/fonts/Aeonik-LightItalic.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 400;
+    src: url("/fonts/Aeonik-Regular.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 400;
+    font-style: italic;
+    src: url("/fonts/Aeonik-RegularItalic.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 500;
+    src: url("/fonts/Aeonik-Medium.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: Aeonik;
+    font-weight: 500;
+    font-style: italic;
+    src: url("/fonts/Aeonik-MediumItalic.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: AeonikMono;
+    font-weight: 400;
+    src: url("/fonts/AeonikMono-Regular.woff2") format("woff2");
+    font-display: swap;
+    font-size-adjust: cap-height 0.7;
+}
+
+@font-face {
+    font-family: AeonikMono;
+    font-weight: 500;
+    src: url("/fonts/AeonikMono-Medium.woff2") format("woff2");
+    font-display: swap;
+    font-size-adjust: cap-height 0.7;
+}
+
+@font-face {
+    font-family: LatinModern1959;
+    src: url("/fonts/latinmodern-math.otf") format("opentype");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: BerkeleyMono;
+    font-weight: 400;
+    font-style: normal;
+    src: url("/fonts/BerkeleyMono-Regular.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: BerkeleyMono;
+    font-weight: 700;
+    font-style: normal;
+    src: url("/fonts/BerkeleyMono-Bold.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: BerkeleyMono;
+    font-weight: 400;
+    font-style: italic;
+    src: url("/fonts/BerkeleyMono-Italic.woff2") format("woff2");
+    font-display: swap;
+}
+
+@font-face {
+    font-family: BerkeleyMonoVariable;
+    font-weight: 100 900;
+    font-style: normal;
+    src: url("/fonts/BerkeleyMonoVariable-Regular.woff2") format("woff2");
+    font-display: swap;
+}

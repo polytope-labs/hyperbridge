@@ -241,7 +241,7 @@ impl AccumulateFees {
 						// lets try to deliver any pending requests in the db
 						let (pending_withdrawals, ids): (Vec<_>, Vec<_>) = tx.pending_withdrawals(&chain).await?.into_iter().unzip();
 						for pending in pending_withdrawals {
-							deliver_post_request(client.clone(), &hyperbridge, pending).await?;
+							deliver_post_request(client.clone(), &hyperbridge, vec![pending]).await?;
 						}
 						// can this fail?
 						if let Err(e) = tx.delete_pending_withdrawals(ids).await {
@@ -260,16 +260,16 @@ impl AccumulateFees {
 							"Submitting withdrawal request to {chain}  for amount ${}",
 							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
-						let result = hyperbridge
+						let results = hyperbridge
 							.withdraw_funds(client.clone(), chain)
 							.await?;
 						log::info!("Request submitted to hyperbridge successfully");
 						log::info!("Starting delivery of withdrawal message to {}", chain);
 						// Wait for state machine update
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
-						let ids = tx.store_pending_withdrawals(vec![result.clone()]).await?;
+						let ids = tx.store_pending_withdrawals(results.clone()).await?;
 
-						match deliver_post_request(client.clone(), &hyperbridge, result.clone()).await {
+						match deliver_post_request(client.clone(), &hyperbridge, results.clone()).await {
 							Ok(_) => {
 								if let Err(e) = tx.delete_pending_withdrawals(ids).await {
 									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
@@ -330,7 +330,7 @@ where
 						// lets try to deliver any pending requests in the db
 						let (pending_withdrawals, ids): (Vec<_>, Vec<_>) = moved_db.pending_withdrawals(&chain).await?.into_iter().unzip();
 						for pending in pending_withdrawals {
-							deliver_post_request(client.clone(), &hyperbridge, pending).await?;
+							deliver_post_request(client.clone(), &hyperbridge, vec![pending]).await?;
 						}
 						// can this fail?
 						if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
@@ -355,16 +355,16 @@ where
 							"Submitting withdrawal request to hyperbridge for amount ${} on {chain}",
 							amount / U256::from(10u128.pow(fee_token_decimals.into()))
 						);
-						let result = hyperbridge
+						let results = hyperbridge
 							.withdraw_funds(client.clone(), chain)
 							.await?;
 						tracing::info!("Request submitted to hyperbridge successfully");
 						tracing::info!("Starting delivery of withdrawal message to {}", chain);
 
 						// persist the withdrawal in-case delivery fails, so it's not lost forever
-						let ids = moved_db.store_pending_withdrawals(vec![result.clone()]).await?;
+						let ids = moved_db.store_pending_withdrawals(results.clone()).await?;
 
-						match deliver_post_request(client.clone(), &hyperbridge, result.clone()).await {
+						match deliver_post_request(client.clone(), &hyperbridge, results.clone()).await {
 							Ok(_) => {
 								if let Err(e) = moved_db.delete_pending_withdrawals(ids).await {
 									tracing::error!("Error encountered while deleting pending withdrawals from the db: {e:?}, \n NOTE: The withdrawal request was successfully delivered.");
@@ -393,16 +393,25 @@ where
 async fn deliver_post_request<D: IsmpProvider>(
 	dest_chain: Arc<dyn IsmpProvider>,
 	hyperbridge: &D,
-	result: WithdrawFundsResult,
+	results: Vec<WithdrawFundsResult>,
 ) -> anyhow::Result<()> {
+	if results.is_empty() {
+		return Ok(());
+	}
+	let max_block = results
+		.iter()
+		.map(|r| r.block)
+		.max()
+		.expect("Cannot be empty, checked in previous  block");
+
 	let mut latest_height =
 		dest_chain.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
 
-	if result.block > latest_height {
+	if max_block > latest_height {
 		// then we have to wait
 		log::info!(
 			"Waiting for state machine update that finalizes withdraw height: {}",
-			result.block
+			max_block
 		);
 		let mut stream = dest_chain
 			.state_machine_update_notification(hyperbridge.state_machine_id())
@@ -411,7 +420,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 		latest_height = loop {
 			match stream.next().await {
 				Some(Ok(event)) =>
-					if event.latest_height < result.block {
+					if event.latest_height < max_block {
 						continue;
 					} else {
 						log::info!("Found a state machine update: {}", event.latest_height);
@@ -428,19 +437,24 @@ async fn deliver_post_request<D: IsmpProvider>(
 		};
 	}
 
-	let query = Query {
-		source_chain: result.post.source,
-		dest_chain: result.post.dest,
-		nonce: result.post.nonce,
-		commitment: hash_request::<Hasher>(&Request::Post(result.post.clone())),
-	};
+	let queries = results
+		.iter()
+		.map(|result| Query {
+			source_chain: result.post.source,
+			dest_chain: result.post.dest,
+			nonce: result.post.nonce,
+			commitment: hash_request::<Hasher>(&Request::Post(result.post.clone())),
+		})
+		.collect::<Vec<_>>();
+
+	let requests = results.iter().map(|r| r.post.clone()).collect::<Vec<_>>();
 	log::info!("Querying request proof from hyperbridge at {}", latest_height);
 	let proof = hyperbridge
-		.query_requests_proof(latest_height, vec![query], dest_chain.state_machine_id().state_id)
+		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
 		.await?;
 	log::info!("Successfully queried request proof from hyperbridge");
 	let msg = RequestMessage {
-		requests: vec![result.post.clone()],
+		requests,
 		proof: Proof {
 			height: StateMachineHeight {
 				id: hyperbridge.state_machine_id(),

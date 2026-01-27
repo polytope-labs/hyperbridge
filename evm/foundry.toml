@@ -2,20 +2,28 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-auto_detect_solc = true
+auto_detect_solc = false
+solc = "0.8.30"
 optimizer = true
-evm_version = "paris"
-# via-ir = true
+evm_version = "cancun"
+via-ir = true
+fs_permissions = [{ access = "read-write", path = "./"}]
+
+[profile.ci]
+
+[lint]
+lint_on_build = false
 
 [rpc_endpoints]
 # testnet
-ethereum-sepolia = "${SEPOLIA_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
 optimism-sepolia = "${OPTIMISM_SEPOLIA_RPC_URL}"
 arbitrum-sepolia = "${ARBITRUM_SEPOLIA_RPC_URL}"
 base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 polygon-amoy = "${POLYGON_AMOY_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
-gnosis-chiado = "${CHIADO_RPC_URL}"
+gnosis-chiado = "${GNOSIS_CHIADO_RPC_URL}"
+sei-testnet = "${SEI_TESTNET_RPC_URL}"
 
 # mainnet
 ethereum = "${ETHEREUM_RPC_URL}"
@@ -28,16 +36,18 @@ soneium = "${SONEIUM_RPC_URL}"
 polygon = "${POLYGON_RPC_URL}"
 unichain = "${UNICHAIN_RPC_URL}"
 inkchain = "${INKCHAIN_RPC_URL}"
+sei = "${SEI_RPC_URL}"
 
 [etherscan]
 # testnet
-ethereum-sepolia = { chain = 11155111, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+sepolia = { chain = 11155111, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 optimism-sepolia = { chain = 11155420, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 arbitrum-sepolia = { chain = 421614, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 base-sepolia = { chain = 84532, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 polygon-amoy = { chain = 80002, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 bsc-testnet = { chain = 97, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 gnosis-chiado = { chain = 10200, key = "${GNOSIS_BLOCKSCOUT_API_KEY}",url = "https://gnosis-chiado.blockscout.com/api" }
+sei-testnet = { chain = 1328, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 
 # mainnet
 ethereum = { chain = 1, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
@@ -50,3 +60,4 @@ soneium = { chain = 1868, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://ap
 polygon = { chain = 137, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 unichain = { chain = 130, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 inkchain = { chain = 57073, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+sei = { chain = 1329, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }

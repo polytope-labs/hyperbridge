@@ -1,6 +1,6 @@
 [package]
 name = "hyperbridge"
-version = "1.4.0"
+version = "1.4.1"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
 repository = "https://github.com/polytope-labs/hyperbridge"

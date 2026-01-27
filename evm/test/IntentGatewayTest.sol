@@ -4,10 +4,21 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {IntentGateway, RequestBody, Order, Params, PaymentInfo, TokenInfo, FillOptions, CancelOptions, NewDeployment} from "../src/modules/IntentGateway.sol";
+import {
+    IntentGateway,
+    RequestBody,
+    Order,
+    Params,
+    PaymentInfo,
+    TokenInfo,
+    FillOptions,
+    CancelOptions,
+    NewDeployment
+} from "../src/apps/IntentGateway.sol";
 
-import {IncomingPostRequest, IncomingGetResponse, BaseIsmpModule} from "@polytope-labs/ismp-solidity-v1/IIsmpModule.sol";
-import {PostRequest, GetResponse, GetRequest} from "@polytope-labs/ismp-solidity-v1/Message.sol";
+import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
+import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
+import {PostRequest, GetResponse, GetRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -48,18 +59,17 @@ contract IntentGatewayTest is MainnetForkBaseTest {
             amount: 1 ether
         });
 
-        return
-            Order({
-                user: bytes32(uint256(uint160(address(this)))),
-                sourceChain: host.host(),
-                nonce: 0,
-                destChain: bytes("EVM-1"),
-                deadline: block.number + 100,
-                fees: 0,
-                outputs: outputs,
-                inputs: inputs,
-                callData: callData
-            });
+        return Order({
+            user: bytes32(uint256(uint160(address(this)))),
+            sourceChain: host.host(),
+            nonce: 0,
+            destChain: bytes("EVM-1"),
+            deadline: block.number + 10000,
+            fees: 0,
+            outputs: outputs,
+            inputs: inputs,
+            callData: callData
+        });
     }
 
     /**
@@ -95,28 +105,32 @@ contract IntentGatewayTest is MainnetForkBaseTest {
         vm.expectRevert(IntentGateway.WrongChain.selector);
         intentGateway.fillOrder{value: 2 ether}(order1, FillOptions({relayerFee: 0}));
 
-        uint256 initial = block.number;
+        // Test InsufficientNativeToken before expiration
+        vm.expectRevert(IntentGateway.InsufficientNativeToken.selector);
+        intentGateway.fillOrder{value: 0.9 ether}(order, FillOptions({relayerFee: 0}));
+
+        // Test expiration
         vm.roll(order.deadline + 1);
         assertEq(block.number, order.deadline + 1);
         vm.expectRevert(IntentGateway.Expired.selector);
         intentGateway.fillOrder{value: 2 ether}(order, FillOptions({relayerFee: 0}));
-        vm.roll(initial);
 
-        vm.expectRevert(IntentGateway.InsufficientNativeToken.selector);
-        intentGateway.fillOrder{value: 0.9 ether}(order, FillOptions({relayerFee: 0}));
+        // Create and place a fresh order for successful fill test
+        Order memory order2 = createTestOrder(bytes(""));
+        intentGateway.placeOrder{value: 1 ether}(order2, bytes32(""));
 
-        // Fill the order
+        // Fill the fresh order
         vm.prank(filler);
-        intentGateway.fillOrder{value: 2 ether}(order, FillOptions({relayerFee: 0}));
+        intentGateway.fillOrder{value: 2 ether}(order2, FillOptions({relayerFee: 0}));
 
         vm.expectRevert(IntentGateway.Filled.selector);
-        intentGateway.cancelOrder{value: 1 ether}(order, CancelOptions({relayerFee: 0, height: order.deadline + 1}));
+        intentGateway.cancelOrder{value: 1 ether}(order2, CancelOptions({relayerFee: 0, height: order2.deadline + 1}));
 
         // Construct storage value for filled request
         bytes memory context = abi.encode(
             RequestBody({
-                commitment: keccak256(abi.encode(order)),
-                tokens: order.inputs,
+                commitment: keccak256(abi.encode(order2)),
+                tokens: order2.inputs,
                 beneficiary: bytes32(uint256(uint160(address(this))))
             })
         );
@@ -145,7 +159,9 @@ contract IntentGatewayTest is MainnetForkBaseTest {
         );
 
         // Check the balances
-        assertEq(address(this).balance, 100 ether);
+        // Test contract placed 2 orders (2 ether total)
+        assertEq(address(this).balance, 99 ether);
+        // Filler spent 2 ether to fill and received 1 ether from escrow
         assertEq(filler.balance, 98 ether);
     }
 
@@ -185,7 +201,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
             timeoutTimestamp: 0
         });
 
-        vm.expectRevert(BaseIsmpModule.UnauthorizedCall.selector);
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
         request.from = abi.encodePacked(bytes32(uint256(uint160(address(intentGateway)))));
@@ -261,10 +277,8 @@ contract IntentGatewayTest is MainnetForkBaseTest {
 
     function testCrossChainGovernance() public {
         // Add new contract deployments
-        NewDeployment memory deployment = NewDeployment({
-            stateMachineId: bytes("EVM-5"),
-            gateway: bytes32(uint256(uint160(address(0xdeadbeef))))
-        });
+        NewDeployment memory deployment =
+            NewDeployment({stateMachineId: bytes("EVM-5"), gateway: bytes32(uint256(uint160(address(0xdeadbeef))))});
         bytes memory data = abi.encode(deployment);
         bytes memory hostId = host.host();
         PostRequest memory newDeploymentRequest = PostRequest({

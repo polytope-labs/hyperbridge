@@ -1,0 +1,469 @@
+---
+title: EvmChain
+description: API reference for EvmChain - interact with EVM-compatible chains in the Hyperbridge protocol.
+---
+
+# EvmChain
+
+The `EvmChain` class provides methods for interacting with EVM-compatible chains (Ethereum, Arbitrum, Optimism, Base, etc.) in the Hyperbridge protocol. It handles proof generation, state queries, and cross-chain message verification.
+
+```typescript lineNumbers
+class EvmChain implements IChain
+```
+
+## Constructor
+
+### new EvmChain(params)
+
+Creates a new EvmChain instance for an EVM-compatible blockchain.
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.chainId` | `number` | The EVM chain ID (e.g., 1 for Ethereum, 42161 for Arbitrum) |
+| `params.rpcUrl` | `string` | RPC URL for the chain (must be an archive node for proof queries) |
+| `params.host` | `HexString` | Address of the IsmpHost contract on this chain |
+| `params.consensusStateId` | `string` | Optional. Consensus state identifier on Hyperbridge (auto-detected for known chains) |
+
+**Returns:** `EvmChain`
+
+**Example:**
+
+```typescript lineNumbers
+import { EvmChain } from "@hyperbridge/sdk"
+
+const ethereumChain = new EvmChain({
+  chainId: 1,
+  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  host: "0x87ea459...",
+  consensusStateId: "ETH0" // Optional, auto-detected for Ethereum
+})
+
+const arbitrumChain = new EvmChain({
+  chainId: 42161,
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  host: "0x42fa123..."
+})
+```
+
+---
+
+## Properties
+
+### client
+
+The underlying Viem PublicClient instance used for blockchain interactions.
+
+**Type:** `PublicClient`
+
+**Example:**
+
+```typescript lineNumbers
+const block = await evmChain.client.getBlock({ blockTag: "latest" })
+```
+
+---
+
+### host
+
+The IsmpHost contract address on this chain.
+
+**Type:** `HexString`
+
+**Example:**
+
+```typescript lineNumbers
+console.log(`Host address: ${evmChain.host}`)
+```
+
+---
+
+### config
+
+Returns the chain configuration object.
+
+**Type:** `IEvmConfig`
+
+**Returns:**
+
+```typescript lineNumbers
+{
+  rpcUrl: string
+  stateMachineId: string // Format: "EVM-{chainId}"
+  host: HexString
+  consensusStateId: string
+}
+```
+
+---
+
+### configService
+
+The chain configuration service for managing protocol parameters.
+
+**Type:** `ChainConfigService`
+
+---
+
+## Functions
+
+### requestReceiptKey()
+
+Derives the storage key for a request receipt in the IsmpHost contract.
+
+```typescript lineNumbers
+requestReceiptKey(commitment: HexString): HexString
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `commitment` | `HexString` | The request commitment hash |
+
+**Returns:** `HexString` - The storage key for the request receipt
+
+---
+
+### queryRequestReceipt()
+
+Queries the request receipt to determine if a request has been delivered and by whom.
+
+```typescript lineNumbers
+async queryRequestReceipt(commitment: HexString): Promise<HexString | undefined>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `commitment` | `HexString` | The request commitment hash |
+
+**Returns:** `Promise<HexString | undefined>` - The relayer address that delivered the request, or `undefined` if not yet delivered
+
+**Example:**
+
+```typescript lineNumbers
+const relayer = await evmChain.queryRequestReceipt(commitmentHash)
+if (relayer) {
+  console.log(`Request delivered by: ${relayer}`)
+} else {
+  console.log("Request not yet delivered")
+}
+```
+
+---
+
+### queryProof()
+
+Queries cryptographic proofs for cross-chain message verification.
+
+```typescript lineNumbers
+async queryProof(
+  message: IMessage, 
+  counterparty: string, 
+  at?: bigint
+): Promise<HexString>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `message` | `IMessage` | The message containing requests or responses |
+| `counterparty` | `string` | The counterparty chain's state machine ID |
+| `at` | `bigint` | Optional. Block number to query at (defaults to latest) |
+
+**Returns:** `Promise<HexString>` - Encoded EVM state proof
+
+**Note:** This generates Merkle-Patricia trie proofs for the EVM state
+
+---
+
+### queryStateProof()
+
+Queries storage proofs for specific keys at a given block height.
+
+```typescript lineNumbers
+async queryStateProof(
+  at: bigint, 
+  keys: HexString[], 
+  address?: HexString
+): Promise<HexString>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `at` | `bigint` | Block number to query at |
+| `keys` | `HexString[]` | Storage keys to fetch proofs for |
+| `address` | `HexString` | Optional. Contract address (defaults to host contract) |
+
+**Returns:** `Promise<HexString>` - Encoded storage proof
+
+**Example:**
+
+```typescript lineNumbers
+const proof = await evmChain.queryStateProof(
+  18000000n,
+  ["0x1234...", "0x5678..."],
+  "0xContractAddress..."
+)
+```
+
+---
+
+### timestamp()
+
+Returns the current timestamp of the chain according to the IsmpHost contract.
+
+```typescript lineNumbers
+async timestamp(): Promise<bigint>
+```
+
+**Returns:** `Promise<bigint>` - Current timestamp in seconds
+
+**Example:**
+
+```typescript lineNumbers
+const currentTime = await evmChain.timestamp()
+console.log(`Chain time: ${currentTime}`)
+```
+
+---
+
+### latestStateMachineHeight()
+
+Gets the latest known height for a state machine on Hyperbridge as recorded on this chain.
+
+```typescript lineNumbers
+async latestStateMachineHeight(
+  stateMachineId: StateMachineIdParams
+): Promise<bigint>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `stateMachineId` | `StateMachineIdParams` | The state machine identifier (Polkadot or Kusama) |
+
+**Returns:** `Promise<bigint>` - Latest state machine height
+
+**Example:**
+
+```typescript lineNumbers
+const height = await evmChain.latestStateMachineHeight({
+  stateId: { Polkadot: 3367 }
+})
+console.log(`Latest Hyperbridge height: ${height}`)
+```
+
+---
+
+### getFeeTokenWithDecimals()
+
+Retrieves the fee token address and decimals from the IsmpHost contract.
+
+```typescript lineNumbers
+async getFeeTokenWithDecimals(): Promise<{
+  address: HexString
+  decimals: number
+}>
+```
+
+**Returns:** Promise resolving to an object with:
+- `address` - Fee token contract address
+- `decimals` - Token decimals
+
+**Example:**
+
+```typescript lineNumbers
+const { address, decimals } = await evmChain.getFeeTokenWithDecimals()
+console.log(`Fee token: ${address} (${decimals} decimals)`)
+```
+
+---
+
+### getHostNonce()
+
+Gets the current nonce from the IsmpHost contract.
+
+```typescript lineNumbers
+async getHostNonce(): Promise<bigint>
+```
+
+**Returns:** `Promise<bigint>` - The host contract's current nonce
+
+**Example:**
+
+```typescript lineNumbers
+const nonce = await evmChain.getHostNonce()
+console.log(`Host nonce: ${nonce}`)
+```
+
+---
+
+## Supported Chains
+
+The `EvmChain` class supports all EVM-compatible chains. Pre-configured defaults include:
+
+| Chain | Chain ID | Default Consensus State ID |
+|-------|----------|---------------------------|
+| Ethereum Mainnet | 1 | ETH0 |
+| Ethereum Sepolia | 11155111 | ETH0 |
+| Arbitrum One | 42161 | ETH0 |
+| Arbitrum Sepolia | 421614 | ETH0 |
+| Optimism | 10 | ETH0 |
+| Optimism Sepolia | 11155420 | ETH0 |
+| Base | 8453 | ETH0 |
+| Base Sepolia | 84532 | ETH0 |
+| Polygon | 137 | POLY |
+| Polygon Amoy | 80002 | POLY |
+| BSC | 56 | BSC0 |
+| BSC Testnet | 97 | BSC0 |
+| Gnosis | 100 | GNO0 |
+| Gnosis Chiado | 10200 | GNO0 |
+
+---
+
+## Important Notes
+
+### Archive Node Requirement
+
+**Critical:** The RPC URL must point to an archive node. Regular nodes only retain recent state and cannot provide storage proofs for older blocks, which are essential for:
+- Timeout proof generation
+- Historical state verification
+- Cross-chain message validation
+
+### Consensus State IDs
+
+Consensus state IDs identify how a chain is verified on Hyperbridge:
+- Chains using Ethereum consensus share `ETH0`
+- Polygon uses `POLY`
+- BSC uses `BSC0`
+- Gnosis uses `GNO0`
+
+For custom chains, specify the appropriate `consensusStateId` based on how the chain is configured on Hyperbridge.
+
+---
+
+## Structs
+
+### HexString
+
+A hex-encoded string prefixed with `0x`.
+
+```typescript lineNumbers
+type HexString = `0x${string}`
+```
+
+---
+
+### EvmChainParams
+
+Parameters for creating an EVM chain instance.
+
+```typescript lineNumbers
+interface EvmChainParams {
+  chainId: number
+  rpcUrl: string
+  host: HexString
+  consensusStateId?: string
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `chainId` | `number` | The EVM chain ID |
+| `rpcUrl` | `string` | RPC URL for the chain (must be an archive node) |
+| `host` | `HexString` | Address of the IsmpHost contract |
+| `consensusStateId` | `string` | Optional. Consensus state identifier on Hyperbridge |
+
+---
+
+### IEvmConfig
+
+Configuration object for an EVM chain.
+
+```typescript lineNumbers
+interface IEvmConfig {
+  rpcUrl: string
+  stateMachineId: string
+  host: HexString
+  consensusStateId: string
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rpcUrl` | `string` | RPC URL of the chain |
+| `stateMachineId` | `string` | State machine identifier (e.g., "EVM-1") |
+| `host` | `HexString` | IsmpHost contract address |
+| `consensusStateId` | `string` | Consensus state identifier on Hyperbridge |
+
+---
+
+### StateMachineIdParams
+
+Parameters identifying a state machine.
+
+```typescript lineNumbers
+interface StateMachineIdParams {
+  stateId: { 
+    Evm?: number
+    Substrate?: HexString
+    Polkadot?: number
+    Kusama?: number 
+  }
+  consensusStateId: HexString
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stateId` | `object` | State identifier (one of Evm, Substrate, Polkadot, or Kusama) |
+| `consensusStateId` | `HexString` | Consensus state identifier |
+
+---
+
+### IMessage
+
+Union type for batch requests or responses.
+
+```typescript lineNumbers
+type IMessage = 
+  | { Requests: HexString[] } 
+  | { Responses: HexString[] }
+```
+
+---
+
+### GetProofParameters
+
+Parameters for querying storage proofs.
+
+```typescript lineNumbers
+interface GetProofParameters {
+  address: HexString
+  storageKeys: HexString[]
+  blockTag?: string
+  blockNumber?: bigint
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `address` | `HexString` | Contract address to query |
+| `storageKeys` | `HexString[]` | Storage keys to fetch proofs for |
+| `blockTag` | `string` | Optional. Block tag (e.g., "latest") |
+| `blockNumber` | `bigint` | Optional. Specific block number |
+
+---
+
+## Related
+
+- [SubstrateChain](/developers/sdk/api/substrate-chain) - For Substrate-based chains
+- [IndexerClient](/developers/sdk/api/indexer-client) - For querying cross-chain request status

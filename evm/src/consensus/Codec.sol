@@ -33,16 +33,14 @@ library Codec {
         bytes memory accumulator = bytes("");
         for (uint256 i = 0; i < payloadLen; i++) {
             accumulator = bytes.concat(
-                abi.encodePacked(commitment.payload[i].id),
-                ScaleCodec.encodeBytes(commitment.payload[i].data)
+                abi.encodePacked(commitment.payload[i].id), ScaleCodec.encodeBytes(commitment.payload[i].data)
             );
         }
 
         bytes memory payload = bytes.concat(ScaleCodec.encodeUintCompact(payloadLen), accumulator);
 
         bytes memory rest = bytes.concat(
-            ScaleCodec.encode32(uint32(commitment.blockNumber)),
-            ScaleCodec.encode64(uint64(commitment.validatorSetId))
+            ScaleCodec.encode32(uint32(commitment.blockNumber)), ScaleCodec.encode64(uint64(commitment.validatorSetId))
         );
 
         return bytes.concat(payload, rest);
@@ -50,17 +48,12 @@ library Codec {
 
     // @dev SCALE-encodes the BEEFY Mmr leaf
     function Encode(PartialBeefyMmrLeaf memory leaf) internal pure returns (bytes memory) {
-        bytes memory first = bytes.concat(
-            abi.encodePacked(uint8(leaf.version)),
-            ScaleCodec.encode32(uint32(leaf.parentNumber))
-        );
-        bytes memory second = bytes.concat(
-            bytes.concat(leaf.parentHash),
-            ScaleCodec.encode64(uint64(leaf.nextAuthoritySet.id))
-        );
+        bytes memory first =
+            bytes.concat(abi.encodePacked(uint8(leaf.version)), ScaleCodec.encode32(uint32(leaf.parentNumber)));
+        bytes memory second =
+            bytes.concat(bytes.concat(leaf.parentHash), ScaleCodec.encode64(uint64(leaf.nextAuthoritySet.id)));
         bytes memory third = bytes.concat(
-            ScaleCodec.encode32(uint32(leaf.nextAuthoritySet.len)),
-            bytes.concat(leaf.nextAuthoritySet.root)
+            ScaleCodec.encode32(uint32(leaf.nextAuthoritySet.len)), bytes.concat(leaf.nextAuthoritySet.root)
         );
         return bytes.concat(bytes.concat(first, second), bytes.concat(third, bytes.concat(leaf.extra)));
     }

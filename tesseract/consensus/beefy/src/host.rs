@@ -42,6 +42,7 @@ use ismp::{
 use ismp_solidity_abi::beefy::BeefyConsensusState;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::SubstrateClient;
+use zk_beefy::BeefyProver as Sp1BeefyProverTrait;
 
 use crate::{
 	prover::{query_parachain_header, Prover, ProverConsensusState, REDIS_CONSENSUS_STATE_KEY},
@@ -59,10 +60,11 @@ pub struct BeefyHostConfig {
 
 /// The beefy host is responsible for receiving BEEFY proofs from the redis queue and submitting
 /// them to the counterparty.
-pub struct BeefyHost<R, P>
+pub struct BeefyHost<R, P, B>
 where
 	R: subxt::Config,
 	P: subxt::Config,
+	B: Sp1BeefyProverTrait,
 {
 	/// PubSub connection for receiving notifications when there are new proofs in the queue
 	pub(crate) pubsub: PubsubConnection,
@@ -71,15 +73,16 @@ where
 	/// Host configuration options
 	config: BeefyHostConfig,
 	/// Consensus prover
-	prover: Prover<R, P>,
+	prover: Prover<R, P, B>,
 	/// The underlying substrate client
 	pub client: SubstrateClient<P>,
 }
 
-impl<R, P> BeefyHost<R, P>
+impl<R, P, B> BeefyHost<R, P, B>
 where
 	R: subxt::Config,
 	P: subxt::Config,
+	B: Sp1BeefyProverTrait,
 	P: subxt::Config + Send + Sync + Clone,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
@@ -89,7 +92,7 @@ where
 	/// Construct an implementation of the [`BeefyHost`]
 	pub async fn new(
 		mut config: BeefyHostConfig,
-		prover: Prover<R, P>,
+		prover: Prover<R, P, B>,
 		client: SubstrateClient<P>,
 	) -> Result<Self, anyhow::Error> {
 		let pubsub = redis_utils::pubsub_client(&config.redis).await?;
@@ -282,10 +285,11 @@ impl Into<RedisBytes> for ConsensusProof {
 }
 
 #[async_trait::async_trait]
-impl<R, P> IsmpHost for BeefyHost<R, P>
+impl<R, P, B> IsmpHost for BeefyHost<R, P, B>
 where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
+	B: Sp1BeefyProverTrait,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,

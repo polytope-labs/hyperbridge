@@ -1,0 +1,12 @@
+{
+  "title": "Cryptographic Primitives",
+  "pages": [
+    "hash-functions",
+    "merkle-trees",
+    "digital-signatures",
+    "polynomial-commitments",
+    "verkle-tries",
+    "apk-proofs"
+  ],
+  "defaultOpen": false
+}

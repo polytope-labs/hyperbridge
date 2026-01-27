@@ -25,6 +25,7 @@ members = [
     "modules/pallets/token-gateway/primitives",
     "modules/pallets/token-gateway-inspector",
     "modules/pallets/hyperbridge",
+    "modules/pallets/intents-coprocessor",
     "modules/pallets/state-coprocessor",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
@@ -39,6 +40,7 @@ members = [
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
+    "modules/ismp/clients/tendermint",
     "modules/pallets/collator-manager",
     "modules/ismp/clients/beefy",
 
@@ -72,11 +74,11 @@ members = [
     "modules/pallets/messaging-fees",
 
     # evm stuff
-    "evm/integration-tests",
+    # "evm/integration-tests",
     "evm/abi",
 
     # hyperclient
-    "modules/hyperclient",
+    # "modules/hyperclient",
 
     # simnode
     "parachain/simtests",
@@ -95,6 +97,8 @@ members = [
     "tesseract/messaging/substrate",
     "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
+    "tesseract/messaging/evm-tendermint",
+    "tesseract/messaging/substrate-evm",
     "tesseract/messaging/fees",
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
@@ -112,6 +116,7 @@ members = [
     "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
+    "tesseract/consensus/tendermint",
 
 
     # Airdrop
@@ -169,7 +174,7 @@ sc-simnode = { version = "2506.0.0" }
 simnode-runtime-api = { version = "2506.0.0", default-features = false }
 
 # crates.io
-serde = { version = "1", default-features = false }
+serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
 trie-db = { version = "0.30.0", default-features = false }
 hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
@@ -179,8 +184,8 @@ derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
 alloy-rlp = { version = "0.3.7", default-features = false }
 alloy-rlp-derive = "0.3.7"
-alloy-sol-macro = "0.7.7"
-alloy-sol-types = { version = "0.7.7", default-features = false }
+alloy-sol-macro = "1.5.2"
+alloy-sol-types = { version = "1.5.2", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
@@ -188,8 +193,8 @@ rlp = { version = "0.6.1", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
 subxt = { version = "0.42.1", default-features = false }
 subxt-core = { version = "0.42.1", default-features = false }
-tokio = { version = "1.37.0" }
-tokio-stream = { version = "0.1.15" }
+tokio = { version = "1.49" }
+tokio-stream = { version = "0.1" }
 jsonrpsee = { version = "0.24" }
 jsonrpsee-core = { version = "0.24" }
 rsmq_async = { git = "https://github.com/polytope-labs/rsmq-async-rs.git", rev = "564f0af49e1a82ec8fb4dbb739eade5a7486b674" }
@@ -214,6 +219,9 @@ cometbft-rpc = { git = "https://github.com/cometbft/cometbft-rs", package = "com
 cometbft-proto = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-proto", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
 cometbft-light-client-verifier = { git = "https://github.com/cometbft/cometbft-rs", package = "cometbft-light-client-verifier", rev = "ac3db79c5807cd1d0b8b14a7b8199b8d79d6408d", default-features = false }
 ics23 = { version = "0.12.0", default-features = false }
+ibc-core-commitment-types = { version = "0.57.0", default-features = false }
+ibc-core-host = { version = "0.57.0", default-features = false }
+ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
 
 # published crates
 ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = false }
@@ -221,15 +229,15 @@ serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-fea
 crypto-utils = { version = "0.1.0", path = "modules/utils/crypto", default-features = false }
 grandpa-verifier-primitives = { version = "2506.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
 grandpa-verifier = { version = "2506.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
-ismp-grandpa = { version = "2506.1.0", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2506.1.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-grandpa = { version = "2506.2.0", path = "./modules/ismp/clients/grandpa", default-features = false }
+ismp-parachain = { version = "2506.3.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
 ismp-parachain-inherent = { version = "2506.1.0", path = "./modules/ismp/clients/parachain/inherent" }
 ismp-parachain-runtime-api = { version = "2506.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 pallet-ismp = { version = "2506.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "2506.1.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2506.1.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "2506.1.1", path = "modules/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "2506.1.0", path = "modules/pallets/token-gateway", default-features = false }
+pallet-token-gateway = { version = "2506.2.0", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "2506.1.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 substrate-state-machine = { version = "2506.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
@@ -265,6 +273,7 @@ op-verifier = { path = "./modules/ismp/clients/optimism", default-features = fal
 ismp-arbitrum = { path = "modules/ismp/clients/ismp-arbitrum", default-features = false }
 ismp-optimism = { path = "modules/ismp/clients/ismp-optimism", default-features = false }
 ismp-polygon = { path = "modules/ismp/clients/polygon", default-features = false }
+ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features = false }
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
@@ -282,6 +291,7 @@ pallet-collator-manager = { path = "modules/pallets/collator-manager", default-f
 pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
+pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false}
@@ -303,7 +313,9 @@ tesseract-primitives = { path = "tesseract/messaging/primitives" }
 tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
+tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
+tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
 tesseract = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
@@ -319,7 +331,7 @@ tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
-
+tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 
 
 [workspace.dependencies.codec]
@@ -348,9 +360,13 @@ default-features = false
 git = "https://github.com/polytope-labs/ethers-rs"
 rev = "45239225c50247e049892125d281442c084a2a92"
 
-[workspace.dependencies.forge-testsuite]
-git = "https://github.com/polytope-labs/forge-testsuite"
-rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
+[workspace.dependencies.ethers-solc]
+git = "https://github.com/polytope-labs/ethers-rs"
+rev = "45239225c50247e049892125d281442c084a2a92"
+
+# [workspace.dependencies.forge-testsuite]
+# git = "https://github.com/polytope-labs/forge-testsuite"
+# rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 
 [workspace.dependencies.foundry-evm]
 git = "https://github.com/polytope-labs/foundry"
@@ -362,7 +378,7 @@ version = "0.5.2"
 default-features = false
 
 [workspace.dependencies.alloy-primitives]
-version = "0.7.7"
+version = "1.1.2"
 default-features = false
 features = ["rlp"]
 

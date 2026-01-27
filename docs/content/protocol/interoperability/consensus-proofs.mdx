@@ -1,0 +1,238 @@
+---
+title: Consensus Proofs
+description: Consensus proofs are the foundation of trust-free bridges. In this article, we explore the technical definition of consensus proofs, review their vulnerabilities, and examine the mitigations for these vulnerabilities.
+---
+
+# Consensus Proofs
+
+In this section we will explore the technical definition of consensus proofs, review their vulnerabilities, and examine the mitigations for these vulnerabilities. We'll then see how these mitigations enable consensus proofs to be safely used on-chain, allowing for the first-of-its-kind byzantine fault-tolerant cross-chain bridges.
+
+Previously, We explored the idea of decoupling the consensus mechanism and state machine in blockchain protocols. By doing so, we enable the existence of "consensus clients," popularly known as "light clients" that only track consensus proofs of state transitions instead of the full state transitions. This idea is not just theoretical, as the Ethereum beacon chain (consensus client) and state machine (execution client) are currently two different pieces of software.
+
+Consensus proofs are the foundation of any trust-free bridge architecture. However, if used naively, they can expose trustless bridges to byzantine attacks that are cheap to perform and carry no risks. By recognizing the trust assumptions underlying consensus proofs and introducing fraud proofs, we can build consensus-verifying bridges that remain safe to use even in the event of byzantine attacks.
+
+To understand these attacks, it is necessary to first understand the nature of consensus proofs in distributed systems.
+
+## Consensus in Distributed Systems
+
+The mechanism by which this consensus can be enforced has been the topic of research in distributed systems for over 2 decades, research has shown that there are two requirements for reliable consensus in distributed systems: Liveness & Safety<sup>[1]</sup>.
+
+### Liveness
+
+Liveness is a crucial property of consensus algorithms, which ensures that a distributed system can produce new state transitions continuously. Consensus algorithms are responsible for selecting a leader from a set of nodes who will produce the new state transition. This process is called "leader election."
+
+It is worth noting that leader election protocols may not necessarily produce a single leader per round. However, such classes of protocols are referred to as "single-leader election protocols." In order to maintain blockchain functionality in a distributed system where nodes may act unpredictably, leader election mechanisms must be able to produce multiple leaders. This way, if one node is offline, other nodes can produce the required state transitions and keep the blockchain network functioning without slowdowns.
+
+This means that the leader election mechanisms must be designed to handle various types of node failures, including hardware failures and network failures. For example, a robust leader election mechanism should be able to detect when a node has failed and remove it from the pool of potential leaders. Additionally, it should be able to recover quickly from such failures by electing a new leader to continue producing state transitions.
+
+### Safety
+
+Safety refers to the property that distributed systems always reach consensus on a single history of events. Unlike liveness, safety requires a game-theoretic proof to support a single history of events.
+
+For instance, in Proof of Work systems, the safety guarantee of a block is supported by the game-theoretic assumption that it's infeasible to mine a fork of the chain that is $n$ blocks deep. Where the value of $n$ depends on the hash rate of the network. In the Bitcoin network, this number is 12 blocks, while in Ethereum pre-merge it was 30 blocks. Safety in proof of work systems is entirely probabilistic and this probability depends on the security of the hash functions used. The consensus proof for a proof of work system is typically given as some random bytes $H_r$ such that:
+
+$$
+Hash(B_h, H_r) \le H_d \\
+
+$$
+
+Given:
+
+$$
+
+B_h = Block \space Header\\
+H_d = Block \space Difficulty \\
+
+$$
+
+To arrive at a value $H_r$ that satisfies this condition, many different values have to be tried out due to the non-deterministic outputs of hash functions. This is why it is called a proof of work consensus. Significant work needs to be done for a consensus proof to be generated. Therefore, forking the chain at a specific depth is assumed to be infeasible, since the required hashrate may be too expensive to acquire. At the same time this proof is very cheap to verify as it just requires a single hash and a comparison check.
+
+In contrast, in a Proof of Stake system, the game-theoretic assumption is that since validators have invested significant capital in the network, they risk losing that capital if they back two conflicting views of the network's state transitions, or back a block with an invalid state transition. Hence, safety in Proof of Stake systems is enforced by the *slashing protocol.* This protocol allows network participants to report instances where a validator backs two conflicting state transitions so that their stake can be slashed. **It's crucial to note that without the risk of slashing, there is no safety associated with Proof of Stake systems**. This will be important later on.
+
+Consensus proofs in a proof of stake system is given as the signatures over the latest block header in the chain from a supermajority (two-thirds plus one) subset of the full authority set. More formally, we define the set of all signers as the set $T$:
+
+$$
+P = \{pk_i\}_{i \in T}\\
+S = \{s_i\}_{i \in T}\\
+\forall \space pk_i \in P,  VerifySig(s_i, pk_i, B_h) \in \{true, false\} \\
+
+$$
+
+Where the set $S$ of signatures is the consensus proof, Given:
+
+$$
+
+S \subset T, |S| \geq 2/3|T| + 1
+$$
+
+In proof of stake systems, safety is **deterministic**. As a result, proof of stake-based blockchains are more suitable than proof of work consensus mechanisms for consensus-verifying cross-chain bridges. Therefore, the rest of this article will focus on proof of stake consensus proofs.
+
+## Byzantine Attacks
+
+Consensus clients rely on consensus proofs that can only be generated by a network's validators. Unfortunately, this means that these same validators can deceive consensus clients, leading to double spending attacks or, even worse, infinite minting attacks.
+
+These attacks can be performed on both off-chain and on-chain consensus clients. Let’s explore the possible attacks on consensus clients in proof of stake systems.
+
+
+### 51% Attacks
+
+This is an attack that occurs when the supermajority of the validator set finalizes two competing chains at the same height. This situation can be devastating for consensus-verifying  bridges because both chains are valid for its consensus verification algorithm and can be used to double-spend incoming assets.
+
+Although 51% attacks are relatively rare, they can be extremely devastating in a fully networked blockchain ecosystem where the weakest link in the chain can be exploited with a cascading effect across all its connected chains, similar to the Terra-Luna collapse. [Vitalik himself expressed this concern in a Reddit post.](https://www.reddit.com/r/ethereum/comments/rwojtk/ama_we_are_the_efs_research_team_pt_7_07_january/hrngyk8/)
+
+
+> *Even if there’s a perfect ZK-SNARK-based bridge that fully validates consensus, it’s still vulnerable to theft through 51% attacks.*
+>
+
+This is a hard problem to solve and there have been no papers published addressing this major issue with consensus-verifying bridges. In order to build a **truly secure consensus-verifying bridge**, on-chain consensus clients must be resilient to 51% attacks.
+
+![51% (1).svg](/consensus/51_(1).svg)
+
+### Eclipse Attacks
+
+This is not a new vulnerability in blockchain systems, as even off-chain consensus clients are vulnerable to this attack vector. This is a scenario where the super majority of a validator set finalizes a fork of the canonical chain that they do not gossip on the network, rather only to a consensus client with the sole purpose of fooling this client that some transactions are final.
+
+It’s important to note that consensus clients are vulnerable to this attack because they do not validate the *state transition function* of the blocks, where they would’ve detected the invalid transactions and immediately rejected the block. This is of course why they’re called consensus *clients*; instead, they rely on full nodes to gossip the consensus proofs of finalized headers.
+
+This vulnerability can be mitigated by having consensus clients that actively participate in the p2p swarm and can ask as many nodes of the latest finalized header in the chain. Proof of stake consensus protocols mitigates this further with it’s use of an equivocation (aka slashing) protocol.
+
+This protocol prevents validators from signing two headers at the same height by allowing anyone to report this misbehaviour on-chain causing the stake of the validator in question to be slashed. So, for off-chain consensus clients, this eclipse attack can be mitigated so long as the client is connected to at least one honest node.
+
+On-chain consensus clients however do not participate in the p2p network and cannot gossip headers they receive and instead rely on relayers who do not need to be trusted to provide cryptographic proofs alongside the submitted headers. The whole point of on-chain consensus clients is anyone can be a relayer, but unfortunately in this scenario that also includes a potentially byzantine authority set of a counterparty chain.
+
+Now that the consensus client has been eclipsed, the byzantine authority set can send state proofs of cross-chain messages associated with the forged chain allowing them to bridge tokens that simply don’t exist to the counterparty blockchain and swap them for other assets, bridging them back and destroying the peg of these assets on the counterparty.
+
+<figure>
+  <img src="/consensus/Untitled_eclipse_(1).svg" alt="Eclipse attacks are cheap to perform and have no risks associated with them" />
+  <figcaption style={{ textAlign: "center" }}>Eclipse attacks are cheap to perform and have no risks associated with them.</figcaption>
+</figure>
+
+### Long Range Attacks
+
+The attack involves a consensus client that hasn't been updated in some period *n*. Unfortunately, this $n$ period of time is also how long it takes for validators to unstake their funds from the network the consensus client is tracking. This is a major problem for any consensus-verifying bridge because the stake is what prevents malicious behaviour. Without it, malicious actors can sign a forked chain, update the on-chain consensus client with this forked chain, and perform an eclipse attack. This time, however, there is no risk of slashing. This vulnerability is present even in full nodes of Proof of Stake systems<sup>[2]</sup>.
+
+
+<figure>
+  <img src="/consensus/Untitled_Diagram_(4).svg" alt="Damn those time traveling validators" />
+  <figcaption style={{ textAlign: "center" }}>Damn those time traveling validators.</figcaption>
+</figure>
+
+
+### Data Withholding Attacks
+
+In this attack, the validator set doesn't gossip the underlying transactions behind a block header to prevent equivocation. Equivocation occurs when validators sign two conflicting block headers and get caught. In a data withholding attack, validators produce only a single invalid block instead of both a valid and an invalid block at the same height. This fools consensus clients into thinking that some transactions are valid. Unfortunately, consensus clients cannot rely on equivocations to detect the validity of this block. They also cannot attempt to validate the block because the block data simply doesn't exist.
+
+This attack is virtually undetectable by consensus-only clients. While full clients may choose to ignore a block that doesn't have full block data, consensus clients will simply accept the block header as is. This attack allows for the byzantine set to carry out an infinite minting attack on the counterparty chain. This attack is mitigated by slashing inactive validators in PoS systems. Polkadot uses the [im-online protocol](https://crates.io/crates/pallet-im-online) to detect inactive validators and slash them. While ethereum uses the [inactivity leak protocol](https://eth2book.info/capella/part2/incentives/inactivity/) to slash validators who don't participate in the consensus process.
+
+## Byzantine Fault Tolerance
+
+So we’ve explored all the ways in which naive consensus-verifying bridges are vulnerable to a byzantine counterparty chain. **This is because consensus proofs rely only on cryptographic assumptions and does not include game theoretical ones**. However, to achieve safety in consensus-based bridges, cryptographic soundness alone is insufficient, and game theory must be introduced. **Recall that there is no safety in POS consensus systems without the risk of slashing.**
+
+![Screenshot 2023-03-20 at 9.31.23 AM.png](/consensus/Screenshot_2023-03-20_at_9.31.23_AM.png)
+
+Given this lets introduce some game theoretical mitigations for these vulnerabilities
+
+### Optimistic Bridging
+
+To prevent the damage that can be done to our bridge in the event of a byzantine attack, **we must introduce a challenge window in the form of a time delay between when consensus proofs are verified by our consensus client and when state proofs associated with those headers can be used to process cross-chain messages.**
+
+During this challenge window, consensus clients can detect byzantine attacks. Off-chain consensus clients can do this by participating in the P2P network. On-chain consensus clients, on the other hand, will need to rely on off-chain parties, which we'll call fishermen<sup>[3]</sup>, to provide the proofs of fraud to the client.
+
+These fishermen will need some incentive to watch for byzantine attacks and report the fraud proofs which will safeguard the consensus client. As such, we will require relayers who submit consensus proofs to be staked, in the event of byzantine attacks, relayer’s stake can be used to incentivise fishermen to submit fraud proofs.
+
+In the event of a byzantine attack, the fraud proofs will allow for the consensus client to go into a frozen state until the source chain recovers from this byzantine state, **The host chain can then unfreeze the consensus client through some kind of on-chain governance, allowing the bridge to resume operations safely and without any loss of funds ever having occurred.**
+
+```rust showLineNumbers
+/// A signature from a member of the validator set over the latest header.
+type Signature = Vec<u8>;
+
+/// Signatures from a super-majority subset of the full authority set.
+type ConsensusProof = Vec<Signature>;
+
+/// Typical block header, different blockchains may add more chain specific
+/// metadata, but this is all we need for our consensus client.
+struct Header {
+	/// commitment to the full blockchain state
+	state_root: H256,
+	/// hash of the parent header
+	parent_hash: H256,
+	/// height of this block
+	block_number: u64,
+	/// commitment to the transactions in this block.
+	transactions_root: H256,
+}
+
+/// This is used to advance the consensus client's view of the netwok.
+struct ConsensusUpdate {
+  /// The latest finalized header.
+  header: Header,
+  /// A list of signatures from members of the authority set over the header
+  proof: ConsensusProof,
+}
+
+/// Holds the full transaction data
+struct Block {
+	/// Block header
+	header: Header,
+	/// Transaction list
+	transactions: Vec<Vec<u8>>,
+}
+
+/// Holds the block as well as the state proof needed to
+/// re-execute the block.
+struct BlockProof {
+  /// Full block data
+  block: Block,
+  /// State proof for parts of the state modified by the transactions.
+  /// This is just a list of merkle-patricia nodes touched by the transactions.
+  /// Also called state witness or proof-of-validity.
+  state_proof: Vec<Vec<u8>>
+}
+
+/// This allows us to detect all the different kinds of byzantine attacks
+/// that consensus clients are vulnerable to.
+struct FraudProof {
+    /// The first header with proof
+    first: ConsensusUpdate,
+    /// The second conflicting header with proof
+    second: ConsensusUpdate,
+}
+
+/// A byzantine fault tolerant consensus client.
+trait ConsensusClient {
+	/// Called by the relayers to submit new consensus updates.
+	fn process_consensus_proof(update: ConsensusUpdate);
+
+	/// Called by the fishermen to report byzantine attacks.
+	fn process_fraud_proof(proof: FraudProof);
+}
+```
+
+### Fraud Proofs
+
+Consensus clients will need to be extended to process not only consensus proofs but also fraud proofs. Fraud proofs can take the form of consensus proofs for two consensus states that are valid for two different heights. This allows our consensus client to be resilient against 51% and eclipse attacks. This is because these kinds attacks involve the existence of consensus proofs for different, conflicting views of the network.
+
+To mitigate data withholding attacks, it's necessary for consensus clients to be able to re-execute it's counterparty chain’s blocks. This way it can detect data withholding attacks which are used to disguise blocks that violate its state transition function. Fishermen can signal to the consensus client that some previously processed header’s block data is unavailable. The relayer responsible for submitting the header with the unavailable data has to make the full block data available or lose their stake.
+
+The consensus client can then re-execute the full block on-chain using the full transactions and necessary state proofs. If the block is valid, fishermen who submitted false reports are liable to be slashed. This is to disincentivize *griefing attacks*<sup>[4]</sup>. If the block is found to be invalid because it violates the state transition function, the relayer responsible for submitting the header will have their stake slashed.
+
+### Fishermen
+
+The fishermen have a simple task: they monitor the headers sent to on-chain consensus clients and compare them with the information shared in the p2p swarm. In the event of a byzantine attack, a fisherman can earn significant rewards by submitting fraud proofs for these headers and collecting the malicious validators's stake. Running fishermen should be permissionless and require no staking whatsoever.
+
+
+### Unstaking Periods
+
+Long-range attacks are possible because our light client is not aware of the time that has passed between header updates. To prevent this, we must make the client aware of the time of the host chain. This will allow it to immediately freeze the bridge when it detects headers outside of the counterparty chain's unstaking period. To unfreeze the bridge, a governance vote will be required.
+
+
+
+## References
+
+<sup>[1]</sup> [Leslie Lamport, Generalized Consensus and Paxos](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2005-33.pdf)
+
+<sup>[2]</sup> [Vitalik Buterin, Proof of Stake: How I Learned to Love Weak Subjectivity](https://blog.ethereum.org/2014/11/25/proof-stake-learned-love-weak-subjectivity)
+
+<sup>[3]</sup> [Gavin Wood, Polkadot Whitepaper](https://polkadot.network/PolkaDotPaper.pdf)
+
+<sup>[4]</sup> [Consensys Research, Griefing Attacks](https://www.notion.so/Consensus-Proofs-091efd3982e54a9e8e21b440b3c4ab0f?pvs=21)

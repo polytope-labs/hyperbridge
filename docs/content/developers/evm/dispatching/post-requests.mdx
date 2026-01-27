@@ -1,0 +1,379 @@
+---
+title: POST Requests
+description: Learn how to dispatch POST requests to send cross-chain messages from your smart contracts via Hyperbridge.
+---
+
+# POST Requests
+
+A POST request is a cross-chain message to be executed by some application implementing `IApp` on a destination chain. POST requests are the primary mechanism for sending messages and triggering actions across different blockchains.
+
+## Important Considerations
+
+**EOAs should not dispatch POST requests directly.** Instead, an application contract must be responsible for the dispatch. This way, if the request delivery or execution fails on the destination, applications can "catch" this failure (similar to the try/catch pattern) and handle the failure case in the `IApp.onPostRequestTimeout` callback.
+
+## The `DispatchPost` Struct
+
+A POST request is created using the `DispatchPost` struct:
+
+```solidity lineNumbers
+// An object for dispatching post requests 
+struct DispatchPost {
+    // Use the StateMachine library to create this
+    bytes dest;
+    // The destination module
+    bytes to;
+    // The request body
+    bytes body;
+    // timeout for this request in seconds
+    uint64 timeout;
+    // The amount put up to be paid to the relayer, 
+    // this is in the feeToken and charged to msg.sender
+    uint256 fee;
+    // who pays for this request?
+    address payer;
+}
+```
+
+## Dispatch Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `dest` | Destination chain, for this you'll use the `StateMachine` library eg `StateMachine.evm(1)` for Ethereum Mainnet. |
+| `to` | Receiving module/contract address on the destination chain. |
+| `body` | Serialized byte representation of the message (to be decoded by the receiving contract). |
+| `timeout` | Time in seconds for message validity eg 3600 for a timeout of 1 hour, or 0 for no timeout. ie Messages will never expire. If the timeout is set to a non-zero value, messages that have exceeded this timeout will be rejected on the destination and require user action (timeout message) to revert changes. |
+| `fee` | Optional relayer fees in the fee token, this can also be set to zero if the application developers prefer to self-relay. |
+| `payer` | The account that should receive a refund of the relayer fees if the request times out. |
+
+## Dispatching a POST Request
+
+Here's a complete example of how to dispatch a POST request:
+
+```solidity lineNumbers title="MyApp.sol"
+function sendMessage(
+    bytes memory message,
+    uint64 timeout,
+    address to,
+    uint256 relayerFee
+) public payable returns (bytes32) {
+    DispatchPost memory post = DispatchPost({
+        body: message,
+        dest: StateMachine.evm(1),
+        timeout: timeout,
+        to: abi.encodePacked(to),
+        fee: relayerFee,
+        payer: msg.sender
+    });
+
+    return IDispatcher(_host).dispatch{value: msg.value}(post);
+}
+```
+
+### Code Breakdown
+
+1. **Create the DispatchPost struct** - Populate all required fields including destination, recipient, message body, timeout, and fees
+2. **Set the destination** - Use `StateMachine.evm(1)` for Ethereum Mainnet (or appropriate chain ID)
+3. **Encode the recipient** - Convert the destination contract address to bytes using `abi.encodePacked(to)`
+4. **Dispatch the request** - Call `IDispatcher(_host).dispatch()` with the POST request and any required native token value
+5. **Return commitment hash** - The function returns a unique identifier for tracking the request
+
+
+## Fees
+
+Understanding the fee model is crucial for dispatching POST requests. Hyperbridge uses a dual-fee structure: **protocol fees** and **optional relayer fees**.
+
+### Fee Components
+
+| Component | Description | Calculation | Refundable |
+|-----------|-------------|-------------|------------|
+| **Protocol Fee** | Non-refundable fee charged by Hyperbridge for processing the request | `perByteFee(dest) × max(body.length, 32)` | ❌ No |
+| **Relayer Fee** | Optional incentive for third-party relayers to deliver your message | Set by application in `DispatchPost.fee` | ✅ Yes (on timeout) |
+
+These fees are collected by the `IDispatcher` contract from the caller. 
+
+```solidity lineNumbers=1065 title="hyperbridge/evm/src/core/EvmHost.sol" 
+function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
+    // minimum charge is the size of one word
+    uint256 length = 32 > post.body.length ? 32 : post.body.length;
+    uint256 fee = (perByteFee(post.dest) * length) + post.fee;
+        
+    if (msg.value > 0) {
+        address[] memory path = new address[](2);
+        address uniswapV2 = _hostParams.uniswapV2;
+        path[0] = IUniswapV2Router02(uniswapV2).WETH();
+        path[1] = feeToken();
+        IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
+            fee, path, address(this), block.timestamp
+        );
+    } else {
+        SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
+    }
+}
+```
+
+### Protocol Fees
+
+Protocol fees are calculated per byte of the request body:
+
+```solidity lineNumbers
+// Get the per-byte fee for destination chain
+uint256 perByteFee = IDispatcher(host).perByteFee(post.dest);
+
+// Calculate protocol fee (minimum 32 bytes)
+uint256 bodyLength = post.body.length < 32 ? 32 : post.body.length;
+uint256 protocolFee = perByteFee * bodyLength;
+```
+
+The minimum charge is **32 bytes** (one word), even for smaller messages. Per-byte fees can vary by destination chain and fall back to `defaultPerByteFee` if no override exists for the destination. Protocol fees are **non-refundable**.
+
+### Relayer Fees
+
+Relayer fees incentivize third-party relayers to deliver your message to the destination chain:
+
+```solidity lineNumbers
+DispatchPost memory post = DispatchPost({
+    // ... other fields
+    fee: relayerFee,  // Optional: set to 0 for self-relay
+    payer: msg.sender // Receives refund if request times out
+});
+```
+
+**Relayer Fee Calculation:**
+
+The relayer fee should cover:
+1. **Gas costs on destination** - This includes:
+   - **Proof verification** (~150k gas) - Fixed cost for verifying state proofs on the destination chain
+   - **Execution gas** - Gas consumed by your contract's `IApp.onAccept` handler. 
+
+2. **Relayer service fee** - Incentive for relayer services (typically 10-20% markup on gas costs)
+
+**Refund on Timeout:**
+If the request times out, the `payer` address receives the relayer fee back (protocol fee is not refunded).
+
+## Payment Methods
+
+The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually a stablecoin). But it can also accept native token payments, which are automatically swapped for the `feeToken` using the local AMMs like Uniswap.
+
+
+| Token | Payment Method |
+|-------|----------------|
+| Native token (ETH, BNB, POL, DOT etc.) | Sent with transaction via `msg.value` |
+| Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
+
+
+### Fee Token Payment (Recommended)
+
+Your contract must extend `HyperApp`, which allows you to use the `dispatchWithFeeToken()` helper which handles all fee calculations and token approvals automatically:
+
+```solidity lineNumbers title="MyApp.sol"
+contract MyApp is HyperApp {
+    function sendMessage(
+        bytes memory message,
+        bytes memory dest,
+        uint64 timeout,
+        address to,
+        uint256 relayerFee
+    ) public returns (bytes32) {
+        DispatchPost memory post = DispatchPost({
+            body: message,
+            dest: dest,
+            timeout: timeout,
+            to: abi.encodePacked(to),
+            fee: relayerFee,
+            payer: msg.sender
+        });
+        
+        // Automatically handles:
+        // - Fee calculation
+        // - Token transfer from payer
+        // - Host approval
+        // - Dispatch
+        return dispatchWithFeeToken(post, msg.sender);
+    }
+}
+```
+
+### Native Token Payment
+
+For native token payments, dispatch directly and let the Host handle the Uniswap swap:
+
+```solidity lineNumbers title="MyApp.sol"
+contract MyApp is HyperApp {
+    function sendMessageWithNative(
+        bytes memory message,
+        bytes memory dest,
+        uint64 timeout,
+        address to,
+        uint256 relayerFee
+    ) public payable returns (bytes32) {
+        DispatchPost memory post = DispatchPost({
+            body: message,
+            dest: dest,
+            timeout: timeout,
+            to: abi.encodePacked(to),
+            fee: relayerFee,
+            payer: msg.sender
+        });
+        
+        // User must send enough native tokens to cover fees
+        // The Host will swap native -> feeToken via Uniswap
+        return IDispatcher(host()).dispatch{value: msg.value}(post);
+    }
+}
+```
+### Estimating Fees
+
+When building user-facing applications, estimate fees on the client side before users submit transactions:
+
+```typescript lineNumbers title="client.ts" icon="typescript"
+import { createPublicClient, http, parseEther } from 'viem'
+import { mainnet } from 'viem/chains'
+
+const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http()
+})
+
+const myAppAddress = '0x...'
+
+// Prepare the PostRequest struct
+const post = {
+  body: '0x...', 
+  dest: '0x...', 
+  timeout: 3600n,
+  to: '0x...', 
+  fee: parseEther('100'), 
+  payer: '0x...'
+}
+
+// Get native token cost estimate
+const nativeCost = await publicClient.readContract({
+  address: myAppAddress,
+  abi: hyperAppAbi,
+  functionName: 'quoteNative',
+  args: [post]
+})
+
+// Get feeToken cost (exact)
+const feeTokenCost = await publicClient.readContract({
+  address: myAppAddress,
+  abi: hyperAppAbi,
+  functionName: 'quote',
+  args: [post]
+})
+
+// Display to user or use in transaction
+console.log(`Fee in native token: ${nativeCost}`)
+console.log(`Fee in fee token: ${feeTokenCost}`)
+```
+
+<Callout type="warning" title="Estimate Fees Off-Chain">
+Use the `quoteNative()` view function from your frontend to estimate how much native token users need to send. **Do not call `quoteNative()` in smart contract transactions.** It uses Uniswap's `getAmountsIn`, making it vulnerable to sandwich attacks. Only use it off-chain for frontend fee estimation
+</Callout>
+
+### Payment Method Comparison
+
+| Feature | Native Token | FeeToken (Recommended) |
+|---------|-------------|------------------------|
+| **Gas Cost** | Higher (includes swap) | Lower (no swap) |
+| **Slippage** | Yes (Uniswap swap) | No |
+| **Fee Calculation** | Approximate (subject to slippage) | Exact |
+| **Token Approval** | Not required | Required  |
+| **User Convenience** | High (users have native tokens) | Low (users need feeToken) |
+| **Best For** | One-off transactions, user-facing apps | Frequent dispatches, cost optimization |
+
+
+### Increasing Fees for In-Flight Requests
+
+If gas prices spike after dispatching a request, you can increase the relayer fee to incentivize delivery:
+
+```solidity lineNumbers
+// Get the request commitment from the dispatch call
+bytes32 commitment = IDispatcher(host).dispatch{value: nativeCost}(post);
+
+// Later, if gas prices spike...
+uint256 additionalFee = 100e18; // Additional relayer incentive
+
+// Fund with native token
+IDispatcher(host).fundRequest{value: additionalNative}(
+    commitment,
+    additionalFee
+);
+
+// Or fund with feeToken
+IERC20(feeToken).approve(host, additionalFee);
+IDispatcher(host).fundRequest(commitment, additionalFee);
+```
+
+Note that `fundRequest` only increases the **relayer fee** (protocol fee cannot be changed). The additional fee goes to the `payer` address if the request times out. This function can be called multiple times to incrementally increase fees and only works for pending requests.
+
+
+## Self Relayed Requests
+
+Self-relaying allows you to deliver POST requests to the destination chain yourself, instead of relying on the Hyperbridge relayer network. This is useful when you want full control over delivery timing, need to save on relayer fees, or want to guarantee delivery for critical requests.
+
+The `@hyperbridge/sdk` provides tools to track POST requests and automatically generates the calldata needed to execute [`handlePostRequests()`](/developers/evm/api/ihandler#handlepostrequests) on the destination chain's [`IHandler`](/developers/evm/api/ihandler) contract.
+
+To learn how to self-relay requests:
+
+1. **[Get Started with the SDK](/developers/sdk/getting-started)** - Install and set up the Hyperbridge SDK
+2. **[Track POST Requests](/developers/sdk/tracking/post-requests)** - Monitor request status and extract delivery calldata
+3. **[IndexerClient API](/developers/sdk/api/indexer-client)** - Use the [`postRequestStatusStream()`](/developers/sdk/api/indexer-client#postrequeststatusstream) method to get calldata when `HYPERBRIDGE_FINALIZED` status is reached
+
+The SDK automatically generates the [`PostRequestMessage`](/developers/evm/api/ihandler#postrequestmessage) proof and calldata you need to call the [`IHandler.handlePostRequests()`](/developers/evm/api/ihandler#handlepostrequests) function on the destination chain. You can make your users self-relay requests or run a server which can relay requests on behalf of users.
+
+## Timeouts
+
+When a POST request times out (exceeds its specified `timeout` period), The request will be **rejected on the destination** if delivery is attempted.
+
+```solidity lineNumbers=159 title="hyperbridge/evm/src/core/HandlerV1.sol"
+for (uint256 i = 0; i < requestsLen; ++i) {
+    PostRequestLeaf memory leaf = request.requests[i];
+    // check destination
+    if (!leaf.request.dest.equals(host.host())) revert InvalidMessageDestination();
+    // check time-out
+    if (timestamp >= leaf.request.timeout()) revert MessageTimedOut(); // [!code hl]
+    // duplicate request?
+    bytes32 commitment = leaf.request.hash();
+    if (host.requestReceipts(commitment) != address(0)) revert DuplicateMessage();
+
+    leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, commitment);
+}
+```
+
+### Processing Timeouts
+
+When a request times out, it must be explicitly processed to trigger your timeout handler and refund:
+
+```
+┌─────────────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐
+│ Request Exceeds Timeout │─────▶│ Timeout Proof Submitted │─────▶│ onPostRequestTimeout()  │─────▶│  Refund Relayer Fees    │
+└─────────────────────────┘      └─────────────────────────┘      └─────────────────────────┘      └─────────────────────────┘
+```
+
+<Callout type="warning" title="Handler Must Succeed for Refund">
+The timeout handler `onPostRequestTimeout` is called **before** refunding fees. If your handler reverts, the fees are **not refunded** and the timeout message can be resubmitted. This means `onPostRequestTimeout` can be called multiple times until it succeeds. Ensure your handler is idempotent and handles repeated calls gracefully.
+</Callout>
+
+Use the `@hyperbridge/sdk` to monitor request status and detect timeouts. The SDK generates the necessary proof and submits it to the source chain, which calls your contract's `onPostRequestTimeout` handler first. Only if the handler succeeds are relayer fees refunded to the `payer` address.
+
+For complete timeout handling with code examples, see [Tracking POST Request Timeouts](/developers/sdk/tracking/timeouts).
+
+#### Implementing the Timeout Callback
+
+Your contract must implement `onPostRequestTimeout` to handle timed-out requests:
+
+```solidity lineNumbers title="MyApp.sol"
+contract MyApp is HyperApp {
+    function onPostRequestTimeout(PostRequest memory request)
+        external
+        override
+        onlyHost
+    {
+        // Handle the timeout - maybe refund user or retry
+        emit RequestTimedOut(commitment, user, amount);
+    }
+}
+```
+
+<br />

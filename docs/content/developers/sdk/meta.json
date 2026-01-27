@@ -1,0 +1,10 @@
+{
+    "title": "Hyperbridge SDK",
+    "pages": [
+        "overview",
+        "getting-started",
+        "vite-integration",
+         "tracking",
+        "api"
+    ]
+}

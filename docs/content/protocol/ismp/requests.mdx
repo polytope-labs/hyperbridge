@@ -1,0 +1,140 @@
+---
+title: Requests
+description: The ISMP Request specification
+---
+
+
+# Requests
+
+ISMP is a request-response protocol, modeled after HTTP. A _module_ on one state machine initiates a request which is to be executed by a counterpart _module_ on a different state machine. After processing the request, the recipient module may **optionally** generate a response, which is sent back to the original sender.
+
+<figure>
+  <img src="/request.commitment.svg" alt="The flow of an outgoing request" />
+  <figcaption>The flow of an outgoing request</figcaption>
+</figure>
+<br />
+<figure>
+  <img src="/incoming.request.svg" alt="The flow of an incoming request" />
+  <figcaption>The flow of an incoming request</figcaption>
+</figure>
+<br />
+
+ISMP requests can be either POST or GET, similar to HTTP. A POST request indicates an intention to execute a transaction on the counterpart blockchain and carries an opaque payload intended for the destination ISMP module on the counterpart state machine. Conversely, a GET request aims to retrieve the values for the provided `keys` from the storage of a counterpart blockchain. Unlike a POST request, which must be delivered to the counterpart for processing, a GET request can be processed offchain by any interested party. Requests can also [time-out](/protocol/ismp/timeouts).
+
+```rust showLineNumbers
+/// The ISMP POST request.
+pub struct Post {
+    /// The source state machine of this request.
+    pub source: StateMachine,
+    /// The destination state machine of this request.
+    pub dest: StateMachine,
+    /// The nonce of this request on the source chain
+    pub nonce: u64,
+    /// Module identifier of the sending module
+    pub from: Vec<u8>,
+    /// Module identifier of the receiving module
+    pub to: Vec<u8>,
+    /// Unix timestamp by which this request expires in seconds.
+    pub timeout_timestamp: u64,
+    /// Encoded Request.
+    pub data: Vec<u8>,
+}
+
+/// The ISMP GET request.
+pub struct Get {
+    /// The source state machine of this request.
+    pub source: StateMachine,
+    /// The destination state machine of this request.
+    pub dest: StateMachine,
+    /// The nonce of this request on the source chain
+    pub nonce: u64,
+    /// Module Id of the sending module
+    pub from: Vec<u8>,
+    /// Raw Storage keys that would be used to fetch the values from the counterparty
+    /// For deriving storage keys for ink contract fields follow the guide in the link below
+    /// https://use.ink/datastructures/storage-in-metadata#a-full-example
+    /// The algorithms for calculating raw storage keys for different substrate pallet storage
+    /// types are described in the following links
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48
+    /// https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37
+    /// For fetching keys from EVM contracts each key should be 52 bytes
+    /// This should be a concatenation of contract address and slot hash
+    pub keys: Vec<Vec<u8>>,
+    /// Height at which to read the state machine.
+    pub height: u64,
+    /// Unix timestamp by which this request expires in seconds.
+    pub timeout_timestamp: u64,
+
+}/// The ISMP request.
+pub enum Request {
+    /// A post request allows a module on a state machine to send arbitrary bytes to another module
+    /// living in another state machine.
+    Post(Post),
+    /// A get request allows a module on a state machine to read the storage of another module
+    /// living in another state machine.
+    Get(Get),
+}
+
+```
+
+## Handlers
+
+The ISMP framework exposes a handler that allows relayers submit new requests, alongside the necessary state proofs required for verification so that they may be executed by `IsmpModules`s
+
+### `handle_post_request`
+
+```rust showLineNumbers
+/// The ISMP POST request.
+pub struct Post {
+    /// The source state machine of this request.
+    pub source: StateMachine,
+    /// The destination state machine of this request.
+    pub dest: StateMachine,
+    /// The nonce of this request on the source chain
+    pub nonce: u64,
+    /// Module Id of the sending module
+    pub from: Vec<u8>,
+    /// Module ID of the receiving module
+    pub to: Vec<u8>,
+    /// Unix timestamp which this request expires in seconds.
+    pub timeout_timestamp: u64,
+    /// Serialized request body.
+    pub data: Vec<u8>,
+
+}
+
+/// A request message holds a batch of incoming requests and their proofs.
+pub struct RequestMessage {
+    /// POST requests from a source chain
+    pub requests: Vec<Post>,
+    /// Membership batch proof for these requests
+    pub proof: Proof,
+}
+
+/// Handles incoming POST requests and dispatches them to the appropriate modules
+pub fn handle_post_requests<H>(host: &H, msg: RequestMessage) -> Result<(), Error>
+where
+    H: IsmpHost,
+{
+  // .. implementation details
+}
+```
+
+The `handle_post_requests` is used to notify onchain `IsmpModule`s of new requests to be processed. A relayer will construct the `RequestMessage` which holds a batch of new `Post` requests, as well as a _multi-proof_<sup>[1]</sup> of their existence on the source chain. The handler will perform the following operations
+
+- Assert that the state machine's consensus client is not frozen
+- Assert that the configured `challenge_period` for the `StateCommitment` has elapsed
+- Assert that the requests have not been previously processed
+- Assert that the requests have not timed out
+- Assert that the membership proof for the requests verify
+- Finally dispatch the requests to the relevant `IsmpModule::on_accept` and store a receipt for each request to prevent requests from being replayed.
+
+<Callout title={'Danger'} type={"warn"}>
+It's important to note that if the `IsmpModule::on_accept` does not return `Ok`, the receipt of this request will not be persisted, allowing the request to be **replayed**. Consequently, the `IsmpModule` is responsible for maintaining all invariants before modifying it's internal state to prevent partial state changes that could result in critical vulnerabilities in their request handler. This model ensures that if a request cannot be executed successfully on a destination state machine, it can time out gracefully on the source.
+</Callout>
+
+## References
+
+<sup>[1]</sup> [Merkle Multi Proofs, Polytope Labs Research](https://research.polytope.technology/merkle-multi-proofs)

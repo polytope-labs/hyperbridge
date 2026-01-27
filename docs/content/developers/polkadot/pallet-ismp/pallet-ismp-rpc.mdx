@@ -1,0 +1,186 @@
+---
+title: RPC Interface
+description: This is the RPC interface of ISMP for offchain clients.
+---
+
+# RPC Interface
+
+ISMP leverages a combination of on-chain and off-chain components to facilitate interoperability. Here's a breakdown of their roles:
+
+**Off-chain Components**: These components operate outside the blockchain itself. They play a crucial role in message relaying and can include:
+
+ - **Relayers**: These act as intermediaries, forwarding messages between state machines that aren't directly connected.
+ - **Self-Relaying Wallets**: These are user wallets equipped to directly relay messages on behalf of users.
+
+
+## ISMP Query Interface:
+
+To enable seamless interaction between off-chain components and the on-chain functionalities, ISMP defines a standardized interface. This interface allows off-chain components to query and retrieve relevant ISMP data stored on-chain.
+
+Query results obtained through this interface are formatted in JSON (JavaScript Object Notation) for ease of use. JSON provides a human-readable and machine-readable format, simplifying data exchange between off-chain components and various applications.
+
+## Integrating the RPC
+
+For offchain components that need to read the state of pallet-ismp, an rpc client is provided, this should be added to the rpc server in the substrate node.
+
+```rust showLineNumbers [rpc.rs]
+// RPC API Implementation for pallet-ismp
+/// Full client dependencies
+pub struct FullDeps<C, P, B> {
+    /// The client instance to use.
+    pub client: Arc<C>,
+    /// Transaction pool instance.
+    pub pool: Arc<P>,
+    /// Whether to deny unsafe calls
+    pub deny_unsafe: DenyUnsafe,
+    /// Backend used by the node.
+    pub backend: Arc<B>,
+}
+
+ /// Instantiate all full RPC extensions.
+pub fn create_full<C, P>(
+    deps: FullDeps<C, P>,
+) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        C: ProvideRuntimeApi<Block>,
+        C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
+        C: Send + Sync + 'static,
+        C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
+        C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
+        C::Api: BlockBuilder<Block>,
+        // pallet_ismp_runtime_api bound
+        C::Api: pallet_ismp_runtime_api::IsmpRuntimeApi<Block, H256>,
+        P: TransactionPool + 'static,
+{
+    use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
+    use substrate_frame_rpc_system::{System, SystemApiServer};
+
+    let mut module = RpcModule::new(());
+    let FullDeps { client, pool, deny_unsafe, backend } = deps;
+
+    module.merge(System::new(client.clone(), pool, deny_unsafe).into_rpc())?;
+    module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
+    // IsmpRpcHander goes here
+    module.merge(IsmpRpcHandler::new(client, backend)?.into_rpc())?;
+
+
+    Ok(module)
+}
+```
+
+## Supported Rpc methods
+
+### `query_requests`
+This method accepts a list of request commitments and responds with the requests. The requests are returned in the same order as the commitments supplied.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use an actual request commitment that exists
+   let commitment = H256::random();
+   let params = rpc_params![pallet_ismp::offchain::LeafIndexQuery { commitment }];
+   let requests: Vec<Request> = client.rpc().request("ismp_queryRequests", params).await.unwrap();
+```
+
+### `query_responses`
+This method accepts a list of response commitments and responds with the requests. The responses are returned in the same order as the commitments supplied.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use an actual response commitment that exists
+   let commitment = H256::random();
+   let params = rpc_params![pallet_ismp::offchain::LeafIndexQuery { commitment }];
+   let requests: Vec<Request> = client.rpc().request("ismp_queryResponses", params).await.unwrap();
+```
+
+### `query_child_trie_proof`
+This method accepts a list of keys and generates a merkle patricia trie proof from palle-ismp's child trie. It responds with a proof struct which contains the scale encoded proof noded `Vec<Vec<u8>>`.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   // Use real storage keys
+   let keys = vec![vec![0;32]];
+   // Block height at which proof should be queried
+   let at = 100;
+   let params = rpc_params![at, keys];
+   let requests: Proof = client.rpc().request("ismp_queryChildTrieProof", params).await.unwrap();
+```
+
+### `query_consensus_state`
+This method accepts a consensus state id and responds with the scale encoded consensus state.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let params = rpc_params![consensus_state_id];
+   let consensus_state: Vec<u8> = client.rpc().request("ismp_queryConsensusState", params).await.unwrap();
+```
+
+### `query_consensus_update_time`
+This method accepts a consensus state id and responds with the timestamp(seconds) when it was last updated.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let params = rpc_params![consensus_state_id];
+   let consensus_update_timestamp: u64 = client.rpc().request("ismp_queryConsensusUpdateTime", params).await.unwrap();
+```
+
+### `query_challenge_period`
+This rpc method takes a consensus state id and returns the challenge period configured for the client.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let params = rpc_params![consensus_state_id];
+   let challenge_period: u64 = client.rpc().request("ismp_queryChallengePeriod", params).await.unwrap();
+```
+
+### `query_state_machine_latest_height`
+This rpc method accepts a state machine id and returns the latest height of a state machine.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let consensus_state_id = *b"ETH0";
+   let state_machine_id = StateMachineId {
+	state_id: StateMachine::Ethereum(ethereum::EXECUTION_LAYER),
+	consensus_state_id
+   };
+   let params = rpc_params![state_machine_id];
+   let latest_height: u64 = client.rpc().request("ismp_queryStateMachineLatestHeight", params).await.unwrap();
+```
+
+### `query_events`
+This method takes two parameters a starting block hash or number and an ending block hash or number, it responds with all the ismp events present within that range.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let from =  BlockNumberOrHash::Number(100);
+   let to = BlockNumberOrHash::Number(200)
+   let params = rpc_params![from, to];
+   let events: Vec<ismp::events::Event> = client.rpc().request("ismp_queryEvents", params).await.unwrap();
+```
+
+### `query_events_with_metadata`
+This method takes two parameters a starting block hash or number and an ending block hash or number, it responds with all the ismp events present within that range along side the extrinsic and block hash where the events were emitted.
+
+```rust showLineNumbers
+   let client = OnlineClient::<T>::from_url("ws://127.0.0.1:9944")
+		.await.unwrap();
+   let from =  BlockNumberOrHash::Number(100);
+   let to = BlockNumberOrHash::Number(200)
+   let params = rpc_params![from, to];
+   let events: Vec<pallet_ismp_rpc::EventWithMetadata> = client.rpc().request("ismp_queryEventsWithMetadata", params).await.unwrap();
+```
+
+
+## Implementation
+
+ - [pallet-ismp-rpc](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/ismp/rpc/src/lib.rs)

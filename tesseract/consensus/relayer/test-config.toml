@@ -30,7 +30,6 @@ type = "sepolia"
 state_machine = "EVM-11155111"
 rpc_urls = ["https://localhost:8552"]
 consensus_state_id = "ETH0"
-etherscan_api_key = ""
 ismp_host = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
 signer = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
 
@@ -43,4 +42,3 @@ consensus_update_frequency = 60 # seconds,
 [relayer]
 challenge_period = 0
 maximum_update_intervals = [[{state_id = "EVM-11155111", consensus_state_id = "ETH0"}, 500]]
-

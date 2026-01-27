@@ -1,0 +1,14 @@
+{
+    "pages": [
+        "...",
+        "---SDK---",
+        "evm",
+        "polkadot",
+        "sdk",
+        "---Network Operators---",
+        "...network",
+        "---Troubleshooting---",
+        "...troubleshooting"
+    ],
+    "defaultOpen": true
+}

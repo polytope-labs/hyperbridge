@@ -1,0 +1,300 @@
+---
+title: Overview
+description: This is the implementation of ISMP for substrate chains. It is the foundational component that allows communication over ISMP. It correctly composes the various ISMP components in the runtime.
+---
+
+# Pallet ISMP
+
+This is the implementation of ISMP for substrate chains. It is the foundational component that allows communication over ISMP. It correctly composes the various ISMP components in the runtime.
+
+## Runtime Integration
+
+Including `pallet-ismp` in a substrate runtime requires implementing the pallet config.
+
+```rust showLineNumbers [runtime.rs]
+parameter_types! {
+    // For example, the hyperbridge parachain on Polkadot
+    pub const Coprocessor: Option<StateMachine> = Some(StateMachine::Polkadot(3367));
+    // The host state machine of this pallet, your state machine id goes here
+    pub const HostStateMachine: StateMachine = StateMachine::Polkadot(1000); // polkadot
+    // pub const HostStateMachine: StateMachine = StateMachine::Kusama(1000); // kusama
+    // pub const HostStateMachine: StateMachine = StateMachine::Substrate(*b"MYID"); // solochain
+}
+
+impl pallet_ismp::Config for Runtime {
+    // Configure the runtime event
+    type RuntimeEvent = RuntimeEvent;
+    // Permissioned origin who can create or update consensus clients
+    type AdminOrigin = EnsureRoot<AccountId>;
+    // The state machine identifier for this state machine
+    type HostStateMachine = HostStateMachine;
+    // The pallet_timestamp pallet
+    type TimestampProvider = Timestamp;
+    // The currency implementation that is offered to relayers
+	// this could also be `frame_support::traits::tokens::fungible::ItemOf`
+    type Currency = Balances;
+    // The balance type for the currency implementation
+    type Balance = Balance;
+    // Router implementation for routing requests/responses to their respective modules
+    type Router = Router;
+    // Optional coprocessor for incoming requests/responses
+    type Coprocessor = Coprocessor;
+    // Supported consensus clients
+    type ConsensusClients = (
+        // as an example, the parachain consensus client
+        ismp_parachain::ParachainConsensusClient<Runtime, IsmpParachain>,
+    );
+    // Offchain database implementation. Outgoing requests and responses are
+    // inserted in this database, while their commitments are stored onchain.
+    //
+    // The default implementation for `()` should suffice
+    type OffchainDB = ();
+    // The fee handler implementation
+    type FeeHandler = WeightFeeHandler<()>;
+}
+
+construct_runtime! {
+    // ...
+    Ismp: pallet_ismp
+}
+```
+
+### Config
+
+Let's go through some of the ISMP specific components of the configuration.
+
+| Component | Description |
+|-----------|-------------|
+| `HostStateMachine` | This is the state machine identifier for your chain, it will be used as the **source value for all requests that are dispatched from this chain** For parachains, this should be your parachain id e.g `StateMachine::Polkadot(1000)`. |
+| `Coprocessor` | ISMP is built around the idea of a coprocessor that aggregates consensus and state proofs from multiple state machines into a more succinct proof that is cheaply verifiable. This component defines the state machine identifier of the supported coprocessor, Hyperbridge is a coprocessor for ISMP. |
+| `ConsensusClients` | This is a tuple of types that implement the `ConsensusClient` interface, it defines all the consensus algorithms supported by this deployment of the protocol. |
+| `OffchainDB` | This implementation provides the interface for persisting requests and responses to the offchain db. Only commitments of requests and responses are stored onchain. |
+| `Router` | The router is a type that provides an `IsmpModule` implementation for a module id. |
+
+### Router
+
+The `IsmpRouter` is a module which produces an `IsmpModule` implementation for a given module identifier.
+
+```rust showLineNumbers [runtime.rs]
+#[derive(Default)]
+struct Router;
+
+impl IsmpRouter for Router {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        let module = match id.as_slice() {
+           YOUR_MODULE_ID => Box::new(YourModule::default()),
+           // ... other modules
+            _ => Err(Error::ModuleNotFound(id))?
+        };
+        Ok(module)
+    }
+}
+
+/// Some custom module capable of processing some incoming/request or response.
+/// This could also be a pallet itself.
+#[derive(Default)]
+struct YourModule;
+
+impl IsmpModule for YourModule {
+    /// Called by the ISMP hanlder, to notify module of a new POST request
+    /// the module may choose to respond immediately, or in a later block
+    fn on_accept(&self, request: Post) -> Result<(), Error> {
+        // do something useful with the request
+        Ok(())
+    }
+
+    /// Called by the ISMP hanlder, to notify module of a response to a previously
+    /// sent out request
+    fn on_response(&self, response: Response) -> Result<(), Error> {
+         // do something useful with the response
+         Ok(())
+    }
+
+     /// Called by the ISMP hanlder, to notify module of requests that were previously
+     /// sent but have now timed-out
+ 	fn on_timeout(&self, request: Timeout) -> Result<(), Error> {
+        // revert any state changes that were made prior to dispatching the request
+        Ok(())
+    }
+}
+```
+
+### FeeHandler
+
+The `FeeHandler` is responsible for calculating and settling fees for ISMP message processing. It enables flexible fee models that can be tailored to your chain's economic requirements.
+
+#### Purpose and Capabilities
+
+The `FeeHandler` configuration allows you to:
+
+- Calculate fees based on the computational resources (weight) used to process messages
+- Implement different fee structures for various message types (requests, responses, consensus)
+- Create custom incentive structures for relayers and validators
+- Support subsidized operations or negative fee models
+- Adapt fees based on network conditions or message priority
+
+#### Default Implementation
+
+The simplest implementation is the `WeightFeeHandler`, which calculates fees based on message processing weight:
+
+```rust showLineNumbers [runtime.rs]
+// For a simple weight-based fee model:
+type FeeHandler = WeightFeeHandler<ModuleWeightProvider>;
+```
+
+#### Custom Weight Provider
+
+To provide accurate weight measurements for each module's callbacks, implement the `WeightProvider` trait:
+
+```rust showLineNumbers [runtime.rs]
+struct YourModuleBenchmarks;
+
+impl pallet_ismp::weights::IsmpModuleWeight for YourModuleBenchmarks {
+    /// Should return the benchmark weight for processing this request
+    fn on_accept(&self, request: &Post) -> Weight {
+        // Return actual benchmarked weight for the operation
+        Weight::from_parts(150_000_000, 0)
+    }
+
+    /// Should return the benchmark weight for processing this timeout
+    fn on_timeout(&self, request: &Timeout) -> Weight {
+        Weight::from_parts(100_000_000, 0)
+    }
+
+    /// Should return the benchmark weight for processing this response
+    fn on_response(&self, response: &Response) -> Weight {
+        Weight::from_parts(120_000_000, 0)
+    }
+}
+
+struct ModuleWeightProvider;
+
+impl pallet_ismp::weights::WeightProvider for ModuleWeightProvider {
+    fn module_callback(dest_module: ModuleId) -> Option<Box<dyn IsmpModuleWeight>> {
+        match dest_module.to_bytes().as_slice() {
+            YOUR_MODULE_ID => {
+                Some(Box::new(YourModuleBenchmarks))
+            }
+            // ... other modules
+            _ => None
+        }
+    }
+}
+```
+
+Alternatively, you can use the default weight provider if you don't need custom weights.
+
+
+```rust showLineNumbers [runtime.rs]
+// Default weight provider returns `Weight::zero()`
+type FeeHandler = WeightFeeHandler<()>;
+```
+
+
+#### Custom Fee Handlers
+
+For more advanced fee models, you can implement your own `FeeHandler`:
+
+```rust showLineNumbers [runtime.rs]
+struct CustomFeeHandler;
+
+impl pallet_ismp::fee_handler::FeeHandler for CustomFeeHandler {
+    fn on_executed(messages: Vec<Message>) -> DispatchResultWithPostInfo {
+        // Implement custom fee logic based on message types
+        // For example, different fee strategies for different message types:
+        let weight = calculate_consumed_weight(&messages);
+
+        // Determine if the operation pays fees based on your economic model
+        let pays_fee = if contains_only_consensus_messages(&messages) {
+            // incentivize consensus messages here using a custom fee strategy
+            Pays::No
+        } else {
+            // Regular messages pay normal fees
+            Pays::Yes
+        };
+
+        Ok(PostDispatchInfo {
+            actual_weight: Some(weight),
+            pays_fee,
+        })
+    }
+}
+```
+
+#### Fee Considerations
+
+When designing your fee model, consider:
+
+| Consideration | Description |
+|---------------|-------------|
+| **Economic sustainability** | Ensure relayers are properly incentivized |
+| **Spam prevention** | Set fees high enough to prevent DoS attacks |
+| **User experience** | Keep fees reasonable for legitimate users |
+| **Computational efficiency** | Fee calculations should be lightweight |
+| **Special message types** | Consider if certain critical messages (like consensus updates) should have different fee structures |
+
+
+## Interfaces
+
+The `pallet_ismp::Pallet<T>` implements the neccessary interfaces for the ISMP framework. These are:
+
+| Interface | Description |
+|-----------|-------------|
+| [`IsmpHost`](/protocol/ismp/host) | Pallet ISMP implements `IsmpHost` interface providing all the storage and cryptographic requirements for the ISMP handlers. Modules that need to interact with the low-level ISMP framework can use this interface to access the necessary storage items they wish to read. <Callout title={'IMPORTANT'} type={"warn"}>It is **not recommended** for 3rd-party modules to alter the storage items directly, unless you absolutely know what you are doing.</Callout> |
+| [`IsmpDispatcher`](/protocol/ismp/dispatcher) | It implements `IsmpDispatcher` allowing it to dispatch requests and responses. This is the low-level ISMP framework dispatcher. It can be used to dispatch requests that are not addressed to Hyperbridge and perhaps meant for other state machines. Dispatching requests to be Hyperbridge should be done throught the [`pallet-hyperbridge`](/developers/polkadot/fees) module. Which also implements the `IsmpDispatcher` interface but collects the necessary fees. |
+
+
+## Calls
+
+| Call | Origin | Description |
+|------|--------|-------------|
+| `create_consensus_client` | AdminOrigin | Initialize the consensus state of a consensus client. Consensus clients must be initialized with a trusted state, so this call must only be called by a trusted party. |
+| `update_consensus_state` | AdminOrigin | Update the unbonding period or challenge_period for a consensus client. It must only be called by trusted parties to prevent consensus exploits. |
+| `handle_unsigned` | Unsigned | Execute the provided batch of ISMP messages for free with valid proofs. This will short-circuit and revert if any of the provided messages are invalid. |
+| `fund_message` | Signed | Increase the relayer fee for in-flight requests and responses to incentivize their delivery. Should not be called on a message that has been completed (delivered or timed-out) as those funds will be lost forever. |
+
+## Transaction fees
+
+Pallet ISMP uses unsigned transactions for executing cross-chain messages. This means all cross-chain messages received are executed for free as unsigned transactions. The upside to this is that it cannot be exploited as a spam vector, since the transaction pool will check if the submitted extrinsics are valid before they are included in the pool. This validity check ensures that the transaction can be successfully executed and contains valid proofs. Malformed messages or those with invalid proofs are filtered out by the transaction pool validation logic preventing unnecessary processing and potential network congestion.
+
+
+## Miscellaneous
+
+### Offchain Indexing
+
+The `pallet-ismp` only stores "commitments" (hashes) of requests onchain for storage proofs, while the full requests are stored offchain and using the [offchain indexing api](https://docs.rs/sp-io/38.0.0/sp_io/offchain/index.html). It would be prudent to enable offchain indexing by default in the node, so all nodes on the network store all requests offchain. You can do this in your `run` function in `command.rs`. [Here's an example](https://github.com/polytope-labs/hyperbridge/blob/main/parachain/node/src/command.rs#L168-L170)
+
+```rust showLineNumbers [command.rs]
+/// Parse command line arguments into service configuration.
+pub fn run() -> Result<()> {
+	let mut cli = Cli::from_args();
+
+	// all full nodes should store request/responses, otherwise they'd basically be useless without
+	// it.
+	cli.run.base.offchain_worker_params.indexing_enabled = true; // [!code hl]
+	// .. other stuff
+}
+```
+
+### Signed Extensions
+
+The teseract messaging relayer expects the following signed extensions to be present in the runtime in the same order listed below
+
+```rust showLineNumbers [runtime.rs]
+/// The SignedExtension to the basic transaction logic.
+pub type SignedExtra = (
+	frame_system::CheckNonZeroSender<Runtime>,
+	frame_system::CheckSpecVersion<Runtime>,
+	frame_system::CheckTxVersion<Runtime>,
+	frame_system::CheckGenesis<Runtime>,
+	frame_system::CheckEra<Runtime>,
+	frame_system::CheckNonce<Runtime>,
+	frame_system::CheckWeight<Runtime>,
+	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+);
+```
+
+## Implementation
+
+ - [pallet-ismp](https://github.com/polytope-labs/hyperbridge/blob/main/modules/ismp/pallets/pallet/src/lib.rs)

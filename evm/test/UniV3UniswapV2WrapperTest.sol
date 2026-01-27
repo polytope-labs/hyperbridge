@@ -20,12 +20,12 @@ import "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {UniV3UniswapV2Wrapper} from "../src/modules/UniV3UniswapV2Wrapper.sol";
+import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
 contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
-    address private constant UNISWAP_V3_ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
-    address private constant UNISWAP_V3_QUOTER = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
+    address private constant UNISWAP_V3_ROUTER_V2 = 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45;
+    address private constant UNISWAP_V3_QUOTER_V2 = 0x61fFE014bA17989E743c5F6cB21bF9697530B21e;
     address private constant WETH = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address private constant WHALE = address(0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045);
@@ -33,46 +33,36 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
     UniV3UniswapV2Wrapper private wrapper;
 
     function setUp() public override {
-         vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
+        vm.selectFork(vm.createFork(vm.envString("MAINNET_FORK_URL")));
 
         wrapper = new UniV3UniswapV2Wrapper(address(this));
         wrapper.init(
-            UniV3UniswapV2Wrapper.Params({WETH: WETH, swapRouter: UNISWAP_V3_ROUTER, quoter: UNISWAP_V3_QUOTER})
+            UniV3UniswapV2Wrapper.Params({
+                WETH: WETH, swapRouter: UNISWAP_V3_ROUTER_V2, quoter: UNISWAP_V3_QUOTER_V2, maxFee: 500
+            })
         );
     }
 
-    /* function testSwapETHForExactTokens() public {
-
+    function testSwapETHForExactTokens() public {
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = DAI;
 
-
         uint256 amountOut = 485147;
         uint256 amountsIn = 2000000000000000000;
-
 
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
-
         uint256 deadline = block.timestamp + 1 hours;
 
-
-        uint256 slippage = amountsIn * 50 / 10_000; // 0.5% slippage
+        uint256 slippage = (amountsIn * 50) / 10_000; // 0.5% slippage
         vm.prank(WHALE);
-        uint256[] memory amounts = testRouter.swapETHForExactTokens{value: amountsIn + slippage}(
-            amountOut,
-            path,
-            WHALE,
-            deadline
-        );
-
+        uint256[] memory amounts =
+            wrapper.swapETHForExactTokens{value: amountsIn + slippage}(amountOut, path, WHALE, deadline);
 
         assertEq(
-            IERC20(DAI).balanceOf(WHALE),
-            initialDaiBalance + amountOut,
-            "DAI balance should increase by exact amount"
+            IERC20(DAI).balanceOf(WHALE), initialDaiBalance + amountOut, "DAI balance should increase by exact amount"
         );
         assertTrue(amounts[0] > 0, "ETH spent should be greater than 0");
         assertEq(amounts[1], amountOut, "Amount out should match requested amount");
@@ -80,49 +70,34 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
     }
 
     function testSwapExactETHForTokens() public {
-
         address[] memory path = new address[](2);
         path[0] = WETH;
         path[1] = DAI;
 
-
         uint256 exactEthAmount = 1 ether;
 
-
         uint256 amountOutMin = 0;
-
 
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
-
         uint256 deadline = block.timestamp + 1 hours;
 
-
         vm.prank(WHALE);
-        uint256[] memory amounts = testRouter.swapExactETHForTokens{value: exactEthAmount}(
-            amountOutMin, path, WHALE, deadline
-        );
+        uint256[] memory amounts =
+            wrapper.swapExactETHForTokens{value: exactEthAmount}(amountOutMin, path, WHALE, deadline);
 
         uint256 newDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 newEthBalance = WHALE.balance;
 
         // Verify exact ETH was spent (no refund for exact input)
         assertEq(amounts[0], exactEthAmount, "Should spend exact ETH amount");
-        assertEq(
-            initialEthBalance - newEthBalance,
-            exactEthAmount,
-            "ETH balance should decrease by exact amount"
-        );
+        assertEq(initialEthBalance - newEthBalance, exactEthAmount, "ETH balance should decrease by exact amount");
 
-      console.log(amounts[1]);
+        console.log(amounts[1]);
         assertTrue(amounts[1] > 0, "Should receive some DAI");
-        assertEq(
-            newDaiBalance - initialDaiBalance,
-            amounts[1],
-            "DAI balance increase should match reported amount"
-        );
-        } */
+        assertEq(newDaiBalance - initialDaiBalance, amounts[1], "DAI balance increase should match reported amount");
+    }
 
     // Required to receive ETH refunds
     receive() external payable {}

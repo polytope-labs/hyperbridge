@@ -21,19 +21,13 @@ extern crate alloc;
 
 mod impls;
 mod types;
-use alloy_sol_types::SolValue;
-use anyhow::anyhow;
 use frame_support::pallet_prelude::Weight;
-use ismp::router::{PostRequest, Response, Timeout};
 use polkadot_sdk::*;
 
 pub use types::*;
 
-use alloc::{format, vec};
-use codec::Encode;
-use ismp::module::IsmpModule;
+use alloc::vec;
 use primitive_types::{H160, H256};
-use token_gateway_primitives::{RemoteERC6160AssetRegistration, PALLET_TOKEN_GATEWAY_ID};
 
 pub use token_gateway_primitives::TOKEN_GOVERNOR_ID as PALLET_ID;
 
@@ -469,72 +463,6 @@ pub mod pallet {
 		fn default() -> Self {
 			Self(PhantomData)
 		}
-	}
-}
-
-impl<T: Config> IsmpModule for Pallet<T>
-where
-	T::AccountId: From<[u8; 32]>,
-{
-	fn on_accept(
-		&self,
-		PostRequest { body: data, from, source, .. }: PostRequest,
-	) -> Result<Weight, anyhow::Error> {
-		// Only substrate chains are allowed to fully register assets remotely
-		if source.is_substrate() && &from == &PALLET_TOKEN_GATEWAY_ID[..] {
-			let remote_reg: RemoteERC6160AssetRegistration = codec::Decode::decode(&mut &*data)
-				.map_err(|_| ismp::error::Error::Custom(format!("Failed to decode data")))?;
-			match remote_reg {
-				RemoteERC6160AssetRegistration::CreateAsset(asset) => {
-					let asset_id: H256 = sp_io::hashing::keccak_256(asset.symbol.as_ref()).into();
-					Pallet::<T>::register_asset(
-						asset.into(),
-						sp_io::hashing::keccak_256(&source.encode()).into(),
-					)
-					.map_err(|e| {
-						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-					})?;
-					StandaloneChainAssets::<T>::insert(source, asset_id, true);
-				},
-				RemoteERC6160AssetRegistration::UpdateAsset(asset) => {
-					Pallet::<T>::update_erc6160_asset_impl(asset.into()).map_err(|e| {
-						ismp::error::Error::Custom(format!("Failed create asset {e:?}"))
-					})?;
-				},
-			}
-
-			return Ok(weight());
-		}
-		let RegistrarParams { address, .. } = TokenRegistrarParams::<T>::get(&source)
-			.ok_or_else(|| ismp::error::Error::Custom(format!("Pallet is not initialized")))?;
-		if from != address.as_bytes().to_vec() {
-			Err(ismp::error::Error::Custom(format!("Unauthorized action")))?
-		}
-		let body = SolRequestBody::abi_decode(&data[..], true)
-			.map_err(|err| ismp::error::Error::Custom(format!("Decode error: {err}")))?;
-		let asset_id: H256 = body.assetId.0.into();
-		let owner: H160 = body.owner.0 .0.into();
-
-		// asset must not already exist
-		if AssetOwners::<T>::contains_key(&asset_id) || PendingAsset::<T>::contains_key(&asset_id) {
-			Err(ismp::error::Error::Custom(format!("Asset already exists")))?
-		}
-
-		PendingAsset::<T>::insert(asset_id, owner);
-
-		Self::deposit_event(Event::<T>::NewPendingAsset { asset_id, owner });
-
-		Ok(weight())
-	}
-
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
-		Err(anyhow!("Module does not expect responses"))
-	}
-
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
-		// The request lives forever, it's not exactly time-sensitive.
-		// There are no refunds for asset registration fees
-		Err(anyhow!("Module does not expect timeouts"))
 	}
 }
 

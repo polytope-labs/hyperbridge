@@ -95,7 +95,6 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 						state_machine: chain.clone(),
 						consensus_state_id: "PARA".to_string(),
 						signer: signing_key.clone(),
-						etherscan_api_key: Default::default(),
 						tracing_batch_size: Default::default(),
 						query_batch_size: Default::default(),
 						poll_interval: Default::default(),

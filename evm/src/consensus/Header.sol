@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {StateCommitment} from "@polytope-labs/ismp-solidity/IConsensusClient.sol";
+import {StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
 

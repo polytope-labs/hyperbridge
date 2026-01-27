@@ -23,7 +23,13 @@ log = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["frame-support", "frame-system", "sp-runtime", "pallet-session", "sp-application-crypto"]
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "pallet-session",
+    "sp-application-crypto",
+]
 
 [features]
 default = ["std"]

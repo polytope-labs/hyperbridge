@@ -1,5 +1,4 @@
 // Xcm config
-
 use crate::{
 	relay_chain,
 	runtime::{
@@ -40,8 +39,10 @@ use staging_xcm_builder::{
 	SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation,
 };
 use staging_xcm_executor::{traits::ConvertLocation, WeighedMessage, XcmExecutor};
+use std::sync::Arc;
 use xcm_simulator::{
-	decl_test_network, decl_test_parachain, decl_test_relay_chain, ParaId, TestExt,
+	decl_test_network, decl_test_parachain, decl_test_relay_chain, mock_message_queue, ParaId,
+	TestExt,
 };
 
 pub type SovereignAccountOf = (
@@ -79,13 +80,16 @@ parameter_types! {
 }
 
 parameter_types! {
-	pub const KsmLocation: Location = Location::parent();
+	pub const RelayLocation: Location = Location::parent();
 	pub const RelayNetwork: Option<NetworkId> = None;
 	pub UniversalLocation: Junctions = Parachain(ParachainInfo::parachain_id().into()).into();
 }
 
+parameter_types! {
+	pub ExternalConsensus: InteriorLocation = [Parachain(SIBLING_PARA_ID), Parachain(1000)].into();
+}
+
 pub type LocationToAccountId = (
-	ParentIsPreset<AccountId32>,
 	SiblingParachainConvertsVia<Sibling, AccountId32>,
 	AccountId32Aliases<RelayNetwork, AccountId32>,
 );
@@ -120,19 +124,6 @@ pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
 >;
 pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let asset_id: H256 = sp_io::hashing::keccak_256(&Location::parent().encode()).into();
-	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
-		assets: vec![
-			// id, owner, is_sufficient, min_balance
-			(asset_id.clone(), ALICE, true, 1),
-		],
-		metadata: vec![
-			// id, name, symbol, decimals
-			(asset_id, "Token Name".into(), "TOKEN".into(), 10),
-		],
-		accounts: vec![],
-		next_asset_id: None,
-	};
 
 	let para_config: staging_parachain_info::GenesisConfig<Test> =
 		staging_parachain_info::GenesisConfig {
@@ -140,8 +131,28 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 			parachain_id: para_id.into(),
 		};
 
-	config.assimilate_storage(&mut t).unwrap();
 	para_config.assimilate_storage(&mut t).unwrap();
+
+	let asset_location = Location::new(1, Here);
+	let asset_id: H256 = sp_io::hashing::keccak_256(&asset_location.encode()).into();
+
+	let config: pallet_assets::GenesisConfig<Test> = pallet_assets::GenesisConfig {
+		assets: vec![
+			// id, owner, is_sufficient, min_balance
+			(asset_id.clone(), ALICE, true, 1),
+		],
+		accounts: vec![
+			(asset_id, ALICE.into(), 10000_000_000_00000 * 10),
+			(asset_id, BOB.into(), 0),
+		],
+		metadata: vec![
+			// id, name, symbol, decimals
+			(asset_id, "Token Name".into(), "TOKEN".into(), 10),
+		],
+		next_asset_id: None,
+	};
+
+	config.assimilate_storage(&mut t).unwrap();
 
 	let mut ext = sp_io::TestExternalities::new(t);
 
@@ -149,6 +160,7 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	ext.execute_with(|| {
 		System::set_block_number(1);
 		Timestamp::set_timestamp(1_000_000);
+		crate::runtime::MsgQueue::set_para_id(para_id.into());
 	});
 	ext
 }
@@ -189,12 +201,24 @@ impl DmpMessageHandler for DmpMessageExecutor {
 	}
 }
 
+/// 1000-2000 are considered system parachains, so let's use higher para_id
+pub const SIBLING_PARA_ID: u32 = 2222;
+
 decl_test_parachain! {
 	pub struct ParaA {
 		Runtime = Test,
-		XcmpMessageHandler = XcmpQueue,
+		XcmpMessageHandler = crate::runtime::MsgQueue,
 		DmpMessageHandler = DmpMessageExecutor,
-		new_ext = para_ext(100),
+		new_ext = para_ext(SIBLING_PARA_ID),
+	}
+}
+
+decl_test_parachain! {
+	pub struct ParaB {
+	   Runtime = crate::asset_hub_runtime::AssetHubsTest,
+	   XcmpMessageHandler = crate::asset_hub_runtime::MsgQueue,
+	   DmpMessageHandler = crate::asset_hub_xcm::DmpMessageExecutor,
+	   new_ext = crate::asset_hub_xcm::para_ext(1000),
 	}
 }
 
@@ -214,13 +238,37 @@ decl_test_network! {
 	pub struct MockNet {
 		relay_chain = Relay,
 		parachains = vec![
-			(100, ParaA),
+			(SIBLING_PARA_ID, ParaA),
+			(1000, ParaB),
 		],
 	}
 }
 
-pub type XcmRouter = ParachainXcmRouter<ParachainInfo>;
+pub type XcmRouter = ParachainXcmRouter<crate::runtime::MsgQueue>;
 pub type Barrier = AllowUnpaidExecutionFrom<Everything>;
+
+parameter_types! {
+	pub DotOnAssetHub: Location = Location::new(1, Here);
+}
+
+pub struct TestReserve;
+impl ContainsPair<Asset, Location> for TestReserve {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		println!("TestReserve::contains asset: {asset:?}, origin:{origin:?}");
+		let self_para = Location::new(1, [Parachain(ParachainInfo::parachain_id().into())]);
+		if origin == &self_para {
+			return false;
+		}
+
+		let asset_hub = Location::new(1, [Parachain(ASSET_HUB_PARA_ID)]);
+		if origin == &asset_hub {
+			let AssetId(asset_id) = &asset.id;
+			return DotOnAssetHub::get() == *asset_id;
+		}
+
+		false
+	}
+}
 
 pub struct XcmConfig;
 impl staging_xcm_executor::Config for XcmConfig {
@@ -228,17 +276,20 @@ impl staging_xcm_executor::Config for XcmConfig {
 	type XcmSender = XcmRouter;
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToCallOrigin;
-	type IsReserve = NativeAsset;
-	type IsTeleporter = ();
+	type IsReserve = TestReserve;
+	type IsTeleporter = (
+		// Important setting reflecting AssetHub
+		parachains_common::xcm_config::ConcreteAssetFromSystem<RelayLocation>,
+	);
 	type UniversalLocation = UniversalLocation;
 	type Barrier = Barrier;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type Trader = ();
 	type ResponseHandler = ();
-	type AssetTrap = ();
+	type AssetTrap = PalletXcm;
 	type AssetLocker = ();
 	type AssetExchanger = ();
-	type AssetClaims = ();
+	type AssetClaims = PalletXcm;
 	type SubscriptionService = ();
 	type PalletInstancesInfo = ();
 	type FeeManager = ();
@@ -283,9 +334,17 @@ impl cumulus_pallet_parachain_system::Config for Test {
 	type RelayParentOffset = ();
 }
 
+use crate::runtime::BOB;
 use frame_support::traits::TransformOrigin;
+use pallet_xcm_gateway::xcm_utilities::ASSET_HUB_PARA_ID;
 use parachains_common::message_queue::ParaIdToSibling;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
+use polkadot_sdk::{
+	frame_support::traits::ContainsPair,
+	sp_runtime::traits::AccountIdConversion,
+	staging_xcm_builder::ExternalConsensusLocationsConverterFor,
+	xcm_simulator::Junctions::{X1, X3},
+};
 
 impl cumulus_pallet_xcmp_queue::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
@@ -299,6 +358,11 @@ impl cumulus_pallet_xcmp_queue::Config for Test {
 	type WeightInfo = ();
 	type MaxActiveOutboundChannels = sp_core::ConstU32<128>;
 	type MaxPageSize = sp_core::ConstU32<{ 103 * 1024 }>;
+}
+
+impl mock_message_queue::Config for Test {
+	type RuntimeEvent = RuntimeEvent;
+	type XcmExecutor = XcmExecutor<XcmConfig>;
 }
 
 parameter_types! {

@@ -48,7 +48,9 @@ pub struct BeefyConfig {
 
 impl BeefyConfig {
 	/// Constructs an instance of the [`IsmpHost`] from the provided configs
-	pub async fn into_client<R, P>(self) -> Result<BeefyHost<R, P>, anyhow::Error>
+	pub async fn into_client<R, P>(
+		self,
+	) -> Result<BeefyHost<R, P, zk_beefy::LocalProver>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
 		P: subxt::Config + Send + Sync + Clone,
@@ -58,8 +60,8 @@ impl BeefyConfig {
 		H256: From<HashFor<P>>,
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
-		let prover = Prover::<R, P>::new(self.prover.clone()).await?;
-		let host = BeefyHost::<R, P>::new(self.host, prover, client).await?;
+		let prover = Prover::<R, P, zk_beefy::LocalProver>::new(self.prover.clone()).await?;
+		let host = BeefyHost::<R, P, zk_beefy::LocalProver>::new(self.host, prover, client).await?;
 
 		Ok(host)
 	}

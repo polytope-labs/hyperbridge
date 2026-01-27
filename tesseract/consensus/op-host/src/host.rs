@@ -122,7 +122,6 @@ impl IsmpHost for OpHost {
 
 				let proposer_config_clone = proposer_config.clone();
 				let proposal_submit_loop = async move {
-					let proposer_config = proposer_config_clone.clone();
 					while let Some(proposal) = stream.next().await {
 						match proposal {
 							Ok(proposal) => {
@@ -130,7 +129,6 @@ impl IsmpHost for OpHost {
 									&client,
 									dispute_game_factory_address,
 									proposer.clone(),
-									&proposer_config,
 									proposal,
 								)
 								.await
@@ -454,7 +452,6 @@ async fn submit_state_proposal(
 	client: &OpHost,
 	dispute_game_factory_address: H160,
 	proposer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
-	proposer_config: &ProposerConfig,
 	proposal: StateProposal,
 ) -> Result<(), anyhow::Error> {
 	log::trace!(target: "tesseract",
@@ -476,7 +473,7 @@ async fn submit_state_proposal(
 	// Fetch L1 gas price
 	let gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
-		&proposer_config.l1_etherscan_api_key,
+		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 	)
 	.await?;
@@ -486,7 +483,7 @@ async fn submit_state_proposal(
 	let tx = call.send().await?;
 	wait_for_success(
 		&client.l1_state_machine,
-		&proposer_config.l1_etherscan_api_key,
+		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 		proposer.clone(),
 		tx,

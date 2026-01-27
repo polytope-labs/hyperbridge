@@ -17,19 +17,21 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "../examples/PingModule.sol";
-import {HandlerV1} from "../src/modules/HandlerV1.sol";
-import {CallDispatcher} from "../src/modules/CallDispatcher.sol";
+import {PingModule} from "../src/utils/PingModule.sol";
+import {HandlerV1} from "../src/core/HandlerV1.sol";
+import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
-import {HostParams, PerByteFee} from "../src/hosts/EvmHost.sol";
-import {HostManagerParams, HostManager} from "../src/modules/HostManager.sol";
-import {TokenGateway, Asset, TokenGatewayParamsExt, TokenGatewayParams, AssetMetadata} from "../src/modules/TokenGateway.sol";
-import {ERC6160Ext20} from "@polytope-labs/erc6160/tokens/ERC6160Ext20.sol";
-import {StateMachine} from "@polytope-labs/ismp-solidity/StateMachine.sol";
+import {HostParams, PerByteFee} from "../src/core/EvmHost.sol";
+import {HostManagerParams, HostManager} from "../src/core/HostManager.sol";
+import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {ERC20Token} from "./mocks/ERC20Token.sol";
 import {MiniStaking} from "./mocks/MiniStakingContract.sol";
-import {TokenFaucet} from "../src/modules/TokenFaucet.sol";
+import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
+import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
 
 contract BaseTest is Test {
     /// @notice The Id of Role required to mint token
@@ -92,7 +94,10 @@ contract BaseTest is Test {
 
         // and token faucet
         TokenFaucet faucet = new TokenFaucet();
-        feeToken.grantRole(MINTER_ROLE, address(faucet));
+        feeToken.grantMinterRole(address(faucet));
+        // Grant minter and burner roles to test contract for direct token operations
+        feeToken.grantMinterRole(address(this));
+        feeToken.grantBurnerRole(address(this));
 
         testModule = new PingModule(address(this));
         uint256 oldTime = block.timestamp;
@@ -102,6 +107,17 @@ contract BaseTest is Test {
 
         manager.setIsmpHost(address(host));
         gateway = new TokenGateway(address(this));
+
+        // Grant minter and burner roles to gateway for feeToken
+        feeToken.grantMinterRole(address(gateway));
+        feeToken.grantBurnerRole(address(gateway));
+
+        // Grant minter and burner roles to gateway for hyperInu_h
+        hyperInu_h.grantMinterRole(address(gateway));
+        hyperInu_h.grantBurnerRole(address(gateway));
+        // Grant minter and burner roles to test contract for hyperInu_h
+        hyperInu_h.grantMinterRole(address(this));
+        hyperInu_h.grantBurnerRole(address(this));
 
         mockUSDC.superApprove(tx.origin, address(host));
         mockUSDC.superApprove(address(this), address(host));
@@ -115,19 +131,33 @@ contract BaseTest is Test {
             initialSupply: 0
         });
 
-        gateway.init(
-            TokenGatewayParamsExt({
-                params: TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}),
-                assets: assets
-            })
-        );
+        gateway.init(TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}));
 
-        feeToken.grantRole(MINTER_ROLE, address(this));
-        feeToken.grantRole(MINTER_ROLE, address(gateway));
-        feeToken.grantRole(BURNER_ROLE, address(gateway));
+        // Add assets via governance
+        for (uint256 i = 0; i < assets.length; i++) {
+            AssetMetadata[] memory singleAsset = new AssetMetadata[](1);
+            singleAsset[0] = assets[i];
+            bytes memory body = bytes.concat(hex"02", abi.encode(singleAsset[0]));
 
-        hyperInu_h.grantRole(MINTER_ROLE, address(gateway));
-        hyperInu_h.grantRole(BURNER_ROLE, address(gateway));
+            vm.prank(address(host));
+            gateway.onAccept(
+                IncomingPostRequest({
+                    request: PostRequest({
+                        to: abi.encodePacked(address(0)),
+                        from: abi.encodePacked(address(gateway)),
+                        dest: new bytes(0),
+                        body: body,
+                        nonce: 0,
+                        source: StateMachine.kusama(2000),
+                        timeoutTimestamp: 0
+                    }),
+                    relayer: address(0)
+                })
+            );
+        }
+
+        // HyperFungibleToken uses immutable gateway pattern
+        // Gateway is set at deployment and can mint/burn tokens
 
         // some approvals
         feeToken.superApprove(address(this), address(gateway));

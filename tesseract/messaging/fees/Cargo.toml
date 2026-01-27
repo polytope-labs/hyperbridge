@@ -13,7 +13,7 @@ futures = "0.3.28"
 tokio = { workspace = true, features = ["full"] }
 primitive-types = { workspace = true, default-features = true }
 prisma-client-rust = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }
-serde = { version = "1.0.195", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 itertools = "0.12.1"
 tracing = "0.1.40"
 sp-core = { workspace = true, default-features = true }

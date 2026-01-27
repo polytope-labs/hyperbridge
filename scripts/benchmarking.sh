@@ -19,7 +19,7 @@ declare -a nexus=(
 "pallet_session"
 "pallet_sudo"
 "pallet_timestamp"
-# "pallet_treasury" broken on stable2409
+"pallet_treasury"
 "pallet_utility"
 )
 
@@ -28,7 +28,7 @@ cargo build -rp hyperbridge -F=runtime-benchmarks
 # nexus runtime
 for i in "${nexus[@]}"
 do
-    target/release/hyperbridge benchmark pallet \
+    frame-omni-bencher v1 benchmark pallet \
         --wasm-execution=compiled \
         --pallet="$i" \
         --extrinsic="*" \
@@ -56,14 +56,15 @@ declare -a gargantua=(
 "pallet_session"
 "pallet_sudo"
 "pallet_timestamp"
-# "pallet_treasury" broken on stable2409
+"pallet_treasury"
 "pallet_utility"
+"pallet_intents_coprocessor"
 )
 
 # gargantua runtime
 for i in "${gargantua[@]}"
 do
-    target/release/hyperbridge benchmark pallet \
+    frame-omni-bencher v1 benchmark pallet \
         --wasm-execution=compiled \
         --pallet="$i" \
         --extrinsic="*" \

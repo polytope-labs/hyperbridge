@@ -36,6 +36,7 @@ features = [
     "staging-xcm",
     "staging-xcm-builder",
     "staging-xcm-executor",
+    "cumulus-primitives-core"
 ]
 
 [features]

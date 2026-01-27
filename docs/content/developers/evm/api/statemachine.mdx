@@ -1,0 +1,105 @@
+---
+title: StateMachine
+description: API reference for StateMachine - utility library for creating and parsing state machine identifiers.
+---
+
+# StateMachine
+
+Utility library for encoding and decoding state machine identifiers. Used to specify source and destination chains when dispatching cross-chain messages.
+
+```solidity lineNumbers
+library StateMachine
+```
+
+## Overview
+
+The StateMachine library provides helper functions for:
+- Creating EVM state machine identifiers
+- Creating Substrate state machine identifiers
+- Parsing state machine IDs
+- Comparing state machine identifiers
+
+State machine identifiers are used throughout Hyperbridge to specify which chains messages should be sent to or received from.
+
+---
+
+## Functions
+
+### evm()
+
+Creates an EVM state machine identifier from a chain ID.
+
+```solidity lineNumbers
+function evm(uint256 chainId) internal pure returns (bytes memory)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `uint256` | The EVM chain ID (e.g., 1 for Ethereum, 137 for Polygon) |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bytes` | Encoded state machine identifier |
+
+---
+
+### substrate()
+
+Creates a Substrate/Polkadot state machine identifier.
+
+```solidity lineNumbers
+function substrate(bytes memory id) internal pure returns (bytes memory)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `bytes` | The parachain identifier as bytes (e.g., "POLKADOT-1000", "KUSAMA-2000") |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bytes` | Encoded state machine identifier |
+
+---
+
+### parseStateMachineId()
+
+Extracts the chain ID from an EVM state machine identifier.
+
+```solidity lineNumbers
+function parseStateMachineId(bytes memory id) 
+    internal 
+    pure 
+    returns (uint256 chainId)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `bytes` | Encoded EVM state machine identifier |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| `chainId` | `uint256` | The EVM chain ID |
+
+---
+
+### equals()
+
+Compares two state machine identifiers for equality.
+
+```solidity lineNumbers
+function equals(bytes memory a, bytes memory b) 
+    internal 
+    pure 
+    returns (bool)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | `bytes` | First state machine identifier |
+| `b` | `bytes` | Second state machine identifier |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bool` | True if identifiers are equal, false otherwise |
+
+---

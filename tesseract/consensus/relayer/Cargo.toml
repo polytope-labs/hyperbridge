@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.3.0"
+version = "1.4.1"
 edition = "2021"
 
 [lib]
@@ -26,11 +26,11 @@ substrate-state-machine = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 anyhow = "1.0.93"
 futures = "0.3.28"
-serde = { version = "1.0.214", features = ["derive"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
 json = { version = "1.0.132", package = "serde_json" }
 toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }
-tokio = { version = "1.32.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 primitive-types =  { workspace = true }
 subxt = { workspace = true, default-features = false }
@@ -38,6 +38,7 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
+zk-beefy = { path = "../beefy/zk" }
 tesseract-bsc = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
@@ -48,7 +49,12 @@ tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
+tesseract-tendermint = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime", "sc-service"]
+
+
+[features]
+nofulu = ["tesseract-sync-committee/nofulu"]

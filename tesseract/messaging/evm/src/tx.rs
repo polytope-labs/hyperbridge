@@ -1,5 +1,9 @@
 use crate::{
-	gas_oracle::{ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID, CHIADO_CHAIN_ID, GNOSIS_CHAIN_ID},
+	gas_oracle::{
+		ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID, CHIADO_CHAIN_ID, CRONOS_CHAIN_ID,
+		CRONOS_TESTNET_CHAIN_ID, GNOSIS_CHAIN_ID, INJECTIVE_CHAIN_ID, INJECTIVE_TESTNET_CHAIN_ID,
+		SEI_CHAIN_ID, SEI_TESTNET_CHAIN_ID,
+	},
 	EvmClient,
 };
 use anyhow::anyhow;
@@ -14,7 +18,7 @@ use ethers::{
 		NameOrAddress, Provider, ProviderError, Wallet,
 	},
 	providers::{Http, Middleware, PendingTransaction},
-	types::{TransactionReceipt, TransactionRequest},
+	types::{TransactionReceipt, TransactionRequest, H160},
 };
 use geth_primitives::{new_u256, old_u256};
 use ismp::{
@@ -66,7 +70,7 @@ pub async fn submit_messages(
 				};
 				let evs = wait_for_success(
 					&client.config.state_machine,
-					&client.config.etherscan_api_key,
+					client.config.ismp_host.0.into(),
 					client.client.clone(),
 					client.signer.clone(),
 					progress,
@@ -117,7 +121,7 @@ pub async fn submit_messages(
 #[async_recursion::async_recursion]
 pub async fn wait_for_success<'a, T>(
 	state_machine: &StateMachine,
-	etherscan_api_key: &String,
+	ismp_host: H160,
 	provider: Arc<Provider<Http>>,
 	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
 	tx: PendingTransaction<'a, Http>,
@@ -148,20 +152,17 @@ where
 	let client_clone = provider.clone();
 	let signer_clone = signer.clone();
 	let state_machine_clone = state_machine.clone();
-	let etherscan_api_key_clone = etherscan_api_key.clone();
+	let ismp_host_clone = ismp_host.clone();
 
 	let handle_failed_tx = move || async move {
 		log::info!("No receipt for transaction on {:?}", state_machine_clone);
 
 		if let Some(call) = retry {
 			// lets retry
-			let gas_price: U256 = get_current_gas_cost_in_usd(
-				state_machine_clone,
-				&etherscan_api_key_clone,
-				client_clone.clone(),
-			)
-			.await?
-			.gas_price * 2; // for good measure
+			let gas_price: U256 =
+				get_current_gas_cost_in_usd(state_machine_clone, ismp_host, client_clone.clone())
+					.await?
+					.gas_price * 2; // for good measure
 			log::info!(
 				"Retrying consensus message on {:?} with gas {}",
 				state_machine_clone,
@@ -178,7 +179,7 @@ where
 			// don't retry in the next callstack
 			wait_for_success::<()>(
 				&state_machine_clone,
-				&etherscan_api_key_clone,
+				ismp_host_clone,
 				client_clone.clone(),
 				signer_clone.clone(),
 				pending,
@@ -282,13 +283,9 @@ pub async fn generate_contract_calls(
 	// the gas price by overriding the base fee
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
 	let mut gas_price = if set_gas_price() {
-		get_current_gas_cost_in_usd(
-			client.state_machine,
-			&client.config.etherscan_api_key.clone(),
-			client.client.clone(),
-		)
-		.await?
-		.gas_price
+		get_current_gas_cost_in_usd(client.state_machine, ismp_host.0.into(), client.client.clone())
+			.await?
+			.gas_price
 	} else {
 		Default::default()
 	};
@@ -296,7 +293,7 @@ pub async fn generate_contract_calls(
 	// Only use gas price buffer when submitting transactions
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
 		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(100u32);
+			U256::from(10000u32);
 		gas_price = gas_price + buffer
 	}
 
@@ -460,7 +457,16 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
 			32_000_000,
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
-		StateMachine::Evm(_) => 20_000_000,
+		// Gas limit is 10_000_000, we set our transaction gas limit to 40% of that
+		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 4_000_000,
+		// Gas limit is 60_000_000, we set our transaction gas limit to 30% of that
+		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) =>
+			18_000_000,
+		// Gas limit is 50_000_000, we set our transaction gas limit to 30% of that
+		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) =>
+			15_000_000,
+		// Ethereum L1 max's gas limit per transaction will be reduced to 16m soon.
+		StateMachine::Evm(_) => 16_000_000,
 		_ => Default::default(),
 	}
 }

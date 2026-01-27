@@ -1,0 +1,7 @@
+# Redirect old permissionless-relayers URLs to new relayers URLs
+/docs/developers/explore/permissionless-relayers/* /docs/developers/explore/relayers/:splat 301!
+/docs/developers/explore/permissionless-relayers /docs/developers/explore/relayers/ 301!
+
+# Redirect old configurations URLs to new contract-addresses URLs
+/docs/developers/configurations/* /docs/developers/evm/contract-addresses/:splat 301!
+/docs/developers/configurations /docs/developers/evm/contract-addresses/ 301!

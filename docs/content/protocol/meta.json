@@ -1,0 +1,14 @@
+{
+  "title": "Protocol Specification",
+  "pages": [
+    "---Protocol Specification---",
+    "index",
+    "primitives",
+    "interoperability",
+    "ismp",
+    "consensus",
+    "state-machine",
+    "..."
+  ],
+  "defaultOpen": false
+}

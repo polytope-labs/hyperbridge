@@ -1,0 +1,309 @@
+// Copyright (C) Polytope Labs Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//! Substrate EVM State Machine client implementation
+
+use crate::{req_res_commitment_key, req_res_receipt_keys, types::SubstrateEvmProof};
+use alloc::{
+	collections::BTreeMap,
+	format,
+	string::{String, ToString},
+	vec::Vec,
+};
+use codec::Decode;
+use ismp::{
+	consensus::{StateCommitment, StateMachineClient},
+	error::Error,
+	host::IsmpHost,
+	messaging::Proof,
+	router::RequestResponse,
+};
+use pallet_ismp_host_executive::EvmHosts;
+use polkadot_sdk::*;
+use primitive_types::H160;
+use sp_core::{hashing, storage::ChildInfo, H256};
+use sp_runtime::traits::BlakeTwo256;
+use sp_trie::{LayoutV0, StorageProof, Trie, TrieDBBuilder};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum SubstrateEvmError {
+	#[error("Ismp contract address not found")]
+	IsmpContractNotFound,
+	#[error("Failed to decode proof: {0:?}")]
+	ProofDecodeError(codec::Error),
+	#[error("Trie error: {0}")]
+	TrieError(String),
+	#[error("Contract Info not found in main trie")]
+	ContractInfoNotFound,
+	#[error("Failed to decode AccountInfo variant")]
+	AccountInfoDecodeError,
+	#[error("Failed to decode trie_id")]
+	TrieIdDecodeError,
+	#[error("Child Trie Root not found in main trie")]
+	ChildRootNotFound,
+	#[error("Failed to decode child root")]
+	ChildRootDecodeError,
+	#[error("Child Trie error: {0}")]
+	ChildTrieError(String),
+	#[error("Key {0:?} not found in child trie")]
+	KeyNotFound(Vec<u8>),
+	#[error("Invalid key length: {0}")]
+	InvalidKeyLength(usize),
+	#[error("Storage proof missing for contract {0:?}")]
+	StorageProofMissing(Vec<u8>),
+}
+
+impl From<SubstrateEvmError> for Error {
+	fn from(e: SubstrateEvmError) -> Error {
+		Error::Custom(e.to_string())
+	}
+}
+/// The contract info
+#[derive(Decode)]
+pub struct ContractInfo {
+	pub trie_id: Vec<u8>,
+}
+
+/// The account type which we care about
+#[derive(Decode)]
+pub enum AccountType {
+	#[codec(index = 0)]
+	Contract(ContractInfo),
+}
+
+/// The account info for a contract account
+#[derive(Decode)]
+pub struct AccountInfo {
+	pub account_type: AccountType,
+}
+
+/// Substrate EVM State machine client
+pub struct SubstrateEvmStateMachine<H: IsmpHost, T: pallet_ismp_host_executive::Config>(
+	core::marker::PhantomData<(H, T)>,
+);
+
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Default
+	for SubstrateEvmStateMachine<H, T>
+{
+	fn default() -> Self {
+		Self(core::marker::PhantomData)
+	}
+}
+
+impl<H: IsmpHost, T: pallet_ismp_host_executive::Config> Clone for SubstrateEvmStateMachine<H, T> {
+	fn clone(&self) -> Self {
+		Self::default()
+	}
+}
+
+impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMachineClient
+	for SubstrateEvmStateMachine<H, T>
+{
+	fn verify_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		item: RequestResponse,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<(), Error> {
+		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+			.ok_or(SubstrateEvmError::IsmpContractNotFound)?;
+
+		let proof: SubstrateEvmProof =
+			Decode::decode(&mut &proof.proof[..]).map_err(SubstrateEvmError::ProofDecodeError)?;
+
+		let state_root = H256::from_slice(&root.state_root[..]);
+
+		// verify contact info in main trie first to get Trie Id
+		let contract_info_key = contract_info_key(contract_address);
+		let trie_id =
+			fetch_trie_id_from_main_proof::<H>(&proof.main_proof, state_root, &contract_info_key)?;
+
+		let child_root =
+			fetch_child_root_from_main_proof::<H>(&proof.main_proof, state_root, &trie_id)?;
+
+		// verify storage slots in child trie
+		let keys = req_res_commitment_key::<H>(item);
+
+		// convert evm keys to child trie keys
+		let storage_keys: Vec<Vec<u8>> =
+			keys.into_iter().map(|k| hashing::blake2_256(&k).to_vec()).collect();
+
+		let storage_proof = proof
+			.storage_proof
+			.get(contract_address.as_bytes())
+			.ok_or(SubstrateEvmError::StorageProofMissing(contract_address.as_bytes().to_vec()))?;
+
+		verify_child_trie_membership::<H>(child_root, storage_proof, storage_keys)?;
+
+		Ok(())
+	}
+
+	fn receipts_state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>> {
+		req_res_receipt_keys::<H>(request)
+	}
+
+	fn verify_state_proof(
+		&self,
+		_host: &dyn IsmpHost,
+		keys: Vec<Vec<u8>>,
+		root: StateCommitment,
+		proof: &Proof,
+	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
+		let ismp_host_address = EvmHosts::<T>::get(&proof.height.id.state_id)
+			.ok_or(SubstrateEvmError::IsmpContractNotFound)?;
+
+		let proof: SubstrateEvmProof =
+			Decode::decode(&mut &proof.proof[..]).map_err(SubstrateEvmError::ProofDecodeError)?;
+
+		let state_root = H256::from_slice(&root.state_root[..]);
+
+		let mut contract_keys: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();
+		for key in keys {
+			let address = if key.len() == 52 {
+				H160::from_slice(&key[..20])
+			} else if key.len() == 32 {
+				ismp_host_address
+			} else {
+				return Err(SubstrateEvmError::InvalidKeyLength(key.len()).into());
+			};
+			contract_keys.entry(address).or_default().push(key);
+		}
+
+		let mut result_map = BTreeMap::new();
+
+		for (address, keys) in contract_keys {
+			let contract_info_key = contract_info_key(address);
+			let trie_id = fetch_trie_id_from_main_proof::<H>(
+				&proof.main_proof,
+				state_root,
+				&contract_info_key,
+			)?;
+
+			let child_root =
+				fetch_child_root_from_main_proof::<H>(&proof.main_proof, state_root, &trie_id)?;
+
+			let storage_proof = proof
+				.storage_proof
+				.get(address.as_bytes())
+				.ok_or(SubstrateEvmError::StorageProofMissing(address.as_bytes().to_vec()))?;
+
+			let storage_keys: Vec<Vec<u8>> = keys
+				.iter()
+				.map(|k| {
+					let slot = if k.len() == 52 { &k[20..] } else { &k[..] };
+					hashing::blake2_256(slot).to_vec()
+				})
+				.collect();
+
+			let values = verify_child_trie_values::<H>(child_root, storage_proof, storage_keys)?;
+
+			for (key, value) in keys.into_iter().zip(values.into_iter()) {
+				result_map.insert(key, value);
+			}
+		}
+
+		Ok(result_map)
+	}
+}
+
+pub fn contract_info_key(address: H160) -> Vec<u8> {
+	let mut key = Vec::new();
+	key.extend_from_slice(&hashing::twox_128(b"Revive"));
+	key.extend_from_slice(&hashing::twox_128(b"AccountInfoOf"));
+	key.extend_from_slice(address.as_bytes());
+	key
+}
+
+pub fn fetch_trie_id_from_main_proof<H: IsmpHost>(
+	proof: &[Vec<u8>],
+	root: H256,
+	key: &[u8],
+) -> Result<Vec<u8>, SubstrateEvmError> {
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+
+	let val = trie
+		.get(key)
+		.map_err(|e| SubstrateEvmError::TrieError(format!("{:?}", e)))?
+		.ok_or(SubstrateEvmError::ContractInfoNotFound)?;
+
+	let account_info = AccountInfo::decode(&mut &val[..])
+		.map_err(|_| SubstrateEvmError::AccountInfoDecodeError)?;
+
+	let AccountType::Contract(contract_info) = account_info.account_type;
+
+	Ok(contract_info.trie_id)
+}
+
+pub fn fetch_child_root_from_main_proof<H: IsmpHost>(
+	proof: &[Vec<u8>],
+	root: H256,
+	trie_id: &[u8],
+) -> Result<H256, SubstrateEvmError> {
+	let child_info = ChildInfo::new_default(trie_id);
+	let key = child_info.prefixed_storage_key();
+
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+
+	let val = trie
+		.get(&key)
+		.map_err(|e| SubstrateEvmError::TrieError(format!("{:?}", e)))?
+		.ok_or(SubstrateEvmError::ChildRootNotFound)?;
+
+	let child_root =
+		H256::decode(&mut &val[..]).map_err(|_| SubstrateEvmError::ChildRootDecodeError)?;
+
+	Ok(child_root)
+}
+
+pub fn verify_child_trie_membership<H: IsmpHost>(
+	root: H256,
+	proof: &[Vec<u8>],
+	keys: Vec<Vec<u8>>,
+) -> Result<(), SubstrateEvmError> {
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+
+	for key in keys {
+		let val = trie
+			.get(&key)
+			.map_err(|e| SubstrateEvmError::ChildTrieError(format!("{:?}", e)))?;
+		if val.is_none() {
+			return Err(SubstrateEvmError::KeyNotFound(key));
+		}
+	}
+	Ok(())
+}
+
+pub fn verify_child_trie_values<H: IsmpHost>(
+	root: H256,
+	proof: &[Vec<u8>],
+	keys: Vec<Vec<u8>>,
+) -> Result<Vec<Option<Vec<u8>>>, SubstrateEvmError> {
+	let db = StorageProof::new(proof.to_vec()).into_memory_db::<BlakeTwo256>();
+	let trie = TrieDBBuilder::<LayoutV0<BlakeTwo256>>::new(&db, &root).build();
+
+	let mut values = Vec::new();
+	for key in keys {
+		let val = trie
+			.get(&key)
+			.map_err(|e| SubstrateEvmError::ChildTrieError(format!("{:?}", e)))?;
+		values.push(val);
+	}
+	Ok(values)
+}

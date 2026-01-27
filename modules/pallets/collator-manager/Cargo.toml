@@ -11,10 +11,18 @@ codec = { workspace = true }
 scale-info = { workspace = true }
 pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
+pallet-messaging-fees = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
-features = ["frame-support", "frame-system", "sp-runtime", "sp-staking", "pallet-session", "pallet-collator-selection"]
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-staking",
+    "pallet-session",
+    "pallet-collator-selection",
+    "pallet-authorship"]
 
 [features]
 default = ["std"]

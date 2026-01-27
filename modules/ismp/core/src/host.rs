@@ -25,7 +25,11 @@ use crate::{
 	prelude::Vec,
 	router::{IsmpRouter, PostResponse, Request, Response},
 };
-use alloc::{boxed::Box, format, string::String};
+use alloc::{
+	boxed::Box,
+	format,
+	string::{String, ToString},
+};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use core::{fmt::Display, str::FromStr, time::Duration};
 use primitive_types::H256;
@@ -312,19 +316,23 @@ impl Display for StateMachine {
 			},
 			StateMachine::Polkadot(id) => format!("POLKADOT-{id}"),
 			StateMachine::Kusama(id) => format!("KUSAMA-{id}"),
+			// Invalid byte sequence will result in a default state machine id rendering the request
+			// invalid and undeliverable
 			StateMachine::Substrate(id) => {
 				format!(
 					"SUBSTRATE-{}",
-					String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
+					String::from_utf8(id.to_vec()).unwrap_or("XXXX".to_string())
 				)
 			},
-			StateMachine::Tendermint(id) => format!(
-				"TNDRMINT-{}",
-				String::from_utf8(id.to_vec()).map_err(|_| core::fmt::Error)?
-			),
+			// Invalid byte sequence will result in a default state machine id rendering the request
+			// invalid and undeliverable
+			StateMachine::Tendermint(id) =>
+				format!("TNDRMINT-{}", String::from_utf8(id.to_vec()).unwrap_or("XXXX".to_string())),
+			// Invalid byte sequence will result in a default state machine id rendering the request
+			// invalid and undeliverable
 			StateMachine::Relay { relay, para_id } => format!(
 				"RELAY-{}-{para_id}",
-				String::from_utf8(relay.to_vec()).map_err(|_| core::fmt::Error)?
+				String::from_utf8(relay.to_vec()).unwrap_or("XXXX".to_string())
 			),
 		};
 		write!(f, "{}", str)
@@ -429,5 +437,23 @@ mod tests {
 		assert_eq!(grandpa, StateMachine::from_str(&grandpa_string).unwrap());
 		assert_eq!(beefy, StateMachine::from_str(&beefy_string).unwrap());
 		assert_eq!(solo_relay, StateMachine::from_str(&solo_string).unwrap());
+	}
+
+	#[test]
+	fn invalid_state_machine_conversions() {
+		let grandpa = StateMachine::Substrate(*b"\xf0\x28\x8c\xbc");
+		let beefy = StateMachine::Tendermint(*b"\xf0\x28\x8c\xbc");
+		let solo_relay = StateMachine::Relay { relay: *b"\xf0\x28\x8c\xbc", para_id: 1000 };
+
+		let grandpa_string = grandpa.to_string();
+		let beefy_string = beefy.to_string();
+		let solo_string = solo_relay.to_string();
+		dbg!(&grandpa_string);
+		dbg!(&beefy_string);
+		dbg!(&solo_string);
+
+		assert_eq!(grandpa_string, "SUBSTRATE-XXXX".to_string());
+		assert_eq!(beefy_string, "TNDRMINT-XXXX".to_string());
+		assert_eq!(solo_string, "RELAY-XXXX-1000".to_string());
 	}
 }

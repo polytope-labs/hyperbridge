@@ -443,9 +443,16 @@ fn signature_to_value(sig: &Signature) -> Value<()> {
 }
 
 pub fn withdrawal_input_data_to_value(data: &WithdrawalInputData) -> Value<()> {
+	let beneficiary_value = match &data.beneficiary {
+		Some(address) =>
+			Value::variant("Some", Composite::unnamed(vec![Value::from_bytes(address.clone())])),
+		None => Value::variant("None", Composite::unnamed(vec![])),
+	};
+
 	Value::named_composite(vec![
 		("signature".to_string(), signature_to_value(&data.signature)),
 		("dest_chain".to_string(), state_machine_to_value(&data.dest_chain)),
+		("beneficiary".to_string(), beneficiary_value),
 	])
 }
 

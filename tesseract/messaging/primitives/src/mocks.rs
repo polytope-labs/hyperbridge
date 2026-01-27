@@ -44,7 +44,7 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 		&self,
 		_client: Arc<dyn IsmpProvider>,
 		_chain: StateMachine,
-	) -> anyhow::Result<WithdrawFundsResult> {
+	) -> anyhow::Result<Vec<WithdrawFundsResult>> {
 		Err(anyhow!("Unimplemented"))
 	}
 

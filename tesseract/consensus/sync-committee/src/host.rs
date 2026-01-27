@@ -32,8 +32,11 @@ use op_verifier::{CANNON, _PERMISSIONED};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
-impl<T: Config + Send + Sync + 'static, const ETH1_DATA_VOTES_BOUND: usize> IsmpHost
-	for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND>
+impl<
+		T: Config + Send + Sync + 'static,
+		const ETH1_DATA_VOTES_BOUND: usize,
+		const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	> IsmpHost for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		let client = SyncCommitteeHost::clone(&self);

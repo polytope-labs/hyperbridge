@@ -16,7 +16,6 @@
 #![deny(missing_docs)]
 #![doc = include_str!("../README.md")]
 
-use anyhow::anyhow;
 use codec::{Decode, Encode};
 use cumulus_relay_chain_interface::RelayChainInterface;
 use polkadot_sdk::*;
@@ -53,12 +52,25 @@ impl ConsensusInherentProvider {
 		B: BlockT,
 	{
 		// Check if it has the parachain runtime api
-		if !client.runtime_api().has_api::<dyn IsmpParachainApi<B>>(parent)? {
+		let has_api = match client.runtime_api().has_api::<dyn IsmpParachainApi<B>>(parent) {
+			Ok(has_api) => has_api,
+			Err(err) => {
+				log::trace!("Failed to check for IsmpParachainApi: {err:?}");
+				return Ok(ConsensusInherentProvider(None));
+			},
+		};
+		if !has_api {
 			log::trace!("IsmpParachainApi not implemented");
 			return Ok(ConsensusInherentProvider(None));
 		}
 
-		let para_ids = client.runtime_api().para_ids(parent)?;
+		let para_ids = match client.runtime_api().para_ids(parent) {
+			Ok(ids) => ids,
+			Err(err) => {
+				log::trace!("Failed to fetch para_ids: {err:?}");
+				return Ok(ConsensusInherentProvider(None));
+			},
+		};
 
 		log::trace!("ParaIds from runtime: {para_ids:?}");
 
@@ -66,7 +78,13 @@ impl ConsensusInherentProvider {
 			return Ok(ConsensusInherentProvider(None));
 		}
 
-		let state = client.runtime_api().current_relay_chain_state(parent)?;
+		let state = match client.runtime_api().current_relay_chain_state(parent) {
+			Ok(state) => state,
+			Err(err) => {
+				log::trace!("Failed to fetch current relay chain state: {err:?}");
+				return Ok(ConsensusInherentProvider(None));
+			},
+		};
 		log::trace!("Current relay chain state: {state:?}");
 
 		// parachain is just starting
@@ -74,24 +92,40 @@ impl ConsensusInherentProvider {
 			return Ok(ConsensusInherentProvider(None));
 		}
 
-		let relay_header = if let Ok(Some(header)) =
-			relay_chain_interface.header(BlockId::Number(state.number)).await
-		{
-			header
-		} else {
-			log::trace!("Relay chain header not available for {}", state.number);
-			return Ok(ConsensusInherentProvider(None));
+		let relay_header = match relay_chain_interface.header(BlockId::Number(state.number)).await {
+			Ok(Some(header)) => header,
+			Ok(None) => {
+				log::trace!("Relay chain header not available for {}", state.number);
+				return Ok(ConsensusInherentProvider(None));
+			},
+			Err(err) => {
+				log::trace!("Failed to fetch relay chain header: {err:?}");
+				return Ok(ConsensusInherentProvider(None));
+			},
 		};
 
-		let host_state_machine = client.runtime_api().host_state_machine(parent)?;
+		let host_state_machine = match client.runtime_api().host_state_machine(parent) {
+			Ok(machine) => machine,
+			Err(err) => {
+				log::trace!("Failed to fetch host state machine: {err:?}");
+				return Ok(ConsensusInherentProvider(None));
+			},
+		};
 		let mut para_ids_to_fetch = vec![];
 		for id in para_ids {
-			let Some(head) = relay_chain_interface
+			let head = match relay_chain_interface
 				.get_storage_by_key(relay_header.hash(), parachain_header_storage_key(id).as_ref())
-				.await?
-			else {
-				log::trace!("Failed to fetch parachain header for {id} from relay chain");
-				continue;
+				.await
+			{
+				Ok(Some(head)) => head,
+				Ok(None) => {
+					log::trace!("Failed to fetch parachain header for {id} from relay chain");
+					continue;
+				},
+				Err(err) => {
+					log::trace!("Error fetching parachain header for {id}: {err:?}");
+					continue;
+				},
 			};
 
 			let Ok(intermediate) = Vec::<u8>::decode(&mut &head[..]) else {
@@ -105,18 +139,24 @@ impl ConsensusInherentProvider {
 			let state_id = match host_state_machine {
 				StateMachine::Polkadot(_) => StateMachine::Polkadot(id),
 				StateMachine::Kusama(_) => StateMachine::Kusama(id),
-				id => Err(anyhow!("Unsupported state machine: {id:?}"))?,
+				machine => {
+					log::trace!("Unsupported state machine: {machine:?}");
+					continue;
+				},
 			};
-			let height = client
-				.runtime_api()
-				.latest_state_machine_height(
-					parent,
-					StateMachineId {
-						consensus_state_id: parachain_consensus_state_id(host_state_machine),
-						state_id,
-					},
-				)?
-				.unwrap_or_default();
+			let height = match client.runtime_api().latest_state_machine_height(
+				parent,
+				StateMachineId {
+					consensus_state_id: parachain_consensus_state_id(host_state_machine),
+					state_id,
+				},
+			) {
+				Ok(height) => height.unwrap_or_default(),
+				Err(err) => {
+					log::trace!("Failed to fetch latest state machine height for {id}: {err:?}");
+					continue;
+				},
+			};
 
 			if height >= header.number as u64 {
 				log::trace!("Skipping stale height {height} for parachain {id}");
@@ -131,11 +171,14 @@ impl ConsensusInherentProvider {
 		}
 
 		let keys = para_ids_to_fetch.iter().map(|id| parachain_header_storage_key(*id).0).collect();
-		let storage_proof = relay_chain_interface
-			.prove_read(relay_header.hash(), &keys)
-			.await?
-			.into_iter_nodes()
-			.collect();
+		let storage_proof = match relay_chain_interface.prove_read(relay_header.hash(), &keys).await
+		{
+			Ok(proof) => proof.into_iter_nodes().collect(),
+			Err(err) => {
+				log::trace!("Failed to prove read storage: {err:?}");
+				return Ok(ConsensusInherentProvider(None));
+			},
+		};
 
 		let consensus_proof = ParachainConsensusProof { relay_height: state.number, storage_proof };
 		let message = ConsensusMessage {

@@ -1,0 +1,23 @@
+---
+title: Pallet Fishermen
+description: The Fishermen module is responsible for tracking a permissioned set of accounts who are given the privilege to veto any misrepresentative state commitments which are submitted to the Hyperbridge blockchain.
+---
+
+# Pallet Fishermen
+
+The Fishermen module is responsible for tracking a permissioned set of accounts who are given the privilege to veto any misrepresentative state commitments which are submitted to the Hyperbridge blockchain. They are able to do this without providing any cryptographic proofs. Recall that state commitments are the outputs of consensus proof verification by the relevant consensus client on the Hyperbridge blockchain. In a scenario where the source chain's validators become byzantine, the fishermen keep the applications that rely on the Hyperbridge blockchain safe from any byzantine attacks.
+
+This of course has some drawbacks, as the fishermen themselves could become malicious and begin to veto **valid state commitments**. However this can only constitute a griefing attack that temporarily prevents Hyperbridge from processing new cross-chain messages. Fishermen **cannot censor specific cross-chain messages**, this is because the state commitment of a blockchain is an **accumulator**. Even if they veto the state commitment for a specific height, later state commitments will still include the messages from the censored height. If any fishermen are found to be malicious, they can be removed from the fishermen set by the Hyperbridge governance.
+
+## Incentives
+
+Fishermen who veto misrepresentative state commitments are rewarded with the Hyperbridge native token. This incentivizes them to keep the Hyperbridge blockchain secure and free from any byzantine attacks. The fishermen module is a critical component of the Hyperbridge blockchain, as it ensures that the state commitments which are submitted to the blockchain are accurate and truthful. This is essential for the security of the Hyperbridge blockchain and the applications that rely on it.
+
+## Future
+
+Long term, the fishermen module will be replaced by a permissionless mechanism that will allow any user to challenge the state commitments that are verified by the Hyperbridge blockchain through cryptographic proofs. Either through consensus fault proofs, or through full block re-execution. This will ensure that the Hyperbridge blockchain remains secure and free from any byzantine attacks, even in the absence of a permissioned fishermen set.
+
+
+## Implementation
+
+ - [pallet-fishermen](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/fishermen/src/lib.rs)

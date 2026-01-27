@@ -260,11 +260,7 @@ impl pallet_ismp::Config for Test {
 			Test,
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
-		ismp_parachain::ParachainConsensusClient<
-			Test,
-			IsmpParachain,
-			HyperbridgeClientMachine<Test, Ismp, ()>,
-		>,
+		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_beefy::consensus::BeefyConsensusClient<
 			Ismp,
 			Test,

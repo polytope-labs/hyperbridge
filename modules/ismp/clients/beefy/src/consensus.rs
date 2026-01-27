@@ -15,7 +15,9 @@
 
 use alloc::collections::BTreeMap;
 use beefy_verifier::{MerkleKeccak256, verify_consensus};
-use beefy_verifier_primitives::{BeefyConsensusProof, ConsensusState};
+use beefy_verifier_primitives::{
+	BeefyConsensusProof, ConsensusState, ParachainProof, RelaychainProof,
+};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
 use ismp::{
@@ -28,17 +30,15 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use ismp_parachain::Parachains;
-use pallet_ismp::{ConsensusDigest, ISMP_ID};
+use pallet_ismp::{ConsensusDigest, ISMP_ID, ISMP_TIMESTAMP_ID, TimestampDigest};
 use polkadot_sdk::*;
 use primitive_types::H256;
 use rs_merkle::MerkleProof;
-use sp_consensus_aura::{AURA_ENGINE_ID, Slot};
 use sp_runtime::{
 	DigestItem,
 	generic::Header,
 	traits::{BlakeTwo256, Header as _},
 };
-use std::time::Duration;
 use substrate_state_machine::SubstrateStateMachine;
 pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
 
@@ -89,11 +89,8 @@ where
 		let heads_root: H256 = verified_updates.1;
 
 		if parachains.is_empty() {
-			dbg!("parachains is empty");
 			return Ok((verified_updates.0, BTreeMap::new()));
 		}
-
-		dbg!("visiting parachain headers");
 
 		let mut indexed_leaf_hashes = Vec::with_capacity(parachains.len());
 
@@ -120,27 +117,31 @@ where
 			return Err(Error::Custom("Error verifying Beefy consensus update".to_string()))
 		}
 
-		dbg!("Checking parachain headers");
-
 		let mut intermediates = BTreeMap::new();
 		for para_header in parachains {
 			let mut state_commitments_vec = Vec::new();
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*para_header.header)
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
-			let slot_duration =
-				Parachains::<T>::get(para_header.para_id).expect("Parachain with ID exists; qed");
+			if !Parachains::<T>::contains_key(para_header.para_id) {
+				Err(Error::Custom(format!(
+					"Parachain with id {} not registered",
+					para_header.para_id
+				)))?
+			}
 
 			let (mut timestamp, mut overlay_root) = (0, H256::default());
 
 			for digest in header.digest().logs.iter() {
 				match digest {
-					DigestItem::PreRuntime(consensus_engine_id, value)
-						if *consensus_engine_id == AURA_ENGINE_ID =>
+					DigestItem::Consensus(consensus_engine_id, value)
+						if *consensus_engine_id == ISMP_TIMESTAMP_ID =>
 					{
-						let slot = Slot::decode(&mut &value[..])
-							.map_err(|e| Error::Custom(format!("Cannot slot: {e:?}")))?;
-						timestamp = Duration::from_millis(*slot * slot_duration).as_secs();
+						let timestamp_digest =
+							TimestampDigest::decode(&mut &value[..]).map_err(|e| {
+								Error::Custom(format!("Failed to decode timestamp digest: {e:?}"))
+							})?;
+						timestamp = timestamp_digest.timestamp;
 					},
 					DigestItem::Consensus(consensus_engine_id, value)
 						if *consensus_engine_id == ISMP_ID =>
@@ -188,10 +189,59 @@ where
 	fn verify_fraud_proof(
 		&self,
 		_host: &dyn IsmpHost,
-		_trusted_consensus_state: Vec<u8>,
-		_proof_1: Vec<u8>,
-		_proof_2: Vec<u8>,
+		trusted_consensus_state: Vec<u8>,
+		proof_1: Vec<u8>,
+		proof_2: Vec<u8>,
 	) -> Result<(), Error> {
+		let consensus_state: ConsensusState =
+			codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
+				Error::Custom(format!(
+					"Cannot decode consensus state from trusted consensus state: {e:?}"
+				))
+			})?;
+
+		let first_proof: RelaychainProof =
+			codec::Decode::decode(&mut &proof_1[..]).map_err(|e| {
+				Error::Custom(format!(
+					"Cannot decode first relay chain proof from proof_1 bytes: {e:?}"
+				))
+			})?;
+
+		let second_proof: RelaychainProof =
+			codec::Decode::decode(&mut &proof_2[..]).map_err(|e| {
+				Error::Custom(format!(
+					"Cannot decode second relay chain proof from proof_2 bytes: {e:?}"
+				))
+			})?;
+
+		let first_commitment = &first_proof.signed_commitment.commitment;
+		let second_commitment = &second_proof.signed_commitment.commitment;
+
+		if first_commitment.block_number != second_commitment.block_number {
+			return Err(Error::Custom("Fraud proofs must be for the same block number".to_string()))
+		}
+
+		if first_commitment.encode() == second_commitment.encode() {
+			return Err(Error::Custom(
+				"Fraud proofs have identical commitments, no equivocation".to_string(),
+			))
+		}
+
+		let empty_parachain_proof =
+			ParachainProof { parachains: vec![], proof: vec![], total_leaves: 0 };
+
+		verify_consensus::<H>(
+			consensus_state.clone(),
+			BeefyConsensusProof { relay: first_proof, parachain: empty_parachain_proof.clone() },
+		)
+		.map_err(|e| Error::Custom(format!("First proof verification failed: {e:?}")))?;
+
+		verify_consensus::<H>(
+			consensus_state,
+			BeefyConsensusProof { relay: second_proof, parachain: empty_parachain_proof },
+		)
+		.map_err(|e| Error::Custom(format!("Second proof verification failed: {e:?}")))?;
+
 		Ok(())
 	}
 

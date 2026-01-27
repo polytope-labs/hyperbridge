@@ -226,10 +226,7 @@ async fn test_verify_consensus() {
 
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 	let proof_2d = merkle_proof(&leaves, &indices);
-	let proof = proof_2d
-		.into_iter()
-		.map(|level| level.into_iter().map(|(index, hash)| (index as u32, hash)).collect())
-		.collect();
+	let proof = proof_2d.into_iter().flatten().map(|(_, hash)| hash).collect();
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
 	println!("Assembling final proof for verification");

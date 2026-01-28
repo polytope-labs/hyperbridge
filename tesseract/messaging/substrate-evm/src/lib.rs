@@ -129,8 +129,8 @@ where
 			let child_info = ChildInfo::new_default(&trie_id);
 			let child_root_key = child_info.prefixed_storage_key().into_inner();
 
-			main_keys.push(account_info_key);
-			main_keys.push(child_root_key);
+			main_keys.push(sp_storage::StorageKey(account_info_key));
+			main_keys.push(sp_storage::StorageKey(child_root_key));
 
 			contract_info.insert(contract_address.as_bytes().to_vec(), child_info);
 		}
@@ -147,6 +147,7 @@ where
 				.get(contract_address.as_bytes())
 				.expect("Contract Info should exist");
 
+			let keys =  keys.into_iter().map(|key| sp_storage::StorageKey(key)).collect::<Vec<_>>();
 			let child_proof: ReadProof<H256> = self
 				.subxt_rpc_client
 				.request(

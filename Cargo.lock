@@ -28627,6 +28627,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "cometbft",
  "dotenv",
+ "env_logger 0.10.2",
  "ethabi",
  "ethereum-triedb",
  "ethers",

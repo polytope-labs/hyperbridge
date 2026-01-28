@@ -50,15 +50,6 @@ type SolidityFunctionCall<T> = FunctionCall<
 	T,
 >;
 
-const POLAKDOT_CHAINS: [StateMachine; 2] = [ StateMachine::Evm(420420417), StateMachine::Evm(420420419)];
-
-fn get_default_retries(state_machine: &StateMachine) -> usize{
-    if POLAKDOT_CHAINS.contains(state_machine) {
-        50
-    } else {
-        5
-    }
-}
 
 #[async_recursion::async_recursion]
 pub async fn submit_messages(
@@ -83,7 +74,7 @@ pub async fn submit_messages(
 					client.config.ismp_host.0.into(),
 					client.client.clone(),
 					client.signer.clone(),
-					progress.retries(get_default_retries(&client.config.state_machine)),
+					progress,
 					gas_price,
 					retry,
 					matches!(messages[index], Message::Consensus(_)),
@@ -126,6 +117,52 @@ pub async fn submit_messages(
 	}
 
 	Ok((events, cancelled))
+}
+
+/// Waits for a transaction receipt by polling with a 7-second interval for up to 10 minutes.
+///
+/// # Arguments
+/// * `tx_hash` - The transaction hash to poll for
+/// * `provider` - The Ethereum provider to query
+///
+/// # Returns
+/// * `Ok(Some(TransactionReceipt))` if the receipt is found
+/// * `Ok(None)` if the receipt is not found after 10 minutes
+/// * `Err` if there's an error querying the provider
+pub async fn wait_for_transaction_receipt(
+	tx_hash: H256,
+	provider: Arc<Provider<Http>>,
+) -> Result<Option<TransactionReceipt>, anyhow::Error> {
+	let poll_interval = Duration::from_secs(7);
+	let max_duration = Duration::from_secs(5 * 60); // 5 minutes
+	let start_time = tokio::time::Instant::now();
+
+	loop {
+		// Check if we've exceeded the maximum duration
+		if start_time.elapsed() >= max_duration {
+			log::error!("Transaction receipt not found after 10 minutes for tx: {:?}", tx_hash);
+			return Ok(None);
+		}
+
+		// Query for the transaction receipt
+		match provider.get_transaction_receipt(tx_hash.0).await {
+			Ok(Some(receipt)) => {
+				log::trace!("Transaction receipt found for tx: {:?}", tx_hash);
+				return Ok(Some(receipt));
+			}
+			Ok(None) => {
+				// Receipt not yet available, continue polling
+				log::trace!("Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds", tx_hash);
+			}
+			Err(err) => {
+				log::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
+				// Continue polling despite the error, as it might be transient
+			}
+		}
+
+		// Wait for the poll interval before the next attempt
+		tokio::time::sleep(poll_interval).await;
+	}
 }
 
 #[async_recursion::async_recursion]
@@ -192,7 +229,7 @@ where
 				ismp_host_clone,
 				client_clone.clone(),
 				signer_clone.clone(),
-				pending.retries(get_default_retries(&state_machine_clone)),
+				pending,
 				Some(gas_price),
 				None,
 				is_consensus,
@@ -218,7 +255,8 @@ where
 				.await;
 
 			if let Ok(pending) = pending {
-				if let Ok(Some(receipt)) = pending.await {
+				let cancel_tx_hash = pending.tx_hash().0;
+				if let Ok(Some(receipt)) = wait_for_transaction_receipt(cancel_tx_hash.into(), client_clone.clone()).await {
 					// we're going to error anyways
 					let _ = log_receipt(receipt, true);
 				}
@@ -236,41 +274,32 @@ where
 		}
 	};
 
-	// Race transaction submission by a five minute timer
-	let sleep = tokio::time::sleep(Duration::from_secs(5 * 60));
+	// Get the transaction hash from the PendingTransaction
+	let tx_hash = tx.tx_hash().0;
 
-	tokio::select! {
-		_ = sleep => {
-			return handle_failed_tx().await;
+	// Wait for the transaction receipt with custom polling logic
+	match wait_for_transaction_receipt(tx_hash.into(), provider.clone()).await? {
+		Some(receipt) => {
+			let events = receipt.logs.iter().filter_map(|l| {
+				let log = Log {
+					topics: l.clone().topics,
+					data: l.clone().data,
+					..Default::default()
+				};
+				if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
+					return Some(ev.commitment.into())
+				}
+				if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
+					return Some(ev.commitment.into())
+				}
+				None
+			}).collect();
+			log_receipt(receipt, false)?;
+			Ok(events)
 		},
-		result = tx => {
-			match result {
-				Ok(Some(receipt)) => {
-					let events =  receipt.logs.iter().filter_map(|l| {
-						let log = Log {
-							topics: l.clone().topics,
-							data: l.clone().data,
-							..Default::default()
-						};
-						if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
-							return Some(ev.commitment.into())
-						}
-						if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
-							return Some(ev.commitment.into())
-						}
-						None
-					}).collect();
-					log_receipt(receipt, false)?;
-					Ok(events)
-				},
-				Ok(None) => {
-					return handle_failed_tx().await;
-				},
-				Err(err) => {
-					log::error!("Error broadcasting transaction to {:?}: {err:?}", state_machine);
-					Err(err)?
-				},
-			}
+		None => {
+			// Receipt not found after 10 minutes
+			return handle_failed_tx().await;
 		}
 	}
 }
@@ -535,4 +564,47 @@ pub async fn handle_message_submission(
 	}
 
 	Ok(TxResult { receipts: results, unsuccessful: cancelled })
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ethers::providers::{Http, Provider};
+
+	#[tokio::test]
+	#[ignore] // Requires local RPC node
+	async fn test_wait_for_transaction_receipt() {
+		// Initialize logger
+		let _ = env_logger::builder().is_test(true).try_init();
+
+		// Create provider
+		let provider = Provider::<Http>::try_from("http://localhost:8545")
+			.expect("Failed to create provider");
+		let provider = Arc::new(provider);
+
+		// Transaction hash to test
+		let tx_hash: H256 = "0xf43c2f2910bb84fdd9f4bd94378469195d4e0b401802c6fb8d3d74a20abef3da"
+			.parse()
+			.expect("Failed to parse transaction hash");
+
+		// Wait for transaction receipt
+		match wait_for_transaction_receipt(tx_hash, provider).await {
+			Ok(Some(receipt)) => {
+				println!("✅ Transaction receipt found!");
+				println!("Transaction hash: {:?}", receipt.transaction_hash);
+				println!("Block number: {:?}", receipt.block_number);
+				println!("Gas used: {:?}", receipt.gas_used);
+				println!("Status: {:?}", receipt.status);
+				println!("From: {:?}", receipt.from);
+				println!("To: {:?}", receipt.to);
+				println!("Number of logs: {}", receipt.logs.len());
+			}
+			Ok(None) => {
+				println!("❌ Transaction receipt not found after 10 minutes");
+			}
+			Err(err) => {
+				println!("❌ Error fetching transaction receipt: {err:?}");
+			}
+		}
+	}
 }

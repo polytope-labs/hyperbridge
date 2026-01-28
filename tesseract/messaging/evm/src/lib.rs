@@ -28,6 +28,7 @@ use tx::handle_message_submission;
 pub mod abi;
 mod byzantine;
 pub mod gas_oracle;
+use tx::wait_for_transaction_receipt;
 pub mod provider;
 
 // #[cfg(test)]
@@ -229,7 +230,8 @@ impl EvmClient {
 		let call = contract.set_consensus_state(consensus_state.clone().into(), height, commitment);
 
 		let gas = call.estimate_gas().await?;
-		call.gas(gas).send().await?.await?;
+		let tx_hash = call.gas(gas).send().await?.tx_hash().0;
+		wait_for_transaction_receipt(tx_hash.into(), self.client.clone()).await?;
 
 		Ok(())
 	}
@@ -244,7 +246,8 @@ impl EvmClient {
 		let call = contract.dispatch_to_parachain(para_id.into());
 
 		let gas = call.estimate_gas().await?;
-		call.gas(gas).send().await?.await?;
+		let tx_hash = call.gas(gas).send().await?.tx_hash().0;
+		wait_for_transaction_receipt(tx_hash.into(), self.client.clone()).await?;
 
 		Ok(())
 	}

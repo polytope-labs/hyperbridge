@@ -120,7 +120,6 @@ impl IsmpHost for OpHost {
 					}
 				};
 
-				let proposer_config_clone = proposer_config.clone();
 				let proposal_submit_loop = async move {
 					while let Some(proposal) = stream.next().await {
 						match proposal {

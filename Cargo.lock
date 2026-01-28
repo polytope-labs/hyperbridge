@@ -7163,6 +7163,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "evm-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ethers",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "serde",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
+]
+
+[[package]]
 name = "evm-state-machine"
 version = "0.1.1"
 dependencies = [
@@ -28559,13 +28576,14 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "arb-host",
  "async-trait",
  "clap",
  "env_logger 0.10.2",
+ "evm-host",
  "finality-grandpa",
  "futures",
  "hex",

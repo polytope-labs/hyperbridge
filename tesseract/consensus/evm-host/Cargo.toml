@@ -1,0 +1,23 @@
+[package]
+name = "evm-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+primitive-types = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+log = "0.4"
+
+# Ethereum dependencies
+ethers = { workspace = true }
+
+# Workspace dependencies
+ismp = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-primitives = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }

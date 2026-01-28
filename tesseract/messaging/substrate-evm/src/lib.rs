@@ -1,7 +1,6 @@
 use anyhow::{Error, anyhow};
 use codec::{Decode, Encode};
 use evm_state_machine::{
-	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
 	substrate_evm::{AccountInfo, AccountType, SubstrateEvmError},
 	types::SubstrateEvmProof,
 };
@@ -147,7 +146,7 @@ where
 				.get(contract_address.as_bytes())
 				.expect("Contract Info should exist");
 
-			let keys =  keys.into_iter().map(|key| sp_storage::StorageKey(key)).collect::<Vec<_>>();
+			let keys = keys.into_iter().map(|key| sp_storage::StorageKey(key)).collect::<Vec<_>>();
 			let child_proof: ReadProof<H256> = self
 				.subxt_rpc_client
 				.request(
@@ -227,10 +226,7 @@ where
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
-				let slot_hash = tesseract_evm::derive_map_key(
-					q.commitment.0.to_vec(),
-					REQUEST_COMMITMENTS_SLOT,
-				);
+				let slot_hash = self.evm.request_commitment_key(q.commitment).1;
 				self.storage_key(slot_hash)
 			})
 			.collect();
@@ -248,10 +244,7 @@ where
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
-				let slot_hash = tesseract_evm::derive_map_key(
-					q.commitment.0.to_vec(),
-					RESPONSE_COMMITMENTS_SLOT,
-				);
+				let slot_hash = self.evm.response_commitment_key(q.commitment).1;
 				self.storage_key(slot_hash)
 			})
 			.collect();
@@ -377,11 +370,11 @@ where
 	}
 
 	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.request_commitment_full_key(commitment)
+		self.evm.response_commitment_full_key(commitment)
 	}
 
 	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.request_receipt_full_key(commitment)
+		self.evm.response_receipt_full_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {

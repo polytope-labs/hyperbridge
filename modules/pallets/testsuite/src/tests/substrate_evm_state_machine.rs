@@ -23,7 +23,7 @@ use std::time::Duration;
 
 fn get_rpc_url() -> String {
 	std::env::var("SUBSTRATE_RPC_URL")
-		.unwrap_or_else(|_| "https://asset-hub-westend-rpc.n.dwellir.com".to_string())
+		.unwrap_or_else(|_| "https://asset-hub-paseo-rpc.n.dwellir.com".to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,7 +77,7 @@ async fn rpc_request<T: serde::de::DeserializeOwned>(
 async fn test_verify_revive_state_proof() -> Result<(), Box<dyn std::error::Error>> {
 	tracing_subscriber::fmt::try_init();
 
-	let contract_hex = "0x0008a66a96003b32c08fb8ee22616ef5f470c10e";
+	let contract_hex = "0xbb26e04a71e7c12093e82b83ba310163eac186fa";
 	let contract_address = H160::from_slice(&hex::decode(contract_hex.trim_start_matches("0x"))?);
 
 	println!("Fetching block hash...");

@@ -50,6 +50,16 @@ type SolidityFunctionCall<T> = FunctionCall<
 	T,
 >;
 
+const POLAKDOT_CHAINS: [StateMachine; 2] = [ StateMachine::Evm(420420417), StateMachine::Evm(420420419)];
+
+fn get_default_retries(state_machine: &StateMachine) -> usize{
+    if POLAKDOT_CHAINS.contains(state_machine) {
+        50
+    } else {
+        5
+    }
+}
+
 #[async_recursion::async_recursion]
 pub async fn submit_messages(
 	client: &EvmClient,
@@ -73,7 +83,7 @@ pub async fn submit_messages(
 					client.config.ismp_host.0.into(),
 					client.client.clone(),
 					client.signer.clone(),
-					progress.retries(50),
+					progress.retries(get_default_retries(&client.config.state_machine)),
 					gas_price,
 					retry,
 					matches!(messages[index], Message::Consensus(_)),
@@ -182,7 +192,7 @@ where
 				ismp_host_clone,
 				client_clone.clone(),
 				signer_clone.clone(),
-				pending.retries(50),
+				pending.retries(get_default_retries(&state_machine_clone)),
 				Some(gas_price),
 				None,
 				is_consensus,

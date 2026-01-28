@@ -24,6 +24,7 @@ polygon-amoy = "${POLYGON_AMOY_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
 gnosis-chiado = "${GNOSIS_CHIADO_RPC_URL}"
 sei-testnet = "${SEI_TESTNET_RPC_URL}"
+polkadot-testnet = "${POLKADOT_TESTNET_URL}"
 
 # mainnet
 ethereum = "${ETHEREUM_RPC_URL}"
@@ -48,6 +49,7 @@ polygon-amoy = { chain = 80002, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "http
 bsc-testnet = { chain = 97, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 gnosis-chiado = { chain = 10200, key = "${GNOSIS_BLOCKSCOUT_API_KEY}",url = "https://gnosis-chiado.blockscout.com/api" }
 sei-testnet = { chain = 1328, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+polkadot-testnet = { chain = 420420417, key="${ROUTESCAN_API_KEY}", url = "https://api.routescan.io/v2/network/testnet/evm/420420417/etherscan/api" }
 
 # mainnet
 ethereum = { chain = 1, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }

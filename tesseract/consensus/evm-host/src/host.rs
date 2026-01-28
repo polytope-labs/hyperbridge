@@ -56,7 +56,7 @@ impl IsmpHost for EvmHost {
 			target: "tesseract",
 			"EVM Host is a dummy consensus client - no initial consensus state available"
 		);
-		
+
 		// Dummy consensus client does not provide an initial consensus state
 		// The consensus is managed elsewhere (e.g., by a relay chain)
 		// and does not need to be initialized on counterparty chains

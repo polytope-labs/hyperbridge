@@ -1,4 +1,4 @@
-use anyhow::Error;
+use anyhow::{Error, anyhow};
 use codec::{Decode, Encode};
 use evm_state_machine::{
 	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
@@ -19,7 +19,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use subxt::{
 	OnlineClient,
 	backend::rpc::RpcClient,
-	config::{ExtrinsicParams, HashFor},
+	config::{ExtrinsicParams, HashFor, substrate::SubstrateHeader},
 	ext::subxt_rpcs::{LegacyRpcMethods, rpc_params},
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
@@ -437,13 +437,55 @@ where
 {
 	async fn check_for_byzantine_attack(
 		&self,
-		coprocessor: StateMachine,
+		_coprocessor: StateMachine,
 		counterparty: Arc<dyn IsmpProvider>,
-		challenge_event: StateMachineUpdated,
+		event: StateMachineUpdated,
 	) -> Result<(), Error> {
-		self.evm
-			.check_for_byzantine_attack(coprocessor, counterparty, challenge_event)
-			.await
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: self.state_machine_id().state_id,
+				consensus_state_id: self.state_machine_id().consensus_state_id,
+			},
+			height: event.latest_height,
+		};
+
+		let Some(block_hash) =
+			self.legacy_rpc.chain_get_block_hash(Some(event.latest_height.into())).await?
+		else {
+			// If block header is not found veto the state commitment
+
+			log::info!(
+				"Vetoing state commitment for {} on {}: block header not found for {}",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id,
+				event.latest_height
+			);
+			counterparty.veto_state_commitment(height).await?;
+
+			return Ok(());
+		};
+		let header = self
+			.legacy_rpc
+			.chain_get_header(Some(block_hash))
+			.await?
+			.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
+
+		let header = SubstrateHeader::<u32, C::Hasher>::decode(&mut &*header.encode())?;
+
+		let state_root: H256 = header.state_root.into();
+		let finalized_state_commitment =
+			counterparty.query_state_machine_commitment(height).await?;
+
+		if finalized_state_commitment.state_root != state_root.into() {
+			log::info!(
+				"Vetoing state commitment for {} on {}, state commitment mismatch",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.veto_state_commitment(height).await?;
+		}
+
+		Ok(())
 	}
 
 	async fn state_machine_updates(

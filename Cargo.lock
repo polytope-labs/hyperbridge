@@ -28903,6 +28903,7 @@ dependencies = [
  "evm-state-machine",
  "futures",
  "ismp",
+ "log",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk",

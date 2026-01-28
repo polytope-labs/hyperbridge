@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [dependencies]
-
+log = { workspace = true }
 anyhow = { workspace = true }
 async-trait = "0.1.71"
 futures = "0.3.28"
@@ -27,6 +27,7 @@ evm-state-machine = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive", "alloc"] }
 subxt-utils = { workspace = true }
+
 
 [dependencies.polkadot-sdk]
 workspace = true

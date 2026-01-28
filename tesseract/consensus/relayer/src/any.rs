@@ -10,9 +10,9 @@ use subxt::{
 };
 
 use arb_host::ArbConfig;
+use evm_host::EvmHostConfig;
 use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use op_host::OpConfig;
-use evm_host::EvmHostConfig;
 use tesseract_beefy::{
 	host::{BeefyHost, BeefyHostConfig},
 	prover::{Prover, ProverConfig},

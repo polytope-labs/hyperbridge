@@ -21,8 +21,6 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod host;
 
-
-
 /// Configuration for the EVM Host consensus client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmHostConfig {

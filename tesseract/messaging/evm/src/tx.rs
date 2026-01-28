@@ -50,7 +50,6 @@ type SolidityFunctionCall<T> = FunctionCall<
 	T,
 >;
 
-
 #[async_recursion::async_recursion]
 pub async fn submit_messages(
 	client: &EvmClient,
@@ -149,15 +148,18 @@ pub async fn wait_for_transaction_receipt(
 			Ok(Some(receipt)) => {
 				log::trace!("Transaction receipt found for tx: {:?}", tx_hash);
 				return Ok(Some(receipt));
-			}
+			},
 			Ok(None) => {
 				// Receipt not yet available, continue polling
-				log::trace!("Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds", tx_hash);
-			}
+				log::trace!(
+					"Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds",
+					tx_hash
+				);
+			},
 			Err(err) => {
 				log::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
 				// Continue polling despite the error, as it might be transient
-			}
+			},
 		}
 
 		// Wait for the poll interval before the next attempt
@@ -256,7 +258,9 @@ where
 
 			if let Ok(pending) = pending {
 				let cancel_tx_hash = pending.tx_hash().0;
-				if let Ok(Some(receipt)) = wait_for_transaction_receipt(cancel_tx_hash.into(), client_clone.clone()).await {
+				if let Ok(Some(receipt)) =
+					wait_for_transaction_receipt(cancel_tx_hash.into(), client_clone.clone()).await
+				{
 					// we're going to error anyways
 					let _ = log_receipt(receipt, true);
 				}
@@ -280,27 +284,31 @@ where
 	// Wait for the transaction receipt with custom polling logic
 	match wait_for_transaction_receipt(tx_hash.into(), provider.clone()).await? {
 		Some(receipt) => {
-			let events = receipt.logs.iter().filter_map(|l| {
-				let log = Log {
-					topics: l.clone().topics,
-					data: l.clone().data,
-					..Default::default()
-				};
-				if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
-					return Some(ev.commitment.into())
-				}
-				if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
-					return Some(ev.commitment.into())
-				}
-				None
-			}).collect();
+			let events = receipt
+				.logs
+				.iter()
+				.filter_map(|l| {
+					let log = Log {
+						topics: l.clone().topics,
+						data: l.clone().data,
+						..Default::default()
+					};
+					if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
+						return Some(ev.commitment.into())
+					}
+					if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
+						return Some(ev.commitment.into())
+					}
+					None
+				})
+				.collect();
 			log_receipt(receipt, false)?;
 			Ok(events)
 		},
 		None => {
 			// Receipt not found after 10 minutes
 			return handle_failed_tx().await;
-		}
+		},
 	}
 }
 
@@ -578,8 +586,8 @@ mod tests {
 		let _ = env_logger::builder().is_test(true).try_init();
 
 		// Create provider
-		let provider = Provider::<Http>::try_from("http://localhost:8545")
-			.expect("Failed to create provider");
+		let provider =
+			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
 		let provider = Arc::new(provider);
 
 		// Transaction hash to test
@@ -598,13 +606,54 @@ mod tests {
 				println!("From: {:?}", receipt.from);
 				println!("To: {:?}", receipt.to);
 				println!("Number of logs: {}", receipt.logs.len());
-			}
+			},
 			Ok(None) => {
 				println!("❌ Transaction receipt not found after 10 minutes");
-			}
+			},
 			Err(err) => {
 				println!("❌ Error fetching transaction receipt: {err:?}");
-			}
+			},
+		}
+	}
+
+	#[tokio::test]
+	#[ignore] // Requires local RPC node
+	async fn test_get_block() {
+		// Initialize logger
+		let _ = env_logger::builder().is_test(true).try_init();
+
+		// Create provider
+		let provider =
+			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
+		let provider = Arc::new(provider);
+
+		// Block number to test
+		let block_number: u64 = 4726213;
+
+		println!("Fetching block {block_number}...");
+
+		// Get block by number
+		match provider.get_block(block_number).await {
+			Ok(Some(block)) => {
+				println!("✅ Block found!");
+				println!("Block number: {:?}", block.number);
+				println!("Block hash: {:?}", block.hash);
+				println!("Parent hash: {:?}", block.parent_hash);
+				println!("Timestamp: {:?}", block.timestamp);
+				println!("Gas used: {:?}", block.gas_used);
+				println!("Gas limit: {:?}", block.gas_limit);
+				println!("Miner: {:?}", block.author);
+				println!("Number of transactions: {}", block.transactions.len());
+				println!("State root: {:?}", block.state_root);
+			},
+			Ok(None) => {
+				println!("❌ Block not found");
+				panic!("Block {block_number} should exist");
+			},
+			Err(err) => {
+				println!("❌ Error fetching block: {err:?}");
+				panic!("Failed to fetch block: {err:?}");
+			},
 		}
 	}
 }

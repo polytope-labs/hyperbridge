@@ -1,0 +1,28 @@
+[package]
+name = "tesseract-pharos"
+version = "0.1.0"
+edition = "2021"
+description = "Pharos consensus relayer for tesseract"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[dependencies]
+pharos-prover = { path = "../../../modules/consensus/pharos/prover" }
+pharos-primitives = { path = "../../../modules/consensus/pharos/primitives" }
+pharos-verifier = { path = "../../../modules/consensus/pharos/verifier" }
+ismp-pharos = { path = "../../../modules/ismp/clients/pharos" }
+geth-primitives = { workspace = true }
+ismp = { workspace = true }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { package = "serde_json", version = "1.0" }
+log = { workspace = true, default-features = true }
+anyhow = { workspace = true, default-features = true }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+async-trait = "0.1.88"
+tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+primitive-types = { workspace = true }
+sp-core = { workspace = true }
+
+tesseract-primitives = { workspace = true }
+tesseract-evm = { workspace = true }
+ethers = { workspace = true, features = ["rustls"] }

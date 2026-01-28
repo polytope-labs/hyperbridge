@@ -13,15 +13,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(not(feature = "std"), no_std)]
-extern crate alloc;
+mod byte_vector;
+use core::fmt;
 
-pub mod bls;
-pub mod ssz;
-pub mod verification;
+fn write_bytes_to_lower_hex<T: AsRef<[u8]>>(f: &mut fmt::Formatter<'_>, data: T) -> fmt::Result {
+	if f.alternate() {
+		write!(f, "0x")?;
+	}
+	for i in data.as_ref() {
+		write!(f, "{i:02x}")?;
+	}
+	Ok(())
+}
 
-pub use bls::{
-	aggregate_public_keys, pubkey_to_projective, BlsPublicKey, BlsSignature,
-	BLS_PUBLIC_KEY_BYTES_LEN, BLS_SIGNATURE_BYTES_LEN,
-};
-pub use ssz::ByteVector;
+pub use byte_vector::ByteVector;

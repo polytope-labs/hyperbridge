@@ -10,6 +10,7 @@ mod pallet_xcm_gateway;
 mod xcm_integration_test;
 
 mod common;
+mod ismp_pharos;
 mod pallet_bridge_airdrop;
 mod pallet_collator_manager;
 mod pallet_consensus_incentives;

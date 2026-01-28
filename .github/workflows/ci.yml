@@ -6,7 +6,7 @@ on:
             - main
         paths:
             - "**/*.rs"
-            - "**/*.toml"
+            - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
 
@@ -14,7 +14,7 @@ on:
         types: [opened, synchronize]
         paths:
             - "**/*.rs"
-            - "**/*.toml"
+            - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
 

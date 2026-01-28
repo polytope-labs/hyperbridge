@@ -30,9 +30,10 @@ print_usage() {
     echo "                  (e.g., testnet, mainnet, sepolia,base-sepolia,arbitrum-sepolia)"
     echo ""
     echo "Options:"
-    echo "  -m, --mode MODE        Deployment mode: simulate or full (default: simulate)"
+    echo "  -m, --mode MODE        Deployment mode: simulate, full, or verify (default: simulate)"
     echo "                         - simulate: Dry run without broadcasting transactions"
     echo "                         - full: Broadcast and verify contracts"
+    echo "                         - verify: Verify existing deployment using broadcast artifacts"
     echo "  -n, --network NET      Network type: testnet or mainnet (sources .env.testnet or .env.mainnet)"
     echo "  -c, --config FILE      Config file to use (default: from CONFIG env var)"
 
@@ -54,6 +55,9 @@ print_usage() {
     echo "  # Deploy to specific chains"
     echo "  $0 --mode full DeployHostUpdates sepolia,base-sepolia,arbitrum-sepolia"
     echo ""
+    echo "  # Verify existing deployment"
+    echo "  $0 --mode verify --network testnet DeployHostUpdates sepolia,base-sepolia"
+    echo ""
 
     echo ""
     echo "Available Chains:"
@@ -69,8 +73,8 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -m|--mode)
             MODE="$2"
-            if [[ ! "$MODE" =~ ^(simulate|full)$ ]]; then
-                echo -e "${RED}Error: Invalid mode '$MODE'. Must be 'simulate' or 'full'${NC}"
+            if [[ ! "$MODE" =~ ^(simulate|full|verify)$ ]]; then
+                echo -e "${RED}Error: Invalid mode '$MODE'. Must be 'simulate', 'full', or 'verify'${NC}"
                 exit 1
             fi
             shift 2
@@ -236,10 +240,18 @@ if [ "$MODE" = "full" ]; then
     fi
 fi
 
+# Info for verify mode
+if [ "$MODE" = "verify" ]; then
+    echo -e "${BLUE}Verifying existing deployments using broadcast artifacts...${NC}"
+    echo ""
+fi
+
 # Execute deployment for each chain
 echo -e "${BLUE}════════════════════════════════════════${NC}"
 if [ "$MODE" = "simulate" ]; then
     echo -e "${GREEN}Starting simulation (no transactions will be broadcast)...${NC}"
+elif [ "$MODE" = "verify" ]; then
+    echo -e "${GREEN}Starting verification...${NC}"
 else
     echo -e "${GREEN}Starting deployment...${NC}"
 fi
@@ -257,11 +269,37 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     echo ""
 
     # Build forge command for this chain (using single-chain run())
-    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain"
+    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 200"
+
+    # Extract verifier URL from foundry.toml for this chain (used by both full and verify modes)
+    VERIFIER_URL=$(grep -A3 "^\[$chain\]" foundry.toml 2>/dev/null | grep "url =" | sed 's/.*url = "\(.*\)".*/\1/' || echo "")
+
+    # Fallback: try etherscan section if not found in rpc_endpoints
+    if [ -z "$VERIFIER_URL" ]; then
+        VERIFIER_URL=$(grep -A1 "^$chain = {" foundry.toml 2>/dev/null | grep "url" | sed 's/.*url = "\(.*\)".*/\1/' | sed 's/",.*//')
+    fi
 
     # Add flags based on mode
     if [ "$MODE" = "full" ]; then
         FORGE_CMD="$FORGE_CMD --broadcast --verify --sender $ADMIN"
+
+        # Add explicit verifier URL to override Forge's hardcoded explorers
+        if [ -n "$VERIFIER_URL" ]; then
+            echo -e "${GREEN}Using verifier URL: ${YELLOW}${VERIFIER_URL}${NC}"
+            FORGE_CMD="$FORGE_CMD --verifier-url \"$VERIFIER_URL\""
+        else
+            echo -e "${YELLOW}Warning: No verifier URL found for ${chain}, using Forge default${NC}"
+        fi
+    elif [ "$MODE" = "verify" ]; then
+        FORGE_CMD="$FORGE_CMD --verify --resume --broadcast --private-key $PRIVATE_KEY"
+
+        # Add explicit verifier URL to override Forge's hardcoded explorers
+        if [ -n "$VERIFIER_URL" ]; then
+            echo -e "${GREEN}Using verifier URL: ${YELLOW}${VERIFIER_URL}${NC}"
+            FORGE_CMD="$FORGE_CMD --verifier-url \"$VERIFIER_URL\""
+        else
+            echo -e "${YELLOW}Warning: No verifier URL found for ${chain}, using Forge default${NC}"
+        fi
     fi
 
     # Execute the command
@@ -311,6 +349,10 @@ if [ ${#FAILED_CHAINS[@]} -eq 0 ]; then
         echo -e "  1. Review the simulation output above"
         echo -e "  2. To deploy for real, run:"
         echo -e "     ${BLUE}$0 --mode full --network $NETWORK_FLAG $1 $2${NC}"
+    elif [ "$MODE" = "verify" ]; then
+        echo ""
+        echo -e "${YELLOW}Verification completed using artifacts from:${NC}"
+        echo -e "  broadcast/${SCRIPT_NAME}/<chain-id>/"
     else
         echo ""
         echo -e "${YELLOW}Deployment artifacts saved in:${NC}"

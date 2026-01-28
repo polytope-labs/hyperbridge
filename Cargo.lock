@@ -7176,7 +7176,6 @@ dependencies = [
  "serde",
  "tesseract-evm",
  "tesseract-primitives",
- "tokio",
 ]
 
 [[package]]

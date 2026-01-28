@@ -18,6 +18,3 @@ ethers = { workspace = true }
 ismp = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["full", "test-util"] }

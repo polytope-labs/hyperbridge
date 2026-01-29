@@ -35,12 +35,18 @@ This creates a meritocratic system where the most dedicated and effective networ
 
 Before diving deep into the steps required, it is important to understand the two-account model and the tokens involved:
 
-- ** Stash Account(Cold)**: It holds your $BRIDGE bond, and is ideally kept offline in a "cold" wallet for maximum security.
-It is used only for high-value transactions like bondin and designating a controller.
-- **Controller Account(Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer and a collator node.Controller
+- **Stash Account (Cold)**: This holds your $BRIDGE bond and is ideally kept offline in a "cold" wallet for maximum security.
+It is used only for high-value transactions like bonding and designating a controller. The Stash account registers as a candidate
+but does **not** need to set session keys - that's the Controller's job.
+- **Controller Account (Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer and a collator node.
     - It's the account that accrues Reputation.
-    - It's the account that sets Session Keys.
+    - It's the account that sets Session Keys (required for block production).
     - This is the account you use as your relayer's signer.
+    - It must be linked to a Stash via `collatorManager.register` before the Stash can be selected as a collator.
+
+**Why Two Accounts?** This separation allows you to keep your bonded funds secure in a cold wallet while using a hot wallet for
+operational duties. If your Controller is compromised, an attacker cannot access your bonded funds - they can only perform
+collator operations. You can always change your Controller using `collatorManager.setController` from your Stash account.
 
 ### The Tokens
 - **The Hyperbridge Token(`$BRIDGE`)**: This is the primary token a Relayer earns as a reward for relaying messages. It is the real transferable asset that reflects or represents your earnings.
@@ -272,11 +278,11 @@ This tells the network: "I  bonded the Stash, designate this Controller to perfo
 
 ## The selection process & what happens next
 
-At the beginning of each new session, our `pallet-collator-manager` runs it's selection logic:
+At the beginning of each new session, our `pallet-collator-manager` runs its selection logic:
 
-- It fetches the list of all bonded candidates(Stash accounts) from `pallet-collator-selection` who have set their session keys.
-- It uses it's `Controller` map to find the linked `Controller` account for each stash.
-- It filters this list, keeping only the candidates whose `Controller` has set valid session keys.
+- It fetches the list of all bonded candidates (Stash accounts) from `pallet-collator-selection`.
+- For each candidate, it uses the `Controller` storage map to find the linked Controller account.
+- It validates that the Controller has registered valid session keys via `pallet-session`.
 - It ranks the remaining candidates from highest to lowest based on their Controller's Reputation Asset balance.
 - It selects the top candidates to fill the available collator slots for the new session.
 

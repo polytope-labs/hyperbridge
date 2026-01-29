@@ -106,6 +106,7 @@ members = [
 
     "tesseract/consensus/arb-host",
     "tesseract/consensus/op-host",
+    "tesseract/consensus/evm-host",
     "tesseract/consensus/bsc",
     "tesseract/consensus/sync-committee",
     "tesseract/consensus/grandpa",
@@ -319,6 +320,7 @@ tesseract-config = { path = "tesseract/messaging/config" }
 # tesseract consensus
 arb-host = { path = "tesseract/consensus/arb-host" }
 op-host = { path = "tesseract/consensus/op-host" }
+evm-host = { path = "tesseract/consensus/evm-host" }
 tesseract-beefy = { path = "tesseract/consensus/beefy" }
 tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }

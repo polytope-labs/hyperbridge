@@ -238,6 +238,11 @@ pub async fn create_client_map(
 				client
 			},
 
+			AnyConfig::EvmHost(config) => {
+				let client = config.into_client().await?;
+				client
+			},
+
 			AnyConfig::Grandpa(config) => match config.substrate.hashing {
 				Some(HashAlgorithm::Keccak) => {
 					let client =

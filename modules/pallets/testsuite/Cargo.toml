@@ -55,6 +55,8 @@ ismp-grandpa = { workspace = true, default-features = true }
 rs_merkle = { version = "1.5.0"}
 log = { workspace = true }
 primitive-types = { workspace = true }
+ethers = { workspace = true }
+ismp-solidity-abi = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

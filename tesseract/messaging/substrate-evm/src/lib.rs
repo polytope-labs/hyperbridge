@@ -1,7 +1,6 @@
-use anyhow::Error;
+use anyhow::{Error, anyhow};
 use codec::{Decode, Encode};
 use evm_state_machine::{
-	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT},
 	substrate_evm::{AccountInfo, AccountType, SubstrateEvmError},
 	types::SubstrateEvmProof,
 };
@@ -19,7 +18,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use subxt::{
 	OnlineClient,
 	backend::rpc::RpcClient,
-	config::{ExtrinsicParams, HashFor},
+	config::{ExtrinsicParams, HashFor, substrate::SubstrateHeader},
 	ext::subxt_rpcs::{LegacyRpcMethods, rpc_params},
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
@@ -129,8 +128,8 @@ where
 			let child_info = ChildInfo::new_default(&trie_id);
 			let child_root_key = child_info.prefixed_storage_key().into_inner();
 
-			main_keys.push(account_info_key);
-			main_keys.push(child_root_key);
+			main_keys.push(sp_storage::StorageKey(account_info_key));
+			main_keys.push(sp_storage::StorageKey(child_root_key));
 
 			contract_info.insert(contract_address.as_bytes().to_vec(), child_info);
 		}
@@ -147,6 +146,7 @@ where
 				.get(contract_address.as_bytes())
 				.expect("Contract Info should exist");
 
+			let keys = keys.into_iter().map(|key| sp_storage::StorageKey(key)).collect::<Vec<_>>();
 			let child_proof: ReadProof<H256> = self
 				.subxt_rpc_client
 				.request(
@@ -226,10 +226,7 @@ where
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
-				let slot_hash = tesseract_evm::derive_map_key(
-					q.commitment.0.to_vec(),
-					REQUEST_COMMITMENTS_SLOT,
-				);
+				let slot_hash = self.evm.request_commitment_key(q.commitment).1;
 				self.storage_key(slot_hash)
 			})
 			.collect();
@@ -247,10 +244,7 @@ where
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
-				let slot_hash = tesseract_evm::derive_map_key(
-					q.commitment.0.to_vec(),
-					RESPONSE_COMMITMENTS_SLOT,
-				);
+				let slot_hash = self.evm.response_commitment_key(q.commitment).1;
 				self.storage_key(slot_hash)
 			})
 			.collect();
@@ -376,11 +370,11 @@ where
 	}
 
 	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.request_commitment_full_key(commitment)
+		self.evm.response_commitment_full_key(commitment)
 	}
 
 	fn response_receipt_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		self.evm.request_receipt_full_key(commitment)
+		self.evm.response_receipt_full_key(commitment)
 	}
 
 	fn address(&self) -> Vec<u8> {
@@ -437,13 +431,55 @@ where
 {
 	async fn check_for_byzantine_attack(
 		&self,
-		coprocessor: StateMachine,
+		_coprocessor: StateMachine,
 		counterparty: Arc<dyn IsmpProvider>,
-		challenge_event: StateMachineUpdated,
+		event: StateMachineUpdated,
 	) -> Result<(), Error> {
-		self.evm
-			.check_for_byzantine_attack(coprocessor, counterparty, challenge_event)
-			.await
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: self.state_machine_id().state_id,
+				consensus_state_id: self.state_machine_id().consensus_state_id,
+			},
+			height: event.latest_height,
+		};
+
+		let Some(block_hash) =
+			self.legacy_rpc.chain_get_block_hash(Some(event.latest_height.into())).await?
+		else {
+			// If block header is not found veto the state commitment
+
+			log::info!(
+				"Vetoing state commitment for {} on {}: block header not found for {}",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id,
+				event.latest_height
+			);
+			counterparty.veto_state_commitment(height).await?;
+
+			return Ok(());
+		};
+		let header = self
+			.legacy_rpc
+			.chain_get_header(Some(block_hash))
+			.await?
+			.ok_or_else(|| anyhow!("Failed to get block header in byzantine handler"))?;
+
+		let header = SubstrateHeader::<u32, C::Hasher>::decode(&mut &*header.encode())?;
+
+		let state_root: H256 = header.state_root.into();
+		let finalized_state_commitment =
+			counterparty.query_state_machine_commitment(height).await?;
+
+		if finalized_state_commitment.state_root != state_root.into() {
+			log::info!(
+				"Vetoing state commitment for {} on {}, state commitment mismatch",
+				self.state_machine_id().state_id,
+				counterparty.state_machine_id().state_id
+			);
+			counterparty.veto_state_commitment(height).await?;
+		}
+
+		Ok(())
 	}
 
 	async fn state_machine_updates(

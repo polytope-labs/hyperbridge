@@ -7163,6 +7163,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "evm-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ethers",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "serde",
+ "tesseract-evm",
+ "tesseract-primitives",
+]
+
+[[package]]
 name = "evm-state-machine"
 version = "0.1.1"
 dependencies = [
@@ -15543,6 +15559,7 @@ dependencies = [
  "dotenv",
  "env_logger 0.11.8",
  "ethereum-triedb",
+ "ethers",
  "evm-state-machine",
  "futures",
  "hash-db",
@@ -15551,6 +15568,7 @@ dependencies = [
  "ismp",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-solidity-abi",
  "ismp-sync-committee",
  "ismp-testsuite",
  "log",
@@ -28425,7 +28443,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.3.2"
+version = "1.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28559,13 +28577,14 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.4.1"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "arb-host",
  "async-trait",
  "clap",
  "env_logger 0.10.2",
+ "evm-host",
  "finality-grandpa",
  "futures",
  "hex",
@@ -28610,6 +28629,7 @@ dependencies = [
  "ckb-merkle-mountain-range",
  "cometbft",
  "dotenv",
+ "env_logger 0.10.2",
  "ethabi",
  "ethereum-triedb",
  "ethers",
@@ -28885,6 +28905,7 @@ dependencies = [
  "evm-state-machine",
  "futures",
  "ismp",
+ "log",
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "polkadot-sdk",

@@ -34,6 +34,7 @@ concurrency:
 env:
     CARGO_TERM_COLOR: always
     FOUNDRY_PROFILE: default
+    LIBCLANG_PATH: /usr/lib/llvm-14/lib
     BSC_URL: ${{ secrets.BSC_URL }}
     OP_URL: ${{ secrets.OP_URL }}
     SEPOLIA_URL: ${{ secrets.SEPOLIA_URL }}
@@ -85,6 +86,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -152,6 +154,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -236,6 +239,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -317,6 +321,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -379,6 +384,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -466,6 +472,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -532,6 +539,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -585,6 +593,7 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=$(llvm-config --libdir)" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

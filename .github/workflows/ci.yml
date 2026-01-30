@@ -84,7 +84,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -151,7 +151,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -235,7 +235,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -316,7 +316,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -378,7 +378,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -465,7 +465,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -531,7 +531,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -584,7 +584,7 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

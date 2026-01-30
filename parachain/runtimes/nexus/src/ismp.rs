@@ -355,6 +355,7 @@ impl pallet_assets::Config for Runtime {
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
 	type Holder = ();
+	type ReserveData = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }

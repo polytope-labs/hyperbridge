@@ -31,7 +31,7 @@ pub mod xcm;
 
 use alloc::vec::Vec;
 use cumulus_pallet_parachain_system::{
-	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
+	RelayChainState, RelayNumberMonotonicallyIncreases,
 };
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{TransformOrigin, WithdrawReasons};
@@ -458,7 +458,6 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
-	type SelectCore = DefaultCoreSelector<Self>;
 	type RelayParentOffset = ConstU32<0>;
 }
 
@@ -510,6 +509,7 @@ impl pallet_message_queue::Config for Runtime {
 parameter_types! {
 	pub const Period: u32 = 6 * HOURS;
 	pub const Offset: u32 = 0;
+	pub const SessionKeyDeposit: Balance = EXISTENTIAL_DEPOSIT * 10;
 }
 
 impl pallet_session::Config for Runtime {
@@ -525,6 +525,8 @@ impl pallet_session::Config for Runtime {
 	type Keys = SessionKeys;
 	type DisablingStrategy = UpToLimitDisablingStrategy;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
+	type Currency = Balances;
+	type KeyDeposit = SessionKeyDeposit;
 }
 
 impl pallet_aura::Config for Runtime {
@@ -892,7 +894,7 @@ impl_runtime_apis! {
 			VERSION
 		}
 
-		fn execute_block(block: Block) {
+		fn execute_block(block: <Block as BlockT>::LazyBlock) {
 			Executive::execute_block(block)
 		}
 
@@ -930,7 +932,7 @@ impl_runtime_apis! {
 		}
 
 		fn check_inherents(
-			block: Block,
+			block: <Block as BlockT>::LazyBlock,
 			data: sp_inherents::InherentData,
 		) -> sp_inherents::CheckInherentsResult {
 			data.check_extrinsics(&block)

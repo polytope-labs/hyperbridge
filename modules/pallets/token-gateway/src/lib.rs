@@ -611,6 +611,30 @@ where
 							))?
 						}
 					},
+					MultiSignature::Eth(sig) => {
+						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
+						// Following EIP-191 convention https://eips.ethereum.org/EIPS/eip-191
+						let preimage = vec![
+							format!("{ETHEREUM_MESSAGE_PREFIX}{}", payload.len())
+								.as_bytes()
+								.to_vec(),
+							payload,
+						]
+						.concat();
+						let message = sp_io::hashing::keccak_256(&preimage);
+						let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &message)
+							.map_err(|_| {
+								anyhow!("Failed to recover eth ecdsa public key from signature")
+							})?;
+						let eth_address =
+							H160::from_slice(&sp_io::hashing::keccak_256(&pub_key[..])[12..]);
+						let substrate_account = T::EvmToSubstrate::convert(eth_address);
+						if substrate_account != beneficiary {
+							Err(anyhow!(
+								"Failed to verify eth signature before dispatching token gateway call"
+							))?
+						}
+					},
 				};
 
 				beneficiary.clone().into()

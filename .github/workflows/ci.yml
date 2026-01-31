@@ -84,11 +84,22 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                
+                  echo "=== Searching for libclang ==="
+                  find /usr -name "libclang*.so*" 2>/dev/null || true
+                  echo "=== llvm-config output ==="
+                  llvm-config --libdir 2>/dev/null || echo "llvm-config not found"
+                  LIBCLANG_FILE=$(find /usr -name "libclang.so*" -type f 2>/dev/null | head -1)
+                  if [ -n "$LIBCLANG_FILE" ]; then
+                    LLVM_LIB_DIR=$(dirname "$LIBCLANG_FILE")
+                    echo "Found libclang at: $LIBCLANG_FILE"
+                  else
+                    LLVM_LIB_DIR=$(llvm-config --libdir 2>/dev/null || echo "/usr/lib/llvm-14/lib")
+                    echo "Using llvm-config path: $LLVM_LIB_DIR"
+                  fi
                   echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  echo "LD_LIBRARY_PATH=$LLVM_LIB_DIR:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -155,11 +166,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -243,11 +252,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -328,11 +335,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -394,11 +399,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -485,11 +488,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -555,11 +556,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -612,11 +611,9 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libclang1
-                  LLVM_LIB_DIR=$(find /usr/lib -name "libclang.so*" -print -quit 2>/dev/null | xargs dirname 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "Found libclang at: $LLVM_LIB_DIR"
-                  ls -la $LLVM_LIB_DIR/libclang* || true
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

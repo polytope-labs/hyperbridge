@@ -238,7 +238,13 @@ jobs:
                   ls -la $LIBCLANG_PATH/ 2>/dev/null || echo "LIBCLANG_PATH directory not accessible"
 
             - name: check workspace
+              env:
+                  LIBCLANG_PATH: /usr/lib/llvm-14/lib
+                  LD_LIBRARY_PATH: /usr/lib/llvm-14/lib
               run: |
+                  echo "LIBCLANG_PATH=$LIBCLANG_PATH"
+                  echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+                  ls -la $LIBCLANG_PATH/libclang.so* || true
                   cargo check --all --benches --locked
 
     unit-tests:

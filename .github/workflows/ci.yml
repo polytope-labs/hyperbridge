@@ -76,22 +76,8 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
-                
-                  echo "=== Searching for libclang ==="
-                  find /usr -name "libclang*.so*" 2>/dev/null || true
-                  echo "=== llvm-config output ==="
-                  llvm-config --libdir 2>/dev/null || echo "llvm-config not found"
-                  LIBCLANG_FILE=$(find /usr -name "libclang.so*" -type f 2>/dev/null | head -1)
-                  if [ -n "$LIBCLANG_FILE" ]; then
-                    LLVM_LIB_DIR=$(dirname "$LIBCLANG_FILE")
-                    echo "Found libclang at: $LIBCLANG_FILE"
-                  else
-                    LLVM_LIB_DIR=$(llvm-config --libdir 2>/dev/null || echo "/usr/lib/llvm-14/lib")
-                    echo "Using llvm-config path: $LLVM_LIB_DIR"
-                  fi
-                  echo "LIBCLANG_PATH=$LLVM_LIB_DIR" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=$LLVM_LIB_DIR:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -106,13 +92,6 @@ jobs:
                   rustup component add rust-src
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
-
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -165,14 +144,8 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
-                  echo "=== Verifying libclang installation ==="
-                  dpkg -l | grep libclang || echo "libclang packages not found"
-                  find /usr -name "libclang.so*" 2>/dev/null || echo "libclang.so not found!"
-                  ls -la /usr/lib/llvm-14/lib/libclang* 2>/dev/null || echo "/usr/lib/llvm-14/lib/libclang not found"
-                  echo "=== Setting environment variables ==="
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -203,53 +176,14 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
-
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Install Go
               uses: actions/setup-go@v5
               with:
                   go-version: "1.24"
 
-            - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
-
-            - name: Clear cached clang builds
-              run: |
-                  echo "=== Current directory ==="
-                  pwd
-                  echo "=== Looking for librocksdb-sys builds ==="
-                  find . -type d -name "librocksdb-sys-*" 2>/dev/null || echo "None found"
-                  echo "=== Looking for clang-sys builds ==="
-                  find . -type d -name "clang-sys-*" 2>/dev/null || echo "None found"
-                  echo "=== Removing cached builds ==="
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
-                  echo "=== Verifying libclang installation ==="
-                  find /usr -name "libclang.so*" 2>/dev/null || echo "libclang not found!"
-                  echo "=== LIBCLANG_PATH ==="
-                  echo $LIBCLANG_PATH
-                  ls -la $LIBCLANG_PATH/ 2>/dev/null || echo "LIBCLANG_PATH directory not accessible"
-
             - name: check workspace
               run: |
-                  echo "=== Finding actual libclang files (not symlinks) ==="
-                  find /usr -name "libclang*.so*" -type f 2>/dev/null || echo "No actual files found"
-                  echo "=== Checking x86_64-linux-gnu directory ==="
-                  ls -la /usr/lib/x86_64-linux-gnu/libclang* 2>/dev/null || echo "Not in x86_64-linux-gnu"
-                  echo "=== Testing if libclang.so can be loaded ==="
-                  LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu ldd /usr/lib/x86_64-linux-gnu/libclang*.so* 2>/dev/null | head -20 || echo "ldd failed"
-                  echo "=== Running cargo with explicit paths ==="
-                  export LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu
-                  export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH
-                  echo "LIBCLANG_PATH=$LIBCLANG_PATH"
-                  echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
                   cargo check --all --benches --locked
 
     unit-tests:
@@ -293,14 +227,8 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
-                  echo "=== Verifying libclang installation ==="
-                  dpkg -l | grep libclang || echo "libclang packages not found"
-                  find /usr -name "libclang.so*" 2>/dev/null || echo "libclang.so not found!"
-                  ls -la /usr/lib/llvm-14/lib/libclang* 2>/dev/null || echo "/usr/lib/llvm-14/lib/libclang not found"
-                  echo "=== Setting environment variables ==="
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
                   ~/.sp1/bin/sp1up
                   ~/.sp1/bin/cargo-prove prove --version
@@ -309,6 +237,7 @@ jobs:
               run: |
                   wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
                   echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
+
             - uses: pnpm/action-setup@v2
               with:
                   version: 8
@@ -335,13 +264,6 @@ jobs:
                   go-version: "1.24"
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
-
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run unit tests
               run: |
@@ -388,22 +310,14 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
-
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run Simnet Tests
               run: |
@@ -459,22 +373,15 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
 
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Build Hyperbridge Binary
               run: cargo build --release -p hyperbridge
@@ -555,22 +462,15 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
 
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Setup Eth POS Devnet
               run: |
@@ -630,22 +530,15 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
 
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run BSC Tests
               run: |
@@ -692,22 +585,15 @@ jobs:
             - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
-                  echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
-              with:
-                  prefix-key: "v1-rust"
 
-            - name: Clear cached clang builds
-              run: |
-                  rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
-                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run Tendermint Tests
               run: |

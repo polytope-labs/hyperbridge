@@ -154,6 +154,8 @@ strip = true
 [workspace.dependencies]
 polkadot-sdk = { version = "2512.1.0", default-features = false }
 
+rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }
+
 # crates that can't be used in polkadot-sdk
 sp-weights = { version = "33.2.0", default-features = false }
 sp-core = { version = "39.0.0", default-features = false }

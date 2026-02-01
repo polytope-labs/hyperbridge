@@ -166,6 +166,11 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "=== Verifying libclang installation ==="
+                  dpkg -l | grep libclang || echo "libclang packages not found"
+                  find /usr -name "libclang.so*" 2>/dev/null || echo "libclang.so not found!"
+                  ls -la /usr/lib/llvm-14/lib/libclang* 2>/dev/null || echo "/usr/lib/llvm-14/lib/libclang not found"
+                  echo "=== Setting environment variables ==="
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
                   echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
@@ -217,8 +222,20 @@ jobs:
 
             - name: Clear cached clang builds
               run: |
+                  echo "=== Current directory ==="
+                  pwd
+                  echo "=== Looking for librocksdb-sys builds ==="
+                  find . -type d -name "librocksdb-sys-*" 2>/dev/null || echo "None found"
+                  echo "=== Looking for clang-sys builds ==="
+                  find . -type d -name "clang-sys-*" 2>/dev/null || echo "None found"
+                  echo "=== Removing cached builds ==="
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
                   rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
+                  echo "=== Verifying libclang installation ==="
+                  find /usr -name "libclang.so*" 2>/dev/null || echo "libclang not found!"
+                  echo "=== LIBCLANG_PATH ==="
+                  echo $LIBCLANG_PATH
+                  ls -la $LIBCLANG_PATH/ 2>/dev/null || echo "LIBCLANG_PATH directory not accessible"
 
             - name: check workspace
               run: |
@@ -266,6 +283,11 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libclang1-14 libudev-dev make protobuf-compiler pkg-config
+                  echo "=== Verifying libclang installation ==="
+                  dpkg -l | grep libclang || echo "libclang packages not found"
+                  find /usr -name "libclang.so*" 2>/dev/null || echo "libclang.so not found!"
+                  ls -la /usr/lib/llvm-14/lib/libclang* 2>/dev/null || echo "/usr/lib/llvm-14/lib/libclang not found"
+                  echo "=== Setting environment variables ==="
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
                   echo "LD_LIBRARY_PATH=/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash

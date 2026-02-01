@@ -391,8 +391,8 @@ jobs:
                   cd ../
                   mkdir -p polkadot-sdk/target/release
                   cd polkadot-sdk/target/release
-                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot'
-                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-parachain'
+                  wget -O ./polkadot -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512-1/polkadot'
+                  wget -O ./polkadot-parachain -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512-1/polkadot-parachain'
                   wget -O ./polkadot-execute-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-execute-worker'
                   wget -O ./polkadot-prepare-worker -q --show-progress 'https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-7/polkadot-prepare-worker'
                   sudo chmod +x ./polkadot

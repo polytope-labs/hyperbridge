@@ -238,13 +238,18 @@ jobs:
                   ls -la $LIBCLANG_PATH/ 2>/dev/null || echo "LIBCLANG_PATH directory not accessible"
 
             - name: check workspace
-              env:
-                  LIBCLANG_PATH: /usr/lib/llvm-14/lib
-                  LD_LIBRARY_PATH: /usr/lib/llvm-14/lib
               run: |
+                  echo "=== Finding actual libclang files (not symlinks) ==="
+                  find /usr -name "libclang*.so*" -type f 2>/dev/null || echo "No actual files found"
+                  echo "=== Checking x86_64-linux-gnu directory ==="
+                  ls -la /usr/lib/x86_64-linux-gnu/libclang* 2>/dev/null || echo "Not in x86_64-linux-gnu"
+                  echo "=== Testing if libclang.so can be loaded ==="
+                  LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu ldd /usr/lib/x86_64-linux-gnu/libclang*.so* 2>/dev/null | head -20 || echo "ldd failed"
+                  echo "=== Running cargo with explicit paths ==="
+                  export LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu
+                  export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib/llvm-14/lib:$LD_LIBRARY_PATH
                   echo "LIBCLANG_PATH=$LIBCLANG_PATH"
                   echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
-                  ls -la $LIBCLANG_PATH/libclang.so* || true
                   cargo check --all --benches --locked
 
     unit-tests:

@@ -114,10 +114,13 @@ jobs:
                   rustup component add rust-src
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -203,10 +206,13 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Install Go
               uses: actions/setup-go@v5
@@ -214,10 +220,13 @@ jobs:
                   go-version: "1.24"
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: check workspace
               run: |
@@ -301,10 +310,13 @@ jobs:
                   go-version: "1.24"
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run unit tests
               run: |
@@ -360,10 +372,13 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run Simnet Tests
               run: |
@@ -428,10 +443,13 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Build Hyperbridge Binary
               run: cargo build --release -p hyperbridge
@@ -521,10 +539,13 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Setup Eth POS Devnet
               run: |
@@ -593,10 +614,13 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run BSC Tests
               run: |
@@ -652,10 +676,13 @@ jobs:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
 
             - uses: Swatinem/rust-cache@v2
+              with:
+                  prefix-key: "v1-rust"
 
-            - name: Clear cached librocksdb-sys
+            - name: Clear cached clang builds
               run: |
                   rm -rf target/debug/build/librocksdb-sys-* target/release/build/librocksdb-sys-* || true
+                  rm -rf target/debug/build/clang-sys-* target/release/build/clang-sys-* || true
 
             - name: Run Tendermint Tests
               run: |

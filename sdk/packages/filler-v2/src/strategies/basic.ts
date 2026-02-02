@@ -8,10 +8,12 @@ import {
 	ADDRESS_ZERO,
 	TokenInfoV2,
 	adjustDecimals,
+	IntentsCoprocessor,
+	transformOrderForContract,
 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { privateKeyToAccount } from "viem/accounts"
-import { ChainClientManager, ContractInteractionService, HyperbridgeService, BidStorageService } from "@/services"
+import { ChainClientManager, ContractInteractionService, BidStorageService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
@@ -78,7 +80,10 @@ export class BasicFiller implements FillerStrategy {
 				}
 
 				if (inputType !== outputType) {
-					this.logger.debug({ index: i, inputType, outputType }, "Token type mismatch (must be same-token swap)")
+					this.logger.debug(
+						{ index: i, inputType, outputType },
+						"Token type mismatch (must be same-token swap)",
+					)
 					return false
 				}
 			}
@@ -170,13 +175,14 @@ export class BasicFiller implements FillerStrategy {
 	/**
 	 * Validates that the filler can meet the user's minimum output requirements
 	 * based on the configured bps (basis points), and calculates the profit from slippage.
+	 * Also caches the filler's calculated outputs for use during order execution.
 	 *
 	 * The logic:
 	 * - User sends X tokens and expects minimum Y tokens (order.output.amount)
 	 * - Filler calculates max they will provide: X * (10000 - fillerBps) / 10000
 	 * - If filler can provide >= user's minimum → valid, proceed
-	 * - Filler pays out their max (to be competitive), not just user's minimum
-	 * - Profit = X - fillerMaxOutput (filler keeps their bps)
+	 * - Filler pays out their calculated max (to be competitive)
+	 * - Profit = X - fillerMaxOutput (filler keeps their bps as profit)
 	 *
 	 * Example: User sends 100 USDC, expects minimum 99.4 USDC, filler has 50 bps (0.5%)
 	 * - Filler will provide: 100 * (10000 - 50) / 10000 = 99.5 USDC
@@ -193,6 +199,7 @@ export class BasicFiller implements FillerStrategy {
 	): Promise<{ isValid: boolean; profitFromSlippage: bigint }> {
 		const basisPoints = 10000n
 		let totalProfitNormalized = 0n
+		const fillerOutputs: TokenInfoV2[] = []
 
 		for (let i = 0; i < order.inputs.length; i++) {
 			const input = order.inputs[i]
@@ -228,6 +235,12 @@ export class BasicFiller implements FillerStrategy {
 				return { isValid: false, profitFromSlippage: 0n }
 			}
 
+			// Store the filler's calculated output for this token
+			fillerOutputs.push({
+				token: output.token,
+				amount: fillerMaxOutput,
+			})
+
 			// Calculate profit: filler receives input, pays out their max (to be competitive)
 			// Profit = input - fillerMaxOutput (filler keeps their bps as profit)
 			const profitInOutputDecimals = convertedInputAmount - fillerMaxOutput
@@ -236,6 +249,16 @@ export class BasicFiller implements FillerStrategy {
 			const profitNormalized = adjustDecimals(profitInOutputDecimals, outputDecimals, normalizeToDecimals)
 			totalProfitNormalized += profitNormalized
 		}
+
+		// Cache filler outputs for use during order execution
+		this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
+		this.logger.debug(
+			{
+				orderId: order.id,
+				fillerOutputs: fillerOutputs.map((o) => ({ token: o.token, amount: o.amount.toString() })),
+			},
+			"Cached filler outputs for order",
+		)
 
 		return { isValid: true, profitFromSlippage: totalProfitNormalized }
 	}
@@ -249,15 +272,15 @@ export class BasicFiller implements FillerStrategy {
 	 * @param hyperbridge HyperbridgeService for bid submission (provided when solver selection is active)
 	 * @returns The execution result
 	 */
-	async executeOrder(order: OrderV2, hyperbridge?: HyperbridgeService): Promise<ExecutionResult> {
+	async executeOrder(order: OrderV2, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
 		const startTime = Date.now()
 
 		// Ensure tokens are approved before submitting bid or direct fill
 		await this.contractService.approveTokensIfNeeded(order)
 
 		try {
-			if (hyperbridge) {
-				return await this.submitBidToHyperbridge(order, startTime, hyperbridge)
+			if (intentsCoprocessor) {
+				return await this.submitBidToHyperbridge(order, startTime, intentsCoprocessor)
 			}
 			return await this.fillOrder(order, startTime)
 		} catch (error) {
@@ -277,12 +300,12 @@ export class BasicFiller implements FillerStrategy {
 	private async submitBidToHyperbridge(
 		order: OrderV2,
 		startTime: number,
-		hyperbridgeService: HyperbridgeService,
+		intentsCoprocessor: IntentsCoprocessor,
 	): Promise<ExecutionResult> {
-		const entryPointAddress = this.configService.getEntryPointAddress()
+		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
 
 		if (!entryPointAddress) {
-			const errorMsg = "Solver selection is active but entryPointAddress is not configured."
+			const errorMsg = `Solver selection is active but entryPointAddress is not configured for chain ${order.destination}.`
 			this.logger.error(errorMsg)
 			return {
 				success: false,
@@ -303,7 +326,7 @@ export class BasicFiller implements FillerStrategy {
 		)
 
 		// Submit the bid to Hyperbridge
-		const bidResult = await hyperbridgeService.submitBid(commitment, userOp)
+		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp)
 
 		const endTime = Date.now()
 		const processingTimeMs = endTime - startTime
@@ -350,6 +373,7 @@ export class BasicFiller implements FillerStrategy {
 
 	/**
 	 * Fills the order directly via contract call (non-solver selection mode)
+	 * Uses cached filler outputs (calculated based on bps) instead of order.output.assets
 	 * @private
 	 */
 	private async fillOrder(order: OrderV2, startTime: number): Promise<ExecutionResult> {
@@ -357,14 +381,20 @@ export class BasicFiller implements FillerStrategy {
 
 		const { dispatchFee, nativeDispatchFee, callGasLimit } = await this.contractService.estimateGasFillPost(order)
 
+		// Use cached filler outputs (calculated based on bps) for competitive filling
+		const cachedFillerOutputs = this.contractService.cacheService.getFillerOutputs(order.id!)
+		if (!cachedFillerOutputs) {
+			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
+		}
+
 		const fillOptions: FillOptionsV2 = {
 			relayerFee: dispatchFee,
 			nativeDispatchFee: nativeDispatchFee,
-			outputs: order.output.assets,
+			outputs: cachedFillerOutputs,
 		}
 
-		// Add all eth values from the outputs
-		const ethValue = order.output.assets.reduce((acc: bigint, output: TokenInfoV2) => {
+		// Add all eth values from the filler's calculated outputs
+		const ethValue = cachedFillerOutputs.reduce((acc: bigint, output: TokenInfoV2) => {
 			if (bytes32ToBytes20(output.token) === ADDRESS_ZERO) {
 				return acc + output.amount
 			}
@@ -376,7 +406,7 @@ export class BasicFiller implements FillerStrategy {
 				abi: INTENT_GATEWAY_V2_ABI,
 				address: this.configService.getIntentGatewayV2Address(order.destination),
 				functionName: "fillOrder",
-				args: [this.contractService.transformOrderForContract(order) as any, fillOptions as any],
+				args: [transformOrderForContract(order) as any, fillOptions as any],
 				account: privateKeyToAccount(this.privateKey),
 				value: nativeDispatchFee !== 0n ? ethValue + nativeDispatchFee : ethValue,
 				chain: walletClient.chain,
@@ -387,7 +417,7 @@ export class BasicFiller implements FillerStrategy {
 					abi: INTENT_GATEWAY_V2_ABI,
 					address: this.configService.getIntentGatewayV2Address(order.destination),
 					functionName: "fillOrder",
-					args: [this.contractService.transformOrderForContract(order) as any, fillOptions as any],
+					args: [transformOrderForContract(order) as any, fillOptions as any],
 					account: privateKeyToAccount(this.privateKey),
 					value: nativeDispatchFee !== 0n ? ethValue + nativeDispatchFee : ethValue,
 					chain: walletClient.chain,
@@ -418,6 +448,4 @@ export class BasicFiller implements FillerStrategy {
 			processingTimeMs,
 		}
 	}
-
-
 }

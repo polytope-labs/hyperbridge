@@ -1,4 +1,4 @@
-import { toHex, maxUint256, formatUnits, encodeAbiParameters } from "viem"
+import { toHex, maxUint256, formatUnits } from "viem"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
@@ -12,6 +12,7 @@ import {
 	EvmChain,
 	getChainId,
 	orderV2Commitment,
+	encodeUserOpScale,
 	type PackedUserOperation,
 	type FillOptionsV2,
 } from "@hyperbridge/sdk"
@@ -32,7 +33,6 @@ Decimal.config({ precision: 28, rounding: 4 })
  */
 export class ContractInteractionService {
 	private configService: FillerConfigService
-	private api: ApiPromise | null = null
 	public cacheService: CacheService
 	private logger = getLogger("contract-service")
 	private sdkHelperCache: Map<string, IntentGatewayV2> = new Map()
@@ -76,6 +76,7 @@ export class ContractInteractionService {
 		})
 
 		const helper = new IntentGatewayV2(sourceEvmChain, destinationEvmChain)
+		await helper.ensureInitialized()
 		this.sdkHelperCache.set(cacheKey, helper)
 
 		this.logger.debug({ source, destination }, "Created and cached new IntentGatewayV2 instance")
@@ -224,28 +225,6 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Transforms the order object to match the contract's expected format
-	 */
-	transformOrderForContract(order: OrderV2) {
-		return {
-			source: toHex(order.source),
-			destination: toHex(order.destination),
-			deadline: order.deadline,
-			nonce: order.nonce,
-			fees: order.fees,
-			session: order.session,
-			predispatch: order.predispatch,
-			output: {
-				beneficiary: order.output.beneficiary,
-				assets: order.output.assets,
-				call: order.output.call,
-			},
-			inputs: order.inputs,
-			user: order.user,
-		}
-	}
-
-	/**
 	 * Estimates gas for filling an order and caches the full estimate for bid preparation
 	 */
 	async estimateGasFillPost(order: OrderV2): Promise<{
@@ -270,6 +249,8 @@ export class ContractInteractionService {
 				solverAccountAddress: this.solverAccountAddress,
 			})
 			// Cache the full estimate including gas parameters for bid preparation
+			this.logger.info({ orderId: order.id }, "Caching gas estimate")
+			this.logger.info({ estimate }, "Estimate")
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
@@ -288,9 +269,8 @@ export class ContractInteractionService {
 				callGasLimit: estimate.callGasLimit,
 			}
 		} catch (error) {
-			this.logger.error({ err: error }, "Error estimating gas")
-			// Return a conservative estimate if we can't calculate precisely
-			return { totalCostInSourceFeeToken: 6000000n, dispatchFee: 0n, nativeDispatchFee: 0n, callGasLimit: 0n }
+			this.logger.error({ err: error }, "Error estimating gas, using generous fallback values")
+			throw new Error(`Failed to estimate gas: ${error instanceof Error ? error.message : "Unknown error"}`)
 		}
 	}
 
@@ -349,10 +329,10 @@ export class ContractInteractionService {
 		const inputs = order.inputs
 
 		// Restrict to only USDC and USDT on both sides; otherwise throw error
-		const destUsdc = this.configService.getUsdcAsset(order.destination)
-		const destUsdt = this.configService.getUsdtAsset(order.destination)
-		const sourceUsdc = this.configService.getUsdcAsset(order.source)
-		const sourceUsdt = this.configService.getUsdtAsset(order.source)
+		const destUsdc = this.configService.getUsdcAsset(order.destination).toLowerCase()
+		const destUsdt = this.configService.getUsdtAsset(order.destination).toLowerCase()
+		const sourceUsdc = this.configService.getUsdcAsset(order.source).toLowerCase()
+		const sourceUsdt = this.configService.getUsdtAsset(order.source).toLowerCase()
 
 		const outputsAreStableOnly = outputs.every((o) => {
 			const addr = bytes32ToBytes20(o.token).toLowerCase()
@@ -433,17 +413,43 @@ export class ContractInteractionService {
 			throw new Error(`No cached gas estimate found for order ${order.id}. Call estimateGasFillPost first.`)
 		}
 
+		// Use cached filler outputs (calculated based on bps) for competitive bidding
+		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
+		if (!cachedFillerOutputs) {
+			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
+		}
+
 		const sdkHelper = await this.getSdkHelper(order.source, order.destination)
 
 		const fillOptions: FillOptionsV2 = {
 			relayerFee: cachedEstimate.dispatchFee,
 			nativeDispatchFee: cachedEstimate.nativeDispatchFee,
-			outputs: order.output.assets,
+			outputs: cachedFillerOutputs,
 		}
 
-		// TODO: Get the solver account nonce (this would typically come from the EntryPoint)
-		// For now, using 0n as placeholder
-		const nonce = 0n
+		const commitment = orderV2Commitment(order)
+
+		// Fetch the current nonce from EntryPoint
+		// ERC-4337 v0.7+ uses 2D nonce: getNonce(address sender, uint192 key)
+		// The key cannot exceed 192 bits (24 bytes)
+		const destClient = this.clientManager.getPublicClient(order.destination)
+		const nonce = await destClient.readContract({
+			address: entryPointAddress,
+			abi: [
+				{
+					inputs: [
+						{ name: "sender", type: "address" },
+						{ name: "key", type: "uint192" },
+					],
+					name: "getNonce",
+					outputs: [{ name: "nonce", type: "uint256" }],
+					stateMutability: "view",
+					type: "function",
+				},
+			],
+			functionName: "getNonce",
+			args: [solverAccountAddress, BigInt(commitment) & ((1n << 192n) - 1n)],
+		})
 
 		const userOp = await sdkHelper.prepareSubmitBid({
 			order,
@@ -459,10 +465,8 @@ export class ContractInteractionService {
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
 		})
 
-		const commitment = orderV2Commitment(order)
-
 		// Encode the UserOp as bytes for submission to Hyperbridge
-		const encodedUserOp = this.encodePackedUserOperation(userOp)
+		const encodedUserOp = encodeUserOpScale(userOp)
 
 		this.logger.info(
 			{
@@ -475,39 +479,5 @@ export class ContractInteractionService {
 		)
 
 		return { commitment, userOp: encodedUserOp }
-	}
-
-	/**
-	 * Encodes a PackedUserOperation into bytes for submission to Hyperbridge
-	 *
-	 * @param userOp - The PackedUserOperation to encode
-	 * @returns Hex-encoded bytes
-	 */
-	private encodePackedUserOperation(userOp: PackedUserOperation): HexString {
-		// Encode the UserOp struct as ABI-encoded bytes
-		return encodeAbiParameters(
-			[
-				{ type: "address", name: "sender" },
-				{ type: "uint256", name: "nonce" },
-				{ type: "bytes", name: "initCode" },
-				{ type: "bytes", name: "callData" },
-				{ type: "bytes32", name: "accountGasLimits" },
-				{ type: "uint256", name: "preVerificationGas" },
-				{ type: "bytes32", name: "gasFees" },
-				{ type: "bytes", name: "paymasterAndData" },
-				{ type: "bytes", name: "signature" },
-			],
-			[
-				userOp.sender,
-				userOp.nonce,
-				userOp.initCode,
-				userOp.callData,
-				userOp.accountGasLimits as HexString,
-				userOp.preVerificationGas,
-				userOp.gasFees as HexString,
-				userOp.paymasterAndData,
-				userOp.signature,
-			],
-		) as HexString
 	}
 }

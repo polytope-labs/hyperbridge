@@ -3,6 +3,7 @@ import type { GraphQLClient } from "graphql-request"
 import type { ContractFunctionArgs, Hex, Log, PublicClient } from "viem"
 import type HandlerV1 from "@/abis/handler"
 import type { IChain } from "@/chain"
+import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
 	typeof HandlerV1.ABI,
@@ -1310,7 +1311,6 @@ export interface SubmitBidOptions {
 export interface EstimateFillOrderV2Params {
 	order: OrderV2
 	solverAccountAddress: HexString
-	fillOptions?: FillOptionsV2
 }
 
 export interface FillOrderEstimateV2 {
@@ -1347,4 +1347,105 @@ export interface BidSubmissionResult {
 	 * Error message if submission failed
 	 */
 	error?: string
+}
+
+/**
+ * Represents a storage entry from pallet-intents Bids storage
+ * StorageDoubleMap<_, Blake2_128Concat, H256, Blake2_128Concat, AccountId, Balance>
+ */
+export interface BidStorageEntry {
+	/** The order commitment hash (H256) */
+	commitment: HexString
+	/** The filler's Substrate account ID (SS58 encoded) */
+	filler: string
+	/** The deposit amount stored on-chain (BalanceOf<T> = u128) */
+	deposit: bigint
+}
+
+/**
+ * Represents a bid placed by a filler for an order
+ * Matches the Rust struct: Bid<AccountId> { filler: AccountId, user_op: Vec<u8> }
+ */
+export interface FillerBid {
+	/** The filler's Substrate account ID (SS58 encoded) */
+	filler: string
+	/** The decoded PackedUserOperation */
+	userOp: PackedUserOperation
+	/** The deposit amount stored on-chain (in plancks) */
+	deposit: bigint
+}
+
+/**
+ * Options for selecting a solver in IntentGatewayV2
+ */
+export interface SelectOptions {
+	/** The order commitment hash (bytes32) */
+	commitment: HexString
+	/** The solver address to select */
+	solver: HexString
+	/** The EIP-712 signature from the session key */
+	signature: HexString
+}
+
+// =============================================================================
+// Intent Order Flow Types
+// =============================================================================
+
+/** Status stages for the intent order execution flow */
+export const IntentOrderStatus = Object.freeze({
+	ORDER_SUBMITTED: "ORDER_SUBMITTED",
+	ORDER_CONFIRMED: "ORDER_CONFIRMED",
+	AWAITING_BIDS: "AWAITING_BIDS",
+	BIDS_RECEIVED: "BIDS_RECEIVED",
+	BID_SELECTED: "BID_SELECTED",
+	USEROP_SUBMITTED: "USEROP_SUBMITTED",
+	FAILED: "FAILED",
+})
+
+export type IntentOrderStatus = typeof IntentOrderStatus
+export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
+
+/** Metadata for intent order status updates */
+export interface IntentOrderStatusMetadata {
+	commitment?: HexString
+	transactionHash?: HexString
+	blockHash?: HexString
+	blockNumber?: number
+	bidCount?: number
+	bids?: FillerBid[]
+	selectedSolver?: HexString
+	userOpHash?: HexString
+	userOp?: PackedUserOperation
+	error?: string
+}
+
+/** Status update yielded by the intent order stream */
+export interface IntentOrderStatusUpdate {
+	status: IntentOrderStatusKey
+	metadata: IntentOrderStatusMetadata
+}
+
+/** Result of selecting a bid and submitting to the bundler */
+export interface SelectBidResult {
+	userOp: PackedUserOperation
+	userOpHash: HexString
+	solverAddress: HexString
+	commitment: HexString
+	txnHash?: HexString
+}
+
+/** Options for executing an intent order */
+export interface ExecuteIntentOrderOptions {
+	order: OrderV2
+	sessionPrivateKey?: HexString
+	minBids?: number
+	bidTimeoutMs?: number
+	pollIntervalMs?: number
+}
+
+/** Type for ERC-7821 Call struct */
+export type ERC7821Call = {
+	target: `0x${string}`
+	value: bigint
+	data: `0x${string}`
 }

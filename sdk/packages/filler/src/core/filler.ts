@@ -1,7 +1,7 @@
 import { getChainId, retryPromise } from "@hyperbridge/sdk"
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
-import { Order, FillerConfig, ChainConfig, DUMMY_PRIVATE_KEY, ADDRESS_ZERO, bytes20ToBytes32 } from "@hyperbridge/sdk"
+import { Order, FillerConfig, ChainConfig } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"

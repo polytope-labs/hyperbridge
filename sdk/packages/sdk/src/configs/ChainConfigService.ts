@@ -58,6 +58,14 @@ export class ChainConfigService {
 		return (this.getConfig(chain)?.assets?.USDC ?? "0x") as HexString
 	}
 
+	getUsdcDecimals(chain: string): number {
+		return this.getConfig(chain)?.tokenDecimals?.USDC!
+	}
+
+	getUsdtDecimals(chain: string): number {
+		return this.getConfig(chain)?.tokenDecimals?.USDT!
+	}
+
 	getChainId(chain: string): number {
 		return this.getConfig(chain)?.chainId ?? 0
 	}
@@ -137,6 +145,10 @@ export class ChainConfigService {
 
 	getIntentGatewayV2Address(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.IntentGatewayV2 ?? "0x") as HexString
+	}
+
+	getEntryPointV08Address(chain: string): HexString {
+		return this.getConfig(chain)?.addresses.EntryPointV08!
 	}
 
 	getHyperbridgeAddress(): string {

@@ -1131,4 +1131,5 @@ const ABI = [
 	},
 ] as const
 
+export { ABI }
 export default { ABI }

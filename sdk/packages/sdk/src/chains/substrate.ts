@@ -92,8 +92,8 @@ export class SubstrateChain implements IChain {
 		}
 	}
 
-	/*
-	 * connect: Connects to the Substrate chain using the provided WebSocket URL.
+	/**
+	 * Connects to the Substrate chain using the provided WebSocket URL.
 	 */
 	public async connect() {
 		const wsProvider = new WsProvider(this.params.wsUrl)
@@ -102,12 +102,8 @@ export class SubstrateChain implements IChain {
 			this.params.hasher === "Keccak"
 				? {
 						spec: {
-							nexus: {
-								hasher: keccakAsU8a,
-							},
-							gargantua: {
-								hasher: keccakAsU8a,
-							},
+							nexus: { hasher: keccakAsU8a },
+							gargantua: { hasher: keccakAsU8a },
 						},
 					}
 				: {}

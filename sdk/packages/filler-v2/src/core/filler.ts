@@ -1,9 +1,16 @@
-import { getChainId, retryPromise, type HexString } from "@hyperbridge/sdk"
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
-import { OrderV2, FillerConfig, ChainConfig } from "@hyperbridge/sdk"
+import {
+	OrderV2,
+	FillerConfig,
+	ChainConfig,
+	getChainId,
+	retryPromise,
+	type HexString,
+	IntentsCoprocessor,
+} from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { ChainClientManager, ContractInteractionService, DelegationService, HyperbridgeService } from "@/services"
+import { ChainClientManager, ContractInteractionService, DelegationService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 
@@ -15,7 +22,7 @@ export class IntentFiller {
 	private chainClientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private delegationService?: DelegationService
-	private hyperbridge: Promise<HyperbridgeService> | undefined = undefined
+	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
 	private privateKey: HexString
@@ -50,8 +57,9 @@ export class IntentFiller {
 
 		const hyperbridgeWsUrl = configService.getHyperbridgeWsUrl()
 		const substrateKey = configService.getSubstratePrivateKey()
+
 		if (hyperbridgeWsUrl && substrateKey) {
-			this.hyperbridge = HyperbridgeService.create(hyperbridgeWsUrl, substrateKey)
+			this.hyperbridge = IntentsCoprocessor.connect(hyperbridgeWsUrl, substrateKey)
 		}
 
 		// Set up event handlers
@@ -185,12 +193,9 @@ export class IntentFiller {
 				}
 
 				// Run confirmation and evaluation in parallel
-				const [, evaluationResult] = await Promise.all([
-					waitForConfirmations(),
-					this.evaluateOrder(order),
-				])
+				const [, evaluationResult] = await Promise.all([waitForConfirmations(), this.evaluateOrder(order)])
 
-				// Execute immediately 
+				// Execute immediately
 				if (evaluationResult) {
 					this.executeOrder(order, evaluationResult.strategy, solverSelectionActive)
 				}
@@ -200,9 +205,7 @@ export class IntentFiller {
 		})
 	}
 
-	private async evaluateOrder(
-		order: OrderV2,
-	): Promise<{ strategy: FillerStrategy; profitability: number } | null> {
+	private async evaluateOrder(order: OrderV2): Promise<{ strategy: FillerStrategy; profitability: number } | null> {
 		// Check if watch-only mode is enabled for the destination chain
 		const destChainId = getChainId(order.destination)
 		const isWatchOnly =
@@ -249,18 +252,18 @@ export class IntentFiller {
 		}
 
 		this.logger.info(
-			{ orderId: order.id, strategy: validStrategies[0].strategy.name, profitability: validStrategies[0].profitability.toString() },
+			{
+				orderId: order.id,
+				strategy: validStrategies[0].strategy.name,
+				profitability: validStrategies[0].profitability.toString(),
+			},
 			"Order evaluation complete - profitable strategy found",
 		)
 
 		return validStrategies[0]
 	}
 
-	private executeOrder(
-		order: OrderV2,
-		bestStrategy: FillerStrategy,
-		solverSelectionActive: boolean,
-	): void {
+	private executeOrder(order: OrderV2, bestStrategy: FillerStrategy, solverSelectionActive: boolean): void {
 		// Get the chain-specific queue
 		const chainQueue = this.chainQueues.get(getChainId(order.destination)!)
 		if (!chainQueue) {

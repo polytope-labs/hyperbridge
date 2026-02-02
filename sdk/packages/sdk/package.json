@@ -50,7 +50,7 @@
 		"test:sequence": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/**",
 		"test:requests": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
 		"test:intent-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
-		"test:intents-v2": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentGatewayV2.test.ts",
+		"test:intents-coprocessor": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/intentsCoprocessor.test.ts",
 		"test:token-gateway": "vitest --watch=false --sequence.concurrent=false ./src/tests/tokenGateway.test.ts",
 		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
 		"test:token-list": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenList.test.ts",

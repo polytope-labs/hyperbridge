@@ -51,6 +51,7 @@
 	"dependencies": {
 		"@hyperbridge/sdk": "workspace:*",
 		"@polkadot/api": "latest",
+		"@polkadot/util": "latest",
 		"@polkadot/util-crypto": "latest",
 		"@safe-global/api-kit": "^3.0.1",
 		"@safe-global/protocol-kit": "^6.0.4",

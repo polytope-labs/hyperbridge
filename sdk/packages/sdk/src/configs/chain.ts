@@ -1,4 +1,16 @@
-import { Chain, bscTestnet, gnosisChiado, sepolia, mainnet, bsc, base, arbitrum, polygon, unichain } from "viem/chains"
+import {
+	Chain,
+	bscTestnet,
+	gnosisChiado,
+	sepolia,
+	mainnet,
+	bsc,
+	base,
+	arbitrum,
+	polygon,
+	unichain,
+	polygonAmoy,
+} from "viem/chains"
 
 export enum Chains {
 	BSC_CHAPEL = "EVM-97",
@@ -11,6 +23,7 @@ export enum Chains {
 	BASE_MAINNET = "EVM-8453",
 	POLYGON_MAINNET = "EVM-137",
 	UNICHAIN_MAINNET = "EVM-130",
+	POLYGON_AMOY = "EVM-80002",
 }
 
 export interface ChainConfigData {
@@ -23,6 +36,10 @@ export interface ChainConfigData {
 		DAI: string
 		USDC: string
 		USDT: string
+	}
+	tokenDecimals?: {
+		USDC: number
+		USDT: number
 	}
 	tokenStorageSlots?: {
 		USDT?: { balanceSlot: number; allowanceSlot: number }
@@ -43,6 +60,8 @@ export interface ChainConfigData {
 		UniswapV4Quoter?: `0x${string}`
 		Calldispatcher?: `0x${string}`
 		Permit2?: `0x${string}`
+		/** ERC-4337 v0.8 EntryPoint address (canonical across all EVM chains) */
+		EntryPointV08?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -64,8 +83,13 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0xc625ec7d30a4b1aaefb1304610cdacd0d606ac92",
 			USDT: "0xc043f483373072f7f27420d6e7d7ad269c018e18",
 		},
+		tokenDecimals: {
+			USDC: 18,
+			USDT: 18,
+		},
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
+			IntentGatewayV2: "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
 			Host: "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
 			UniswapRouter02: "0x9639379819420704457B07A0C33B678D9E0F8Df0",
@@ -74,6 +98,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniversalRouter: "0xcc6d5ece3d4a57245bf5a2f64f3ed9179b81f714",
 			UniswapV3Quoter: "0x0000000000000000000000000000000000000000",
 			UniswapV4Quoter: "0x0000000000000000000000000000000000000000",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
@@ -97,6 +122,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x0000000000000000000000000000000000000000",
 			USDT: "0x0000000000000000000000000000000000000000",
 		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
@@ -104,6 +133,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapRouter02: "0x0000000000000000000000000000000000000000",
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "GNOSIS_CHIADO",
 		defaultRpcUrl: "https://gnosis-chiado-rpc.publicnode.com",
@@ -131,6 +161,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0x0000000000000000000000000000000000000000",
 			DAI: "0x0000000000000000000000000000000000000000",
 		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
 		addresses: {
 			IntentGateway: "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
@@ -139,6 +173,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
 			Calldispatcher: "0xC7f13b6D03A0A7F3239d38897503E90553ABe155",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "SEPOLIA",
 		defaultRpcUrl: "https://1rpc.io/sepolia",
@@ -156,6 +191,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x6b175474e89094c44da98b954eedeac495271d0f",
 			USDC: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 			USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 2, allowanceSlot: 5 },
@@ -175,6 +214,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4Quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "ETH_MAINNET",
 		defaultRpcUrl: "https://eth-mainnet.g.alchemy.com/v2/demo",
@@ -198,6 +238,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
 			USDT: "0x55d398326f99059ff775485246999027b3197955",
 		},
+		tokenDecimals: {
+			USDC: 18,
+			USDT: 18,
+		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 1, allowanceSlot: 2 },
 			USDC: { balanceSlot: 1, allowanceSlot: 2 },
@@ -216,6 +260,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4Quoter: "0xd0737C9762912dD34c3271197E362Aa736Df0926",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "BSC_MAINNET",
 		defaultRpcUrl: "https://binance.llamarpc.com",
@@ -242,6 +287,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
 			USDT: "0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9",
 		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 51, allowanceSlot: 52 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
@@ -260,6 +309,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4Quoter: "0x3972c00f7ed4885e145823eb7c655375d275a1c5",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
 		defaultRpcUrl: "https://arbitrum-one.public.blastapi.io",
@@ -283,6 +333,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
 			USDT: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
 		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
@@ -301,6 +355,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4Quoter: "0x0d5e0f971ed27fbff6c2837bf31316121532048d",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "BASE_MAINNET",
 		defaultRpcUrl: "https://base-mainnet.public.blastapi.io",
@@ -324,6 +379,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
 			USDT: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
 		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
 			USDC: { balanceSlot: 9, allowanceSlot: 10 },
@@ -342,6 +401,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4Quoter: "0xb3d5c3dfc3a7aebff71895a7191796bffc2c81b9",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "POLYGON_MAINNET",
 		defaultRpcUrl: "https://polygon-bor-rpc.publicnode.com",
@@ -365,6 +425,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDC: "0x078d782b760474a361dda0af3839290b0ef57ad6",
 			USDT: "0x9151434b16b9763660705744891fa906f660ecc5",
 		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
@@ -377,6 +441,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV4Quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
 		},
 		rpcEnvKey: "UNICHAIN_MAINNET",
 		defaultRpcUrl: "https://unichain.api.onfinality.io/public",
@@ -388,6 +453,35 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			"0x9151434b16b9763660705744891fa906f660ecc5",
 			"0x0000000000000000000000000000000000000000",
 		],
+	},
+
+	80002: {
+		chainId: 80002,
+		stateMachineId: Chains.POLYGON_AMOY,
+		viemChain: polygonAmoy,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x360ad4f9a9A8EFe9A8DCB5f461c4Cc1047E1Dcf9", //wmatic, change it to wpol
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0x693B854D6965ffEAaE21C74049deA644b56FCaCB", // Is actually fee token
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		tokenDecimals: {
+			USDC: 18,
+			USDT: 18,
+		},
+		addresses: {
+			IntentGatewayV2: "0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
+			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
+			Host: "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
+			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		rpcEnvKey: "POLYGON_AMOY",
+		defaultRpcUrl: "https://rpc-amoy.polygon.technology",
+		consensusStateId: "POLY",
+		coingeckoId: "polygon-pos",
 	},
 }
 

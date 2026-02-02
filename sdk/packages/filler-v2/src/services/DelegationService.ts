@@ -92,15 +92,12 @@ export class DelegationService {
 		try {
 			this.logger.info({ chain, eoa: account.address, solverAccountContract }, "Setting up EIP-7702 delegation")
 
-			// Sign the authorization to delegate to SolverAccount
-			// viem's experimental EIP-7702 support
 			const authorization = await walletClient.signAuthorization({
 				account,
 				contractAddress: solverAccountContract,
+				executor: "self", // Required when EOA signs authorization and also sends the transaction
 			})
 
-			// Send a transaction with the authorization list to establish delegation
-			// The transaction can be to any address (even self) - the important part is the authorizationList
 			const hash = await walletClient.sendTransaction({
 				account,
 				to: account.address,
@@ -169,9 +166,11 @@ export class DelegationService {
 			this.logger.info({ chain, eoa: account.address }, "Revoking EIP-7702 delegation")
 
 			// Delegate to zero address to revoke
+			// IMPORTANT: executor: 'self' required when EOA signs and sends the transaction
 			const authorization = await walletClient.signAuthorization({
 				account,
 				contractAddress: "0x0000000000000000000000000000000000000000",
+				executor: "self",
 			})
 
 			const hash = await walletClient.sendTransaction({

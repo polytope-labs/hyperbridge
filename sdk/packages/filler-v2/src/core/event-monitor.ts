@@ -146,7 +146,6 @@ export class EventMonitor extends EventEmitter {
 			try {
 				const decodedLog = log as unknown as DecodedOrderV2PlacedLog
 				let order: OrderV2 = {
-					id: "",
 					user: decodedLog.args.user,
 					source: hexToString(decodedLog.args.source),
 					destination: hexToString(decodedLog.args.destination),

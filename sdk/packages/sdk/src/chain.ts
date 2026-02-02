@@ -15,6 +15,7 @@ import { ExpectedError } from "./utils/exceptions"
 
 export * from "@/chains/evm"
 export * from "@/chains/substrate"
+export * from "@/chains/intentsCoprocessor"
 
 /**
  * Type representing an ISMP message.

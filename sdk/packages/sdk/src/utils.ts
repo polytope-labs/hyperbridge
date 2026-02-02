@@ -576,6 +576,7 @@ export function mapToValidCoingeckoId(identifier: string): string {
 			return "dai"
 		case "pol":
 			return "polygon-ecosystem-token"
+
 		default:
 			return identifier
 	}

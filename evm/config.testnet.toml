@@ -6,6 +6,7 @@ HOST = "0x2EdB74C269948b60ec1000040E104cef0eABaae8"
 
 [11155111.bool]
 is_mainnet = false
+7702 = true
 
 [421614]
 endpoint_url = "${ARBITRUM_SEPOLIA_RPC_URL}"
@@ -15,6 +16,7 @@ HOST = "0x3435bD7e5895356535459D6087D1eB982DAd90e7"
 
 [421614.bool]
 is_mainnet = false
+7702 = true
 
 [11155420]
 endpoint_url = "${OPTIMISM_SEPOLIA_RPC_URL}"
@@ -24,6 +26,7 @@ HOST = "0x6d51b678836d8060d980605d2999eF211809f3C2"
 
 [11155420.bool]
 is_mainnet = false
+7702 = true
 
 [84532]
 endpoint_url = "${BASE_SEPOLIA_RPC_URL}"
@@ -33,6 +36,7 @@ HOST = "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a"
 
 [84532.bool]
 is_mainnet = false
+7702 = true
 
 [97]
 endpoint_url = "${BSC_TESTNET_RPC_URL}"
@@ -42,6 +46,7 @@ HOST = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7"
 
 [97.bool]
 is_mainnet = false
+7702 = true
 
 [10200]
 endpoint_url = "${GNOSIS_CHIADO_RPC_URL}"
@@ -51,6 +56,7 @@ HOST = "0x58A41B89F4871725E5D898d98eF4BF917601c5eB"
 
 [10200.bool]
 is_mainnet = false
+7702 = true
 
 [80002]
 endpoint_url = "${POLYGON_AMOY_RPC_URL}"
@@ -60,6 +66,7 @@ HOST = "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE"
 
 [80002.bool]
 is_mainnet = false
+7702 = true
 
 [1328]
 endpoint_url = "${SEI_TESTNET_RPC_URL}"
@@ -76,6 +83,7 @@ FEE_TOKEN = "0x1452D37b4B0d28dd2fa77b2F0bC784274db7b3F7"
 
 [1328.bool]
 is_mainnet = false
+7702 = false
 
 [420420417]
 endpoint_url = "${POLKADOT_TESTNET_URL}"
@@ -92,3 +100,4 @@ INTENT_GATEWAY = "0x606BA811AA6cB424ce2108E8977C5284686F0D1f"
 
 [420420417.bool]
 is_mainnet = false
+7702 = false

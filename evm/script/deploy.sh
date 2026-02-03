@@ -271,35 +271,12 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     # Build forge command for this chain (using single-chain run())
     FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 200"
 
-    # Extract verifier URL from foundry.toml for this chain (used by both full and verify modes)
-    VERIFIER_URL=$(grep -A3 "^\[$chain\]" foundry.toml 2>/dev/null | grep "url =" | sed 's/.*url = "\(.*\)".*/\1/' || echo "")
-
-    # Fallback: try etherscan section if not found in rpc_endpoints
-    if [ -z "$VERIFIER_URL" ]; then
-        VERIFIER_URL=$(grep -A1 "^$chain = {" foundry.toml 2>/dev/null | grep "url" | sed 's/.*url = "\(.*\)".*/\1/' | sed 's/",.*//')
-    fi
-
     # Add flags based on mode
     if [ "$MODE" = "full" ]; then
         FORGE_CMD="$FORGE_CMD --broadcast --verify --sender $ADMIN"
 
-        # Add explicit verifier URL to override Forge's hardcoded explorers
-        if [ -n "$VERIFIER_URL" ]; then
-            echo -e "${GREEN}Using verifier URL: ${YELLOW}${VERIFIER_URL}${NC}"
-            FORGE_CMD="$FORGE_CMD --verifier-url \"$VERIFIER_URL\""
-        else
-            echo -e "${YELLOW}Warning: No verifier URL found for ${chain}, using Forge default${NC}"
-        fi
     elif [ "$MODE" = "verify" ]; then
         FORGE_CMD="$FORGE_CMD --verify --resume --broadcast --private-key $PRIVATE_KEY"
-
-        # Add explicit verifier URL to override Forge's hardcoded explorers
-        if [ -n "$VERIFIER_URL" ]; then
-            echo -e "${GREEN}Using verifier URL: ${YELLOW}${VERIFIER_URL}${NC}"
-            FORGE_CMD="$FORGE_CMD --verifier-url \"$VERIFIER_URL\""
-        else
-            echo -e "${YELLOW}Warning: No verifier URL found for ${chain}, using Forge default${NC}"
-        fi
     fi
 
     # Execute the command

@@ -22951,7 +22951,8 @@ dependencies = [
 [[package]]
 name = "sc-simnode"
 version = "2512.0.0"
-source = "git+https://github.com/polytope-labs/sc-simnode?rev=6d47abc6cc3daeaa7911d86e11ce05deb194de92#6d47abc6cc3daeaa7911d86e11ce05deb194de92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62b27420e526e467d7c13790a8a860e6b1f96e4aaafd3433745d4e14baa7995d"
 dependencies = [
  "async-trait",
  "clap",
@@ -24153,7 +24154,8 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 [[package]]
 name = "simnode-runtime-api"
 version = "2512.0.0"
-source = "git+https://github.com/polytope-labs/sc-simnode?rev=6d47abc6cc3daeaa7911d86e11ce05deb194de92#6d47abc6cc3daeaa7911d86e11ce05deb194de92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e19acf274ea8d611447c273b0e71045ddb65780c2c5ce8c3c1626cf2c5e5d88"
 dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",

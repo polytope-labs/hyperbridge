@@ -171,8 +171,8 @@ sp-crypto-hashing = "0.1.0"
 xcm-simulator-example = "26.0.0"
 
 # supporting polkadot-sdk crates
-sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "6d47abc6cc3daeaa7911d86e11ce05deb194de92" }
-simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode", rev = "6d47abc6cc3daeaa7911d86e11ce05deb194de92", default-features = false }
+sc-simnode = { version = "2512.0.0" }
+simnode-runtime-api = { version = "2512.0.0", default-features = false }
 
 # crates.io
 serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }

@@ -22951,7 +22951,7 @@ dependencies = [
 [[package]]
 name = "sc-simnode"
 version = "2512.0.0"
-source = "git+https://github.com/polytope-labs/sc-simnode?rev=97d4c525ca5bc6b5aa5f307075c35cdce2956479#97d4c525ca5bc6b5aa5f307075c35cdce2956479"
+source = "git+https://github.com/polytope-labs/sc-simnode?rev=6d47abc6cc3daeaa7911d86e11ce05deb194de92#6d47abc6cc3daeaa7911d86e11ce05deb194de92"
 dependencies = [
  "async-trait",
  "clap",
@@ -24153,7 +24153,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 [[package]]
 name = "simnode-runtime-api"
 version = "2512.0.0"
-source = "git+https://github.com/polytope-labs/sc-simnode?rev=97d4c525ca5bc6b5aa5f307075c35cdce2956479#97d4c525ca5bc6b5aa5f307075c35cdce2956479"
+source = "git+https://github.com/polytope-labs/sc-simnode?rev=6d47abc6cc3daeaa7911d86e11ce05deb194de92#6d47abc6cc3daeaa7911d86e11ce05deb194de92"
 dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",

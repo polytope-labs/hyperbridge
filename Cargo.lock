@@ -18653,6 +18653,7 @@ dependencies = [
  "polkadot-sdk-frame",
  "polkadot-service",
  "sc-basic-authorship",
+ "sc-block-builder",
  "sc-chain-spec",
  "sc-cli",
  "sc-client-api",
@@ -22949,8 +22950,8 @@ dependencies = [
 
 [[package]]
 name = "sc-simnode"
-version = "2506.0.0"
-source = "git+https://github.com/polytope-labs/sc-simnode?rev=c6acbf564e1eeba44158244d94d02619846fd52e#c6acbf564e1eeba44158244d94d02619846fd52e"
+version = "2512.0.0"
+source = "git+https://github.com/polytope-labs/sc-simnode?rev=97d4c525ca5bc6b5aa5f307075c35cdce2956479#97d4c525ca5bc6b5aa5f307075c35cdce2956479"
 dependencies = [
  "async-trait",
  "clap",
@@ -24151,8 +24152,8 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simnode-runtime-api"
-version = "2506.0.0"
-source = "git+https://github.com/polytope-labs/sc-simnode?rev=c6acbf564e1eeba44158244d94d02619846fd52e#c6acbf564e1eeba44158244d94d02619846fd52e"
+version = "2512.0.0"
+source = "git+https://github.com/polytope-labs/sc-simnode?rev=97d4c525ca5bc6b5aa5f307075c35cdce2956479#97d4c525ca5bc6b5aa5f307075c35cdce2956479"
 dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",

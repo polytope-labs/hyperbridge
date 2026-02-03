@@ -315,7 +315,7 @@ describe.sequential("Get and Post Requests", () => {
 
 			const latestHeight = await hyperbridgeInstance.latestStateMachineHeight({
 				stateId: { Evm: 11155111 },
-				consensusStateId: toHex("ETH0"),
+				consensusStateId: "ETH0",
 			})
 
 			const hash = await bscPing.write.dispatch([
@@ -426,7 +426,7 @@ describe.sequential("Get and Post Requests", () => {
 
 			const latestHeight = await hyperbridgeInstance.latestStateMachineHeight({
 				stateId: { Evm: 11155111 },
-				consensusStateId: toHex("ETH0"),
+				consensusStateId: "ETH0",
 			})
 
 			const hash = await bscPing.write.dispatch([

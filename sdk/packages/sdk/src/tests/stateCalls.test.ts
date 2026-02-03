@@ -1,7 +1,7 @@
 import "log-timestamp"
 
 import type { HexString, IEvmConfig, ISubstrateConfig } from "@/types"
-import { http, createPublicClient, getContract, toHex } from "viem"
+import { http, createPublicClient, getContract } from "viem"
 
 import { bscTestnet } from "viem/chains"
 import PING_MODULE from "@/abis/pingModule"
@@ -32,7 +32,7 @@ describe.sequential("State Queries", () => {
 	it("should read latest state machine height on EVM", async () => {
 		try {
 			const chain = await getChain(bscConfig)
-			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: toHex("PASO") }
+			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: "PASO" }
 			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
 			expect(latestHeight).toBeGreaterThan(0)
 
@@ -46,7 +46,7 @@ describe.sequential("State Queries", () => {
 	it("should read latest state machine height on Substrate", async () => {
 		try {
 			const chain = await getChain(hyperbridgeConfig)
-			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: toHex("BSC0") }
+			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
 			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
 			expect(latestHeight).toBeGreaterThan(0)
 			console.log(latestHeight)
@@ -59,7 +59,7 @@ describe.sequential("State Queries", () => {
 	it("should read challenge period on Substrate", async () => {
 		try {
 			const chain = await getChain(hyperbridgeConfig)
-			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: toHex("BSC0") }
+			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
 			const challengePeriod = await chain.challengePeriod(stateMachineId)
 			expect(challengePeriod).toBe(BigInt(0))
 		} catch (err) {
@@ -71,7 +71,7 @@ describe.sequential("State Queries", () => {
 	it("should read challenge period on EVM", async () => {
 		try {
 			const chain = await getChain(bscConfig)
-			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: toHex("PASO") }
+			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: "PASO" }
 			const challengePeriod = await chain.challengePeriod(stateMachineId)
 			expect(challengePeriod).toBe(BigInt(0))
 		} catch (err) {
@@ -83,7 +83,7 @@ describe.sequential("State Queries", () => {
 	it("should read state machine update time on EVM", async () => {
 		try {
 			const chain = await getChain(bscConfig)
-			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: toHex("PASO") }
+			const stateMachineId = { stateId: { Kusama: 4009 }, consensusStateId: "PASO" }
 			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
 			const stateMachineheight = { id: stateMachineId, height: latestHeight }
 			const updateTime = await chain.stateMachineUpdateTime(stateMachineheight)
@@ -97,7 +97,7 @@ describe.sequential("State Queries", () => {
 	it("should read state machine update time on substrate", async () => {
 		try {
 			const chain = await getChain(hyperbridgeConfig)
-			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: toHex("BSC0") }
+			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }
 			const latestHeight = await chain.latestStateMachineHeight(stateMachineId)
 			const stateMachineheight = { id: stateMachineId, height: latestHeight }
 			const updateTime = await chain.stateMachineUpdateTime(stateMachineheight)

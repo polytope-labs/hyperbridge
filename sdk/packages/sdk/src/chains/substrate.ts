@@ -314,13 +314,9 @@ export class SubstrateChain implements IChain {
 	async latestStateMachineHeight(stateMachineId: StateMachineIdParams): Promise<bigint> {
 		const state_id = convertStateIdToStateMachineId(stateMachineId.stateId)
 
-		const consensusStateIdToBytes = hexToBytes(stateMachineId.consensusStateId)
-		const decoder = new TextDecoder("utf-8")
-		const decodedConsensusStateId = decoder.decode(consensusStateIdToBytes)
-
 		const payload = {
 			state_id,
-			consensus_state_id: decodedConsensusStateId,
+			consensus_state_id: stateMachineId.consensusStateId,
 		}
 
 		const latestHeight: number = await this.rpcClient.call("ismp_queryStateMachineLatestHeight", [payload])
@@ -335,13 +331,9 @@ export class SubstrateChain implements IChain {
 	async stateMachineUpdateTime(stateMachineHeight: StateMachineHeight): Promise<bigint> {
 		const state_id = convertStateIdToStateMachineId(stateMachineHeight.id.stateId)
 
-		const consensusStateIdToBytes = hexToBytes(stateMachineHeight.id.consensusStateId)
-		const decoder = new TextDecoder("utf-8")
-		const decodedConsensusStateId = decoder.decode(consensusStateIdToBytes)
-
 		const stateMachineId = {
 			state_id,
-			consensus_state_id: decodedConsensusStateId,
+			consensus_state_id: stateMachineHeight.id.consensusStateId,
 		}
 
 		const payload = {
@@ -361,13 +353,9 @@ export class SubstrateChain implements IChain {
 	async challengePeriod(stateMachineId: StateMachineIdParams): Promise<bigint> {
 		const state_id = convertStateIdToStateMachineId(stateMachineId.stateId)
 
-		const consensusStateIdToBytes = hexToBytes(stateMachineId.consensusStateId)
-		const decoder = new TextDecoder("utf-8")
-		const decodedConsensusStateId = decoder.decode(consensusStateIdToBytes)
-
 		const payload = {
 			state_id,
-			consensus_state_id: decodedConsensusStateId,
+			consensus_state_id: stateMachineId.consensusStateId,
 		}
 
 		const challengePeriod: number = await this.rpcClient.call("ismp_queryChallengePeriod", [payload])

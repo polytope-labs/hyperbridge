@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.6.1
+
+### Patch Changes
+
+- Improve substrate method
+
 ## 1.5.1
 
 ### Patch Changes

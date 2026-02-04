@@ -1045,6 +1045,8 @@ mod runtime {
 	pub type MessagingFees = pallet_messaging_fees;
 	#[runtime::pallet_index(93)]
 	pub type CollatorManager = pallet_collator_manager;
+	#[runtime::pallet_index(94)]
+	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1081,6 +1083,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
+		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_referenda, Referenda]
 		[pallet_whitelist, Whitelist]

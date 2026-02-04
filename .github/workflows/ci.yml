@@ -10,14 +10,22 @@ on:
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
 
-    pull_request:
-        branches:
-            - main
+    pull_request_target:
+        types: [opened, synchronize]
         paths:
             - "**/*.rs"
             - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
+
+    # pull_request:
+    #     branches:
+    #         - main
+    #     paths:
+    #         - "**/*.rs"
+    #         - "**/*.toml"
+    #         - "**/Cargo.lock"
+    #         - ".github/workflows/ci.yml"
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}

@@ -59,6 +59,7 @@ substrate-state-machine = { workspace = true }
 
 simnode-runtime-api = { workspace = true }
 ismp-tendermint = { workspace = true }
+pallet-intents-coprocessor = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -167,7 +168,8 @@ std = [
     "pallet-collator-manager/std",
     "ismp-tendermint/std",
     "evm-state-machine/std",
-    "substrate-state-machine/std"
+    "substrate-state-machine/std",
+    "pallet-intents-coprocessor/std",
 ]
 runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
@@ -175,6 +177,7 @@ runtime-benchmarks = [
     "polkadot-sdk/runtime-benchmarks",
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
+    "pallet-intents-coprocessor/runtime-benchmarks",
     "pallet-messaging-fees/runtime-benchmarks",
 ]
 try-runtime = [

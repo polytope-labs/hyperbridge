@@ -73,7 +73,7 @@ members = [
 
     # evm stuff
     # "evm/integration-tests",
-    "evm/abi",
+    # "evm/abi",
 
     # hyperclient
     # "modules/hyperclient",
@@ -82,7 +82,7 @@ members = [
     "parachain/simtests",
 
     # integration tests
-    "parachain/integration-tests",
+    # "parachain/integration-tests",
 
     # Utilities
     "modules/utils/subxt",
@@ -90,32 +90,32 @@ members = [
     "modules/utils/crypto",
 
     # tesseract
-    "tesseract/messaging/primitives",
-    "tesseract/messaging/messaging",
-    "tesseract/messaging/substrate",
-    "tesseract/messaging/relayer",
-    "tesseract/messaging/evm",
-    "tesseract/messaging/evm-tendermint",
-    "tesseract/messaging/substrate-evm",
-    "tesseract/messaging/fees",
-    "tesseract/messaging/fees/prisma-cli",
-    "tesseract/messaging/telemetry",
-    "tesseract/messaging/config",
-    "tesseract/messaging/fisherman",
+    # "tesseract/messaging/primitives",
+    # "tesseract/messaging/messaging",
+    # "tesseract/messaging/substrate",
+    # "tesseract/messaging/relayer",
+    # "tesseract/messaging/evm",
+    # "tesseract/messaging/evm-tendermint",
+    # "tesseract/messaging/substrate-evm",
+    # "tesseract/messaging/fees",
+    # "tesseract/messaging/fees/prisma-cli",
+    # "tesseract/messaging/telemetry",
+    # "tesseract/messaging/config",
+    # "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
-    "tesseract/consensus/arb-host",
-    "tesseract/consensus/op-host",
-    "tesseract/consensus/evm-host",
-    "tesseract/consensus/bsc",
-    "tesseract/consensus/sync-committee",
-    "tesseract/consensus/grandpa",
-    "tesseract/consensus/integration-tests",
-    "tesseract/consensus/beefy",
-    "tesseract/consensus/beefy/zk",
-    "tesseract/consensus/relayer",
-    "tesseract/consensus/polygon",
-    "tesseract/consensus/tendermint",
+    # "tesseract/consensus/arb-host",
+    # "tesseract/consensus/op-host",
+    # "tesseract/consensus/evm-host",
+    # "tesseract/consensus/bsc",
+    # "tesseract/consensus/sync-committee",
+    # "tesseract/consensus/grandpa",
+    # "tesseract/consensus/integration-tests",
+    # "tesseract/consensus/beefy",
+    # "tesseract/consensus/beefy/zk",
+    # "tesseract/consensus/relayer",
+    # "tesseract/consensus/polygon",
+    # "tesseract/consensus/tendermint",
 
 
     # Airdrop
@@ -152,27 +152,27 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
-polkadot-sdk = { version = "2512.1.0", default-features = false }
+polkadot-sdk = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
 
 rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }
 
 # crates that can't be used in polkadot-sdk
-sp-weights = { version = "33.2.0", default-features = false }
-sp-core = { version = "39.0.0", default-features = false }
-frame-benchmarking = { version = "45.0.1", default-features = false }
-sp-io = { version = "44.0.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.25.0", default-features = false }
-substrate-wasm-builder = "31.1.0"
-sc-service = "0.56.0"
-sc-tracing = "44.0.0"
-sp-api-proc-macro = "26.0.0"
-sp-consensus-beefy = { version = "28.0.0" }
-sp-crypto-hashing = "0.1.0"
-xcm-simulator-example = "26.0.0"
+sp-weights = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-core = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+frame-benchmarking = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+sp-io = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+cumulus-pallet-parachain-system = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512", default-features = false }
+substrate-wasm-builder = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sc-service = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512"  }
+sc-tracing = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-api-proc-macro = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-consensus-beefy = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+sp-crypto-hashing = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
+xcm-simulator-example = { git ="https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
 
 # supporting polkadot-sdk crates
-sc-simnode = { version = "2512.0.0" }
-simnode-runtime-api = { version = "2512.0.0", default-features = false }
+sc-simnode = { git = "https://github.com/polytope-labs/sc-simnode", rev = "0005b5251c05678d8dcc34e96abbbc56f34d15f5" }
+simnode-runtime-api = { git = "https://github.com/polytope-labs/sc-simnode", rev = "0005b5251c05678d8dcc34e96abbbc56f34d15f5", default-features = false }
 
 # crates.io
 serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }

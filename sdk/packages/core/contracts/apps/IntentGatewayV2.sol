@@ -129,9 +129,9 @@ struct ParamsUpdate {
 }
 
 /**
- * @dev Struct representing the body of a request.
+ * @dev Struct representing the body of a withdrawal request.
  */
-struct RequestBody {
+struct WithdrawalRequest {
     /// @dev Represents the commitment of an order. This is typically a hash that uniquely identifies the order.
     bytes32 commitment;
     /// @dev Stores the identifier for the beneficiary.

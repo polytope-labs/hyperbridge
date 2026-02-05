@@ -31,6 +31,17 @@ entryPointAddress = ""
 # This enables the filler to participate in solver selection mode
 solverAccountContractAddress = ""
 
+# ERC-4337 bundler URL for UserOperation gas estimation
+bundlerUrl = ""
+
+# Gas fee bump configuration (optional)
+# These values control how much to bump gas fees for UserOperation submission
+# Both are percentages added ON TOP of the base gasPrice
+# If not provided, defaults will be used (8% for priority fee, 10% for max fee)
+# [filler.gasFeeBump]
+# maxPriorityFeePerGasBumpPercent = 8   # Percentage added to gasPrice for priority fee (default: 8)
+# maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
+
 # Watch-only mode configuration
 # Option 1: Global watch-only (all chains)
 # watchOnly = true
@@ -55,11 +66,16 @@ recheckDelayMs = 30000  # 30 seconds
 # All strategies use the filler.privateKey from above
 [[strategies]]
 type = "basic"
-# Filler's basis points (bps) for profit margin
-# This is the minimum profit margin the filler expects from each order
-# E.g., 50 = 0.5%, meaning if user sends 100 USDC, filler expects to keep at least 0.5 USDC
-# The filler will only fill orders where the output amount >= input amount * (1 - fillerBps/10000)
-fillerBps = 50
+# Filler BPS (basis points) curve based on order value
+# Uses polynomial interpolation to create a smooth curve through all points
+# - Small orders: Higher BPS to make filling worthwhile  
+# - Large orders: Lower BPS to be more competitive
+bpsCurve = [
+    { amount = "100", value = 100 },      # $100 orders: 1% margin
+    { amount = "1000", value = 50 },      # $1000 orders: 0.5% margin
+    { amount = "10000", value = 25 },     # $10000 orders: 0.25% margin
+    { amount = "100000", value = 10 },    # $100000 orders: 0.1% margin
+]
 
 
 # Chain configuration - RPC URLs are required
@@ -90,57 +106,65 @@ rpcUrl = ""  # Required: your RPC URL
 
 
 # Confirmation policies per chain
+# Uses polynomial interpolation to create a smooth curve through all points
 # The chain ID should match the numeric ID from the chain configuration
+
 [confirmationPolicies."97"]  # BSC Testnet
-minAmount = "1"      # 1 USD 
-maxAmount = "1000"   # 1000 USD 
-minConfirmations = 1
-maxConfirmations = 5
+points = [
+    { amount = "1", value = 1 },
+    { amount = "1000", value = 5 },
+]
 
 [confirmationPolicies."10200"]  # Gnosis Chiado
-minAmount = "1"      # 1 USD 
-maxAmount = "1000"   # 1000 USD 
-minConfirmations = 1
-maxConfirmations = 5
+points = [
+    { amount = "1", value = 1 },
+    { amount = "1000", value = 5 },
+]
 
 [confirmationPolicies."1"]  # Ethereum Mainnet
-minAmount = "5"      # 5 USD 
-maxAmount = "5000"   # 5000 USD 
-minConfirmations = 3
-maxConfirmations = 12
+points = [
+    { amount = "5", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 12 },
+]
 
 [confirmationPolicies."56"]  # BSC Mainnet
-minAmount = "1"      # 1 USD 
-maxAmount = "5000"   # 5000 USD 
-minConfirmations = 3
-maxConfirmations = 15
+points = [
+    { amount = "1", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 15 },
+]
 
 [confirmationPolicies."11155111"]  # Sepolia
-minAmount = "1"      # 1 USD 
-maxAmount = "1000"   # 1000 USD 
-minConfirmations = 1
-maxConfirmations = 5
+points = [
+    { amount = "1", value = 1 },
+    { amount = "1000", value = 5 },
+]
 
 [confirmationPolicies."42161"]  # Arbitrum Mainnet
-minAmount = "2"      # 2 USD 
-maxAmount = "8000"   # 8000 USD 
-minConfirmations = 2
-maxConfirmations = 10
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
 
 [confirmationPolicies."8453"]  # Base Mainnet
-minAmount = "2"      # 2 USD 
-maxAmount = "8000"   # 8000 USD 
-minConfirmations = 2
-maxConfirmations = 10
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
 
 [confirmationPolicies."137"]  # Polygon Mainnet
-minAmount = "2"      # 2 USD 
-maxAmount = "8000"   # 8000 USD 
-minConfirmations = 2
-maxConfirmations = 10
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
 
 [confirmationPolicies."130"]  # Unichain Mainnet
-minAmount = "2"      # 2 USD 
-maxAmount = "8000"   # 8000 USD 
-minConfirmations = 2
-maxConfirmations = 10
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]

@@ -15,13 +15,16 @@ import {
 	type OrderV2,
 	type TokenInfoV2,
 	bytes20ToBytes32,
-	orderV2Commitment,
 	EvmChain,
 	IntentGatewayV2,
 	IntentsCoprocessor,
+	getStorageSlot,
+	calculateBalanceMappingLocation,
+	EvmLanguage,
+	MOCK_ADDRESS,
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
-import { ConfirmationPolicy } from "@/config/confirmation-policy"
+import { ConfirmationPolicy, FillerBpsPolicy } from "@/config/interpolated-curve"
 import {
 	getContract,
 	maxUint256,
@@ -64,10 +67,18 @@ describe.sequential("Filler V2 - Solver Selection ON", () => {
 			privateKey,
 			chainConfigService,
 			sharedCacheService,
+			process.env.BUNDLER_URL,
 		)
 
+		const bpsPolicy = new FillerBpsPolicy({
+			points: [
+				{ amount: "1", value: 50 },
+				{ amount: "10000", value: 50 },
+			],
+		})
+
 		const strategies = [
-			new BasicFiller(privateKey, chainConfigService, chainClientManager, localContractService, 50), // 50 bps = 0.5%
+			new BasicFiller(privateKey, chainConfigService, chainClientManager, localContractService, bpsPolicy),
 		]
 
 		const intentFiller = new IntentFiller(
@@ -119,8 +130,7 @@ describe.sequential("Filler V2 - Solver Selection ON", () => {
 		const hyperbridgeWsUrl = process.env.HYPERBRIDGE_GARGANTUA!
 		const substrateKey = process.env.SECRET_PHRASE!
 
-		// Note: The bundler url is like 'https://api.pimlico.io/v2/80002/rpc?apikey=YOUR_KEY'
-		// Which includes the chainID, we need to replace the chainID with the actual chainID in our final submission.
+		// The bundler URL for ERC-4337 operations
 		const bundlerUrl = process.env.BUNDLER_URL
 
 		const intentsCoprocessor = await IntentsCoprocessor.connect(hyperbridgeWsUrl, substrateKey)
@@ -256,24 +266,25 @@ async function setUp() {
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE, // Substrate mnemonic
 		solverAccountContractAddress: "0xCDFcFeD7A14154846808FddC8Ba971A2f8a830a3",
+		bundlerUrl: process.env.BUNDLER_URL,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
 	const chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
 
-	// Create confirmation policy
+	// Create confirmation policy with coordinate points
 	const confirmationPolicyConfig = {
 		"97": {
-			minAmount: "1",
-			maxAmount: "1000",
-			minConfirmations: 1,
-			maxConfirmations: 5,
+			points: [
+				{ amount: "1", value: 1 },
+				{ amount: "1000", value: 5 },
+			],
 		},
 		"80002": {
-			minAmount: "1",
-			maxAmount: "1000",
-			minConfirmations: 1,
-			maxConfirmations: 5,
+			points: [
+				{ amount: "1", value: 1 },
+				{ amount: "1000", value: 5 },
+			],
 		},
 	}
 
@@ -300,6 +311,7 @@ async function setUp() {
 		privateKey,
 		chainConfigService,
 		sharedCacheService,
+		chainConfigService.getBundlerUrl(),
 	)
 
 	// Get clients

@@ -37,16 +37,19 @@ export class ContractInteractionService {
 	private logger = getLogger("contract-service")
 	private sdkHelperCache: Map<string, IntentGatewayV2> = new Map()
 	private solverAccountAddress: HexString
+	private bundlerUrl?: string
 
 	constructor(
 		private clientManager: ChainClientManager,
 		private privateKey: HexString,
 		configService: FillerConfigService,
 		sharedCacheService?: CacheService,
+		bundlerUrl?: string,
 	) {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
 		this.solverAccountAddress = privateKeyToAddress(this.privateKey)
+		this.bundlerUrl = bundlerUrl
 		this.initCache()
 	}
 
@@ -75,11 +78,15 @@ export class ContractInteractionService {
 			rpcUrl: destinationClient.transport.url,
 		})
 
-		const helper = new IntentGatewayV2(sourceEvmChain, destinationEvmChain)
+		// Pass bundlerUrl to IntentGatewayV2 for accurate gas estimation via eth_estimateUserOperationGas
+		const helper = new IntentGatewayV2(sourceEvmChain, destinationEvmChain, undefined, this.bundlerUrl)
 		await helper.ensureInitialized()
 		this.sdkHelperCache.set(cacheKey, helper)
 
-		this.logger.debug({ source, destination }, "Created and cached new IntentGatewayV2 instance")
+		this.logger.debug(
+			{ source, destination, bundlerUrl: this.bundlerUrl ? "[configured]" : undefined },
+			"Created and cached new IntentGatewayV2 instance",
+		)
 
 		return helper
 	}
@@ -244,11 +251,14 @@ export class ContractInteractionService {
 				}
 			}
 			const sdkHelper = await this.getSdkHelper(order.source, order.destination)
+			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
 			const estimate = await sdkHelper.estimateFillOrderV2({
 				order,
-				solverAccountAddress: this.solverAccountAddress,
+				solverPrivateKey: this.privateKey,
+				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
+				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
 			})
-			// Cache the full estimate including gas parameters for bid preparation
+
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
 			this.logger.info({ estimate }, "Estimate")
 			this.cacheService.setGasEstimate(
@@ -261,6 +271,7 @@ export class ContractInteractionService {
 				estimate.preVerificationGas,
 				estimate.maxFeePerGas,
 				estimate.maxPriorityFeePerGas,
+				estimate.nonce,
 			)
 			return {
 				totalCostInSourceFeeToken: estimate.totalGasInFeeToken,
@@ -429,34 +440,12 @@ export class ContractInteractionService {
 
 		const commitment = orderV2Commitment(order)
 
-		// Fetch the current nonce from EntryPoint
-		// ERC-4337 v0.7+ uses 2D nonce: getNonce(address sender, uint192 key)
-		// The key cannot exceed 192 bits (24 bytes)
-		const destClient = this.clientManager.getPublicClient(order.destination)
-		const nonce = await destClient.readContract({
-			address: entryPointAddress,
-			abi: [
-				{
-					inputs: [
-						{ name: "sender", type: "address" },
-						{ name: "key", type: "uint192" },
-					],
-					name: "getNonce",
-					outputs: [{ name: "nonce", type: "uint256" }],
-					stateMutability: "view",
-					type: "function",
-				},
-			],
-			functionName: "getNonce",
-			args: [solverAccountAddress, BigInt(commitment) & ((1n << 192n) - 1n)],
-		})
-
 		const userOp = await sdkHelper.prepareSubmitBid({
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
 			solverPrivateKey: this.privateKey,
-			nonce,
+			nonce: cachedEstimate.nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,
 			verificationGasLimit: cachedEstimate.verificationGasLimit,

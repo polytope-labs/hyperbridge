@@ -25,6 +25,9 @@ export {
 	retryPromise,
 	orderV2Commitment,
 	getContractCallInput,
+	calculateBalanceMappingLocation,
+	MOCK_ADDRESS,
+	EvmLanguage,
 } from "@/utils"
 export * from "@/protocols/intents"
 export * from "@/protocols/intentsV2"

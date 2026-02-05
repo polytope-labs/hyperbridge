@@ -14,10 +14,9 @@ import {
 	parseUnits,
 	parseAbiParameters,
 	encodePacked,
-	WalletClient,
 	parseEventLogs,
 } from "viem"
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
+import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import EVM_HOST from "@/abis/evmHost"
 import { createSessionKeyStorage, createCancellationStorage, STORAGE_KEYS, type SessionKeyData } from "@/storage"
@@ -38,7 +37,6 @@ import {
 	type SelectBidResult,
 	type ExecuteIntentOrderOptions,
 	type DecodedOrderV2PlacedLog,
-	type TokenInfoV2,
 	RequestStatus,
 	type RequestStatusWithMetadata,
 } from "@/types"
@@ -59,6 +57,8 @@ import {
 	getRequestCommitment,
 	parseStateMachineId,
 	waitForChallengePeriod,
+	calculateBalanceMappingLocation,
+	EvmLanguage,
 } from "@/utils"
 import { orderV2Commitment } from "@/utils"
 import { Swap } from "@/utils/swap"
@@ -87,9 +87,18 @@ export const BundlerMethod = {
 	ETH_SEND_USER_OPERATION: "eth_sendUserOperation",
 	/** Get the receipt of a user operation */
 	ETH_GET_USER_OPERATION_RECEIPT: "eth_getUserOperationReceipt",
-	/** Get gas price estimates from Pimlico */
-	PIMLICO_GET_USER_OPERATION_GAS_PRICE: "pimlico_getUserOperationGasPrice",
+	/** Estimate gas for a user operation */
+	ETH_ESTIMATE_USER_OPERATION_GAS: "eth_estimateUserOperationGas",
 } as const
+
+/** Response from bundler's eth_estimateUserOperationGas */
+export interface BundlerGasEstimate {
+	preVerificationGas: HexString
+	verificationGasLimit: HexString
+	callGasLimit: HexString
+	paymasterVerificationGasLimit?: HexString
+	paymasterPostOpGasLimit?: HexString
+}
 
 export type BundlerMethod = (typeof BundlerMethod)[keyof typeof BundlerMethod]
 
@@ -193,7 +202,8 @@ export class IntentGatewayV2 {
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment
 	 * @param intentsCoprocessor - Optional coprocessor for bid fetching and order execution
-	 * @param bundlerUrl - Optional ERC-4337 bundler URL for UserOperation submission
+	 * @param bundlerUrl - Optional ERC-4337 bundler URL for gas estimation and UserOp submission.
+	 *
 	 */
 	constructor(
 		public readonly source: EvmChain,
@@ -908,10 +918,13 @@ export class IntentGatewayV2 {
 	 * Estimates gas costs for fillOrder execution via ERC-4337.
 	 *
 	 * Calculates all gas parameters needed for UserOperation submission:
-	 * - `callGasLimit`: Gas for fillOrder execution (with 5% buffer)
+	 * - `callGasLimit`: Gas for fillOrder execution
 	 * - `verificationGasLimit`: Gas for SolverAccount.validateUserOp
 	 * - `preVerificationGas`: Bundler overhead for calldata
 	 * - Gas prices based on current network conditions
+	 *
+	 * Uses the bundler's eth_estimateUserOperationGas method for accurate gas estimation
+	 * when a bundler URL is configured.
 	 *
 	 * @param params - Estimation parameters including order and solver account
 	 * @returns Complete gas estimate with all ERC-4337 parameters
@@ -919,50 +932,41 @@ export class IntentGatewayV2 {
 	async estimateFillOrderV2(params: EstimateFillOrderV2Params): Promise<FillOrderEstimateV2> {
 		await this.ensureInitialized()
 
-		const { order, solverAccountAddress } = params
+		const { order, solverPrivateKey } = params
+		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
+		const intentGatewayV2Address = this.dest.configService.getIntentGatewayV2Address(order.destination)
+		const entryPointAddress = this.dest.configService.getEntryPointV08Address(order.destination)
+		const chainId = BigInt(
+			this.dest.client.chain?.id ?? Number.parseInt(this.dest.config.stateMachineId.split("-")[1]),
+		)
 
+		// Calculate total native value from output assets
 		const totalEthValue = order.output.assets
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
 			.reduce((sum, output) => sum + output.amount, 0n)
 
-		const testValue = toHex(maxUint256 / 2n)
-		const intentGatewayV2Address = this.dest.configService.getIntentGatewayV2Address(order.destination)
+		// Build assets array for state overrides, including fee token if not already present
 		const sourceFeeToken = this.feeTokenCache.get(this.source.config.stateMachineId)!
 		const destFeeToken = this.feeTokenCache.get(this.dest.config.stateMachineId)!
-
-		// Build assets array for state overrides, including fee token if not already present
-		const assetsForOverrides = [...order.output.assets]
 		const feeTokenAsBytes32 = bytes20ToBytes32(destFeeToken.address)
-		const feeTokenAlreadyInOutputs = assetsForOverrides.some(
-			(asset) => asset.token.toLowerCase() === feeTokenAsBytes32.toLowerCase(),
-		)
-		if (!feeTokenAlreadyInOutputs) {
+		const assetsForOverrides = [...order.output.assets]
+		if (!assetsForOverrides.some((asset) => asset.token.toLowerCase() === feeTokenAsBytes32.toLowerCase())) {
 			assetsForOverrides.push({ token: feeTokenAsBytes32, amount: 0n })
 		}
 
-		const stateOverrides = this.buildTokenStateOverrides(
-			this.dest.config.stateMachineId,
-			assetsForOverrides,
-			solverAccountAddress,
-			this.dest.configService.getIntentGatewayV2Address(order.destination),
-			testValue,
+		// Build state overrides once - used for both viem and bundler estimation
+		const { viem: stateOverrides, bundler: bundlerStateOverrides } = this.buildStateOverride({
+			accountAddress: solverAccountAddress,
+			chain: order.destination,
+			outputAssets: assetsForOverrides,
+			spenderAddress: intentGatewayV2Address,
 			intentGatewayV2Address,
-		)
-
-		// Add native balance override for the solver account
-		stateOverrides.push({
-			address: solverAccountAddress,
-			balance: maxUint256,
+			entryPointAddress,
 		})
 
-		// Estimate fillOrder gas (callGasLimit)
-		let callGasLimit: bigint
+		// Calculate protocol fees for the post request
 		const postRequestGas = 400_000n
-		const postRequestFeeInSourceFeeToken = await this.convertGasToFeeToken(
-			postRequestGas as bigint,
-			"source",
-			params.order.source,
-		)
+		const postRequestFeeInSourceFeeToken = await this.convertGasToFeeToken(postRequestGas, "source", order.source)
 		let postRequestFeeInDestFeeToken = adjustDecimals(
 			postRequestFeeInSourceFeeToken,
 			sourceFeeToken.decimals,
@@ -970,25 +974,22 @@ export class IntentGatewayV2 {
 		)
 
 		const postRequest: IPostRequest = {
-			source: params.order.destination,
-			dest: params.order.source,
-			body: constructRedeemEscrowRequestBody(
-				{ ...params.order, id: orderV2Commitment(params.order) },
-				MOCK_ADDRESS,
-			),
+			source: order.destination,
+			dest: order.source,
+			body: constructRedeemEscrowRequestBody({ ...order, id: orderV2Commitment(order) }, MOCK_ADDRESS),
 			timeoutTimestamp: 0n,
 			nonce: await this.source.getHostNonce(),
-			from: this.source.configService.getIntentGatewayV2Address(params.order.destination),
-			to: this.source.configService.getIntentGatewayV2Address(params.order.source),
+			from: this.source.configService.getIntentGatewayV2Address(order.destination),
+			to: this.source.configService.getIntentGatewayV2Address(order.source),
 		}
 
 		let protocolFeeInNativeToken = await this.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() =>
 			this.dest.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() => 0n),
 		)
 
-		// Buffer 0.5%
+		// Add 0.5% buffer to fees
 		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
-		postRequestFeeInDestFeeToken = postRequestFeeInDestFeeToken + (postRequestFeeInDestFeeToken * 1005n) / 1000n
+		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
 
 		const fillOptions: FillOptionsV2 = {
 			relayerFee: postRequestFeeInDestFeeToken,
@@ -996,47 +997,126 @@ export class IntentGatewayV2 {
 			outputs: order.output.assets,
 		}
 
-		try {
-			callGasLimit = await this.dest.client.estimateContractGas({
-				abi: IntentGatewayV2ABI,
-				address: this.dest.configService.getIntentGatewayV2Address(order.destination),
-				functionName: "fillOrder",
-				args: [transformOrderForContract(order), fillOptions],
-				account: solverAccountAddress,
-				value: totalEthValue + protocolFeeInNativeToken,
-				stateOverride: stateOverrides as any,
-			})
-		} catch (e) {
-			console.warn("fillOrder gas estimation failed, using fallback:", e)
-			callGasLimit = 500_000n
+		const totalNativeValue = totalEthValue + fillOptions.nativeDispatchFee
+
+		// Calculate gas prices with configurable bumps (defaults: 8% for priority, 10% for max)
+		const gasPrice = await this.dest.client.getGasPrice()
+		const priorityFeeBumpPercent = params.maxPriorityFeePerGasBumpPercent ?? 8
+		const maxFeeBumpPercent = params.maxFeePerGasBumpPercent ?? 10
+		const maxPriorityFeePerGas = gasPrice + (gasPrice * BigInt(priorityFeeBumpPercent)) / 100n
+		const maxFeePerGas = gasPrice + (gasPrice * BigInt(maxFeeBumpPercent)) / 100n
+
+		// Create order for estimation with solver's address as session
+		const orderForEstimation = { ...order, session: solverAccountAddress }
+		const commitment = orderV2Commitment(orderForEstimation)
+
+		// Build fillOrder calldata once
+		const fillOrderCalldata = encodeFunctionData({
+			abi: IntentGatewayV2ABI,
+			functionName: "fillOrder",
+			args: [transformOrderForContract(orderForEstimation), fillOptions],
+		}) as HexString
+
+		// Get nonce from EntryPoint (2D nonce with commitment as key)
+		const nonce = await this.dest.client.readContract({
+			address: entryPointAddress,
+			abi: [
+				{
+					inputs: [
+						{ name: "sender", type: "address" },
+						{ name: "key", type: "uint192" },
+					],
+					name: "getNonce",
+					outputs: [{ name: "nonce", type: "uint256" }],
+					stateMutability: "view",
+					type: "function",
+				},
+			],
+			functionName: "getNonce",
+			args: [solverAccountAddress, BigInt(commitment) & ((1n << 192n) - 1n)],
+		})
+
+		// Initialize gas values with fallbacks
+		let callGasLimit: bigint = 500_000n
+		let verificationGasLimit: bigint = 100_000n
+		let preVerificationGas: bigint = 100_000n
+
+		// Estimate gas using bundler if configured, otherwise use direct estimation
+		if (this.bundlerUrl && solverPrivateKey) {
+			try {
+				const callData = this.encodeERC7821Execute([
+					{ target: intentGatewayV2Address, value: totalNativeValue, data: fillOrderCalldata },
+				])
+
+				const solverAccount = privateKeyToAccount(solverPrivateKey as Hex)
+				const accountGasLimits = this.packGasLimits(100_000n, callGasLimit)
+				const gasFees = this.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
+
+				// Build preliminary UserOp for bundler estimation
+				const preliminaryUserOp: PackedUserOperation = {
+					sender: solverAccountAddress,
+					nonce,
+					initCode: "0x" as HexString,
+					callData,
+					accountGasLimits,
+					preVerificationGas: 100_000n,
+					gasFees,
+					paymasterAndData: "0x" as HexString,
+					signature: "0x" as HexString,
+				}
+
+				// Sign the UserOp
+				const userOpHash = this.computeUserOpHash(preliminaryUserOp, entryPointAddress, chainId)
+				const messageHash = keccak256(
+					concat([userOpHash, commitment as HexString, solverAccountAddress as Hex]),
+				)
+				const solverSignature = await solverAccount.signMessage({ message: { raw: messageHash } })
+				const solverSig = concat([commitment as HexString, solverSignature as Hex]) as HexString
+
+				const domainSeparator = this.getDomainSeparator("IntentGateway", "2", chainId, intentGatewayV2Address)
+				const sessionSignature = await this.signSolverSelection(
+					commitment as HexString,
+					solverAccountAddress,
+					domainSeparator,
+					solverPrivateKey,
+				)
+
+				preliminaryUserOp.signature = concat([solverSig as Hex, sessionSignature as Hex]) as HexString
+
+				const bundlerUserOp = this.prepareBundlerCall(preliminaryUserOp)
+				const gasEstimate = await this.sendBundler<BundlerGasEstimate>(
+					BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+					[bundlerUserOp, entryPointAddress, bundlerStateOverrides],
+				)
+
+				// Parse gas values and add 5% buffer for safety margin
+				callGasLimit = (BigInt(gasEstimate.callGasLimit) * 105n) / 100n
+				verificationGasLimit = (BigInt(gasEstimate.verificationGasLimit) * 105n) / 100n
+				preVerificationGas = (BigInt(gasEstimate.preVerificationGas) * 105n) / 100n
+			} catch (e) {
+				console.warn("Bundler gas estimation failed, using fallback values:", e)
+			}
+		} else {
+			// Direct gas estimation without bundler
+			try {
+				const estimatedGas = await this.dest.client.estimateContractGas({
+					abi: IntentGatewayV2ABI,
+					address: intentGatewayV2Address,
+					functionName: "fillOrder",
+					args: [transformOrderForContract(order), fillOptions],
+					account: solverAccountAddress,
+					value: totalNativeValue,
+					stateOverride: stateOverrides as any,
+				})
+				callGasLimit = (estimatedGas * 105n) / 100n // Add 5% buffer
+			} catch (e) {
+				console.warn("fillOrder gas estimation failed, using fallback:", e)
+			}
 		}
 
-		// Add buffer for execution through SolverAccount (5%)
-		callGasLimit = callGasLimit + (callGasLimit * 5n) / 100n
-
-		// Estimate verificationGasLimit for SolverAccount.validateUserOp
-		// EIP-7702 delegated accounts have additional overhead for authorization verification
-		const verificationGasLimit = 200_000n
-
-		// Pre-verification gas (bundler overhead for calldata, etc.)
-		const preVerificationGas = 100_000n
-
-		// Pimlico requires at least 40 gwei maxPriorityFeePerGas,
-		// can use pimlico_getUserOperationGasPrice in future
-
-		const MIN_PRIORITY_FEE = 100_000_000_000n // 100 gwei
-		const gasPrice = await this.dest.client.getGasPrice()
-		const calculatedPriorityFee = gasPrice / 10n
-		const maxPriorityFeePerGas = calculatedPriorityFee > MIN_PRIORITY_FEE ? calculatedPriorityFee : MIN_PRIORITY_FEE
-
-		const calculatedMaxFee = gasPrice + (gasPrice * 20n) / 100n
-		const maxFeePerGas =
-			calculatedMaxFee > maxPriorityFeePerGas ? calculatedMaxFee : maxPriorityFeePerGas + gasPrice
-
-		// Calculate total gas cost in wei
+		// Calculate total gas cost
 		const totalGas = callGasLimit + verificationGasLimit + preVerificationGas
 		const totalGasCostWei = totalGas * maxFeePerGas
-
 		const totalGasInFeeToken = await this.convertGasToFeeToken(totalGasCostWei, "dest", order.destination)
 
 		return {
@@ -1048,6 +1128,7 @@ export class IntentGatewayV2 {
 			totalGasCostWei,
 			totalGasInFeeToken,
 			fillOptions,
+			nonce,
 		}
 	}
 
@@ -1511,68 +1592,129 @@ export class IntentGatewayV2 {
 	// Private Methods - Gas and Fee Calculation
 	// =========================================================================
 
-	/** Builds state overrides for token balances and allowances to enable gas estimation */
-	private buildTokenStateOverrides(
-		chain: string,
-		outputAssets: { token: HexString; amount: bigint }[],
-		accountAddress: HexString,
-		spenderAddress: HexString,
-		testValue: HexString,
-		intentGatewayV2Address?: HexString,
-	): { address: HexString; balance?: bigint; stateDiff?: { slot: HexString; value: HexString }[] }[] {
-		const overrides: { address: HexString; stateDiff: { slot: HexString; value: HexString }[] }[] = []
+	/**
+	 * Unified state override builder for gas estimation.
+	 *
+	 * Builds state overrides for:
+	 * - EntryPoint deposit (for ERC-4337 UserOps)
+	 * - Native balance
+	 * - Token balances and allowances
+	 * - IntentGatewayV2 params (solverSelection disabled)
+	 *
+	 * Returns both viem format (for estimateContractGas) and bundler format (for eth_estimateUserOperationGas).
+	 *
+	 * @param params - Configuration for state overrides
+	 * @returns Object with both viem and bundler format state overrides
+	 */
+	buildStateOverride(params: {
+		accountAddress: HexString
+		chain: string
+		outputAssets: { token: HexString; amount: bigint }[]
+		spenderAddress: HexString
+		intentGatewayV2Address?: HexString
+		entryPointAddress?: HexString
+	}): {
+		viem: { address: HexString; balance?: bigint; stateDiff?: { slot: HexString; value: HexString }[] }[]
+		bundler: Record<string, { balance?: string; stateDiff?: Record<string, string> }>
+	} {
+		const { accountAddress, chain, outputAssets, spenderAddress, intentGatewayV2Address, entryPointAddress } =
+			params
+		const testValue = toHex(maxUint256 / 2n, { size: 32 }) as HexString
 
-		// Params struct starts at slot 4, and slot 5 contains dispatcher + solverSelection packed
-		// Slot 5 layout (64 hex chars after 0x):
-		// - chars 2-23 (22 chars, 11 bytes): padding
-		// - chars 24-25 (2 chars, 1 byte): solverSelection
-		// - chars 26-65 (40 chars, 20 bytes): dispatcher
+		// Initialize both formats
+		const viemOverrides: {
+			address: HexString
+			balance?: bigint
+			stateDiff?: { slot: HexString; value: HexString }[]
+		}[] = []
+		const bundlerOverrides: Record<string, { balance?: string; stateDiff?: Record<string, string> }> = {}
+
+		// 1. IntentGatewayV2 params override (disable solverSelection for simulation)
 		if (intentGatewayV2Address) {
 			const paramsSlot5 = pad(toHex(5n), { size: 32 }) as HexString
 			const dispatcherAddress = this.dest.configService.getCalldispatcherAddress(chain)
-			// Set solverSelection to 0x00, padding is zeros, dispatcher from config
 			const newSlot5Value = ("0x" + "0".repeat(22) + "00" + dispatcherAddress.slice(2).toLowerCase()) as HexString
-			overrides.push({
+
+			viemOverrides.push({
 				address: intentGatewayV2Address,
 				stateDiff: [{ slot: paramsSlot5, value: newSlot5Value }],
 			})
+			bundlerOverrides[intentGatewayV2Address] = {
+				stateDiff: { [paramsSlot5]: newSlot5Value },
+			}
 		}
 
+		// 2. EntryPoint deposit override (for ERC-4337)
+		// Base slot for deposit mapping is 0
+		if (entryPointAddress) {
+			const entryPointDepositSlot = calculateBalanceMappingLocation(0n, accountAddress, EvmLanguage.Solidity)
+
+			viemOverrides.push({
+				address: entryPointAddress,
+				stateDiff: [{ slot: entryPointDepositSlot, value: testValue }],
+			})
+			bundlerOverrides[entryPointAddress] = {
+				stateDiff: { [entryPointDepositSlot]: testValue },
+			}
+		}
+
+		// 3. Native balance override for the account
+		viemOverrides.push({
+			address: accountAddress,
+			balance: maxUint256,
+		})
+		bundlerOverrides[accountAddress] = {
+			balance: testValue,
+		}
+
+		// 4. Token balance and allowance overrides
 		for (const output of outputAssets) {
 			const tokenAddress = bytes32ToBytes20(output.token)
 
+			// Skip native token (handled by balance override above)
 			if (tokenAddress === ADDRESS_ZERO) {
 				continue
 			}
 
 			try {
-				const stateDiffs: { slot: HexString; value: HexString }[] = []
+				const viemStateDiffs: { slot: HexString; value: HexString }[] = []
+				const bundlerStateDiffs: Record<string, string> = {}
 
+				// Get balance storage slot
 				const balanceData = (ERC20Method.BALANCE_OF + bytes20ToBytes32(accountAddress).slice(2)) as HexString
 				const balanceSlot = getRecordedStorageSlot(chain, tokenAddress, balanceData)
 				if (balanceSlot) {
-					stateDiffs.push({ slot: balanceSlot, value: testValue })
+					viemStateDiffs.push({ slot: balanceSlot, value: testValue })
+					bundlerStateDiffs[balanceSlot] = testValue
 				}
 
+				// Get allowance storage slot
 				try {
 					const allowanceData = (ERC20Method.ALLOWANCE +
 						bytes20ToBytes32(accountAddress).slice(2) +
 						bytes20ToBytes32(spenderAddress).slice(2)) as HexString
 					const allowanceSlot = getRecordedStorageSlot(chain, tokenAddress, allowanceData)
 					if (allowanceSlot) {
-						stateDiffs.push({ slot: allowanceSlot, value: testValue })
+						viemStateDiffs.push({ slot: allowanceSlot, value: testValue })
+						bundlerStateDiffs[allowanceSlot] = testValue
 					}
-				} catch (e) {
-					console.warn(`Could not find allowance slot for token ${tokenAddress}:`, e)
+				} catch {
+					// Allowance slot not found, continue without it
 				}
 
-				overrides.push({ address: tokenAddress, stateDiff: stateDiffs })
-			} catch (e) {
-				console.warn(`Could not find balance slot for token ${tokenAddress}:`, e)
+				// Add overrides if we have at least one slot
+				if (viemStateDiffs.length > 0) {
+					viemOverrides.push({ address: tokenAddress, stateDiff: viemStateDiffs })
+				}
+				if (Object.keys(bundlerStateDiffs).length > 0) {
+					bundlerOverrides[tokenAddress] = { stateDiff: bundlerStateDiffs }
+				}
+			} catch {
+				// Balance slot not found for this token, skip
 			}
 		}
 
-		return overrides
+		return { viem: viemOverrides, bundler: bundlerOverrides }
 	}
 
 	/**

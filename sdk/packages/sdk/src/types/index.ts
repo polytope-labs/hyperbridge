@@ -1310,7 +1310,19 @@ export interface SubmitBidOptions {
 
 export interface EstimateFillOrderV2Params {
 	order: OrderV2
-	solverAccountAddress: HexString
+	solverPrivateKey: HexString
+	/**
+	 * Optional percentage to bump maxPriorityFeePerGas.
+	 * This is added on top of the base gasPrice.
+	 * Default: 8 (8%)
+	 */
+	maxPriorityFeePerGasBumpPercent?: number
+	/**
+	 * Optional percentage to bump maxFeePerGas.
+	 * This is added on top of the base gasPrice.
+	 * Default: 10 (10%)
+	 */
+	maxFeePerGasBumpPercent?: number
 }
 
 export interface FillOrderEstimateV2 {
@@ -1322,6 +1334,7 @@ export interface FillOrderEstimateV2 {
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
 	totalGasInFeeToken: bigint
+	nonce: bigint
 }
 
 /**

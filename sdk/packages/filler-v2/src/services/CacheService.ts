@@ -10,6 +10,7 @@ interface GasEstimateCache {
 	preVerificationGas: string
 	maxFeePerGas: string
 	maxPriorityFeePerGas: string
+	nonce: string
 	timestamp: number
 }
 
@@ -104,6 +105,7 @@ export class CacheService {
 		preVerificationGas: bigint
 		maxFeePerGas: bigint
 		maxPriorityFeePerGas: bigint
+		nonce: bigint
 	} | null {
 		try {
 			const cache = this.cacheData.gasEstimates[orderId]
@@ -117,6 +119,7 @@ export class CacheService {
 					preVerificationGas: BigInt(cache.preVerificationGas),
 					maxFeePerGas: BigInt(cache.maxFeePerGas),
 					maxPriorityFeePerGas: BigInt(cache.maxPriorityFeePerGas),
+					nonce: BigInt(cache.nonce),
 				}
 			}
 			return null
@@ -136,6 +139,7 @@ export class CacheService {
 		preVerificationGas: bigint,
 		maxFeePerGas: bigint,
 		maxPriorityFeePerGas: bigint,
+		nonce: bigint,
 	): void {
 		if (totalCostInSourceFeeToken <= 0n) {
 			throw new Error("Total cost in source fee token must be positive")
@@ -151,6 +155,7 @@ export class CacheService {
 				preVerificationGas: preVerificationGas.toString(),
 				maxFeePerGas: maxFeePerGas.toString(),
 				maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
+				nonce: nonce.toString(),
 				timestamp: Date.now(),
 			}
 		} catch (error) {

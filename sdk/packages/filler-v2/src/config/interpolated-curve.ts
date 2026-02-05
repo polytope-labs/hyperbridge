@@ -1,0 +1,131 @@
+import Decimal from "decimal.js"
+
+/**
+ * A coordinate point on a curve
+ * @property amount - The input threshold (e.g., USD amount)
+ * @property value - The output value at this threshold (e.g., confirmations, bps)
+ */
+export interface CurvePoint {
+	amount: string
+	value: number
+}
+
+/**
+ * Configuration for a curve
+ */
+export interface CurveConfig {
+	points: CurvePoint[]
+}
+
+interface ParsedPoint {
+	amount: number
+	value: number
+}
+
+/**
+ * A curve that interpolates values based on input amounts.
+ * Uses piecewise linear interpolation between provided points.
+ *
+ * This is a generic utility used for:
+ * - Confirmation blocks based on order value
+ * - BPS (basis points) based on order value
+ */
+export class InterpolatedCurve {
+	private points: ParsedPoint[]
+	private label: string
+
+	constructor(config: CurveConfig, label: string = "Interpolated curve") {
+		this.label = label
+
+		if (!config.points || config.points.length < 2) {
+			throw new Error(`${label}: must have at least 2 points to define a curve`)
+		}
+
+		this.points = config.points
+			.map((p) => ({
+				amount: parseFloat(p.amount),
+				value: p.value,
+			}))
+			.sort((a, b) => a.amount - b.amount)
+
+		for (const point of this.points) {
+			if (isNaN(point.amount) || point.amount < 0) {
+				throw new Error(`${label}: invalid amount`)
+			}
+			if (!Number.isInteger(point.value) || point.value < 0) {
+				throw new Error(`${label}: value must be a non-negative integer`)
+			}
+		}
+	}
+
+	getValue(inputAmount: Decimal | number): number {
+		const amount = inputAmount instanceof Decimal ? inputAmount.toNumber() : inputAmount
+
+		if (amount <= this.points[0].amount) {
+			return this.points[0].value
+		}
+		if (amount >= this.points[this.points.length - 1].amount) {
+			return this.points[this.points.length - 1].value
+		}
+
+		const result = this.linearInterpolate(amount)
+		return Math.round(result)
+	}
+
+	/**
+	 * Piecewise linear interpolation.
+	 * Finds the two points the amount falls between and linearly interpolates.
+	 */
+	private linearInterpolate(amount: number): number {
+		for (let i = 0; i < this.points.length - 1; i++) {
+			const p1 = this.points[i]
+			const p2 = this.points[i + 1]
+
+			if (amount >= p1.amount && amount <= p2.amount) {
+				const t = (amount - p1.amount) / (p2.amount - p1.amount)
+				return p1.value + t * (p2.value - p1.value)
+			}
+		}
+
+		return this.points[this.points.length - 1].value
+	}
+}
+
+/**
+ * Manages confirmation block requirements per chain.
+ * Each chain has its own curve mapping order value to required confirmations.
+ */
+export class ConfirmationPolicy {
+	private policies: Map<number, InterpolatedCurve>
+
+	constructor(policyConfig: Record<string, CurveConfig>) {
+		this.policies = new Map()
+
+		Object.entries(policyConfig).forEach(([chainId, config]) => {
+			const curve = new InterpolatedCurve(config, `Chain ${chainId} confirmation policy`)
+			this.policies.set(Number(chainId), curve)
+		})
+	}
+
+	getConfirmationBlocks(chainId: number, amountUsd: Decimal): number {
+		const curve = this.policies.get(chainId)
+		if (!curve) throw new Error(`No confirmation policy found for chainId ${chainId}`)
+		return curve.getValue(amountUsd)
+	}
+}
+
+/**
+ * Manages filler basis points based on order value.
+ * Uses linear interpolation to determine BPS for any order size.
+ */
+export class FillerBpsPolicy {
+	private curve: InterpolatedCurve
+
+	constructor(config: CurveConfig) {
+		this.curve = new InterpolatedCurve(config, "Filler BPS policy")
+	}
+
+	getBps(orderValueUsd: Decimal): bigint {
+		return BigInt(this.curve.getValue(orderValueUsd))
+	}
+}

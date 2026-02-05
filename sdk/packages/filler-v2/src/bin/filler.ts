@@ -6,7 +6,7 @@ import { fileURLToPath } from "url"
 import { parse } from "toml"
 import { IntentFiller } from "../core/filler.js"
 import { BasicFiller } from "../strategies/basic.js"
-import { ConfirmationPolicy } from "../config/confirmation-policy.js"
+import { ConfirmationPolicy, FillerBpsPolicy } from "../config/interpolated-curve.js"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -41,15 +41,25 @@ const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"))
 
 interface StrategyConfig {
 	type: "basic"
-	/** Filler's basis points (bps) for profit margin. E.g., 50 = 0.5% */
-	fillerBps: number
+	/**
+	 * Array of (amount, value) coordinates defining the BPS curve.
+	 * value = basis points at that order amount
+	 */
+	bpsCurve: Array<{
+		amount: string
+		value: number
+	}>
 }
 
 interface ChainConfirmationPolicy {
-	minAmount: string
-	maxAmount: string
-	minConfirmations: number
-	maxConfirmations: number
+	/**
+	 * Array of (amount, value) coordinates defining the confirmation curve.
+	 * value = number of confirmations at that order amount
+	 */
+	points: Array<{
+		amount: string
+		value: number
+	}>
 }
 
 interface PendingQueueConfig {
@@ -70,6 +80,7 @@ interface FillerTomlConfig {
 		solverAccountContractAddress?: string
 		/** Directory for persistent data storage (bids database, etc.) */
 		dataDir?: string
+		bundlerUrl?: string
 	}
 	strategies: StrategyConfig[]
 	chains: UserProvidedChainConfig[]
@@ -121,6 +132,7 @@ program
 				entryPointAddress: config.filler.entryPointAddress,
 				solverAccountContractAddress: config.filler.solverAccountContractAddress,
 				dataDir: config.filler.dataDir,
+				bundlerUrl: config.filler.bundlerUrl,
 			}
 
 			const configService = new FillerConfigService(fillerChainConfigs, fillerConfigForService)
@@ -181,6 +193,7 @@ program
 				privateKey,
 				configService,
 				sharedCacheService,
+				configService.getBundlerUrl(),
 			)
 
 			// Initialize bid storage service for persistent storage of bid transaction hashes
@@ -195,16 +208,17 @@ program
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
 				switch (strategyConfig.type) {
-					case "basic":
+					case "basic": {
+						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
 						return new BasicFiller(
 							privateKey,
 							configService,
 							chainClientManager,
 							contractService,
-							strategyConfig.fillerBps,
+							bpsPolicy,
 							bidStorageService,
-							
 						)
+					}
 					default:
 						throw new Error(`Unknown strategy type: ${strategyConfig.type}`)
 				}
@@ -317,20 +331,31 @@ function validateConfig(config: FillerTomlConfig): void {
 		if (!["basic"].includes(strategy.type)) {
 			throw new Error(`Invalid strategy type: ${strategy.type}`)
 		}
+
+		// Validate BPS curve
+		if (!strategy.bpsCurve || !Array.isArray(strategy.bpsCurve) || strategy.bpsCurve.length < 2) {
+			throw new Error("Strategy must have a 'bpsCurve' array with at least 2 points")
+		}
+
+		for (const point of strategy.bpsCurve) {
+			if (point.amount === undefined || point.value === undefined) {
+				throw new Error("Each BPS curve point must have 'amount' and 'value'")
+			}
+		}
 	}
 
 	// Validate confirmation policies
 	for (const [chainId, policy] of Object.entries(config.confirmationPolicies)) {
-		if (!policy.minAmount || !policy.maxAmount) {
-			throw new Error(`Confirmation policy for chain ${chainId} must have minAmount and maxAmount`)
+		if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
+			throw new Error(
+				`Confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,
+			)
 		}
 
-		if (policy.minConfirmations === undefined || policy.maxConfirmations === undefined) {
-			throw new Error(`Confirmation policy for chain ${chainId} must have minConfirmations and maxConfirmations`)
-		}
-
-		if (policy.minConfirmations > policy.maxConfirmations) {
-			throw new Error(`Invalid confirmation range for chain ${chainId}`)
+		for (const point of policy.points) {
+			if (point.amount === undefined || point.value === undefined) {
+				throw new Error(`Each point in confirmation policy for chain ${chainId} must have 'amount' and 'value'`)
+			}
 		}
 	}
 }

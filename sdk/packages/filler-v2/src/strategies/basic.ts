@@ -17,6 +17,7 @@ import { ChainClientManager, ContractInteractionService, BidStorageService } fro
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
+import { FillerBpsPolicy } from "@/config/interpolated-curve"
 
 /** Supported token types for same-token execution */
 type SupportedTokenType = "USDT" | "USDC"
@@ -28,7 +29,7 @@ export class BasicFiller implements FillerStrategy {
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
 	private bidStorage?: BidStorageService
-	private fillerBps: bigint
+	private bpsPolicy: FillerBpsPolicy
 	private logger = getLogger("basic-filler")
 
 	constructor(
@@ -36,7 +37,7 @@ export class BasicFiller implements FillerStrategy {
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		fillerBps: number,
+		bpsPolicy: FillerBpsPolicy,
 		bidStorage?: BidStorageService,
 	) {
 		this.privateKey = privateKey
@@ -44,7 +45,7 @@ export class BasicFiller implements FillerStrategy {
 		this.clientManager = clientManager
 		this.contractService = contractService
 		this.bidStorage = bidStorage
-		this.fillerBps = BigInt(fillerBps)
+		this.bpsPolicy = bpsPolicy
 	}
 
 	/**
@@ -121,7 +122,7 @@ export class BasicFiller implements FillerStrategy {
 	 * Calculates the USD value of the order's inputs, outputs, fees and compares
 	 * what will the filler receive and what will the filler pay.
 	 * Also validates that the order output amounts meet the filler's minimum requirements
-	 * based on the configured bps (basis points).
+	 * based on the configured bps (basis points) curve.
 	 * @param order The order to calculate the USD value for
 	 * @returns The profit in USD (Number), or 0 if not profitable or output amounts don't meet minimum
 	 */
@@ -131,12 +132,20 @@ export class BasicFiller implements FillerStrategy {
 				order.destination,
 			)
 
+			// Get order value and determine dynamic BPS from policy
+			const { inputUsdValue } = await this.contractService.getTokenUsdValue(order)
+			const fillerBps = this.bpsPolicy.getBps(inputUsdValue)
+
 			// Validate that order outputs meet filler's minimum bps requirements
 			// and calculate profit from slippage (normalized to dest fee token decimals)
-			const { isValid, profitFromSlippage } = await this.calculateSlippageProfit(order, destFeeTokenDecimals)
+			const { isValid, profitFromSlippage } = await this.calculateSlippageProfit(
+				order,
+				destFeeTokenDecimals,
+				fillerBps,
+			)
 			if (!isValid) {
 				this.logger.info(
-					{ orderId: order.id, fillerBps: this.fillerBps.toString() },
+					{ orderId: order.id, orderValueUsd: inputUsdValue.toString(), fillerBps: fillerBps.toString() },
 					"User expects more output than filler can provide based on bps",
 				)
 				return 0
@@ -191,11 +200,13 @@ export class BasicFiller implements FillerStrategy {
 	 *
 	 * @param order The order to validate (assumed to have passed canFill validation)
 	 * @param normalizeToDecimals The decimal precision to normalize the profit to (e.g., dest fee token decimals)
+	 * @param fillerBps The basis points to use for this order (determined by order value)
 	 * @returns Object with isValid boolean and profitFromSlippage (normalized to specified decimals)
 	 */
 	private async calculateSlippageProfit(
 		order: OrderV2,
 		normalizeToDecimals: number,
+		fillerBps: bigint,
 	): Promise<{ isValid: boolean; profitFromSlippage: bigint }> {
 		const basisPoints = 10000n
 		let totalProfitNormalized = 0n
@@ -216,7 +227,7 @@ export class BasicFiller implements FillerStrategy {
 
 			// Calculate max output filler will provide based on their bps
 			// Formula: inputAmount * (10000 - fillerBps) / 10000
-			const fillerMaxOutput = (convertedInputAmount * (basisPoints - this.fillerBps)) / basisPoints
+			const fillerMaxOutput = (convertedInputAmount * (basisPoints - fillerBps)) / basisPoints
 
 			// Reject if user expects more than filler can provide
 			if (output.amount > fillerMaxOutput) {
@@ -228,7 +239,7 @@ export class BasicFiller implements FillerStrategy {
 						userExpects: output.amount.toString(),
 						fillerWillProvide: fillerMaxOutput.toString(),
 						outputDecimals,
-						fillerBps: this.fillerBps.toString(),
+						fillerBps: fillerBps.toString(),
 					},
 					"User expects more than filler can provide based on bps",
 				)

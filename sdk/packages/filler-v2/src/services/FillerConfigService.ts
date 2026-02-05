@@ -11,6 +11,11 @@ export interface LoggingConfig {
 	level?: LogLevel
 }
 
+export interface GasFeeBumpConfig {
+	maxPriorityFeePerGasBumpPercent?: number
+	maxFeePerGasBumpPercent?: number
+}
+
 export interface FillerConfig {
 	privateKey: string
 	maxConcurrentOrders: number
@@ -20,6 +25,12 @@ export interface FillerConfig {
 	entryPointAddress?: string
 	solverAccountContractAddress?: string
 	dataDir?: string
+	bundlerUrl?: string
+	/**
+	 * Optional gas fee bump configuration for UserOperation gas estimation.
+	 * If not provided, defaults will be used (8% for priority fee, 10% for max fee).
+	 */
+	gasFeeBump?: GasFeeBumpConfig
 }
 
 /**
@@ -173,5 +184,33 @@ export class FillerConfigService {
 
 	getDataDir(): string | undefined {
 		return this.fillerConfig?.dataDir
+	}
+
+	getBundlerUrl(): string | undefined {
+		return this.fillerConfig?.bundlerUrl
+	}
+
+	/**
+	 * Get the maxPriorityFeePerGas bump percentage.
+	 * @returns The configured percentage or undefined if not set (default 8% will be used)
+	 */
+	getMaxPriorityFeePerGasBumpPercent(): number | undefined {
+		return this.fillerConfig?.gasFeeBump?.maxPriorityFeePerGasBumpPercent
+	}
+
+	/**
+	 * Get the maxFeePerGas bump percentage.
+	 * @returns The configured percentage or undefined if not set (default 10% will be used)
+	 */
+	getMaxFeePerGasBumpPercent(): number | undefined {
+		return this.fillerConfig?.gasFeeBump?.maxFeePerGasBumpPercent
+	}
+
+	/**
+	 * Get the full gas fee bump configuration.
+	 * @returns The gas fee bump config or undefined if not set
+	 */
+	getGasFeeBumpConfig(): GasFeeBumpConfig | undefined {
+		return this.fillerConfig?.gasFeeBump
 	}
 }

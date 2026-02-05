@@ -12,10 +12,7 @@ use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256}
 use sp_keyring::sr25519::Keyring;
 use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils, INDEXING_PREFIX};
 use sp_runtime::traits::Keccak256;
-use subxt::{
-	backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, tx::SubmittableTransaction,
-	utils::H160,
-};
+use subxt::{backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, utils::H160};
 
 use merkle_mountain_range::util::MemMMR;
 use mmr_primitives::DataOrHash;
@@ -116,7 +113,9 @@ async fn test_insert_1_billion_mmr_leaves() -> Result<(), anyhow::Error> {
 				rpc_params![Bytes::from(call), Keyring::Ferdie.to_account_id().to_ss58check()],
 			)
 			.await?;
-		SubmittableTransaction::from_bytes(client.clone(), extrinsic.0).submit().await?;
+		let _: H256 = rpc_client
+			.request("author_submitExtrinsic", rpc_params![Bytes::from(extrinsic.0)])
+			.await?;
 
 		let created_block = rpc_client
 			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
@@ -176,12 +175,12 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let extrinsic: Bytes = rpc_client
 		.request(
 			"simnode_authorExtrinsic",
-			// author an extrinsic from alice
 			rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
 		)
 		.await?;
-	let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-	submittable.submit().await?;
+	let _: H256 = rpc_client
+		.request("author_submitExtrinsic", rpc_params![Bytes::from(extrinsic.0)])
+		.await?;
 	let created_block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
 		.await?;
@@ -231,54 +230,67 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let mut chain_a_commitments = vec![];
 	let mut chain_b_commitments = vec![];
 
+	let accounts_a = vec![
+		Keyring::Alice.to_account_id().to_ss58check(),
+		Keyring::Charlie.to_account_id().to_ss58check(),
+		Keyring::Ferdie.to_account_id().to_ss58check(),
+	];
+	let accounts_b = vec![
+		Keyring::Bob.to_account_id().to_ss58check(),
+		Keyring::Eve.to_account_id().to_ss58check(),
+		Keyring::Dave.to_account_id().to_ss58check(),
+	];
+
+	let fork_parent = last_finalized;
+	let mut parent_hash_a = fork_parent;
+
 	// Fork A
-	{
-		let mut parent_hash = last_finalized;
-		for _ in 0..3 {
-			let params =
-				EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-			let call = subxt::dynamic::tx(
-				"IsmpDemo",
-				"dispatch_to_evm",
-				vec![evm_params_to_value(&params)],
-			);
+	for i in 0..3 {
+		let params =
+			EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
+		let call = subxt::dynamic::tx(
+			"IsmpDemo",
+			"dispatch_to_evm",
+			vec![evm_params_to_value(&params)],
+		);
 
-			let call = client.tx().call_data(&call)?;
-			let extrinsic: Bytes = rpc_client
-				.request(
-					"simnode_authorExtrinsic",
-					// author an extrinsic from alice
-					rpc_params![Bytes::from(call), Keyring::Alice.to_account_id().to_ss58check()],
-				)
-				.await?;
-			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-			submittable.submit().await?;
-			let created_block = rpc_client
-				.request::<CreatedBlock<H256>>(
-					"engine_createBlock",
-					rpc_params![true, false, Some(parent_hash)],
-				)
-				.await?;
-			let events = client.events().at(created_block.hash).await?;
+		let call = client.tx().call_data(&call)?;
+		let extrinsic: Bytes = rpc_client
+			.request(
+				"simnode_authorExtrinsic",
+				// author an extrinsic from alice
+				rpc_params![Bytes::from(call.clone()), accounts_a[i].clone(), parent_hash_a],
+			)
+			.await?;
+		let _: H256 = rpc_client
+			.request("author_submitExtrinsic", rpc_params![Bytes::from(extrinsic.0)])
+			.await?;
+		let created_block = rpc_client
+			.request::<CreatedBlock<H256>>(
+				"engine_createBlock",
+				rpc_params![true, false, Some(parent_hash_a)],
+			)
+			.await?;
 
-			let child_trie_root = get_child_trie_root(created_block.hash).await.unwrap();
-			dbg!(child_trie_root);
-			let events = events
-				.iter()
-				.filter_map(|ev| {
-					ev.ok().and_then(|ev| {
-						ev.as_event::<RequestEvent>()
-							.ok()
-							.flatten()
-							.and_then(|ev| Some((child_trie_root, ev.commitment)))
-					})
+		let events = client.events().at(created_block.hash).await?;
+
+		let child_trie_root = get_child_trie_root(created_block.hash).await.unwrap();
+		dbg!(child_trie_root);
+		let events = events
+			.iter()
+			.filter_map(|ev| {
+				ev.ok().and_then(|ev| {
+					ev.as_event::<RequestEvent>()
+						.ok()
+						.flatten()
+						.and_then(|ev| Some((child_trie_root, ev.commitment)))
 				})
-				.collect::<Vec<_>>();
+			})
+			.collect::<Vec<_>>();
 
-			chain_a_commitments.extend(events);
-			parent_hash = created_block.hash;
-			chain_a.push(created_block.hash);
-		}
+		chain_a_commitments.extend(events);
+		parent_hash_a = created_block.hash;
+		chain_a.push(created_block.hash);
 	}
 
 	println!("Finished creating Fork A");
@@ -286,58 +298,53 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	println!("Creating Fork B");
 
 	// Fork B
-	{
-		let mut parent_hash = last_finalized;
-		let accounts = vec![
-			Keyring::Bob.to_account_id().to_ss58check(),
-			Keyring::Eve.to_account_id().to_ss58check(),
-			Keyring::Dave.to_account_id().to_ss58check(),
-		];
-		for i in 0..accounts.len() {
-			let params =
-				EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
-			let call = subxt::dynamic::tx(
-				"IsmpDemo",
-				"dispatch_to_evm",
-				vec![evm_params_to_value(&params)],
-			);
+	let mut parent_hash_b = fork_parent;
 
-			let call = client.tx().call_data(&call)?;
-			let extrinsic: Bytes = rpc_client
-				.request(
-					"simnode_authorExtrinsic",
-					rpc_params![Bytes::from(call), accounts[i].clone()],
-				)
-				.await?;
-			let submittable = SubmittableTransaction::from_bytes(client.clone(), extrinsic.0);
-			submittable.submit().await?;
-			let created_block = rpc_client
-				.request::<CreatedBlock<H256>>(
-					"engine_createBlock",
-					rpc_params![true, false, parent_hash],
-				)
-				.await?;
+	for i in 0..3 {
+		let params =
+			EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
+		let call = subxt::dynamic::tx(
+			"IsmpDemo",
+			"dispatch_to_evm",
+			vec![evm_params_to_value(&params)],
+		);
 
-			let events = client.events().at(created_block.hash).await?;
+		let call = client.tx().call_data(&call)?;
+		let extrinsic: Bytes = rpc_client
+			.request(
+				"simnode_authorExtrinsic",
+				rpc_params![Bytes::from(call.clone()), accounts_b[i].clone(), parent_hash_b],
+			)
+			.await?;
+		let _: H256 = rpc_client
+			.request("author_submitExtrinsic", rpc_params![Bytes::from(extrinsic.0)])
+			.await?;
+		let created_block = rpc_client
+			.request::<CreatedBlock<H256>>(
+				"engine_createBlock",
+				rpc_params![true, false, Some(parent_hash_b)],
+			)
+			.await?;
 
-			let child_trie_root = get_child_trie_root(created_block.hash).await.unwrap();
-			dbg!(child_trie_root);
-			let events = events
-				.iter()
-				.filter_map(|ev| {
-					ev.ok().and_then(|ev| {
-						ev.as_event::<RequestEvent>()
-							.ok()
-							.flatten()
-							.and_then(|ev| Some((child_trie_root, ev.commitment)))
-					})
+		let events = client.events().at(created_block.hash).await?;
+
+		let child_trie_root = get_child_trie_root(created_block.hash).await.unwrap();
+		dbg!(child_trie_root);
+		let events = events
+			.iter()
+			.filter_map(|ev| {
+				ev.ok().and_then(|ev| {
+					ev.as_event::<RequestEvent>()
+						.ok()
+						.flatten()
+						.and_then(|ev| Some((child_trie_root, ev.commitment)))
 				})
-				.collect::<Vec<_>>();
+			})
+			.collect::<Vec<_>>();
 
-			chain_b_commitments.extend(events);
-			chain_b.push(created_block.hash);
-			parent_hash = created_block.hash;
-		}
+		chain_b_commitments.extend(events);
+		chain_b.push(created_block.hash);
+		parent_hash_b = created_block.hash;
 	}
 
 	assert_eq!(chain_a_commitments.len(), 30);

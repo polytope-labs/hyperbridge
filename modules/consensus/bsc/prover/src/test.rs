@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use bsc_verifier::{
-	primitives::{compute_epoch, Testnet},
+	primitives::{compute_epoch, parse_extra, Testnet, VALIDATOR_BIT_SET_SIZE},
 	verify_bsc_header, NextValidators,
 };
 use ethers::{
@@ -24,6 +24,7 @@ use ethers::{
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use polkadot_sdk::*;
+use ssz_rs::{Bitvector, Deserialize};
 use std::time::Duration;
 
 use crate::BscPosProver;
@@ -92,10 +93,50 @@ async fn verify_bsc_pos_headers() {
 				update.epoch_header_ancestry = Default::default();
 			}
 
-			if next_validators.is_some() &&
+			let extra_data = match parse_extra::<Host, Testnet>(&update.attested_header) {
+				Ok(extra) => extra,
+				Err(e) => {
+					println!("Failed to parse extra data for block {}: {}", header.number, e);
+					continue;
+				},
+			};
+
+			let validators_bit_set = match Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
+				extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
+			) {
+				Ok(bits) => bits,
+				Err(e) => {
+					println!(
+						"Failed to deserialize vote address set for block {}: {:?}",
+						header.number, e
+					);
+					continue;
+				},
+			};
+
+			// Determine which validator set to use for participant check
+			let use_next_validators = next_validators.is_some() &&
 				update.attested_header.number.low_u64() % EPOCH_LENGTH >=
-					(validators.len() as u64 / 2)
-			{
+					(validators.len() as u64 / 2);
+
+			let validator_set_for_check = if use_next_validators {
+				&next_validators.as_ref().unwrap().validators
+			} else {
+				&validators
+			};
+
+			// Skip blocks without enough participants (2/3 + 1 threshold)
+			let participant_count = validators_bit_set.iter().as_bitslice().count_ones();
+			let required_participants = (2 * validator_set_for_check.len() / 3) + 1;
+			if participant_count < required_participants {
+				println!(
+					"Not enough participants in bsc update for block {} ({}/{}), skipping",
+					header.number, participant_count, required_participants
+				);
+				continue;
+			}
+
+			if use_next_validators {
 				let result = verify_bsc_header::<Host, Testnet>(
 					&next_validators.clone().unwrap().validators,
 					update.clone(),
@@ -109,13 +150,27 @@ async fn verify_bsc_pos_headers() {
 					continue;
 				}
 			}
-			let result =
-				verify_bsc_header::<Host, Testnet>(&validators, update.clone(), EPOCH_LENGTH)
-					.unwrap();
+
+			// Skip blocks that fail verification
+			let result = match verify_bsc_header::<Host, Testnet>(
+				&validators,
+				update.clone(),
+				EPOCH_LENGTH,
+			) {
+				Ok(r) => r,
+				Err(e) => {
+					println!(
+						"Verification failed for block {}: {}, skipping",
+						header.number, e
+					);
+					continue;
+				},
+			};
+
 			dbg!(&result.hash);
 			dbg!(result.next_validators.is_some());
-			if let Some(validators) = result.next_validators {
-				next_validators = Some(validators);
+			if let Some(new_vals) = result.next_validators {
+				next_validators = Some(new_vals);
 				current_epoch = block_epoch
 			}
 		}

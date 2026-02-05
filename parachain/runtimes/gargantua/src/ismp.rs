@@ -237,11 +237,15 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
+impl BenchmarkHelper<H256, ()> for XcmBenchmarkHelper {
 	fn create_asset_id_parameter(id: u32) -> H256 {
 		use codec::Encode;
 		use staging_xcm::{prelude::Location, v5::Junction::Parachain};
 		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
+	}
+
+	fn create_reserve_id_parameter(_id: u32) -> () {
+		()
 	}
 }
 
@@ -273,6 +277,7 @@ impl pallet_assets::Config for Runtime {
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
 	type Holder = ();
+	type ReserveData = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }

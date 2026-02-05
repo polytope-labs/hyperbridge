@@ -14,6 +14,7 @@ dist = true
 [dependencies]
 # crates.io
 clap = { version = "4.0.32", features = ["derive"] }
+rocksdb = { workspace = true }
 log = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }

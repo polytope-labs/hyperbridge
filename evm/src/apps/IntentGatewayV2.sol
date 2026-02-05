@@ -811,8 +811,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 // try to pay for dispatch with fee token
                 dispatchWithFeeToken(request, msg.sender);
             }
-
-            emit EscrowRefunded({commitment: commitment});
         } else {
             revert WrongChain();
         }

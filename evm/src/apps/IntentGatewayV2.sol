@@ -27,7 +27,7 @@ import {
     Params,
     ParamsUpdate,
     DestinationFee,
-    RequestBody,
+    WithdrawalRequest,
     FillOptions,
     SelectOptions,
     CancelOptions,
@@ -68,7 +68,9 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         /// @dev Identifies a request for updating parameters.
         UpdateParams,
         /// @dev Identifies a request for sweeping accumulated dust
-        SweepDust
+        SweepDust,
+        /// @dev Identifies a request for refunding an escrow (cancellation from destination chain)
+        RefundEscrow
     }
 
     /**
@@ -658,16 +660,16 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
 
         if (isSameChain) {
             // Same-chain swap: release escrow immediately
-            RequestBody memory body = RequestBody({
+            WithdrawalRequest memory body = WithdrawalRequest({
                 commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
             });
-            redeem(body);
+            withdraw(body, false);
         } else {
             // Cross-chain swap: dispatch settlement message
             bytes memory body = bytes.concat(
                 bytes1(uint8(RequestKind.RedeemEscrow)),
                 abi.encode(
-                    RequestBody({
+                    WithdrawalRequest({
                         commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
                     })
                 )
@@ -711,55 +713,32 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     function cancelOrder(Order calldata order, CancelOptions calldata options) public payable {
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // only owner can cancel order
-        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
-
         // order has already been filled
         if (_filled[commitment] != address(0)) revert Filled();
 
         address hostAddr = host();
-        bool isSameChain = keccak256(order.source) == keccak256(order.destination);
+        bytes32 currentChain = keccak256(IDispatcher(hostAddr).host());
+        bytes32 orderSource = keccak256(order.source);
+        bytes32 orderDest = keccak256(order.destination);
+        bool isSameChain = orderSource == orderDest;
 
         if (isSameChain) {
             // Same-chain: validate locally and refund immediately
+            // only owner can cancel
+            if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
 
             // Verify we're on the correct chain
-            if (keccak256(order.source) != keccak256(IDispatcher(hostAddr).host())) revert WrongChain();
+            if (orderSource != currentChain) revert WrongChain();
 
-            // Mark as cancelled
-            address user = address(uint160(uint256(order.user)));
-            _filled[commitment] = user;
+            WithdrawalRequest memory body =
+                WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user});
 
-            // Check that the order exists in escrow and refund tokens to user
-            uint256 inputsLen = order.inputs.length;
-            for (uint256 i; i < inputsLen;) {
-                address token = address(uint160(uint256(order.inputs[i].token)));
-                uint256 amount = order.inputs[i].amount;
+            withdraw(body, true);
+        } else if (currentChain == orderSource) {
+            // source chain: fetch storage proof from destination
+            // only owner can cancel order
+            if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
 
-                if (_orders[commitment][token] == 0) revert UnknownOrder();
-
-                if (token == address(0)) {
-                    (bool sent,) = user.call{value: amount}("");
-                    if (!sent) revert InsufficientNativeToken();
-                } else {
-                    IERC20(token).safeTransfer(user, amount);
-                }
-
-                _orders[commitment][token] -= amount;
-                unchecked {
-                    ++i;
-                }
-            }
-
-            // Refund transaction fees if any
-            uint256 fees = _orders[commitment][TRANSACTION_FEES];
-            if (fees > 0) {
-                IERC20(IDispatcher(hostAddr).feeToken()).safeTransfer(user, fees);
-                delete _orders[commitment][TRANSACTION_FEES];
-            }
-
-            emit EscrowRefunded({commitment: commitment});
-        } else {
             // order has not yet expired
             if (options.height <= order.deadline) revert NotExpired();
 
@@ -775,7 +754,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             }
 
             bytes memory context =
-                abi.encode(RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
+                abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
 
             bytes[] memory keys = new bytes[](1);
             keys[0] = bytes.concat(
@@ -801,6 +780,39 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 // try to pay for dispatch with fee token
                 dispatchWithFeeToken(request, msg.sender);
             }
+        } else if (currentChain == orderDest) {
+            // destination chain: dispatch RefundEscrow request to source chain
+            // If order hasn't expired, only owner can cancel
+            if (order.deadline >= block.number) {
+                if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+            }
+
+            // Mark as cancelled locally to prevent fills
+            _filled[commitment] = address(uint160(uint256(order.user)));
+
+            bytes memory body = bytes.concat(
+                bytes1(uint8(RequestKind.RefundEscrow)),
+                abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}))
+            );
+
+            DispatchPost memory request = DispatchPost({
+                dest: order.source,
+                to: abi.encodePacked(instance(order.source)),
+                body: body,
+                timeout: 0,
+                fee: options.relayerFee,
+                payer: msg.sender
+            });
+
+            // dispatch refund request
+            if (msg.value > 0) {
+                IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+            } else {
+                // try to pay for dispatch with fee token
+                dispatchWithFeeToken(request, msg.sender);
+            }
+        } else {
+            revert WrongChain();
         }
     }
 
@@ -812,10 +824,10 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow) {
+        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
             authenticate(incoming.request);
-            RequestBody memory body = abi.decode(incoming.request.body[1:], (RequestBody));
-            return redeem(body);
+            WithdrawalRequest memory body = abi.decode(incoming.request.body[1:], (WithdrawalRequest));
+            return withdraw(body, kind == RequestKind.RefundEscrow);
         }
 
         // only hyperbridge is permitted to perfom these actions
@@ -866,12 +878,14 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     }
 
     /**
-     * @notice Redeems the escrowed tokens for a request body.
+     * @notice Withdraws the escrowed tokens for a request body.
      * @dev This function is marked as internal.
      * @param body The request body containing commitment, tokens, and beneficiary.
+     * @param isRefund Whether this is a refund (true) or a successful fill (false).
      */
-    function redeem(RequestBody memory body) internal {
+    function withdraw(WithdrawalRequest memory body, bool isRefund) internal {
         address beneficiary = address(uint160(uint256(body.beneficiary)));
+        _filled[body.commitment] = beneficiary;
 
         // redeem escrowed tokens
         uint256 len = body.tokens.length;
@@ -900,8 +914,11 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             delete _orders[body.commitment][TRANSACTION_FEES];
         }
 
-        _filled[body.commitment] = beneficiary;
-        emit EscrowReleased({commitment: body.commitment});
+        if (isRefund) {
+            emit EscrowRefunded({commitment: body.commitment});
+        } else {
+            emit EscrowReleased({commitment: body.commitment});
+        }
     }
 
     /**
@@ -913,37 +930,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     function onGetResponse(IncomingGetResponse calldata incoming) external override onlyHost {
         if (incoming.response.values[0].value.length != 0) revert Filled();
 
-        RequestBody memory body = abi.decode(incoming.response.request.context, (RequestBody));
-        address beneficiary = address(uint160(uint256(body.beneficiary)));
-
-        // recover escrowed tokens
-        uint256 len = body.tokens.length;
-        for (uint256 i; i < len;) {
-            address token = address(uint160(uint256(body.tokens[i].token)));
-            uint256 amount = body.tokens[i].amount;
-            if (_orders[body.commitment][token] == 0) revert UnknownOrder();
-
-            if (token == address(0)) {
-                (bool sent,) = beneficiary.call{value: amount}("");
-                if (!sent) revert InsufficientNativeToken();
-            } else {
-                IERC20(token).safeTransfer(beneficiary, amount);
-            }
-
-            _orders[body.commitment][token] -= amount;
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        // recover tx fees
-        uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
-        if (fees > 0) {
-            IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
-            delete _orders[body.commitment][TRANSACTION_FEES];
-        }
-
-        emit EscrowRefunded({commitment: body.commitment});
+        WithdrawalRequest memory body = abi.decode(incoming.response.request.context, (WithdrawalRequest));
+        withdraw(body, true);
     }
 }

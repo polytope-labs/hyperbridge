@@ -4,6 +4,8 @@
     "description": "TronBox deployment for Hyperbridge ISMP contracts on TRON",
     "scripts": {
         "postinstall": "cd node_modules/@hyperbridge/core && ln -sf contracts/interfaces interfaces 2>/dev/null; ln -sf contracts/libraries libraries 2>/dev/null; ln -sf contracts/apps apps 2>/dev/null; true",
+        "tre": "docker rm -f tre 2>/dev/null; docker run -d --name tre -p 9090:9090 --platform linux/arm64 -e accounts=1 -e defaultBalance=100000 -e 'mnemonic=test test test test test test test test test test test junk' tronbox/tre:latest && echo 'TRE starting on http://127.0.0.1:9090 — wait ~60s for accounts to be funded'",
+        "tre:stop": "docker rm -f tre",
         "compile": "tronbox compile --all",
         "migrate:development": "tronbox migrate --network development",
         "migrate:shasta": "tronbox migrate --network shasta",
@@ -11,7 +13,9 @@
         "migrate:mainnet": "tronbox migrate --network mainnet",
         "console:shasta": "tronbox console --network shasta",
         "console:nile": "tronbox console --network nile",
-        "console:mainnet": "tronbox console --network mainnet"
+        "console:mainnet": "tronbox console --network mainnet",
+        "setup:testnet": "cp -n .env.testnet.example .env.testnet || true",
+        "setup:mainnet": "cp -n .env.mainnet.example .env.mainnet || true"
     },
     "author": "Polytope Labs (hello@polytope.technology)",
     "license": "Apache-2.0",

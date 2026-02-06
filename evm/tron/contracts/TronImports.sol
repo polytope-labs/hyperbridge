@@ -21,6 +21,13 @@ import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
 
 import {BeefyV1FiatShamir} from "../../src/consensus/BeefyV1FiatShamir.sol";
 import {MultiProofClient} from "../../src/consensus/MultiProofClient.sol";
+import {HeaderImpl} from "../../src/consensus/Header.sol";
+import {Codec} from "../../src/consensus/Codec.sol";
+import {Transcript} from "../../src/consensus/Transcript.sol";
+
+// ── Libraries ───────────────────────────────────────────────────────────────
+
+import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
 
 // ── Utilities ───────────────────────────────────────────────────────────────
 

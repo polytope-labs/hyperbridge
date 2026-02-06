@@ -31,7 +31,8 @@ contract DeployScript is BaseScript {
         SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
         console.log("SP1Beefy deployed at:", address(sp1));
 
-        MultiProofClient consensusClient = new MultiProofClient{salt: salt}(IConsensus(sp1), IConsensus(beefyV1));
+        MultiProofClient consensusClient =
+            new MultiProofClient{salt: salt}(IConsensus(sp1), IConsensus(beefyV1), IConsensus(address(0)));
         console.log("MultiProofClient deployed at:", address(consensusClient));
 
         // Update host params if not mainnet

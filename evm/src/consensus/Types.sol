@@ -114,3 +114,38 @@ struct ParachainProof {
     Parachain parachain;
     Node[][] proof;
 }
+
+struct Vote {
+    // secp256k1 signature from a member of the authority set
+    bytes signature;
+    // This member's index in the set
+    uint256 authorityIndex;
+}
+
+// The signed commitment holds a commitment to the latest
+// finalized state as well as votes from a supermajority
+// of the authority set which confirms this state
+struct SignedCommitment {
+    // A commitment to the finalized state
+    Commitment commitment;
+    // The confirming votes
+    Vote[] votes;
+}
+
+struct RelayChainProof {
+    // Signed commitment
+    SignedCommitment signedCommitment;
+    // Latest leaf added to mmr
+    BeefyMmrLeaf latestMmrLeaf;
+    // Proof for the latest mmr leaf
+    bytes32[] mmrProof;
+    // Proof for authorities in current/next session
+    Node[][] proof;
+}
+
+struct BeefyConsensusProof {
+    // The proof items for the relay chain consensus
+    RelayChainProof relay;
+    // Proof items for parachain headers
+    ParachainProof parachain;
+}

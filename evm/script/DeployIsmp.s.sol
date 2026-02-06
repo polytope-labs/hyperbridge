@@ -71,8 +71,7 @@ contract DeployScript is BaseScript {
 
         // Deploy MultiProofClient wrapping both consensus clients
         MultiProofClient multiProofClient = new MultiProofClient{salt: salt}(
-            IConsensus(address(sp1BeefyClient)),
-            IConsensus(address(beefyV1Client))
+            IConsensus(address(sp1BeefyClient)), IConsensus(address(beefyV1Client)), IConsensus(address(address(0)))
         );
         consensusClient = address(multiProofClient);
 

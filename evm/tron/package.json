@@ -1,0 +1,26 @@
+{
+    "name": "hyperbridge-tron",
+    "version": "1.0.0",
+    "description": "TronBox deployment for Hyperbridge ISMP contracts on TRON",
+    "scripts": {
+        "postinstall": "cd node_modules/@hyperbridge/core && ln -sf contracts/interfaces interfaces 2>/dev/null; ln -sf contracts/libraries libraries 2>/dev/null; ln -sf contracts/apps apps 2>/dev/null; true",
+        "compile": "tronbox compile --all",
+        "migrate:development": "tronbox migrate --network development",
+        "migrate:shasta": "tronbox migrate --network shasta",
+        "migrate:nile": "tronbox migrate --network nile",
+        "migrate:mainnet": "tronbox migrate --network mainnet",
+        "console:shasta": "tronbox console --network shasta",
+        "console:nile": "tronbox console --network nile",
+        "console:mainnet": "tronbox console --network mainnet"
+    },
+    "author": "Polytope Labs (hello@polytope.technology)",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "@hyperbridge/core": "^1.6.0",
+        "@openzeppelin/contracts": "^5.4.0",
+        "@polytope-labs/solidity-merkle-trees": "^0.4.0",
+        "@uniswap/v2-periphery": "^1.1.0-beta.0",
+        "dotenv": "^16.4.7",
+        "tronbox": "^4.5.0"
+    }
+}

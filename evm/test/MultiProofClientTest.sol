@@ -23,8 +23,8 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * @title MultiProofClientTest
  * @notice Comprehensive test suite for the MultiProofClient contract
  * @dev This test suite verifies the multi-proof consensus client's ability to route
- *      consensus proofs to the appropriate verifier (SP1Beefy or BeefyV1) based on the
- *      first byte of the proof.
+ *      consensus proofs to the appropriate verifier (SP1Beefy, BeefyV1, or BeefyV1FiatShamir)
+ *      based on the first byte of the proof.
  *
  * Test Coverage:
  * --------------
@@ -37,11 +37,12 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * 3. Proof Routing:
  *    - Tests routing to BeefyV1 (proof type 0x00)
  *    - Tests routing to SP1Beefy (proof type 0x01)
+ *    - Tests routing to BeefyV1FiatShamir (proof type 0x02)
  *    - Validates proof data is correctly stripped of type byte before forwarding
  *
  * 4. Error Handling:
  *    - Empty proof rejection
- *    - Invalid proof type rejection (0x02-0xFF)
+ *    - Invalid proof type rejection (0x03-0xFF)
  *    - Proper error messages and revert reasons
  *
  * 5. Edge Cases:
@@ -58,6 +59,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * --------------
  * - MockSP1Beefy: Simulates ZK proof verification
  * - MockBeefyV1: Simulates naive proof verification
+ * - MockBeefyV1FiatShamir: Simulates Fiat-Shamir sampled proof verification
  */
 
 /// Mock SP1Beefy consensus client for testing
@@ -108,10 +110,37 @@ contract MockBeefyV1 is IConsensus, ERC165 {
     }
 }
 
+/// Mock BeefyV1FiatShamir consensus client for testing
+contract MockBeefyV1FiatShamir is IConsensus, ERC165 {
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    function verifyConsensus(bytes memory encodedState, bytes memory proof)
+        external
+        view
+        returns (bytes memory, IntermediateState[] memory)
+    {
+        StateCommitment memory commitment = StateCommitment({
+            timestamp: block.timestamp,
+            overlayRoot: keccak256("fiat_shamir_overlay"),
+            stateRoot: keccak256("fiat_shamir_state")
+        });
+        IntermediateState memory intermediate =
+            IntermediateState({stateMachineId: 3, height: 300, commitment: commitment});
+
+        IntermediateState[] memory intermediates = new IntermediateState[](1);
+        intermediates[0] = intermediate;
+
+        return (encodedState, intermediates);
+    }
+}
+
 contract MultiProofClientTest is Test {
     MultiProofClient public client;
     MockSP1Beefy public mockSP1Beefy;
     MockBeefyV1 public mockBeefyV1;
+    MockBeefyV1FiatShamir public mockBeefyV1FiatShamir;
 
     bytes public testEncodedState = hex"deadbeef";
     bytes public testProofData = hex"cafebabe";
@@ -119,7 +148,12 @@ contract MultiProofClientTest is Test {
     function setUp() public {
         mockSP1Beefy = new MockSP1Beefy();
         mockBeefyV1 = new MockBeefyV1();
-        client = new MultiProofClient(IConsensus(address(mockSP1Beefy)), IConsensus(address(mockBeefyV1)));
+        mockBeefyV1FiatShamir = new MockBeefyV1FiatShamir();
+        client = new MultiProofClient(
+            IConsensus(address(mockSP1Beefy)),
+            IConsensus(address(mockBeefyV1)),
+            IConsensus(address(mockBeefyV1FiatShamir))
+        );
     }
 
     /// Test that the client supports the IConsensus interface
@@ -128,10 +162,15 @@ contract MultiProofClientTest is Test {
         assertTrue(client.supportsInterface(type(ERC165).interfaceId), "Should support ERC165 interface");
     }
 
-    /// Test that the client correctly stores the SP1Beefy and BeefyV1 addresses
+    /// Test that the client correctly stores the SP1Beefy, BeefyV1, and BeefyV1FiatShamir addresses
     function testConstructor() public view {
         assertEq(address(client.sp1Beefy()), address(mockSP1Beefy), "SP1Beefy address should match");
         assertEq(address(client.beefyV1()), address(mockBeefyV1), "BeefyV1 address should match");
+        assertEq(
+            address(client.beefyV1FiatShamir()),
+            address(mockBeefyV1FiatShamir),
+            "BeefyV1FiatShamir address should match"
+        );
     }
 
     /// Test successful routing to BeefyV1 with 0x00 proof type
@@ -166,6 +205,22 @@ contract MultiProofClientTest is Test {
         assertEq(intermediates[0].height, 100, "Height should match SP1Beefy mock");
     }
 
+    /// Test successful routing to BeefyV1FiatShamir with 0x02 proof type
+    function testVerifyConsensusWithFiatShamirProof() public view {
+        // Prepare proof with 0x02 prefix (FiatShamir)
+        bytes memory proofWithType = bytes.concat(hex"02", testProofData);
+
+        // Call verifyConsensus
+        (bytes memory returnedState, IntermediateState[] memory intermediates) =
+            client.verifyConsensus(testEncodedState, proofWithType);
+
+        // Verify routing by checking return values (FiatShamir returns stateMachineId=3, height=300)
+        assertEq(returnedState, testEncodedState, "Returned state should match");
+        assertEq(intermediates.length, 1, "Should return one intermediate state");
+        assertEq(intermediates[0].stateMachineId, 3, "State machine ID should match FiatShamir mock");
+        assertEq(intermediates[0].height, 300, "Height should match FiatShamir mock");
+    }
+
     /// Test that empty proof reverts with EmptyProof error
     function testVerifyConsensusWithEmptyProof() public {
         bytes memory emptyProof = "";
@@ -174,12 +229,12 @@ contract MultiProofClientTest is Test {
         client.verifyConsensus(testEncodedState, emptyProof);
     }
 
-    /// Test that invalid proof type (0x02) reverts with InvalidProofType error
+    /// Test that invalid proof type (0x03) reverts with InvalidProofType error
     function testVerifyConsensusWithInvalidProofType() public {
-        // Prepare proof with 0x02 prefix (invalid)
-        bytes memory proofWithInvalidType = bytes.concat(hex"02", testProofData);
+        // Prepare proof with 0x03 prefix (invalid)
+        bytes memory proofWithInvalidType = bytes.concat(hex"03", testProofData);
 
-        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(2)));
+        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(3)));
         client.verifyConsensus(testEncodedState, proofWithInvalidType);
     }
 
@@ -234,10 +289,15 @@ contract MultiProofClientTest is Test {
         (, IntermediateState[] memory intermediates1) = client.verifyConsensus(testEncodedState, proof1);
         assertEq(intermediates1[0].stateMachineId, 1, "Should route to SP1Beefy for type 0x01");
 
-        // Test invalid boundary: 0x02
+        // Test valid boundary: 0x02
         bytes memory proof2 = bytes.concat(hex"02", testProofData);
-        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(2)));
-        client.verifyConsensus(testEncodedState, proof2);
+        (, IntermediateState[] memory intermediates2) = client.verifyConsensus(testEncodedState, proof2);
+        assertEq(intermediates2[0].stateMachineId, 3, "Should route to BeefyV1FiatShamir for type 0x02");
+
+        // Test invalid boundary: 0x03
+        bytes memory proof3 = bytes.concat(hex"03", testProofData);
+        vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", uint8(3)));
+        client.verifyConsensus(testEncodedState, proof3);
     }
 
     /// Test that both clients can be called in sequence
@@ -256,9 +316,17 @@ contract MultiProofClientTest is Test {
 
         assertEq(intermediates2[0].stateMachineId, 1, "Second call should route to SP1Beefy");
 
-        // Verify both returned the encoded state
+        // Third call with BeefyV1FiatShamir
+        bytes memory fsProof = bytes.concat(hex"02", testProofData);
+        (bytes memory state3, IntermediateState[] memory intermediates3) =
+            client.verifyConsensus(testEncodedState, fsProof);
+
+        assertEq(intermediates3[0].stateMachineId, 3, "Third call should route to BeefyV1FiatShamir");
+
+        // Verify all returned the encoded state
         assertEq(state1, testEncodedState, "First call should return correct state");
         assertEq(state2, testEncodedState, "Second call should return correct state");
+        assertEq(state3, testEncodedState, "Third call should return correct state");
     }
 
     /// Fuzz test with random proof types
@@ -273,6 +341,10 @@ contract MultiProofClientTest is Test {
             // Should route to SP1Beefy
             (, IntermediateState[] memory intermediates) = client.verifyConsensus(testEncodedState, proofWithType);
             assertEq(intermediates[0].stateMachineId, 1, "Should route to SP1Beefy for type 1");
+        } else if (proofType == 2) {
+            // Should route to BeefyV1FiatShamir
+            (, IntermediateState[] memory intermediates) = client.verifyConsensus(testEncodedState, proofWithType);
+            assertEq(intermediates[0].stateMachineId, 3, "Should route to BeefyV1FiatShamir for type 2");
         } else {
             // Should revert with InvalidProofType
             vm.expectRevert(abi.encodeWithSignature("InvalidProofType(uint8)", proofType));
@@ -288,7 +360,7 @@ contract MultiProofClientTest is Test {
         // Extract the first byte as proof type
         uint8 proofType = uint8(proofData[0]);
 
-        if (proofType <= 1) {
+        if (proofType <= 2) {
             // Valid proof type - should succeed
             (bytes memory returnedState,) = client.verifyConsensus(testEncodedState, proofData);
             assertEq(returnedState, testEncodedState, "Should return correct state");

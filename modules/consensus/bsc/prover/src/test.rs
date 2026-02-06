@@ -152,20 +152,18 @@ async fn verify_bsc_pos_headers() {
 			}
 
 			// Skip blocks that fail verification
-			let result = match verify_bsc_header::<Host, Testnet>(
-				&validators,
-				update.clone(),
-				EPOCH_LENGTH,
-			) {
-				Ok(r) => r,
-				Err(e) => {
-					println!(
-						"Verification failed for block {}: {}, skipping",
-						header.number, e
-					);
-					continue;
-				},
-			};
+			let result =
+				match verify_bsc_header::<Host, Testnet>(&validators, update.clone(), EPOCH_LENGTH)
+				{
+					Ok(r) => r,
+					Err(e) => {
+						println!(
+							"Verification failed for block {}: {}, skipping",
+							header.number, e
+						);
+						continue;
+					},
+				};
 
 			dbg!(&result.hash);
 			dbg!(result.next_validators.is_some());

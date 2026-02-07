@@ -30,9 +30,11 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub struct TronApiConfig {
 	/// Base URL of the TRON full node.
-	/// API keys can be included directly in the URL if needed.
-	/// Example: `https://api.trongrid.io?api_key=YOUR_API_KEY`
+	/// Example: `https://api.trongrid.io`
 	pub full_host: String,
+	/// Optional API key for the TRON full node.
+	/// If provided, it will be sent as the `TRON-PRO-API-KEY` header.
+	pub api_key: Option<String>,
 	/// HTTP request timeout.
 	pub timeout: Duration,
 }
@@ -52,6 +54,15 @@ impl TronApi {
 			reqwest::header::CONTENT_TYPE,
 			reqwest::header::HeaderValue::from_static("application/json"),
 		);
+
+		// Add TRON-PRO-API-KEY header if an API key is provided
+		if let Some(api_key) = &config.api_key {
+			headers.insert(
+				"TRON-PRO-API-KEY",
+				reqwest::header::HeaderValue::from_str(api_key)
+					.context("invalid API key format")?,
+			);
+		}
 
 		let client = reqwest::Client::builder()
 			.default_headers(headers)

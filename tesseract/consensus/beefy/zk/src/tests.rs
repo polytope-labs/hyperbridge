@@ -227,6 +227,9 @@ struct TronTestConfig {
 	/// API keys can be included in the URL if needed.
 	#[serde(alias = "TRON_HOST")]
 	tron_api_url: String,
+	/// TRON native API key (for tx submission).
+	#[serde(alias = "TRON_API_KEY")]
+	tron_api_key: Option<String>,
 }
 
 /// Encode a FiatShamir consensus proof in the format expected by
@@ -294,6 +297,7 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 		tron_host_address,
 		private_key,
 		tron_api_url,
+		tron_api_key,
 	} = config;
 
 	// Derive the JSON-RPC URL from the API URL
@@ -411,6 +415,7 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 			initial_height: Some(1),
 			transport: RpcTransport::Tron,
 		},
+		tron_api_key,
 		tron_api_url,
 		fee_limit: 1_000_000_000, // 1000 TRX
 		tron_api_timeout_secs: 180,
@@ -432,6 +437,14 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 	println!("Subscribed to BEEFY justifications, waiting for a finality proof...\n");
 
 	while let Some(Ok(commitment)) = subscription.next().await {
+		let consensus_state_bytes =
+			tron_client.evm.query_consensus_state(None, Default::default()).await?;
+
+		let consensus_state =
+			beefy_verifier_primitives::ConsensusState::decode(&mut &*consensus_state_bytes)?;
+
+		log::info!("Consensus state: {:#?}", consensus_state);
+
 		let commitment_bytes = hex::decode(&commitment[2..])?;
 		let VersionedFinalityProof::V1(signed_commitment) =
 			VersionedFinalityProof::<u32, Signature>::decode(&mut &*commitment_bytes)?;
@@ -489,7 +502,6 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 
 		// One successful submission is enough for the test
 		println!("FiatShamir consensus update submitted successfully to TRON!");
-		break;
 	}
 
 	Ok(())

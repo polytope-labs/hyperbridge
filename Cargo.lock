@@ -31550,6 +31550,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
+ "log",
  "parity-scale-codec",
  "polkadot-ckb-merkle-mountain-range",
  "polkadot-sdk",

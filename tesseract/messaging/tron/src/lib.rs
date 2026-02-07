@@ -85,12 +85,18 @@ pub struct TronConfig {
 	/// This is the endpoint for `/wallet/*` calls (triggerSmartContract,
 	/// broadcastTransaction, etc.).
 	///
-	/// RPC providers can include API keys directly in the URL if needed.
-	///
 	/// - TRE local:     `http://127.0.0.1:9090`
-	/// - TronGrid:      `https://api.trongrid.io?api_key=YOUR_API_KEY`
-	/// - Nile testnet:  `https://nile.trongrid.io?api_key=YOUR_API_KEY`
+	/// - TronGrid:      `https://api.trongrid.io`
+	/// - Nile testnet:  `https://nile.trongrid.io`
 	pub tron_api_url: String,
+
+	/// Optional TRON API key for services like TronGrid.
+	///
+	/// If provided, this will be sent as the `TRON-PRO-API-KEY` header.
+	/// Alternatively, you can include the API key directly in the URL:
+	/// `https://api.trongrid.io?api_key=YOUR_API_KEY`
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub tron_api_key: Option<String>,
 
 	/// Maximum fee for contract trigger transactions, in SUN
 	/// (1 TRX = 1_000_000 SUN).  Default: 1_000_000_000 (1000 TRX).
@@ -186,6 +192,7 @@ impl TronClient {
 
 		let tron_api = TronApi::new(TronApiConfig {
 			full_host: config.tron_api_url.clone(),
+			api_key: config.tron_api_key.clone(),
 			timeout: std::time::Duration::from_secs(config.tron_api_timeout_secs),
 		})?;
 

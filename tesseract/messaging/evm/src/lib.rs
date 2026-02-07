@@ -1,4 +1,7 @@
-use crate::abi::{EvmHost, PingModule};
+use crate::{
+	abi::{EvmHost, PingModule},
+	transport::{OmniClient, RpcTransport},
+};
 
 use ethers::{
 	core::k256::ecdsa::SigningKey,
@@ -28,6 +31,7 @@ use tx::handle_message_submission;
 pub mod abi;
 mod byzantine;
 pub mod gas_oracle;
+pub mod transport;
 use tx::wait_for_transaction_receipt;
 pub mod provider;
 
@@ -82,6 +86,11 @@ pub struct EvmConfig {
 	pub client_type: Option<ClientType>,
 	/// Initial height from which to start querying messages
 	pub initial_height: Option<u64>,
+	/// Selects the JSON-RPC transport variant.  Defaults to [`RpcTransport::Standard`].
+	/// Set to [`RpcTransport::Tron`] for TRON nodes whose JSON-RPC proxy rejects
+	/// EIP-1559 fields (`type`, `accessList`).
+	#[serde(default)]
+	pub transport: RpcTransport,
 }
 
 impl EvmConfig {
@@ -111,6 +120,7 @@ impl Default for EvmConfig {
 			gas_price_buffer: Default::default(),
 			client_type: Default::default(),
 			initial_height: Default::default(),
+			transport: Default::default(),
 		}
 	}
 }
@@ -118,9 +128,9 @@ impl Default for EvmConfig {
 /// Core EVM client.
 pub struct EvmClient {
 	/// Execution Rpc client
-	pub client: Arc<Provider<Http>>,
+	pub client: Arc<Provider<OmniClient>>,
 	/// Transaction signer
-	pub signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
+	pub signer: Arc<SignerMiddleware<Provider<OmniClient>, Wallet<SigningKey>>>,
 	/// Public Key Address
 	pub address: Vec<u8>,
 	/// Consensus state Id
@@ -163,7 +173,8 @@ impl EvmClient {
 			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			Some(Duration::from_secs(180)),
 		);
-		let provider = Provider::new(http_client);
+		let omni = OmniClient::new(http_client, &config.transport);
+		let provider = Provider::new(omni);
 		let client = Arc::new(provider.clone());
 		let chain_id = client.get_chainid().await?.low_u64();
 		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
@@ -187,7 +198,7 @@ impl EvmClient {
 			consensus_state_id,
 			state_machine: config.state_machine,
 			initial_height: latest_height,
-			config: config_clone,
+			config: config_clone.clone(),
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),

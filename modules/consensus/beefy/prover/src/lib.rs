@@ -38,12 +38,18 @@ use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex, SignedCommitment,
 };
+use fiat_shamir::{
+	compute_commitment_hash, derive_authority_challenge, filter_signatures_for_challenge,
+	SignersBitmap,
+};
 use relay::{
 	beefy_mmr_leaf_next_authorities, fetch_latest_beefy_justification, fetch_mmr_proof,
 	paras_parachains,
 };
 use util::hash_authority_addresses;
 
+/// Fiat-Shamir transcript for deterministic validator sampling
+pub mod fiat_shamir;
 /// Methods for querying the relay chain
 pub mod relay;
 /// Helper functions and types
@@ -167,6 +173,110 @@ impl<R: Config, P: Config> Prover<R, P> {
 				.ok_or_else(|| anyhow!("No beefy authorities found!"))?
 		};
 		Ok(current_authorities)
+	}
+
+	/// Produces a Fiat-Shamir consensus proof that only includes [`fiat_shamir::SAMPLE_SIZE`]
+	/// validator signatures, selected deterministically via a Fiat-Shamir transcript.
+	///
+	/// The prover computes the same transcript as the on-chain `BeefyV1FiatShamir` verifier
+	/// to learn which authority indices will be challenged, then includes only those
+	/// signatures and their merkle membership proofs.
+	///
+	/// # Arguments
+	///
+	/// * `signed_commitment` — The full BEEFY signed commitment from the relay chain.
+	/// * `consensus_state` — The current consensus state, used to determine the active authority
+	///   set (root + length) for transcript construction.
+	pub async fn consensus_proof_fiat_shamir(
+		&self,
+		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
+		consensus_state: &ConsensusState,
+	) -> Result<(ConsensusMessage, SignersBitmap), anyhow::Error> {
+		let block_number: u32 = signed_commitment.commitment.block_number.into();
+		let block_hash = self
+			.relay_rpc
+			.chain_get_block_hash(Some(block_number.into()))
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
+
+		let (mmr_proof, latest_leaf) =
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
+				.await?;
+
+		// Determine the active authority set based on the validator_set_id in the commitment
+		let authority_set = if signed_commitment.commitment.validator_set_id ==
+			consensus_state.next_authorities.id
+		{
+			&consensus_state.next_authorities
+		} else {
+			&consensus_state.current_authorities
+		};
+
+		// Build the signers bitmap from the signed commitment
+		let bitmap = SignersBitmap::from_signed_commitment(&signed_commitment);
+		let signer_count = bitmap.count_set_bits(authority_set.len);
+
+		// Derive the Fiat-Shamir challenged authority indices — identical to the
+		// on-chain verifier's `deriveAuthorityChallenge`.
+		let commitment_hash = compute_commitment_hash(&signed_commitment.commitment);
+		let challenged_indices = derive_authority_challenge(
+			commitment_hash,
+			authority_set.keyset_commitment,
+			authority_set.len,
+			&bitmap,
+			signer_count,
+		);
+
+		// Extract and process only the challenged signatures
+		let signatures = filter_signatures_for_challenge(&signed_commitment, &challenged_indices)?;
+
+		// Build the merkle proof for exactly those challenged authorities
+		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
+		let authority_address_hashes = hash_authority_addresses(
+			current_authorities.into_iter().map(|x| x.encode()).collect(),
+		)?;
+		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
+		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices);
+
+		let mmr = MmrProof {
+			signed_commitment: SignedCommitment {
+				commitment: signed_commitment.commitment.clone(),
+				signatures,
+			},
+			latest_mmr_leaf: latest_leaf.clone(),
+			mmr_proof,
+			authority_proof,
+		};
+
+		// Build parachain proofs (identical to naive consensus_proof)
+		let heads = paras_parachains(
+			&self.relay_rpc,
+			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
+		)
+		.await?;
+
+		let (parachains, indices): (Vec<_>, Vec<_>) = self
+			.para_ids
+			.iter()
+			.map(|id| {
+				let index = heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist");
+				(
+					ParachainHeader {
+						header: heads[index].1.clone(),
+						index,
+						para_id: heads[index].0,
+					},
+					index,
+				)
+			})
+			.unzip();
+
+		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+		let proof = util::merkle_proof(&leaves, &indices);
+
+		let parachain = ParachainProof { parachains, proof };
+
+		Ok((ConsensusMessage { mmr, parachain }, bitmap))
 	}
 
 	/// This will fetch the latest leaf in the mmr as well as a proof for this leaf in the latest

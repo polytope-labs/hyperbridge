@@ -5,7 +5,7 @@ use anyhow::{anyhow, Error};
 use ethers::{
 	core::k256::ecdsa::SigningKey,
 	middleware::SignerMiddleware,
-	providers::{Http, Middleware, Provider},
+	providers::{Middleware, Provider},
 	signers::Wallet,
 };
 use futures::{stream, StreamExt};
@@ -29,6 +29,7 @@ use sync_committee_prover::{
 };
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd,
+	transport::OmniClient,
 	tx::{get_chain_gas_limit, wait_for_success},
 };
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
@@ -255,7 +256,7 @@ async fn construct_state_proposal(
 
 		struct LatestGameData {
 			l2_block_number: u64,
-			game: FaultDisputeGame<Provider<Http>>,
+			game: FaultDisputeGame<Provider<OmniClient>>,
 		}
 
 		let proposal = loop {
@@ -450,7 +451,7 @@ async fn construct_state_proposal(
 async fn submit_state_proposal(
 	client: &OpHost,
 	dispute_game_factory_address: H160,
-	proposer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
+	proposer: Arc<SignerMiddleware<Provider<OmniClient>, Wallet<SigningKey>>>,
 	proposal: StateProposal,
 ) -> Result<(), anyhow::Error> {
 	log::trace!(target: "tesseract",

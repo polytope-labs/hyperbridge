@@ -15,7 +15,7 @@
 use anyhow::{anyhow, Context};
 use bytes::Buf;
 use codec::{Decode, Encode};
-use ethers::abi::AbiEncode;
+use ethers::abi::{AbiEncode, Token, Tokenizable};
 use hex_literal::hex;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -73,6 +73,20 @@ pub struct BeefyProverConfig {
 	pub state_machines: Vec<StateMachine>,
 }
 
+/// Selects which proof strategy the BEEFY prover uses.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProofVariant {
+	/// Verify the full 2/3+1 supermajority of signatures on-chain (BeefyV1).
+	#[default]
+	Naive,
+	/// Delegate signature verification to an SP1 ZK program (SP1Beefy).
+	Zk,
+	/// Deterministically sample a small subset of signatures via Fiat-Shamir
+	/// (BeefyV1FiatShamir).
+	FiatShamir,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProverConfig {
 	/// RPC ws url for a relay chain
@@ -81,8 +95,9 @@ pub struct ProverConfig {
 	pub para_rpc_ws: String,
 	/// para Id for the parachain
 	pub para_ids: Vec<u32>,
-	/// Generate zk BEEFY proofs?
-	pub zk_beefy: bool,
+	/// Which proof variant to produce.
+	#[serde(default)]
+	pub proof_variant: ProofVariant,
 	/// Maximum size in bytes for the rpc payloads, both requests & responses.
 	pub max_rpc_payload_size: Option<u32>,
 	/// Query batch size for mmr leaves
@@ -116,6 +131,9 @@ pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 
 /// Proof type identifier for ZK proofs (SP1Beefy)
 pub const PROOF_TYPE_ZK: u8 = 0x01;
+
+/// Proof type identifier for Fiat-Shamir sampled proofs (BeefyV1FiatShamir)
+pub const PROOF_TYPE_FIAT_SHAMIR: u8 = 0x02;
 
 impl<R, P, B> BeefyProver<R, P, B>
 where
@@ -229,6 +247,28 @@ where
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
 				[&[PROOF_TYPE_ZK], AbiEncode::encode(message).as_slice()].concat()
+			},
+			Prover::FiatShamir(ref fs, _) => {
+				let (consensus_message, bitmap) =
+					fs.consensus_proof_fiat_shamir(signed_commitment, &consensus_state).await?;
+				let message: BeefyConsensusProof = consensus_message.into();
+				// The FiatShamir verifier expects abi.encode(RelayChainProof, ParachainProof,
+				// uint256[4])
+				let bitmap_token = Token::FixedArray(
+					bitmap
+						.words
+						.iter()
+						.map(|w| {
+							Token::Uint(ethers::types::U256::from_big_endian(&w.to_big_endian()))
+						})
+						.collect(),
+				);
+				let encoded = ethers::abi::encode(&[
+					message.relay.into_token(),
+					message.parachain.into_token(),
+					bitmap_token,
+				]);
+				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
 			},
 		};
 
@@ -675,10 +715,13 @@ where
 
 /// Beefy prover, can either produce zk proofs or naive proofs
 pub enum Prover<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
-	// The naive prover
+	/// The naive prover — verifies all 2/3+1 signatures on-chain
 	Naive(beefy_prover::Prover<R, P>, PhantomData<B>),
-	// zk prover
+	/// ZK prover — delegates signature verification to an SP1 program
 	ZK(zk_beefy::Prover<R, P, B>),
+	/// Fiat-Shamir prover — deterministically samples SAMPLE_SIZE signatures for on-chain
+	/// verification
+	FiatShamir(beefy_prover::Prover<R, P>, PhantomData<B>),
 }
 
 impl<R, P, B> Clone for Prover<R, P, B>
@@ -693,6 +736,7 @@ where
 		match self {
 			Prover::Naive(p, _) => Prover::Naive(p.clone(), PhantomData),
 			Prover::ZK(p) => Prover::ZK(p.clone()),
+			Prover::FiatShamir(p, _) => Prover::FiatShamir(p.clone(), PhantomData),
 		}
 	}
 }
@@ -745,11 +789,13 @@ where
 			query_batch_size: config.query_batch_size,
 		};
 
-		let prover = if config.zk_beefy {
-			let sp1_prover = zk_beefy::LocalProver::new(true);
-			Prover::ZK(zk_beefy::Prover::new(prover, sp1_prover))
-		} else {
-			Prover::Naive(prover, PhantomData)
+		let prover = match config.proof_variant {
+			ProofVariant::FiatShamir => Prover::FiatShamir(prover, PhantomData),
+			ProofVariant::Zk => {
+				let sp1_prover = zk_beefy::LocalProver::new(true);
+				Prover::ZK(zk_beefy::Prover::new(prover, sp1_prover))
+			},
+			ProofVariant::Naive => Prover::Naive(prover, PhantomData),
 		};
 
 		Ok(prover)
@@ -768,6 +814,7 @@ where
 		match self {
 			Prover::ZK(ref p) => &p.inner,
 			Prover::Naive(ref p, _) => p,
+			Prover::FiatShamir(ref p, _) => p,
 		}
 	}
 
@@ -902,7 +949,7 @@ mod tests {
 			relay_rpc_ws: "wss://hyperbridge-paseo-relay.blockops.network:443".to_string(),
 			para_rpc_ws: substrate_config.rpc_ws.clone(),
 			para_ids: vec![4009],
-			zk_beefy: false,
+			proof_variant: ProofVariant::Naive,
 			max_rpc_payload_size: None,
 			query_batch_size: None,
 		};

@@ -39,9 +39,7 @@ use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use cumulus_pallet_parachain_system::{
-	RelayChainState, RelayNumberMonotonicallyIncreases,
-};
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
 use polkadot_sdk::{pallet_session::disabling::UpToLimitDisablingStrategy, *};

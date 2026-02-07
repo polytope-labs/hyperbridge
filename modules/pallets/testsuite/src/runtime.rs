@@ -21,7 +21,7 @@ use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{ConstU32, ConstU64, ConstU128, Get},
+	traits::{ConstU128, ConstU32, ConstU64, Get},
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSigned, EventRecord};

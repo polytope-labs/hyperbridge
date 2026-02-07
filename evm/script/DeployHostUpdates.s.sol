@@ -12,7 +12,7 @@ import "../src/core/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
-import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 
 contract DeployScript is BaseScript {
@@ -31,8 +31,9 @@ contract DeployScript is BaseScript {
         SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
         console.log("SP1Beefy deployed at:", address(sp1));
 
-        MultiProofClient consensusClient = new MultiProofClient{salt: salt}(IConsensus(sp1), IConsensus(beefyV1));
-        console.log("MultiProofClient deployed at:", address(consensusClient));
+        ConsensusRouter consensusClient =
+            new ConsensusRouter{salt: salt}(IConsensus(sp1), IConsensus(beefyV1), IConsensus(address(0)));
+        console.log("ConsensusRouter deployed at:", address(consensusClient));
 
         // Update host params if not mainnet
         bool isMainnet = config.get("is_mainnet").toBool();

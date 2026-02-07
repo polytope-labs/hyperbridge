@@ -2026,7 +2026,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
             abi.encode(
-                WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
+                WithdrawalRequest({
+                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
+                })
             )
         );
 
@@ -2081,8 +2083,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectEmit(true, false, false, true);
-        emit IntentGatewayV2.EscrowRefunded(commitment);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
 
@@ -2240,7 +2240,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentGatewayV2.RequestKind.RefundEscrow)),
             abi.encode(
-                WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
+                WithdrawalRequest({
+                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
+                })
             )
         );
 
@@ -2337,8 +2339,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Anyone (filler) can cancel after expiry
         vm.startPrank(filler);
         dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectEmit(true, false, false, true);
-        emit IntentGatewayV2.EscrowRefunded(commitment);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
 

@@ -30,9 +30,7 @@ mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
-use cumulus_pallet_parachain_system::{
-	RelayChainState, RelayNumberMonotonicallyIncreases,
-};
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};

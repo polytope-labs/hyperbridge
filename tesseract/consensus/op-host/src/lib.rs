@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair};
 use std::sync::Arc;
 use sync_committee_prover::middleware::SwitchProviderMiddleware;
-use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
+use tesseract_evm::{derive_map_key, transport::OmniClient, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
 use abi::l2_output_oracle::*;
@@ -96,7 +96,7 @@ pub struct OpHost {
 	/// Optimism stack execution client
 	pub op_execution_client: Arc<Provider<Http>>,
 	/// Beacon execution client
-	pub(crate) beacon_execution_client: Arc<Provider<Http>>,
+	pub(crate) beacon_execution_client: Arc<Provider<OmniClient>>,
 	/// L2Oracle contract address on L1
 	pub(crate) l2_oracle: Option<H160>,
 	/// Dispute Game factory address
@@ -112,7 +112,7 @@ pub struct OpHost {
 	/// Ismp provider
 	pub provider: Arc<dyn IsmpProvider>,
 	/// Transaction signer
-	pub proposer: Option<Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>>,
+	pub proposer: Option<Arc<SignerMiddleware<Provider<OmniClient>, Wallet<SigningKey>>>>,
 	/// L1 state machine id
 	pub l1_state_machine: StateMachine,
 	/// beacon consensus client
@@ -140,10 +140,11 @@ impl OpHost {
 			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			None,
 		));
-		let beacon_client = Provider::new(Http::new_client_with_chain_middleware(
+		let beacon_http = Http::new_client_with_chain_middleware(
 			host.ethereum_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
 			None,
-		));
+		);
+		let beacon_client = Provider::new(OmniClient::Http(beacon_http));
 		let l1_chain_id = beacon_client.get_chainid().await?.low_u64();
 		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
 

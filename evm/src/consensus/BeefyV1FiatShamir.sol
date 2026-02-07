@@ -87,10 +87,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     using HeaderImpl for Header;
     using Transcript for Transcript.State;
 
-    // ──────────────────────────────────────────────
-    //  Constants
-    // ──────────────────────────────────────────────
-
     /// @notice The PayloadId for the mmr root.
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
 
@@ -102,10 +98,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
 
     /// @notice Number of uint256 words in the signers bitmap (4 × 256 = 1024 bits).
     uint256 internal constant BITMAP_WORDS = 4;
-
-    // ──────────────────────────────────────────────
-    //  Errors
-    // ──────────────────────────────────────────────
 
     /// @notice Provided authority set id was unknown.
     error UnknownAuthoritySet();
@@ -141,20 +133,12 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     /// @notice Authority set exceeds the maximum supported by the bitmap.
     error AuthoritySetTooLarge(uint256 authoritySetLen, uint256 maxSupported);
 
-    // ──────────────────────────────────────────────
-    //  ERC-165
-    // ──────────────────────────────────────────────
-
     /**
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
     }
-
-    // ──────────────────────────────────────────────
-    //  IConsensus entry point
-    // ──────────────────────────────────────────────
 
     /**
      * @dev The encoded proof is expected as:
@@ -178,10 +162,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
 
         return (abi.encode(newState), intermediates);
     }
-
-    // ──────────────────────────────────────────────
-    //  Core verification
-    // ──────────────────────────────────────────────
 
     function verifyConsensusInner(
         BeefyConsensusState memory trustedState,
@@ -246,11 +226,9 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
 
         bytes32 commitmentHash = keccak256(Codec.Encode(commitment));
 
-        // ── Fiat-Shamir challenge ──
         uint256[] memory challengedAuthorities =
             deriveAuthorityChallenge(commitmentHash, authoritySet, signersBitmap, signerCount);
 
-        // ── Verify sampled votes ──
         verifySampledVotes(
             commitmentHash,
             relayProof.signedCommitment.votes,
@@ -259,10 +237,8 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
             relayProof.proof
         );
 
-        // ── Verify MMR leaf ──
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
 
-        // ── Update authority sets ──
         if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
             trustedState.nextAuthoritySet = relayProof.latestMmrLeaf.nextAuthoritySet;
@@ -271,10 +247,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         trustedState.latestHeight = latestHeight;
         return (trustedState, relayProof.latestMmrLeaf.extra);
     }
-
-    // ──────────────────────────────────────────────
-    //  Bitmap helpers
-    // ──────────────────────────────────────────────
 
     /// @dev Returns true if bit `index` is set in the bitmap.
     function isBitSet(uint256[4] memory bitmap, uint256 index) internal pure returns (bool) {
@@ -336,10 +308,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         }
     }
 
-    // ──────────────────────────────────────────────
-    //  Fiat-Shamir challenge derivation
-    // ──────────────────────────────────────────────
-
     /**
      * @dev Derives SAMPLE_SIZE unique authority indices from the transcript.
      *
@@ -390,10 +358,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         }
     }
 
-    // ──────────────────────────────────────────────
-    //  Signature + membership verification
-    // ──────────────────────────────────────────────
-
     /**
      * @dev Verifies that the provided sampled votes are valid:
      *   1. Exactly SAMPLE_SIZE votes were provided.
@@ -430,10 +394,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         if (!valid) revert InvalidAuthoritiesProof();
     }
 
-    // ──────────────────────────────────────────────
-    //  MMR leaf verification
-    // ──────────────────────────────────────────────
-
     function verifyMmrLeaf(BeefyConsensusState memory trustedState, RelayChainProof memory relay, bytes32 mmrRoot)
         internal
         pure
@@ -458,10 +418,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         if (!valid) revert InvalidMmrProof();
     }
 
-    // ──────────────────────────────────────────────
-    //  Parachain header verification
-    // ──────────────────────────────────────────────
-
     function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
         internal
         pure
@@ -484,10 +440,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         StateCommitment memory stateCommitment = header.stateCommitment();
         return IntermediateState({stateMachineId: para.id, height: header.number, commitment: stateCommitment});
     }
-
-    // ──────────────────────────────────────────────
-    //  Helpers
-    // ──────────────────────────────────────────────
 
     function extractMmrRoot(Commitment memory commitment) internal pure returns (bytes32 mmrRoot) {
         uint256 payloadLen = commitment.payload.length;

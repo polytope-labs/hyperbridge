@@ -230,9 +230,12 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 
 #[cfg(test)]
 mod test {
-	use crate::gas_oracle::{
-		get_current_gas_cost_in_usd, get_l2_data_cost, ARBITRUM_CHAIN_ID, BSC_CHAIN_ID,
-		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, POLYGON_CHAIN_ID,
+	use crate::{
+		gas_oracle::{
+			get_current_gas_cost_in_usd, get_l2_data_cost, ARBITRUM_CHAIN_ID, BSC_CHAIN_ID,
+			ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, POLYGON_CHAIN_ID,
+		},
+		transport::OmniClient,
 	};
 	use ethers::{prelude::Provider, providers::Http};
 	use ismp::host::StateMachine;
@@ -248,7 +251,11 @@ mod test {
 			.expect("ETHEREUM_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let http = Http::new_with_client(
+			ethereum_rpc_uri.parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(OmniClient::Http(http));
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
@@ -271,7 +278,9 @@ mod test {
 			.expect("POLYGON_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let provider = Provider::<Http>::try_from(rpc_uri).unwrap();
+		let http =
+			Http::new_with_client(rpc_uri.parse::<reqwest::Url>().unwrap(), reqwest::Client::new());
+		let provider = Provider::new(OmniClient::Http(http));
 		// Client is unused in this test
 		let client = Arc::new(provider.clone());
 
@@ -296,7 +305,11 @@ mod test {
 			.parse()
 			.unwrap();
 		// Client is unused in this test
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let http = Http::new_with_client(
+			ethereum_rpc_uri.parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(OmniClient::Http(http));
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
@@ -320,7 +333,9 @@ mod test {
 			.parse()
 			.unwrap();
 		// Client is unused in this test
-		let provider = Provider::<Http>::try_from(rpc_uri).unwrap();
+		let http =
+			Http::new_with_client(rpc_uri.parse::<reqwest::Url>().unwrap(), reqwest::Client::new());
+		let provider = Provider::new(OmniClient::Http(http));
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd =
@@ -341,7 +356,11 @@ mod test {
 			.expect("ARB_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let http = Http::new_with_client(
+			ethereum_rpc_uri.parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(OmniClient::Http(http));
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
@@ -365,7 +384,11 @@ mod test {
 			.unwrap();
 		let ethereum_rpc_uri =
 			std::env::var("BASE_MAINNET_URL").expect("op url is not set in .env.");
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let http = Http::new_with_client(
+			ethereum_rpc_uri.parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(OmniClient::Http(http));
 		let client = Arc::new(provider.clone());
 
 		let ethereum_gas_cost_in_usd =
@@ -386,7 +409,11 @@ mod test {
 			.unwrap();
 		let ethereum_rpc_uri =
 			std::env::var("BASE_MAINNET_URL").expect("op url is not set in .env.");
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
+		let http = Http::new_with_client(
+			ethereum_rpc_uri.parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(OmniClient::Http(http));
 		let client = Arc::new(provider.clone());
 		let ethereum_gas_cost_in_usd =
 			get_current_gas_cost_in_usd(StateMachine::Evm(8453), ismp_host, client.clone())

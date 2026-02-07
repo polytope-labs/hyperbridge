@@ -15,14 +15,14 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
-import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /**
- * @title MultiProofClientTest
- * @notice Comprehensive test suite for the MultiProofClient contract
- * @dev This test suite verifies the multi-proof consensus client's ability to route
+ * @title ConsensusRouterTest
+ * @notice Comprehensive test suite for the ConsensusRouter contract
+ * @dev This test suite verifies the consensus router's ability to route
  *      consensus proofs to the appropriate verifier (SP1Beefy, BeefyV1, or BeefyV1FiatShamir)
  *      based on the first byte of the proof.
  *
@@ -136,8 +136,8 @@ contract MockBeefyV1FiatShamir is IConsensus, ERC165 {
     }
 }
 
-contract MultiProofClientTest is Test {
-    MultiProofClient public client;
+contract ConsensusRouterTest is Test {
+    ConsensusRouter public client;
     MockSP1Beefy public mockSP1Beefy;
     MockBeefyV1 public mockBeefyV1;
     MockBeefyV1FiatShamir public mockBeefyV1FiatShamir;
@@ -149,7 +149,7 @@ contract MultiProofClientTest is Test {
         mockSP1Beefy = new MockSP1Beefy();
         mockBeefyV1 = new MockBeefyV1();
         mockBeefyV1FiatShamir = new MockBeefyV1FiatShamir();
-        client = new MultiProofClient(
+        client = new ConsensusRouter(
             IConsensus(address(mockSP1Beefy)),
             IConsensus(address(mockBeefyV1)),
             IConsensus(address(mockBeefyV1FiatShamir))

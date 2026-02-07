@@ -3,7 +3,7 @@
  *
  * Deployment order:
  *   1. BeefyV1FiatShamir  (consensus client)
- *   2. MultiProofClient   (consensus router — only FiatShamir is active)
+ *   2. ConsensusRouter    (consensus router — only FiatShamir is active)
  *   3. HandlerV1          (message handler)
  *   4. HostManager        (cross-chain governance)
  *   5. TronHost           (ISMP host)
@@ -22,7 +22,7 @@ const Transcript = artifacts.require("Transcript");
 const EthereumTrieDB = artifacts.require("EthereumTrieDB");
 const MerklePatricia = artifacts.require("MerklePatricia");
 const BeefyV1FiatShamir = artifacts.require("BeefyV1FiatShamir");
-const MultiProofClient = artifacts.require("MultiProofClient");
+const ConsensusRouter = artifacts.require("ConsensusRouter");
 const HandlerV1 = artifacts.require("HandlerV1");
 const HostManager = artifacts.require("HostManager");
 const TronHost = artifacts.require("TronHost");
@@ -116,19 +116,19 @@ module.exports = async function (deployer, network, accounts) {
     console.log("  ✓ BeefyV1FiatShamir:", beefyV1FiatShamir.address);
 
     // ═════════════════════════════════════════════════════════════════════
-    //  2. Deploy MultiProofClient
+    //  2. Deploy ConsensusRouter
     //     Only BeefyV1FiatShamir is active; SP1Beefy and BeefyV1 are
     //     set to address(0) since they are not used on TRON.
     // ═════════════════════════════════════════════════════════════════════
-    console.log("→ Deploying MultiProofClient ...");
+    console.log("→ Deploying ConsensusRouter ...");
     await deployer.deploy(
-        MultiProofClient,
+        ConsensusRouter,
         ZERO_ADDRESS_HEX, // sp1Beefy  — not deployed on TRON
         ZERO_ADDRESS_HEX, // beefyV1   — not deployed on TRON
         beefyV1FiatShamir.address, // beefyV1FiatShamir
     );
-    const multiProofClient = await MultiProofClient.deployed();
-    console.log("  ✓ MultiProofClient:", multiProofClient.address);
+    const consensusRouter = await ConsensusRouter.deployed();
+    console.log("  ✓ ConsensusRouter:", consensusRouter.address);
 
     // ═════════════════════════════════════════════════════════════════════
     //  3. Deploy HandlerV1 (requires MerklePatricia library)
@@ -182,7 +182,7 @@ module.exports = async function (deployer, network, accounts) {
         uniswapV2, // uniswapV2
         UNSTAKING_PERIOD, // unStakingPeriod
         0, // challengePeriod
-        multiProofClient.address, // consensusClient
+        consensusRouter.address, // consensusClient
         stateMachines, // stateMachines
         perByteFees, // perByteFees
         hyperbridge, // hyperbridge
@@ -268,7 +268,7 @@ module.exports = async function (deployer, network, accounts) {
     console.log("║              Deployment Summary                          ║");
     console.log("╠═══════════════════════════════════════════════════════════╣");
     console.log(`║  BeefyV1FiatShamir : ${beefyV1FiatShamir.address}`);
-    console.log(`║  MultiProofClient  : ${multiProofClient.address}`);
+    console.log(`║  ConsensusRouter   : ${consensusRouter.address}`);
     console.log(`║  HandlerV1         : ${handler.address}`);
     console.log(`║  HostManager       : ${hostManager.address}`);
     console.log(`║  TronHost          : ${tronHost.address}`);

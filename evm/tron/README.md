@@ -7,7 +7,7 @@ This directory contains the [TronBox](https://developers.tron.network/docs/tronb
 | Contract | Description |
 |---|---|
 | **BeefyV1FiatShamir** | Fiat-Shamir sampled BEEFY consensus client |
-| **MultiProofClient** | Consensus proof router (only FiatShamir active on TRON) |
+| **ConsensusRouter** | Consensus proof router (only FiatShamir active on TRON) |
 | **HandlerV1** | ISMP message handler — verifies cryptographic proofs for cross-chain messages |
 | **HostManager** | Cross-chain governance module for updating host params and withdrawing revenue |
 | **TronHost** | The `IsmpHost` and `IsmpDispatcher` implementation for TRON (`chainId = 728126428`) |
@@ -97,7 +97,7 @@ The migration script (`migrations/2_deploy_ismp.js`) handles the full deployment
 BeefyV1FiatShamir
        │
        ▼
-MultiProofClient(address(0), address(0), beefyV1FiatShamir)
+ConsensusRouter(address(0), address(0), beefyV1FiatShamir)
        │
        ▼
 HandlerV1
@@ -121,7 +121,7 @@ IntentGatewayV2(admin)
        └──► IntentGatewayV2.setParams(host, dispatcher, ...)
 ```
 
-The `MultiProofClient` is deployed with `address(0)` for both `sp1Beefy` and `beefyV1` since only the **BeefyV1FiatShamir** consensus client is used on TRON. Attempting to submit a proof with type `Naive` (0x00) or `ZK` (0x01) will revert.
+The `ConsensusRouter` is deployed with `address(0)` for both `sp1Beefy` and `beefyV1` since only the **BeefyV1FiatShamir** consensus client is used on TRON. Attempting to submit a proof with type `Naive` (0x00) or `ZK` (0x01) will revert.
 
 ## Project Structure
 

@@ -694,8 +694,11 @@ mod tests {
 		let _ = env_logger::builder().is_test(true).try_init();
 
 		// Create provider
-		let provider =
-			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
+		let http = Http::new_with_client(
+			"http://localhost:8545".parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(crate::transport::OmniClient::Http(http));
 		let provider = Arc::new(provider);
 
 		// Transaction hash to test

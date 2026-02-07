@@ -9,7 +9,7 @@ import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
 
 import "../src/consensus/BeefyV1.sol";
-import "../src/consensus/MultiProofClient.sol";
+import "../src/consensus/ConsensusRouter.sol";
 import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
@@ -31,7 +31,7 @@ import {PolkadotHost} from "../src/hosts/Polkadot.sol";
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
@@ -69,11 +69,11 @@ contract DeployScript is BaseScript {
         // Deploy BeefyV1 naive consensus client
         BeefyV1 beefyV1Client = new BeefyV1{salt: salt}();
 
-        // Deploy MultiProofClient wrapping both consensus clients
-        MultiProofClient multiProofClient = new MultiProofClient{salt: salt}(
+        // Deploy ConsensusRouter wrapping both consensus clients
+        ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
             IConsensus(address(sp1BeefyClient)), IConsensus(address(beefyV1Client)), IConsensus(address(address(0)))
         );
-        consensusClient = address(multiProofClient);
+        consensusClient = address(consensusRouter);
 
         if (isMainnet) {
             // use feeToken configured in environment variables

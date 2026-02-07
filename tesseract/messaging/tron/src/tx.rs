@@ -306,14 +306,10 @@ async fn trigger_sign_broadcast(
 	};
 
 	log::trace!("[tron::tx] Calling POST /wallet/triggersmartcontract");
-	let resp: TriggerSmartContractResponse = post_json(
-		client.tron_api.full_host(),
-		"/wallet/triggersmartcontract",
-		&trigger_req,
-		client.config.tron_api_key.as_deref(),
-	)
-	.await
-	.context("triggerSmartContract failed")?;
+	let resp: TriggerSmartContractResponse =
+		post_json(client.tron_api.full_host(), "/wallet/triggersmartcontract", &trigger_req, None)
+			.await
+			.context("triggerSmartContract failed")?;
 
 	log::trace!("[tron::tx] triggerSmartContract response received, checking result");
 	resp.result.into_result().context("triggerSmartContract rejected")?;

@@ -224,15 +224,13 @@ struct TronTestConfig {
 	#[serde(alias = "PRIVATE_KEY")]
 	private_key: String,
 	/// TRON native HTTP API URL (for tx submission).
+	/// API keys can be included in the URL if needed.
 	#[serde(alias = "TRON_HOST")]
 	tron_api_url: String,
-	/// TronGrid API Key for higher rate limits.
-	#[serde(alias = "TRON_API_KEY")]
-	tron_api_key: Option<String>,
 }
 
 /// Encode a FiatShamir consensus proof in the format expected by
-/// `MultiProofClient` on-chain: `[0x02] ++ abi.encode(relay, parachain, bitmap)`.
+/// `ConsensusRouter` on-chain: `[0x02] ++ abi.encode(relay, parachain, bitmap)`.
 fn encode_fiat_shamir_proof(
 	consensus_message: beefy_verifier_primitives::ConsensusMessage,
 	bitmap: beefy_prover::fiat_shamir::SignersBitmap,
@@ -296,7 +294,6 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 		tron_host_address,
 		private_key,
 		tron_api_url,
-		tron_api_key,
 	} = config;
 
 	// Derive the JSON-RPC URL from the API URL
@@ -415,7 +412,6 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 			transport: RpcTransport::Tron,
 		},
 		tron_api_url,
-		tron_api_key,
 		fee_limit: 1_000_000_000, // 1000 TRX
 		tron_api_timeout_secs: 180,
 	};

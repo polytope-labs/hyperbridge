@@ -2,7 +2,7 @@
 name = "tesseract-tron"
 version = "0.1.0"
 edition = "2021"
-description = "TRON transport layer for ISMP messaging relay — wraps tesseract-evm for reads, uses TRON native API for transaction submission"
+description = "TRON transport layer for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
@@ -30,15 +30,13 @@ sha2 = "0.10"
 hex = { workspace = true }
 
 ethers = { workspace = true, features = ["rustls"] }
-
 primitive-types = { workspace = true, default-features = true }
-
 serde-hex-utils = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
-features = ["sp-crypto"]
+features = ["frame-support"]
 
 [dev-dependencies]
 dotenv = { workspace = true }

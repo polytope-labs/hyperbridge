@@ -50,7 +50,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use ismp::{host::StateMachine, messaging::Message};
-use polkadot_sdk::*;
+use polkadot_sdk::frame_support::crypto;
 use serde::{Deserialize, Serialize};
 use sp_core::Pair;
 use tesseract_evm::{EvmClient, EvmConfig};
@@ -85,14 +85,12 @@ pub struct TronConfig {
 	/// This is the endpoint for `/wallet/*` calls (triggerSmartContract,
 	/// broadcastTransaction, etc.).
 	///
+	/// RPC providers can include API keys directly in the URL if needed.
+	///
 	/// - TRE local:     `http://127.0.0.1:9090`
-	/// - TronGrid:      `https://api.trongrid.io`
-	/// - Nile testnet:  `https://nile.trongrid.io`
+	/// - TronGrid:      `https://api.trongrid.io?api_key=YOUR_API_KEY`
+	/// - Nile testnet:  `https://nile.trongrid.io?api_key=YOUR_API_KEY`
 	pub tron_api_url: String,
-
-	/// Optional TronGrid API key (sent as `TRON-PRO-API-KEY` header).
-	#[serde(default)]
-	pub tron_api_key: Option<String>,
 
 	/// Maximum fee for contract trigger transactions, in SUN
 	/// (1 TRX = 1_000_000 SUN).  Default: 1_000_000_000 (1000 TRX).
@@ -164,7 +162,6 @@ impl TronClient {
 	/// This initialises an [`EvmClient`] for JSON-RPC reads and a [`TronApi`]
 	/// for TRON-native transaction submission.
 	pub async fn new(config: TronConfig) -> anyhow::Result<Self> {
-		// --- Parse the secret key (same logic as EvmClient) -----------------
 		let key_bytes = match sp_core::bytes::from_hex(&config.evm.signer) {
 			Ok(bytes) => bytes,
 			Err(_) => {
@@ -182,15 +179,13 @@ impl TronClient {
 
 		// Derive the TRON hex address from the secret key.
 		let pair = sp_core::ecdsa::Pair::from_seed_slice(&secret_key)?;
-		let evm_addr =
-			sp_crypto::ecdsa::ECDSAExt::to_eth_address(&pair.public()).expect("Infallible");
+		let evm_addr = crypto::ecdsa::ECDSAExt::to_eth_address(&pair.public()).expect("Infallible");
 		let owner_address = to_tron_hex(&hex::encode(evm_addr));
 
 		let evm = EvmClient::new(config.evm.clone()).await?;
 
 		let tron_api = TronApi::new(TronApiConfig {
 			full_host: config.tron_api_url.clone(),
-			api_key: config.tron_api_key.clone(),
 			timeout: std::time::Duration::from_secs(config.tron_api_timeout_secs),
 		})?;
 

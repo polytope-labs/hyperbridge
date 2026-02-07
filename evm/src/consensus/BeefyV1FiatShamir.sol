@@ -70,9 +70,12 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * ## Security
  *
  * The verifier checks that the bitmap represents a 2/3+1 supermajority before
- * accepting it. An attacker controlling fraction f < 1/3 of the set has at most
- * f/(2/3) ≈ 1/2 of the signers in the bitmap. The probability that all
- * SAMPLE_SIZE sampled signers are adversarial is at most (1/2)^10 ≈ 0.1%.
+ * accepting it. For an attacker controlling fraction f < 1/3 of validators, in
+ * the worst case where exactly 2/3+1 validators sign and all adversarial
+ * validators participate, the adversarial fraction in the bitmap is at most
+ * f/(2/3+1/N) ≈ f/(2/3). With f approaching 1/3, this gives at most ~1/2
+ * adversarial signers. The probability that all SAMPLE_SIZE=10 randomly sampled
+ * signers are adversarial is at most (1/2)^10 ≈ 0.098%.
  *
  * ## Gas savings
  *
@@ -284,13 +287,16 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     /// positions [0, authoritySetLen). Uses O(1)-per-word parallel popcount.
     function countSetBits(uint256[4] memory bitmap, uint256 authoritySetLen) internal pure returns (uint256 count) {
         for (uint256 w = 0; w < BITMAP_WORDS; w++) {
-            uint256 remaining = authoritySetLen > w * 256 ? authoritySetLen - w * 256 : 0;
-            if (remaining == 0) break;
+            uint256 wordStart = w * 256;
+            if (wordStart >= authoritySetLen) break;
+
+            uint256 wordEnd = wordStart + 256;
+            uint256 bitsInWord = wordEnd <= authoritySetLen ? 256 : authoritySetLen - wordStart;
 
             uint256 word = bitmap[w];
-            if (remaining < 256) {
+            if (bitsInWord < 256) {
                 // Mask off bits beyond authoritySetLen
-                word &= (uint256(1) << remaining) - 1;
+                word &= (uint256(1) << bitsInWord) - 1;
             }
             count += popcount256(word);
         }
@@ -299,16 +305,18 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     /// @dev Returns the number of set bits in a uint256 using parallel bit counting.
     /// Runs in constant time regardless of the input value.
     function popcount256(uint256 x) internal pure returns (uint256) {
-        // Step 1: pair-wise sums (each 2-bit field holds popcount of its pair)
-        x = x - ((x >> 1) & 0x5555555555555555555555555555555555555555555555555555555555555555);
-        // Step 2: nibble-wise sums (each 4-bit field holds popcount of its nibble)
-        x = (x & 0x3333333333333333333333333333333333333333333333333333333333333333)
-            + ((x >> 2) & 0x3333333333333333333333333333333333333333333333333333333333333333);
-        // Step 3: byte-wise sums (each byte holds popcount of its original 8 bits, max 8)
-        x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F;
-        // Step 4: multiply by 0x0101...01 to sum all 32 bytes into the top byte, then shift
-        x = (x * 0x0101010101010101010101010101010101010101010101010101010101010101) >> 248;
-        return x;
+        unchecked {
+            // Step 1: pair-wise sums (each 2-bit field holds popcount of its pair)
+            x = x - ((x >> 1) & 0x5555555555555555555555555555555555555555555555555555555555555555);
+            // Step 2: nibble-wise sums (each 4-bit field holds popcount of its nibble)
+            x = (x & 0x3333333333333333333333333333333333333333333333333333333333333333)
+                + ((x >> 2) & 0x3333333333333333333333333333333333333333333333333333333333333333);
+            // Step 3: byte-wise sums (each byte holds popcount of its original 8 bits, max 8)
+            x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F;
+            // Step 4: multiply by 0x0101...01 to sum all 32 bytes into the top byte, then shift
+            x = (x * 0x0101010101010101010101010101010101010101010101010101010101010101) >> 248;
+            return x;
+        }
     }
 
     /// @dev Enumerates all set bit positions in the bitmap in one pass,

@@ -27779,6 +27779,7 @@ dependencies = [
  "tendermint-primitives",
  "tendermint-prover",
  "tesseract-primitives",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-stream",
 ]
@@ -28099,6 +28100,34 @@ dependencies = [
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",
+]
+
+[[package]]
+name = "tesseract-tron"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dotenv",
+ "env_logger 0.10.2",
+ "ethers",
+ "futures",
+ "hex",
+ "ismp",
+ "log",
+ "pallet-ismp-host-executive",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "serde-hex-utils",
+ "serde_json",
+ "sha2 0.10.9",
+ "sp-core",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -31519,6 +31548,7 @@ dependencies = [
  "futures",
  "hex",
  "hex-literal 0.4.1",
+ "ismp",
  "ismp-solidity-abi",
  "parity-scale-codec",
  "polkadot-ckb-merkle-mountain-range",
@@ -31527,13 +31557,18 @@ dependencies = [
  "rs_merkle 1.5.0",
  "serde",
  "sp-consensus-beefy",
+ "sp-core",
  "sp-crypto-hashing",
  "sp1-beefy",
  "sp1-beefy-primitives",
  "subxt 0.42.1",
  "subxt-utils",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tesseract-tron",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber 0.3.22",
 ]

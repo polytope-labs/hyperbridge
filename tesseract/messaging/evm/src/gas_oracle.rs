@@ -1,8 +1,10 @@
-use crate::abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle};
+use crate::{
+	abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle},
+	transport::OmniClient,
+};
 use anyhow::{anyhow, Error};
 use ethers::{
 	prelude::{abigen, Bytes, Middleware, Provider},
-	providers::Http,
 	types::H160,
 	utils::parse_units,
 };
@@ -93,7 +95,7 @@ pub struct GasBreakdown {
 pub async fn get_current_gas_cost_in_usd(
 	chain: StateMachine,
 	ismp_host_address: H160,
-	client: Arc<Provider<Http>>,
+	client: Arc<Provider<OmniClient>>,
 ) -> Result<GasBreakdown, Error> {
 	let mut gas_price = U256::zero();
 
@@ -148,7 +150,7 @@ fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
 
 async fn get_price_from_uniswap_router(
 	ismp_host: H160,
-	client: Arc<Provider<Http>>,
+	client: Arc<Provider<OmniClient>>,
 ) -> Result<U256, Error> {
 	let host = EvmHost::new(ismp_host, client.clone());
 	let params = host.host_params().call().await?;
@@ -192,7 +194,7 @@ async fn get_price_from_uniswap_router(
 pub async fn get_l2_data_cost(
 	rlp_tx: Bytes,
 	chain: StateMachine,
-	client: Arc<Provider<Http>>,
+	client: Arc<Provider<OmniClient>>,
 	// Unit wei cost in 27 decimals
 	unit_wei_cost: U256,
 ) -> Result<Cost, anyhow::Error> {

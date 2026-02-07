@@ -95,6 +95,7 @@ members = [
     "tesseract/messaging/substrate",
     "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
+    "tesseract/messaging/tron",
     "tesseract/messaging/evm-tendermint",
     "tesseract/messaging/substrate-evm",
     "tesseract/messaging/fees",
@@ -313,6 +314,7 @@ tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
+tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
 tesseract = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }

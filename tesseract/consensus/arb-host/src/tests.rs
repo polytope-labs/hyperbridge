@@ -1,4 +1,5 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy::providers::Provider;
+use alloy_primitives::{keccak256, Address, Bytes, U256};
 use alloy_rlp::Decodable;
 // use arbitrum_verifier::verify_arbitrum_payload;
 use geth_primitives::Header;
@@ -7,7 +8,6 @@ use tesseract_evm::EvmConfig;
 
 use crate::{ArbConfig, ArbHost, HostConfig};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use ethers::{providers::Middleware, utils::keccak256};
 use hex_literal::hex;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256};
@@ -51,12 +51,12 @@ async fn test_payload_proof_verification() {
 
 	let l1_header = arb_client
 		.beacon_execution_client
-		.get_block(5524107)
+		.get_block(5524107u64.into())
 		.await
 		.unwrap()
 		.expect("Block should exist");
 
-	let _state_root = l1_header.state_root;
+	let _state_root = l1_header.header.state_root;
 
 	// let _ = verify_arbitrum_payload::<Host>(
 	// 	payload_proof,
@@ -116,7 +116,7 @@ fn test_block_decoding() {
 	let encoding = alloy_rlp::encode(block.clone()).to_vec();
 
 	let header_encoding = alloy_rlp::encode(block.header.clone()).to_vec();
-	let hash: H256 = keccak256(&header_encoding).into();
+	let hash: H256 = keccak256(&header_encoding).0.into();
 
 	assert_eq!(hash.0, hex!("590075f673be110bb0c0320ca89dea14877d5403dabbb54e45509449cbad0b14"));
 	assert_eq!(hex::encode(bytes), hex::encode(encoding));

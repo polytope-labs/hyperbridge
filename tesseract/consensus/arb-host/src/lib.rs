@@ -1,22 +1,22 @@
-use abi::{
-	i_rollup::*,
-	i_rollup_bold::{AssertionCreatedFilter, IRollupBold},
+use abi::{IRollup, IRollupBold};
+use alloy::{
+	eips::BlockId,
+	primitives::{Address, B256},
+	providers::{Provider, ProviderBuilder},
+	rpc::types::Filter,
+	sol_types::SolEvent,
 };
 use anyhow::anyhow;
 use arbitrum_verifier::{
 	ArbitrumBoldProof, ArbitrumPayloadProof, AssertionState, GlobalState as RustGlobalState,
 	ASSERTIONS_SLOT, NODES_SLOT,
 };
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-};
-use geth_primitives::{new_u256, CodecHeader};
+use geth_primitives::{alloy_u256_to_primitive, CodecHeader};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tesseract_evm::{derive_map_key, EvmClient, EvmConfig};
+use tesseract_evm::{derive_map_key, AlloyProvider, EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod abi;
 mod host;
@@ -64,9 +64,9 @@ impl ArbConfig {
 #[derive(Clone)]
 pub struct ArbHost {
 	/// Arbitrum execution client
-	pub arb_execution_client: Arc<Provider<Http>>,
+	pub arb_execution_client: Arc<AlloyProvider>,
 	/// Beacon execution client
-	pub(crate) beacon_execution_client: Arc<Provider<Http>>,
+	pub(crate) beacon_execution_client: Arc<AlloyProvider>,
 	/// Rollup core contract address
 	pub(crate) rollup_core: H160,
 	/// Host config
@@ -85,14 +85,17 @@ pub struct ArbHost {
 
 impl ArbHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let el = Provider::new(Http::new_client_with_chain_middleware(
-			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			None,
-		));
-		let beacon_client = Provider::new(Http::new_client_with_chain_middleware(
-			host.ethereum_rpc_url.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			None,
-		));
+		let arb_rpc_url = evm
+			.rpc_urls
+			.first()
+			.ok_or_else(|| anyhow!("No RPC URLs provided for Arbitrum"))?;
+		let el = ProviderBuilder::new().connect_http(arb_rpc_url.parse()?);
+
+		let beacon_rpc_url = host
+			.ethereum_rpc_url
+			.first()
+			.ok_or_else(|| anyhow!("No RPC URLs provided for beacon client"))?;
+		let beacon_client = ProviderBuilder::new().connect_http(beacon_rpc_url.parse()?);
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 
@@ -120,12 +123,13 @@ impl ArbHost {
 	}
 
 	async fn fetch_header(&self, block: H256) -> Result<CodecHeader, anyhow::Error> {
+		let block_hash = B256::from_slice(&block.0);
 		let block = self
 			.arb_execution_client
-			.get_block(ethers::types::H256(block.0))
+			.get_block(BlockId::hash(block_hash))
 			.await?
 			.ok_or_else(|| {
-				anyhow!("{} Header not found for {:?}", self.evm.state_machine, block)
+				anyhow!("{} Header not found for {:?}", self.evm.state_machine, block_hash)
 			})?;
 		let arb_header = block.into();
 
@@ -136,23 +140,22 @@ impl ArbHost {
 		&self,
 		from: u64,
 		to: u64,
-	) -> Result<Option<NodeCreatedFilter>, anyhow::Error> {
+	) -> Result<Option<IRollup::NodeCreated>, anyhow::Error> {
 		if from > to {
 			return Ok(None);
 		}
-		let client = Arc::new(self.beacon_execution_client.clone());
-		let contract = IRollup::new(ethers::types::H160(self.rollup_core.0), client);
-		let mut events = contract
-			.event::<NodeCreatedFilter>()
-			.address(ethers::types::H160(self.rollup_core.0).into())
-			.from_block(from)
-			.to_block(to)
-			.query()
-			.await?
-			.into_iter()
-			.collect::<Vec<_>>();
+		let rollup_addr = Address::from_slice(&self.rollup_core.0);
+		let filter = Filter::new().address(rollup_addr).from_block(from).to_block(to);
 
-		events.sort_unstable_by(|a, b| a.node_num.cmp(&b.node_num));
+		let logs = self.beacon_execution_client.get_logs(&filter).await?;
+
+		let mut events: Vec<IRollup::NodeCreated> = logs
+			.into_iter()
+			.filter_map(|log| IRollup::NodeCreated::decode_log(&log.inner).ok())
+			.map(|log| log.data)
+			.collect();
+
+		events.sort_unstable_by(|a, b| a.nodeNum.cmp(&b.nodeNum));
 
 		Ok(events.last().cloned())
 	}
@@ -161,21 +164,20 @@ impl ArbHost {
 		&self,
 		from: u64,
 		to: u64,
-	) -> Result<Option<AssertionCreatedFilter>, anyhow::Error> {
+	) -> Result<Option<IRollupBold::AssertionCreated>, anyhow::Error> {
 		if from > to {
 			return Ok(None);
 		}
-		let client = Arc::new(self.beacon_execution_client.clone());
-		let contract = IRollupBold::new(ethers::types::H160(self.rollup_core.0), client);
-		let events = contract
-			.event::<AssertionCreatedFilter>()
-			.address(ethers::types::H160(self.rollup_core.0).into())
-			.from_block(from)
-			.to_block(to)
-			.query()
-			.await?
+		let rollup_addr = Address::from_slice(&self.rollup_core.0);
+		let filter = Filter::new().address(rollup_addr).from_block(from).to_block(to);
+
+		let logs = self.beacon_execution_client.get_logs(&filter).await?;
+
+		let events: Vec<IRollupBold::AssertionCreated> = logs
 			.into_iter()
-			.collect::<Vec<_>>();
+			.filter_map(|log| IRollupBold::AssertionCreated::decode_log(&log.inner).ok())
+			.map(|log| log.data)
+			.collect();
 
 		Ok(events.last().cloned())
 	}
@@ -183,44 +185,42 @@ impl ArbHost {
 	pub async fn fetch_arbitrum_payload(
 		&self,
 		at: u64,
-		event: NodeCreatedFilter,
+		event: IRollup::NodeCreated,
 	) -> Result<ArbitrumPayloadProof, anyhow::Error> {
-		let node_num = U256::from(event.node_num).to_big_endian();
+		let node_num = U256::from(event.nodeNum).to_big_endian();
 		let state_hash_key = derive_map_key(node_num.to_vec(), NODES_SLOT as u64);
+		let rollup_addr = Address::from_slice(&self.rollup_core.0);
 		let proof = self
 			.beacon_execution_client
-			.get_proof(
-				ethers::types::H160(self.rollup_core.0),
-				vec![state_hash_key.0.into()],
-				Some(at.into()),
-			)
+			.get_proof(rollup_addr, vec![B256::from_slice(&state_hash_key.0)])
+			.block_id(at.into())
 			.await?;
-		let arb_block_hash = event.assertion.after_state.global_state.bytes_32_vals[0].into();
+		let arb_block_hash: H256 = event.assertion.afterState.globalState.bytes32Vals[0].0.into();
 		let arbitrum_header = self.fetch_header(arb_block_hash).await?;
 		let payload = ArbitrumPayloadProof {
 			arbitrum_header,
 			global_state: RustGlobalState {
 				block_hash: arb_block_hash.0.into(),
-				send_root: event.assertion.after_state.global_state.bytes_32_vals[1].into(),
-				inbox_position: event.assertion.after_state.global_state.u_64_vals[0],
-				position_in_message: event.assertion.after_state.global_state.u_64_vals[1],
+				send_root: event.assertion.afterState.globalState.bytes32Vals[1].0.into(),
+				inbox_position: event.assertion.afterState.globalState.u64Vals[0],
+				position_in_message: event.assertion.afterState.globalState.u64Vals[1],
 			},
 			machine_status: {
-				let status = event.assertion.after_state.machine_status;
+				let status = event.assertion.afterState.machineStatus;
 				status.try_into().map_err(|e| anyhow!("{:?}", e))?
 			},
-			inbox_max_count: new_u256(event.inbox_max_count),
-			node_number: event.node_num,
+			inbox_max_count: alloy_u256_to_primitive(event.inboxMaxCount),
+			node_number: event.nodeNum,
 			storage_proof: proof
 				.storage_proof
-				.get(0)
+				.first()
 				.cloned()
 				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum state_hash"))?
 				.proof
 				.into_iter()
-				.map(|node| node.0.into())
+				.map(|node| node.to_vec())
 				.collect(),
-			contract_proof: proof.account_proof.into_iter().map(|node| node.0.into()).collect(),
+			contract_proof: proof.account_proof.into_iter().map(|node| node.to_vec()).collect(),
 		};
 
 		Ok(payload)
@@ -229,55 +229,53 @@ impl ArbHost {
 	pub async fn fetch_arbitrum_bold_payload(
 		&self,
 		at: u64,
-		event: AssertionCreatedFilter,
+		event: IRollupBold::AssertionCreated,
 	) -> Result<ArbitrumBoldProof, anyhow::Error> {
 		let assertion_hash_key =
-			derive_map_key(event.assertion_hash.into(), ASSERTIONS_SLOT as u64);
+			derive_map_key(event.assertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
+		let rollup_addr = Address::from_slice(&self.rollup_core.0);
 		let proof = self
 			.beacon_execution_client
-			.get_proof(
-				ethers::types::H160(self.rollup_core.0),
-				vec![assertion_hash_key.0.into()],
-				Some(at.into()),
-			)
+			.get_proof(rollup_addr, vec![B256::from_slice(&assertion_hash_key.0)])
+			.block_id(at.into())
 			.await?;
-		let arb_block_hash = event.assertion.after_state.global_state.bytes_32_vals[0].into();
+		let arb_block_hash: H256 = event.assertion.afterState.globalState.bytes32Vals[0].0.into();
 		let arbitrum_header = self.fetch_header(arb_block_hash).await?;
 		let global_state = RustGlobalState {
-			block_hash: arb_block_hash,
-			send_root: event.assertion.after_state.global_state.bytes_32_vals[1].into(),
-			inbox_position: event.assertion.after_state.global_state.u_64_vals[0],
-			position_in_message: event.assertion.after_state.global_state.u_64_vals[1],
+			block_hash: arb_block_hash.0.into(),
+			send_root: event.assertion.afterState.globalState.bytes32Vals[1].0.into(),
+			inbox_position: event.assertion.afterState.globalState.u64Vals[0],
+			position_in_message: event.assertion.afterState.globalState.u64Vals[1],
 		};
 
 		let machine_status = event
 			.assertion
-			.after_state
-			.machine_status
+			.afterState
+			.machineStatus
 			.try_into()
 			.map_err(|_| anyhow!("Failed conversion"))?;
 
 		let after_state = AssertionState {
 			global_state,
 			machine_status,
-			end_history_root: event.assertion.after_state.end_history_root.into(),
+			end_history_root: event.assertion.afterState.endHistoryRoot.0.into(),
 		};
 
 		let payload = ArbitrumBoldProof {
 			arbitrum_header,
 			after_state,
-			previous_assertion_hash: event.parent_assertion_hash.into(),
-			sequencer_batch_acc: event.after_inbox_batch_acc.into(),
+			previous_assertion_hash: event.parentAssertionHash.0.into(),
+			sequencer_batch_acc: event.afterInboxBatchAcc.0.into(),
 			storage_proof: proof
 				.storage_proof
-				.get(0)
+				.first()
 				.cloned()
 				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum assertion hash"))?
 				.proof
 				.into_iter()
-				.map(|node| node.0.into())
+				.map(|node| node.to_vec())
 				.collect(),
-			contract_proof: proof.account_proof.into_iter().map(|node| node.0.into()).collect(),
+			contract_proof: proof.account_proof.into_iter().map(|node| node.to_vec()).collect(),
 		};
 
 		Ok(payload)

@@ -32,10 +32,13 @@ workspace = true
 features = ["sp-io"]
 
 [dev-dependencies]
-ethers = { workspace = true, features = ["default"] }
-tokio = { workspace = true, features = ["full"] }
+ tokio = { workspace = true, features = ["full"] }
 ismp-testsuite = { path = "../../testsuite" }
 dotenv = "0.15.0"
+
+[dev-dependencies.alloy]
+workspace = true
+features = ["provider-http", "rpc-types", "providers", "transports", "reqwest", "sol-types"]
 
 [dev-dependencies.polkadot-sdk]
 workspace = true

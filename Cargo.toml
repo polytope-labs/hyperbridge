@@ -358,25 +358,6 @@ version = "18.0.0"
 default-features = false
 features = ["rlp", "parity-codec"]
 
-[workspace.dependencies.ethers]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-features = ["ethers-solc"]
-default-features = false
-
-[workspace.dependencies.ethers-core]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-default-features = false
-
-[workspace.dependencies.ethers-contract-abigen]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-
-[workspace.dependencies.ethers-solc]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-
 # [workspace.dependencies.forge-testsuite]
 # git = "https://github.com/polytope-labs/forge-testsuite"
 # rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"

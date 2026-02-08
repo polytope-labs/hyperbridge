@@ -11,7 +11,7 @@ publish = false
 bsc-verifier = { workspace = true, default-features = true }
 anyhow = { workspace = true, default-features = true }
 primitive-types = { workspace = true, features = ["serde", "impl-codec"] }
-ethers = { workspace = true, features = ["ws", "default"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "providers", "transports", "reqwest"] }
 ismp = { workspace = true, default-features = true }
 sync-committee-primitives = { workspace = true, default-features = true }
 geth-primitives = { workspace = true, default-features = true }
@@ -26,3 +26,4 @@ features = ["sp-core"]
 tokio = { workspace = true, features = ["macros"] }
 dotenv = "0.15.0"
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false, features = ["std"] }
+futures = { workspace = true }

@@ -35,7 +35,7 @@ use crate::{
 	providers::substrate::SubstrateClient,
 	types::{MessageStatusWithMetadata, TimeoutStatus},
 };
-use ethers::utils::keccak256;
+use alloy_primitives::keccak256;
 use futures::StreamExt;
 use ismp::router::{GetRequest, PostRequest, PostResponse, Request};
 use primitive_types::H256;
@@ -344,6 +344,6 @@ impl ismp::messaging::Keccak256 for Keccak256 {
 	where
 		Self: Sized,
 	{
-		keccak256(bytes).into()
+		H256::from_slice(keccak256(bytes).as_slice())
 	}
 }

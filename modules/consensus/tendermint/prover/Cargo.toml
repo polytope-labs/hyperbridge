@@ -24,7 +24,6 @@ tracing = "0.1.40"
 tendermint-primitives = { path = "../primitives" }
 geth-primitives = { path = "../../geth-primitives" }
 tracing-subscriber = "0.3"
-ethers = { workspace = true, features = ["ws", "default"] }
 ismp-polygon = { workspace = true, default-features = false }
 ics23 = { workspace = true, default-features = false }
 

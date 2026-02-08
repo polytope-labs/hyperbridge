@@ -13,17 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::Context;
-use ethers::{
-	contract::parse_log,
-	core::k256::SecretKey,
-	prelude::{
-		transaction::eip2718::TypedTransaction, LocalWallet, Middleware, MiddlewareBuilder,
-		NameOrAddress, Provider, Signer, TransactionRequest,
-	},
-	providers::{Http, ProviderExt},
-	utils::hex,
+use alloy::{
+	network::EthereumWallet,
+	primitives::{Address, Bytes, U256},
+	providers::{Provider, ProviderBuilder},
+	rpc::types::{Filter, TransactionRequest},
+	signers::local::PrivateKeySigner,
+	sol_types::SolEvent,
 };
+use anyhow::Context;
 
 use primitive_types::H160;
 
@@ -46,9 +44,9 @@ use ismp::{
 };
 use ismp_solidity_abi::{
 	beefy::GetRequest,
-	erc20::ERC20,
-	evm_host::{EvmHost, GetRequestEventFilter, PostRequestEventFilter},
-	ping_module::{PingMessage, PingModule},
+	erc20::{ERC20Instance, ERC20},
+	evm_host::{EvmHostInstance, EvmHost, GetRequestEvent, PostRequestEvent},
+	ping_module::{PingMessage, PingModuleInstance, PingModule},
 };
 use std::sync::Arc;
 
@@ -95,47 +93,45 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	let hyperclient = HyperClient::new(config).await?;
 
 	// Send Ping Message
-	let signer = hex::decode(signing_key).unwrap();
-	let provider = Arc::new(Provider::<Http>::try_connect(&bsc_url).await?);
-	let signer = LocalWallet::from(SecretKey::from_slice(signer.as_slice())?)
-		.with_chain_id(provider.get_chainid().await?.low_u64());
-	let client = Arc::new(provider.with_signer(signer));
-	let ping = PingModule::new(PING_MODULE.0, client.clone());
-	let chain = StateMachine::Evm(97);
-	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
-	let host = EvmHost::new(host_addr, client.clone());
-	let erc_20 =
-		ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
-	let call = erc_20.approve(PING_MODULE.0.into(), ethers::types::U256::max_value());
+	let signer: PrivateKeySigner = signing_key.parse()?;
+	let wallet = EthereumWallet::from(signer);
+	let provider = Arc::new(
+		ProviderBuilder::new()
+			.wallet(wallet)
+			.on_http(bsc_url.parse()?),
+	);
 
-	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
-	call.gas(gas)
-		.send()
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.await
-		.context(format!("Error in {chain:?}"))?;
-	let call = ping.ping(PingMessage {
-		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
-		module: PING_MODULE.clone().0.into(),
+	let ping_addr = Address::from_slice(&PING_MODULE.0);
+	let ping = PingModuleInstance::new(ping_addr, provider.clone());
+	let chain = StateMachine::Evm(97);
+	let host_addr_result = ping.host().call().await.context(format!("Error in {chain:?}"))?;
+	let host_addr = host_addr_result._0;
+	let host = EvmHostInstance::new(host_addr, provider.clone());
+	let fee_token = host.feeToken().call().await.context(format!("Error in {chain:?}"))?._0;
+	let erc_20 = ERC20Instance::new(fee_token, provider.clone());
+
+	let approve_call = erc_20.approve(ping_addr, U256::MAX);
+	let pending = approve_call.send().await.context(format!("Error in {chain:?}"))?;
+	pending.watch().await.context(format!("Error in {chain:?}"))?;
+
+	let ping_message = PingMessage {
+		dest: Bytes::from(dest_chain.state_machine.to_string().as_bytes().to_vec()),
+		module: Bytes::from(PING_MODULE.0.to_vec()),
 		timeout: 10 * 60 * 60,
-		fee: ethers::types::U256::from(90_000_000_000_000_000_000u128),
-		count: ethers::types::U256::from(1),
-	});
-	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
-	let receipt = call
-		.gas(gas)
-		.send()
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.unwrap();
+		fee: U256::from(90_000_000_000_000_000_000u128),
+		count: U256::from(1),
+	};
+	let call = ping.ping(ping_message);
+	let pending = call.send().await.context(format!("Error in {chain:?}"))?;
+	let receipt = pending.get_receipt().await.context(format!("Error in {chain:?}"))?;
 
 	let post: router::PostRequest = receipt
-		.logs
-		.into_iter()
-		.find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
+		.inner
+		.logs()
+		.iter()
+		.find_map(|log| {
+			PostRequestEvent::decode_log(log.inner.clone(), true).ok()
+		})
 		.expect("Tx should emit post request")
 		.try_into()?;
 	tracing::info!("Got PostRequest {post}");
@@ -145,7 +141,7 @@ pub async fn subscribe_to_request_status() -> Result<(), anyhow::Error> {
 	let mut stream = post_request_status_stream(
 		&hyperclient,
 		post,
-		MessageStatusStreamState::Dispatched(block.low_u64()),
+		MessageStatusStreamState::Dispatched(block),
 	)
 	.await?;
 
@@ -201,29 +197,29 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 	let hyperclient = HyperClient::new(config).await?;
 
 	// Send Ping Message
-	let pair = hex::decode(signing_key).unwrap();
-	let provider = Arc::new(Provider::<Http>::try_connect(&bsc_url).await?);
-	let chain_id = provider.get_chainid().await?.low_u64();
-	let signer = LocalWallet::from(SecretKey::from_slice(pair.as_slice())?).with_chain_id(chain_id);
-	let client = Arc::new(provider.with_signer(signer));
-	let ping = PingModule::new(PING_MODULE.0, client.clone());
+	let signer: PrivateKeySigner = signing_key.parse()?;
+	let wallet = EthereumWallet::from(signer);
+	let provider = Arc::new(
+		ProviderBuilder::new()
+			.wallet(wallet)
+			.on_http(bsc_url.parse()?),
+	);
+
+	let ping_addr = Address::from_slice(&PING_MODULE.0);
+	let ping = PingModuleInstance::new(ping_addr, provider.clone());
 	let chain = StateMachine::Evm(97);
-	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
-	let host = EvmHost::new(host_addr, client.clone());
-	let host_params = host.host_params().await?;
-	tracing::info!("{:#?}", host_params);
+	let host_addr_result = ping.host().call().await.context(format!("Error in {chain:?}"))?;
+	let host_addr = host_addr_result._0;
+	let host = EvmHostInstance::new(host_addr, provider.clone());
+	let host_params = host.hostParams().call().await?;
+	tracing::info!("{:#?}", host_params._0);
 
-	let erc_20 =
-		ERC20::new(host.fee_token().await.context(format!("Error in {chain:?}"))?, client.clone());
-	let call = erc_20.approve(PING_MODULE.0.into(), ethers::types::U256::max_value());
+	let fee_token = host.feeToken().call().await.context(format!("Error in {chain:?}"))?._0;
+	let erc_20 = ERC20Instance::new(fee_token, provider.clone());
+	let approve_call = erc_20.approve(ping_addr, U256::MAX);
 
-	let gas = call.estimate_gas().await.context(format!("Error in {chain:?}"))?;
-	call.gas(gas)
-		.send()
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.await
-		.context(format!("Error in {chain:?}"))?;
+	let pending = approve_call.send().await.context(format!("Error in {chain:?}"))?;
+	pending.watch().await.context(format!("Error in {chain:?}"))?;
 
 	let mut stream = hyperclient
 		.hyperbridge
@@ -243,41 +239,35 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 		}
 	}
 
-	let call = ping.ping(PingMessage {
-		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
-		module: PING_MODULE.clone().0.into(),
+	let ping_message = PingMessage {
+		dest: Bytes::from(dest_chain.state_machine.to_string().as_bytes().to_vec()),
+		module: Bytes::from(PING_MODULE.0.to_vec()),
 		timeout: 3 * 60,
-		fee: ethers::types::U256::from(0u128),
-		count: ethers::types::U256::from(1),
-	});
-	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
-	let receipt = call
-		.gas(gas)
-		.send()
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.unwrap();
+		fee: U256::from(0u128),
+		count: U256::from(1),
+	};
+	let call = ping.ping(ping_message);
+	let pending = call.send().await.context(format!("Error in {chain:?}"))?;
+	let receipt = pending.get_receipt().await.context(format!("Error in {chain:?}"))?;
 
 	let block = receipt.block_number.unwrap();
 	tracing::info!("\n\nTx block: {block}\n\n");
 
 	let post: router::PostRequest = receipt
-		.logs
-		.into_iter()
-		.find_map(|log| parse_log::<PostRequestEventFilter>(log).ok())
+		.inner
+		.logs()
+		.iter()
+		.find_map(|log| {
+			PostRequestEvent::decode_log(log.inner.clone(), true).ok()
+		})
 		.expect("Tx should emit post request")
 		.try_into()?;
 	tracing::info!("PostRequest {post}");
 
-	let block = receipt.block_number.unwrap();
-	tracing::info!("\n\nTx block: {block}\n\n");
-
 	let request_status = post_request_status_stream(
 		&hyperclient,
 		post.clone(),
-		MessageStatusStreamState::Dispatched(block.low_u64()),
+		MessageStatusStreamState::Dispatched(block),
 	)
 	.await?;
 
@@ -315,21 +305,13 @@ pub async fn test_timeout_request() -> Result<(), anyhow::Error> {
 				tracing::info!("\nGot Status {:#?}\n", status);
 				match status {
 					TimeoutStatus::HyperbridgeFinalized { calldata, .. } => {
-						let gas_price = client.get_gas_price().await?;
 						tracing::info!("Sending timeout to BSC");
-						let pending = client
-							.send_transaction(
-								TypedTransaction::Legacy(TransactionRequest {
-									to: Some(NameOrAddress::Address(host_params.handler)),
-									gas_price: Some(gas_price * 5), // experiment with higher?
-									data: Some(calldata.0.into()),
-									..Default::default()
-								}),
-								None,
-							)
-							.await;
+						let tx = TransactionRequest::default()
+							.to(host_params._0.handler)
+							.input(calldata.0.into());
+						let pending = provider.send_transaction(tx).await;
 						tracing::info!("Send transaction result: {pending:#?}");
-						let result = pending?.await;
+						let result = pending?.get_receipt().await;
 						tracing::info!("Transaction Receipt: {result:#?}");
 					},
 					_ => {},
@@ -389,46 +371,45 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 		})
 		.await?;
 
-	let pair = hex::decode(signing_key).unwrap();
-	let provider = Arc::new(Provider::<Http>::try_connect(&bsc_url).await?);
-	let chain_id = provider.get_chainid().await?.low_u64();
-	let signer = LocalWallet::from(SecretKey::from_slice(pair.as_slice())?).with_chain_id(chain_id);
-	let client = Arc::new(provider.with_signer(signer));
+	let signer: PrivateKeySigner = signing_key.parse()?;
+	let wallet = EthereumWallet::from(signer);
+	let provider = Arc::new(
+		ProviderBuilder::new()
+			.wallet(wallet)
+			.on_http(bsc_url.parse()?),
+	);
 
-	let ping = PingModule::new(PING_MODULE.0, client.clone());
+	let ping_addr = Address::from_slice(&PING_MODULE.0);
+	let ping = PingModuleInstance::new(ping_addr, provider.clone());
 	let chain = StateMachine::Evm(97);
-	let host_addr = ping.host().await.context(format!("Error in {chain:?}"))?;
-	let host = EvmHost::new(host_addr, client.clone());
-	let host_params = host.host_params().await?;
+	let host_addr_result = ping.host().call().await.context(format!("Error in {chain:?}"))?;
+	let host_addr = host_addr_result._0;
+	let host = EvmHostInstance::new(host_addr, provider.clone());
+	let host_params = host.hostParams().call().await?;
 
-	let ping = PingModule::new(PING_MODULE.0, client.clone());
 	let request = GetRequest {
-		dest: dest_chain.state_machine.to_string().as_bytes().to_vec().into(),
+		dest: Bytes::from(dest_chain.state_machine.to_string().as_bytes().to_vec()),
 		height: latest_height,
 		// just query the account of the host in the world state
-		keys: vec![SEPOLIA_HOST.as_bytes().to_vec().into()],
-		timeout_timestamp: 0,
+		keys: vec![Bytes::from(SEPOLIA_HOST.as_bytes().to_vec())],
+		timeoutTimestamp: 0,
 		..Default::default()
 	};
-	let call = ping.dispatch_with_request(request);
+	let call = ping.dispatchWithRequest(request);
 
-	let gas = call.estimate_gas().await.context(format!("Estimate gas error in {chain:?}"))?;
-	let receipt = call
-		.gas(gas)
-		.send()
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.await
-		.context(format!("Error in {chain:?}"))?
-		.unwrap();
+	let pending = call.send().await.context(format!("Error in {chain:?}"))?;
+	let receipt = pending.get_receipt().await.context(format!("Error in {chain:?}"))?;
 
 	dbg!(&receipt);
 
 	let get_request: router::GetRequest = receipt
-		.logs
-		.into_iter()
-		.find_map(|log| parse_log::<GetRequestEventFilter>(log).ok())
-		.expect("Tx should emit post request")
+		.inner
+		.logs()
+		.iter()
+		.find_map(|log| {
+			GetRequestEvent::decode_log(log.inner.clone(), true).ok()
+		})
+		.expect("Tx should emit get request")
 		.try_into()?;
 
 	dbg!(&get_request);
@@ -436,7 +417,7 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 	let mut stream = internals::get_request_status_stream(
 		&hyperclient,
 		get_request.clone(),
-		MessageStatusStreamState::Dispatched(receipt.block_number.unwrap().low_u64()),
+		MessageStatusStreamState::Dispatched(receipt.block_number.unwrap()),
 	)
 	.await?;
 
@@ -446,21 +427,13 @@ pub async fn get_request_handling() -> Result<(), anyhow::Error> {
 				tracing::info!("\nGot Status {:#?}\n", status);
 				match status {
 					MessageStatusWithMetadata::HyperbridgeFinalized { calldata, .. } => {
-						let gas_price = client.get_gas_price().await?;
 						tracing::info!("Sending Get response to BSC");
-						let pending = client
-							.send_transaction(
-								TypedTransaction::Legacy(TransactionRequest {
-									to: Some(NameOrAddress::Address(host_params.handler)),
-									gas_price: Some(gas_price * 5), // experiment with higher?
-									data: Some(calldata.0.into()),
-									..Default::default()
-								}),
-								None,
-							)
-							.await;
+						let tx = TransactionRequest::default()
+							.to(host_params._0.handler)
+							.input(calldata.0.into());
+						let pending = provider.send_transaction(tx).await;
 						tracing::info!("Send transaction result: {pending:#?}");
-						let result = pending?.await;
+						let result = pending?.get_receipt().await;
 						tracing::info!("Transaction Receipt: {result:#?}");
 					},
 					_ => {},

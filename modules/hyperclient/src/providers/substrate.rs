@@ -21,6 +21,7 @@ use codec::{Decode, Encode};
 use futures::{stream, StreamExt, TryStreamExt};
 #[cfg(all(target_arch = "wasm32", feature = "web"))]
 use gloo_timers::future::*;
+use alloy_primitives::keccak256;
 use hashbrown::HashMap;
 use hex_literal::hex;
 use primitive_types::{H160, H256};
@@ -410,7 +411,7 @@ impl<C: subxt::Config + Clone> Client for SubstrateClient<C> {
 		// browser
 		let key = [
 			pallet_ismp::child_trie::STATE_COMMITMENTS_KEY.to_vec(),
-			ethers::utils::keccak256(&height.encode()).to_vec(),
+			keccak256(&height.encode()).to_vec(),
 		]
 		.concat();
 

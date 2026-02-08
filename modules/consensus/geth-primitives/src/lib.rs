@@ -21,7 +21,7 @@ use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use ethabi::ethereum_types::{Bloom, H64};
 #[cfg(feature = "std")]
-use ethers_core::types::{Block, U64};
+use alloy_rpc_types_eth::Block;
 use ismp::messaging::Keccak256;
 use primitive_types::{H160, H256, U256};
 
@@ -82,43 +82,33 @@ impl AsRef<CodecHeader> for CodecHeader {
 	}
 }
 
+/// Conversion from alloy Block to CodecHeader
 #[cfg(feature = "std")]
-impl From<Block<ethers_core::types::H256>> for CodecHeader {
-	fn from(block: Block<ethers_core::types::H256>) -> Self {
+impl<T> From<Block<T>> for CodecHeader {
+	fn from(block: Block<T>) -> Self {
+		let header = block.header;
 		CodecHeader {
-			parent_hash: block.parent_hash.0.into(),
-			uncle_hash: block.uncles_hash.0.into(),
-			coinbase: block.author.unwrap_or_default().0.into(),
-			state_root: block.state_root.0.into(),
-			transactions_root: block.transactions_root.0.into(),
-			receipts_root: block.receipts_root.0.into(),
-			logs_bloom: block.logs_bloom.unwrap_or_default(),
-			difficulty: new_u256(block.difficulty),
-			number: block.number.unwrap_or_default().as_u64().into(),
-			gas_limit: block.gas_limit.low_u64(),
-			gas_used: block.gas_used.low_u64(),
-			timestamp: block.timestamp.low_u64(),
-			extra_data: block.extra_data.0.into(),
-			mix_hash: block.mix_hash.unwrap_or_default().0.into(),
-			nonce: block.nonce.unwrap_or_default(),
-			base_fee_per_gas: block.base_fee_per_gas.map(|inner| new_u256(inner)),
-			withdrawals_hash: block.withdrawals_root.map(|inner| inner.0.into()),
-			blob_gas_used: block
-				.other
-				.get_deserialized::<U64>("blobGasUsed")
-				.and_then(|val| val.ok().map(|val| val.as_u64())),
-			excess_blob_gas_used: block
-				.other
-				.get_deserialized::<U64>("excessBlobGas")
-				.and_then(|val| val.ok().map(|val| val.as_u64())),
-			parent_beacon_root: block
-				.other
-				.get_deserialized::<H256>("parentBeaconBlockRoot")
-				.and_then(|val| val.ok()),
-			requests_hash: block
-				.other
-				.get_deserialized::<H256>("requestsHash")
-				.and_then(|val| val.ok()),
+			parent_hash: H256::from_slice(header.parent_hash.as_slice()),
+			uncle_hash: H256::from_slice(header.ommers_hash.as_slice()),
+			coinbase: H160::from_slice(header.beneficiary.as_slice()),
+			state_root: H256::from_slice(header.state_root.as_slice()),
+			transactions_root: H256::from_slice(header.transactions_root.as_slice()),
+			receipts_root: H256::from_slice(header.receipts_root.as_slice()),
+			logs_bloom: Bloom::from_slice(header.logs_bloom.as_slice()),
+			difficulty: alloy_u256_to_primitive(header.difficulty),
+			number: header.number.into(),
+			gas_limit: header.gas_limit,
+			gas_used: header.gas_used,
+			timestamp: header.timestamp,
+			extra_data: header.extra_data.to_vec(),
+			mix_hash: H256::from_slice(header.mix_hash.as_slice()),
+			nonce: H64::from_slice(header.nonce.as_slice()),
+			base_fee_per_gas: header.base_fee_per_gas.map(|v| U256::from(v)),
+			withdrawals_hash: header.withdrawals_root.map(|h| H256::from_slice(h.as_slice())),
+			blob_gas_used: header.blob_gas_used,
+			excess_blob_gas_used: header.excess_blob_gas,
+			parent_beacon_root: header.parent_beacon_block_root.map(|h| H256::from_slice(h.as_slice())),
+			requests_hash: header.requests_hash.map(|h| H256::from_slice(h.as_slice())),
 		}
 	}
 }
@@ -160,12 +150,23 @@ impl Header {
 	}
 }
 
+/// Convert alloy U256 to primitive_types U256
 #[cfg(feature = "std")]
-pub fn old_u256(val: U256) -> ethers_core::types::U256 {
-	ethers_core::types::U256(val.0)
+pub fn alloy_u256_to_primitive(val: alloy_primitives::U256) -> U256 {
+	U256::from_little_endian(&val.to_le_bytes::<32>())
 }
 
+/// Alias for backwards compatibility
 #[cfg(feature = "std")]
-pub fn new_u256(val: ethers_core::types::U256) -> U256 {
-	U256(val.0)
+pub use alloy_u256_to_primitive as new_u256;
+
+/// Convert primitive_types U256 to alloy U256
+#[cfg(feature = "std")]
+pub fn primitive_u256_to_alloy(val: U256) -> alloy_primitives::U256 {
+	let bytes = val.to_little_endian();
+	alloy_primitives::U256::from_le_bytes(bytes)
 }
+
+/// Alias for backwards compatibility
+#[cfg(feature = "std")]
+pub use primitive_u256_to_alloy as old_u256;

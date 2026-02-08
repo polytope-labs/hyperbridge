@@ -33,7 +33,7 @@ git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
 rev = "86053ef4effd884111f182ee9749404d6acbb305"
 
 [dev-dependencies]
-ethers = { workspace = true }
+alloy-sol-types = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"

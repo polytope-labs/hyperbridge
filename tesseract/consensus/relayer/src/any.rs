@@ -10,6 +10,7 @@ use subxt::{
 };
 
 use arb_host::ArbConfig;
+use evm_host::EvmHostConfig;
 use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use op_host::OpConfig;
 use tesseract_beefy::{
@@ -51,6 +52,8 @@ pub enum AnyConfig {
 	Polygon(PolygonPosConfig),
 	/// Tendermint Config
 	Tendermint(TendermintConfig),
+	/// EVM Host chain config
+	EvmHost(EvmHostConfig),
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
@@ -193,6 +196,7 @@ impl AnyConfig {
 			AnyConfig::Grandpa(config) => config.substrate.state_machine,
 			AnyConfig::Polygon(config) => config.evm_config.state_machine,
 			AnyConfig::Tendermint(config) => config.evm_config.state_machine,
+			AnyConfig::EvmHost(config) => config.evm_config.state_machine,
 		}
 	}
 
@@ -210,6 +214,7 @@ impl AnyConfig {
 			AnyConfig::Grandpa(_) => None,
 			AnyConfig::Polygon(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Tendermint(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::EvmHost(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

@@ -19,8 +19,8 @@ use parachains_common::message_queue::ParaIdToSibling;
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use polkadot_sdk::{
-	cumulus_pallet_parachain_system::DefaultCoreSelector, frame_support::traits::ContainsPair,
-	sp_runtime::traits::AccountIdConversion, staging_xcm_builder::FungiblesAdapter, *,
+	frame_support::traits::ContainsPair, sp_runtime::traits::AccountIdConversion,
+	staging_xcm_builder::FungiblesAdapter, *,
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -243,8 +243,7 @@ impl cumulus_pallet_parachain_system::Config for Test {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = ();
 	type ConsensusHook = RequireParentIncluded;
-	type SelectCore = DefaultCoreSelector<Self>;
-	type RelayParentOffset = ();
+	type RelayParentOffset = ConstU32<0>;
 }
 
 impl cumulus_pallet_xcmp_queue::Config for Test {
@@ -333,6 +332,7 @@ impl pallet_assets::Config for Test {
 	type Balance = Balance;
 	type AssetId = H256;
 	type AssetIdParameter = H256;
+	type ReserveData = ();
 	type Currency = Balances;
 	type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId32>>;
 	type ForceOrigin = EnsureRoot<AccountId32>;
@@ -407,6 +407,7 @@ pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 			(asset_id, "Token Name".into(), "TOKEN".into(), 10),
 		],
 		next_asset_id: None,
+		reserves: vec![],
 	};
 
 	config.assimilate_storage(&mut t).unwrap();

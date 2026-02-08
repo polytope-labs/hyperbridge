@@ -9,6 +9,7 @@ import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
 
 import "../src/consensus/BeefyV1.sol";
+import "../src/consensus/MultiProofClient.sol";
 import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
@@ -25,10 +26,13 @@ import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 import {PingModule} from "../src/utils/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
+import {PolkadotHost} from "../src/hosts/Polkadot.sol";
 
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
+import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {FeeToken} from "../test/FeeToken.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
@@ -43,7 +47,6 @@ bytes32 constant BURNER_ROLE = keccak256("BURNER ROLE");
 contract DeployScript is BaseScript {
     using strings for *;
 
-    address private pingDispatcher = vm.envAddress("DISPATCHER");
     uint256 private paraId = vm.envUint("PARA_ID");
 
     /// @notice Main deployment logic - called by BaseScript's run() functions
@@ -55,13 +58,25 @@ contract DeployScript is BaseScript {
         address feeToken;
         bytes memory hyperbridge;
         TokenFaucet faucet;
+        HyperFungibleTokenImpl feeTokenInstance;
 
         bool isMainnet = config.get("is_mainnet").toBool();
+
+        // Deploy SP1 ZK consensus client
+        SP1Verifier verifier = new SP1Verifier{salt: salt}();
+        SP1Beefy sp1BeefyClient = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+
+        // Deploy BeefyV1 naive consensus client
+        BeefyV1 beefyV1Client = new BeefyV1{salt: salt}();
+
+        // Deploy MultiProofClient wrapping both consensus clients
+        MultiProofClient multiProofClient = new MultiProofClient{salt: salt}(
+            IConsensus(address(sp1BeefyClient)),
+            IConsensus(address(beefyV1Client))
+        );
+        consensusClient = address(multiProofClient);
+
         if (isMainnet) {
-            // deploy zk connsensus client
-            SP1Verifier verifier = new SP1Verifier{salt: salt}();
-            SP1Beefy consensusClientInstance = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
-            consensusClient = address(consensusClientInstance);
             // use feeToken configured in environment variables
             address uniswap = config.get("UNISWAP_V2").toAddress();
             // if existing univ2 address isn't available, deploy univ3 wrapper
@@ -84,14 +99,9 @@ contract DeployScript is BaseScript {
             decimals = IERC20Metadata(feeToken).decimals();
             hyperbridge = StateMachine.polkadot(paraId);
         } else {
-            // deploy naive consensus client
-            BeefyV1 consensusClientInstance = new BeefyV1{salt: salt}();
-            consensusClient = address(consensusClientInstance);
-
             // Deploy our own feetoken contract & faucet
             faucet = new TokenFaucet{salt: salt}();
-            HyperFungibleTokenImpl feeTokenInstance =
-                new HyperFungibleTokenImpl{salt: salt}(admin, "Hyper USD", "USD.h");
+            feeTokenInstance = new HyperFungibleTokenImpl{salt: salt}(admin, "Hyper USD", "USD.h");
             // Grant minter role to faucet so it can mint tokens
             feeTokenInstance.grantMinterRole(address(faucet));
             feeToken = address(feeTokenInstance);
@@ -149,6 +159,10 @@ contract DeployScript is BaseScript {
         intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));
 
         if (!isMainnet) {
+            // Grant TokenGateway minter and burner roles for feeToken
+            feeTokenInstance.grantMinterRole(address(tokenGateway));
+            feeTokenInstance.grantBurnerRole(address(tokenGateway));
+
             PingModule ping = new PingModule{salt: salt}(admin);
             ping.setIsmpHost(hostAddress, address(faucet));
             config.set("PING", address(ping));
@@ -215,6 +229,11 @@ contract DeployScript is BaseScript {
         // Sei (mainnet: 1329, arctic testnet: 1328)
         else if (chainId == 1329 || chainId == 1328) {
             SeiHost h = new SeiHost{salt: salt}(params);
+            return address(h);
+        }
+        // Polkadot Asset Hub (mainnet: 420420419, testnet: 420420417)
+        else if (chainId == 420420419 || chainId == 420420417) {
+            PolkadotHost h = new PolkadotHost{salt: salt}(params);
             return address(h);
         }
 

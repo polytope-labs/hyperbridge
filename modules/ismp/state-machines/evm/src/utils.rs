@@ -67,28 +67,56 @@ pub fn decode_evm_state_proof(proof: &Proof) -> Result<EvmStateProof, Error> {
 	Ok(evm_state_proof)
 }
 
-pub fn req_res_commitment_key<H: Keccak256>(item: RequestResponse) -> Vec<Vec<u8>> {
+/// Derives storage keys for request or response commitments with configurable final hashing.
+///
+/// This function first derives unhashed storage keys for request/response commitments using
+/// EVM-style storage layout (Keccak256-based key derivation with offset). The unhashed keys
+/// are then passed through the provided `hash_fn` closure to apply the appropriate final
+/// hashing scheme for the target storage system.
+///
+/// # Different Hash Functions for Different Chains
+///
+/// - **EVM Chains**: Use Keccak256 for the final hash since EVM storage uses Keccak256 trie
+///   ```rust,ignore req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec()) ```
+///
+/// - **Substrate EVM Chains**: Use Blake2b-256 for the final hash since Substrate uses Blake2b for
+///   its child trie storage ```rust,ignore req_res_commitment_key::<H, _>(item, |k|
+///   hashing::blake2_256(k).to_vec()) ```
+///
+/// # Parameters
+///
+/// * `item` - The request or response items to derive storage keys for
+/// * `hash_fn` - A closure that applies the final hashing to the unhashed storage key
+///
+/// # Returns
+///
+/// A vector of storage keys (one per request or response), hashed according to the provided
+/// hash function
+pub fn req_res_commitment_key<H: Keccak256, F>(item: RequestResponse, hash_fn: F) -> Vec<Vec<u8>>
+where
+	F: Fn(&[u8]) -> Vec<u8>,
+{
 	let mut keys = vec![];
 	match item {
 		RequestResponse::Request(requests) =>
 			for req in requests {
 				let commitment = hash_request::<H>(&req);
-				let key = derive_map_key_with_offset::<H>(
+				let unhashed_key = derive_unhashed_map_key_with_offset::<H>(
 					commitment.0.to_vec(),
 					REQUEST_COMMITMENTS_SLOT,
 					1,
 				);
-				keys.push(key.0.to_vec())
+				keys.push(hash_fn(&unhashed_key.0))
 			},
 		RequestResponse::Response(responses) =>
 			for res in responses {
 				let commitment = hash_response::<H>(&res);
-				let key = derive_map_key_with_offset::<H>(
+				let unhashed_key = derive_unhashed_map_key_with_offset::<H>(
 					commitment.0.to_vec(),
 					RESPONSE_COMMITMENTS_SLOT,
 					1,
 				);
-				keys.push(key.0.to_vec())
+				keys.push(hash_fn(&unhashed_key.0))
 			},
 	}
 
@@ -157,13 +185,6 @@ pub fn derive_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {
 	H::keccak256(H::keccak256(&key).0.as_slice())
 }
 
-pub fn derive_map_key_with_offset<H: Keccak256>(mut key: Vec<u8>, slot: u64, offset: u64) -> H256 {
-	key.extend_from_slice(&U256::from(slot).to_big_endian());
-	let root_key = H::keccak256(&key).0;
-	let number = U256::from_big_endian(root_key.as_slice()) + U256::from(offset);
-	H::keccak256(&number.to_big_endian())
-}
-
 pub fn derive_unhashed_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H256 {
 	key.extend_from_slice(&U256::from(slot).to_big_endian());
 	H::keccak256(&key)
@@ -172,6 +193,15 @@ pub fn derive_unhashed_map_key<H: Keccak256>(mut key: Vec<u8>, slot: u64) -> H25
 pub fn add_off_set_to_map_key(key: &[u8], offset: u64) -> H256 {
 	let number = U256::from_big_endian(key) + U256::from(offset);
 	H256(number.to_big_endian())
+}
+
+pub fn derive_unhashed_map_key_with_offset<H: Keccak256>(
+	key: Vec<u8>,
+	slot: u64,
+	offset: u64,
+) -> H256 {
+	let base_key = derive_unhashed_map_key::<H>(key, slot);
+	add_off_set_to_map_key(&base_key.0, offset)
 }
 
 pub fn derive_array_item_key<H: Keccak256>(slot: u64, index: u64, offset: u64) -> Vec<u8> {

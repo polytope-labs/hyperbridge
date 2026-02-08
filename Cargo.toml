@@ -106,6 +106,7 @@ members = [
 
     "tesseract/consensus/arb-host",
     "tesseract/consensus/op-host",
+    "tesseract/consensus/evm-host",
     "tesseract/consensus/bsc",
     "tesseract/consensus/sync-committee",
     "tesseract/consensus/grandpa",
@@ -151,25 +152,27 @@ lto = "thin"
 strip = true
 
 [workspace.dependencies]
-polkadot-sdk = { version = "=2506.0.0", default-features = false }
+polkadot-sdk = { version = "2512.1.0", default-features = false }
+
+rocksdb = { version = "0.24.0", features = ["bindgen-runtime"] }
 
 # crates that can't be used in polkadot-sdk
-sp-weights = { version = "32.0.0", default-features = false }
-sp-core = { version = "37.0.0", default-features = false }
-frame-benchmarking = { version = "41.0.0", default-features = false }
-sp-io = { version = "41.0.0", default-features = false }
-cumulus-pallet-parachain-system = { version = "0.21.0", default-features = false }
-substrate-wasm-builder = "27.0.0"
-sc-service = "0.53.0"
-sc-tracing = "40.0.0"
-sp-api-proc-macro = "23.0.0"
-sp-consensus-beefy = { version = "25.0.0" }
+sp-weights = { version = "33.2.0", default-features = false }
+sp-core = { version = "39.0.0", default-features = false }
+frame-benchmarking = { version = "45.0.1", default-features = false }
+sp-io = { version = "44.0.0", default-features = false }
+cumulus-pallet-parachain-system = { version = "0.25.0", default-features = false }
+substrate-wasm-builder = "31.1.0"
+sc-service = "0.56.0"
+sc-tracing = "44.0.0"
+sp-api-proc-macro = "26.0.0"
+sp-consensus-beefy = { version = "28.0.0" }
 sp-crypto-hashing = "0.1.0"
-xcm-simulator-example = "=20.0.1"
+xcm-simulator-example = "26.0.0"
 
 # supporting polkadot-sdk crates
-sc-simnode = { version = "2506.0.0" }
-simnode-runtime-api = { version = "2506.0.0", default-features = false }
+sc-simnode = { version = "2512.0.0" }
+simnode-runtime-api = { version = "2512.0.0", default-features = false }
 
 # crates.io
 serde = { version = "1.0.219", default-features = false, features = ["derive", "alloc"] }
@@ -221,22 +224,22 @@ ibc-core-host = { version = "0.57.0", default-features = false }
 ibc-proto = { version = "0.52.0", default-features = false, package = "ibc-proto"}
 
 # published crates
-ismp = { version = "2506.1.0", path = "./modules/ismp/core", default-features = false }
+ismp = { version = "2512.0.0", path = "./modules/ismp/core", default-features = false }
 serde-hex-utils = { version = "0.1.0", path = "modules/utils/serde", default-features = false }
-crypto-utils = { version = "0.1.0", path = "modules/utils/crypto", default-features = false }
-grandpa-verifier-primitives = { version = "2506.1.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
-grandpa-verifier = { version = "2506.1.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
-ismp-grandpa = { version = "2506.2.0", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2506.3.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "2506.1.0", path = "./modules/ismp/clients/parachain/inherent" }
-ismp-parachain-runtime-api = { version = "2506.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
-pallet-ismp = { version = "2506.1.0", path = "modules/pallets/ismp", default-features = false }
-pallet-ismp-rpc = { version = "2506.1.0", path = "modules/pallets/ismp/rpc" }
-pallet-ismp-runtime-api = { version = "2506.1.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
-pallet-hyperbridge = { version = "2506.1.1", path = "modules/pallets/hyperbridge", default-features = false }
-pallet-token-gateway = { version = "2506.2.0", path = "modules/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "2506.1.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
-substrate-state-machine = { version = "2506.1.0", path = "modules/ismp/state-machines/substrate", default-features = false }
+crypto-utils = { version = "0.2.0", path = "modules/utils/crypto", default-features = false }
+grandpa-verifier-primitives = { version = "2512.0.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
+grandpa-verifier = { version = "2512.0.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
+ismp-grandpa = { version = "2512.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
+ismp-parachain = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
+ismp-parachain-inherent = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain-runtime-api = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
+pallet-ismp = { version = "2512.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
+pallet-ismp-runtime-api = { version = "2512.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
+pallet-hyperbridge = { version = "2512.0.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-token-gateway = { version = "2512.0.0", path = "modules/pallets/token-gateway", default-features = false }
+token-gateway-primitives = { version = "2512.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
+substrate-state-machine = { version = "2512.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # local crates
 ismp-testsuite = { path = "./modules/ismp/testsuite" }
@@ -319,6 +322,7 @@ tesseract-config = { path = "tesseract/messaging/config" }
 # tesseract consensus
 arb-host = { path = "tesseract/consensus/arb-host" }
 op-host = { path = "tesseract/consensus/op-host" }
+evm-host = { path = "tesseract/consensus/evm-host" }
 tesseract-beefy = { path = "tesseract/consensus/beefy" }
 tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }

@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 
 [lib]
@@ -44,6 +44,7 @@ tesseract-sync-committee = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 arb-host = { workspace = true }
 op-host = { workspace = true }
+evm-host = { path = "../evm-host" }
 ismp = { workspace = true  }
 tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }

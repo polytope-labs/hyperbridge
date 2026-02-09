@@ -185,7 +185,7 @@ impl TronClient {
 	///
 	/// This initialises an [`EvmClient`] for JSON-RPC reads and a [`TronApi`]
 	/// for TRON-native transaction submission.
-	pub async fn new(config: TronConfig) -> anyhow::Result<Self> {
+	pub async fn new(mut config: TronConfig) -> anyhow::Result<Self> {
 		let key_bytes = match sp_core::bytes::from_hex(&config.evm.signer) {
 			Ok(bytes) => bytes,
 			Err(_) => {
@@ -206,6 +206,8 @@ impl TronClient {
 		let evm_addr = crypto::ecdsa::ECDSAExt::to_eth_address(&pair.public()).expect("Infallible");
 		let owner_address = to_tron_hex(&hex::encode(evm_addr));
 
+		// add a default RPC URL
+		config.evm.rpc_urls.push(format!("{}/jsonrpc", config.tron_api_url));
 		let evm = EvmClient::new(config.evm.clone()).await?;
 
 		let tron_api = TronApi::new(TronApiConfig {
@@ -223,10 +225,10 @@ impl TronClient {
 				api_secret: api_secret.clone(),
 				timeout: std::time::Duration::from_secs(30),
 			};
-			log::info!("[tron] CatFee integration enabled");
+			log::info!("CatFee integration enabled");
 			Some(CatFeeClient::new(catfee_config)?)
 		} else {
-			log::info!("[tron] CatFee integration disabled (API credentials not provided)");
+			log::info!("CatFee integration disabled (API credentials not provided)");
 			None
 		};
 
@@ -260,7 +262,7 @@ impl TronClient {
 		client.queue = Some(Arc::new(queue));
 
 		log::info!(
-			"[tron] Initialized TronClient for {:?} (host={}, handler={}, relayer={})",
+			"Initialized TronClient for {:?} (host={}, handler={}, relayer={})",
 			client.evm.state_machine,
 			client.ismp_host_address,
 			client.handler_address,

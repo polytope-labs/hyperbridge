@@ -27601,6 +27601,7 @@ name = "tesseract-beefy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "async-trait",
  "beefy-prover",
  "beefy-verifier-primitives",
@@ -27685,6 +27686,7 @@ dependencies = [
  "tesseract-primitives",
  "tesseract-substrate",
  "tesseract-substrate-evm",
+ "tesseract-tron",
 ]
 
 [[package]]
@@ -27721,6 +27723,7 @@ dependencies = [
  "tesseract-substrate",
  "tesseract-sync-committee",
  "tesseract-tendermint",
+ "tesseract-tron",
  "tokio",
  "toml 0.7.8",
  "tracing-subscriber 0.3.22",

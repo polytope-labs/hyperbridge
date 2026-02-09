@@ -80,36 +80,30 @@ pub async fn handle_message_submission(
 	client: &TronClient,
 	messages: Vec<Message>,
 ) -> Result<TxResult, anyhow::Error> {
-	log::trace!("[tron::tx] handle_message_submission called with {} messages", messages.len());
+	log::trace!("handle_message_submission called with {} messages", messages.len());
 
 	let (receipts, cancelled) = submit_messages(client, messages.clone()).await?;
 	log::trace!(
-		"[tron::tx] submit_messages returned {} receipts, {} cancelled",
+		"submit_messages returned {} receipts, {} cancelled",
 		receipts.len(),
 		cancelled.len()
 	);
 
 	let height = client.evm.client.get_block_number().await.map(|n| n.as_u64()).unwrap_or(0);
-	log::trace!("[tron::tx] Current block height: {}", height);
+	log::trace!("Current block height: {}", height);
 
 	let mut results = Vec::new();
 
 	for msg in &messages {
 		match msg {
 			Message::Request(req_msg) => {
-				log::trace!(
-					"[tron::tx] Processing Request message with {} posts",
-					req_msg.requests.len()
-				);
+				log::trace!("Processing Request message with {} posts", req_msg.requests.len());
 				for post in &req_msg.requests {
 					let req = Request::Post(post.clone());
 					let commitment = hash_request::<Hasher>(&req);
-					log::trace!("[tron::tx] Request commitment: {:?}", commitment);
+					log::trace!("Request commitment: {:?}", commitment);
 					if receipts.contains(&commitment) {
-						log::trace!(
-							"[tron::tx] Adding receipt for request commitment {:?}",
-							commitment
-						);
+						log::trace!("Adding receipt for request commitment {:?}", commitment);
 						results.push(TxReceipt::Request {
 							query: Query {
 								source_chain: req.source_chain(),
@@ -126,20 +120,17 @@ pub async fn handle_message_submission(
 				datagram: RequestResponse::Response(resp),
 				..
 			}) => {
-				log::trace!("[tron::tx] Processing Response message with {} responses", resp.len());
+				log::trace!("Processing Response message with {} responses", resp.len());
 				for res in resp {
 					let commitment = hash_response::<Hasher>(res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
 					log::trace!(
-						"[tron::tx] Response commitment: {:?}, request commitment: {:?}",
+						"Response commitment: {:?}, request commitment: {:?}",
 						commitment,
 						request_commitment
 					);
 					if receipts.contains(&commitment) {
-						log::trace!(
-							"[tron::tx] Adding receipt for response commitment {:?}",
-							commitment
-						);
+						log::trace!("Adding receipt for response commitment {:?}", commitment);
 						results.push(TxReceipt::Response {
 							query: Query {
 								source_chain: res.source_chain(),
@@ -154,13 +145,13 @@ pub async fn handle_message_submission(
 				}
 			},
 			_ => {
-				log::trace!("[tron::tx] Skipping non-request/response message");
+				log::trace!("Skipping non-request/response message");
 			},
 		}
 	}
 
 	log::info!(
-		"[tron::tx] handle_message_submission complete: {} receipts, {} unsuccessful",
+		"handle_message_submission complete: {} receipts, {} unsuccessful",
 		results.len(),
 		cancelled.len()
 	);
@@ -175,29 +166,29 @@ pub async fn submit_messages(
 	client: &TronClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
-	log::trace!("[tron::tx] submit_messages called with {} messages", messages.len());
+	log::trace!("submit_messages called with {} messages", messages.len());
 
 	//
 	// We pass `debug_trace = true` to skip the gas-price oracle (which may
 	// not be available on TRON).  Gas estimation failures are caught by
 	// `unwrap_or` inside `generate_contract_calls`, so this is safe.
-	log::trace!("[tron::tx] Calling generate_contract_calls with debug_trace=true");
+	log::trace!("Calling generate_contract_calls with debug_trace=true");
 	let calls = generate_contract_calls(&client.evm, messages.clone(), true).await?;
-	log::trace!("[tron::tx] generate_contract_calls returned {} calls", calls.len());
+	log::trace!("generate_contract_calls returned {} calls", calls.len());
 
 	let mut events = BTreeSet::new();
 	let mut cancelled: Vec<Message> = Vec::new();
 
 	for (index, call) in calls.iter().enumerate() {
-		log::trace!("[tron::tx] Processing call {} of {}", index + 1, calls.len());
+		log::trace!("Processing call {} of {}", index + 1, calls.len());
 
 		let calldata = match call.calldata() {
 			Some(bytes) => {
-				log::trace!("[tron::tx] Call {} has calldata of {} bytes", index, bytes.len());
+				log::trace!("Call {} has calldata of {} bytes", index, bytes.len());
 				bytes
 			},
 			None => {
-				log::error!("[tron] Message at index {index} produced empty calldata, skipping");
+				log::error!("Message at index {index} produced empty calldata, skipping");
 				cancelled.push(messages[index].clone());
 				continue;
 			},
@@ -205,7 +196,7 @@ pub async fn submit_messages(
 
 		let calldata_hex = hex::encode(calldata.as_ref());
 		log::trace!(
-			"[tron::tx] Call {} calldata (hex): {}...",
+			"Call {} calldata (hex): {}...",
 			index,
 			&calldata_hex[..std::cmp::min(64, calldata_hex.len())]
 		);
@@ -219,27 +210,27 @@ pub async fn submit_messages(
 		};
 
 		log::info!(
-			"[tron] Submitting {label} to {:?} ({} bytes calldata) ...",
+			"Submitting {label} to {:?} ({} bytes calldata) ...",
 			client.evm.state_machine,
 			calldata.len(),
 		);
 
 		match trigger_sign_broadcast(client, &calldata_hex).await {
 			Ok(info) => {
-				log::trace!("[tron::tx] trigger_sign_broadcast returned for call {}", index);
+				log::trace!("trigger_sign_broadcast returned for call {}", index);
 
 				if info.succeeded() {
 					let energy = info.receipt.as_ref().map(|r| r.energy_usage_total).unwrap_or(0);
 
 					log::info!(
-						"[tron] {label} succeeded (tx={}, block={}, energy={energy})",
+						"{label} succeeded (tx={}, block={}, energy={energy})",
 						info.id,
 						info.block_number,
 					);
 
 					let msg_events = extract_commitment_hashes(&info);
 					log::trace!(
-						"[tron::tx] Extracted {} commitment hashes from tx {}",
+						"Extracted {} commitment hashes from tx {}",
 						msg_events.len(),
 						info.id
 					);
@@ -249,18 +240,18 @@ pub async fn submit_messages(
 					if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
 						msg_events.is_empty()
 					{
-						log::warn!("[tron::tx] Request/Response message at index {} produced no events (likely duplicate), cancelling", index);
+						log::warn!("Request/Response message at index {} produced no events (likely duplicate), cancelling", index);
 						cancelled.push(messages[index].clone());
 					}
 					events.extend(msg_events);
 				} else {
 					let reason = decode_revert_message(&info);
-					log::error!("[tron] {label} reverted (tx={}): {reason}", info.id);
+					log::error!("{label} reverted (tx={}): {reason}", info.id);
 					cancelled.push(messages[index].clone());
 				}
 			},
 			Err(err) => {
-				log::error!("[tron] {label} submission failed: {err:#}");
+				log::error!("{label} submission failed: {err:#}");
 				return Err(err);
 			},
 		}
@@ -268,17 +259,13 @@ pub async fn submit_messages(
 
 	if !events.is_empty() {
 		log::trace!(
-			"[tron] Got {} receipts from executing on {:?}",
+			"Got {} receipts from executing on {:?}",
 			events.len(),
 			client.evm.state_machine,
 		);
 	}
 
-	log::trace!(
-		"[tron::tx] submit_messages complete: {} events, {} cancelled",
-		events.len(),
-		cancelled.len()
-	);
+	log::trace!("submit_messages complete: {} events, {} cancelled", events.len(), cancelled.len());
 	Ok((events, cancelled))
 }
 
@@ -293,9 +280,9 @@ async fn trigger_sign_broadcast(
 	client: &TronClient,
 	calldata_hex: &str,
 ) -> anyhow::Result<TransactionInfo> {
-	log::trace!("[tron::tx] trigger_sign_broadcast: preparing request");
+	log::trace!("trigger_sign_broadcast: preparing request");
 	log::trace!(
-		"[tron::tx] owner_address: {}, contract_address: {}, fee_limit: {}",
+		"owner_address: {}, contract_address: {}, fee_limit: {}",
 		client.owner_address,
 		client.handler_address,
 		client.fee_limit
@@ -304,7 +291,7 @@ async fn trigger_sign_broadcast(
 	// Step 1: Estimate energy requirements
 	let estimated_energy = estimate_transaction_energy(client, calldata_hex).await?;
 
-	log::trace!("[tron] Estimated energy: {}", estimated_energy);
+	log::trace!("Estimated energy: {}", estimated_energy);
 
 	// Step 2: Purchase energy via CatFee if available
 	if let Some(catfee_client) = &client.catfee {
@@ -320,13 +307,13 @@ async fn trigger_sign_broadcast(
 		visible: false,
 	};
 
-	log::trace!("[tron::tx] Calling POST /wallet/triggersmartcontract");
+	log::trace!("Calling POST /wallet/triggersmartcontract");
 	let resp: TriggerSmartContractResponse =
 		post_json(client.tron_api.full_host(), "/wallet/triggersmartcontract", &trigger_req, None)
 			.await
 			.context("triggerSmartContract failed")?;
 
-	log::trace!("[tron::tx] triggerSmartContract response received, checking result");
+	log::trace!("triggerSmartContract response received, checking result");
 	resp.result.into_result().context("triggerSmartContract rejected")?;
 
 	let unsigned = resp
@@ -334,25 +321,25 @@ async fn trigger_sign_broadcast(
 		.ok_or_else(|| anyhow!("triggerSmartContract returned no transaction"))?;
 
 	let tx_id = unsigned.tx_id.clone();
-	log::trace!("[tron::tx] Got unsigned transaction with tx_id={}", tx_id);
+	log::trace!("Got unsigned transaction with tx_id={}", tx_id);
 
-	log::trace!("[tron::tx] Signing transaction");
+	log::trace!("Signing transaction");
 	let signed = SignedTransaction::sign(unsigned, &client.secret_key)
 		.context("failed to sign TRON transaction")?;
 
-	log::trace!("[tron::tx] Broadcasting transaction tx_id={}", tx_id);
+	log::trace!("Broadcasting transaction tx_id={}", tx_id);
 	let broadcast_result = client
 		.tron_api
 		.broadcast_transaction(&signed)
 		.await
 		.context("broadcastTransaction failed")?;
 
-	log::trace!("[tron::tx] Broadcast response received, checking result");
+	log::trace!("Broadcast response received, checking result");
 	broadcast_result.into_result().context("broadcastTransaction rejected")?;
 
-	log::trace!("[tron] Broadcast tx_id={tx_id}");
+	log::trace!("Broadcast tx_id={tx_id}");
 
-	log::trace!("[tron::tx] Waiting for receipt for tx_id={}", tx_id);
+	log::trace!("Waiting for receipt for tx_id={}", tx_id);
 	wait_for_receipt(&client.tron_api, &tx_id).await
 }
 
@@ -361,7 +348,7 @@ async fn trigger_sign_broadcast(
 /// TRON blocks are produced every ~3 seconds.  We poll every 4 seconds for up
 /// to 5 minutes.
 pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<TransactionInfo> {
-	log::trace!("[tron::tx] wait_for_receipt: starting poll for tx_id={}", tx_id);
+	log::trace!("wait_for_receipt: starting poll for tx_id={}", tx_id);
 
 	let poll_interval = Duration::from_secs(4);
 	let max_duration = Duration::from_secs(5 * 60);
@@ -374,7 +361,7 @@ pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<Tran
 
 		if elapsed >= max_duration {
 			log::error!(
-				"[tron::tx] wait_for_receipt: timeout after {} attempts ({} seconds) for tx: {}",
+				"wait_for_receipt: timeout after {} attempts ({} seconds) for tx: {}",
 				attempt,
 				elapsed.as_secs(),
 				tx_id
@@ -382,25 +369,29 @@ pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<Tran
 			return Err(anyhow!("Transaction receipt not found after 5 min for tx: {tx_id}"));
 		}
 
-		log::trace!("[tron::tx] wait_for_receipt: attempt {} for tx_id={}", attempt, tx_id);
+		log::trace!("wait_for_receipt: attempt {} for tx_id={}", attempt, tx_id);
 
 		match api.get_transaction_info(tx_id).await {
 			Ok(Some(info)) => {
-				log::trace!("[tron::tx] wait_for_receipt: receipt found after {} attempts ({} seconds) for tx: {}",
-					attempt, elapsed.as_secs(), tx_id);
-				log::trace!("[tron] Receipt found for tx: {tx_id}");
+				log::trace!(
+					"wait_for_receipt: receipt found after {} attempts ({} seconds) for tx: {}",
+					attempt,
+					elapsed.as_secs(),
+					tx_id
+				);
+				log::trace!("Receipt found for tx: {tx_id}");
 				return Ok(info);
 			},
 			Ok(None) => {
 				log::trace!(
-					"[tron] Receipt not yet available for {tx_id}, retrying in {}s (attempt {})",
+					"Receipt not yet available for {tx_id}, retrying in {}s (attempt {})",
 					poll_interval.as_secs(),
 					attempt,
 				);
 			},
 			Err(err) => {
 				log::warn!(
-					"[tron] Error querying receipt for {tx_id} (attempt {}): {err:#}, will retry",
+					"Error querying receipt for {tx_id} (attempt {}): {err:#}, will retry",
 					attempt
 				);
 			},
@@ -417,7 +408,7 @@ pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<Tran
 /// The commitment is the first **indexed** topic (topics[1]).
 fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 	log::trace!(
-		"[tron::tx] extract_commitment_hashes: processing {} log entries for tx {}",
+		"extract_commitment_hashes: processing {} log entries for tx {}",
 		info.log.len(),
 		info.id
 	);
@@ -425,20 +416,16 @@ fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 	let request_topic = H256::from(keccak_256(b"PostRequestHandled(bytes32,address)"));
 	let response_topic = H256::from(keccak_256(b"PostResponseHandled(bytes32,address)"));
 
-	log::trace!("[tron::tx] Looking for request_topic: {:?}", request_topic);
-	log::trace!("[tron::tx] Looking for response_topic: {:?}", response_topic);
+	log::trace!("Looking for request_topic: {:?}", request_topic);
+	log::trace!("Looking for response_topic: {:?}", response_topic);
 
 	let mut hashes = BTreeSet::new();
 
 	for (idx, log_entry) in info.log.iter().enumerate() {
-		log::trace!(
-			"[tron::tx] Processing log entry {} with {} topics",
-			idx,
-			log_entry.topics.len()
-		);
+		log::trace!("Processing log entry {} with {} topics", idx, log_entry.topics.len());
 
 		if log_entry.topics.is_empty() {
-			log::trace!("[tron::tx] Log entry {} has no topics, skipping", idx);
+			log::trace!("Log entry {} has no topics, skipping", idx);
 			continue;
 		}
 
@@ -446,33 +433,26 @@ fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 		let topic0 = match hex::decode(&log_entry.topics[0]) {
 			Ok(bytes) if bytes.len() == 32 => {
 				let h = H256::from_slice(&bytes);
-				log::trace!("[tron::tx] Log entry {} topic0: {:?}", idx, h);
+				log::trace!("Log entry {} topic0: {:?}", idx, h);
 				h
 			},
 			Ok(bytes) => {
-				log::trace!(
-					"[tron::tx] Log entry {} topic0 has wrong length: {}",
-					idx,
-					bytes.len()
-				);
+				log::trace!("Log entry {} topic0 has wrong length: {}", idx, bytes.len());
 				continue;
 			},
 			Err(e) => {
-				log::trace!("[tron::tx] Log entry {} topic0 hex decode failed: {}", idx, e);
+				log::trace!("Log entry {} topic0 hex decode failed: {}", idx, e);
 				continue;
 			},
 		};
 
 		if topic0 != request_topic && topic0 != response_topic {
-			log::trace!(
-				"[tron::tx] Log entry {} topic0 doesn't match request/response topics",
-				idx
-			);
+			log::trace!("Log entry {} topic0 doesn't match request/response topics", idx);
 			continue;
 		}
 
 		log::trace!(
-			"[tron::tx] Log entry {} matches {} event",
+			"Log entry {} matches {} event",
 			idx,
 			if topic0 == request_topic { "PostRequestHandled" } else { "PostResponseHandled" }
 		);
@@ -482,51 +462,47 @@ fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 			if let Ok(bytes) = hex::decode(&log_entry.topics[1]) {
 				if bytes.len() == 32 {
 					let commitment = H256::from_slice(&bytes);
-					log::trace!("[tron::tx] Extracted commitment: {:?}", commitment);
+					log::trace!("Extracted commitment: {:?}", commitment);
 					hashes.insert(commitment);
 				} else {
-					log::trace!(
-						"[tron::tx] Log entry {} topic1 has wrong length: {}",
-						idx,
-						bytes.len()
-					);
+					log::trace!("Log entry {} topic1 has wrong length: {}", idx, bytes.len());
 				}
 			} else {
-				log::trace!("[tron::tx] Log entry {} topic1 hex decode failed", idx);
+				log::trace!("Log entry {} topic1 hex decode failed", idx);
 			}
 		} else {
-			log::trace!("[tron::tx] Log entry {} doesn't have topic1", idx);
+			log::trace!("Log entry {} doesn't have topic1", idx);
 		}
 	}
 
-	log::trace!("[tron::tx] extract_commitment_hashes: extracted {} commitments", hashes.len());
+	log::trace!("extract_commitment_hashes: extracted {} commitments", hashes.len());
 	hashes
 }
 
 /// Try to decode a human-readable revert reason from a failed transaction.
 fn decode_revert_message(info: &TransactionInfo) -> String {
-	log::trace!("[tron::tx] decode_revert_message for tx {}", info.id);
-	log::trace!("[tron::tx] res_message: {:?}", info.res_message);
-	log::trace!("[tron::tx] result: {:?}", info.result);
+	log::trace!("decode_revert_message for tx {}", info.id);
+	log::trace!("res_message: {:?}", info.res_message);
+	log::trace!("result: {:?}", info.result);
 
 	let decoded = info
 		.res_message
 		.as_deref()
 		.and_then(|hex_msg| {
-			log::trace!("[tron::tx] Attempting to decode hex res_message: {}", hex_msg);
+			log::trace!("Attempting to decode hex res_message: {}", hex_msg);
 			hex::decode(hex_msg).ok()
 		})
 		.and_then(|bytes| {
-			log::trace!("[tron::tx] Attempting UTF-8 decode of {} bytes", bytes.len());
+			log::trace!("Attempting UTF-8 decode of {} bytes", bytes.len());
 			String::from_utf8(bytes).ok()
 		})
 		.unwrap_or_else(|| {
 			let fallback = info.result.clone().unwrap_or_else(|| "unknown error".into());
-			log::trace!("[tron::tx] Using fallback revert message: {}", fallback);
+			log::trace!("Using fallback revert message: {}", fallback);
 			fallback
 		});
 
-	log::trace!("[tron::tx] Decoded revert message: {}", decoded);
+	log::trace!("Decoded revert message: {}", decoded);
 	decoded
 }
 
@@ -542,30 +518,30 @@ async fn post_json<Req: Serialize, Res: serde::de::DeserializeOwned>(
 	api_key: Option<&str>,
 ) -> anyhow::Result<Res> {
 	let url = format!("{base_url}{path}");
-	log::trace!("[tron::tx] post_json: POST {}", url);
+	log::trace!("post_json: POST {}", url);
 
 	let client = reqwest::Client::new();
 	let mut builder = client.post(&url).json(body);
 
 	if let Some(key) = api_key {
-		log::trace!("[tron::tx] post_json: Adding TRON-PRO-API-KEY header");
+		log::trace!("post_json: Adding TRON-PRO-API-KEY header");
 		builder = builder.header("TRON-PRO-API-KEY", key);
 	}
 
-	log::trace!("[tron::tx] post_json: Sending request to {}", url);
+	log::trace!("post_json: Sending request to {}", url);
 	let resp = builder.send().await.with_context(|| format!("POST {url} failed"))?;
 
 	let status = resp.status();
-	log::trace!("[tron::tx] post_json: Received HTTP {} from {}", status, url);
+	log::trace!("post_json: Received HTTP {} from {}", status, url);
 
 	if !status.is_success() {
 		let text = resp.text().await.unwrap_or_default();
-		log::error!("[tron::tx] post_json: HTTP error {}: {}", status, text);
+		log::error!("post_json: HTTP error {}: {}", status, text);
 		return Err(anyhow!("POST {url} returned HTTP {status}: {text}"));
 	}
 
 	let text = resp.text().await.context("failed to read response body")?;
-	log::trace!("[tron::tx] post_json: Response body length: {} bytes", text.len());
+	log::trace!("post_json: Response body length: {} bytes", text.len());
 
 	serde_json::from_str(&text)
 		.with_context(|| format!("POST {url}: failed to deserialize: {text}"))
@@ -670,7 +646,7 @@ async fn estimate_transaction_energy(
 	client: &TronClient,
 	calldata_hex: &str,
 ) -> anyhow::Result<u64> {
-	log::trace!("[tron::tx] Estimating transaction energy");
+	log::trace!("Estimating transaction energy");
 
 	// Use triggerConstantContract to simulate the call
 	let trigger_req = TriggerContractRequest {
@@ -704,7 +680,7 @@ async fn estimate_transaction_energy(
 	let energy_with_margin = (estimated_energy as f64 * 1.2) as u64;
 
 	log::trace!(
-		"[tron::tx] Raw energy estimate: {}, with 20% margin: {}",
+		"Raw energy estimate: {}, with 20% margin: {}",
 		estimated_energy,
 		energy_with_margin
 	);
@@ -725,7 +701,7 @@ async fn purchase_energy_via_catfee(
 	receiver_address: &str,
 	energy_required: u64,
 ) -> anyhow::Result<()> {
-	log::info!("[tron] Purchasing {} energy units via CatFee", energy_required);
+	log::info!("Purchasing {} energy units via CatFee", energy_required);
 
 	// Convert TRON hex address (41-prefixed) to base58 if needed
 	let receiver_base58 = if is_base58_address(receiver_address) {
@@ -737,7 +713,7 @@ async fn purchase_energy_via_catfee(
 			.context("Failed to convert TRON address from hex to base58")?
 	};
 
-	log::trace!("[tron] Using receiver address (base58): {}", receiver_base58);
+	log::trace!("Using receiver address (base58): {}", receiver_base58);
 
 	// Maximum wait time for order completion (3 minutes)
 	let max_wait = Duration::from_secs(180);
@@ -750,7 +726,7 @@ async fn purchase_energy_via_catfee(
 		.await
 		.context("Failed to purchase energy via CatFee")?;
 
-	log::info!("[tron] Energy purchase completed successfully");
+	log::info!("Energy purchase completed successfully");
 
 	Ok(())
 }

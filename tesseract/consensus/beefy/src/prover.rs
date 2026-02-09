@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{anyhow, Context};
-use bytes::Buf;
+use anyhow::anyhow;
 use codec::{Decode, Encode};
 use ethers::abi::{AbiEncode, Token, Tokenizable};
 use hex_literal::hex;
 use polkadot_sdk::*;
 use primitive_types::H256;
-use redis::{AsyncCommands, RedisError};
-use rsmq_async::{Rsmq, RsmqConnection, RsmqError};
 use serde::{Deserialize, Serialize};
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, known_payloads::MMR_ROOT_ID, SignedCommitment, VersionedFinalityProof,
@@ -32,6 +29,7 @@ use sp_runtime::{
 use std::{
 	collections::{HashMap, HashSet},
 	marker::PhantomData,
+	sync::Arc,
 	time::Duration,
 };
 use subxt::{
@@ -57,20 +55,20 @@ use tesseract_substrate::SubstrateClient;
 use zk_beefy::BeefyProver as Sp1BeefyProverTrait;
 
 use crate::{
-	extract_para_id, host::ConsensusProof, redis_utils, redis_utils::RedisConfig,
-	VALIDATOR_SET_ID_KEY,
+	backend::{ConsensusProof, ProofBackend},
+	extract_para_id, VALIDATOR_SET_ID_KEY,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyProverConfig {
-	/// Redis configuration for message queues
-	pub redis: RedisConfig,
 	/// Consensus state id for the host on the counterparty
 	pub consensus_state_id: ConsensusStateId,
 	/// Minimum height that must be enacted before we prove finality for new messages
 	pub minimum_finalization_height: u64,
 	/// State machines we are proving for
 	pub state_machines: Vec<StateMachine>,
+	/// Optional Redis configuration for proof backend (if None, uses InMemoryProofBackend)
+	pub redis: Option<crate::backend::RedisConfig>,
 }
 
 /// Selects which proof strategy the BEEFY prover uses.
@@ -107,19 +105,18 @@ pub struct ProverConfig {
 /// The BEEFY prover produces BEEFY consensus proofs using either the naive or zk variety. Consensus
 /// proofs are produced when new messages are observed on the hyperbridge chain or when the
 /// authority set changes.
-pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait> {
-	/// The prover's consensus state, this is persisted to redis
+pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrait, Q: ProofBackend>
+{
+	/// The prover's consensus state
 	consensus_state: ProverConsensusState,
 	/// The hyperbridge substrate client
 	client: SubstrateClient<P>,
 	/// The beefy prover instance
 	prover: Prover<R, P, B>,
-	/// Rsmq for interacting with the queue
-	rsmq: Rsmq,
+	/// Unified backend for queue and state storage
+	backend: Arc<Q>,
 	/// Prover configuration options
 	config: BeefyProverConfig,
-	/// redis connection for reading and writing consensus state
-	connection: redis::aio::ConnectionManager,
 }
 
 /// Global key in redis for the prover consensus state. The prover will write it's consensus state
@@ -135,11 +132,12 @@ pub const PROOF_TYPE_ZK: u8 = 0x01;
 /// Proof type identifier for Fiat-Shamir sampled proofs (BeefyV1FiatShamir)
 pub const PROOF_TYPE_FIAT_SHAMIR: u8 = 0x02;
 
-impl<R, P, B> BeefyProver<R, P, B>
+impl<R, P, B, Q> BeefyProver<R, P, B, Q>
 where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
 	B: Sp1BeefyProverTrait,
+	Q: ProofBackend,
 	P::Header: Send + Sync,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + Send + Sync,
@@ -149,67 +147,19 @@ where
 {
 	/// Constructs an instance of the [`BeefyProver`]
 	pub async fn new(
-		mut config: BeefyProverConfig,
+		config: BeefyProverConfig,
 		client: SubstrateClient<P>,
 		prover: Prover<R, P, B>,
+		backend: Arc<Q>,
 	) -> Result<Self, anyhow::Error> {
-		let mut connection = redis::Client::open(redis::ConnectionInfo {
-			addr: config.redis.clone().into(),
-			redis: redis::RedisConnectionInfo {
-				db: config.redis.db as i64,
-				username: config.redis.username.clone(),
-				password: config.redis.password.clone(),
-			},
-		})?
-		.get_connection_manager()
-		.await?;
-		let consensus_state = {
-			let encoded = connection.get::<_, bytes::Bytes>(REDIS_CONSENSUS_STATE_KEY).await?;
-			ProverConsensusState::decode(&mut encoded.chunk())?
-		};
+		let consensus_state = backend.load_state().await?;
 
-		log::info!("Rehydrated consensus state from redis: {consensus_state:#?}");
+		log::info!("Loaded consensus state: {consensus_state:#?}");
 
-		// we want to publish queue notifications from the prover
-		config.redis.realtime = true;
-		let rsmq = redis_utils::rsmq_client(&config.redis).await?;
+		// Initialize queues for the configured state machines
+		backend.init_queues(&config.state_machines).await?;
 
-		Ok(BeefyProver { consensus_state, rsmq, prover, client, config, connection })
-	}
-
-	/// Initialize all the relevant queues for the configured state machines.
-	pub async fn init_queues(&mut self) -> Result<(), anyhow::Error> {
-		for state_machine in self.config.state_machines.iter() {
-			let result = self
-				.rsmq
-				.create_queue(
-					self.config.redis.mandatory_queue(state_machine).as_str(),
-					Some(Duration::ZERO),
-					Some(Duration::ZERO),
-					Some(-1),
-				)
-				.await;
-
-			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
-				result.context(format!("Failed to create mandatory queue for {state_machine}"))?
-			}
-
-			let result = self
-				.rsmq
-				.create_queue(
-					self.config.redis.messages_queue(state_machine).as_str(),
-					Some(Duration::ZERO),
-					Some(Duration::ZERO),
-					Some(-1),
-				)
-				.await;
-
-			if !(matches!(result, Ok(_) | Err(RsmqError::QueueExists))) {
-				result.context(format!("Failed to create messages queue for {state_machine}"))?
-			}
-		}
-
-		Ok(())
+		Ok(BeefyProver { consensus_state, prover, client, config, backend })
 	}
 
 	/// Rotate the prover's known authority set, using the network view at the provided hash
@@ -484,14 +434,8 @@ where
 									"Sending mandatory consensus proof to {state_machine}"
 								);
 
-								let mandatory_queue =
-									self.config.redis.mandatory_queue(&state_machine);
-								self.rsmq
-									.send_message(
-										mandatory_queue.as_str(),
-										message.clone(),
-										Some(Duration::ZERO),
-									)
+								self.backend
+									.send_mandatory_proof(state_machine, message.clone())
 									.await?;
 							}
 
@@ -514,12 +458,7 @@ where
 							self.consensus_state.inner.latest_beefy_height =
 								commitment.commitment.block_number;
 							self.rotate_authorities(epoch_change_block_hash).await?;
-							self.connection
-								.set::<_, _, ()>(
-									REDIS_CONSENSUS_STATE_KEY,
-									self.consensus_state.encode(),
-								)
-								.await?;
+							self.backend.save_state(&self.consensus_state).await?;
 						}
 					}
 
@@ -529,12 +468,7 @@ where
 
 					if messages.is_empty() {
 						self.consensus_state.finalized_parachain_height = latest_parachain_height;
-						self.connection
-							.set::<_, _, ()>(
-								REDIS_CONSENSUS_STATE_KEY,
-								self.consensus_state.encode(),
-							)
-							.await?;
+						self.backend.save_state(&self.consensus_state).await?;
 						continue;
 					}
 
@@ -650,20 +584,12 @@ where
 					// notify all relevant state machines
 					for state_machine in state_machines {
 						tracing::info!("Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}");
-						self.rsmq
-							.send_message(
-								self.config.redis.messages_queue(&state_machine).as_str(),
-								message.clone(),
-								Some(Duration::ZERO),
-							)
-							.await?; // fatal
+						self.backend.send_messages_proof(&state_machine, message.clone()).await?; // fatal
 					}
 
 					self.consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
 					self.consensus_state.finalized_parachain_height = latest_parachain_height;
-					self.connection
-						.set::<_, _, ()>(REDIS_CONSENSUS_STATE_KEY, self.consensus_state.encode())
-						.await?;
+					self.backend.save_state(&self.consensus_state).await?;
 				}
 
 				#[allow(unreachable_code)]
@@ -671,43 +597,9 @@ where
 			};
 
 			if let Err(err) = future.await {
-				tracing::info!("Prover error: {err:?}");
-				if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
-					if redis_error.is_connection_dropped() {
-						tracing::info!("Recreating rsmq client");
-
-						self.rsmq = redis_utils::rsmq_client(&self.config.redis)
-							.await
-							.expect("Failed to reconnect to redis");
-
-						tracing::info!("Recreated rsmq client");
-					} else {
-						tracing::error!("Unhandled error {redis_error:?}")
-					}
-				}
-
-				if let Some(redis_error) = err.downcast_ref::<RedisError>() {
-					if redis_error.is_connection_dropped() {
-						tracing::info!("Recreating redis client");
-
-						self.connection = redis::Client::open(redis::ConnectionInfo {
-							addr: self.config.redis.clone().into(),
-							redis: redis::RedisConnectionInfo {
-								db: self.config.redis.db as i64,
-								username: self.config.redis.username.clone(),
-								password: self.config.redis.password.clone(),
-							},
-						})
-						.expect("Failed to reconnect to redis")
-						.get_connection_manager()
-						.await
-						.expect("Failed to reconnect to redis");
-
-						tracing::info!("Recreated redis client");
-					} else {
-						tracing::error!("Unhandled error {redis_error:?}")
-					}
-				}
+				tracing::error!("Prover error: {err:?}");
+				// The queue and state storage implementations should handle reconnection internally
+				// or the error will propagate and the loop will retry
 			}
 		}
 	}
@@ -894,252 +786,4 @@ pub async fn query_parachain_header<R: subxt::Config>(
 		polkadot_sdk::sp_runtime::generic::Header::<u32, Keccak256>::decode(&mut &head_data[..])?;
 
 	Ok(header)
-}
-
-#[cfg(test)]
-mod tests {
-	use futures::{StreamExt, TryStreamExt};
-	use redis_async::client::pubsub_connect;
-	use rsmq_async::{Rsmq, RsmqConnection, RsmqError, RsmqOptions};
-	use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
-
-	use ismp::host::StateMachine;
-	use substrate_state_machine::HashAlgorithm;
-	use tesseract_substrate::{
-		config::{Blake2SubstrateChain, KeccakSubstrateChain},
-		SubstrateConfig,
-	};
-
-	use crate::host::{BeefyHost, BeefyHostConfig};
-
-	use super::*;
-
-	/// Sets up logging through tracing-subscriber
-	pub fn setup_logging() -> Result<(), anyhow::Error> {
-		let filter = tracing_subscriber::EnvFilter::from_default_env()
-			.add_directive(LevelFilter::INFO.into());
-		tracing_subscriber::fmt().with_env_filter(filter).finish().try_init()?;
-
-		Ok(())
-	}
-
-	#[tokio::test]
-	#[ignore]
-	async fn integration_test_prover_and_redis_queues() -> Result<(), anyhow::Error> {
-		// set up tracing
-		setup_logging()?;
-
-		let substrate_config = SubstrateConfig {
-			state_machine: StateMachine::Kusama(4009),
-			hashing: Some(HashAlgorithm::Keccak),
-			consensus_state_id: None,
-			// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-			rpc_ws: "ws://localhost:9902".to_string(),
-			max_rpc_payload_size: None,
-			signer: format!("{:?}", H256::random()),
-			initial_height: None,
-			max_concurent_queries: None,
-			poll_interval: None,
-			fee_token_decimals: None,
-		};
-		let substrate_client =
-			SubstrateClient::<KeccakSubstrateChain>::new(substrate_config.clone()).await?;
-
-		let prover_config = ProverConfig {
-			relay_rpc_ws: "wss://hyperbridge-paseo-relay.blockops.network:443".to_string(),
-			para_rpc_ws: substrate_config.rpc_ws.clone(),
-			para_ids: vec![4009],
-			proof_variant: ProofVariant::Naive,
-			max_rpc_payload_size: None,
-			query_batch_size: None,
-		};
-		let prover = Prover::new(prover_config).await?;
-
-		let redis = RedisConfig {
-			db: 0,
-			mandatory_queue: "mandatory".into(),
-			messages_queue: "messages".into(),
-			ns: "rsmq".into(),
-			url: "localhost".into(),
-			port: 6379,
-			password: None,
-			username: None,
-			// will be adjusted by the relevant subsystems
-			realtime: false,
-		};
-		let beefy_config = BeefyProverConfig {
-			minimum_finalization_height: 25,
-			redis: redis.clone(),
-			consensus_state_id: [0u8; 4],
-			state_machines: vec![
-				StateMachine::Polkadot(2000),
-				StateMachine::Polkadot(2001),
-				StateMachine::Polkadot(2002),
-			],
-		};
-
-		let beefy_host_config = BeefyHostConfig {
-			redis: redis.clone(),
-			consensus_state_id: beefy_config.consensus_state_id.clone(),
-		};
-		let beefy_host =
-			BeefyHost::new(beefy_host_config, prover.clone(), substrate_client.clone()).await?;
-
-		// create all the queues
-		for state_machine in beefy_config.state_machines.iter() {
-			// don't really care about errors
-			let result = beefy_host
-				.rsmq()
-				.lock()
-				.await
-				.create_queue(
-					redis.mandatory_queue(state_machine).as_str(),
-					Some(Duration::ZERO),
-					Some(Duration::ZERO),
-					Some(-1),
-				)
-				.await;
-
-			tracing::error!("mandatory queue create result for {state_machine}: {result:?}");
-
-			let result = beefy_host
-				.rsmq()
-				.lock()
-				.await
-				.create_queue(
-					redis.messages_queue(state_machine).as_str(),
-					Some(Duration::ZERO),
-					Some(Duration::ZERO),
-					Some(-1),
-				)
-				.await;
-			tracing::error!("messages queue create result: {result:?}");
-		}
-
-		// listen for queue notifications
-		let mut notifications = {
-			let pubsub = beefy_host.pubsub.clone();
-			let stream_0 = {
-				let state_machine_0 = beefy_config.state_machines[0].clone();
-				beefy_host.queue_notifications(state_machine_0, &pubsub).await?.map_ok(
-					move |message| log::info!("{state_machine_0} Got stream message {message:?}",),
-				)
-			};
-			let stream_1 = {
-				let state_machine_1 = beefy_config.state_machines[1].clone();
-
-				beefy_host.queue_notifications(state_machine_1, &pubsub).await?.map_ok(
-					move |message| log::info!("{state_machine_1} Got stream message {message:?}",),
-				)
-			};
-			let stream_2 = {
-				let state_machine_2 = beefy_config.state_machines[2].clone();
-
-				beefy_host.queue_notifications(state_machine_2, &pubsub).await?.map_ok(
-					move |message| log::info!("{state_machine_2} Got stream message {message:?}",),
-				)
-			};
-
-			futures::stream::select(futures::stream::select(stream_0, stream_1), stream_2)
-		};
-		tracing::info!("Created queue notifications");
-
-		// set consensus state on redis
-		#[cfg(feature = "new-consensus-state")]
-		{
-			use hex_literal::hex;
-			let _ancient_hash = H256::from(hex!(
-				"6b33f31d9a5e46d0d735926a29e2293934db4acb785432af3184ede3107aa7b0"
-			));
-			let prover_consensus_state = prover.query_initial_consensus_state(None).await?;
-			let mut connection = redis::Client::open(redis::ConnectionInfo {
-				addr: redis::ConnectionAddr::Tcp(redis.url.clone(), redis.port),
-				redis: redis::RedisConnectionInfo {
-					db: redis.db as i64,
-					username: redis.username.clone(),
-					password: redis.password.clone(),
-				},
-			})?
-			.get_connection_manager()
-			.await?;
-			connection
-				.set(REDIS_CONSENSUS_STATE_KEY, prover_consensus_state.encode())
-				.await?;
-			tracing::info!("Wrote consensus state to redis: {prover_consensus_state:#?}");
-		};
-
-		let mut beefy_prover = BeefyProver::<Blake2SubstrateChain, _, zk_beefy::LocalProver>::new(
-			beefy_config.clone(),
-			substrate_client.clone(),
-			prover.clone(),
-		)
-		.await?;
-
-		// spawn prover
-		tokio::spawn(async move { beefy_prover.run().await });
-		tracing::info!("Spawned prover");
-
-		// start listening
-		while let Some(_item) = notifications.next().await {}
-
-		Ok(())
-	}
-
-	#[tokio::test]
-	#[ignore]
-	async fn test_redis_queues() -> Result<(), anyhow::Error> {
-		let mut options = RsmqOptions::default();
-		options.realtime = true;
-		let mut rsmq = Rsmq::new(options).await.expect("connection failed");
-
-		let queue = "myqueue2";
-		if let Err(RsmqError::QueueExists) =
-			rsmq.create_queue(queue, Some(Duration::ZERO), None, Some(-1)).await
-		{
-			println!("Queue already exists")
-		}
-
-		let pub_sub = pubsub_connect("localhost", 6379).await?;
-
-		let mut stream = pub_sub.subscribe(&format!("rsmq:rt:{queue}")).await?;
-
-		for i in 0..5 {
-			rsmq.send_message(queue, format!("testmessage-{i}"), None)
-				.await
-				.expect("failed to send message");
-
-			tokio::time::sleep(Duration::from_secs(1)).await;
-		}
-
-		let mut count = 0;
-
-		while let Some(value) = stream.next().await {
-			println!("Got item from stream {value:?}");
-			count += 1;
-			if count == 5 {
-				break;
-			}
-		}
-
-		count = 0;
-
-		while let Some(message) = rsmq
-			.receive_message::<String>(queue, Some(Duration::ZERO))
-			.await
-			.expect("cannot receive message")
-		{
-			count += 1;
-			println!("Got: {message:?}, count: {count}");
-
-			if count >= 10 {
-				println!("Deleting {}", &message.id);
-				rsmq.delete_message(queue, &message.id).await?;
-			}
-			// tokio::time::sleep(Duration::from_secs(1)).await;
-		}
-
-		println!("Ok done");
-
-		Ok(())
-	}
 }

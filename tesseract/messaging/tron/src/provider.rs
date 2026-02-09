@@ -206,7 +206,7 @@ impl IsmpProvider for TronClient {
 		messages: Vec<Message>,
 		_coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error> {
-		let queue = self.queue().map_err(|e| anyhow!("[tron] {e}"))?.clone();
+		let queue = self.queue().map_err(|e| anyhow!("{e}"))?.clone();
 		queue.send(messages).await?
 	}
 

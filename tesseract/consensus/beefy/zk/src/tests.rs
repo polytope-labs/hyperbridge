@@ -417,6 +417,8 @@ async fn test_tron_fiat_shamir() -> Result<(), anyhow::Error> {
 		},
 		tron_api_key,
 		tron_api_url,
+		catfee_api_key: None,
+		catfee_api_secret: None,
 		fee_limit: 1_000_000_000, // 1000 TRX
 		tron_api_timeout_secs: 180,
 	};

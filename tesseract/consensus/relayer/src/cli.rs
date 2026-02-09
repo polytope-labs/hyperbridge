@@ -8,6 +8,7 @@ use std::{
 	sync::Arc,
 };
 use substrate_state_machine::HashAlgorithm;
+use tesseract_beefy::backend::ProofBackend;
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
@@ -60,10 +61,10 @@ impl Cli {
 
 		// initialize the beefy proof queues for all evm state machines
 		if let AnyHost::Beefy(ref beefy_host) = hyperbridge {
-			let state_machines =
+			let state_machines: Vec<_> =
 				chains.keys().cloned().filter(|s| matches!(s, StateMachine::Evm(_))).collect();
 
-			beefy_host.init_queues(state_machines).await?;
+			beefy_host.backend.init_queues(&state_machines).await?;
 		}
 
 		let clients = create_client_map(config.clone()).await?;
@@ -80,7 +81,7 @@ impl Cli {
 				tesseract_beefy::ConsensusState::decode(&mut &consensus_state_bytes[..])?;
 
 			if let AnyHost::Beefy(beefy) = hyperbridge {
-				beefy.hydrate_initial_consensus_state(Some(consensus_state)).await?;
+				beefy.hydrate_initial_consensus_state(consensus_state).await?;
 			}
 		}
 

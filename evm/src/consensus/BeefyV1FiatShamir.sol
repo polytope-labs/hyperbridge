@@ -145,7 +145,7 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
      *   abi.encode(RelayChainProof, ParachainProof, uint256[4])
      * where the uint256[4] is the signers bitmap.
      */
-    function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
+    function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
         external
         pure
         returns (bytes memory, IntermediateState[] memory)
@@ -258,19 +258,21 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     /// @dev Counts the number of set bits in the bitmap, only considering
     /// positions [0, authoritySetLen). Uses O(1)-per-word parallel popcount.
     function countSetBits(uint256[4] memory bitmap, uint256 authoritySetLen) internal pure returns (uint256 count) {
-        for (uint256 w = 0; w < BITMAP_WORDS; w++) {
-            uint256 wordStart = w * 256;
-            if (wordStart >= authoritySetLen) break;
+        unchecked {
+            for (uint256 w = 0; w < BITMAP_WORDS; ++w) {
+                uint256 wordStart = w << 8; // w * 256
+                if (wordStart >= authoritySetLen) break;
 
-            uint256 wordEnd = wordStart + 256;
-            uint256 bitsInWord = wordEnd <= authoritySetLen ? 256 : authoritySetLen - wordStart;
+                uint256 wordEnd = wordStart + 256;
+                uint256 bitsInWord = wordEnd <= authoritySetLen ? 256 : authoritySetLen - wordStart;
 
-            uint256 word = bitmap[w];
-            if (bitsInWord < 256) {
-                // Mask off bits beyond authoritySetLen
-                word &= (uint256(1) << bitsInWord) - 1;
+                uint256 word = bitmap[w];
+                if (bitsInWord < 256) {
+                    // Mask off bits beyond authoritySetLen
+                    word &= (uint256(1) << bitsInWord) - 1;
+                }
+                count += popcount256(word);
             }
-            count += popcount256(word);
         }
     }
 
@@ -301,9 +303,11 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     {
         signers = new uint256[](signerCount);
         uint256 idx = 0;
-        for (uint256 i = 0; i < authoritySetLen; i++) {
-            if (isBitSet(bitmap, i)) {
-                signers[idx++] = i;
+        unchecked {
+            for (uint256 i = 0; i < authoritySetLen; ++i) {
+                if (isBitSet(bitmap, i)) {
+                    signers[idx++] = i;
+                }
             }
         }
     }
@@ -341,8 +345,10 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         transcript.absorbUint256(authoritySet.len);
 
         // Absorb the entire bitmap to bind the challenge
-        for (uint256 w = 0; w < BITMAP_WORDS; w++) {
-            transcript.absorbUint256(signersBitmap[w]);
+        unchecked {
+            for (uint256 w = 0; w < BITMAP_WORDS; ++w) {
+                transcript.absorbUint256(signersBitmap[w]);
+            }
         }
 
         // Build the signers array once — O(authoritySetLen)
@@ -353,8 +359,10 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
 
         // Map each sampled position to the actual authority index — O(SAMPLE_SIZE)
         authorities = new uint256[](SAMPLE_SIZE);
-        for (uint256 i = 0; i < SAMPLE_SIZE; i++) {
-            authorities[i] = signers[sampledPositions[i]];
+        unchecked {
+            for (uint256 i = 0; i < SAMPLE_SIZE; ++i) {
+                authorities[i] = signers[sampledPositions[i]];
+            }
         }
     }
 
@@ -381,13 +389,15 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
 
         Node[] memory authorities = new Node[](sampleSize);
 
-        for (uint256 i = 0; i < sampleSize; i++) {
-            if (votes[i].authorityIndex != challengedAuthorities[i]) {
-                revert VoteAuthorityMismatch(i, challengedAuthorities[i], votes[i].authorityIndex);
-            }
+        unchecked {
+            for (uint256 i = 0; i < sampleSize; ++i) {
+                if (votes[i].authorityIndex != challengedAuthorities[i]) {
+                    revert VoteAuthorityMismatch(i, challengedAuthorities[i], votes[i].authorityIndex);
+                }
 
-            address signer = ECDSA.recover(commitmentHash, votes[i].signature);
-            authorities[i] = Node(votes[i].authorityIndex, keccak256(abi.encodePacked(signer)));
+                address signer = ECDSA.recover(commitmentHash, votes[i].signature);
+                authorities[i] = Node(votes[i].authorityIndex, keccak256(abi.encodePacked(signer)));
+            }
         }
 
         bool valid = MerkleMultiProof.VerifyProof(authorityRoot, proof, authorities);
@@ -443,9 +453,11 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
 
     function extractMmrRoot(Commitment memory commitment) internal pure returns (bytes32 mmrRoot) {
         uint256 payloadLen = commitment.payload.length;
-        for (uint256 i = 0; i < payloadLen; i++) {
-            if (commitment.payload[i].id == MMR_ROOT_PAYLOAD_ID && commitment.payload[i].data.length == 32) {
-                mmrRoot = Bytes.toBytes32(commitment.payload[i].data);
+        unchecked {
+            for (uint256 i = 0; i < payloadLen; ++i) {
+                if (commitment.payload[i].id == MMR_ROOT_PAYLOAD_ID && commitment.payload[i].data.length == 32) {
+                    mmrRoot = Bytes.toBytes32(commitment.payload[i].data);
+                }
             }
         }
     }

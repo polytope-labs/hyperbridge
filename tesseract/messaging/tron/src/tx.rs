@@ -42,7 +42,12 @@ use sp_core::keccak_256;
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
 use crate::{
-	api::{SignedTransaction, TransactionInfo, TriggerSmartContractResponse, TronApi},
+	address::{hex_to_base58, is_base58_address},
+	api::{
+		SignedTransaction, TransactionInfo, TriggerConstantContractResponse,
+		TriggerContractRequest, TriggerSmartContractResponse, TronApi,
+	},
+	catfee::CatFeeClient,
 	TronClient,
 };
 
@@ -295,6 +300,16 @@ async fn trigger_sign_broadcast(
 		client.handler_address,
 		client.fee_limit
 	);
+
+	// Step 1: Estimate energy requirements
+	let estimated_energy = estimate_transaction_energy(client, calldata_hex).await?;
+
+	log::trace!("[tron] Estimated energy: {}", estimated_energy);
+
+	// Step 2: Purchase energy via CatFee if available
+	if let Some(catfee_client) = &client.catfee {
+		purchase_energy_via_catfee(catfee_client, &client.owner_address, estimated_energy).await?;
+	}
 
 	let trigger_req = TriggerWithDataRequest {
 		owner_address: client.owner_address.clone(),
@@ -638,4 +653,104 @@ mod tests {
 		};
 		assert_eq!(decode_revert_message(&info), "OUT_OF_ENERGY");
 	}
+}
+
+/// Estimate the energy and bandwidth required for a transaction.
+///
+/// Uses `triggerConstantContract` to simulate the transaction and extract
+/// resource usage estimates.
+///
+/// # Arguments
+/// * `client` - The TronClient
+/// * `calldata_hex` - Hex-encoded calldata (no 0x prefix)
+///
+/// # Returns
+/// A tuple of (estimated_energy, estimated_bandwidth)
+async fn estimate_transaction_energy(
+	client: &TronClient,
+	calldata_hex: &str,
+) -> anyhow::Result<u64> {
+	log::trace!("[tron::tx] Estimating transaction energy");
+
+	// Use triggerConstantContract to simulate the call
+	let trigger_req = TriggerContractRequest {
+		owner_address: client.owner_address.clone(),
+		contract_address: client.handler_address.clone(),
+		function_selector: String::new(), // Empty when using raw data
+		parameter: calldata_hex.to_string(),
+		fee_limit: Some(client.fee_limit),
+		call_value: Some(0),
+		visible: Some(false),
+	};
+
+	let resp: TriggerConstantContractResponse = client
+		.tron_api
+		.trigger_constant_contract(&trigger_req)
+		.await
+		.context("Failed to estimate transaction energy via triggerConstantContract")?;
+
+	// Check if the call would succeed
+	if !resp.result.result {
+		let msg = resp.result.message.as_deref().unwrap_or("unknown error");
+		return Err(anyhow!(
+			"Energy estimation failed: transaction simulation reverted with: {}",
+			msg
+		));
+	}
+
+	let estimated_energy = resp.energy_used + resp.energy_penalty;
+
+	// Add 20% safety margin
+	let energy_with_margin = (estimated_energy as f64 * 1.2) as u64;
+
+	log::trace!(
+		"[tron::tx] Raw energy estimate: {}, with 20% margin: {}",
+		estimated_energy,
+		energy_with_margin
+	);
+
+	Ok(energy_with_margin)
+}
+
+/// Purchase energy via the CatFee API.
+///
+/// This executes the complete purchase flow: create order and wait for confirmation.
+///
+/// # Arguments
+/// * `catfee_client` - The CatFee API client
+/// * `receiver_address` - The address that will receive the energy (hex or base58 format)
+/// * `energy_required` - Amount of energy needed
+async fn purchase_energy_via_catfee(
+	catfee_client: &CatFeeClient,
+	receiver_address: &str,
+	energy_required: u64,
+) -> anyhow::Result<()> {
+	log::info!("[tron] Purchasing {} energy units via CatFee", energy_required);
+
+	// Convert TRON hex address (41-prefixed) to base58 if needed
+	let receiver_base58 = if is_base58_address(receiver_address) {
+		// Already in base58 format
+		receiver_address.to_string()
+	} else {
+		// Convert from hex to base58
+		hex_to_base58(receiver_address)
+			.context("Failed to convert TRON address from hex to base58")?
+	};
+
+	log::trace!("[tron] Using receiver address (base58): {}", receiver_base58);
+
+	// Maximum wait time for order completion (3 minutes)
+	let max_wait = Duration::from_secs(180);
+
+	// Period: 1 hour (sufficient for immediate transaction)
+	let period_hours = 1;
+
+	let _result = catfee_client
+		.purchase_energy(energy_required, &receiver_base58, period_hours, max_wait)
+		.await
+		.context("Failed to purchase energy via CatFee")?;
+
+	log::info!("[tron] Energy purchase completed successfully");
+
+	Ok(())
 }

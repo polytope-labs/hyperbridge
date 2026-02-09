@@ -96,8 +96,9 @@ library Transcript {
 
     /**
      * @dev Sample `count` unique random indices in [0, modulus) from the transcript.
-     * Uses rejection sampling to ensure uniqueness. Reverts if count > modulus
-     * (impossible to select that many unique indices).
+     * Uses rejection sampling with sorted insertion to ensure uniqueness and
+     * maintain sorted order in a single pass. Binary search is used for duplicate
+     * detection, reducing complexity from O(n²) to O(n log n).
      *
      * @param self The transcript state to squeeze from.
      * @param count The number of unique indices to sample.
@@ -117,31 +118,61 @@ library Transcript {
         while (found < count) {
             uint256 candidate = squeezeIndex(self, modulus);
 
-            // Check for duplicates using a simple linear scan.
-            // This is acceptable because count is small (e.g. 10).
-            bool isDuplicate = false;
-            for (uint256 j = 0; j < found; j++) {
-                if (indices[j] == candidate) {
-                    isDuplicate = true;
-                    break;
-                }
-            }
+            // Binary search to find insertion position and check for duplicates
+            // Since the array is kept sorted, we can use binary search for O(log n) lookup
+            (bool isDuplicate, uint256 insertPos) = binarySearchInsertPos(indices, found, candidate);
 
             if (!isDuplicate) {
-                indices[found] = candidate;
-                found++;
+                // Shift elements to the right to make room for insertion
+                unchecked {
+                    for (uint256 k = found; k > insertPos; --k) {
+                        indices[k] = indices[k - 1];
+                    }
+                }
+                indices[insertPos] = candidate;
+                unchecked {
+                    ++found;
+                }
+            }
+        }
+    }
+
+    /**
+     * @dev Binary search to find the insertion position for a value in a sorted array.
+     * Also returns whether the value already exists (is a duplicate).
+     *
+     * @param arr The sorted array to search.
+     * @param len The number of valid elements in the array.
+     * @param value The value to search for.
+     * @return isDuplicate True if the value already exists in the array.
+     * @return insertPos The position where the value should be inserted to maintain sorted order.
+     */
+    function binarySearchInsertPos(uint256[] memory arr, uint256 len, uint256 value)
+        internal
+        pure
+        returns (bool isDuplicate, uint256 insertPos)
+    {
+        if (len == 0) {
+            return (false, 0);
+        }
+
+        uint256 left = 0;
+        uint256 right = len;
+
+        unchecked {
+            while (left < right) {
+                uint256 mid = (left + right) >> 1; // (left + right) / 2
+
+                if (arr[mid] == value) {
+                    return (true, mid);
+                } else if (arr[mid] < value) {
+                    left = mid + 1;
+                } else {
+                    right = mid;
+                }
             }
         }
 
-        // Sort indices ascending (insertion sort, fine for small arrays)
-        for (uint256 i = 1; i < count; i++) {
-            uint256 key = indices[i];
-            uint256 j = i;
-            while (j > 0 && indices[j - 1] > key) {
-                indices[j] = indices[j - 1];
-                j--;
-            }
-            indices[j] = key;
-        }
+        return (false, left);
     }
 }

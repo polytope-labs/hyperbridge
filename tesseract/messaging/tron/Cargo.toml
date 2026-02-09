@@ -28,6 +28,10 @@ log = { workspace = true }
 sp-core = { workspace = true, features = ["full_crypto"] }
 sha2 = "0.10"
 hex = { workspace = true }
+bs58 = "0.5"
+hmac = "0.12"
+base64 = "0.22"
+chrono = "0.4"
 
 ethers = { workspace = true, features = ["rustls"] }
 primitive-types = { workspace = true, default-features = true }

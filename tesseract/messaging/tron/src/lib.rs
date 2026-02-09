@@ -42,7 +42,9 @@
 //! └──────────────────────────────────────────────────┘
 //! ```
 
+pub mod address;
 pub mod api;
+pub mod catfee;
 pub mod provider;
 pub mod tx;
 
@@ -59,7 +61,10 @@ use tesseract_primitives::{
 	TxResult,
 };
 
-use crate::api::{to_tron_hex, TronApi, TronApiConfig};
+use crate::{
+	api::{to_tron_hex, TronApi, TronApiConfig},
+	catfee::{CatFeeClient, CatFeeConfig},
+};
 
 /// TRON mainnet chain ID, matching `TronHost.CHAIN_ID`.
 pub const TRON_MAINNET_CHAIN_ID: u32 = 728126428;
@@ -107,6 +112,16 @@ pub struct TronConfig {
 	/// Default: 180.
 	#[serde(default = "default_timeout")]
 	pub tron_api_timeout_secs: u64,
+
+	/// CatFee API key for purchasing energy/bandwidth.
+	/// If both api_key and api_secret are provided, CatFee integration will be enabled
+	/// automatically.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub catfee_api_key: Option<String>,
+
+	/// CatFee API secret for HMAC signature generation (required with api_key).
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub catfee_api_secret: Option<String>,
 }
 
 fn default_fee_limit() -> u64 {
@@ -138,6 +153,9 @@ pub struct TronClient {
 
 	/// TRON native HTTP API client — used only for transaction submission.
 	pub tron_api: TronApi,
+
+	/// CatFee API client for purchasing energy/bandwidth (optional).
+	pub catfee: Option<CatFeeClient>,
 
 	/// The 32-byte secp256k1 secret key (same key as used by `evm.signer`,
 	/// but we need the raw bytes for TRON's signing scheme).
@@ -196,6 +214,22 @@ impl TronClient {
 			timeout: std::time::Duration::from_secs(config.tron_api_timeout_secs),
 		})?;
 
+		// Initialize CatFee client if API credentials are provided
+		let catfee = if let (Some(api_key), Some(api_secret)) =
+			(&config.catfee_api_key, &config.catfee_api_secret)
+		{
+			let catfee_config = CatFeeConfig {
+				api_key: api_key.clone(),
+				api_secret: api_secret.clone(),
+				timeout: std::time::Duration::from_secs(30),
+			};
+			log::info!("[tron] CatFee integration enabled");
+			Some(CatFeeClient::new(catfee_config)?)
+		} else {
+			log::info!("[tron] CatFee integration disabled (API credentials not provided)");
+			None
+		};
+
 		let ismp_host_address = to_tron_hex(&format!("{:?}", config.evm.ismp_host));
 
 		// Query handler from the host contract via JSON-RPC (uses force_legacy).
@@ -208,6 +242,7 @@ impl TronClient {
 		let mut client = Self {
 			evm,
 			tron_api,
+			catfee,
 			secret_key,
 			owner_address,
 			handler_address,
@@ -260,6 +295,7 @@ impl Clone for TronClient {
 		Self {
 			evm: self.evm.clone(),
 			tron_api: self.tron_api.clone(),
+			catfee: self.catfee.clone(),
 			secret_key: self.secret_key,
 			owner_address: self.owner_address.clone(),
 			handler_address: self.handler_address.clone(),

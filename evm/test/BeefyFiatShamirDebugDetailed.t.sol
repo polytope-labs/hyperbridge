@@ -25,7 +25,7 @@ contract BeefyFiatShamirDebugDetailedTest is Test {
         console.log("Proof length:", proof.length);
 
         // Decode the proof to see what's inside
-        (RelayChainProof memory relay, ParachainProof memory parachain, uint256[4] memory signersBitmap) =
+        (RelayChainProof memory relay, ParachainProof memory p, uint256[4] memory signersBitmap) =
             abi.decode(proof, (RelayChainProof, ParachainProof, uint256[4]));
 
         console.log("=== Decoded Proof ===");

@@ -82,12 +82,8 @@ pub async fn handle_message_submission(
 ) -> Result<TxResult, anyhow::Error> {
 	log::trace!("handle_message_submission called with {} messages", messages.len());
 
-	let (receipts, cancelled) = submit_messages(client, messages.clone()).await?;
-	log::trace!(
-		"submit_messages returned {} receipts, {} cancelled",
-		receipts.len(),
-		cancelled.len()
-	);
+	let receipts = submit_messages(client, messages.clone()).await?;
+	log::trace!("submit_messages returned {} receipts", receipts.len());
 
 	let height = client.evm.client.get_block_number().await.map(|n| n.as_u64()).unwrap_or(0);
 	log::trace!("Current block height: {}", height);
@@ -150,22 +146,17 @@ pub async fn handle_message_submission(
 		}
 	}
 
-	log::info!(
-		"handle_message_submission complete: {} receipts, {} unsuccessful",
-		results.len(),
-		cancelled.len()
-	);
-	Ok(TxResult { receipts: results, unsuccessful: cancelled })
+	log::info!("handle_message_submission complete: {} receipts", results.len());
+	Ok(TxResult { receipts: results, unsuccessful: vec![] })
 }
 
 /// Submit a batch of [`Message`]s to the TRON network.
 ///
-/// Returns a set of commitment hashes for successfully-processed messages and
-/// a list of messages that were not delivered.
+/// Returns a set of commitment hashes for successfully-processed messages.
 pub async fn submit_messages(
 	client: &TronClient,
 	messages: Vec<Message>,
-) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
+) -> anyhow::Result<BTreeSet<H256>> {
 	log::trace!("submit_messages called with {} messages", messages.len());
 
 	//
@@ -177,7 +168,6 @@ pub async fn submit_messages(
 	log::trace!("generate_contract_calls returned {} calls", calls.len());
 
 	let mut events = BTreeSet::new();
-	let mut cancelled: Vec<Message> = Vec::new();
 
 	for (index, call) in calls.iter().enumerate() {
 		log::trace!("Processing call {} of {}", index + 1, calls.len());
@@ -188,9 +178,8 @@ pub async fn submit_messages(
 				bytes
 			},
 			None => {
-				log::error!("Message at index {index} produced empty calldata, skipping");
-				cancelled.push(messages[index].clone());
-				continue;
+				log::error!("Message at index {index} produced empty calldata");
+				return Err(anyhow!("Message at index {index} produced empty calldata"));
 			},
 		};
 
@@ -235,19 +224,11 @@ pub async fn submit_messages(
 						info.id
 					);
 
-					// For request/response messages, an empty event set means
-					// the message was likely a duplicate (already delivered).
-					if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
-						msg_events.is_empty()
-					{
-						log::warn!("Request/Response message at index {} produced no events (likely duplicate), cancelling", index);
-						cancelled.push(messages[index].clone());
-					}
 					events.extend(msg_events);
 				} else {
 					let reason = decode_revert_message(&info);
 					log::error!("{label} reverted (tx={}): {reason}", info.id);
-					cancelled.push(messages[index].clone());
+					return Err(anyhow!("Transaction reverted: {}", reason));
 				}
 			},
 			Err(err) => {
@@ -265,8 +246,8 @@ pub async fn submit_messages(
 		);
 	}
 
-	log::trace!("submit_messages complete: {} events, {} cancelled", events.len(), cancelled.len());
-	Ok((events, cancelled))
+	log::trace!("submit_messages complete: {} events", events.len());
+	Ok(events)
 }
 
 /// Build, sign, broadcast a TRON smart-contract call and wait for its receipt.

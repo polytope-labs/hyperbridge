@@ -45,7 +45,7 @@ use beefy_verifier_primitives::SignatureWithAuthorityIndex;
 
 /// Number of validator signatures sampled and verified on-chain.
 /// Must match `SAMPLE_SIZE` in `BeefyV1FiatShamir.sol`.
-pub const SAMPLE_SIZE: usize = 10;
+pub const SAMPLE_SIZE: usize = 5;
 
 /// Domain separator for the Fiat-Shamir transcript.
 /// Must match `TRANSCRIPT_DOMAIN` in `BeefyV1FiatShamir.sol`.

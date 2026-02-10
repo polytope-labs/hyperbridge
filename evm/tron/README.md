@@ -4,15 +4,15 @@ This directory contains the [TronBox](https://developers.tron.network/docs/tronb
 
 ## Contracts Deployed
 
-| Contract | Description |
-|---|---|
-| **BeefyV1FiatShamir** | Fiat-Shamir sampled BEEFY consensus client |
-| **ConsensusRouter** | Consensus proof router (only FiatShamir active on TRON) |
-| **HandlerV1** | ISMP message handler — verifies cryptographic proofs for cross-chain messages |
-| **HostManager** | Cross-chain governance module for updating host params and withdrawing revenue |
-| **TronHost** | The `IsmpHost` and `IsmpDispatcher` implementation for TRON (`chainId = 728126428`) |
-| **CallDispatcher** | Utility for dispatching untrusted external calls |
-| **IntentGatewayV2** | Intent-based cross-chain order creation and fulfillment |
+| Contract | Description | Nile Testnet Address |
+|---|---|---|
+| **BeefyV1FiatShamir** | Fiat-Shamir sampled BEEFY consensus client | [`TH8oxJmHaLSXVHxvM7s4bEEED1yHPG9PYy`](https://nile.tronscan.org/#/contract/TH8oxJmHaLSXVHxvM7s4bEEED1yHPG9PYy) |
+| **ConsensusRouter** | Consensus proof router (only FiatShamir active on TRON) | [`TPXBv4ALJKKRPSVDKygPja4EoE25e96yew`](https://nile.tronscan.org/#/contract/TPXBv4ALJKKRPSVDKygPja4EoE25e96yew) |
+| **HandlerV1** | ISMP message handler — verifies cryptographic proofs for cross-chain messages | [`TVu5adsYw2CRHrgXwKKdfPR1qYdtA4hFRG`](https://nile.tronscan.org/#/contract/TVu5adsYw2CRHrgXwKKdfPR1qYdtA4hFRG) |
+| **HostManager** | Cross-chain governance module for updating host params and withdrawing revenue | [`TUyim7389oUZVyZBz1cpFJ63BBWwBEeFKe`](https://nile.tronscan.org/#/contract/TUyim7389oUZVyZBz1cpFJ63BBWwBEeFKe) |
+| **TronHost** | The `IsmpHost` and `IsmpDispatcher` implementation for TRON (`chainId = 728126428`) | [`TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc`](https://nile.tronscan.org/#/contract/TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc) |
+| **CallDispatcher** | Utility for dispatching untrusted external calls | [`TA9XyBPuXL9ecXcLpcFV1g778fzstke2Eh`](https://nile.tronscan.org/#/contract/TA9XyBPuXL9ecXcLpcFV1g778fzstke2Eh) |
+| **IntentGatewayV2** | Intent-based cross-chain order creation and fulfillment | [`TT4CjjHw7QgLbE9wKtYEopid1YqePkbAfb`](https://nile.tronscan.org/#/contract/TT4CjjHw7QgLbE9wKtYEopid1YqePkbAfb) |
 
 ## Prerequisites
 
@@ -88,6 +88,47 @@ const host = await TronHost.deployed();
 const chainId = await host.chainId();
 console.log("Chain ID:", chainId.toString());
 ```
+
+### 6. Flatten contracts for verification
+
+To flatten contracts for TronScan verification:
+
+```sh
+# Flatten all contracts
+npm run flatten
+
+# Flatten a specific contract
+npm run flatten TronHost
+```
+
+This creates individual flattened files in `flattened/` directory:
+- `TronHost_flat.sol`
+- `HandlerV1_flat.sol`
+- `HostManager_flat.sol`
+- `BeefyV1FiatShamir_flat.sol`
+- `ConsensusRouter_flat.sol`
+- `CallDispatcher_flat.sol`
+- `IntentGatewayV2_flat.sol`
+
+**To verify a contract on TronScan:**
+
+1. Navigate to your deployed contract:
+   - Nile: https://nile.tronscan.org/#/contract/`<address>`/code
+   - Shasta: https://shasta.tronscan.org/#/contract/`<address>`/code
+   - Mainnet: https://tronscan.org/#/contract/`<address>`/code
+
+2. Click "Verify Contract"
+
+3. Fill in the verification form:
+   - **Contract Name**: Match the deployed contract (e.g., `TronHost`)
+   - **Compiler Version**: `0.8.24`
+   - **Optimization**: `Enabled`
+   - **Optimization Runs**: `200`
+   - **EVM Version**: `paris`
+
+4. Upload the corresponding flattened file (e.g., `flattened/TronHost_flat.sol`)
+
+5. Submit for verification
 
 ## Deployment Order & Wiring
 

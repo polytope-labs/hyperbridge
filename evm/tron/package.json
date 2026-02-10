@@ -15,7 +15,8 @@
         "console:nile": "tronbox console --network nile",
         "console:mainnet": "tronbox console --network mainnet",
         "setup:testnet": "cp -n .env.testnet.example .env.testnet || true",
-        "setup:mainnet": "cp -n .env.mainnet.example .env.mainnet || true"
+        "setup:mainnet": "cp -n .env.mainnet.example .env.mainnet || true",
+        "flatten": "./scripts/flatten.sh"
     },
     "author": "Polytope Labs (hello@polytope.technology)",
     "license": "Apache-2.0",

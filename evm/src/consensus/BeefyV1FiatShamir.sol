@@ -91,7 +91,7 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     bytes2 public constant MMR_ROOT_PAYLOAD_ID = bytes2("mh");
 
     /// @notice Number of validator signatures to sample and verify.
-    uint256 public constant SAMPLE_SIZE = 10;
+    uint256 public constant SAMPLE_SIZE = 5;
 
     /// @notice Domain separator for the Fiat-Shamir transcript.
     bytes public constant TRANSCRIPT_DOMAIN = "BEEFY_FIAT_SHAMIR_V1";

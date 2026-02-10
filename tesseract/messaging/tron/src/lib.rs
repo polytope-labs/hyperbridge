@@ -223,7 +223,7 @@ impl TronClient {
 			let catfee_config = CatFeeConfig {
 				api_key: api_key.clone(),
 				api_secret: api_secret.clone(),
-				timeout: std::time::Duration::from_secs(30),
+				..Default::default()
 			};
 			log::info!("CatFee integration enabled");
 			Some(CatFeeClient::new(catfee_config)?)

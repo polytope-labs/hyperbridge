@@ -47,13 +47,20 @@ pub struct CatFeeConfig {
 	pub api_key: String,
 	/// API secret for HMAC signature generation (required)
 	pub api_secret: String,
+	/// Base URL for the CatFee API
+	pub api_base: String,
 	/// HTTP request timeout
 	pub timeout: Duration,
 }
 
 impl Default for CatFeeConfig {
 	fn default() -> Self {
-		Self { api_key: String::new(), api_secret: String::new(), timeout: Duration::from_secs(30) }
+		Self {
+			api_key: String::new(),
+			api_secret: String::new(),
+			api_base: CATFEE_API_BASE.to_string(),
+			timeout: Duration::from_secs(30),
+		}
 	}
 }
 
@@ -108,10 +115,11 @@ impl CatFeeClient {
 	/// # Arguments
 	/// * `energy_amount` - Amount of energy to purchase (in energy units)
 	/// * `receiver_address` - TRON address that will receive the energy (base58)
-	/// * `period` - Period in hours (1 or 24)
+	/// * `period` - Period in hours (1 or 24). Note: API returns duration in minutes.
 	///
 	/// # Returns
-	/// Order response with order ID and status
+	/// Order response with order ID and status. Duration field will be in minutes (e.g., 60 for 1
+	/// hour).
 	pub async fn create_order(
 		&self,
 		energy_amount: u64,
@@ -130,9 +138,9 @@ impl CatFeeClient {
 		let timestamp = Self::get_timestamp();
 		let signature = self.generate_signature(&timestamp, "POST", &request_path);
 
-		let url = format!("{}{}", CATFEE_API_BASE, request_path);
+		let url = format!("{}{}", self.config.api_base, request_path);
 		log::trace!(
-			"[catfee] Creating order: energy={}, receiver={}, period={}h",
+			"Creating order: energy={}, receiver={}, period={}h",
 			energy_amount,
 			receiver_address,
 			period
@@ -152,8 +160,10 @@ impl CatFeeClient {
 		let status = response.status();
 		let text = response.text().await?;
 
+		log::trace!("Create order response: status={}", status);
+
 		if !status.is_success() {
-			log::error!("[catfee] Create order failed with HTTP {}: {}", status, text);
+			log::error!("Create order failed with HTTP {}: {}", status, text);
 			return Err(anyhow!("CatFee API returned HTTP {}: {}", status, text));
 		}
 
@@ -183,8 +193,8 @@ impl CatFeeClient {
 		let timestamp = Self::get_timestamp();
 		let signature = self.generate_signature(&timestamp, "GET", &request_path);
 
-		let url = format!("{}{}", CATFEE_API_BASE, request_path);
-		log::trace!("[catfee] Querying order detail: {}", order_id);
+		let url = format!("{}{}", self.config.api_base, request_path);
+		log::trace!("Querying order detail: {}", order_id);
 
 		let response = self
 			.client
@@ -201,7 +211,7 @@ impl CatFeeClient {
 		let text = response.text().await?;
 
 		if !status.is_success() {
-			log::error!("[catfee] Order detail query failed with HTTP {}: {}", status, text);
+			log::error!("Order detail query failed with HTTP {}: {}", status, text);
 			return Err(anyhow!("CatFee API returned HTTP {}: {}", status, text));
 		}
 
@@ -243,7 +253,7 @@ impl CatFeeClient {
 			// ConfirmStatus: DELEGATION_CONFIRMED means successfully delivered
 			if detail.confirm_status == ConfirmStatus::DelegationConfirmed {
 				log::info!(
-					"[catfee] Order {} completed successfully (status={:?}, confirm={:?})",
+					"Order {} completed successfully (status={:?}, confirm={:?})",
 					order_id,
 					detail.status,
 					detail.confirm_status
@@ -263,7 +273,7 @@ impl CatFeeClient {
 			}
 
 			log::trace!(
-				"[catfee] Order {} status: {:?}, confirm: {:?}, waiting... ({}s elapsed)",
+				"Order {} status: {:?}, confirm: {:?}, waiting... ({}s elapsed)",
 				order_id,
 				detail.status,
 				detail.confirm_status,
@@ -282,11 +292,11 @@ impl CatFeeClient {
 	/// # Arguments
 	/// * `energy_amount` - Amount of energy to purchase
 	/// * `receiver_address` - TRON address that will receive the energy (base58)
-	/// * `period` - Period in hours (1 or 24)
+	/// * `period` - Period in hours (1 or 24). Note: API returns duration in minutes.
 	/// * `max_wait` - Maximum time to wait for order completion
 	///
 	/// # Returns
-	/// Final order details after successful completion
+	/// Final order details after successful completion. Duration field will be in minutes.
 	pub async fn purchase_energy(
 		&self,
 		energy_amount: u64,
@@ -295,27 +305,18 @@ impl CatFeeClient {
 		max_wait: Duration,
 	) -> anyhow::Result<OrderDetailResponse> {
 		// Step 1: Create the order
-		log::info!(
-			"[catfee] Creating order for {} energy (period={}h, receiver={})",
-			energy_amount,
-			period,
-			receiver_address
-		);
-
 		let order = self.create_order(energy_amount, receiver_address, period).await?;
 
 		log::info!(
-			"[catfee] Order created: id={}, status={:?}, confirm={:?}",
+			"Order created: id={}, status={:?}, confirm={:?}",
 			order.id,
 			order.status,
 			order.confirm_status
 		);
 
 		// Step 2: Wait for order to be completed
-		log::info!("[catfee] Waiting for order {} to complete...", order.id);
+		log::info!("Waiting for order {} to complete...", order.id);
 		let final_detail = self.wait_for_order_completion(&order.id, max_wait).await?;
-
-		log::info!("[catfee] Order {} completed successfully", order.id);
 
 		Ok(final_detail)
 	}
@@ -367,9 +368,10 @@ pub struct CreateOrderResponse {
 	pub activate_amount_sun: Option<i64>,
 	/// Amount of resource ordered
 	pub quantity: i32,
-	/// Staked amount in SUN
-	pub staked_sun: i64,
-	/// Duration in hours
+	/// Staked amount in SUN (optional, may not be present in initial response)
+	#[serde(default)]
+	pub staked_sun: Option<i64>,
+	/// Duration in minutes
 	pub duration: i32,
 	/// Expiration timestamp (Unix timestamp in milliseconds)
 	#[serde(default)]
@@ -502,9 +504,10 @@ pub struct OrderDetailResponse {
 	pub activate_amount_sun: Option<i64>,
 	/// Amount of resource ordered
 	pub quantity: i32,
-	/// Staked amount in SUN
-	pub staked_sun: i64,
-	/// Duration in hours
+	/// Staked amount in SUN (optional, may not be present in all responses)
+	#[serde(default)]
+	pub staked_sun: Option<i64>,
+	/// Duration in minutes
 	pub duration: i32,
 	/// Order status
 	pub status: OrderStatus,
@@ -526,6 +529,7 @@ mod tests {
 		let config = CatFeeConfig::default();
 		assert_eq!(config.api_key, "");
 		assert_eq!(config.api_secret, "");
+		assert_eq!(config.api_base, CATFEE_API_BASE);
 		assert_eq!(config.timeout, Duration::from_secs(30));
 	}
 
@@ -588,5 +592,107 @@ mod tests {
 		// Should produce a base64 string
 		assert!(!sig.is_empty());
 		assert!(BASE64.decode(&sig).is_ok());
+	}
+
+	/// Configuration for CatFee integration test
+	#[derive(Debug, serde::Deserialize)]
+	struct CatFeeTestConfig {
+		/// Your CatFee API key
+		catfee_api_key: String,
+		/// Your CatFee API secret
+		catfee_api_secret: String,
+		/// Custom API base URL (defaults to production)
+		#[serde(default = "default_api_base")]
+		catfee_api_base: String,
+		/// TRON address to receive energy (base58 format)
+		catfee_receiver_address: String,
+		/// Amount of energy to purchase (e.g., 65000)
+		catfee_energy_amount: u64,
+		/// Rental period in hours - either 1 or 24
+		catfee_period: u32,
+	}
+
+	fn default_api_base() -> String {
+		CATFEE_API_BASE.to_string()
+	}
+
+	/// Integration test for purchasing energy via CatFee API.
+	///
+	/// This test requires the following environment variables:
+	/// - CATFEE_API_KEY: Your CatFee API key
+	/// - CATFEE_API_SECRET: Your CatFee API secret
+	/// - CATFEE_API_BASE: (Optional) Custom API base URL (defaults to production)
+	/// - CATFEE_RECEIVER_ADDRESS: TRON address to receive energy (base58 format)
+	/// - CATFEE_ENERGY_AMOUNT: Amount of energy to purchase (e.g., "65000")
+	/// - CATFEE_PERIOD: Rental period in hours - either "1" or "24"
+	///
+	/// Run with: cargo test test_purchase_energy -- --ignored --nocapture
+	#[tokio::test]
+	#[ignore] // Ignore by default since it requires API credentials and makes real API calls
+	async fn test_purchase_energy() {
+		// Initialize logger to see CatFee API logs
+		let _ = env_logger::builder().is_test(true).try_init();
+
+		// Load and parse environment variables using envy
+		let test_config: CatFeeTestConfig = envy::from_env().expect(
+			"Failed to load environment variables. Make sure all required CATFEE_* variables are set.",
+		);
+
+		// Validate period
+		assert!(
+			test_config.catfee_period == 1 || test_config.catfee_period == 24,
+			"CATFEE_PERIOD must be either 1 or 24"
+		);
+
+		// Create CatFee client
+		let config = CatFeeConfig {
+			api_key: test_config.catfee_api_key,
+			api_secret: test_config.catfee_api_secret,
+			api_base: test_config.catfee_api_base,
+			timeout: Duration::from_secs(30),
+		};
+
+		let client = CatFeeClient::new(config).expect("Failed to create CatFee client");
+
+		// Purchase energy with a 2-minute timeout for order completion
+		let max_wait = Duration::from_secs(120);
+		let result = client
+			.purchase_energy(
+				test_config.catfee_energy_amount,
+				&test_config.catfee_receiver_address,
+				test_config.catfee_period,
+				max_wait,
+			)
+			.await;
+
+		match result {
+			Ok(order_detail) => {
+				println!("✅ Energy purchase successful!");
+				println!("Order ID: {}", order_detail.id);
+				println!("Receiver: {}", order_detail.receiver);
+				println!("Energy Amount: {}", order_detail.quantity);
+				println!("Duration: {} minutes", order_detail.duration);
+				println!("Status: {:?}", order_detail.status);
+				println!("Confirm Status: {:?}", order_detail.confirm_status);
+				println!("Paid Amount (SUN): {}", order_detail.pay_amount_sun);
+				if let Some(staked_sun) = order_detail.staked_sun {
+					println!("Staked Amount (SUN): {}", staked_sun);
+				}
+
+				if let Some(delegate_hash) = &order_detail.delegate_hash {
+					println!("Delegation TX: {}", delegate_hash);
+				}
+
+				// Verify order completed successfully
+				assert_eq!(order_detail.confirm_status, ConfirmStatus::DelegationConfirmed);
+				assert_eq!(order_detail.quantity, test_config.catfee_energy_amount as i32);
+				assert_eq!(order_detail.receiver, test_config.catfee_receiver_address);
+				// Duration is in minutes, so period in hours * 60
+				assert_eq!(order_detail.duration, (test_config.catfee_period * 60) as i32);
+			},
+			Err(e) => {
+				panic!("❌ Energy purchase failed: {}", e);
+			},
+		}
 	}
 }

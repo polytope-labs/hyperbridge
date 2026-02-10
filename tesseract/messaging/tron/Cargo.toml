@@ -45,6 +45,7 @@ features = ["frame-support"]
 [dev-dependencies]
 dotenv = { workspace = true }
 env_logger = "0.10.0"
+envy = "0.4"
 
 [features]
 testing = []

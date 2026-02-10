@@ -13,12 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloy::providers::Provider;
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
 	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
 	verify_bsc_header,
 };
-use ethers::providers::{Http, Middleware, Provider};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, messaging::Keccak256};
 pub use ismp_bsc::ConsensusState;
@@ -77,11 +77,8 @@ pub struct BscPosHost<C: Config> {
 
 impl<C: Config> BscPosHost<C> {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let provider = Provider::new(Http::new_client_with_chain_middleware(
-			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			None,
-		));
-		let prover = BscPosProver::new(provider);
+		let url = evm.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URL provided"))?;
+		let prover = BscPosProver::new(url.parse()?);
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
 		Ok(Self {
@@ -104,14 +101,14 @@ impl<C: Config> BscPosHost<C> {
 			.fetch_finalized_state::<KeccakHasher>(self.host.epoch_length)
 			.await?;
 
-		let chain_id = self.prover.client.get_chainid().await?;
+		let chain_id = self.prover.client.get_chain_id().await?;
 		let consensus_state = ConsensusState {
 			current_validators,
 			next_validators: None,
 			finalized_hash: Header::from(&header).hash::<KeccakHasher>(),
 			finalized_height: header.number.as_u64(),
 			current_epoch: compute_epoch(header.number.low_u64(), self.host.epoch_length),
-			chain_id: chain_id.low_u32(),
+			chain_id: chain_id as u32,
 		};
 
 		Ok(consensus_state)

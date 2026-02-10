@@ -6,10 +6,6 @@ description = "EVM primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
-[build-dependencies]
-anyhow = { workspace = true }
-ethers-contract-abigen = { workspace = true }
-
 [dependencies]
 reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0.164", features = ["derive"] }
@@ -22,8 +18,12 @@ serde_json = "1.0.105"
 hex-literal = { version = "0.4.1" }
 sp-core = { workspace = true, features = ["full_crypto"] }
 log = "0.4.19"
-ethers = { workspace = true, features = ["rustls"] }
-ethabi = { workspace = true, features = ["full-serde"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api"] }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-contract = { workspace = true }
+alloy-rlp = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
 reqwest-retry = "0.3.0"
@@ -66,7 +66,6 @@ version = "3.2.2"
 features = ["derive"]
 
 [dev-dependencies]
-alloy-rlp = { workspace = true, default-features = true }
 alloy-rlp-derive = { workspace = true, default-features = true }
 alloy-primitives = { workspace = true, default-features = true }
 hex = "0.4.3"

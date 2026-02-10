@@ -4,34 +4,28 @@ use crate::{
 		CRONOS_TESTNET_CHAIN_ID, GNOSIS_CHAIN_ID, INJECTIVE_CHAIN_ID, INJECTIVE_TESTNET_CHAIN_ID,
 		SEI_CHAIN_ID, SEI_TESTNET_CHAIN_ID,
 	},
-	EvmClient,
+	AlloyProvider, EvmClient,
 };
 use anyhow::anyhow;
 use codec::Decode;
-use ethers::{
-	abi::Detokenize,
-	contract::{parse_log, FunctionCall},
-	core::k256::ecdsa::{self, SigningKey},
-	middleware::SignerMiddleware,
-	prelude::{
-		signer::SignerMiddlewareError, transaction::eip2718::TypedTransaction, ContractError, Log,
-		NameOrAddress, Provider, ProviderError, Wallet,
-	},
-	providers::{Http, Middleware, PendingTransaction},
-	types::{TransactionReceipt, TransactionRequest, H160},
+use alloy::{
+	primitives::{Address, Bytes, B256, U256 as AlloyU256},
+	providers::Provider,
+	rpc::types::{TransactionReceipt, TransactionRequest},
+	transports::TransportError,
 };
-use geth_primitives::{new_u256, old_u256};
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse, Response},
 };
+use alloy_sol_types::SolEvent;
 use ismp_solidity_abi::{
-	beefy::StateMachineHeight,
-	evm_host::{PostRequestHandledFilter, PostResponseHandledFilter},
+	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		Handler as IsmpHandler, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
-		PostResponseMessage, Proof,
+		HandlerInstance, PostRequest as SolPostRequest, PostRequestLeaf, PostRequestMessage,
+		PostResponse as SolPostResponse, PostResponseLeaf, PostResponseMessage, Proof,
+		StateMachineHeight,
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
@@ -42,73 +36,96 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
+use ismp::router::{PostRequest, PostResponse};
 
-/// Type alias
-type SolidityFunctionCall<T> = FunctionCall<
-	Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
-	SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
-	T,
->;
+fn convert_post_request(post: PostRequest) -> SolPostRequest {
+	SolPostRequest {
+		source: Bytes::from(post.source.to_string().as_bytes().to_vec()),
+		dest: Bytes::from(post.dest.to_string().as_bytes().to_vec()),
+		nonce: post.nonce,
+		from: Bytes::from(post.from.clone()),
+		to: Bytes::from(post.to.clone()),
+		timeoutTimestamp: post.timeout_timestamp,
+		body: Bytes::from(post.body.clone()),
+	}
+}
+
+
+fn convert_post_response(res: PostResponse) -> SolPostResponse {
+	SolPostResponse {
+		request: convert_post_request(res.post),
+		response: Bytes::from(res.response.clone()),
+		timeoutTimestamp: res.timeout_timestamp,
+	}
+}
+
+/// Check if an error is a rate limit (429) or other retryable RPC error using alloy's
+/// structured error types. This covers HTTP 429, Alchemy -32016, Infura -32005, QuickNode
+/// -32007/-32012, and other provider-specific rate limit codes.
+fn is_rate_limit_error(err: &anyhow::Error) -> bool {
+	if let Some(transport_err) = err.downcast_ref::<TransportError>() {
+		match transport_err {
+			TransportError::Transport(kind) => kind.is_retry_err(),
+			TransportError::ErrorResp(payload) => payload.is_retry_err(),
+			_ => false,
+		}
+	} else {
+		// Fallback: check string representation for "429" in case the error was wrapped
+		let err_str = format!("{:?}", err);
+		err_str.contains("429")
+	}
+}
 
 #[async_recursion::async_recursion]
 pub async fn submit_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
-	let calls = generate_contract_calls(client, messages.clone(), false).await?;
+	let (tx_requests, gas_price) = match generate_contract_calls(client, messages.clone()).await {
+		Ok(result) => result,
+		Err(err) => {
+			if is_rate_limit_error(&err) {
+				log::info!("Retrying tx submission, got rate limit error");
+				return submit_messages(&client, messages).await;
+			}
+			return Err(err);
+		},
+	};
+
 	let mut events = BTreeSet::new();
 	let mut cancelled: Vec<Message> = vec![];
-	for (index, call) in calls.into_iter().enumerate() {
-		// Encode and Decode needed because of ether-rs and polkadot-sdk incompatibility
-		let gas_price = call.tx.gas_price().map(|price| new_u256(price));
-		match call.clone().send().await {
-			Ok(progress) => {
-				let retry = if matches!(messages[index], Message::Consensus(_)) {
-					Some(call)
-				} else {
-					None
-				};
-				let evs = wait_for_success(
-					&client.config.state_machine,
-					client.config.ismp_host.0.into(),
-					client.client.clone(),
-					client.signer.clone(),
-					progress,
-					gas_price,
-					retry,
-					matches!(messages[index], Message::Consensus(_)),
-				)
-				.await?;
-				if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
-					evs.is_empty()
-				{
-					cancelled.push(messages[index].clone())
-				}
-				events.extend(evs);
-			},
-			Err(err) => {
-				match err {
-					ContractError::MiddlewareError {
-						e:
-							SignerMiddlewareError::MiddlewareError(ProviderError::JsonRpcClientError(
-								ref error,
-							)),
-					} => {
-						if let Some(err) = error.as_error_response() {
-							// https://docs.alchemy.com/reference/error-reference#http-status-codes
-							if err.code == 429 {
-								// we should retry.
-								log::info!("Retrying tx submission, got error: {err:?}");
-								return submit_messages(&client, messages).await;
-							}
-						}
-					},
-					_ => {},
-				}
 
-				Err(err)?
+	for (index, tx) in tx_requests.into_iter().enumerate() {
+		let pending = match client.signer.send_transaction(tx).await {
+			Ok(pending) => pending,
+			Err(err) => {
+				let err = anyhow::Error::from(err);
+				if is_rate_limit_error(&err) {
+					log::info!("Retrying tx submission, got rate limit error");
+					return submit_messages(&client, messages).await;
+				}
+				return Err(err);
 			},
+		};
+
+		let tx_hash = *pending.tx_hash();
+		let is_consensus = matches!(messages[index], Message::Consensus(_));
+		let retry_message =
+			if is_consensus { Some(messages[index].clone()) } else { None };
+		let evs = wait_for_success(
+			client,
+			H256::from_slice(tx_hash.as_slice()),
+			gas_price,
+			retry_message,
+			is_consensus,
+		)
+		.await?;
+		if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
+			evs.is_empty()
+		{
+			cancelled.push(messages[index].clone())
 		}
+		events.extend(evs);
 	}
 
 	if !events.is_empty() {
@@ -118,39 +135,27 @@ pub async fn submit_messages(
 	Ok((events, cancelled))
 }
 
-/// Waits for a transaction receipt by polling with a 7-second interval for up to 10 minutes.
-///
-/// # Arguments
-/// * `tx_hash` - The transaction hash to poll for
-/// * `provider` - The Ethereum provider to query
-///
-/// # Returns
-/// * `Ok(Some(TransactionReceipt))` if the receipt is found
-/// * `Ok(None)` if the receipt is not found after 10 minutes
-/// * `Err` if there's an error querying the provider
+/// Waits for a transaction receipt by polling with a 7-second interval for up to 5 minutes.
 pub async fn wait_for_transaction_receipt(
 	tx_hash: H256,
-	provider: Arc<Provider<Http>>,
+	provider: Arc<AlloyProvider>,
 ) -> Result<Option<TransactionReceipt>, anyhow::Error> {
 	let poll_interval = Duration::from_secs(7);
-	let max_duration = Duration::from_secs(5 * 60); // 5 minutes
+	let max_duration = Duration::from_secs(5 * 60);
 	let start_time = tokio::time::Instant::now();
 
 	loop {
-		// Check if we've exceeded the maximum duration
 		if start_time.elapsed() >= max_duration {
-			log::error!("Transaction receipt not found after 10 minutes for tx: {:?}", tx_hash);
+			log::error!("Transaction receipt not found after 5 minutes for tx: {:?}", tx_hash);
 			return Ok(None);
 		}
 
-		// Query for the transaction receipt
-		match provider.get_transaction_receipt(tx_hash.0).await {
+		match provider.get_transaction_receipt(B256::from_slice(&tx_hash.0)).await {
 			Ok(Some(receipt)) => {
 				log::trace!("Transaction receipt found for tx: {:?}", tx_hash);
 				return Ok(Some(receipt));
 			},
 			Ok(None) => {
-				// Receipt not yet available, continue polling
 				log::trace!(
 					"Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds",
 					tx_hash
@@ -158,206 +163,316 @@ pub async fn wait_for_transaction_receipt(
 			},
 			Err(err) => {
 				log::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
-				// Continue polling despite the error, as it might be transient
 			},
 		}
 
-		// Wait for the poll interval before the next attempt
 		tokio::time::sleep(poll_interval).await;
 	}
 }
 
 #[async_recursion::async_recursion]
-pub async fn wait_for_success<'a, T>(
-	state_machine: &StateMachine,
-	ismp_host: H160,
-	provider: Arc<Provider<Http>>,
-	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
-	tx: PendingTransaction<'a, Http>,
-	gas_price: Option<U256>,
-	retry: Option<SolidityFunctionCall<T>>,
+pub async fn wait_for_success(
+	client: &EvmClient,
+	tx_hash: H256,
+	gas_price: U256,
+	retry_message: Option<Message>,
 	is_consensus: bool,
-) -> Result<BTreeSet<H256>, anyhow::Error>
-where
-	'a: 'async_recursion,
-	T: Detokenize + Send + Sync,
-{
-	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| -> Result<(), anyhow::Error> {
-		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
-		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
-			log::info!("{prelude} for {:?} succeeded", state_machine);
-		} else {
-			log::info!(
-				"{prelude} for {:?} with hash {:?} reverted",
-				state_machine,
-				receipt.transaction_hash
-			);
-			Err(anyhow!("Transaction reverted"))?
-		}
+) -> Result<BTreeSet<H256>, anyhow::Error> {
+	let state_machine = &client.config.state_machine;
 
-		Ok(())
-	};
-
-	let client_clone = provider.clone();
-	let signer_clone = signer.clone();
-	let state_machine_clone = state_machine.clone();
-	let ismp_host_clone = ismp_host.clone();
-
-	let handle_failed_tx = move || async move {
-		log::info!("No receipt for transaction on {:?}", state_machine_clone);
-
-		if let Some(call) = retry {
-			// lets retry
-			let gas_price: U256 =
-				get_current_gas_cost_in_usd(state_machine_clone, ismp_host, client_clone.clone())
-					.await?
-					.gas_price * 2; // for good measure
-			log::info!(
-				"Retrying consensus message on {:?} with gas {}",
-				state_machine_clone,
-				ethers::utils::format_units(
-					// Conversion needed because of ether-rs and polkadot-sdk incompatibility
-					old_u256(gas_price),
-					"gwei"
-				)?
-			);
-			// Conversion needed because of ether-rs and polkadot-sdk incompatibility
-			let call = call.gas_price(old_u256(gas_price));
-			let pending = call.send().await?;
-
-			// don't retry in the next callstack
-			wait_for_success::<()>(
-				&state_machine_clone,
-				ismp_host_clone,
-				client_clone.clone(),
-				signer_clone.clone(),
-				pending,
-				Some(gas_price),
-				None,
-				is_consensus,
-			)
-			.await
-		} else {
-			// cancel the transaction here
-			let pending = signer_clone
-				.send_transaction(
-					TypedTransaction::Legacy(TransactionRequest {
-						to: Some(NameOrAddress::Address(signer_clone.address())),
-						value: Some(Default::default()),
-						gas_price: gas_price.map(|price| {
-							let new_price: U256 = price * 10;
-							// Conversion needed because of ether-rs and polkadot-sdk
-							// incompatibility
-							old_u256(new_price)
-						}), // experiment with higher?
-						..Default::default()
-					}),
-					None,
-				)
-				.await;
-
-			if let Ok(pending) = pending {
-				let cancel_tx_hash = pending.tx_hash().0;
-				if let Ok(Some(receipt)) =
-					wait_for_transaction_receipt(cancel_tx_hash.into(), client_clone.clone()).await
-				{
-					// we're going to error anyways
-					let _ = log_receipt(receipt, true);
-				}
-			}
-
-			// Throw an error only when consensus messages are cancelled
-			// Consensus relayer expects an error when consensus messages fail to submit so they can
-			// be retried
-			if is_consensus {
-				Err(anyhow!("Transaction to {:?} was cancelled!", state_machine_clone))?
-			}
-
-			log::error!("Transaction to {:?} was cancelled!", state_machine_clone);
-			Ok(Default::default())
-		}
-	};
-
-	// Get the transaction hash from the PendingTransaction
-	let tx_hash = tx.tx_hash().0;
-
-	// Wait for the transaction receipt with custom polling logic
-	match wait_for_transaction_receipt(tx_hash.into(), provider.clone()).await? {
+	match wait_for_transaction_receipt(tx_hash, client.client.clone()).await? {
 		Some(receipt) => {
 			let events = receipt
-				.logs
+				.inner
+				.logs()
 				.iter()
 				.filter_map(|l| {
-					let log = Log {
-						topics: l.clone().topics,
-						data: l.clone().data,
-						..Default::default()
-					};
-					if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
-						return Some(ev.commitment.into())
+					if let Ok(ev) = PostRequestHandled::decode_log(&l.inner) {
+						return Some(H256::from_slice(ev.commitment.as_slice()))
 					}
-					if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
-						return Some(ev.commitment.into())
+					if let Ok(ev) = PostResponseHandled::decode_log(&l.inner) {
+						return Some(H256::from_slice(ev.commitment.as_slice()))
 					}
 					None
 				})
 				.collect();
-			log_receipt(receipt, false)?;
+			if receipt.status() {
+				log::info!("Tx for {:?} succeeded", state_machine);
+			} else {
+				log::info!(
+					"Tx for {:?} with hash {:?} reverted",
+					state_machine,
+					receipt.transaction_hash
+				);
+				Err(anyhow!("Transaction reverted"))?
+			}
 			Ok(events)
 		},
 		None => {
-			// Receipt not found after 10 minutes
-			return handle_failed_tx().await;
+			// Transaction timed out - no receipt after 5 minutes
+			log::info!("No receipt for transaction on {:?}", state_machine);
+
+			if let Some(msg) = retry_message {
+				// Retry consensus messages with 2x gas price
+				let new_gas_price: U256 = get_current_gas_cost_in_usd(
+					client.state_machine,
+					client.config.ismp_host.0.into(),
+					client.client.clone(),
+				)
+				.await?
+				.gas_price * 2;
+
+				let gas_gwei = new_gas_price.low_u128() as f64 / 1e9;
+				log::info!(
+					"Retrying consensus message on {:?} with gas {:.4} gwei",
+					state_machine,
+					gas_gwei,
+				);
+
+				let handler = client.handler().await?;
+				let handler_addr = Address::from_slice(&handler.0);
+				let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+				let ismp_host = Address::from_slice(&client.config.ismp_host.0);
+
+				match msg {
+					Message::Consensus(consensus_msg) => {
+						let call = contract.handleConsensus(
+							ismp_host,
+							Bytes::from(consensus_msg.consensus_proof),
+						);
+						let estimated_gas = call
+							.estimate_gas()
+							.await
+							.unwrap_or(get_chain_gas_limit(client.state_machine));
+						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100);
+						let call = call.gas_price(new_gas_price.low_u128()).gas(gas_limit);
+						let pending = call.send().await?;
+						let new_tx_hash = H256::from_slice(pending.tx_hash().as_slice());
+						// Don't retry again in the recursive call
+						wait_for_success(client, new_tx_hash, new_gas_price, None, is_consensus)
+							.await
+					},
+					_ => Err(anyhow!("Only consensus messages can be retried")),
+				}
+			} else {
+				// Cancel the stuck transaction with a self-transfer at higher gas price
+				let from_address = Address::from_slice(&client.address);
+				let cancel_gas_price: U256 = gas_price * U256::from(10);
+				let tx = TransactionRequest::default()
+					.to(from_address)
+					.value(AlloyU256::ZERO)
+					.gas_price(cancel_gas_price.low_u128());
+
+				if let Ok(pending) = client.signer.send_transaction(tx).await {
+					let cancel_hash = H256::from_slice(pending.tx_hash().as_slice());
+					if let Ok(Some(receipt)) =
+						wait_for_transaction_receipt(cancel_hash, client.client.clone()).await
+					{
+						let prelude = "Cancellation Tx";
+						if receipt.status() {
+							log::info!("{prelude} for {:?} succeeded", state_machine);
+						} else {
+							log::info!("{prelude} for {:?} reverted", state_machine);
+						}
+					}
+				}
+
+				if is_consensus {
+					Err(anyhow!("Transaction to {:?} was cancelled!", state_machine))?
+				}
+
+				log::error!("Transaction to {:?} was cancelled!", state_machine);
+				Ok(Default::default())
+			}
 		},
 	}
 }
 
-/// Function generates FunctionCall(s) from a batchs of messages
-/// If `debug_trace` is true then the gas_price will not be set on the generated call
-pub async fn generate_contract_calls(
+/// Result of estimating gas for a message
+#[derive(Clone)]
+pub struct MessageGasEstimate {
+	/// Estimated gas for execution
+	pub gas_estimate: u64,
+	/// Calldata bytes for L2 data cost calculation
+	pub calldata: Vec<u8>,
+}
+
+/// Function estimates gas for messages without sending them
+pub async fn estimate_gas_for_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-	debug_trace: bool,
-) -> anyhow::Result<Vec<SolidityFunctionCall<()>>> {
+) -> anyhow::Result<Vec<MessageGasEstimate>> {
 	let handler = client.handler().await?;
-	let contract = IsmpHandler::new(handler.0, client.signer.clone());
-	let ismp_host = client.config.ismp_host;
-	let mut calls = Vec::new();
-	// If debug trace is false or the client type is erigon, then the gas price must be set
-	// Geth does not require gas price to be set when debug tracing, but the erigon implementation
-	// does https://github.com/ledgerwatch/erigon/blob/cfb55a3cd44736ac092003be41659cc89061d1be/core/state_transition.go#L246
-	// Erigon does not support block overrides when tracing so we don't have the option of omiting
-	// the gas price by overriding the base fee
-	let set_gas_price = || !debug_trace || client.client_type.erigon();
-	let mut gas_price = if set_gas_price() {
-		get_current_gas_cost_in_usd(client.state_machine, ismp_host.0.into(), client.client.clone())
-			.await?
-			.gas_price
-	} else {
-		Default::default()
-	};
-
-	// Only use gas price buffer when submitting transactions
-	if !debug_trace && client.config.gas_price_buffer.is_some() {
-		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(10000u32);
-		gas_price = gas_price + buffer
-	}
+	let handler_addr = Address::from_slice(&handler.0);
+	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
+	let mut estimates = Vec::new();
 
 	for message in messages {
 		match message {
 			Message::Consensus(msg) => {
-				let call =
-					contract.handle_consensus(ismp_host.0.into(), msg.consensus_proof.into());
+				let call = contract.handleConsensus(ismp_host, Bytes::from(msg.consensus_proof));
+				let gas_estimate = call.estimate_gas().await.unwrap_or(0);
+				let calldata = call.calldata().to_vec();
+				estimates.push(MessageGasEstimate { gas_estimate, calldata });
+			},
+			Message::Request(msg) => {
+				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
+				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
+				let k_and_leaf_indices = membership_proof
+					.leaf_indices_and_pos
+					.iter()
+					.map(|LeafIndexAndPos { pos, leaf_index }| {
+						let k_index = mmr_position_to_k_index(vec![*pos], mmr_size)[0].1;
+						(k_index, *leaf_index)
+					})
+					.collect::<Vec<_>>();
+
+				let mut leaves = msg
+					.requests
+					.iter()
+					.cloned()
+					.zip(k_and_leaf_indices)
+					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
+						request: convert_post_request(post),
+						index: AlloyU256::from(leaf_index),
+						kIndex: AlloyU256::from(k_index),
+					})
+					.collect::<Vec<_>>();
+				leaves.sort_by(|a, b| a.index.cmp(&b.index));
+
+				let post_message = PostRequestMessage {
+					proof: Proof {
+						height: StateMachineHeight {
+							stateMachineId: {
+								match msg.proof.height.id.state_id {
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
+										AlloyU256::from(id),
+									_ => continue,
+								}
+							},
+							height: AlloyU256::from(msg.proof.height.height),
+						},
+						multiproof: membership_proof.items.iter().map(|node| B256::from_slice(&node.0)).collect(),
+						leafCount: AlloyU256::from(membership_proof.leaf_count),
+					},
+					requests: leaves,
+				};
+
+				let call = contract.handlePostRequests(ismp_host, post_message);
+				let gas_estimate = call.estimate_gas().await.unwrap_or(0);
+				let calldata = call.calldata().to_vec();
+				estimates.push(MessageGasEstimate { gas_estimate, calldata });
+			},
+			Message::Response(ResponseMessage { datagram, proof, .. }) => {
+				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
+				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
+				let k_and_leaf_indices = membership_proof
+					.leaf_indices_and_pos
+					.iter()
+					.map(|LeafIndexAndPos { pos, leaf_index }| {
+						let k_index = mmr_position_to_k_index(vec![*pos], mmr_size)[0].1;
+						(k_index, *leaf_index)
+					})
+					.collect::<Vec<_>>();
+
+				match datagram {
+					RequestResponse::Response(responses) => {
+						let mut leaves = responses
+							.iter()
+							.cloned()
+							.zip(k_and_leaf_indices)
+							.filter_map(|(res, (k_index, leaf_index))| match res {
+								Response::Post(res) => Some(PostResponseLeaf {
+									response: convert_post_response(res),
+									index: AlloyU256::from(leaf_index),
+									kIndex: AlloyU256::from(k_index),
+								}),
+								_ => None,
+							})
+							.collect::<Vec<_>>();
+						leaves.sort_by(|a, b| a.index.cmp(&b.index));
+
+						let message = PostResponseMessage {
+							proof: Proof {
+								height: StateMachineHeight {
+									stateMachineId: {
+										match proof.height.id.state_id {
+											StateMachine::Polkadot(id) |
+											StateMachine::Kusama(id) => AlloyU256::from(id),
+											_ => continue,
+										}
+									},
+									height: AlloyU256::from(proof.height.height),
+								},
+								multiproof: membership_proof
+									.items
+									.iter()
+									.map(|node| B256::from_slice(&node.0))
+									.collect(),
+								leafCount: AlloyU256::from(membership_proof.leaf_count),
+							},
+							responses: leaves,
+						};
+
+						let call = contract.handlePostResponses(ismp_host, message);
+						let gas_estimate = call.estimate_gas().await.unwrap_or(0);
+						let calldata = call.calldata().to_vec();
+						estimates.push(MessageGasEstimate { gas_estimate, calldata });
+					},
+					RequestResponse::Request(..) => continue,
+				}
+			},
+			Message::Timeout(_) | Message::FraudProof(_) => continue,
+		}
+	}
+
+	Ok(estimates)
+}
+
+/// Function generates contract calls from batches of messages without sending them.
+/// Returns the unsent transaction requests along with the gas price used.
+pub async fn generate_contract_calls(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
+	let handler = client.handler().await?;
+	let handler_addr = Address::from_slice(&handler.0);
+	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
+	let mut tx_requests = Vec::new();
+
+	let mut gas_price = get_current_gas_cost_in_usd(client.state_machine, client.config.ismp_host.0.into(), client.client.clone())
+		.await?
+		.gas_price;
+
+	// Apply gas price buffer
+	if client.config.gas_price_buffer.is_some() {
+		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
+			U256::from(100u32);
+		gas_price = gas_price + buffer
+	}
+
+	// Convert U256 to u128 for gas_price parameter
+	let gas_price_u128 = gas_price.low_u128();
+
+	for message in messages {
+		match message {
+			Message::Consensus(msg) => {
+				let call = contract.handleConsensus(ismp_host, Bytes::from(msg.consensus_proof));
 				let estimated_gas = call
 					.estimate_gas()
 					.await
-					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+					.unwrap_or(get_chain_gas_limit(client.state_machine));
 				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
-																 // U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
-				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
+				let calldata = call.calldata().clone();
 
-				calls.push(call);
+				let tx = TransactionRequest::default()
+					.to(handler_addr)
+					.input(calldata.into())
+					.gas_price(gas_price_u128)
+					.gas_limit(gas_limit);
+				tx_requests.push(tx);
 			},
 			Message::Request(msg) => {
 				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
@@ -376,46 +491,47 @@ pub async fn generate_contract_calls(
 					.into_iter()
 					.zip(k_and_leaf_indices)
 					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
-						request: post.into(),
-						index: leaf_index.into(),
-						k_index: k_index.into(),
+						request: convert_post_request(post),
+						index: AlloyU256::from(leaf_index),
+						kIndex: AlloyU256::from(k_index),
 					})
 					.collect::<Vec<_>>();
-				leaves.sort_by_key(|leaf| leaf.index);
+				leaves.sort_by(|a, b| a.index.cmp(&b.index));
+
 				let post_message = PostRequestMessage {
 					proof: Proof {
 						height: StateMachineHeight {
-							state_machine_id: {
+							stateMachineId: {
 								match msg.proof.height.id.state_id {
 									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
+										AlloyU256::from(id),
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
 								}
 							},
-							height: msg.proof.height.height.into(),
+							height: AlloyU256::from(msg.proof.height.height),
 						},
-						multiproof: membership_proof.items.into_iter().map(|node| node.0).collect(),
-						leaf_count: membership_proof.leaf_count.into(),
+						multiproof: membership_proof.items.into_iter().map(|node| B256::from_slice(&node.0)).collect(),
+						leafCount: AlloyU256::from(membership_proof.leaf_count),
 					},
 					requests: leaves,
 				};
 
-				let call = contract.handle_post_requests(ismp_host.0.into(), post_message);
+				let call = contract.handlePostRequests(ismp_host, post_message);
 				let estimated_gas = call
 					.estimate_gas()
 					.await
-					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+					.unwrap_or(get_chain_gas_limit(client.state_machine));
 				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+				let calldata = call.calldata().clone();
 
-				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
-				let call = if set_gas_price() {
-					call.gas_price(old_u256(gas_price)).gas(gas_limit)
-				} else {
-					call.gas(gas_limit)
-				};
-				calls.push(call)
+				let tx = TransactionRequest::default()
+					.to(handler_addr)
+					.input(calldata.into())
+					.gas_price(gas_price_u128)
+					.gas_limit(gas_limit);
+				tx_requests.push(tx);
 			},
 			Message::Response(ResponseMessage { datagram, proof, .. }) => {
 				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
@@ -429,74 +545,72 @@ pub async fn generate_contract_calls(
 					})
 					.collect::<Vec<_>>();
 
-				let call = match datagram {
+				match datagram {
 					RequestResponse::Response(responses) => {
 						let mut leaves = responses
 							.into_iter()
 							.zip(k_and_leaf_indices)
 							.filter_map(|(res, (k_index, leaf_index))| match res {
 								Response::Post(res) => Some(PostResponseLeaf {
-									response: res.into(),
-									index: leaf_index.into(),
-									k_index: k_index.into(),
+									response: convert_post_response(res),
+									index: AlloyU256::from(leaf_index),
+									kIndex: AlloyU256::from(k_index),
 								}),
 								_ => None,
 							})
 							.collect::<Vec<_>>();
-						leaves.sort_by_key(|leaf| leaf.index);
-						let message =
-							PostResponseMessage {
-								proof: Proof {
-									height: StateMachineHeight {
-										state_machine_id: {
-											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => id.into(),
-												_ => {
-													log::error!("Expected polkadot or kusama state machines");
-													continue;
-												},
-											}
-										},
-										height: proof.height.height.into(),
-									},
-									multiproof: membership_proof
-										.items
-										.into_iter()
-										.map(|node| node.0)
-										.collect(),
-									leaf_count: membership_proof.leaf_count.into(),
-								},
-								responses: leaves,
-							};
+						leaves.sort_by(|a, b| a.index.cmp(&b.index));
 
-						let call = contract.handle_post_responses(ismp_host.0.into(), message);
+						let message = PostResponseMessage {
+							proof: Proof {
+								height: StateMachineHeight {
+									stateMachineId: {
+										match proof.height.id.state_id {
+											StateMachine::Polkadot(id) |
+											StateMachine::Kusama(id) => AlloyU256::from(id),
+											_ => {
+												log::error!("Expected polkadot or kusama state machines");
+												continue;
+											},
+										}
+									},
+									height: AlloyU256::from(proof.height.height),
+								},
+								multiproof: membership_proof
+									.items
+									.into_iter()
+									.map(|node| B256::from_slice(&node.0))
+									.collect(),
+								leafCount: AlloyU256::from(membership_proof.leaf_count),
+							},
+							responses: leaves,
+						};
+
+						let call = contract.handlePostResponses(ismp_host, message);
 						let estimated_gas = call
 							.estimate_gas()
 							.await
-							.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+							.unwrap_or(get_chain_gas_limit(client.state_machine));
 						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+						let calldata = call.calldata().clone();
 
-						if set_gas_price() {
-							// U256 Conversion needed because of ether-rs and polkadot-sdk
-							// incompatibility
-							call.gas_price(old_u256(gas_price)).gas(gas_limit)
-						} else {
-							call.gas(gas_limit)
-						}
+						let tx = TransactionRequest::default()
+							.to(handler_addr)
+							.input(calldata.into())
+							.gas_price(gas_price_u128)
+							.gas_limit(gas_limit);
+						tx_requests.push(tx);
 					},
 					RequestResponse::Request(..) =>
 						Err(anyhow!("Get requests are not supported by relayer"))?,
 				};
-
-				calls.push(call);
 			},
 			Message::Timeout(_) => Err(anyhow!("Timeout messages not supported by relayer"))?,
 			Message::FraudProof(_) => Err(anyhow!("Unexpected fraud proof message"))?,
 		}
 	}
 
-	Ok(calls)
+	Ok((tx_requests, gas_price))
 }
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
@@ -523,7 +637,7 @@ pub async fn handle_message_submission(
 	messages: Vec<Message>,
 ) -> Result<TxResult, anyhow::Error> {
 	let (receipts, cancelled) = submit_messages(client, messages.clone()).await?;
-	let height = client.client.get_block_number().await?.low_u64();
+	let height = client.client.get_block_number().await?;
 	let mut results = vec![];
 	for msg in messages {
 		match msg {
@@ -577,38 +691,29 @@ pub async fn handle_message_submission(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ethers::providers::{Http, Provider};
+	use alloy::providers::{Provider, RootProvider};
 
 	#[tokio::test]
 	#[ignore] // Requires local RPC node
 	async fn test_wait_for_transaction_receipt() {
-		// Initialize logger
 		let _ = env_logger::builder().is_test(true).try_init();
 
-		// Create provider
-		let provider =
-			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
-		let provider = Arc::new(provider);
+		let provider = Arc::new(RootProvider::new_http("http://localhost:8545".parse().unwrap()));
 
-		// Transaction hash to test
 		let tx_hash: H256 = "0xf43c2f2910bb84fdd9f4bd94378469195d4e0b401802c6fb8d3d74a20abef3da"
 			.parse()
 			.expect("Failed to parse transaction hash");
 
-		// Wait for transaction receipt
 		match wait_for_transaction_receipt(tx_hash, provider).await {
 			Ok(Some(receipt)) => {
 				println!("✅ Transaction receipt found!");
 				println!("Transaction hash: {:?}", receipt.transaction_hash);
 				println!("Block number: {:?}", receipt.block_number);
 				println!("Gas used: {:?}", receipt.gas_used);
-				println!("Status: {:?}", receipt.status);
-				println!("From: {:?}", receipt.from);
-				println!("To: {:?}", receipt.to);
-				println!("Number of logs: {}", receipt.logs.len());
+				println!("Status: {:?}", receipt.status());
 			},
 			Ok(None) => {
-				println!("❌ Transaction receipt not found after 10 minutes");
+				println!("❌ Transaction receipt not found after 5 minutes");
 			},
 			Err(err) => {
 				println!("❌ Error fetching transaction receipt: {err:?}");
@@ -622,10 +727,7 @@ mod tests {
 		// Initialize logger
 		let _ = env_logger::builder().is_test(true).try_init();
 
-		// Create provider
-		let provider =
-			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
-		let provider = Arc::new(provider);
+		let provider = Arc::new(RootProvider::new_http("http://localhost:8545".parse().unwrap()));
 
 		// Block number to test
 		let block_number: u64 = 4726213;
@@ -633,18 +735,18 @@ mod tests {
 		println!("Fetching block {block_number}...");
 
 		// Get block by number
-		match provider.get_block(block_number).await {
+		match provider.get_block(block_number.into()).await {
 			Ok(Some(block)) => {
-				println!("✅ Block found!");
-				println!("Block number: {:?}", block.number);
-				println!("Block hash: {:?}", block.hash);
-				println!("Parent hash: {:?}", block.parent_hash);
-				println!("Timestamp: {:?}", block.timestamp);
-				println!("Gas used: {:?}", block.gas_used);
-				println!("Gas limit: {:?}", block.gas_limit);
-				println!("Miner: {:?}", block.author);
+				println!("Block found!");
+				println!("Block number: {:?}", block.header.number);
+				println!("Block hash: {:?}", block.header.hash);
+				println!("Parent hash: {:?}", block.header.parent_hash);
+				println!("Timestamp: {:?}", block.header.timestamp);
+				println!("Gas used: {:?}", block.header.gas_used);
+				println!("Gas limit: {:?}", block.header.gas_limit);
+				println!("Miner: {:?}", block.header.beneficiary);
 				println!("Number of transactions: {}", block.transactions.len());
-				println!("State root: {:?}", block.state_root);
+				println!("State root: {:?}", block.header.state_root);
 			},
 			Ok(None) => {
 				println!("❌ Block not found");

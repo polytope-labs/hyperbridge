@@ -1,30 +1,39 @@
-use crate::abi::{arb_gas_info::ArbGasInfo, ovm_gas_price_oracle::OVM_gasPriceOracle};
-use anyhow::{anyhow, Error};
-use ethers::{
-	prelude::{abigen, Bytes, Middleware, Provider},
-	providers::Http,
-	types::H160,
-	utils::parse_units,
+use crate::{
+	abi::{arb_gas_info::ArbGasInfoInstance, ovm_gas_price_oracle::OvmGasPriceOracleInstance},
+	AlloyProvider,
 };
-use geth_primitives::{new_u256, old_u256};
+use alloy::{
+	primitives::{Address, Bytes as AlloyBytes, U256 as AlloyU256},
+	providers::Provider,
+};
+use alloy_sol_macro::sol;
+use anyhow::{anyhow, Error};
 use hex_literal::hex;
 use ismp::host::StateMachine;
-use ismp_solidity_abi::evm_host::EvmHost;
+use ismp_solidity_abi::evm_host::EvmHostInstance;
 use primitive_types::U256;
 use serde::Deserialize;
+use sp_core::H160;
 use std::{fmt::Debug, sync::Arc};
 use tesseract_primitives::Cost;
 
-abigen!(
-	IUniswapV2Router,
-	r#"[
-        function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)
-        function WETH() external pure returns (address)
-    ]"#;
-	IERC20,
-	r#"[
-        function decimals() external view returns (uint8)
-    ]"#
+sol!(
+	#[allow(missing_docs)]
+	#[sol(rpc)]
+	#[derive(Debug, PartialEq, Eq)]
+	interface IUniswapV2Router {
+		function getAmountsIn(uint256 amountOut, address[] memory path) public view returns (uint256[] memory amounts);
+		function WETH() external pure returns (address);
+	}
+);
+
+sol!(
+	#[allow(missing_docs)]
+	#[sol(rpc)]
+	#[derive(Debug, PartialEq, Eq)]
+	interface IERC20 {
+		function decimals() external view returns (uint8);
+	}
 );
 
 const ARB_GAS_INFO: [u8; 20] = hex!("000000000000000000000000000000000000006c");
@@ -89,11 +98,19 @@ pub struct GasBreakdown {
 	pub unit_wei_cost: U256,
 }
 
+fn alloy_u256_to_primitive(val: AlloyU256) -> U256 {
+	U256::from_little_endian(&val.to_le_bytes::<32>())
+}
+
+fn primitive_to_alloy_u256(val: U256) -> AlloyU256 {
+	AlloyU256::from_limbs(val.0)
+}
+
 /// Function gets current gas price (for execution) in wei and return the equivalent in USD,
 pub async fn get_current_gas_cost_in_usd(
 	chain: StateMachine,
 	ismp_host_address: H160,
-	client: Arc<Provider<Http>>,
+	client: Arc<AlloyProvider>,
 ) -> Result<GasBreakdown, Error> {
 	let mut gas_price = U256::zero();
 
@@ -102,24 +119,31 @@ pub async fn get_current_gas_cost_in_usd(
 			match inner_evm {
 				chain_id if is_orbit_chain(chain_id) => {
 					let node_gas_price = client.get_gas_price().await?;
-					let arb_gas_info_contract = ArbGasInfo::new(ARB_GAS_INFO, client.clone());
-					let (.., oracle_gas_price) = arb_gas_info_contract.get_prices_in_wei().await?;
-					// needed because of ether-rs and polkadot-sdk incompatibility
-					gas_price = new_u256(std::cmp::max(node_gas_price, oracle_gas_price)); // minimum gas price is
-					                                                        // 0.1 Gwei
+					let arb_gas_info_contract =
+						ArbGasInfoInstance::new(Address::from_slice(&ARB_GAS_INFO), client.clone());
+					let prices = arb_gas_info_contract.getPricesInWei().call().await?;
+					let oracle_gas_price = prices._5; // Last return value is L2 gas price
+					gas_price = alloy_u256_to_primitive(std::cmp::max(
+						AlloyU256::from(node_gas_price),
+						oracle_gas_price,
+					));
 				},
 				// op stack chains
 				chain_id if is_op_stack(chain_id) => {
 					let node_gas_price = client.get_gas_price().await?;
-					let ovm_gas_price_oracle =
-						OVM_gasPriceOracle::new(OP_GAS_ORACLE, client.clone());
-					let ovm_gas_price = ovm_gas_price_oracle.gas_price().await?;
-					// needed because of ether-rs and polkadot-sdk incompatibility
-					gas_price = new_u256(std::cmp::max(node_gas_price, ovm_gas_price)); // minimum gas price is 0.1
-					                                                     // Gwei
+					let ovm_gas_price_oracle = OvmGasPriceOracleInstance::new(
+						Address::from_slice(&OP_GAS_ORACLE),
+						client.clone(),
+					);
+					let ovm_gas_price = ovm_gas_price_oracle.gasPrice().call().await?;
+					gas_price = alloy_u256_to_primitive(std::cmp::max(
+						AlloyU256::from(node_gas_price),
+						ovm_gas_price,
+					));
 				},
 				_ => {
-					gas_price = new_u256(client.get_gas_price().await?);
+					gas_price =
+						alloy_u256_to_primitive(AlloyU256::from(client.get_gas_price().await?));
 				},
 			}
 		},
@@ -130,59 +154,57 @@ pub async fn get_current_gas_cost_in_usd(
 	let unit_wei = get_cost_of_one_wei(token_usd);
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 
-	log::debug!(
-		"Returned gas price for {chain:?}: {} Gwei",
-		ethers::utils::format_units(old_u256(gas_price), "gwei").unwrap()
-	);
+	let gas_price_gwei = gas_price / U256::from(1_000_000_000u64);
+	log::debug!("Returned gas price for {chain:?}: {} Gwei", gas_price_gwei);
 
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })
 }
 
 fn get_cost_of_one_wei(eth_usd: U256) -> U256 {
-	let old: ethers::types::U256 =
-		parse_units(1u64.to_string(), "ether").expect("Cannot overflow").into();
-	// needed because of ether-rs and polkadot-sdk incompatibility
-	let eth_to_wei: U256 = new_u256(old);
+	// 1 ether = 10^18 wei
+	let eth_to_wei: U256 = U256::from(10).pow(U256::from(18));
 	eth_usd / eth_to_wei
 }
 
 async fn get_price_from_uniswap_router(
 	ismp_host: H160,
-	client: Arc<Provider<Http>>,
+	client: Arc<AlloyProvider>,
 ) -> Result<U256, Error> {
-	let host = EvmHost::new(ismp_host, client.clone());
-	let params = host.host_params().call().await?;
+	let host = EvmHostInstance::new(Address::from_slice(&ismp_host.0), client.clone());
+	let params = host.hostParams().call().await?;
+
 	// There are no uniswap pool on testnet, return 1 usd as native token value
 	if params.hyperbridge.0.starts_with(b"KUSAMA") {
 		return Ok(U256::from(10).pow(U256::from(27)));
 	}
 
-	let uniswap_v2 = params.uniswap_v2;
-	let fee_token = params.fee_token;
+	let uniswap_v2 = H160::from_slice(params.uniswapV2.as_slice());
+	let fee_token = Address::from_slice(params.feeToken.as_slice());
 
 	if uniswap_v2 == H160::zero() {
 		return Err(anyhow!("Uniswap V2 Router not configured in Host Params"));
 	}
 
-	let router = IUniswapV2Router::new(uniswap_v2, client.clone());
-	let native_token = router.weth().call().await?;
+	let router =
+		IUniswapV2Router::IUniswapV2RouterInstance::new(params.uniswapV2, client.clone());
+	let native_token = router.WETH().call().await?;
 
-	let fee_token_contract = IERC20::new(fee_token, client.clone());
+	let fee_token_contract = IERC20::IERC20Instance::new(fee_token, client.clone());
 	let fee_token_decimals = fee_token_contract.decimals().call().await?;
 
-	let native_token_contract = IERC20::new(native_token, client.clone());
+	let native_token_contract = IERC20::IERC20Instance::new(native_token, client.clone());
 	let native_decimals = native_token_contract.decimals().call().await?;
 
 	let path = vec![fee_token, native_token];
-	let amount_out = U256::from(10).pow(U256::from(native_decimals));
+	let amount_out = primitive_to_alloy_u256(U256::from(10).pow(U256::from(native_decimals)));
 
-	let amounts = router.get_amounts_in(old_u256(amount_out), path).call().await?;
+	let amounts = router.getAmountsIn(amount_out, path).call().await?;
 
 	if amounts.is_empty() {
 		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
 	}
 
-	let amount_stable = new_u256(amounts[0]);
+	let amount_stable = alloy_u256_to_primitive(amounts[0]);
 
 	let target_decimals = 27;
 	Ok(amount_stable * U256::from(10).pow(U256::from(target_decimals - fee_token_decimals as u32)))
@@ -190,9 +212,9 @@ async fn get_price_from_uniswap_router(
 
 /// Returns the L2 data cost for a given transaction data in usd
 pub async fn get_l2_data_cost(
-	rlp_tx: Bytes,
+	rlp_tx: AlloyBytes,
 	chain: StateMachine,
-	client: Arc<Provider<Http>>,
+	client: Arc<AlloyProvider>,
 	// Unit wei cost in 27 decimals
 	unit_wei_cost: U256,
 ) -> Result<Cost, anyhow::Error> {
@@ -200,10 +222,10 @@ pub async fn get_l2_data_cost(
 	match chain {
 		StateMachine::Evm(inner_evm) => match inner_evm {
 			id if is_op_stack(id) => {
-				let ovm_gas_price_oracle = OVM_gasPriceOracle::new(OP_GAS_ORACLE, client);
-				// needed because of ether-rs and polkadot-sdk incompatibility
-				let data_cost_bytes: U256 =
-					new_u256(ovm_gas_price_oracle.get_l1_fee(rlp_tx).await?); // this is in wei
+				let ovm_gas_price_oracle =
+					OvmGasPriceOracleInstance::new(Address::from_slice(&OP_GAS_ORACLE), client);
+				let data_cost_bytes =
+					alloy_u256_to_primitive(ovm_gas_price_oracle.getL1Fee(rlp_tx).call().await?);
 				data_cost = data_cost_bytes * unit_wei_cost
 			},
 
@@ -228,11 +250,11 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 
 #[cfg(test)]
 mod test {
-	use crate::gas_oracle::{
+	use super::{
 		get_current_gas_cost_in_usd, get_l2_data_cost, ARBITRUM_CHAIN_ID, BSC_CHAIN_ID,
 		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, POLYGON_CHAIN_ID,
 	};
-	use ethers::{prelude::Provider, providers::Http};
+	use alloy::{primitives::Bytes, providers::RootProvider};
 	use ismp::host::StateMachine;
 	use std::sync::Arc;
 
@@ -246,8 +268,7 @@ mod test {
 			.expect("ETHEREUM_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(ethereum_rpc_uri.parse().unwrap()));
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(ETHEREUM_CHAIN_ID),
@@ -269,9 +290,7 @@ mod test {
 			.expect("POLYGON_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let provider = Provider::<Http>::try_from(rpc_uri).unwrap();
-		// Client is unused in this test
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(rpc_uri.parse().unwrap()));
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(POLYGON_CHAIN_ID),
@@ -293,9 +312,7 @@ mod test {
 			.expect("GNOSIS_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		// Client is unused in this test
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(ethereum_rpc_uri.parse().unwrap()));
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(GNOSIS_CHAIN_ID),
@@ -317,9 +334,7 @@ mod test {
 			.expect("BSC_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		// Client is unused in this test
-		let provider = Provider::<Http>::try_from(rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(rpc_uri.parse().unwrap()));
 
 		let ethereum_gas_cost_in_usd =
 			get_current_gas_cost_in_usd(StateMachine::Evm(BSC_CHAIN_ID), ismp_host, client.clone())
@@ -339,8 +354,7 @@ mod test {
 			.expect("ARB_ISMP_HOST is not set in .env")
 			.parse()
 			.unwrap();
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(ethereum_rpc_uri.parse().unwrap()));
 
 		let ethereum_gas_cost_in_usd = get_current_gas_cost_in_usd(
 			StateMachine::Evm(ARBITRUM_CHAIN_ID),
@@ -363,8 +377,7 @@ mod test {
 			.unwrap();
 		let ethereum_rpc_uri =
 			std::env::var("BASE_MAINNET_URL").expect("op url is not set in .env.");
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(ethereum_rpc_uri.parse().unwrap()));
 
 		let ethereum_gas_cost_in_usd =
 			get_current_gas_cost_in_usd(StateMachine::Evm(8453), ismp_host, client.clone())
@@ -384,14 +397,13 @@ mod test {
 			.unwrap();
 		let ethereum_rpc_uri =
 			std::env::var("BASE_MAINNET_URL").expect("op url is not set in .env.");
-		let provider = Provider::<Http>::try_from(ethereum_rpc_uri).unwrap();
-		let client = Arc::new(provider.clone());
+		let client = Arc::new(RootProvider::new_http(ethereum_rpc_uri.parse().unwrap()));
 		let ethereum_gas_cost_in_usd =
 			get_current_gas_cost_in_usd(StateMachine::Evm(8453), ismp_host, client.clone())
 				.await
 				.unwrap();
 		let data_cost = get_l2_data_cost(
-			vec![1u8; 32].into(),
+			Bytes::from(vec![1u8; 32]),
 			StateMachine::Evm(8453),
 			client.clone(),
 			ethereum_gas_cost_in_usd.unit_wei_cost,

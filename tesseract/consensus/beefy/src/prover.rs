@@ -15,7 +15,7 @@
 use anyhow::{anyhow, Context};
 use bytes::Buf;
 use codec::{Decode, Encode};
-use ethers::abi::AbiEncode;
+use alloy_sol_types::SolValue;
 use hex_literal::hex;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -224,11 +224,11 @@ where
 			Prover::Naive(ref naive, _) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
-				[&[PROOF_TYPE_NAIVE], AbiEncode::encode(message).as_slice()].concat()
+				[&[PROOF_TYPE_NAIVE], message.abi_encode().as_slice()].concat()
 			},
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				[&[PROOF_TYPE_ZK], AbiEncode::encode(message).as_slice()].concat()
+				[&[PROOF_TYPE_ZK], message.abi_encode().as_slice()].concat()
 			},
 		};
 

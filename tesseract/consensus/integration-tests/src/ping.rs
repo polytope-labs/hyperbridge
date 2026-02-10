@@ -1,3 +1,8 @@
+use alloy::{
+	primitives::Address,
+	providers::{Provider, ProviderBuilder},
+	signers::local::PrivateKeySigner,
+};
 use ismp_solidity_abi::shared_types;
 use pallet_ismp::offchain::LeafIndexQuery;
 use std::{
@@ -10,24 +15,16 @@ use subxt_utils::Hyperbridge;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
 use anyhow::Context;
-use ethers::{
-	core::k256::SecretKey,
-	prelude::{LocalWallet, MiddlewareBuilder, Signer},
-	providers::{Http, Middleware, Provider, ProviderExt},
-};
 use futures::TryStreamExt;
 use hex_literal::hex;
 use ismp::{events::Event, host::StateMachine, router::Request};
-use ismp_solidity_abi::evm_host::EvmHost;
+use ismp_solidity_abi::{evm_host::EvmHost, ping_module::PingModule};
 use primitive_types::{H160, U256};
 use sp_core::{Pair, H256};
-use tesseract_evm::{
-	abi::{erc_20::Erc20, PingMessage, PingModule},
-	EvmConfig,
-};
+use tesseract_evm::EvmConfig;
 use tesseract_primitives::{IsmpProvider, StateMachineUpdated};
 
-const PING_ADDR: H160 = H160(hex!("FE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"));
+const PING_ADDR: Address = Address::new(hex!("FE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"));
 
 #[tokio::test]
 #[ignore]
@@ -76,14 +73,18 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 			let signing_key = signing_key.clone();
 			let hyperbridge = hyperbridge.clone();
 			async move {
-				let signer = sp_core::ecdsa::Pair::from_seed_slice(
+				let signer_pair = sp_core::ecdsa::Pair::from_seed_slice(
 					&hex::decode(signing_key.clone()).unwrap(),
 				)?;
-				let provider = Arc::new(Provider::<Http>::try_connect(&url).await?);
-				let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-					.with_chain_id(provider.get_chainid().await?.low_u64());
-				let client = Arc::new(provider.with_signer(signer));
-				let ping = PingModule::new(PING_ADDR.clone(), client.clone());
+				let signing_key_bytes = alloy::signers::k256::ecdsa::SigningKey::from_slice(
+					signer_pair.seed().as_slice(),
+				)?;
+				let wallet = PrivateKeySigner::from_signing_key(signing_key_bytes);
+				let provider = ProviderBuilder::new()
+					.wallet(wallet)
+					.connect_http(url.parse()?);
+				let client = Arc::new(provider);
+				let ping = PingModule::new(PING_ADDR, client.clone());
 
 				let host_addr = ping.host().await.context(format!("Error in {chain}"))?;
 				dbg!((&chain, &host_addr));
@@ -104,7 +105,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 					};
 					let client = config.into_client().await?;
 					let latest_height = StateMachineUpdated {
-						latest_height: client.client.get_block_number().await?.as_u64(),
+						latest_height: client.client.get_block_number().await?,
 						state_machine_id: client.state_machine_id(),
 					};
 					let events = client.query_ismp_events(_previous_height, latest_height).await?;

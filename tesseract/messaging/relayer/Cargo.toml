@@ -21,7 +21,8 @@ tesseract-config = { workspace = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 ismp-sync-committee = { workspace = true, default-features = true }
-ethers = { workspace = true }
+tokio-stream = { workspace = true }
+primitive-types = { workspace = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
 sp-core = { workspace = true, default-features = true, features = [
     "full_crypto",

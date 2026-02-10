@@ -2,7 +2,7 @@ use abi::{IRollup, IRollupBold};
 use alloy::{
 	eips::BlockId,
 	primitives::{Address, B256},
-	providers::{Provider, ProviderBuilder},
+	providers::{Provider, RootProvider},
 	rpc::types::Filter,
 	sol_types::SolEvent,
 };
@@ -89,13 +89,13 @@ impl ArbHost {
 			.rpc_urls
 			.first()
 			.ok_or_else(|| anyhow!("No RPC URLs provided for Arbitrum"))?;
-		let el = ProviderBuilder::new().connect_http(arb_rpc_url.parse()?);
+		let el = RootProvider::new_http(arb_rpc_url.parse()?);
 
 		let beacon_rpc_url = host
 			.ethereum_rpc_url
 			.first()
 			.ok_or_else(|| anyhow!("No RPC URLs provided for beacon client"))?;
-		let beacon_client = ProviderBuilder::new().connect_http(beacon_rpc_url.parse()?);
+		let beacon_client = RootProvider::new_http(beacon_rpc_url.parse()?);
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 

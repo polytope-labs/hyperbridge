@@ -1,5 +1,5 @@
 use crate::{HostConfig, OpConfig, OpHost};
-use ethers::providers::Middleware;
+use alloy::{eips::BlockId, providers::Provider};
 use hex_literal::hex;
 use primitive_types::H160;
 // use ismp_testsuite::mocks::Host;
@@ -51,12 +51,12 @@ async fn test_payload_proof_verification() {
 
 	let l1_header = op_client
 		.beacon_execution_client
-		.get_block(5519662)
+		.get_block(BlockId::number(5519662))
 		.await
 		.unwrap()
 		.expect("Block should exist");
 
-	let _state_root = l1_header.state_root;
+	let _state_root = l1_header.header.state_root;
 
 	// let _ = verify_optimism_payload::<Host>(
 	// 	payload_proof,
@@ -108,12 +108,12 @@ async fn test_dispute_game_proof_verification() {
 
 	let l1_header = op_client
 		.beacon_execution_client
-		.get_block(5524180)
+		.get_block(BlockId::number(5524180))
 		.await
 		.unwrap()
 		.expect("Block should exist");
 
-	let _state_root = l1_header.state_root;
+	let _state_root = l1_header.header.state_root;
 
 	// let _ = verify_optimism_dispute_game_proof::<Host>(
 	// 	payload_proof,

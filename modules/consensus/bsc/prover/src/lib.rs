@@ -20,7 +20,7 @@ use polkadot_sdk::*;
 use alloy::{
 	eips::BlockId,
 	primitives::B256,
-	providers::{Provider, ProviderBuilder},
+	providers::{Provider, RootProvider},
 	transports::http::reqwest::Url,
 };
 use anyhow::anyhow;
@@ -29,31 +29,13 @@ use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use sp_core::H256;
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
-
-/// Type alias for alloy HTTP provider
-pub type AlloyProvider = alloy::providers::fillers::FillProvider<
-	alloy::providers::fillers::JoinFill<
-		alloy::providers::Identity,
-		alloy::providers::fillers::JoinFill<
-			alloy::providers::fillers::GasFiller,
-			alloy::providers::fillers::JoinFill<
-				alloy::providers::fillers::BlobGasFiller,
-				alloy::providers::fillers::JoinFill<
-					alloy::providers::fillers::NonceFiller,
-					alloy::providers::fillers::ChainIdFiller,
-				>,
-			>,
-		>,
-	>,
-	alloy::providers::RootProvider,
->;
 use sync_committee_primitives::constants::BlsPublicKey;
 use tracing::{instrument, trace};
 
 #[derive(Clone)]
 pub struct BscPosProver<C: Config> {
 	/// Execution Rpc client
-	pub client: Arc<AlloyProvider>,
+	pub client: Arc<RootProvider>,
 	/// Phamtom data
 	_phantom_data: PhantomData<C>,
 }
@@ -70,7 +52,7 @@ pub struct UpdateParams {
 }
 impl<C: Config> BscPosProver<C> {
 	pub fn new(url: Url) -> Self {
-		let client = ProviderBuilder::new().connect_http(url);
+		let client = RootProvider::new_http(url);
 		Self { client: Arc::new(client), _phantom_data: PhantomData }
 	}
 

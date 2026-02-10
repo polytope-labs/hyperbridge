@@ -174,7 +174,7 @@ where
 		&self,
 		consensus_state: Option<ConsensusState>,
 	) -> Result<CreateConsensusState, anyhow::Error> {
-		use ethers::abi::AbiEncode;
+		use alloy_sol_types::SolValue;
 		let prover_consensus_state = match consensus_state {
 			Some(state) => {
 				let inner = self.prover.inner();
@@ -214,7 +214,7 @@ where
 		let start = SystemTime::now();
 		let timestamp = start.duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
 		Ok(CreateConsensusState {
-			consensus_state: consensus_state.encode(),
+			consensus_state: consensus_state.abi_encode(),
 			consensus_client_id: *b"BEEF",
 			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,
@@ -494,12 +494,12 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		use ethers::abi::AbiEncode;
+		use alloy_sol_types::SolValue;
 		let consensus_state: BeefyConsensusState =
 			self.prover.query_initial_consensus_state(None).await?.inner.into();
 
 		Ok(Some(CreateConsensusState {
-			consensus_state: consensus_state.encode(),
+			consensus_state: consensus_state.abi_encode(),
 			consensus_client_id: *b"BEEF",
 			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,

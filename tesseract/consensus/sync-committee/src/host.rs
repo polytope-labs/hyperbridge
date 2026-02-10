@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use crate::{GetConsensusStateParams, L2Host, SyncCommitteeHost};
+use alloy::{eips::BlockId, providers::Provider};
 use codec::{Decode, Encode};
-use ethers::prelude::Middleware;
 
 use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
@@ -223,8 +223,11 @@ impl<
 				L2Host::ArbitrumOrbit(host) => {
 					rollup_core_address.insert(host.evm.state_machine, host.host.rollup_core);
 					let number = host.arb_execution_client.get_block_number().await?;
-					let block =
-						host.arb_execution_client.get_block(number).await?.ok_or_else(|| {
+					let block = host
+						.arb_execution_client
+						.get_block(BlockId::number(number))
+						.await?
+						.ok_or_else(|| {
 							anyhow!(
 								"Didn't find block with number {number} on {:?}",
 								host.evm.state_machine
@@ -237,11 +240,11 @@ impl<
 						},
 						StateCommitmentHeight {
 							commitment: StateCommitment {
-								timestamp: block.timestamp.as_u64(),
+								timestamp: block.header.timestamp,
 								overlay_root: None,
-								state_root: block.state_root.0.into(),
+								state_root: block.header.state_root.0.into(),
 							},
-							height: number.as_u64(),
+							height: number,
 						},
 					));
 				},
@@ -262,8 +265,11 @@ impl<
 					}
 
 					let number = host.op_execution_client.get_block_number().await?;
-					let block =
-						host.op_execution_client.get_block(number).await?.ok_or_else(|| {
+					let block = host
+						.op_execution_client
+						.get_block(BlockId::number(number))
+						.await?
+						.ok_or_else(|| {
 							anyhow!(
 								"Didn't find block with number {number} on {:?}",
 								host.evm.state_machine
@@ -276,11 +282,11 @@ impl<
 						},
 						StateCommitmentHeight {
 							commitment: StateCommitment {
-								timestamp: block.timestamp.as_u64(),
+								timestamp: block.header.timestamp,
 								overlay_root: None,
-								state_root: block.state_root.0.into(),
+								state_root: block.header.state_root.0.into(),
 							},
-							height: number.as_u64(),
+							height: number,
 						},
 					));
 				},
@@ -296,9 +302,13 @@ impl<
 		let initial_consensus_state = self.get_consensus_state(params, None).await?;
 
 		let number = self.el.get_block_number().await?;
-		let block = self.el.get_block(number).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
-		})?;
+		let block = self
+			.el
+			.get_block(BlockId::number(number))
+			.await?
+			.ok_or_else(|| {
+				anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+			})?;
 		state_machine_commitments.push((
 			StateMachineId {
 				state_id: self.state_machine,
@@ -306,11 +316,11 @@ impl<
 			},
 			StateCommitmentHeight {
 				commitment: StateCommitment {
-					timestamp: block.timestamp.as_u64(),
+					timestamp: block.header.timestamp,
 					overlay_root: None,
-					state_root: block.state_root.0.into(),
+					state_root: block.header.state_root.0.into(),
 				},
-				height: number.as_u64(),
+				height: number,
 			},
 		));
 

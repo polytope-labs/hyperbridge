@@ -81,7 +81,8 @@
 			"handlerV1": "0xb45A4078A2D0B036C324A0046C2845aD59e769F6",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"intentGateway": "0x016b6ffC9f890d1e28f9Fdb9eaDA776b02F89509",
-			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
+			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			"intentGatewayV2": "0xFbF50B2b32768127603cC9eF4b871574b881b8eD"
 		}
 	},
 	"gnosis-chiado": {
@@ -102,12 +103,35 @@
 		"chainId": "80002",
 		"startBlock": 24949552,
 		"stateMachineId": "EVM-80002",
-		"blockConfirmations": 30,
 		"contracts": {
 			"ethereumHost": "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
 			"handlerV1": "0xf0b4024F15d07912953184840682690C31aD9bcC",
 			"erc6160ext20": "0x693B854D6965ffEAaE21C74049deA644b56FCaCB",
 			"tokenGateway": "0x2efdc11b11cac34697b992a56e1d245c137a05b2"
+		}
+	},
+	"polkadot-testnet": {
+		"type": "evm",
+		"chainId": "420420417",
+		"startBlock": 4749233,
+		"stateMachineId": "EVM-420420417",
+		"contracts": {
+			"ethereumHost": "0xbb26e04a71e7c12093e82b83ba310163eac186fa",
+			"handlerV1": "0x8b31a195c98ead34cf463a66f52942b6145a68a2",
+			"erc6160ext20": "0x8b31a195c98ead34cf463a66f52942b6145a68a2",
+			"tokenGateway": "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c"
+		}
+	},
+	"tron-nile": {
+		"type": "evm",
+		"chainId": "3448148188",
+		"startBlock": 64752133,
+		"stateMachineId": "EVM-3448148188",
+		"contracts": {
+			"ethereumHost": "0x8af30d750a0be06fa60a3cc61e1ee3ad5766fe86",
+			"handlerV1": "0xda9aa832cf1024862a23f9fdd47cc2358b7d549c",
+			"erc6160ext20": "0xECa9bC828A3005B9a3b909f2cc5c2a54794DE05F",
+			"tokenGateway": "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c"
 		}
 	}
 }

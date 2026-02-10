@@ -47,10 +47,6 @@ dataSources:
           kind: substrate/BlockHandler
           filter:
             modulo: 10 # Indexings 1 block every minute (6 seconds per block indexing).
-        - handler: handleTokenIndexing
-          kind: substrate/BlockHandler
-          filter:
-            modulo: 1 # Indexings every block.
 {{/if}}
 
 repository: 'https://github.com/polytope-labs/hyperbridge'

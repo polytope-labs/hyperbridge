@@ -29,7 +29,7 @@ import {
     FillOptions,
     CancelOptions,
     NewDeployment,
-    RequestBody,
+    WithdrawalRequest,
     SelectOptions
 } from "../src/apps/IntentGatewayV2.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
@@ -1966,7 +1966,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
             abi.encode(
-                RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(filler)))})
+                WithdrawalRequest({
+                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(filler)))
+                })
             )
         );
 
@@ -2024,7 +2026,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
             abi.encode(
-                RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
+                WithdrawalRequest({
+                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
+                })
             )
         );
 
@@ -2044,6 +2048,303 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
 
         assertEq(usdc.balanceOf(user) - userBalanceBefore, inputAmount, "User should receive refunded tokens");
+    }
+
+    function testCancelOrderFromDestinationChain() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Create cross-chain order: source is SOURCE_CHAIN, destination is current chain
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(), // Current chain is destination
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // User cancels from destination chain - no escrow here, it's on source
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
+
+        vm.startPrank(user);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.cancelOrder(order, cancelOptions);
+        vm.stopPrank();
+
+        // Verify order is marked as cancelled
+        address filledBy = intentGateway._filled(commitment);
+        assertEq(filledBy, user, "Order should be marked as cancelled by user");
+    }
+
+    function testCancelOrderFromDestinationChainDispatchesRefundRequest() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 1 ether, height: 0});
+
+        // Expect the dispatch call to host
+        vm.expectCall(address(host), abi.encodeWithSignature("dispatch((bytes,bytes,bytes,uint64,uint256,address))"));
+
+        vm.startPrank(user);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.cancelOrder{value: 0.1 ether}(order, cancelOptions);
+        vm.stopPrank();
+    }
+
+    function testFillOrderAfterDestinationChainCancellationFails() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // User cancels from destination
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
+        vm.startPrank(user);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.cancelOrder(order, cancelOptions);
+        vm.stopPrank();
+
+        // Now solver tries to fill the order
+        FillOptions memory fillOptions = FillOptions({outputs: outputAssets, relayerFee: 0, nativeDispatchFee: 0});
+
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), 1000 * 1e18);
+        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        intentGateway.fillOrder(order, fillOptions);
+        vm.stopPrank();
+    }
+
+    function testCancelOrderFromWrongChainFails() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Order where current chain is neither source nor destination
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
+
+        vm.startPrank(user);
+        vm.expectRevert(IntentGatewayV2.WrongChain.selector);
+        intentGateway.cancelOrder(order, cancelOptions);
+        vm.stopPrank();
+    }
+
+    function testRefundEscrowOnSourceChainAfterDestinationCancellation() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: host.host(),
+            destination: bytes("DEST_CHAIN"),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // Place order on source chain
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // Simulate RefundEscrow request from destination chain
+        bytes memory body = bytes.concat(
+            bytes1(uint8(IntentGatewayV2.RequestKind.RefundEscrow)),
+            abi.encode(
+                WithdrawalRequest({
+                    commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
+                })
+            )
+        );
+
+        PostRequest memory request = PostRequest({
+            source: bytes("DEST_CHAIN"),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        uint256 userBalanceBefore = usdc.balanceOf(user);
+
+        vm.expectEmit(true, false, false, true);
+        emit IntentGatewayV2.EscrowRefunded(commitment);
+
+        vm.prank(address(host));
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
+
+        assertEq(usdc.balanceOf(user) - userBalanceBefore, inputAmount, "User should receive refunded tokens");
+        assertEq(intentGateway._filled(commitment), user, "Order should be marked as refunded with user as beneficiary");
+    }
+
+    function testCancelOrderFromDestinationChainUnauthorizedBeforeExpiry() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Create cross-chain order: source is SOURCE_CHAIN, destination is current chain
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(), // Current chain is destination
+            deadline: block.number + 100, // Not expired
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
+
+        // Non-owner (filler) tries to cancel before expiry - should fail
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        intentGateway.cancelOrder(order, cancelOptions);
+        vm.stopPrank();
+    }
+
+    function testCancelOrderFromDestinationChainByAnyoneAfterExpiry() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Create cross-chain order: source is SOURCE_CHAIN, destination is current chain
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(), // Current chain is destination
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // Roll past deadline
+        vm.roll(block.number + 101);
+
+        bytes32 commitment = keccak256(abi.encode(order));
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
+
+        // Anyone (filler) can cancel after expiry
+        vm.startPrank(filler);
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.cancelOrder(order, cancelOptions);
+        vm.stopPrank();
+
+        // Verify order is marked as cancelled
+        address filledBy = intentGateway._filled(commitment);
+        assertEq(filledBy, user, "Order should be marked as cancelled with user as beneficiary");
     }
 
     function testOnAcceptNewDeployment() public {
@@ -2551,7 +2852,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Create GET response with empty value (order not filled)
         bytes memory context = abi.encode(
-            RequestBody({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
+            WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
         );
 
         StorageValue[] memory values = new StorageValue[](1);
@@ -2682,7 +2983,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         bytes memory body = bytes.concat(
             bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
             abi.encode(
-                RequestBody({
+                WithdrawalRequest({
                     commitment: expectedCommitment, tokens: redeemInputs, beneficiary: bytes32(uint256(uint160(filler)))
                 })
             )

@@ -1,4 +1,7 @@
-use crate::abi::{EvmHostInstance, PingModuleInstance};
+use crate::{
+	abi::{EvmHostInstance, PingModuleInstance},
+	transport::RpcTransport,
+};
 
 use alloy::{
 	network::EthereumWallet,
@@ -34,6 +37,7 @@ use tx::handle_message_submission;
 pub mod abi;
 mod byzantine;
 pub mod gas_oracle;
+pub mod transport;
 use tx::wait_for_transaction_receipt;
 pub mod provider;
 
@@ -100,6 +104,11 @@ pub struct EvmConfig {
 	pub client_type: Option<ClientType>,
 	/// Initial height from which to start querying messages
 	pub initial_height: Option<u64>,
+	/// Selects the JSON-RPC transport variant.  Defaults to [`RpcTransport::Standard`].
+	/// Set to [`RpcTransport::Tron`] for TRON nodes whose JSON-RPC proxy rejects
+	/// EIP-1559 fields (`type`, `accessList`).
+	#[serde(default)]
+	pub transport: RpcTransport,
 }
 
 impl EvmConfig {
@@ -129,6 +138,7 @@ impl Default for EvmConfig {
 			gas_price_buffer: Default::default(),
 			client_type: Default::default(),
 			initial_height: Default::default(),
+			transport: Default::default(),
 		}
 	}
 }
@@ -215,7 +225,7 @@ impl EvmClient {
 			consensus_state_id,
 			state_machine: config.state_machine,
 			initial_height: latest_height,
-			config: config_clone,
+			config: config_clone.clone(),
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
 			private_key_signer,

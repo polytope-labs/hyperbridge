@@ -20,7 +20,10 @@
 use super::*;
 use alloc::vec;
 use frame_benchmarking::v2::*;
-use frame_support::{traits::{Currency, EnsureOrigin}, BoundedVec};
+use frame_support::{
+	traits::{Currency, EnsureOrigin},
+	BoundedVec,
+};
 use frame_system::RawOrigin;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
@@ -114,12 +117,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(
-			origin.clone(),
-			state_machine,
-			gateway,
-			params.clone(),
-		);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params.clone());
 
 		let params_update = types::ParamsUpdate {
 			protocol_fee_bps: Some(U256::from(150)),
@@ -149,12 +147,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(
-			origin.clone(),
-			state_machine,
-			gateway,
-			params.clone(),
-		);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params.clone());
 
 		let dust_params = types::SweepDust { beneficiary: H160::default(), outputs: vec![] };
 

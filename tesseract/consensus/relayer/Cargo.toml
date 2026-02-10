@@ -15,6 +15,10 @@ path = "bins/relayer.rs"
 name = "beefy-prover"
 path = "bins/prover.rs"
 
+[[bin]]
+name = "polyhedron"
+path = "bins/polyhedron.rs"
+
 [dependencies]
 log = "0.4.19"
 env_logger = "0.10.0"
@@ -51,6 +55,7 @@ tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
 tesseract-tendermint = { workspace = true }
+tesseract-tron = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

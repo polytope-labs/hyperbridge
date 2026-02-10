@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@hyperbridge/core':
-        specifier: ^1.5.2
-        version: 1.5.2
+        specifier: ^1.6.0
+        version: 1.6.0
       '@openzeppelin/contracts':
         specifier: ^5.4.0
         version: 5.4.0
@@ -114,8 +114,8 @@ packages:
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
 
-  '@hyperbridge/core@1.5.2':
-    resolution: {integrity: sha512-+RmuJQ8GB8zZpkRT9Ir/2fZa4fzW3lSYvTmAR4rTxpZRitej4K8yjaKPpZiaRjGbj1QCnQkOIWB/hpJ+Pxkz1w==}
+  '@hyperbridge/core@1.6.0':
+    resolution: {integrity: sha512-Cq6kbCuuSECZF0nd+br/5+XvmY88499KqxCOfpqDOdFt7dIsG7F/CAT8u7V3JpqN/pE7jKxIqBWAZH4uxQM6yA==}
 
   '@noble/curves@1.4.2':
     resolution: {integrity: sha512-TavHr8qycMChk8UwMld0ZDRvatedkzWfH8IiaeGCfymOP5i0hSCozz9vHOL0nkwk7HRMlFnAiKpS2jrUmSybcw==}
@@ -551,7 +551,7 @@ packages:
   glob@8.1.0:
     resolution: {integrity: sha512-r8hpEjiQEYlF2QU0df3dS+nxxSIreXQS1qRhMJM0Q5NDdR386C7jb7Hwwod8Fgiuex+k0GFjgft18yvxm5XoCQ==}
     engines: {node: '>=12'}
-    deprecated: Glob versions prior to v9 are no longer supported
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
@@ -1100,7 +1100,7 @@ snapshots:
 
   '@fastify/busboy@2.1.1': {}
 
-  '@hyperbridge/core@1.5.2':
+  '@hyperbridge/core@1.6.0':
     dependencies:
       '@openzeppelin/contracts': 5.4.0
       '@polytope-labs/solidity-merkle-trees': 0.3.4

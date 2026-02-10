@@ -459,7 +459,7 @@ async fn submit_state_proposal(
 	let contract = DisputeGameFactory::new(factory_addr, &*proposer);
 
 	// Fetch L1 gas price
-	let gas_breakdown = get_current_gas_cost_in_usd(
+	let _gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
 		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),

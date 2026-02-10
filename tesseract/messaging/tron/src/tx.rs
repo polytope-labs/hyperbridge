@@ -281,15 +281,20 @@ async fn trigger_sign_broadcast(
 	calldata_hex: &str,
 ) -> anyhow::Result<TransactionInfo> {
 	log::trace!("trigger_sign_broadcast: preparing request");
+
+	// Query handler address dynamically
+	let handler_address = client.handler_address().await?;
+
 	log::trace!(
 		"owner_address: {}, contract_address: {}, fee_limit: {}",
 		client.owner_address,
-		client.handler_address,
+		handler_address,
 		client.fee_limit
 	);
 
 	// Step 1: Estimate energy requirements
-	let estimated_energy = estimate_transaction_energy(client, calldata_hex).await?;
+	let estimated_energy =
+		estimate_transaction_energy(client, &handler_address, calldata_hex).await?;
 
 	log::trace!("Estimated energy: {}", estimated_energy);
 
@@ -300,7 +305,7 @@ async fn trigger_sign_broadcast(
 
 	let trigger_req = TriggerWithDataRequest {
 		owner_address: client.owner_address.clone(),
-		contract_address: client.handler_address.clone(),
+		contract_address: handler_address,
 		data: calldata_hex.to_string(),
 		fee_limit: client.fee_limit,
 		call_value: 0,
@@ -644,6 +649,7 @@ mod tests {
 /// A tuple of (estimated_energy, estimated_bandwidth)
 async fn estimate_transaction_energy(
 	client: &TronClient,
+	handler_address: &str,
 	calldata_hex: &str,
 ) -> anyhow::Result<u64> {
 	log::trace!("Estimating transaction energy");
@@ -651,7 +657,7 @@ async fn estimate_transaction_energy(
 	// Use triggerConstantContract to simulate the call
 	let trigger_req = TriggerContractRequest {
 		owner_address: client.owner_address.clone(),
-		contract_address: client.handler_address.clone(),
+		contract_address: handler_address.to_string(),
 		function_selector: String::new(), // Empty when using raw data
 		parameter: calldata_hex.to_string(),
 		fee_limit: Some(client.fee_limit),
@@ -721,7 +727,7 @@ async fn purchase_energy_via_catfee(
 	// Period: 1 hour (sufficient for immediate transaction)
 	let period_hours = 1;
 
-	let _result = catfee_client
+	catfee_client
 		.purchase_energy(energy_required, &receiver_base58, period_hours, max_wait)
 		.await
 		.context("Failed to purchase energy via CatFee")?;

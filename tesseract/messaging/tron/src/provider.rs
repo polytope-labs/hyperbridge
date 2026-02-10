@@ -206,8 +206,11 @@ impl IsmpProvider for TronClient {
 		messages: Vec<Message>,
 		_coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error> {
-		let queue = self.queue().map_err(|e| anyhow!("{e}"))?.clone();
-		queue.send(messages).await?
+		self.queue
+			.as_ref()
+			.ok_or_else(|| anyhow!("Transaction submission pipeline was not initialized"))?
+			.send(messages)
+			.await?
 	}
 
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {

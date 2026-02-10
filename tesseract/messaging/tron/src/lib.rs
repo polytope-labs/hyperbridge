@@ -164,9 +164,6 @@ pub struct TronClient {
 	/// Owner address in TRON hex format (`41`-prefixed, 42 hex chars).
 	pub owner_address: String,
 
-	/// Handler contract address in TRON hex format.
-	pub handler_address: String,
-
 	/// IsmpHost contract address in TRON hex format.
 	pub ismp_host_address: String,
 
@@ -223,9 +220,10 @@ impl TronClient {
 			let catfee_config = CatFeeConfig {
 				api_key: api_key.clone(),
 				api_secret: api_secret.clone(),
+				timeout: std::time::Duration::from_secs(config.tron_api_timeout_secs),
 				..Default::default()
 			};
-			log::info!("CatFee integration enabled");
+			log::info!("CatFee integration enabled: {:#?}", catfee_config);
 			Some(CatFeeClient::new(catfee_config)?)
 		} else {
 			log::info!("CatFee integration disabled (API credentials not provided)");
@@ -233,10 +231,6 @@ impl TronClient {
 		};
 
 		let ismp_host_address = to_tron_hex(&format!("{:?}", config.evm.ismp_host));
-
-		// Query handler from the host contract via JSON-RPC (uses force_legacy).
-		let handler_h160 = evm.handler().await?;
-		let handler_address = to_tron_hex(&format!("{:x}", handler_h160));
 
 		let fee_limit = config.fee_limit;
 		let config_clone = config.clone();
@@ -247,7 +241,6 @@ impl TronClient {
 			catfee,
 			secret_key,
 			owner_address,
-			handler_address,
 			ismp_host_address,
 			fee_limit,
 			config: config_clone,
@@ -262,28 +255,22 @@ impl TronClient {
 		client.queue = Some(Arc::new(queue));
 
 		log::info!(
-			"Initialized TronClient for {:?} (host={}, handler={}, relayer={})",
+			"Initialized TronClient for {:?} (host={}, relayer={})",
 			client.evm.state_machine,
 			client.ismp_host_address,
-			client.handler_address,
 			client.owner_address,
 		);
 
 		Ok(client)
 	}
 
-	/// Reference to the inner [`EvmClient`] for direct JSON-RPC access.
-	pub fn inner(&self) -> &EvmClient {
-		&self.evm
-	}
-
-	/// Return a reference to the transaction submission queue.
-	pub(crate) fn queue(
-		&self,
-	) -> anyhow::Result<&Arc<PipelineQueue<Vec<Message>, anyhow::Result<TxResult>>>> {
-		self.queue
-			.as_ref()
-			.ok_or_else(|| anyhow!("Transaction submission pipeline was not initialized"))
+	/// Query the handler address from the IsmpHost contract.
+	///
+	/// This queries the handler address dynamically via JSON-RPC instead of caching it,
+	/// allowing the handler to be updated without restarting the client.
+	pub async fn handler_address(&self) -> anyhow::Result<String> {
+		let handler_h160 = self.evm.handler().await?;
+		Ok(to_tron_hex(&format!("{:x}", handler_h160)))
 	}
 }
 
@@ -300,7 +287,6 @@ impl Clone for TronClient {
 			catfee: self.catfee.clone(),
 			secret_key: self.secret_key,
 			owner_address: self.owner_address.clone(),
-			handler_address: self.handler_address.clone(),
 			ismp_host_address: self.ismp_host_address.clone(),
 			fee_limit: self.fee_limit,
 			config: self.config.clone(),

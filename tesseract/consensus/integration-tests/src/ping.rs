@@ -101,6 +101,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 						initial_height: None,
 						gas_price_buffer: Default::default(),
 						client_type: None,
+						transport: tesseract_evm::transport::RpcTransport::Standard,
 					};
 					let client = config.into_client().await?;
 					let latest_height = StateMachineUpdated {

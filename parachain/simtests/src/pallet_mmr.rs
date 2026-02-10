@@ -246,13 +246,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
 	// Fork A
 	for i in 0..3 {
-		let params =
-			EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-		let call = subxt::dynamic::tx(
-			"IsmpDemo",
-			"dispatch_to_evm",
-			vec![evm_params_to_value(&params)],
-		);
+		let params = EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
+		let call =
+			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 
 		let call = client.tx().call_data(&call)?;
 		let extrinsic: Bytes = rpc_client
@@ -301,13 +297,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let mut parent_hash_b = fork_parent;
 
 	for i in 0..3 {
-		let params =
-			EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
-		let call = subxt::dynamic::tx(
-			"IsmpDemo",
-			"dispatch_to_evm",
-			vec![evm_params_to_value(&params)],
-		);
+		let params = EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
+		let call =
+			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 
 		let call = client.tx().call_data(&call)?;
 		let extrinsic: Bytes = rpc_client

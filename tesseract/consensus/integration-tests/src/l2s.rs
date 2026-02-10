@@ -90,6 +90,7 @@ async fn setup_clients() -> Result<
 			consensus_state_id: "ETH0".to_string(),
 			ismp_host: hex!("7BdE4Ce065400eE332C20f7df3a35d66674165f6").into(),
 			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
 
@@ -115,6 +116,7 @@ async fn setup_clients() -> Result<
 			ismp_host: hex!("3435bD7e5895356535459D6087D1eB982DAd90e7").into(),
 			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
 			gas_price_buffer: Some(800),
+			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
 
@@ -147,6 +149,7 @@ async fn setup_clients() -> Result<
 			ismp_host: hex!("6d51b678836d8060d980605d2999eF211809f3C2").into(),
 			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
 			gas_price_buffer: Some(500),
+			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
 

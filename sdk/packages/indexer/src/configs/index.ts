@@ -27,7 +27,7 @@ export const schemaConfiguration = z.record(
 	z.string(),
 	z.discriminatedUnion("type", [
 		baseChainConfigSchema.extend({ type: z.literal("substrate") }),
-		baseChainConfigSchema.extend({ type: z.literal("evm"), contracts: evmContractsSchema.optional() }),
+		baseChainConfigSchema.extend({ type: z.literal("evm"), unfinalizedBlocks: z.boolean().optional(), contracts: evmContractsSchema.optional() }),
 	]),
 )
 

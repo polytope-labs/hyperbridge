@@ -37,11 +37,10 @@ const generateNodeServices = () => {
 	}
 
 	validChains.forEach((config, chainName) => {
-		const hasBlockConfirmations = config.blockConfirmations !== undefined
 		const serviceData = {
 			chainName,
 			image: config.type === "substrate" ? SUBSTRATE_IMAGE : EVM_IMAGE,
-			unfinalizedBlocks: config.type === "evm" && !hasBlockConfirmations, // Only EVM chains need unfinalized blocks handling, except chains with custom block confirmations
+			unfinalizedBlocks: config.type === "evm" && (config.unfinalizedBlocks !== false),
 			blockConfirmations: config.blockConfirmations, // Pass block confirmations from config
 			config,
 			volumesPath: "../../",

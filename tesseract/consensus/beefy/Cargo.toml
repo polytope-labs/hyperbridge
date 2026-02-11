@@ -21,6 +21,7 @@ hex = { workspace = true }
 hex-literal = "0.4.1"
 sp-core = { workspace = true, features = ["full_crypto"] }
 alloy-sol-types = { workspace = true }
+alloy-primitives = { workspace = true }
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

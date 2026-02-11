@@ -27194,6 +27194,7 @@ dependencies = [
 name = "tesseract-beefy"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives 1.5.2",
  "alloy-sol-types 1.5.2",
  "anyhow",
  "async-stream",
@@ -27702,6 +27703,7 @@ dependencies = [
 name = "tesseract-tron"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "async-trait",
  "base64 0.22.1",
@@ -27710,7 +27712,6 @@ dependencies = [
  "dotenv",
  "env_logger 0.10.2",
  "envy",
- "ethers",
  "futures",
  "hex",
  "hmac 0.12.1",

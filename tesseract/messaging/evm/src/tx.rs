@@ -27,7 +27,7 @@ use ismp_solidity_abi::{
 		PostResponse as SolPostResponse, PostResponseLeaf, PostResponseMessage, Proof,
 		StateMachineHeight,
 	},
-};
+};L
 use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
@@ -775,14 +775,14 @@ pub async fn handle_message_submission(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use alloy::providers::{Provider, RootProvider};
+	use crate::AlloyProvider;
 
 	#[tokio::test]
 	#[ignore] // Requires local RPC node
 	async fn test_wait_for_transaction_receipt() {
 		let _ = env_logger::builder().is_test(true).try_init();
 
-		let provider = Arc::new(RootProvider::new_http("http://localhost:8545".parse().unwrap()));
+		let provider = Arc::new(AlloyProvider::new_http("http://localhost:8545".parse().unwrap()));
 
 		let tx_hash: H256 = "0xf43c2f2910bb84fdd9f4bd94378469195d4e0b401802c6fb8d3d74a20abef3da"
 			.parse()
@@ -811,7 +811,7 @@ mod tests {
 		// Initialize logger
 		let _ = env_logger::builder().is_test(true).try_init();
 
-		let provider = Arc::new(RootProvider::new_http("http://localhost:8545".parse().unwrap()));
+		let provider = Arc::new(AlloyProvider::new_http("http://localhost:8545".parse().unwrap()));
 
 		// Block number to test
 		let block_number: u64 = 4726213;
@@ -819,8 +819,9 @@ mod tests {
 		println!("Fetching block {block_number}...");
 
 		// Get block by number
-		match provider.get_block(block_number.into()).await {
-			Ok(Some(block)) => {
+		let block: Option<alloy::rpc::types::Block> = provider.get_block_by_number(block_number.into()).full().await.expect("Failed to fetch block");
+		match block {
+			Some(block) => {
 				println!("Block found!");
 				println!("Block number: {:?}", block.header.number);
 				println!("Block hash: {:?}", block.header.hash);
@@ -832,13 +833,9 @@ mod tests {
 				println!("Number of transactions: {}", block.transactions.len());
 				println!("State root: {:?}", block.header.state_root);
 			},
-			Ok(None) => {
+			None => {
 				println!("❌ Block not found");
 				panic!("Block {block_number} should exist");
-			},
-			Err(err) => {
-				println!("❌ Error fetching block: {err:?}");
-				panic!("Failed to fetch block: {err:?}");
 			},
 		}
 	}

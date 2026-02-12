@@ -8,10 +8,11 @@
 - --log-level=info
 {{#if unfinalizedBlocks}}
 - --historical=timestamp
-- --block-confirmations=0
-- --unfinalized-blocks
-{{/if}}
 {{#if blockConfirmations}}
 - --block-confirmations={{blockConfirmations}}
+{{else}}
+- --block-confirmations=0
+{{/if}}
+- --unfinalized-blocks
 {{/if}}
 - --store-cache-async=true

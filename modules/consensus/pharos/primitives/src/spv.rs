@@ -33,13 +33,10 @@
 //! Root check: final hash == expected root
 
 use crate::types::PharosProofNode;
-use sha2::{Digest, Sha256};
 
 /// Compute SHA-256 hash of the given data.
 pub fn sha256(data: &[u8]) -> [u8; 32] {
-	let mut hasher = Sha256::new();
-	hasher.update(data);
-	hasher.finalize().into()
+	sp_io::hashing::sha2_256(data)
 }
 
 /// Verify a Pharos hexary hash tree proof (bottom-up).

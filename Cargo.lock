@@ -17615,7 +17615,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
- "sha2 0.10.9",
+ "sp-io 41.0.1",
 ]
 
 [[package]]

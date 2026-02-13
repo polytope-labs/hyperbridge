@@ -10,14 +10,12 @@ publish = false
 pharos-primitives = { workspace = true, default-features = false }
 crypto-utils = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
-evm-state-machine = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 bls = { workspace = true }
 log = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 primitive-types = { workspace = true }
-trie-db = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
@@ -25,13 +23,11 @@ std = [
     "pharos-primitives/std",
     "crypto-utils/std",
     "geth-primitives/std",
-    "evm-state-machine/std",
     "ismp/std",
     "log/std",
     "anyhow/std",
     "bls/std",
     "primitive-types/std",
-    "trie-db/std",
 ]
 
 [dependencies.hex]

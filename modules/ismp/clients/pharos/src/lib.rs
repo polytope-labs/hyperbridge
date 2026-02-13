@@ -22,7 +22,7 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
-use evm_state_machine::EvmStateMachine;
+use pharos_state_machine::PharosStateMachine;
 use geth_primitives::Header;
 use ismp::{
 	consensus::{
@@ -207,7 +207,7 @@ impl<
 			StateMachine::Evm(chain_id)
 				if chain_id == PHAROS_MAINNET_CHAIN_ID ||
 					chain_id == PHAROS_ATLANTIC_CHAIN_ID =>
-				Ok(Box::new(<EvmStateMachine<H, T>>::default())),
+				Ok(Box::new(<PharosStateMachine<H, T>>::default())),
 			state_machine =>
 				Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),
 		}

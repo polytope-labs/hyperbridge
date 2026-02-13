@@ -72,6 +72,7 @@ members = [
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
+    "modules/ismp/state-machines/pharos",
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-fees",
 
@@ -282,6 +283,7 @@ ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features =
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
+pharos-state-machine = { path = "./modules/ismp/state-machines/pharos", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # ismp modules

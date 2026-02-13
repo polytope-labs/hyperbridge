@@ -10774,7 +10774,6 @@ name = "ismp-pharos"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "evm-state-machine",
  "geth-primitives",
  "ismp",
  "log",
@@ -10782,6 +10781,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "parity-scale-codec",
  "pharos-primitives",
+ "pharos-state-machine",
  "pharos-verifier",
  "polkadot-sdk",
  "scale-info",
@@ -15585,12 +15585,15 @@ dependencies = [
  "alloy-primitives 0.7.7",
  "alloy-sol-types 0.7.7",
  "anyhow",
+ "bls_on_arkworks",
  "ckb-merkle-mountain-range",
+ "crypto-utils",
  "dotenv",
  "env_logger 0.11.8",
  "ethereum-triedb",
  "evm-state-machine",
  "futures",
+ "geth-primitives",
  "hash-db",
  "hex",
  "hyperbridge-client-machine",
@@ -17612,6 +17615,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -17632,13 +17636,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pharos-state-machine"
+version = "0.1.0"
+dependencies = [
+ "alloy-rlp",
+ "ethabi",
+ "geth-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+]
+
+[[package]]
 name = "pharos-verifier"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bls_on_arkworks",
  "crypto-utils",
- "evm-state-machine",
  "geth-primitives",
  "hex",
  "hex-literal 0.4.1",
@@ -17647,7 +17666,6 @@ dependencies = [
  "pharos-primitives",
  "primitive-types 0.13.1",
  "thiserror 2.0.12",
- "trie-db",
 ]
 
 [[package]]

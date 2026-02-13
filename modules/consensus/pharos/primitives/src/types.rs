@@ -147,17 +147,39 @@ impl BlockProof {
 	}
 }
 
+/// Single node in a Pharos hexary hash tree proof path.
+///
+/// Each proof node contains the raw node bytes and offsets indicating where
+/// the child hash appears within this node (used for bottom-up verification).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct PharosProofNode {
+	/// Raw bytes of this proof node
+	pub proof_node: Vec<u8>,
+	/// Start offset within this node where the next (child) hash begins
+	pub next_begin_offset: u32,
+	/// End offset within this node where the next (child) hash ends
+	pub next_end_offset: u32,
+}
+
 /// State proof for validator set stored in the staking contract.
 ///
 /// This proof is required when the validator set changes at epoch boundaries.
-/// The validator set is decoded directly from the proof
+/// The validator set is decoded directly from the proof.
+///
+/// Uses Pharos hexary hash tree proofs (SHA-256) instead of Ethereum MPT (Keccak-256).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValidatorSetProof {
-	/// Merkle-Patricia trie proof nodes from the staking contract storage
-	pub storage_proof: Vec<Vec<u8>>,
-	/// The account proof for the staking contract
-	pub account_proof: Vec<Vec<u8>>,
+	/// Account proof nodes (verified against state_root from header)
+	pub account_proof: Vec<PharosProofNode>,
+	/// Storage proof nodes (verified against storage_hash)
+	pub storage_proof: Vec<PharosProofNode>,
+	/// Storage trie root (from eth_getProof response)
+	pub storage_hash: H256,
+	/// RLP-encoded account value (rawValue from eth_getProof response)
+	/// Format: RLP([nonce, balance, "", code_hash])
+	pub raw_account_value: Vec<u8>,
 }
 
 /// The trusted state maintained by the Pharos consensus client.

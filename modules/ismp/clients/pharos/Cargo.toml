@@ -17,7 +17,7 @@ pharos-verifier = { path = "../../../consensus/pharos/verifier", default-feature
 pharos-primitives = { path = "../../../consensus/pharos/primitives", default-features = false }
 sync-committee-primitives = { workspace = true }
 geth-primitives = { workspace = true }
-evm-state-machine = { workspace = true }
+pharos-state-machine = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-ismp = { workspace = true }
 
@@ -38,7 +38,7 @@ std = [
     "ismp/std",
     "sync-committee-primitives/std",
     "geth-primitives/std",
-    "evm-state-machine/std",
+    "pharos-state-machine/std",
     "pallet-ismp-host-executive/std",
     "pallet-ismp/std",
 ]

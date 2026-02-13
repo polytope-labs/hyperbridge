@@ -96,16 +96,29 @@ pub struct RpcBlock {
 	pub parent_beacon_block_root: Option<String>,
 }
 
+/// Single proof node in the Pharos hexary hash tree format.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcProofNode {
+	/// Raw node bytes as hex string
+	pub proof_node: String,
+	/// Start offset where the child hash begins
+	pub next_begin_offset: u32,
+	/// End offset where the child hash ends
+	pub next_end_offset: u32,
+}
+
 /// Account proof response from `eth_getProof`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcAccountProof {
-	pub address: String,
-	pub account_proof: Vec<String>,
+	pub account_proof: Vec<RpcProofNode>,
 	pub balance: String,
 	pub code_hash: String,
 	pub nonce: String,
 	pub storage_hash: String,
+	/// RLP-encoded account value (rawValue)
+	pub raw_value: String,
 	pub storage_proof: Vec<RpcStorageProof>,
 }
 
@@ -115,7 +128,7 @@ pub struct RpcAccountProof {
 pub struct RpcStorageProof {
 	pub key: String,
 	pub value: String,
-	pub proof: Vec<String>,
+	pub proof: Vec<RpcProofNode>,
 }
 
 /// Validator info from `debug_getValidatorInfo`.

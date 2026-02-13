@@ -22,13 +22,13 @@ pub use error::ProverError;
 
 use geth_primitives::CodecHeader;
 use pharos_primitives::{
-	BlsPublicKey, BlockProof, Config, ValidatorInfo, ValidatorSet, ValidatorSetProof,
-	VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
+	BlsPublicKey, BlockProof, Config, PharosProofNode, ValidatorInfo, ValidatorSet,
+	ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
 };
 use pharos_verifier::state_proof::StakingContractLayout;
 use primitive_types::{H160, H256, U256};
 use rpc::{
-	hex_to_bytes, hex_to_h256, hex_to_u64, PharosRpcClient, RpcBlock, RpcBlockProof,
+	hex_to_bytes, hex_to_h256, hex_to_u64, PharosRpcClient, RpcBlock, RpcBlockProof, RpcProofNode,
 	RpcValidatorInfo,
 };
 use std::{marker::PhantomData, sync::Arc};
@@ -203,27 +203,27 @@ impl<C: Config> PharosProver<C> {
 		// Fetch the complete proof with all keys
 		let full_proof = self.rpc.get_proof(address, all_keys, block_number).await?;
 
-		let account_proof_bytes: Vec<Vec<u8>> = full_proof
-			.account_proof
-			.iter()
-			.map(|p| hex_to_bytes(p))
-			.collect::<Result<Vec<_>, _>>()?;
+		// Convert account proof nodes to PharosProofNode format
+		let account_proof = rpc_to_proof_nodes(&full_proof.account_proof)?;
 
 		// Collect all storage proofs into a single proof set
-		let mut storage_proof_bytes: Vec<Vec<u8>> = Vec::new();
+		let mut storage_proof: Vec<PharosProofNode> = Vec::new();
 		for sp in &full_proof.storage_proof {
-			for proof_node in &sp.proof {
-				let bytes = hex_to_bytes(proof_node)?;
-				if !storage_proof_bytes.contains(&bytes) {
-					storage_proof_bytes.push(bytes);
+			let nodes = rpc_to_proof_nodes(&sp.proof)?;
+			for node in nodes {
+				if !storage_proof.contains(&node) {
+					storage_proof.push(node);
 				}
 			}
 		}
 
-		Ok(ValidatorSetProof {
-			storage_proof: storage_proof_bytes,
-			account_proof: account_proof_bytes,
-		})
+		// Parse storage_hash from RPC response
+		let storage_hash = hex_to_h256(&full_proof.storage_hash)?;
+
+		// Parse raw_account_value from RPC response
+		let raw_account_value = hex_to_bytes(&full_proof.raw_value)?;
+
+		Ok(ValidatorSetProof { account_proof, storage_proof, storage_hash, raw_account_value })
 	}
 
 	/// Calculate the storage key for a dynamic array element.
@@ -364,6 +364,20 @@ impl<C: Config> PharosProver<C> {
 
 		Ok(BlockProof { aggregate_signature, participant_keys: participant_keys? })
 	}
+}
+
+/// Convert RPC proof nodes to PharosProofNode format.
+fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Result<Vec<PharosProofNode>, ProverError> {
+	nodes
+		.iter()
+		.map(|n| {
+			Ok(PharosProofNode {
+				proof_node: hex_to_bytes(&n.proof_node)?,
+				next_begin_offset: n.next_begin_offset,
+				next_end_offset: n.next_end_offset,
+			})
+		})
+		.collect()
 }
 
 /// Simple keccak256 implementation using tiny_keccak.

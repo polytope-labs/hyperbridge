@@ -17,6 +17,7 @@
 extern crate alloc;
 
 pub mod constants;
+pub mod spv;
 pub mod types;
 
 pub use constants::*;

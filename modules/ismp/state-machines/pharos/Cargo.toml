@@ -1,0 +1,37 @@
+[package]
+name = "pharos-state-machine"
+version = "0.1.0"
+edition = "2021"
+description = "Pharos state machine verification using hexary hash tree (SHA-256) proofs"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+ismp = { workspace = true }
+pharos-primitives = { workspace = true }
+pallet-ismp-host-executive = { workspace = true }
+geth-primitives = { workspace = true }
+
+codec = { workspace = true, default-features = false }
+primitive-types = { workspace = true }
+ethabi = { workspace = true }
+hex-literal = { workspace = true }
+alloy-rlp = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-core"]
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "ismp/std",
+    "pharos-primitives/std",
+    "pallet-ismp-host-executive/std",
+    "geth-primitives/std",
+    "primitive-types/std",
+    "ethabi/std",
+    "alloy-rlp/std",
+    "polkadot-sdk/std",
+]

@@ -70,34 +70,7 @@ impl IsmpProvider for TronClient {
 	}
 
 	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, anyhow::Error> {
-		use ethers::types::H256;
-		use sp_core::keccak_256;
-
-		let destination = ethers::types::H160(self.evm.config.ismp_host.0);
-		let state_id = match id.state_id {
-			StateMachine::Polkadot(id) => U256::from(id),
-			StateMachine::Kusama(id) => U256::from(id),
-			StateMachine::Evm(id) => U256::from(id),
-			StateMachine::Substrate(id) => U256::from(u32::from_be_bytes(id)),
-			StateMachine::Tendermint(id) => U256::from(u32::from_be_bytes(id)),
-			_ => Err(anyhow!("Unsupported state machine: {:?}", id.state_id))?,
-		};
-
-		let key = state_id.to_big_endian();
-		let slot_7 = U256::from(7).to_big_endian();
-
-		let mut data = Vec::new();
-		data.extend_from_slice(&key);
-		data.extend_from_slice(&slot_7);
-		let final_slot = keccak_256(&data);
-
-		let value: H256 = self
-			.evm
-			.client
-			.request("eth_getStorageAt", (destination, H256(final_slot), "latest"))
-			.await?;
-
-		Ok(U256::from_big_endian(value.as_bytes()).low_u64() as u32)
+		self.evm.query_latest_height(id).await
 	}
 
 	async fn query_finalized_height(&self) -> Result<u64, anyhow::Error> {
@@ -115,68 +88,15 @@ impl IsmpProvider for TronClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, anyhow::Error> {
-		use ethers::types::H256;
-		use sp_core::keccak_256;
-
-		let destination = ethers::types::H160(self.evm.config.ismp_host.0);
-		let state_id = match height.id.state_id {
-			StateMachine::Polkadot(id) => U256::from(id),
-			StateMachine::Kusama(id) => U256::from(id),
-			_ => Err(anyhow!("Unsupported state machine: {:?}", height.id.state_id))?,
-		};
-
-		let key = state_id.to_big_endian();
-		let slot_6 = U256::from(6).to_big_endian();
-
-		let mut data = Vec::new();
-		data.extend_from_slice(&key);
-		data.extend_from_slice(&slot_6);
-		let inner_map_slot = keccak_256(&data);
-
-		let height_bytes = U256::from(height.height).to_big_endian();
-
-		let mut data = Vec::new();
-		data.extend_from_slice(&height_bytes);
-		data.extend_from_slice(&inner_map_slot);
-		let final_slot = keccak_256(&data);
-
-		let value: H256 = self
-			.evm
-			.client
-			.request("eth_getStorageAt", (destination, H256(final_slot), "latest"))
-			.await?;
-
-		Ok(Duration::from_secs(U256::from_big_endian(value.as_bytes()).low_u64()))
+		self.evm.query_state_machine_update_time(height).await
 	}
 
-	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, anyhow::Error> {
-		use ethers::types::H256;
-		let destination = ethers::types::H160(self.evm.config.ismp_host.0);
-		let slot_19 = H256::from(U256::from(19).to_big_endian());
-		let value: H256 = self
-			.evm
-			.client
-			.request("eth_getStorageAt", (destination, slot_19, "latest"))
-			.await?;
-		Ok(Duration::from_secs(U256::from_big_endian(value.as_bytes()).low_u64()))
+	async fn query_challenge_period(&self, id: StateMachineId) -> Result<Duration, anyhow::Error> {
+		self.evm.query_challenge_period(id).await
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, anyhow::Error> {
-		use ethers::{providers::Middleware, types::TransactionRequest};
-		let destination = ethers::types::H160(self.evm.config.ismp_host.0);
-		// timestamp()
-		let data = hex::decode("b80777ea")?;
-		let tx = TransactionRequest::new().to(destination).data(data);
-		let val = self
-			.evm
-			.client
-			.call(
-				&tx.into(),
-				Some(ethers::types::BlockId::Number(ethers::types::BlockNumber::Latest)),
-			)
-			.await?;
-		let value = U256::from_big_endian(&val);
-		Ok(Duration::from_secs(value.low_u64()))
+		self.evm.query_timestamp().await
 	}
 
 	async fn query_requests_proof(

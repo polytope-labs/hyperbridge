@@ -96,6 +96,7 @@ pub async fn paras_parachains<T: Config>(
 			u32::decode(&mut &key[..])
 		})
 		.collect::<Result<Vec<_>, _>>()?;
+	log::info!("Para Ids: {ids:?}");
 
 	let mut heads = vec![];
 	for id in ids {

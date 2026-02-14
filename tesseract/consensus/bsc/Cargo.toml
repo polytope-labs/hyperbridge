@@ -25,7 +25,7 @@ tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
 primitive-types = { workspace = true, features = ["impl-codec"] }
-alloy = { workspace = true, features = ["providers"] }
+alloy = { workspace = true, features = ["providers", "reqwest-default-tls"] }
 sp-core = { workspace = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 

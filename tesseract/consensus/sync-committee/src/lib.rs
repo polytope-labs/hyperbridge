@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::providers::{Provider, RootProvider};
 use arb_host::{ArbConfig, ArbHost};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
@@ -155,7 +155,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 	) -> Result<Self, anyhow::Error> {
 		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
 		let rpc_url = evm.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URLs provided"))?;
-		let el = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+		let el = RootProvider::new_http(rpc_url.parse()?);
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 

@@ -19,7 +19,7 @@ serde_json = "1.0.105"
 hex-literal = { version = "0.4.1" }
 sp-core = { workspace = true, features = ["full_crypto"] }
 log = "0.4.19"
-alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-default-tls"] }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 alloy-sol-macro = { workspace = true }

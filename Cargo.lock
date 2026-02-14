@@ -27453,6 +27453,7 @@ dependencies = [
 name = "tesseract-integration-tests"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "alloy-sol-types 1.5.2",
  "anyhow",
  "arb-host",

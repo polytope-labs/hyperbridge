@@ -29,7 +29,7 @@ sync-committee-primitives = { workspace = true }
 ismp-sync-committee = { workspace = true }
 arbitrum-verifier = { workspace = true }
 op-verifier = { workspace = true }
-alloy = { workspace = true }
+alloy = { workspace = true, features = ["reqwest-default-tls"] }
 geth-primitives = { workspace = true }
 
 tesseract-primitives = { workspace = true }

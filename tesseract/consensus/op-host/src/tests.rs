@@ -27,11 +27,14 @@ async fn test_payload_proof_verification() {
 		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
 	};
+	let signing_key =
+		std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
 	let config = OpConfig {
 		host: host.clone(),
 		evm_config: EvmConfig {
 			rpc_urls: vec![op_orl],
 			consensus_state_id: "ETH0".to_string(),
+			signer: signing_key,
 			..Default::default()
 		},
 	};
@@ -83,11 +86,14 @@ async fn test_dispute_game_proof_verification() {
 		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
 	};
+	let signing_key =
+		std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
 	let config = OpConfig {
 		host: host.clone(),
 		evm_config: EvmConfig {
 			rpc_urls: vec![op_orl],
 			consensus_state_id: "ETH0".to_string(),
+			signer: signing_key,
 			..Default::default()
 		},
 	};

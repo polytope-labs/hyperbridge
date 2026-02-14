@@ -253,8 +253,8 @@ pub async fn query_mmr_leaf<T: Config>(
 			.ok_or_else(|| anyhow!("Failed to parachain heads calculate root!"))?;
 		H256(root)
 	};
-	
-	
+
+
 	let leaf = MmrLeaf {
 		version: MmrLeafVersion::new(0, 0),
 		parent_number_and_hash: (header.number - 1, header.parent_hash),
@@ -363,7 +363,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 		query_mmr_leaf(rpc, block_hash).await?
 	};
 
-	println!("Parachain headers root, {:?}", leaf.leaf_extra);
+	println!("Mmr leaf, {:?}\n Relay Block number {block_number:?}", leaf);
 	Ok((
 		LeafProof {
 			items: proof,

@@ -35,9 +35,7 @@ use subxt::{
 	Config,
 };
 
-use crate::{
-	util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID,
-};
+use crate::{util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID};
 
 /// Storage key for mmr.numberOfLeaves
 pub const MMR_NUMBER_OF_LEAVES: [u8; 32] =
@@ -93,7 +91,8 @@ pub async fn paras_parachains<T: Config>(
 	let ids = keys
 		.into_iter()
 		.map(|key| {
-			u32::decode(&mut &key[..])
+			let len = key.len();
+			u32::decode(&mut &key[len - 4..])
 		})
 		.collect::<Result<Vec<_>, _>>()?;
 	log::info!("Para Ids: {ids:?}");
@@ -168,8 +167,8 @@ pub async fn fetch_next_beefy_justification<T: Config>(
 			})
 		});
 
-		if (current_set_id..=(current_set_id + 1)).contains(&set_id) &&
-			beefy_justification.is_some()
+		if (current_set_id..=(current_set_id + 1)).contains(&set_id)
+			&& beefy_justification.is_some()
 		{
 			let VersionedFinalityProof::V1(signed_commitment) =
 				VersionedFinalityProof::<u32, sp_consensus_beefy::ecdsa_crypto::Signature>::decode(

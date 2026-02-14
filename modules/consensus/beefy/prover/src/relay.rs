@@ -95,7 +95,7 @@ pub async fn paras_parachains<T: Config>(
 			u32::decode(&mut &key[len - 4..])
 		})
 		.collect::<Result<Vec<_>, _>>()?;
-	log::info!("Para Ids: {ids:?}");
+	log::info!("Para Len: {:?}", ids.len());
 
 	let mut heads = vec![];
 	for id in ids {
@@ -253,6 +253,8 @@ pub async fn query_mmr_leaf<T: Config>(
 			.ok_or_else(|| anyhow!("Failed to parachain heads calculate root!"))?;
 		H256(root)
 	};
+	
+	
 	let leaf = MmrLeaf {
 		version: MmrLeafVersion::new(0, 0),
 		parent_number_and_hash: (header.number - 1, header.parent_hash),
@@ -361,6 +363,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 		query_mmr_leaf(rpc, block_hash).await?
 	};
 
+	println!("Parachain headers root, {:?}", leaf.leaf_extra);
 	Ok((
 		LeafProof {
 			items: proof,

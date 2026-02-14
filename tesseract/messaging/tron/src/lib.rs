@@ -294,3 +294,89 @@ impl Clone for TronClient {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use bs58;
+	use ismp::{
+		consensus::{StateMachineHeight, StateMachineId},
+		host::StateMachine,
+	};
+	use sp_core::H160;
+	use tesseract_evm::{transport::RpcTransport, EvmConfig};
+	use tesseract_primitives::IsmpProvider;
+
+	#[tokio::test]
+	async fn test_tron_queries() {
+		// TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc
+		let decoded = bs58::decode("TNduR7v184pMWv2oTamRxxzsmz7oHrKqJc").into_vec().unwrap();
+		// Remove checksum (last 4 bytes) and prefix (first 1 byte)
+		let hex_addr = &decoded[1..decoded.len() - 4];
+		let ismp_host = H160::from_slice(hex_addr);
+
+		let config = TronConfig {
+			evm: EvmConfig {
+				rpc_urls: vec!["https://nile.trongrid.io/jsonrpc".to_string()],
+				state_machine: StateMachine::Evm(3448148188),
+				ismp_host,
+				signer: "65d95d3cb8538740f9302c34d8527a20c3260717282b9921b72e90c253457018"
+					.to_string(),
+				consensus_state_id: "TRX0".to_string(),
+				transport: RpcTransport::Tron,
+				..Default::default()
+			},
+			tron_api_url: "https://nile.trongrid.io".to_string(),
+			tron_api_key: None,
+			fee_limit: 1000000,
+			tron_api_timeout_secs: 10,
+			catfee_api_key: None,
+			catfee_api_secret: None,
+		};
+
+		let client = TronClient::new(config).await.expect("Failed to create client");
+
+		// 1. Query Timestamp
+		let timestamp = client.query_timestamp().await.expect("Failed to query timestamp");
+		println!("Timestamp: {:?}", timestamp);
+		assert!(timestamp.as_secs() > 0);
+
+		// 2. Query Challenge Period
+		let challenge_period = client
+			.query_challenge_period(StateMachineId {
+				state_id: StateMachine::Kusama(4009),
+				consensus_state_id: *b"PAS0",
+			})
+			.await
+			.expect("Failed to query challenge period");
+		println!("Challenge Period: {:?}", challenge_period);
+
+		// 4. Query Latest Height
+		let latest_height = client
+			.query_latest_height(StateMachineId {
+				state_id: StateMachine::Kusama(4009),
+				consensus_state_id: *b"PAS0",
+			})
+			.await
+			.expect("Failed to query latest height");
+		println!("Latest Height: {:?}", latest_height);
+
+		// 3. Query State Machine Update Time
+		let height = StateMachineHeight {
+			id: StateMachineId {
+				state_id: StateMachine::Kusama(4009),
+				consensus_state_id: *b"PAS0",
+			},
+			height: latest_height.into(),
+		};
+		let update_time = client
+			.query_state_machine_update_time(height)
+			.await
+			.expect("Failed to query update time");
+		println!("Update Time: {:?}", update_time);
+
+		// 5. Query Fee Token Decimals
+		let decimals = client.fee_token_decimals().await.expect("Failed to query decimals");
+		println!("Fee Token Decimals: {:?}", decimals);
+	}
+}

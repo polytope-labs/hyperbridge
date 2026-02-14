@@ -35,10 +35,7 @@ use subxt::{
 	Config,
 };
 
-use crate::{
-	util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID,
-	PARAS_PARACHAINS,
-};
+use crate::{util::MerkleHasher, BEEFY_MMR_LEAF_BEEFY_NEXT_AUTHORITIES, BEEFY_VALIDATOR_SET_ID};
 
 /// Storage key for mmr.numberOfLeaves
 pub const MMR_NUMBER_OF_LEAVES: [u8; 32] =
@@ -85,12 +82,20 @@ pub async fn paras_parachains<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	at: Option<HashFor<T>>,
 ) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
-	let ids = rpc
-		.state_get_storage(PARAS_PARACHAINS.as_slice(), at)
-		.await?
-		.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
-		.transpose()?
-		.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+	let prefix = frame_support::storage::storage_prefix(b"Paras", b"Heads").to_vec();
+	let keys = rpc
+		.state_get_keys_paged(prefix.as_slice(), 1000, None, at)
+		.await
+		.map_err(|e| anyhow!("Failed to fetch paras heads keys: {:?}", e))?;
+
+	let ids = keys
+		.into_iter()
+		.map(|key| {
+			let len = key.len();
+			u32::decode(&mut &key[len - 4..])
+		})
+		.collect::<Result<Vec<_>, _>>()?;
+	log::info!("Para Len: {:?}", ids.len());
 
 	let mut heads = vec![];
 	for id in ids {
@@ -162,8 +167,8 @@ pub async fn fetch_next_beefy_justification<T: Config>(
 			})
 		});
 
-		if (current_set_id..=(current_set_id + 1)).contains(&set_id) &&
-			beefy_justification.is_some()
+		if (current_set_id..=(current_set_id + 1)).contains(&set_id)
+			&& beefy_justification.is_some()
 		{
 			let VersionedFinalityProof::V1(signed_commitment) =
 				VersionedFinalityProof::<u32, sp_consensus_beefy::ecdsa_crypto::Signature>::decode(
@@ -248,6 +253,8 @@ pub async fn query_mmr_leaf<T: Config>(
 			.ok_or_else(|| anyhow!("Failed to parachain heads calculate root!"))?;
 		H256(root)
 	};
+
+
 	let leaf = MmrLeaf {
 		version: MmrLeafVersion::new(0, 0),
 		parent_number_and_hash: (header.number - 1, header.parent_hash),
@@ -356,6 +363,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 		query_mmr_leaf(rpc, block_hash).await?
 	};
 
+	println!("Mmr leaf, {:?}\n Relay Block number {block_number:?}", leaf);
 	Ok((
 		LeafProof {
 			items: proof,

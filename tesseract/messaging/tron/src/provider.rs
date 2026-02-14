@@ -274,6 +274,34 @@ impl IsmpProvider for TronClient {
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
-		self.evm.fee_token_decimals().await
+		use ethers::{
+			providers::Middleware,
+			types::{TransactionRequest, H256},
+		};
+		let destination = ethers::types::H160(self.evm.config.ismp_host.0);
+		let slot_13 = H256::from(U256::from(13).to_big_endian());
+		let value: H256 = self
+			.evm
+			.client
+			.request("eth_getStorageAt", (destination, slot_13, "latest"))
+			.await?;
+		let fee_token_address = ethers::types::H160::from_slice(&value.as_bytes()[12..]);
+
+		if fee_token_address == ethers::core::types::H160::zero() {
+			return Ok(6)
+		}
+		// decimals()
+		let data = hex::decode("313ce567")?;
+		let tx = TransactionRequest::new().to(fee_token_address).data(data);
+		let val = self
+			.evm
+			.client
+			.call(
+				&tx.into(),
+				Some(ethers::types::BlockId::Number(ethers::types::BlockNumber::Latest)),
+			)
+			.await?;
+		let value = U256::from_big_endian(&val);
+		Ok(value.low_u64() as u8)
 	}
 }

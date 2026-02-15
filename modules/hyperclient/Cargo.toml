@@ -17,7 +17,9 @@ anyhow = { workspace = true }
 codec = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 primitive-types = { workspace = true, features = ["serde"] }
-ethers = { workspace = true }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract"] }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
 ismp = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true, features = ["disable-panic-handler"] }
 evm-state-machine = { workspace = true }
@@ -83,7 +85,7 @@ json = { package = "serde_json", version = "1.0.114", default-features = false }
 wasm-bindgen-test = "0.3.24"
 
 [target.'cfg(not(target_family="wasm"))'.dev-dependencies]
-ethers = { workspace = true, features = ["ws"], default-features = true }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network"] }
 pallet-ismp = { workspace = true, default-features = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

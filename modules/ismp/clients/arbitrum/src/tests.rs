@@ -14,8 +14,15 @@
 // limitations under the License.
 #![cfg(test)]
 
+use alloy::{
+	eips::BlockId,
+	primitives::{Address, B256},
+	providers::{Provider, ProviderBuilder},
+	rpc::types::Filter,
+	sol,
+	sol_types::SolEvent,
+};
 use anyhow::anyhow;
-use ethers::prelude::*;
 use hex_literal::hex;
 
 use crate::{verify_arbitrum_bold, ArbitrumBoldProof, ASSERTIONS_SLOT};
@@ -23,114 +30,55 @@ use evm_state_machine::derive_unhashed_map_key;
 use ismp_testsuite::mocks::{Host, Keccak256Hasher};
 use primitive_types::{H160, H256};
 
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct AssertionInputs {
-	pub before_state_data: BeforeStateData,
-	pub before_state: AssertionState,
-	pub after_state: AssertionState,
-}
+sol! {
+	#[derive(Debug, Default, PartialEq, Eq)]
+	struct GlobalState {
+		bytes32[2] bytes32Vals;
+		uint64[2] u64Vals;
+	}
 
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct AssertionState {
-	pub global_state: GlobalState,
-	pub machine_status: u8,
-	pub end_history_root: [u8; 32],
-}
+	#[derive(Debug, Default, PartialEq, Eq)]
+	struct AssertionState {
+		GlobalState globalState;
+		uint8 machineStatus;
+		bytes32 endHistoryRoot;
+	}
 
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct GlobalState {
-	pub bytes_32_vals: [[u8; 32]; 2],
-	pub u_64_vals: [u64; 2],
-}
+	#[derive(Debug, Default, PartialEq, Eq)]
+	struct ConfigData {
+		bytes32 wasmModuleRoot;
+		uint256 requiredStake;
+		address challengeManager;
+		uint64 confirmPeriodBlocks;
+		uint64 nextInboxPosition;
+	}
 
-///`BeforeStateData(bytes32,bytes32,(bytes32,uint256,address,uint64,uint64))`
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct BeforeStateData {
-	pub prev_prev_assertion_hash: [u8; 32],
-	pub sequencer_batch_acc: [u8; 32],
-	pub config_data: ConfigData,
-}
-///`ConfigData(bytes32,uint256,address,uint64,uint64)`
-#[derive(
-	Clone,
-	::ethers::contract::EthAbiType,
-	::ethers::contract::EthAbiCodec,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-pub struct ConfigData {
-	pub wasm_module_root: [u8; 32],
-	pub required_stake: ::ethers::core::types::U256,
-	pub challenge_manager: ::ethers::core::types::Address,
-	pub confirm_period_blocks: u64,
-	pub next_inbox_position: u64,
-}
+	#[derive(Debug, Default, PartialEq, Eq)]
+	struct BeforeStateData {
+		bytes32 prevPrevAssertionHash;
+		bytes32 sequencerBatchAcc;
+		ConfigData configData;
+	}
 
-#[derive(
-	Clone,
-	::ethers::contract::EthEvent,
-	::ethers::contract::EthDisplay,
-	Default,
-	Debug,
-	PartialEq,
-	Eq,
-	Hash,
-)]
-#[ethevent(
-	name = "AssertionCreated",
-	abi = "AssertionCreated(bytes32,bytes32,((bytes32,bytes32,(bytes32,uint256,address,uint64,uint64)),((bytes32[2],uint64[2]),uint8,bytes32),((bytes32[2],uint64[2]),uint8,bytes32)),bytes32,uint256,bytes32,uint256,address,uint64)"
-)]
-pub struct AssertionCreatedFilter {
-	#[ethevent(indexed)]
-	pub assertion_hash: [u8; 32],
-	#[ethevent(indexed)]
-	pub parent_assertion_hash: [u8; 32],
-	pub assertion: AssertionInputs,
-	pub after_inbox_batch_acc: [u8; 32],
-	pub inbox_max_count: ::ethers::core::types::U256,
-	pub wasm_module_root: [u8; 32],
-	pub required_stake: ::ethers::core::types::U256,
-	pub challenge_manager: ::ethers::core::types::Address,
-	pub confirm_period_blocks: u64,
+	#[derive(Debug, Default, PartialEq, Eq)]
+	struct AssertionInputs {
+		BeforeStateData beforeStateData;
+		AssertionState beforeState;
+		AssertionState afterState;
+	}
+
+	#[derive(Debug, Default, PartialEq, Eq)]
+	event AssertionCreated(
+		bytes32 indexed assertionHash,
+		bytes32 indexed parentAssertionHash,
+		AssertionInputs assertion,
+		bytes32 afterInboxBatchAcc,
+		uint256 inboxMaxCount,
+		bytes32 wasmModuleRoot,
+		uint256 requiredStake,
+		address challengeManager,
+		uint64 confirmPeriodBlocks
+	);
 }
 
 #[tokio::test]
@@ -141,22 +89,22 @@ async fn verify_bold_assertion() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
 	let rpc_url = std::env::var("SEPOLIA_URL").unwrap();
 	let arb_url = std::env::var("ARB_URL").unwrap();
-	let provider = Provider::try_from(rpc_url).unwrap();
-	let arb_provider = Provider::try_from(arb_url).unwrap();
+
+	let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
+	let arb_provider = ProviderBuilder::new().connect_http(arb_url.parse()?);
 
 	let rollup = H160::from_slice(hex!("042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4").as_slice());
-	let filter = Filter {
-		block_option: FilterBlockOption::Range {
-			from_block: Some(sepolia_block_number.into()),
-			to_block: Some(sepolia_block_number.into()),
-		},
-		address: Some(ValueOrArray::Value(rollup.0.into())),
-		topics: [None, None, None, None],
-	};
+	let rollup_address = Address::from_slice(&rollup.0);
+
+	let filter = Filter::new()
+		.address(rollup_address)
+		.from_block(sepolia_block_number)
+		.to_block(sepolia_block_number);
+
 	let logs = provider.get_logs(&filter).await?;
 	let mut assertion = None;
 	for log in logs {
-		if let Ok(new_assertion) = parse_log::<AssertionCreatedFilter>(log) {
+		if let Ok(new_assertion) = AssertionCreated::decode_log(&log.inner) {
 			assertion = Some(new_assertion);
 			break;
 		}
@@ -167,54 +115,53 @@ async fn verify_bold_assertion() -> anyhow::Result<()> {
 	}
 	let assertion = assertion.unwrap();
 
-	dbg!(H256::from(assertion.assertion_hash));
+	dbg!(H256::from(assertion.assertionHash.0));
 
-	let key = derive_unhashed_map_key::<Host>(assertion.assertion_hash.to_vec(), ASSERTIONS_SLOT);
+	let key = derive_unhashed_map_key::<Host>(assertion.assertionHash.0.to_vec(), ASSERTIONS_SLOT);
 	let assertion_created_proof = provider
-		.get_proof(
-			ethers::core::types::H160::from(rollup.0),
-			vec![key.0.into()],
-			Some(sepolia_block_number.into()),
-		)
-		.await
-		.unwrap();
+		.get_proof(rollup_address, vec![B256::from(key.0)])
+		.block_id(BlockId::number(sepolia_block_number))
+		.await?;
 
-	let arb_header = arb_provider
-		.get_block(ethers::core::types::H256::from(
-			assertion.assertion.after_state.global_state.bytes_32_vals[0],
-		))
+	let arb_block = arb_provider
+		.get_block(BlockId::hash(B256::from(
+			assertion.assertion.afterState.globalState.bytes32Vals[0].0,
+		)))
 		.await?
-		.unwrap();
+		.ok_or_else(|| anyhow!("Block not found"))?;
 
-	let arbitrum_header = arb_header.into();
+	let arbitrum_header = arb_block.into();
 
-	let sepolia_header = provider.get_block(sepolia_block_number).await?.unwrap();
+	let sepolia_header = provider
+		.get_block(BlockId::number(sepolia_block_number))
+		.await?
+		.ok_or_else(|| anyhow!("Sepolia block not found"))?;
 
 	let global_state = crate::GlobalState {
-		block_hash: assertion.assertion.after_state.global_state.bytes_32_vals[0].into(),
-		send_root: assertion.assertion.after_state.global_state.bytes_32_vals[1].into(),
-		inbox_position: assertion.assertion.after_state.global_state.u_64_vals[0],
-		position_in_message: assertion.assertion.after_state.global_state.u_64_vals[1],
+		block_hash: assertion.assertion.afterState.globalState.bytes32Vals[0].0.into(),
+		send_root: assertion.assertion.afterState.globalState.bytes32Vals[1].0.into(),
+		inbox_position: assertion.assertion.afterState.globalState.u64Vals[0],
+		position_in_message: assertion.assertion.afterState.globalState.u64Vals[1],
 	};
 
 	let machine_status = assertion
 		.assertion
-		.after_state
-		.machine_status
+		.afterState
+		.machineStatus
 		.try_into()
 		.map_err(|_| anyhow!("Failed conversion"))?;
 
 	let after_state = crate::AssertionState {
 		global_state,
 		machine_status,
-		end_history_root: assertion.assertion.after_state.end_history_root.into(),
+		end_history_root: assertion.assertion.afterState.endHistoryRoot.0.into(),
 	};
 
 	let arbitrum_bold_proof = ArbitrumBoldProof {
 		arbitrum_header,
 		after_state,
-		previous_assertion_hash: assertion.parent_assertion_hash.into(),
-		sequencer_batch_acc: assertion.after_inbox_batch_acc.into(),
+		previous_assertion_hash: assertion.parentAssertionHash.0.into(),
+		sequencer_batch_acc: assertion.afterInboxBatchAcc.0.into(),
 		storage_proof: assertion_created_proof
 			.storage_proof
 			.get(0)
@@ -233,7 +180,7 @@ async fn verify_bold_assertion() -> anyhow::Result<()> {
 
 	let state_commitment = verify_arbitrum_bold::<Keccak256Hasher>(
 		arbitrum_bold_proof,
-		sepolia_header.state_root.0.into(),
+		sepolia_header.header.state_root.0.into(),
 		rollup,
 		*b"ETH0",
 	)?;

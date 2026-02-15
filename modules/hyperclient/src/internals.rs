@@ -32,8 +32,8 @@ use crate::{
 	Keccak256,
 };
 use anyhow::anyhow;
-use ethers::prelude::H160;
 use futures::{stream, StreamExt};
+use primitive_types::H160;
 use ismp::{
 	consensus::StateMachineHeight,
 	messaging::{hash_request, Message, Proof, RequestMessage, ResponseMessage},

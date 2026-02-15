@@ -18,7 +18,7 @@
 use crate::{config::HyperbridgeConfig, fees, fees::Subcommand, logging};
 use anyhow::{anyhow, Context};
 use clap::Parser;
-use ethers::prelude::H160;
+use primitive_types::H160;
 use futures::FutureExt;
 use ismp::host::StateMachine;
 use polkadot_sdk::sc_service::TaskManager;

@@ -6,18 +6,18 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "Generated rust types for the ISMP solidity ABI"
 publish = false
 
-
-[build-dependencies]
-anyhow.workspace = true
-ethers-contract-abigen = { workspace = true }
-ethers-solc = { workspace = true }
-
 [dependencies]
 primitive-types = { workspace = true }
 anyhow = { workspace = true, default-features = true }
-
-ethers = { workspace = true }
 ismp = { workspace = true }
+
+alloy-sol-types = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-contract = { workspace = true }
+alloy-provider = { workspace = true }
+alloy-network = { workspace = true }
+alloy-transport = { workspace = true }
 
 mmr-primitives = { workspace = true, default-features = true, optional = true }
 merkle-mountain-range = { workspace = true, default-features = true, optional = true }
@@ -30,8 +30,13 @@ features = ["sp-consensus-beefy"]
 
 [features]
 default = ["beefy", "std"]
-std = ["primitive-types/std", "anyhow/std", "ethers/default", "ismp/std"]
-build-abi = []
+std = [
+    "primitive-types/std",
+    "anyhow/std",
+    "ismp/std",
+    "alloy-sol-types/std",
+    "alloy-primitives/std",
+]
 beefy = [
     "merkle-mountain-range",
     "polkadot-sdk",

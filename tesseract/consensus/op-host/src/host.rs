@@ -2,14 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Error};
 
-use ethers::{
-	core::k256::ecdsa::SigningKey,
-	middleware::SignerMiddleware,
-	providers::{Middleware, Provider},
-	signers::Wallet,
+use alloy::{
+	eips::BlockId,
+	hex,
+	primitives::Address,
+	providers::Provider,
 };
 use futures::{stream, StreamExt};
-use geth_primitives::{new_u256, old_u256, CodecHeader, Header};
+use geth_primitives::{alloy_u256_to_primitive, primitive_u256_to_alloy, CodecHeader, Header};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	events::Event,
@@ -29,13 +29,12 @@ use sync_committee_prover::{
 };
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd,
-	transport::OmniClient,
-	tx::{get_chain_gas_limit, wait_for_success},
+	AlloySignerProvider,
 };
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
 
 use crate::{
-	abi::{dispute_game_factory::DisputeGameFactory, fault_dispute_game::FaultDisputeGame},
+	abi::{DisputeGameFactory, FaultDisputeGame},
 	OpHost, ProposerConfig,
 };
 use codec::Decode;
@@ -82,8 +81,7 @@ impl IsmpHost for OpHost {
 			// Watch for requests on the opstack chain
 			// propose commitment after a confirmation delay
 			tokio::task::spawn(async move {
-				let initial_height =
-					proposer_client.op_execution_client.get_block_number().await?.low_u64();
+				let initial_height = proposer_client.op_execution_client.get_block_number().await?;
 
 				let (tx, mut stream) = {
 					let (tx, recv) = tokio::sync::broadcast::channel(512);
@@ -165,7 +163,7 @@ impl IsmpHost for OpHost {
 		let mut state_machine_commitments = vec![];
 
 		let number = self.op_execution_client.get_block_number().await?;
-		let block = self.op_execution_client.get_block(number).await?.ok_or_else(|| {
+		let block = self.op_execution_client.get_block(number.into()).await?.ok_or_else(|| {
 			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
 		})?;
 		let state_machine_id = StateMachineId {
@@ -173,7 +171,7 @@ impl IsmpHost for OpHost {
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 		let initial_consensus_state = ConsensusState {
-			finalized_height: number.as_u64(),
+			finalized_height: number,
 			state_machine_id,
 			l1_state_machine_id: StateMachineId {
 				state_id: self.l1_state_machine,
@@ -187,11 +185,11 @@ impl IsmpHost for OpHost {
 			state_machine_id,
 			StateCommitmentHeight {
 				commitment: StateCommitment {
-					timestamp: block.timestamp.as_u64(),
+					timestamp: block.header.timestamp,
 					overlay_root: None,
-					state_root: block.state_root.0.into(),
+					state_root: block.header.state_root.0.into(),
 				},
-				height: number.as_u64(),
+				height: number,
 			},
 		));
 		Ok(Some(CreateConsensusState {
@@ -218,7 +216,7 @@ async fn construct_state_proposal(
 	dispute_game_factory_address: H160,
 	proposer_config: &ProposerConfig,
 ) -> Result<Option<StateProposal>, anyhow::Error> {
-	let block_number = client.op_execution_client.get_block_number().await?.as_u64();
+	let block_number = client.op_execution_client.get_block_number().await?;
 	if block_number <= *latest_height {
 		return Ok::<_, anyhow::Error>(None);
 	}
@@ -238,7 +236,7 @@ async fn construct_state_proposal(
 		// Wait for end of current l1 epoch
 		let l2_header = client
 			.op_execution_client
-			.get_block(*latest_height)
+			.get_block(BlockId::number(*latest_height))
 			.await?
 			.ok_or_else(|| anyhow!(" Block should exist"))?;
 		let l2_header: CodecHeader = l2_header.into();
@@ -256,7 +254,7 @@ async fn construct_state_proposal(
 
 		struct LatestGameData {
 			l2_block_number: u64,
-			game: FaultDisputeGame<Provider<OmniClient>>,
+			proxy: Address,
 		}
 
 		let proposal = loop {
@@ -269,20 +267,18 @@ async fn construct_state_proposal(
 				// refetch the l2 header incase there has been a reorg
 				let l2_header = client
 					.op_execution_client
-					.get_block(*latest_height)
+					.get_block(BlockId::number(*latest_height))
 					.await?
 					.ok_or_else(|| anyhow!(" Block should exist"))?;
 				let l2_header = l2_header.into();
 				let l2_block_hash = Header::from(&l2_header).hash::<Hasher>();
 				let commitment_block_number = *latest_height;
 
+				let message_parser_addr = Address::from_slice(&client.message_parser.0);
 				let message_parser_proof = client
 					.op_execution_client
-					.get_proof(
-						ethers::types::H160(client.message_parser.0),
-						vec![],
-						Some(commitment_block_number.into()),
-					)
+					.get_proof(message_parser_addr, vec![])
+					.block_id(commitment_block_number.into())
 					.await?;
 
 				let root_claim = calculate_output_root::<Hasher>(
@@ -299,53 +295,51 @@ async fn construct_state_proposal(
 				let respected_game_type = CANNON;
 
 				// Check that our commitment block is greater than the latest game
-				let contract = DisputeGameFactory::new(
-					dispute_game_factory_address.0,
-					client.beacon_execution_client.clone(),
-				);
+				let factory_addr = Address::from_slice(&dispute_game_factory_address.0);
+				let contract = DisputeGameFactory::new(factory_addr, &*client.beacon_execution_client);
+
 				// Find the latest valid root claim with the respected game type,
 				// We only yield a new state proposal if
 				// 1. The most recent 3 games are invalid
 				// 2. The latest valid game is for a block less than our commitment block number
 				// 3. The op-proposer interval for proposing is not yet in its last quarter
-				let latest_game_index = contract.game_count().call().await? - old_u256(U256::one());
+				let latest_game_count = contract.gameCount().call().await?;
+				let latest_game_index = alloy_u256_to_primitive(latest_game_count) - U256::one();
 				let mut proposal = None;
 				let mut latest_valid_game = None;
 				// We would inspect the first five most recent games
 				let range =
-					(latest_game_index.low_u64().saturating_sub(2))..=latest_game_index.low_u64();
+					(latest_game_index.as_u64().saturating_sub(2))..=latest_game_index.as_u64();
 				for game_index in range.rev() {
-					let (_, _, dispute_proxy) =
-						contract.game_at_index(game_index.into()).call().await?;
+					let game_data = contract.gameAtIndex(primitive_u256_to_alloy(U256::from(game_index))).call().await?;
+					let dispute_proxy = game_data.proxy_;
 
 					let game = FaultDisputeGame::new(
 						dispute_proxy,
-						client.beacon_execution_client.clone(),
+						&*client.beacon_execution_client,
 					);
 
-					let latest_game_type = game.game_type().await?;
+					let latest_game_type = game.gameType().call().await?;
 					// If this game is not the respected game type we continue our search
 					if latest_game_type != respected_game_type {
 						continue;
 					}
 
-					let latest_claim = game.root_claim().call().await?;
+					let latest_claim = game.rootClaim().call().await?;
 					let latest_claim_l2_block_number =
-						game.l_2_block_number().call().await?.low_u64();
+						alloy_u256_to_primitive(game.l2BlockNumber().call().await?).as_u64();
 
 					let latest_claim_header = client
 						.op_execution_client
-						.get_block(latest_claim_l2_block_number)
+						.get_block(BlockId::number(latest_claim_l2_block_number))
 						.await?
 						.ok_or_else(|| anyhow!(" Block should exist"))?;
 					let latest_claim_header = latest_claim_header.into();
+					let message_parser_addr = Address::from_slice(&client.message_parser.0);
 					let latest_claim_message_parser_proof = client
 						.op_execution_client
-						.get_proof(
-							ethers::types::H160(client.message_parser.0),
-							vec![],
-							Some(latest_claim_l2_block_number.into()),
-						)
+						.get_proof(message_parser_addr, vec![])
+						.block_id(latest_claim_l2_block_number.into())
 						.await?;
 					let latest_claim_header_block_hash =
 						Header::from(&latest_claim_header).hash::<Hasher>();
@@ -358,12 +352,12 @@ async fn construct_state_proposal(
 					);
 
 					// If the claim in the game is incorrect we continue
-					if calculated_latest_root_claim.0 != latest_claim {
+					if calculated_latest_root_claim.0 != latest_claim.0 {
 						continue;
 					}
 
 					latest_valid_game = Some(LatestGameData {
-						game,
+						proxy: dispute_proxy,
 						l2_block_number: latest_claim_l2_block_number,
 					});
 
@@ -378,30 +372,32 @@ async fn construct_state_proposal(
 						break proposal;
 					}
 
-					let (proxy_addr, _) = contract
-						.games(respected_game_type, root_claim.0, extra_data.clone().into())
+					let game_lookup = contract
+						.games(respected_game_type, root_claim.0.into(), extra_data.clone().into())
 						.call()
 						.await?;
+					let proxy_addr = game_lookup.proxy_;
 
 					// If game exists exit
-					if proxy_addr.0 != H160::zero().0 {
+					if proxy_addr.0 .0 != H160::zero().0 {
 						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
 						break proposal;
 					}
 
 					// When was the last claim submitted
-					let creation_time = latest_valid_game.game.created_at().call().await?;
+					let game = FaultDisputeGame::new(latest_valid_game.proxy, &*client.beacon_execution_client);
+					let creation_time = game.createdAt().call().await?;
 					let current_block_num =
 						client.beacon_execution_client.get_block_number().await?;
 					let current_block_header = client
 						.beacon_execution_client
-						.get_block(current_block_num.as_u64())
+						.get_block(BlockId::number(current_block_num))
 						.await?
 						.ok_or_else(|| anyhow!("Failed to fetch latest L1 header"))?;
 					let diff =
-						current_block_header.timestamp.low_u64().saturating_sub(creation_time);
+						current_block_header.header.timestamp.saturating_sub(creation_time as u64);
 
-					let creator = latest_valid_game.game.game_creator().call().await?;
+					let creator = game.gameCreator().call().await?;
 					let op_proposer = from_hex(&proposer_config.op_proposer)?;
 
 					// If the time since the last proposal is greater than 3/4 of the proposal
@@ -415,26 +411,26 @@ async fn construct_state_proposal(
 						break proposal;
 					}
 
-					let bond = contract.init_bonds(respected_game_type).call().await?;
+					let bond = contract.initBonds(respected_game_type).call().await?;
 
 					proposal = Some(StateProposal {
 						root_claim,
 						game_type: respected_game_type,
 						block_number: commitment_block_number,
 						extra_data: extra_data.clone(),
-						bond: new_u256(bond),
+						bond: alloy_u256_to_primitive(bond),
 					});
 
 					break proposal;
 				} else {
 					log::trace!(target: "tesseract","Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
-					let bond = contract.init_bonds(respected_game_type).call().await?;
+					let bond = contract.initBonds(respected_game_type).call().await?;
 					proposal = Some(StateProposal {
 						root_claim,
 						game_type: respected_game_type,
 						block_number: commitment_block_number,
 						extra_data: extra_data.clone(),
-						bond: new_u256(bond),
+						bond: alloy_u256_to_primitive(bond),
 					});
 
 					break proposal;
@@ -451,7 +447,7 @@ async fn construct_state_proposal(
 async fn submit_state_proposal(
 	client: &OpHost,
 	dispute_game_factory_address: H160,
-	proposer: Arc<SignerMiddleware<Provider<OmniClient>, Wallet<SigningKey>>>,
+	proposer: Arc<AlloySignerProvider>,
 	proposal: StateProposal,
 ) -> Result<(), anyhow::Error> {
 	log::trace!(target: "tesseract",
@@ -459,39 +455,31 @@ async fn submit_state_proposal(
 		client.provider.state_machine_id().state_id,
 		proposal.block_number
 	);
-	let contract = DisputeGameFactory::new(dispute_game_factory_address.0, proposer.clone());
-
-	let call =
-		contract.create(proposal.game_type, proposal.root_claim.0, proposal.extra_data.into());
-	let call = call.value(old_u256(proposal.bond));
-
-	let gas_limit = call
-		.estimate_gas()
-		.await
-		.unwrap_or(get_chain_gas_limit(client.l1_state_machine).into());
+	let factory_addr = Address::from_slice(&dispute_game_factory_address.0);
+	let contract = DisputeGameFactory::new(factory_addr, &*proposer);
 
 	// Fetch L1 gas price
-	let gas_breakdown = get_current_gas_cost_in_usd(
+	let _gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
 		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 	)
 	.await?;
 
-	let call = call.gas_price(old_u256(gas_breakdown.gas_price)).gas(gas_limit);
+	let call = contract.create(
+		proposal.game_type,
+		proposal.root_claim.0.into(),
+		proposal.extra_data.into(),
+	).value(primitive_u256_to_alloy(proposal.bond));
 
-	let tx = call.send().await?;
-	wait_for_success(
-		&client.l1_state_machine,
-		client.evm.ismp_host.0.into(),
-		client.beacon_execution_client.clone(),
-		proposer.clone(),
-		tx,
-		Some(gas_breakdown.gas_price),
-		Some(call.clone().gas(gas_limit)),
-		true,
-	)
-	.await?;
+	let pending_tx = call.send().await?;
+	let receipt = pending_tx.get_receipt().await?;
+
+	if !receipt.status() {
+		return Err(anyhow!("Transaction failed"));
+	}
+
+	log::trace!(target: "tesseract", "State proposal submitted successfully for block {:?}", proposal.block_number);
 
 	Ok(())
 }
@@ -507,7 +495,7 @@ async fn fetch_beacon_header(
 		.expect("Expected consensus client to be available");
 	let primary_url = proposer_config
 		.beacon_consensus_rpcs
-		.get(0)
+		.first()
 		.cloned()
 		.ok_or_else(|| anyhow!("Missing beacon rpc urls"))?;
 	let path = header_route(block_id);
@@ -539,7 +527,7 @@ async fn fetch_finalized_checkpoint(
 		.expect("Expected consensus client to be available");
 	let primary_url = proposer_config
 		.beacon_consensus_rpcs
-		.get(0)
+		.first()
 		.cloned()
 		.ok_or_else(|| anyhow!("Missing beacon rpc urls"))?;
 	let path = finality_checkpoints(block_id);
@@ -738,7 +726,7 @@ async fn submit_consensus_update(
 }
 
 fn get_block_id(root: H256) -> String {
-	let mut block_id = ethers::utils::hex::encode(root.0.to_vec());
+	let mut block_id = hex::encode(root.0.to_vec());
 	block_id.insert_str(0, "0x");
 	block_id
 }

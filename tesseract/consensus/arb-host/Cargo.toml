@@ -3,14 +3,9 @@ name = "arb-host"
 version = "0.1.0"
 edition = "2021"
 
-[build-dependencies]
-anyhow = "1.0.75"
-ethers-contract-abigen = { workspace = true }
-
-
 [dependencies]
 tesseract-evm = { workspace = true }
-ethers = { workspace = true, features = ["rustls"] }
+alloy = { workspace = true }
 geth-primitives = { workspace = true }
 ethabi = { workspace = true, features = ["rlp", "full-serde"], default-features = false }
 arbitrum-verifier = { workspace = true }

@@ -1,8 +1,8 @@
-use codec::{Decode, Encode};
-use ethers::{
-	contract::EthLogDecode,
-	types::{Bytes, Log as EthersLog, H256 as EthersH256},
+use alloy::{
+	primitives::{Address as AlloyAddress, Bytes as AlloyBytes, LogData, B256},
+	sol_types::SolEvent,
 };
+use codec::{Decode, Encode};
 use evm_state_machine::{
 	derive_unhashed_map_key_with_offset,
 	presets::REQUEST_COMMITMENTS_SLOT,
@@ -21,7 +21,7 @@ use ismp::{
 	router::{IsmpRouter, PostRequest, PostResponse, Request, Response},
 	Error,
 };
-use ismp_solidity_abi::evm_host::PostRequestEventFilter;
+use ismp_solidity_abi::evm_host::EvmHost::PostRequestEvent;
 use ismp_testsuite::mocks::{Host as MockHost, Keccak256Hasher};
 use polkadot_sdk::sp_runtime::testing::H256;
 use primitive_types::U256;
@@ -285,7 +285,7 @@ async fn test_verify_evm_post_request_events() -> Result<(), Box<dyn std::error:
 	println!("Found {} log(s), attempting to decode as PostRequestEvent...\n", logs.len());
 
 	// Try to decode each log as a PostRequestEvent until we find one
-	let mut post_event_opt: Option<PostRequestEventFilter> = None;
+	let mut post_event_opt: Option<PostRequestEvent> = None;
 	let mut decoded_log_json: Option<serde_json::Value> = None;
 
 	for (idx, log) in logs.iter().enumerate() {
@@ -299,32 +299,18 @@ async fn test_verify_evm_post_request_events() -> Result<(), Box<dyn std::error:
 			None => continue,
 		};
 
-		// Convert to ethers types for decoding
-		let ethers_log = EthersLog {
-			address: ethers::types::H160::from_slice(&hex::decode(
-				contract_address.trim_start_matches("0x"),
-			)?),
-			topics: log_topics
-				.iter()
-				.map(|t| {
-					EthersH256::from_slice(
-						&hex::decode(t.trim_start_matches("0x")).unwrap_or_default(),
-					)
-				})
-				.collect(),
-			data: Bytes::from(hex::decode(log_data.trim_start_matches("0x")).unwrap_or_default()),
-			block_hash: None,
-			block_number: None,
-			transaction_hash: None,
-			transaction_index: None,
-			log_index: None,
-			transaction_log_index: None,
-			log_type: None,
-			removed: None,
-		};
+		// Convert to alloy types for decoding
+		let topics: Vec<B256> = log_topics
+			.iter()
+			.map(|t| {
+				B256::from_slice(&hex::decode(t.trim_start_matches("0x")).unwrap_or_default())
+			})
+			.collect();
+		let data = AlloyBytes::from(hex::decode(log_data.trim_start_matches("0x")).unwrap_or_default());
+		let log_data = LogData::new(topics.clone(), data).unwrap();
 
 		// Try to decode as PostRequestEvent
-		if let Ok(event) = PostRequestEventFilter::decode_log(&ethers_log.into()) {
+		if let Ok(event) = PostRequestEvent::decode_log_data(&log_data) {
 			println!("✅ Found PostRequestEvent at log index {}", idx);
 			println!("   Topic: {}", log_topics.get(0).unwrap_or(&"none".to_string()));
 			post_event_opt = Some(event);
@@ -344,7 +330,7 @@ async fn test_verify_evm_post_request_events() -> Result<(), Box<dyn std::error:
 	println!("From: {:?}", post_event.from);
 	println!("To: {:?}", post_event.to);
 	println!("Nonce: {}", post_event.nonce);
-	println!("Timeout: {}", post_event.timeout_timestamp);
+	println!("Timeout: {}", post_event.timeoutTimestamp);
 	println!("Body: {}", hex::encode(&post_event.body));
 	println!();
 

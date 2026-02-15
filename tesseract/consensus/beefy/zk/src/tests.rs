@@ -1,6 +1,6 @@
 use anyhow::anyhow;
+use alloy_sol_types::SolValue;
 use codec::Decode;
-use ethers::abi::AbiEncode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_solidity_abi::beefy::{BeefyConsensusProof, BeefyConsensusState};
@@ -150,7 +150,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	let consensus_state = prover.get_initial_consensus_state(None).await?;
 
 	// Log the ABI-encoded BeefyConsensusState
-	let encoded_consensus_state = BeefyConsensusState::from(consensus_state.clone()).encode_hex();
+	let encoded_consensus_state = hex::encode(BeefyConsensusState::from(consensus_state.clone()).abi_encode());
 	println!("\n=== Initial Consensus State (ABI-encoded) ===");
 	println!("0x{}", encoded_consensus_state);
 	println!("\n=== Consensus State Details ===");
@@ -192,7 +192,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 			prover.consensus_proof(signed_commitment.clone()).await?.into();
 
 		println!("\n=== Consensus proof (ABI-encoded) ===");
-		println!("0x{}", hex::encode([&[0u8], AbiEncode::encode(proof).as_slice()].concat()));
+		println!("0x{}", hex::encode([&[0u8], proof.abi_encode().as_slice()].concat()));
 		println!("==============================================\n");
 
 		// ============================================================================

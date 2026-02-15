@@ -15,7 +15,7 @@ use subxt::config::HashFor;
 
 use beefy_prover::util::hash_authority_addresses;
 use beefy_verifier_primitives::ConsensusState;
-use ismp_solidity_abi::sp1_beefy::Sp1BeefyProof;
+use ismp_solidity_abi::sp1_beefy::SP1BeefyProof;
 
 #[cfg(feature = "cluster")]
 pub use sp1_beefy::cluster::ClusterProver;
@@ -59,7 +59,7 @@ where
 		&self,
 		signed_commitment: sp_consensus_beefy::SignedCommitment<u32, Signature>,
 		consensus_state: ConsensusState,
-	) -> Result<Sp1BeefyProof, anyhow::Error> {
+	) -> Result<SP1BeefyProof, anyhow::Error> {
 		let authority = match signed_commitment.commitment.validator_set_id {
 			id if id == consensus_state.current_authorities.id =>
 				consensus_state.current_authorities,
@@ -172,9 +172,9 @@ where
 		tracing::trace!(target: "zk_beefy", "Plonk Proof: {:#?}", hex::encode(proof.bytes()));
 		tracing::trace!(target: "zk_beefy", "Public Inputs: {:#?}", proof.public_values.raw());
 
-		Ok(Sp1BeefyProof {
+		Ok(SP1BeefyProof {
 			commitment: signed_commitment.commitment.into(),
-			mmr_leaf: message.mmr.latest_mmr_leaf.into(),
+			mmrLeaf: message.mmr.latest_mmr_leaf.into(),
 			proof: proof.bytes().into(),
 			headers: message.parachain.parachains.into_iter().map(|i| i.into()).collect(),
 		})

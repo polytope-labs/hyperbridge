@@ -13,11 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloy::providers::{Provider, RootProvider};
 use arb_host::{ArbConfig, ArbHost};
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use ismp_sync_committee::{
@@ -139,7 +136,7 @@ pub struct SyncCommitteeHost<
 
 	pub evm: EvmConfig,
 	/// Eth L1 execution client
-	pub el: Arc<Provider<Http>>,
+	pub el: Arc<tesseract_evm::AlloyProvider>,
 
 	/// Ismp Provider
 	pub provider: Arc<dyn IsmpProvider>,
@@ -157,10 +154,8 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> Result<Self, anyhow::Error> {
 		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
-		let el = Provider::new(Http::new_client_with_chain_middleware(
-			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			None,
-		));
+		let rpc_url = evm.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URLs provided"))?;
+		let el = RootProvider::new_http(rpc_url.parse()?);
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 
@@ -230,11 +225,11 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 			l2_consensus.insert(state_machine, L2Consensus::ArbitrumOrbit(address));
 		}
 
-		let chain_id = self.el.get_chainid().await?;
+		let chain_id = self.el.get_chain_id().await?;
 		let consensus_state = ConsensusState {
 			frozen_height: None,
 			light_client_state: client_state,
-			chain_id: chain_id.low_u32(),
+			chain_id: chain_id as u32,
 			l2_consensus,
 		};
 

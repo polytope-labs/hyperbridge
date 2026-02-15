@@ -1,5 +1,9 @@
 use std::{fmt::Debug, sync::Arc};
 
+use alloy::{
+	eips::BlockId,
+	providers::{Provider, RootProvider},
+};
 use async_trait::async_trait;
 use cometbft::{
 	account::Id as CometbftAccountId,
@@ -13,17 +17,14 @@ use ismp_polygon::Milestone;
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tendermint_primitives::{Client, ProverError};
-
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-	types::BlockId,
-};
+use tendermint_primitives::{Client as TendermintClient, ProverError};
 
 use base64::Engine;
 
-#[derive(Debug, Clone)]
+/// Type alias for alloy HTTP provider
+pub type AlloyProvider = RootProvider;
+
+#[derive(Clone)]
 /// A client implementation for interacting with Heimdall nodes.
 ///
 /// This client uses HTTP requests to communicate with Heimdall nodes,
@@ -33,7 +34,7 @@ pub struct HeimdallClient {
 	raw_client: ReqwestClient,
 	consensus_rpc_url: String,
 	http_client: HttpClient,
-	execution_rpc_client: Arc<Provider<Http>>,
+	execution_rpc_client: Arc<AlloyProvider>,
 }
 
 impl HeimdallClient {
@@ -64,9 +65,10 @@ impl HeimdallClient {
 		let http_client =
 			HttpClient::new(client_url).map_err(|e| ProverError::NetworkError(e.to_string()))?;
 
-		let provider = Provider::<Http>::try_from(execution_rpc).map_err(|e| {
-			ProverError::NetworkError(format!("Failed to create ethers provider: {}", e))
+		let execution_url = execution_rpc.parse().map_err(|e| {
+			ProverError::NetworkError(format!("Failed to parse execution RPC URL: {}", e))
 		})?;
+		let provider = RootProvider::new_http(execution_url);
 		let execution_rpc_client = Arc::new(provider);
 
 		Ok(Self { raw_client, consensus_rpc_url, http_client, execution_rpc_client })
@@ -328,7 +330,7 @@ impl HeimdallClient {
 	) -> Result<Option<CodecHeader>, ProverError> {
 		let block = self
 			.execution_rpc_client
-			.get_block(block)
+			.get_block(block.into())
 			.await
 			.map_err(|e| ProverError::NetworkError(format!("Failed to get block: {}", e)))?;
 		if let Some(block) = block {
@@ -359,7 +361,7 @@ impl HeimdallClient {
 			self.execution_rpc_client.get_block_number().await.map_err(|e| {
 				ProverError::NetworkError(format!("Failed to get block number: {}", e))
 			})?;
-		let header = self.fetch_header(block_number.as_u64()).await?.ok_or_else(|| {
+		let header = self.fetch_header(block_number).await?.ok_or_else(|| {
 			ProverError::NetworkError(format!(
 				"Latest header block could not be fetched {block_number}"
 			))
@@ -369,7 +371,7 @@ impl HeimdallClient {
 }
 
 #[async_trait]
-impl Client for HeimdallClient {
+impl TendermintClient for HeimdallClient {
 	async fn latest_height(&self) -> Result<u64, ProverError> {
 		let status: StatusResponse = self.rpc_request("status", json!({})).await?;
 		Ok(status.sync_info.latest_block_height.value())

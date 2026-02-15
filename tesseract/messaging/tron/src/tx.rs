@@ -31,7 +31,7 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use anyhow::{anyhow, Context};
-use ethers::providers::Middleware;
+use alloy::providers::Provider;
 use ismp::{
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse},
@@ -85,7 +85,7 @@ pub async fn handle_message_submission(
 	let receipts = submit_messages(client, messages.clone()).await?;
 	log::trace!("submit_messages returned {} receipts", receipts.len());
 
-	let height = client.evm.client.get_block_number().await.map(|n| n.as_u64()).unwrap_or(0);
+	let height = client.evm.client.get_block_number().await.unwrap_or(0);
 	log::trace!("Current block height: {}", height);
 
 	let mut results = Vec::new();
@@ -159,12 +159,8 @@ pub async fn submit_messages(
 ) -> anyhow::Result<BTreeSet<H256>> {
 	log::trace!("submit_messages called with {} messages", messages.len());
 
-	//
-	// We pass `debug_trace = true` to skip the gas-price oracle (which may
-	// not be available on TRON).  Gas estimation failures are caught by
-	// `unwrap_or` inside `generate_contract_calls`, so this is safe.
-	log::trace!("Calling generate_contract_calls with debug_trace=true");
-	let calls = generate_contract_calls(&client.evm, messages.clone(), true).await?;
+	log::trace!("Calling generate_contract_calls");
+	let (calls, _gas_price) = generate_contract_calls(&client.evm, messages.clone()).await?;
 	log::trace!("generate_contract_calls returned {} calls", calls.len());
 
 	let mut events = BTreeSet::new();
@@ -172,10 +168,10 @@ pub async fn submit_messages(
 	for (index, call) in calls.iter().enumerate() {
 		log::trace!("Processing call {} of {}", index + 1, calls.len());
 
-		let calldata = match call.calldata() {
+		let calldata = match call.input.input() {
 			Some(bytes) => {
 				log::trace!("Call {} has calldata of {} bytes", index, bytes.len());
-				bytes
+				bytes.clone()
 			},
 			None => {
 				log::error!("Message at index {index} produced empty calldata");

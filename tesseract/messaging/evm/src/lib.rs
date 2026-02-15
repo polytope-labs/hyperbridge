@@ -1,13 +1,19 @@
 use crate::{
-	abi::{EvmHost, PingModule},
-	transport::{OmniClient, RpcTransport},
+	abi::{EvmHostInstance, PingModuleInstance},
+	transport::RpcTransport,
 };
 
-use ethers::{
-	core::k256::ecdsa::SigningKey,
-	prelude::{k256::SecretKey, LocalWallet, MiddlewareBuilder, SignerMiddleware, Wallet},
-	providers::{Http, Middleware, Provider},
-	signers::Signer,
+use alloy::{
+	network::EthereumWallet,
+	primitives::{Address, U256 as AlloyU256},
+	providers::{
+		fillers::{
+			BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+			WalletFiller,
+		},
+		Identity, Provider, ProviderBuilder, RootProvider,
+	},
+	signers::local::PrivateKeySigner,
 };
 use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::Message};
 use polkadot_sdk::frame_support::crypto::ecdsa::ECDSAExt;
@@ -38,6 +44,18 @@ pub mod provider;
 // #[cfg(test)]
 // mod test;
 pub mod tx;
+
+pub type AlloyProvider = RootProvider;
+
+/// Recommended fillers for transaction sending (gas, blob gas, nonce, chain ID)
+type RecommendedFills =
+	JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>;
+
+/// Type alias for Alloy provider with signer (recommended fillers + wallet)
+pub type AlloySignerProvider = FillProvider<
+	JoinFill<JoinFill<Identity, RecommendedFills>, WalletFiller<EthereumWallet>>,
+	RootProvider,
+>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientType {
@@ -128,9 +146,9 @@ impl Default for EvmConfig {
 /// Core EVM client.
 pub struct EvmClient {
 	/// Execution Rpc client
-	pub client: Arc<Provider<OmniClient>>,
-	/// Transaction signer
-	pub signer: Arc<SignerMiddleware<Provider<OmniClient>, Wallet<SigningKey>>>,
+	pub client: Arc<AlloyProvider>,
+	/// Transaction signer provider
+	pub signer: Arc<AlloySignerProvider>,
 	/// Public Key Address
 	pub address: Vec<u8>,
 	/// Consensus state Id
@@ -145,6 +163,8 @@ pub struct EvmClient {
 	pub chain_id: u64,
 	/// Client type
 	pub client_type: ClientType,
+	/// Private key signer for synchronous signing operations
+	pub private_key_signer: PrivateKeySigner,
 	/// Producer for state machine updated stream
 	state_machine_update_sender: Arc<
 		tokio::sync::Mutex<
@@ -169,17 +189,24 @@ impl EvmClient {
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 
-		let http_client = Http::new_client_with_chain_middleware(
-			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			Some(Duration::from_secs(180)),
-		);
-		let omni = OmniClient::new(http_client, &config.transport);
-		let provider = Provider::new(omni);
-		let client = Arc::new(provider.clone());
-		let chain_id = client.get_chainid().await?.low_u64();
-		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-			.with_chain_id(chain_id);
-		let signer = Arc::new(provider.with_signer(signer));
+		let rpc_url = config.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URLs provided"))?;
+		let url: alloy::transports::http::reqwest::Url = rpc_url.parse()?;
+		let http_client = alloy::transports::http::reqwest::Client::builder()
+			.timeout(Duration::from_secs(180))
+			.build()?;
+		let rpc_client = alloy::rpc::client::RpcClient::new_http_with_client(http_client.clone(), url.clone());
+		let client = Arc::new(RootProvider::new(rpc_client));
+		let chain_id = client.get_chain_id().await?;
+
+		// Create signer provider with wallet filler
+		let private_key_signer = PrivateKeySigner::from_slice(signer.seed().as_slice())?;
+		let wallet = EthereumWallet::from(private_key_signer.clone());
+		let signer_rpc_client = alloy::rpc::client::RpcClient::new_http_with_client(http_client, url);
+		let signer_provider = ProviderBuilder::new()
+			.wallet(wallet)
+			.connect_client(signer_rpc_client);
+		let signer = Arc::new(signer_provider);
+
 		let consensus_state_id = {
 			let mut consensus_state_id: ConsensusStateId = Default::default();
 			consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
@@ -189,7 +216,7 @@ impl EvmClient {
 		let latest_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
-			client.get_block_number().await?.as_u64()
+			client.get_block_number().await?
 		};
 		let mut partial_client = Self {
 			client,
@@ -201,6 +228,7 @@ impl EvmClient {
 			config: config_clone.clone(),
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
+			private_key_signer,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
 			queue: None,
 		};
@@ -215,18 +243,50 @@ impl EvmClient {
 	}
 
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
-		let client = Arc::new(self.client.clone());
-		let contract = EvmHost::new(self.config.ismp_host.0, client);
-		let events = contract
-			.events()
-			.address(ethers::core::types::H160(self.config.ismp_host.0).into())
+		use alloy::rpc::types::Filter;
+		use alloy_sol_types::SolEvent;
+		use ismp_solidity_abi::evm_host::EvmHost::{
+			GetRequestEvent, PostRequestEvent, PostResponseEvent, PostRequestHandled,
+			PostResponseHandled, GetRequestHandled, StateMachineUpdated as EvmStateMachineUpdated,
+		};
+		use ismp_solidity_abi::EvmHostEvents;
+
+		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let filter = Filter::new()
+			.address(host_addr)
 			.from_block(from)
-			.to_block(to)
-			.query()
-			.await?
+			.to_block(to);
+
+		let logs = self.client.get_logs(&filter).await?;
+
+		let events = logs
 			.into_iter()
-			.filter_map(|ev| ev.try_into().ok())
-			.collect::<_>();
+			.filter_map(|log| {
+				// Try to decode as each event type and convert to EvmHostEvents
+				if let Ok(event) = PostRequestEvent::decode_log(&log.inner) {
+					return EvmHostEvents::PostRequestEvent(event.data).try_into().ok();
+				}
+				if let Ok(event) = PostResponseEvent::decode_log(&log.inner) {
+					return EvmHostEvents::PostResponseEvent(event.data).try_into().ok();
+				}
+				if let Ok(event) = GetRequestEvent::decode_log(&log.inner) {
+					return EvmHostEvents::GetRequestEvent(event.data).try_into().ok();
+				}
+				if let Ok(event) = PostRequestHandled::decode_log(&log.inner) {
+					return EvmHostEvents::PostRequestHandled(event.data).try_into().ok();
+				}
+				if let Ok(event) = PostResponseHandled::decode_log(&log.inner) {
+					return EvmHostEvents::PostResponseHandled(event.data).try_into().ok();
+				}
+				if let Ok(event) = GetRequestHandled::decode_log(&log.inner) {
+					return EvmHostEvents::GetRequestHandled(event.data).try_into().ok();
+				}
+				if let Ok(event) = EvmStateMachineUpdated::decode_log(&log.inner) {
+					return EvmHostEvents::StateMachineUpdated(event.data).try_into().ok();
+				}
+				None
+			})
+			.collect::<Vec<_>>();
 		Ok(events)
 	}
 
@@ -237,12 +297,15 @@ impl EvmClient {
 		height: StateMachineHeight,
 		commitment: StateCommitment,
 	) -> Result<(), anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let call = contract.set_consensus_state(consensus_state.clone().into(), height, commitment);
+		use alloy::primitives::Bytes;
 
-		let gas = call.estimate_gas().await?;
-		let tx_hash = call.gas(gas).send().await?.tx_hash().0;
-		wait_for_transaction_receipt(tx_hash.into(), self.client.clone()).await?;
+		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.signer.clone());
+		let call = contract.setConsensusState(Bytes::from(consensus_state), height, commitment);
+
+		let pending = call.send().await?;
+		let tx_hash = *pending.tx_hash();
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone()).await?;
 
 		Ok(())
 	}
@@ -253,12 +316,13 @@ impl EvmClient {
 		address: H160,
 		para_id: u32,
 	) -> Result<(), anyhow::Error> {
-		let contract = PingModule::new(address.0, self.signer.clone());
-		let call = contract.dispatch_to_parachain(para_id.into());
+		let ping_addr = Address::from_slice(&address.0);
+		let contract = PingModuleInstance::new(ping_addr, self.signer.clone());
+		let call = contract.dispatchToParachain(AlloyU256::from(para_id));
 
-		let gas = call.estimate_gas().await?;
-		let tx_hash = call.gas(gas).send().await?.tx_hash().0;
-		wait_for_transaction_receipt(tx_hash.into(), self.client.clone()).await?;
+		let pending = call.send().await?;
+		let tx_hash = *pending.tx_hash();
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone()).await?;
 
 		Ok(())
 	}
@@ -304,15 +368,17 @@ impl EvmClient {
 	}
 
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let params = contract.host_params().call().await?;
-		Ok(params.host_manager.0.into())
+		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let params = contract.hostParams().call().await?;
+		Ok(H160::from_slice(params.hostManager.as_slice()))
 	}
 
 	pub async fn handler(&self) -> Result<H160, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let params = contract.host_params().call().await?;
-		Ok(params.handler.0.into())
+		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let params = contract.hostParams().call().await?;
+		Ok(H160::from_slice(params.handler.as_slice()))
 	}
 }
 
@@ -373,6 +439,7 @@ impl Clone for EvmClient {
 			config: self.config.clone(),
 			chain_id: self.chain_id.clone(),
 			client_type: self.client_type.clone(),
+			private_key_signer: self.private_key_signer.clone(),
 			state_machine_update_sender: self.state_machine_update_sender.clone(),
 			queue: self.queue.clone(),
 		}

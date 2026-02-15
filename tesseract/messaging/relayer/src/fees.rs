@@ -1,7 +1,7 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
 use anyhow::anyhow;
-use ethers::providers::interval;
 use futures::StreamExt;
+use tokio_stream::wrappers::IntervalStream;
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
@@ -315,7 +315,7 @@ where
 		10u128.pow(18))
 	.into();
 	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
-	let mut interval = interval(frequency);
+	let mut interval = IntervalStream::new(tokio::time::interval(frequency));
 
 	while let Some(_) = interval.next().await {
 		let stream = futures::stream::iter(clients.keys().cloned().into_iter());

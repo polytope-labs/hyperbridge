@@ -17,6 +17,7 @@
 
 mod conversions;
 mod generated;
+pub mod shared_types;
 
 pub use conversions::*;
 pub use generated::*;

@@ -14,7 +14,7 @@
 
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use ethers::abi::{AbiEncode, Token, Tokenizable};
+use alloy_sol_types::SolValue;
 use hex_literal::hex;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -192,11 +192,11 @@ where
 			Prover::Naive(ref naive, _) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
-				[&[PROOF_TYPE_NAIVE], AbiEncode::encode(message).as_slice()].concat()
+				[&[PROOF_TYPE_NAIVE], message.abi_encode().as_slice()].concat()
 			},
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				[&[PROOF_TYPE_ZK], AbiEncode::encode(message).as_slice()].concat()
+				[&[PROOF_TYPE_ZK], message.abi_encode().as_slice()].concat()
 			},
 			Prover::FiatShamir(ref fs, _) => {
 				let (consensus_message, bitmap) =
@@ -204,20 +204,18 @@ where
 				let message: BeefyConsensusProof = consensus_message.into();
 				// The FiatShamir verifier expects abi.encode(RelayChainProof, ParachainProof,
 				// uint256[4])
-				let bitmap_token = Token::FixedArray(
-					bitmap
-						.words
-						.iter()
-						.map(|w| {
-							Token::Uint(ethers::types::U256::from_big_endian(&w.to_big_endian()))
-						})
-						.collect(),
-				);
-				let encoded = ethers::abi::encode(&[
-					message.relay.into_token(),
-					message.parachain.into_token(),
-					bitmap_token,
-				]);
+				let bitmap_words: [alloy_primitives::U256; 4] = bitmap
+					.words
+					.iter()
+					.map(|w| {
+						let buf = w.to_big_endian();
+						alloy_primitives::U256::from_be_bytes(buf)
+					})
+					.collect::<Vec<_>>()
+					.try_into()
+					.expect("bitmap should have exactly 4 words");
+				let encoded =
+					(message.relay, message.parachain, bitmap_words).abi_encode();
 				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
 			},
 		};

@@ -180,6 +180,10 @@ pub struct ValidatorSetProof {
 	/// RLP-encoded account value (rawValue from eth_getProof response)
 	/// Format: RLP([nonce, balance, "", code_hash])
 	pub raw_account_value: Vec<u8>,
+	/// Raw storage values in order: [totalStake, activePoolIds length,
+	/// pool_id_0..pool_id_n, validator_0_bls_header, validator_0_bls_data_0..2,
+	/// validator_0_stake, ...]
+	pub storage_values: Vec<Vec<u8>>,
 }
 
 /// The trusted state maintained by the Pharos consensus client.

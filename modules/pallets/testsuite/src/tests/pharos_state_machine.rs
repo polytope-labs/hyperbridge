@@ -23,7 +23,7 @@ use pharos_prover::{
 use primitive_types::{H160, H256, U256};
 use std::sync::Arc;
 
-const ATLANTIC_RPC: &str = "https://atlantic.dplabs-internal.com";
+const ATLANTIC_RPC: &str = "https://atlantic-rpc.dplabs-internal.com";
 
 /// Convert RPC proof nodes to PharosProofNode format.
 fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Vec<PharosProofNode> {

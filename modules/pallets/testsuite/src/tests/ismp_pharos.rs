@@ -26,7 +26,7 @@ use pharos_primitives::{Config, Testnet, PHAROS_ATLANTIC_CHAIN_ID};
 use pharos_prover::PharosProver;
 use primitive_types::H256;
 
-const ATLANTIC_RPC: &str = "https://atlantic.dplabs-internal.com";
+const ATLANTIC_RPC: &str = "https://atlantic-rpc.dplabs-internal.com";
 
 #[tokio::test]
 #[ignore]

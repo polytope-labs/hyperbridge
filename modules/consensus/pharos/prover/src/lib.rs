@@ -22,7 +22,7 @@ pub use error::ProverError;
 
 use geth_primitives::CodecHeader;
 use pharos_primitives::{
-	BlsPublicKey, BlockProof, Config, PharosProofNode, ValidatorInfo, ValidatorSet,
+	BlockProof, BlsPublicKey, Config, PharosProofNode, ValidatorInfo, ValidatorSet,
 	ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
 };
 use pharos_verifier::state_proof::StakingContractLayout;
@@ -140,10 +140,10 @@ impl<C: Config> PharosProver<C> {
 	/// This fetches the storage proof from the staking contract at the
 	/// given block, which contains the validator set for the next epoch.
 	///
-	/// The storage layout follows the Pharos staking contract:
+	/// The storage layout follows the Pharos staking contract (V1):
 	/// - Slot 6: totalStake
-	/// - Slot 22: activePoolSets (EnumerableSet._values array length)
-	/// - keccak256(22): array elements (pool IDs)
+	/// - Slot 1: activePoolIds (bytes32[] array length)
+	/// - keccak256(1): array elements (pool IDs)
 	/// - For each pool ID: validator data via mapping at slot 0
 	pub async fn fetch_validator_set_proof(
 		&self,
@@ -151,7 +151,7 @@ impl<C: Config> PharosProver<C> {
 	) -> Result<ValidatorSetProof, ProverError> {
 		let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
 
-		// Fetch base slots (totalStake, activePoolSets length)
+		// Fetch base slots (totalStake, activePoolIds length)
 		let base_keys = vec![
 			self.storage_layout.raw_slot_key(self.storage_layout.total_stake_slot),
 			self.storage_layout.raw_slot_key(self.storage_layout.active_pool_set_slot),
@@ -159,14 +159,14 @@ impl<C: Config> PharosProver<C> {
 
 		let base_proof = self.rpc.get_proof(address, base_keys.clone(), block_number).await?;
 
-		// Get validator count from activePoolSets length (slot 22)
+		// Get validator count from activePoolIds length (slot 1)
 		let validator_count = if base_proof.storage_proof.len() >= 2 {
 			hex_to_u64(&base_proof.storage_proof[1].value).unwrap_or(0)
 		} else {
 			0
 		};
 
-		// Fetch pool IDs from the activePoolSets array
+		// Fetch pool IDs from the activePoolIds array
 		let mut pool_id_keys = Vec::new();
 		for i in 0..validator_count {
 			pool_id_keys.push(self.array_element_key(self.storage_layout.active_pool_set_slot, i));
@@ -189,41 +189,68 @@ impl<C: Config> PharosProver<C> {
 			pool_ids.push(H256::from(padded));
 		}
 
-		// For each pool ID, fetch validator data (BLS key slots + stake)
-		let mut validator_keys = Vec::new();
-		for pool_id in &pool_ids {
-			validator_keys.extend(self.get_validator_storage_keys(pool_id));
+		// Collect storage values and proof nodes in order.
+		// Some storage keys fail with eth_getProof sometimes, therefore
+		// we use batching per-validator to work Pharos RPC limitations.
+		let mut storage_proof: Vec<PharosProofNode> = Vec::new();
+		let mut storage_values: Vec<Vec<u8>> = Vec::new();
+
+		// Use account proof from the base proof (verified against state_root)
+		let account_proof = rpc_to_proof_nodes(&base_proof.account_proof)?;
+		let storage_hash = hex_to_h256(&base_proof.storage_hash)?;
+		let raw_account_value = hex_to_bytes(&base_proof.raw_value)?;
+
+		for sp in &base_proof.storage_proof {
+			self.collect_proof_nodes(&sp.proof, &mut storage_proof)?;
+			storage_values.push(hex_to_bytes(&sp.value)?);
+		}
+		for sp in &pool_id_proof.storage_proof {
+			self.collect_proof_nodes(&sp.proof, &mut storage_proof)?;
+			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
 
-		// Combine all storage keys for the final proof
-		let mut all_keys = base_keys;
-		all_keys.extend(pool_id_keys);
-		all_keys.extend(validator_keys);
+		// Fetch validator data per-validator with fallback to eth_getStorageAt
+		for pool_id in &pool_ids {
+			let validator_keys = self.get_validator_storage_keys(pool_id);
 
-		// Fetch the complete proof with all keys
-		let full_proof = self.rpc.get_proof(address, all_keys, block_number).await?;
-
-		// Convert account proof nodes to PharosProofNode format
-		let account_proof = rpc_to_proof_nodes(&full_proof.account_proof)?;
-
-		// Collect all storage proofs into a single proof set
-		let mut storage_proof: Vec<PharosProofNode> = Vec::new();
-		for sp in &full_proof.storage_proof {
-			let nodes = rpc_to_proof_nodes(&sp.proof)?;
-			for node in nodes {
-				if !storage_proof.contains(&node) {
-					storage_proof.push(node);
-				}
+			match self.rpc.get_proof(address, validator_keys.clone(), block_number).await {
+				Ok(val_proof) =>
+					for sp in &val_proof.storage_proof {
+						self.collect_proof_nodes(&sp.proof, &mut storage_proof)?;
+						storage_values.push(hex_to_bytes(&sp.value)?);
+					},
+				Err(_) => {
+					// Fallback: fetch each key via eth_getStorageAt
+					for key in &validator_keys {
+						let value = self.rpc.get_storage_at(address, *key, block_number).await?;
+						storage_values.push(hex_to_bytes(&value)?);
+					}
+				},
 			}
 		}
 
-		// Parse storage_hash from RPC response
-		let storage_hash = hex_to_h256(&full_proof.storage_hash)?;
+		Ok(ValidatorSetProof {
+			account_proof,
+			storage_proof,
+			storage_hash,
+			raw_account_value,
+			storage_values,
+		})
+	}
 
-		// Parse raw_account_value from RPC response
-		let raw_account_value = hex_to_bytes(&full_proof.raw_value)?;
-
-		Ok(ValidatorSetProof { account_proof, storage_proof, storage_hash, raw_account_value })
+	/// Collect unique proof nodes from an RPC proof response.
+	fn collect_proof_nodes(
+		&self,
+		rpc_nodes: &[RpcProofNode],
+		target: &mut Vec<PharosProofNode>,
+	) -> Result<(), ProverError> {
+		let nodes = rpc_to_proof_nodes(rpc_nodes)?;
+		for node in nodes {
+			if !target.contains(&node) {
+				target.push(node);
+			}
+		}
+		Ok(())
 	}
 
 	/// Calculate the storage key for a dynamic array element.
@@ -239,12 +266,12 @@ impl<C: Config> PharosProver<C> {
 	///
 	/// Returns keys for:
 	/// - BLS public key string slot (offset 3 from validator base)
-	/// - BLS public key data slots (3 slots for long string)
+	/// - BLS public key data slots (4 slots for long string: 98 chars with "0x" prefix)
 	/// - totalStake (offset 8 from validator base)
 	fn get_validator_storage_keys(&self, pool_id: &H256) -> Vec<H256> {
 		const BLS_PUBLIC_KEY_OFFSET: u64 = 3;
 		const TOTAL_STAKE_OFFSET: u64 = 8;
-		const BLS_STRING_DATA_SLOTS: u64 = 3;
+		const BLS_STRING_DATA_SLOTS: u64 = 4;
 
 		let mut keys = Vec::new();
 

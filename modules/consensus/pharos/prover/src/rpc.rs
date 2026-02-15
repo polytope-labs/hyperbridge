@@ -236,6 +236,19 @@ impl PharosRpcClient {
 		};
 		self.call("debug_getValidatorInfo", vec![block_param]).await
 	}
+
+	/// Fetch a single storage value using `eth_getStorageAt`.
+	pub async fn get_storage_at(
+		&self,
+		address: H160,
+		key: H256,
+		block_number: u64,
+	) -> Result<String, ProverError> {
+		let address_hex = format!("0x{:x}", address);
+		let key_hex = format!("0x{:x}", key);
+		let block_hex = format!("0x{:x}", block_number);
+		self.call("eth_getStorageAt", (address_hex, key_hex, block_hex)).await
+	}
 }
 
 /// Parse a hex string to bytes.

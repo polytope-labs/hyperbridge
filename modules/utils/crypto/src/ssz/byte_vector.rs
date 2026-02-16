@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use super::write_bytes_to_lower_hex;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::{
 	fmt,
 	hash::{Hash, Hasher},

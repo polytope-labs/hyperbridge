@@ -70,7 +70,7 @@ pub enum Error {
 
 	/// BLS cryptography error
 	#[error("BLS error: {0:?}")]
-	BlsError(#[from] bls::errors::BLSError),
+	BlsError(bls::errors::BLSError),
 
 	/// Missing validator set proof for epoch boundary block
 	#[error("Missing validator set proof for epoch boundary block {block_number}")]

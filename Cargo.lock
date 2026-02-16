@@ -4651,8 +4651,11 @@ dependencies = [
  "hex",
  "parity-scale-codec",
  "scale-info",
+ "serde",
+ "serde-hex-utils",
  "sp-core",
  "sp-io",
+ "ssz-rs",
 ]
 
 [[package]]
@@ -15417,8 +15420,8 @@ dependencies = [
  "ismp",
  "ismp-bsc",
  "ismp-grandpa",
- "ismp-solidity-abi",
  "ismp-pharos",
+ "ismp-solidity-abi",
  "ismp-sync-committee",
  "ismp-testsuite",
  "log",
@@ -17325,7 +17328,7 @@ dependencies = [
 name = "pharos-primitives"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives 1.5.2",
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
@@ -17336,7 +17339,7 @@ dependencies = [
  "parity-scale-codec",
  "primitive-types 0.13.1",
  "serde",
- "sp-io 41.0.1",
+ "sp-io",
 ]
 
 [[package]]
@@ -28039,7 +28042,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "serde",
  "serde_json",
- "sp-core 37.0.0",
+ "sp-core",
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",

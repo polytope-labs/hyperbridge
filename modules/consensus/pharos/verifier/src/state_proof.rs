@@ -138,7 +138,6 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	}
 
 	let mut validator_set = ValidatorSet::new(epoch);
-	validator_set.total_stake = total_stake;
 
 	// Slots per validator in the detailed proof:
 	// - 1 BLS string slot (header)

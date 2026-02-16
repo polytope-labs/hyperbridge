@@ -103,6 +103,7 @@ where
 			let paras = beefy_prover::relay::paras_parachains(
 				&self.inner.relay_rpc,
 				Some(HashFor::<R>::decode(&mut &*block_hash.encode())?),
+				self.inner.para_ids.clone(),
 			)
 			.await?;
 			let leaf_hashes = paras.iter().map(|l| keccak_256(&l.encode())).collect::<Vec<_>>();

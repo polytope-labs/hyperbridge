@@ -153,8 +153,11 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
 		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let value =
-			contract.challenge_period().block(ethers::types::BlockNumber::Latest).call().await?;
+		let value = contract
+			.challenge_period()
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
+			.await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
@@ -924,8 +927,7 @@ impl IsmpProvider for EvmClient {
 
 		let contract = Erc20::new(fee_token.0, self.client.clone());
 
-		let decimals =
-			contract.decimals().block(ethers::types::BlockNumber::Latest).call().await?;
+		let decimals = contract.decimals().block(ethers::types::BlockNumber::Latest).call().await?;
 
 		Ok(decimals)
 	}

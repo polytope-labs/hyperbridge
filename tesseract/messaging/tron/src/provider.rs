@@ -156,10 +156,13 @@ impl IsmpProvider for TronClient {
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
 		// We can't use debug trace call, only estimate gas
 		let calls = generate_contract_calls(&self.evm, msg, true).await?;
-		let result = calls.into_iter().map(|_| EstimateGasReturnParams {
-			execution_cost: Default::default(),
-			successful_execution: true,
-		}).collect();
+		let result = calls
+			.into_iter()
+			.map(|_| EstimateGasReturnParams {
+				execution_cost: Default::default(),
+				successful_execution: true,
+			})
+			.collect();
 		Ok(result)
 	}
 
@@ -281,7 +284,6 @@ impl IsmpProvider for TronClient {
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
-		let val = self.evm.fee_token_decimals().await.unwrap_or(6);
-		Ok(val)
+		self.evm.fee_token_decimals().await
 	}
 }

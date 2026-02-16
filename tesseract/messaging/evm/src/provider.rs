@@ -14,7 +14,6 @@ use ethers::{
 
 use evm_state_machine::types::EvmStateProof;
 use geth_primitives::new_u256;
-use hex_literal::hex;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -42,7 +41,7 @@ use ismp::{
 	messaging::CreateConsensusState,
 };
 use primitive_types::U256;
-use sp_core::{keccak_256, H160, H256};
+use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
@@ -61,7 +60,7 @@ impl IsmpProvider for EvmClient {
 			let call = if let Some(block) = at {
 				contract.consensus_state().block(block)
 			} else {
-				contract.consensus_state()
+				contract.consensus_state().block(ethers::types::BlockNumber::Latest)
 			};
 			call.call().await?
 		};
@@ -72,30 +71,18 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_latest_height(&self, id: StateMachineId) -> Result<u32, Error> {
-		let destination = ethers::types::H160(self.config.ismp_host.0);
-		let state_id = match id.state_id {
-			StateMachine::Polkadot(id) => U256::from(id),
-			StateMachine::Kusama(id) => U256::from(id),
-			StateMachine::Evm(id) => U256::from(id),
-			StateMachine::Substrate(id) => U256::from(u32::from_be_bytes(id)),
-			StateMachine::Tendermint(id) => U256::from(u32::from_be_bytes(id)),
-			_ => Err(anyhow!("Unsupported state machine: {:?}", id.state_id))?,
+		let id = match id.state_id {
+			StateMachine::Polkadot(para_id) => para_id,
+			StateMachine::Kusama(para_id) => para_id,
+			_ => Err(anyhow!("Unexpected state machine"))?,
 		};
-
-		let key = state_id.to_big_endian();
-		let slot_7 = U256::from(7).to_big_endian();
-
-		let mut data = Vec::new();
-		data.extend_from_slice(&key);
-		data.extend_from_slice(&slot_7);
-		let final_slot = keccak_256(&data);
-
-		let value: H256 = self
-			.client
-			.request("eth_getStorageAt", (destination, H256(final_slot), "latest"))
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
+		let value = contract
+			.latest_state_machine_height(id.into())
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
 			.await?;
-
-		Ok(U256::from_big_endian(value.as_bytes()).low_u64() as u32)
+		Ok(value.low_u64() as u32)
 	}
 
 	async fn query_finalized_height(&self) -> Result<u64, Error> {
@@ -123,7 +110,7 @@ impl IsmpProvider for EvmClient {
 				.get_storage_at(
 					ethers::types::H160(self.config.ismp_host.0),
 					timestamp_key.0.into(),
-					None,
+					Some(ethers::types::BlockNumber::Latest.into()),
 				)
 				.await?;
 			U256::from_big_endian(timestamp.as_bytes()).low_u64()
@@ -133,7 +120,7 @@ impl IsmpProvider for EvmClient {
 			.get_storage_at(
 				ethers::types::H160(self.config.ismp_host.0),
 				overlay_key.0.into(),
-				None,
+				Some(ethers::types::BlockNumber::Latest.into()),
 			)
 			.await?
 			.0
@@ -143,7 +130,7 @@ impl IsmpProvider for EvmClient {
 			.get_storage_at(
 				ethers::types::H160(self.config.ismp_host.0),
 				state_root_key.0.into(),
-				None,
+				Some(ethers::types::BlockNumber::Latest.into()),
 			)
 			.await?
 			.0
@@ -155,63 +142,26 @@ impl IsmpProvider for EvmClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		let destination = ethers::types::H160(self.config.ismp_host.0);
-		let state_id = match height.id.state_id {
-			StateMachine::Polkadot(id) => U256::from(id),
-			StateMachine::Kusama(id) => U256::from(id),
-			StateMachine::Evm(id) => U256::from(id),
-			StateMachine::Substrate(id) => U256::from(u32::from_be_bytes(id)),
-			StateMachine::Tendermint(id) => U256::from(u32::from_be_bytes(id)),
-			_ => Err(anyhow!("Unsupported state machine: {:?}", height.id.state_id))?,
-		};
-
-		let key = state_id.to_big_endian();
-		let slot_6 = U256::from(6).to_big_endian();
-
-		let mut data = Vec::new();
-		data.extend_from_slice(&key);
-		data.extend_from_slice(&slot_6);
-		let inner_map_slot = keccak_256(&data);
-
-		let height_bytes = U256::from(height.height).to_big_endian();
-
-		let mut data = Vec::new();
-		data.extend_from_slice(&height_bytes);
-		data.extend_from_slice(&inner_map_slot);
-		let final_slot = keccak_256(&data);
-
-		let value: H256 = self
-			.client
-			.request("eth_getStorageAt", (destination, H256(final_slot), "latest"))
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
+		let value = contract
+			.state_machine_commitment_update_time(height.try_into()?)
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
 			.await?;
-
-		Ok(Duration::from_secs(U256::from_big_endian(value.as_bytes()).low_u64()))
+		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
-		let destination = ethers::types::H160(self.config.ismp_host.0);
-		let slot_19 = H256::from(U256::from(19).to_big_endian());
-		let value: H256 = self
-			.client
-			.request("eth_getStorageAt", (destination, slot_19, "latest"))
-			.await?;
-		Ok(Duration::from_secs(U256::from_big_endian(value.as_bytes()).low_u64()))
+		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
+		let value =
+			contract.challenge_period().block(ethers::types::BlockNumber::Latest).call().await?;
+		Ok(Duration::from_secs(value.low_u64()))
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
-		use ethers::{providers::Middleware, types::TransactionRequest};
-		let destination = ethers::types::H160(self.config.ismp_host.0);
-		// timestamp()
-		let data = hex!("b80777ea").to_vec();
-		let tx = TransactionRequest::new().to(destination).data(data);
-		let val = self
-			.client
-			.call(
-				&tx.into(),
-				Some(ethers::types::BlockId::Number(ethers::types::BlockNumber::Latest)),
-			)
-			.await?;
-		let value = U256::from_big_endian(&val);
+		let client = Arc::new(self.client.clone());
+		let contract = EvmHost::new(self.config.ismp_host.0, client);
+		let value = contract.timestamp().block(ethers::types::BlockNumber::Latest).call().await?;
 		Ok(Duration::from_secs(value.low_u64()))
 	}
 
@@ -414,13 +364,22 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let address = host_contract.request_receipts(hash.into()).call().await?;
+		let address = host_contract
+			.request_receipts(hash.into())
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
+			.await?;
 		Ok(address.0.to_vec())
 	}
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let address = host_contract.response_receipts(hash.into()).call().await?.relayer;
+		let address = host_contract
+			.response_receipts(hash.into())
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
+			.await?
+			.relayer;
 		Ok(address.0.to_vec())
 	}
 
@@ -581,14 +540,22 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let fee_metadata = host_contract.request_commitments(hash.into()).call().await?;
+		let fee_metadata = host_contract
+			.request_commitments(hash.into())
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
+			.await?;
 		// erc20 tokens are formatted in 18 decimals
 		return Ok(new_u256(fee_metadata.fee));
 	}
 
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let fee_metadata = host_contract.response_commitments(hash.into()).call().await?;
+		let fee_metadata = host_contract
+			.response_commitments(hash.into())
+			.block(ethers::types::BlockNumber::Latest)
+			.call()
+			.await?;
 		// erc20 tokens are formatted in 18 decimals
 		return Ok(new_u256(fee_metadata.fee));
 	}
@@ -904,7 +871,8 @@ impl IsmpProvider for EvmClient {
 		_state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
 		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let params: ismp_solidity_abi::evm_host::HostParams = contract.host_params().call().await?;
+		let params: ismp_solidity_abi::evm_host::HostParams =
+			contract.host_params().block(ethers::types::BlockNumber::Latest).call().await?;
 		let evm_params = EvmHostParam {
 			default_timeout: params.default_timeout.low_u128(),
 			default_per_byte_fee: new_u256(params.default_per_byte_fee),
@@ -956,7 +924,8 @@ impl IsmpProvider for EvmClient {
 
 		let contract = Erc20::new(fee_token.0, self.client.clone());
 
-		let decimals = contract.decimals().call().await?;
+		let decimals =
+			contract.decimals().block(ethers::types::BlockNumber::Latest).call().await?;
 
 		Ok(decimals)
 	}

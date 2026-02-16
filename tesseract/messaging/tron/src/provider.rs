@@ -31,6 +31,7 @@ use ismp::{
 };
 use pallet_ismp_host_executive::HostParam;
 use primitive_types::{H256, U256};
+use tesseract_evm::tx::generate_contract_calls;
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
 	StateMachineUpdated, StateProofQueryType, TxResult,
@@ -153,7 +154,13 @@ impl IsmpProvider for TronClient {
 		&self,
 		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
-		self.evm.estimate_gas(msg).await
+		// We can't use debug trace call, only estimate gas
+		let calls = generate_contract_calls(&self.evm, msg, true).await?;
+		let result = calls.into_iter().map(|_| EstimateGasReturnParams {
+			execution_cost: Default::default(),
+			successful_execution: true,
+		}).collect();
+		Ok(result)
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error> {
@@ -274,34 +281,7 @@ impl IsmpProvider for TronClient {
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
-		use ethers::{
-			providers::Middleware,
-			types::{TransactionRequest, H256},
-		};
-		let destination = ethers::types::H160(self.evm.config.ismp_host.0);
-		let slot_13 = H256::from(U256::from(13).to_big_endian());
-		let value: H256 = self
-			.evm
-			.client
-			.request("eth_getStorageAt", (destination, slot_13, "latest"))
-			.await?;
-		let fee_token_address = ethers::types::H160::from_slice(&value.as_bytes()[12..]);
-
-		if fee_token_address == ethers::core::types::H160::zero() {
-			return Ok(6)
-		}
-		// decimals()
-		let data = hex::decode("313ce567")?;
-		let tx = TransactionRequest::new().to(fee_token_address).data(data);
-		let val = self
-			.evm
-			.client
-			.call(
-				&tx.into(),
-				Some(ethers::types::BlockId::Number(ethers::types::BlockNumber::Latest)),
-			)
-			.await?;
-		let value = U256::from_big_endian(&val);
-		Ok(value.low_u64() as u8)
+		let val = self.evm.fee_token_decimals().await.unwrap_or(6);
+		Ok(val)
 	}
 }

@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = "1.0.75"
-tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 env_logger = "0.10.0"

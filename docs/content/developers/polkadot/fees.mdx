@@ -1,0 +1,95 @@
+---
+title: Fees
+description: Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. For parachains and solochains that intend to send messages through Hyperbridge there are a few ways to make the fee payments required by the Hyperbridge protocol.
+---
+# Hyperbridge Fees
+
+Hyperbridge charges a non-refundable protocol fee per byte of the request/response body. For parachains and solochains that intend to send messages through Hyperbridge there are a few ways to make the fee payments required by the Hyperbridge protocol.
+
+## Pallet Hyperbridge
+
+This pallet provides an `IsmpDispatcher` implementation that handles both protocol and relayer fee collection. These fees are collected using the `Currency` implementation provided to `pallet-ismp`. This `Currency` implementation is ideally a stablecoin, which can be gotten from asset-hub for parachains, or bridged in using `pallet-token-gateway` for solochains.
+
+The pallet also implements the `IsmpModule` and must be integrated with your `IsmpRouter`. This enables the pallet receive parameter updates from hyperbridge and also process relayer fee withdrawals.
+
+```rust showLineNumbers
+impl pallet_hyperbridge::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type IsmpHost = pallet_ismp::Pallet<Runtime>;
+}
+
+// ...
+construct_runtime! {
+    // ...
+    Ismp: pallet_ismp,
+    Hyperbridge: pallet_hyperbridge
+}
+
+#[derive(Default)]
+struct ModuleRouter;
+
+impl IsmpRouter for ModuleRouter {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, Error> {
+        return match id.as_slice() {
+            PALLET_HYPERBRIDGE_ID => Ok(Box::new(pallet_hyperbridge::Pallet::<Runtime>::default())),
+            // ... other modules
+            _   => Err(Error::ModuleNotFound(id)),
+        };
+    }
+}
+
+// somewhere in your runtime
+#[pallet::weight(T::dispatch())]
+#[pallet::call_index(0)]
+pub fn send_message(
+    origin: OriginFor<T>,
+    post: DispatchPost,
+    fee: T::Balance,
+) -> DispatchResultWithPostInfo {
+    let signer = ensure_signed(origin)?;
+    // use pallet_hyperbridge as the dispatcher
+    let dispatcher = pallet_hyperbridge::Pallet::<Runtime>::default();
+    let commitment = dispatcher.dispatch_request(
+        DispatchRequest::Post(post),
+        FeeMetadata {
+            payer: signer,
+            fee,
+        }
+    )?;
+
+    Ok(())
+}
+```
+
+### Relayer Fees
+
+The relayer fee is an optional incentive provided by applications initiating cross-chain transactions. It compensates Hyperbridge's decentralized relayers for delivering messages to the destination chain.
+
+#### Components
+
+The fee consists of three parts:
+
+| Component | Description |
+|-----------|-------------|
+| **Proof verification cost** | For a cross-chain message to be delivered and executed, it must first be authenticated through state proofs. The expected cost for state proof verification on Evm chains is 150k gas. Modules should account for this cost when setting the relayer fee. |
+| **Message execution gas cost** | After proof verification, the receiving module is handed the request to be executed. This will consume some gas which should also be accounted for. |
+| **Relayer service fee** | This additional amount rewards relayers for their services. Relayers are profit-Driven mediators and they will prioritize messages with fees that ensure profitability. |
+
+Calculating the relayer fee can be expressed as follows:
+
+```
+destination_gas_cost = 150_000 + receiving_module_gas_cost
+relayer_fee = gas_price_to_usd(destination_gas_price * destination_gas_cost) + relayer_tip_usd
+```
+
+
+## Pay in BRIDGE tokens 
+
+The easiest way to pay Hyperbridge, will be simply to set up your own [messaging relayer](/developers/network/messaging-relayer) and pay Hyperbridge in it's native token: BRIDGE. In this manner, you don't have to pay for dispatching requests on your chain, and payments for request happen entirely offchain at the point of relaying requests to Hyperbridge. This has a few upsides such as fewer pallets in your runtime and less configuration overhead.
+
+But these upsides however come at the cost of maintaining your own offchain relayer, as you're unable to rely on Hyperbridge's permissionless relayers. This is because without `pallet-hyperbridge`, your runtime has no way of incentivizing 3rd party relayers to relay messages on your behalf.
+
+
+## Implementation
+
+ - [pallet-hyperbridge](https://github.com/polytope-labs/hyperbridge/blob/main/modules/pallets/hyperbridge/src/lib.rs)

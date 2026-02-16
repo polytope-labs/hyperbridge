@@ -30,7 +30,7 @@ use polkadot_sdk::*;
 pub mod pallet {
 	use super::*;
 	use crate::withdrawal::WithdrawalParams;
-	use alloc::{collections::BTreeMap, vec};
+	use alloc::collections::BTreeMap;
 	use frame_support::{
 		pallet_prelude::{OptionQuery, *},
 		PalletId,

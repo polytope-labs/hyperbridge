@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use codec::{Decode, Encode};
 use primitive_types::H256;
 use rs_merkle::MerkleTree;
-use sp1_beefy::{Sp1Beefy, SP1_BEEFY};
+pub use sp1_beefy::BeefyProver;
 use sp1_beefy_primitives::{
 	AuthoritiesProof, BeefyCommitment, KeccakHasher, MmrLeafProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex,
@@ -17,24 +17,42 @@ use beefy_prover::util::hash_authority_addresses;
 use beefy_verifier_primitives::ConsensusState;
 use ismp_solidity_abi::sp1_beefy::Sp1BeefyProof;
 
+#[cfg(feature = "cluster")]
+pub use sp1_beefy::cluster::ClusterProver;
+
+#[cfg(any(feature = "local", test))]
+pub use sp1_beefy::local::LocalProver;
+
 // mod plonk;
 #[cfg(test)]
 mod tests;
 
 /// Consensus prover for zk BEEFY.
-#[derive(Clone)]
-pub struct Prover<R: subxt::Config, P: subxt::Config> {
+pub struct Prover<R: subxt::Config, P: subxt::Config, B: BeefyProver> {
 	pub inner: beefy_prover::Prover<R, P>,
-	pub sp1_beefy: Arc<Sp1Beefy>,
+	pub sp1_beefy: Arc<B>,
 }
 
-impl<R, P> Prover<R, P>
+impl<R, P, B> Clone for Prover<R, P, B>
 where
 	R: subxt::Config,
 	P: subxt::Config,
+	B: BeefyProver,
+	beefy_prover::Prover<R, P>: Clone,
 {
-	pub fn new(prover: beefy_prover::Prover<R, P>) -> Self {
-		Self { inner: prover, sp1_beefy: Arc::new(Sp1Beefy::new(true)) }
+	fn clone(&self) -> Self {
+		Self { inner: self.inner.clone(), sp1_beefy: self.sp1_beefy.clone() }
+	}
+}
+
+impl<R, P, B> Prover<R, P, B>
+where
+	R: subxt::Config,
+	P: subxt::Config,
+	B: BeefyProver,
+{
+	pub fn new(prover: beefy_prover::Prover<R, P>, sp1_beefy: B) -> Self {
+		Self { inner: prover, sp1_beefy: Arc::new(sp1_beefy) }
 	}
 
 	pub async fn consensus_proof(
@@ -149,7 +167,7 @@ where
 			},
 		};
 
-		let proof = self.sp1_beefy.prove(SP1_BEEFY, commitment)?;
+		let proof = self.sp1_beefy.prove(commitment).await?;
 
 		tracing::trace!(target: "zk_beefy", "Plonk Proof: {:#?}", hex::encode(proof.bytes()));
 		tracing::trace!(target: "zk_beefy", "Public Inputs: {:#?}", proof.public_values.raw());

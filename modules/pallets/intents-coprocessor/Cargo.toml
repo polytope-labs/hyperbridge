@@ -30,7 +30,7 @@ alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
 ismp = { workspace = true }
-pallet-ismp = { workspace = true, features = ["unsigned"] }
+pallet-ismp = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

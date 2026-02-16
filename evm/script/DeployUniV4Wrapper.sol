@@ -10,9 +10,9 @@ import {BaseScript} from "./BaseScript.sol";
 contract DeployScript is BaseScript {
     using strings for *;
 
-    function run() external {
-        vm.startBroadcast(uint256(privateKey));
-
+    /// @notice Main deployment logic - called by BaseScript's run() functions
+    /// @dev This function is called within a broadcast context
+    function deploy() internal override {
         address universalRouter = config.get("UNIVERSAL_ROUTER").toAddress();
         address quoter = config.get("V4_QUOTER").toAddress();
         uint24 defaultFee = uint24(config.get("DEFAULT_FEE").toUint256());
@@ -20,6 +20,8 @@ contract DeployScript is BaseScript {
         address weth = config.get("WETH").toAddress();
 
         UniV4UniswapV2Wrapper wrapper = new UniV4UniswapV2Wrapper{salt: salt}(admin);
+        console.log("UniV4UniswapV2Wrapper deployed at:", address(wrapper));
+
         wrapper.init(
             UniV4UniswapV2Wrapper.Params({
                 universalRouter: universalRouter,
@@ -29,6 +31,6 @@ contract DeployScript is BaseScript {
                 defaultTickSpacing: defaultTickSpacing
             })
         );
-        vm.stopBroadcast();
+        console.log("UniV4UniswapV2Wrapper initialized");
     }
 }

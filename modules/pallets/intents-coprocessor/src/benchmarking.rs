@@ -20,10 +20,14 @@
 use super::*;
 use alloc::vec;
 use frame_benchmarking::v2::*;
-use frame_support::traits::Currency;
+use frame_support::{
+	traits::{Currency, EnsureOrigin},
+	BoundedVec,
+};
 use frame_system::RawOrigin;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
+use sp_runtime::traits::ConstU32;
 
 #[benchmarks(
     where
@@ -36,7 +40,8 @@ mod benchmarks {
 	fn place_bid() {
 		let caller: T::AccountId = whitelisted_caller();
 		let commitment = H256::repeat_byte(0xff);
-		let user_op = vec![1u8; 100];
+		let user_op: BoundedVec<u8, ConstU32<1_048_576>> =
+			vec![1u8; 100].try_into().expect("user_op fits in bounds");
 
 		// Fund the caller
 		let deposit = T::StorageDepositFee::get();
@@ -54,7 +59,8 @@ mod benchmarks {
 	fn retract_bid() {
 		let caller: T::AccountId = whitelisted_caller();
 		let commitment = H256::repeat_byte(0xff);
-		let user_op = vec![1u8; 100];
+		let user_op: BoundedVec<u8, ConstU32<1_048_576>> =
+			vec![1u8; 100].try_into().expect("user_op fits in bounds");
 
 		// Fund the caller
 		let deposit = T::StorageDepositFee::get();
@@ -73,7 +79,9 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn add_deployment() {
+	fn add_deployment() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -86,14 +94,17 @@ mod benchmarks {
 		};
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, state_machine, gateway, params);
+		_(origin as T::RuntimeOrigin, state_machine, gateway, params);
 
 		// Verify gateway was added
 		assert!(Gateways::<T>::contains_key(state_machine));
+		Ok(())
 	}
 
 	#[benchmark]
-	fn update_params() {
+	fn update_params() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -106,12 +117,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(
-			RawOrigin::Root.into(),
-			state_machine,
-			gateway,
-			params.clone(),
-		);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params.clone());
 
 		let params_update = types::ParamsUpdate {
 			protocol_fee_bps: Some(U256::from(150)),
@@ -120,11 +126,15 @@ mod benchmarks {
 		};
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, state_machine, params_update);
+		_(origin as T::RuntimeOrigin, state_machine, params_update);
+
+		Ok(())
 	}
 
 	#[benchmark]
-	fn sweep_dust() {
+	fn sweep_dust() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -137,21 +147,20 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(
-			RawOrigin::Root.into(),
-			state_machine,
-			gateway,
-			params.clone(),
-		);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params.clone());
 
 		let dust_params = types::SweepDust { beneficiary: H160::default(), outputs: vec![] };
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, state_machine, dust_params);
+		_(origin as T::RuntimeOrigin, state_machine, dust_params);
+
+		Ok(())
 	}
 
 	#[benchmark]
-	fn update_token_decimals() {
+	fn update_token_decimals() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
 		let state_machine = StateMachine::Evm(1);
 		let gateway = H160::default();
 		let params = types::IntentGatewayParams {
@@ -164,7 +173,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(RawOrigin::Root.into(), state_machine, gateway, params);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params);
 
 		let updates = vec![types::TokenDecimalsUpdate {
 			source_chain: vec![1u8; 10],
@@ -172,7 +181,9 @@ mod benchmarks {
 		}];
 
 		#[extrinsic_call]
-		_(RawOrigin::Root, state_machine, updates);
+		_(origin as T::RuntimeOrigin, state_machine, updates);
+
+		Ok(())
 	}
 
 	impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::tests::Test);

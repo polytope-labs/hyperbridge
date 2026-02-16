@@ -18,7 +18,7 @@ tendermint-primitives = { workspace = true }
 tendermint-verifier = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }
-tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 cometbft = { workspace = true }
 cometbft-rpc = { workspace = true }
 geth-primitives = { workspace = true }

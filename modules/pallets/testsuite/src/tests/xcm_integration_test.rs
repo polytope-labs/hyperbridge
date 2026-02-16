@@ -165,9 +165,8 @@ async fn should_dispatch_ismp_request_when_xcm_is_received() -> anyhow::Result<(
 					ismp::events::Event::PostRequest(post) => Some(post),
 					_ => None,
 				}) {
-					let body =
-						pallet_token_gateway::types::Body::abi_decode(&mut &post.body[1..], true)
-							.unwrap();
+					let body = pallet_token_gateway::types::Body::abi_decode(&mut &post.body[1..])
+						.unwrap();
 					let to = alloy_primitives::FixedBytes::<32>::from_slice(
 						&vec![vec![0u8; 12], vec![1u8; 20]].concat(),
 					);

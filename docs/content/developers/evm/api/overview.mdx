@@ -1,0 +1,92 @@
+---
+title: Overview
+description: Overview of Hyperbridge core interfaces and libraries for building cross-chain applications.
+---
+
+# API Reference Overview
+
+Complete API documentation for the Hyperbridge core contracts and interfaces. These are the building blocks for developing cross-chain applications on Hyperbridge.
+
+## Core Interfaces
+
+### [IHost](/developers/evm/api/ihost)
+
+The central contract that manages the ISMP protocol state. Every chain has one `IHost` deployment.
+
+---
+
+### [IDispatcher](/developers/evm/api/idispatcher)
+
+Interface for dispatching outgoing cross-chain messages. Applications use these methods to send messages.
+
+---
+
+### [IHandler](/developers/evm/api/ihandler)
+
+Verifies and processes incoming ISMP messages. Handles all message delivery and timeout processing.
+
+---
+
+### [IConsensus](/developers/evm/api/iconsensus)
+
+Interface for consensus clients that verify Hyperbridge's finality.
+
+---
+
+### [IApp](/developers/evm/api/iapp)
+
+Interface applications must implement to receive cross-chain messages.
+
+**Recommendation:** Extend `HyperApp` instead of implementing `IApp` directly for helper utilities.
+
+---
+
+### [HyperApp](/developers/evm/api/hyperapp)
+
+Abstract base contract for building cross-chain applications with built-in utilities.
+
+**Recommendation:** Use this instead of implementing `IApp` directly for simplified development and built-in fee handling.
+
+---
+
+## Libraries
+
+### [StateMachine](/developers/evm/api/statemachine)
+
+Utility library for encoding and decoding state machine identifiers.
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Your App (HyperApp)                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │  onAccept()  │  │ onResponse() │  │ onGetResp()  │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+└─────────────────────────────────────────────────────────────┘
+                            ▲  │
+                            │  │ dispatch(DispatchPost)
+                            │  ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    IHost / IDispatcher                      │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────┐        │
+│  │   State     │  │   Consensus  │  │   Requests   │        │
+│  │ Management  │  │     State    │  │   Tracking   │        │
+│  └─────────────┘  └──────────────┘  └──────────────┘        │
+└─────────────────────────────────────────────────────────────┘
+                            ▲ 
+      dispatch(PostRequest) │
+      etc                   │
+                            │
+┌─────────────────────────────────────────────────────────────┐
+│                        IHandler                             │ ┌─────────────────┐
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │◄┤   Relayers      │
+│  │   Verify     │  │   Process    │  │   Dispatch   │       │ │  Entry Point    │
+│  │   Proofs     │  │   Messages   │  │   to Apps    │       │ └─────────────────┘
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---

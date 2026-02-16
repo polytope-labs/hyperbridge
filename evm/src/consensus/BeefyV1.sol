@@ -14,54 +14,30 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import "./Codec.sol";
+import {Codec} from "./Codec.sol";
+import {Header, HeaderImpl} from "./Header.sol";
+import {
+    Vote,
+    RelayChainProof,
+    BeefyConsensusProof,
+    Commitment,
+    BeefyConsensusState,
+    PartialBeefyMmrLeaf,
+    Parachain,
+    ParachainProof
+} from "./Types.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
 import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
-import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+import {Node, StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
-
-struct Vote {
-    // secp256k1 signature from a member of the authority set
-    bytes signature;
-    // This member's index in the set
-    uint256 authorityIndex;
-}
-
-// The signed commitment holds a commitment to the latest
-// finalized state as well as votes from a supermajority
-// of the authority set which confirms this state
-struct SignedCommitment {
-    // A commitment to the finalized state
-    Commitment commitment;
-    // The confirming votes
-    Vote[] votes;
-}
-
-struct RelayChainProof {
-    // Signed commitment
-    SignedCommitment signedCommitment;
-    // Latest leaf added to mmr
-    BeefyMmrLeaf latestMmrLeaf;
-    // Proof for the latest mmr leaf
-    bytes32[] mmrProof;
-    // Proof for authorities in current/next session
-    Node[][] proof;
-}
-
-struct BeefyConsensusProof {
-    // The proof items for the relay chain consensus
-    RelayChainProof relay;
-    // Proof items for parachain headers
-    ParachainProof parachain;
-}
 
 /**
  * @title The BEEFY Consensus Client.

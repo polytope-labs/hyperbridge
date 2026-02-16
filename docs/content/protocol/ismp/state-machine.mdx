@@ -1,0 +1,67 @@
+---
+title: State Machine Client
+description: The ISMP protocol specification for state machine clients
+---
+
+# State Machine Client
+
+Now that we have a way to verify the consensus proofs of a blockchain in a fully byzantine fault tolerant manner. We might like to read the state of the blockchain. This allows us to execute any outgoing requests addressed to us, stored in the state trie of the counterparty blockchain. In order to read the state of the blockchain we’ll make use of state proofs. Different blockchains may adopt different kinds of state tries. eg Merkle-patricia, IAVL, Verkle tries, Binary merkle trees, whatever the case may be, it is also the responsibility of the consensus client to provide the ISMP framework with an implementation of the `StateMachineClient`.
+
+The state machine client is an abstraction over the state proof scheme of a given state machine. By decoupling the `ConsensusClient` from the `StateMachineClient` which are typically combined to form a _light client_, the ISMP framework allows a consensus client to support multiple state machines, each potentially using different state proof schemes. This abstraction makes ISMP future-proof, enabling deployment on both monolithic and modular blockchain architectures, including Polkadot, Ethereum, and others.
+
+```rust showLineNumbers
+/// Convenience enum
+pub enum RequestResponse {
+    /// A batch of requests
+    Request(Vec<Request>),
+    /// A batch of responses
+    Response(Vec<Response>),
+}
+
+/// Proof holds the relevant proof data for the context in which it's used.
+pub struct Proof {
+    /// The state machine identifier
+    pub id: StateMachineId,
+    /// the corresponding block height
+    pub height: u64,
+    /// Serialized proof
+    pub proof: Vec<u8>,
+}
+
+/// A state machine client. An abstraction for the mechanism of state proof verification for state
+/// machines
+pub trait StateMachineClient {
+    /// Verify the overlay membership proof of a batch of requests/responses.
+    fn verify_membership(
+        &self,
+        host: &dyn IsmpHost,
+        item: RequestResponse,
+        root: StateCommitment,
+        proof: &Proof,
+    ) -> Result<(), Error>;
+
+    /// Transform the requests/responses into their equivalent key in the state trie.
+    fn state_trie_key(&self, request: RequestResponse) -> Vec<Vec<u8>>;
+
+    /// Verify the state of proof of some arbitrary data. Should return the verified data
+    fn verify_state_proof(
+        &self,
+        host: &dyn IsmpHost,
+        keys: Vec<Vec<u8>>,
+        root: StateCommitment,
+        proof: &Proof,
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error>;
+}
+```
+
+## `verify_membership`
+
+Since the ISMP framework permits the the `IsmpHost` to persist the outgoing requests and responses in an _overlay tree_. The `StateMachineClient` must provide the verification algorithm for this overlay tree through the `verify_membership` method. If the host is unable to leverage an overlay trie, then this method will simply verify the state proofs of requests and responses.
+
+## `state_trie_key`
+
+The ISMP framework does not enforce where requests & responses should be persisted in the state trie and allows state machines to store them wherever they like provided that they can describe a path to the request/response committed in storage given the full request/response.
+
+## `verify_state_proof`
+
+Given a `StateCommitment`, an arbitrary set of keys and a state proof, this method should perform state proof verification and return the verified values for provided storage keys. These keys may point to an empty leaf and as such should be represented with `Option::None`. This signals a non-membership proof for the provided keys which is used in request timeouts. State proof verification is also used in handling `Response::Get` in order to verify the storage values requested in the `Request::Get`

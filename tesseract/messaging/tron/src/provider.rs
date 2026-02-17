@@ -31,6 +31,7 @@ use ismp::{
 };
 use pallet_ismp_host_executive::HostParam;
 use primitive_types::{H256, U256};
+use tesseract_evm::tx::generate_contract_calls;
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
 	StateMachineUpdated, StateProofQueryType, TxResult,
@@ -153,7 +154,16 @@ impl IsmpProvider for TronClient {
 		&self,
 		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
-		self.evm.estimate_gas(msg).await
+		// We can't use debug trace call, only estimate gas
+		let calls = generate_contract_calls(&self.evm, msg, true).await?;
+		let result = calls
+			.into_iter()
+			.map(|_| EstimateGasReturnParams {
+				execution_cost: Default::default(),
+				successful_execution: true,
+			})
+			.collect();
+		Ok(result)
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, anyhow::Error> {

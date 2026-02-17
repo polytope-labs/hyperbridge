@@ -15,42 +15,27 @@
 
 #![cfg(test)]
 
-use pharos_primitives::{spv, Config, PharosProofNode, Testnet, STAKING_CONTRACT_ADDRESS};
+use pharos_primitives::{spv, Config, Testnet, STAKING_CONTRACT_ADDRESS};
 use pharos_prover::{
-	rpc::{hex_to_bytes, hex_to_h256, PharosRpcClient, RpcProofNode},
-	PharosProver,
+	rpc::{hex_to_bytes, PharosRpcClient},
+	rpc_to_proof_nodes, PharosProver,
 };
 use primitive_types::{H160, H256, U256};
 use std::sync::Arc;
 
 const ATLANTIC_RPC: &str = "https://atlantic-rpc.dplabs-internal.com";
 
-/// Convert RPC proof nodes to PharosProofNode format.
-fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Vec<PharosProofNode> {
-	nodes
-		.iter()
-		.filter_map(|n| {
-			let proof_node = hex_to_bytes(&n.proof_node).ok()?;
-			Some(PharosProofNode {
-				proof_node,
-				next_begin_offset: n.next_begin_offset,
-				next_end_offset: n.next_end_offset,
-			})
-		})
-		.collect()
-}
-
 #[tokio::test]
 #[ignore]
 async fn test_pharos_account_proof_verification() {
-	let rpc = PharosRpcClient::new(ATLANTIC_RPC);
+	let rpc = PharosRpcClient::new(ATLANTIC_RPC).expect("Failed to create RPC client");
 
 	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
 	let target_block = block_number.saturating_sub(5);
 	println!("Testing at block: {}", target_block);
 
-	let block = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
-	let state_root = hex_to_h256(&block.state_root).expect("Failed to parse state_root");
+	let header = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
+	let state_root = header.state_root;
 	println!("State root: {:?}", state_root);
 
 	let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
@@ -64,7 +49,8 @@ async fn test_pharos_account_proof_verification() {
 	println!("Storage hash: {}", proof.storage_hash);
 	println!("Raw value length: {}", proof.raw_value.len());
 
-	let account_proof_nodes = rpc_to_proof_nodes(&proof.account_proof);
+	let account_proof_nodes =
+		rpc_to_proof_nodes(&proof.account_proof).expect("Failed to convert account proof nodes");
 	let raw_value = hex_to_bytes(&proof.raw_value).expect("Failed to parse raw_value");
 
 	assert!(!account_proof_nodes.is_empty(), "Account proof should not be empty");
@@ -81,14 +67,14 @@ async fn test_pharos_account_proof_verification() {
 #[tokio::test]
 #[ignore]
 async fn test_pharos_storage_proof_verification() {
-	let rpc = PharosRpcClient::new(ATLANTIC_RPC);
+	let rpc = PharosRpcClient::new(ATLANTIC_RPC).expect("Failed to create RPC client");
 
 	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
 	let target_block = block_number.saturating_sub(5);
 	println!("Testing at block: {}", target_block);
 
-	let block = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
-	let state_root = hex_to_h256(&block.state_root).expect("Failed to parse state_root");
+	let header = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
+	let state_root = header.state_root;
 	println!("State root: {:?}", state_root);
 
 	let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
@@ -102,7 +88,8 @@ async fn test_pharos_storage_proof_verification() {
 	println!("Storage proof entries: {}", proof.storage_proof.len());
 	println!("Storage hash: {}", proof.storage_hash);
 
-	let account_proof_nodes = rpc_to_proof_nodes(&proof.account_proof);
+	let account_proof_nodes =
+		rpc_to_proof_nodes(&proof.account_proof).expect("Failed to convert account proof nodes");
 	let raw_value = hex_to_bytes(&proof.raw_value).expect("Failed to parse raw_value");
 	let address_bytes: [u8; 20] = address.0;
 
@@ -113,8 +100,15 @@ async fn test_pharos_storage_proof_verification() {
 
 	assert!(!proof.storage_proof.is_empty(), "Should have at least one storage proof");
 	let storage_entry = &proof.storage_proof[0];
-	let storage_proof_nodes = rpc_to_proof_nodes(&storage_entry.proof);
-	let storage_hash = hex_to_h256(&proof.storage_hash).expect("Failed to parse storage_hash");
+	let storage_proof_nodes =
+		rpc_to_proof_nodes(&storage_entry.proof).expect("Failed to convert storage proof nodes");
+
+	// Extract storage hash from the verified account value.
+	// In Pharos's flat trie, the per-account storage root is empty,
+	// so we fall back to state_root for storage proof verification.
+	let decoded_root = spv::decode_storage_root(&raw_value)
+		.expect("Failed to decode account value");
+	let storage_hash = if decoded_root == [0u8; 32] { state_root.0 } else { decoded_root };
 
 	println!("Storage key: {}", storage_entry.key);
 	println!("Storage value: {}", storage_entry.value);
@@ -143,7 +137,7 @@ async fn test_pharos_storage_proof_verification() {
 		&address_bytes,
 		&storage_key,
 		&padded_value,
-		&storage_hash.0,
+		&storage_hash,
 	);
 
 	assert!(storage_valid, "Storage proof verification should pass for totalStake");
@@ -153,14 +147,14 @@ async fn test_pharos_storage_proof_verification() {
 #[tokio::test]
 #[ignore]
 async fn test_pharos_multiple_storage_proofs() {
-	let rpc = PharosRpcClient::new(ATLANTIC_RPC);
+	let rpc = PharosRpcClient::new(ATLANTIC_RPC).expect("Failed to create RPC client");
 
 	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
 	let target_block = block_number.saturating_sub(5);
 	println!("Testing at block: {}", target_block);
 
-	let block = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
-	let state_root = hex_to_h256(&block.state_root).expect("Failed to parse state_root");
+	let header = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
+	let state_root = header.state_root;
 
 	let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
 	let total_stake_slot = H256(U256::from(6u64).to_big_endian());
@@ -176,7 +170,8 @@ async fn test_pharos_multiple_storage_proofs() {
 		.await
 		.expect("Failed to get proof for epochLength");
 
-	let account_proof_nodes = rpc_to_proof_nodes(&proof_stake.account_proof);
+	let account_proof_nodes = rpc_to_proof_nodes(&proof_stake.account_proof)
+		.expect("Failed to convert account proof nodes");
 	let raw_value = hex_to_bytes(&proof_stake.raw_value).expect("Failed to parse raw_value");
 	let address_bytes: [u8; 20] = address.0;
 
@@ -185,11 +180,16 @@ async fn test_pharos_multiple_storage_proofs() {
 	assert!(account_valid, "Account proof verification should pass");
 	println!("Account proof verification: PASSED");
 
-	let storage_hash =
-		hex_to_h256(&proof_stake.storage_hash).expect("Failed to parse storage_hash");
+	// Extract storage hash from the verified account value.
+	// In Pharos's flat trie, the per-account storage root is empty,
+	// so we fall back to state_root for storage proof verification.
+	let decoded_root = spv::decode_storage_root(&raw_value)
+		.expect("Failed to decode account value");
+	let storage_hash = if decoded_root == [0u8; 32] { state_root.0 } else { decoded_root };
 	assert!(!proof_stake.storage_proof.is_empty(), "Should have storage proof for totalStake");
 	let stake_entry = &proof_stake.storage_proof[0];
-	let stake_proof_nodes = rpc_to_proof_nodes(&stake_entry.proof);
+	let stake_proof_nodes =
+		rpc_to_proof_nodes(&stake_entry.proof).expect("Failed to convert storage proof nodes");
 
 	let stake_value_bytes =
 		hex_to_bytes(&stake_entry.value).expect("Failed to parse totalStake value");
@@ -213,19 +213,23 @@ async fn test_pharos_multiple_storage_proofs() {
 		&address_bytes,
 		&stake_key,
 		&stake_padded,
-		&storage_hash.0,
+		&storage_hash,
 	);
 	assert!(stake_valid, "Storage proof for totalStake should pass");
 	println!("Storage proof [totalStake] verification: PASSED");
 
-	let epoch_storage_hash =
-		hex_to_h256(&proof_epoch.storage_hash).expect("Failed to parse storage_hash");
+	let epoch_raw_value =
+		hex_to_bytes(&proof_epoch.raw_value).expect("Failed to parse epoch raw_value");
+	let epoch_decoded_root = spv::decode_storage_root(&epoch_raw_value)
+		.expect("Failed to decode epoch account value");
+	let epoch_storage_hash = if epoch_decoded_root == [0u8; 32] { state_root.0 } else { epoch_decoded_root };
 	assert!(
 		!proof_epoch.storage_proof.is_empty(),
 		"Should have storage proof for epochLength"
 	);
 	let epoch_entry = &proof_epoch.storage_proof[0];
-	let epoch_proof_nodes = rpc_to_proof_nodes(&epoch_entry.proof);
+	let epoch_proof_nodes =
+		rpc_to_proof_nodes(&epoch_entry.proof).expect("Failed to convert storage proof nodes");
 
 	let epoch_value_bytes =
 		hex_to_bytes(&epoch_entry.value).expect("Failed to parse epochLength value");
@@ -249,7 +253,7 @@ async fn test_pharos_multiple_storage_proofs() {
 		&address_bytes,
 		&epoch_key,
 		&epoch_padded,
-		&epoch_storage_hash.0,
+		&epoch_storage_hash,
 	);
 	assert!(epoch_valid, "Storage proof for epochLength should pass");
 	println!("Storage proof [epochLength] verification: PASSED");

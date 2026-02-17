@@ -20,7 +20,6 @@ pub mod rpc;
 
 pub use error::ProverError;
 
-use geth_primitives::CodecHeader;
 use pharos_primitives::{
 	BlockProof, BlsPublicKey, Config, PharosProofNode, ValidatorInfo, ValidatorSet,
 	ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
@@ -28,10 +27,9 @@ use pharos_primitives::{
 use pharos_verifier::state_proof::StakingContractLayout;
 use primitive_types::{H160, H256, U256};
 use rpc::{
-	hex_to_bytes, hex_to_h256, hex_to_u64, PharosRpcClient, RpcBlock, RpcBlockProof, RpcProofNode,
-	RpcValidatorInfo,
+	hex_to_bytes, hex_to_u64, PharosRpcClient, RpcBlockProof, RpcProofNode, RpcValidatorInfo,
 };
-use std::{marker::PhantomData, sync::Arc};
+use std::{collections::BTreeMap, marker::PhantomData, sync::Arc};
 
 /// Pharos prover for constructing light client updates.
 #[derive(Clone)]
@@ -43,21 +41,24 @@ pub struct PharosProver<C: Config> {
 
 impl<C: Config> PharosProver<C> {
 	/// Create a new prover with the given RPC endpoint.
-	pub fn new(endpoint: impl Into<String>) -> Self {
-		Self {
-			rpc: Arc::new(PharosRpcClient::new(endpoint)),
+	pub fn new(endpoint: impl Into<String>) -> Result<Self, ProverError> {
+		Ok(Self {
+			rpc: Arc::new(PharosRpcClient::new(endpoint)?),
 			storage_layout: StakingContractLayout::default(),
 			_config: PhantomData,
-		}
+		})
 	}
 
 	/// Create a new prover with a custom storage layout.
-	pub fn with_storage_layout(endpoint: impl Into<String>, layout: StakingContractLayout) -> Self {
-		Self {
-			rpc: Arc::new(PharosRpcClient::new(endpoint)),
+	pub fn with_storage_layout(
+		endpoint: impl Into<String>,
+		layout: StakingContractLayout,
+	) -> Result<Self, ProverError> {
+		Ok(Self {
+			rpc: Arc::new(PharosRpcClient::new(endpoint)?),
 			storage_layout: layout,
 			_config: PhantomData,
-		}
+		})
 	}
 
 	/// Fetch the latest block number from the node.
@@ -75,8 +76,7 @@ impl<C: Config> PharosProver<C> {
 		&self,
 		block_number: u64,
 	) -> Result<VerifierStateUpdate, ProverError> {
-		let block = self.rpc.get_block_by_number(block_number).await?;
-		let header = self.convert_block_to_header(&block)?;
+		let header = self.rpc.get_block_by_number(block_number).await?;
 
 		let rpc_proof = self.rpc.get_block_proof(block_number).await?;
 		let block_proof = self.convert_rpc_block_proof(&rpc_proof)?;
@@ -161,9 +161,9 @@ impl<C: Config> PharosProver<C> {
 
 		// Get validator count from activePoolIds length (slot 1)
 		let validator_count = if base_proof.storage_proof.len() >= 2 {
-			hex_to_u64(&base_proof.storage_proof[1].value).unwrap_or(0)
+			hex_to_u64(&base_proof.storage_proof[1].value)?
 		} else {
-			0
+			return Err(ProverError::MissingStorageProof("activePoolIds length"));
 		};
 
 		// Fetch pool IDs from the activePoolIds array
@@ -172,11 +172,11 @@ impl<C: Config> PharosProver<C> {
 			pool_id_keys.push(self.array_element_key(self.storage_layout.active_pool_set_slot, i));
 		}
 
-		let pool_id_proof = if !pool_id_keys.is_empty() {
-			self.rpc.get_proof(address, pool_id_keys.clone(), block_number).await?
-		} else {
-			base_proof.clone()
-		};
+		if pool_id_keys.is_empty() {
+			return Err(ProverError::MissingStorageProof("activePoolIds array is empty"));
+		}
+
+		let pool_id_proof = self.rpc.get_proof(address, pool_id_keys.clone(), block_number).await?;
 
 		// Extract pool IDs
 		let mut pool_ids = Vec::new();
@@ -189,68 +189,49 @@ impl<C: Config> PharosProver<C> {
 			pool_ids.push(H256::from(padded));
 		}
 
-		// Collect storage values and proof nodes in order.
-		// Some storage keys fail with eth_getProof sometimes, therefore
-		// we use batching per-validator to work Pharos RPC limitations.
-		let mut storage_proof: Vec<PharosProofNode> = Vec::new();
+		// Collect storage values and per-key proof paths.
+		// Each storage key maps to its own proof path for individual verification.
+		let mut storage_proof: BTreeMap<H256, Vec<PharosProofNode>> = BTreeMap::new();
 		let mut storage_values: Vec<Vec<u8>> = Vec::new();
 
 		// Use account proof from the base proof (verified against state_root)
 		let account_proof = rpc_to_proof_nodes(&base_proof.account_proof)?;
-		let storage_hash = hex_to_h256(&base_proof.storage_hash)?;
 		let raw_account_value = hex_to_bytes(&base_proof.raw_value)?;
 
-		for sp in &base_proof.storage_proof {
-			self.collect_proof_nodes(&sp.proof, &mut storage_proof)?;
+		for (i, sp) in base_proof.storage_proof.iter().enumerate() {
+			storage_proof.insert(base_keys[i], rpc_to_proof_nodes(&sp.proof)?);
 			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
-		for sp in &pool_id_proof.storage_proof {
-			self.collect_proof_nodes(&sp.proof, &mut storage_proof)?;
+		for (i, sp) in pool_id_proof.storage_proof.iter().enumerate() {
+			storage_proof.insert(pool_id_keys[i], rpc_to_proof_nodes(&sp.proof)?);
 			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
 
-		// Fetch validator data per-validator with fallback to eth_getStorageAt
-		for pool_id in &pool_ids {
-			let validator_keys = self.get_validator_storage_keys(pool_id);
+		// Fetch validator data concurrently (one RPC call per validator to work
+		// around Pharos RPC limitations on batch size).
+		let validator_futures: Vec<_> = pool_ids
+			.iter()
+			.map(|pool_id| {
+				let keys = self.get_validator_storage_keys(pool_id);
+				let rpc = self.rpc.clone();
+				async move {
+					let proof = rpc.get_proof(address, keys.clone(), block_number).await?;
+					Ok::<_, ProverError>((keys, proof))
+				}
+			})
+			.collect();
 
-			match self.rpc.get_proof(address, validator_keys.clone(), block_number).await {
-				Ok(val_proof) =>
-					for sp in &val_proof.storage_proof {
-						self.collect_proof_nodes(&sp.proof, &mut storage_proof)?;
-						storage_values.push(hex_to_bytes(&sp.value)?);
-					},
-				Err(_) => {
-					// Fallback: fetch each key via eth_getStorageAt
-					for key in &validator_keys {
-						let value = self.rpc.get_storage_at(address, *key, block_number).await?;
-						storage_values.push(hex_to_bytes(&value)?);
-					}
-				},
+		let validator_results = futures::future::join_all(validator_futures).await;
+
+		for result in validator_results {
+			let (validator_keys, val_proof) = result?;
+			for (j, sp) in val_proof.storage_proof.iter().enumerate() {
+				storage_proof.insert(validator_keys[j], rpc_to_proof_nodes(&sp.proof)?);
+				storage_values.push(hex_to_bytes(&sp.value)?);
 			}
 		}
 
-		Ok(ValidatorSetProof {
-			account_proof,
-			storage_proof,
-			storage_hash,
-			raw_account_value,
-			storage_values,
-		})
-	}
-
-	/// Collect unique proof nodes from an RPC proof response.
-	fn collect_proof_nodes(
-		&self,
-		rpc_nodes: &[RpcProofNode],
-		target: &mut Vec<PharosProofNode>,
-	) -> Result<(), ProverError> {
-		let nodes = rpc_to_proof_nodes(rpc_nodes)?;
-		for node in nodes {
-			if !target.contains(&node) {
-				target.push(node);
-			}
-		}
-		Ok(())
+		Ok(ValidatorSetProof { account_proof, storage_proof, raw_account_value, storage_values })
 	}
 
 	/// Calculate the storage key for a dynamic array element.
@@ -302,76 +283,6 @@ impl<C: Config> PharosProver<C> {
 		keys
 	}
 
-	/// Convert RPC block to CodecHeader.
-	fn convert_block_to_header(&self, block: &RpcBlock) -> Result<CodecHeader, ProverError> {
-		use ethabi::ethereum_types::H64;
-
-		Ok(CodecHeader {
-			parent_hash: hex_to_h256(&block.parent_hash)?,
-			uncle_hash: hex_to_h256(&block.sha3_uncles)?,
-			coinbase: {
-				let bytes = hex_to_bytes(&block.miner)?;
-				if bytes.len() != 20 {
-					return Err(ProverError::InvalidAddressLength(bytes.len()));
-				}
-				H160::from_slice(&bytes)
-			},
-			state_root: hex_to_h256(&block.state_root)?,
-			transactions_root: hex_to_h256(&block.transactions_root)?,
-			receipts_root: hex_to_h256(&block.receipts_root)?,
-			logs_bloom: {
-				let bytes = hex_to_bytes(&block.logs_bloom)?;
-				if bytes.len() != 256 {
-					return Err(ProverError::InvalidLogsBloomLength(bytes.len()));
-				}
-				let mut bloom = [0u8; 256];
-				bloom.copy_from_slice(&bytes);
-				bloom.into()
-			},
-			difficulty: U256::from_str_radix(block.difficulty.trim_start_matches("0x"), 16)
-				.unwrap_or_default(),
-			number: U256::from_str_radix(block.number.trim_start_matches("0x"), 16)
-				.unwrap_or_default(),
-			gas_limit: hex_to_u64(&block.gas_limit)?,
-			gas_used: hex_to_u64(&block.gas_used)?,
-			timestamp: hex_to_u64(&block.timestamp)?,
-			extra_data: hex_to_bytes(&block.extra_data)?,
-			mix_hash: H256::default(),
-			nonce: {
-				let bytes =
-					block.nonce.as_ref().map(|n| hex_to_bytes(n)).transpose()?.unwrap_or_default();
-				if bytes.len() == 8 {
-					let mut arr = [0u8; 8];
-					arr.copy_from_slice(&bytes);
-					H64::from(arr)
-				} else {
-					H64::default()
-				}
-			},
-			base_fee_per_gas: block
-				.base_fee_per_gas
-				.as_ref()
-				.and_then(|f| U256::from_str_radix(f.trim_start_matches("0x"), 16).ok()),
-			withdrawals_hash: block
-				.withdrawals_root
-				.as_ref()
-				.map(|r| hex_to_h256(r))
-				.transpose()?,
-			blob_gas_used: block.blob_gas_used.as_ref().map(|g| hex_to_u64(g)).transpose()?,
-			excess_blob_gas_used: block
-				.excess_blob_gas
-				.as_ref()
-				.map(|g| hex_to_u64(g))
-				.transpose()?,
-			parent_beacon_root: block
-				.parent_beacon_block_root
-				.as_ref()
-				.map(|r| hex_to_h256(r))
-				.transpose()?,
-			requests_hash: None,
-		})
-	}
-
 	/// Convert RPC block proof to BlockProof.
 	fn convert_rpc_block_proof(
 		&self,
@@ -394,7 +305,7 @@ impl<C: Config> PharosProver<C> {
 }
 
 /// Convert RPC proof nodes to PharosProofNode format.
-fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Result<Vec<PharosProofNode>, ProverError> {
+pub fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Result<Vec<PharosProofNode>, ProverError> {
 	nodes
 		.iter()
 		.map(|n| {
@@ -407,12 +318,7 @@ fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Result<Vec<PharosProofNode>, Pr
 		.collect()
 }
 
-/// Simple keccak256 implementation using tiny_keccak.
+/// Keccak256 hash using sp_core.
 fn keccak256(data: &[u8]) -> [u8; 32] {
-	use tiny_keccak::{Hasher, Keccak};
-	let mut hasher = Keccak::v256();
-	let mut output = [0u8; 32];
-	hasher.update(data);
-	hasher.finalize(&mut output);
-	output
+	sp_core::keccak_256(data)
 }

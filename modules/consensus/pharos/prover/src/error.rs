@@ -81,4 +81,16 @@ pub enum ProverError {
 	/// Missing storage value
 	#[error("Missing storage value at slot index {0}")]
 	MissingStorageValue(usize),
+
+	/// Missing storage proof in eth_getProof response
+	#[error("Missing storage proof for {0}")]
+	MissingStorageProof(&'static str),
+
+	/// Invalid RPC URL
+	#[error("Invalid RPC URL: {0}")]
+	InvalidUrl(String),
+
+	/// Provider transport error
+	#[error("Provider error: {0}")]
+	ProviderError(String),
 }

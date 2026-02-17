@@ -10,7 +10,6 @@ publish = false
 codec = { workspace = true, features = ["derive"] }
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
-alloy-rlp-derive = { workspace = true }
 crypto-utils = { workspace = true, default-features = false }
 primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
 hex-literal = { workspace = true }

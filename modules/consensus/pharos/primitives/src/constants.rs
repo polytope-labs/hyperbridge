@@ -42,6 +42,9 @@ pub const PHAROS_MAINNET_CHAIN_ID: u32 = 688600;
 /// Pharos Atlantic Testnet chain ID
 pub const PHAROS_ATLANTIC_CHAIN_ID: u32 = 688689;
 
+/// Default withdraw window in epochs from the Pharos staking contract.
+pub const DEFAULT_WITHDRAW_WINDOW_EPOCHS: u64 = 84;
+
 /// Configuration trait for Pharos network parameters.
 pub trait Config: Clone + Send + Sync {
 	/// The epoch length in seconds
@@ -55,6 +58,10 @@ pub trait Config: Clone + Send + Sync {
 
 	/// Network identifier
 	const ID: [u8; 4];
+
+	/// The unstaking period in seconds (withdraw_window_epochs × epoch_length_secs).
+	/// Defaults to `DEFAULT_WITHDRAW_WINDOW_EPOCHS × EPOCH_LENGTH_SECS`.
+	const UNBONDING_PERIOD: u64 = DEFAULT_WITHDRAW_WINDOW_EPOCHS * Self::EPOCH_LENGTH_SECS;
 
 	/// Calculate the epoch number for a given block number
 	fn compute_epoch(block_number: u64) -> u64 {

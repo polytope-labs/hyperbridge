@@ -14,15 +14,24 @@
 // limitations under the License.
 
 //! RPC client for Pharos node interactions.
+//!
+//! Standard Ethereum JSON-RPC calls (`eth_blockNumber`, `eth_getBlockByNumber`)
+//! are handled via the alloy provider. Pharos-specific endpoints that use
+//! non-standard response formats (`eth_getProof`, `debug_getBlockProof`,
+//! `debug_getValidatorInfo`) are called through a raw reqwest client.
 
 use crate::ProverError;
-use primitive_types::{H160, H256};
+use alloy_eips::BlockNumberOrTag;
+use alloy_provider::{Provider, RootProvider};
+use ethabi::ethereum_types::H64;
+use geth_primitives::CodecHeader;
+use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// JSON-RPC request structure.
 #[derive(Debug, Serialize)]
-pub struct JsonRpcRequest<P> {
+struct JsonRpcRequest<P> {
 	pub jsonrpc: &'static str,
 	pub method: &'static str,
 	pub params: P,
@@ -30,25 +39,28 @@ pub struct JsonRpcRequest<P> {
 }
 
 impl<P> JsonRpcRequest<P> {
-	pub fn new(method: &'static str, params: P, id: u64) -> Self {
+	fn new(method: &'static str, params: P, id: u64) -> Self {
 		Self { jsonrpc: "2.0", method, params, id }
 	}
 }
 
 /// JSON-RPC response structure.
 #[derive(Debug, Deserialize)]
-pub struct JsonRpcResponse<T> {
+struct JsonRpcResponse<T> {
+	#[allow(dead_code)]
 	pub jsonrpc: String,
 	pub result: Option<T>,
 	pub error: Option<JsonRpcError>,
+	#[allow(dead_code)]
 	pub id: u64,
 }
 
 /// JSON-RPC error structure.
 #[derive(Debug, Deserialize)]
-pub struct JsonRpcError {
+struct JsonRpcError {
 	pub code: i64,
 	pub message: String,
+	#[allow(dead_code)]
 	pub data: Option<serde_json::Value>,
 }
 
@@ -66,36 +78,6 @@ pub struct RpcBlockProof {
 	pub signed_bls_keys: Vec<String>,
 }
 
-/// Block header response from `eth_getBlockByNumber`.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcBlock {
-	pub number: String,
-	pub hash: String,
-	pub parent_hash: String,
-	pub nonce: Option<String>,
-	pub sha3_uncles: String,
-	pub logs_bloom: String,
-	pub transactions_root: String,
-	pub state_root: String,
-	pub receipts_root: String,
-	pub miner: String,
-	pub difficulty: String,
-	pub total_difficulty: Option<String>,
-	pub extra_data: String,
-	pub size: String,
-	pub gas_limit: String,
-	pub gas_used: String,
-	pub timestamp: String,
-	pub transactions: serde_json::Value,
-	pub uncles: Vec<String>,
-	pub base_fee_per_gas: Option<String>,
-	pub withdrawals_root: Option<String>,
-	pub blob_gas_used: Option<String>,
-	pub excess_blob_gas: Option<String>,
-	pub parent_beacon_block_root: Option<String>,
-}
-
 /// Single proof node in the Pharos hexary hash tree format.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +91,10 @@ pub struct RpcProofNode {
 }
 
 /// Account proof response from `eth_getProof`.
+///
+/// Uses a custom response format (Pharos hexary hash tree nodes instead of
+/// standard Ethereum MPT nodes), so this endpoint is called via raw JSON-RPC
+/// rather than the alloy provider.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcAccountProof {
@@ -151,28 +137,37 @@ pub struct RpcValidatorInfoResponse {
 }
 
 /// RPC client for Pharos node.
+///
+/// Uses an alloy provider for standard Ethereum JSON-RPC queries and a raw
+/// reqwest client for Pharos-specific debug endpoints and `eth_getProof`
+/// (which returns non-standard proof node formats).
 pub struct PharosRpcClient {
 	endpoint: String,
 	client: reqwest::Client,
+	provider: RootProvider,
 	request_id: AtomicU64,
 }
 
 impl PharosRpcClient {
-	/// Create a new RPC client.
-	pub fn new(endpoint: impl Into<String>) -> Self {
-		Self {
-			endpoint: endpoint.into(),
+	/// Create a new RPC client for the given endpoint URL.
+	pub fn new(endpoint: impl Into<String>) -> Result<Self, ProverError> {
+		let endpoint = endpoint.into();
+		let provider = RootProvider::new_http(
+			endpoint.parse().map_err(|_| ProverError::InvalidUrl(endpoint.clone()))?,
+		);
+		Ok(Self {
+			endpoint,
 			client: reqwest::Client::new(),
+			provider,
 			request_id: AtomicU64::new(1),
-		}
+		})
 	}
 
-	/// Get the next request ID.
 	fn next_id(&self) -> u64 {
 		self.request_id.fetch_add(1, Ordering::SeqCst)
 	}
 
-	/// Make a JSON-RPC call.
+	/// Make a raw JSON-RPC call for non-standard endpoints.
 	async fn call<P: Serialize, R: for<'de> Deserialize<'de>>(
 		&self,
 		method: &'static str,
@@ -192,19 +187,64 @@ impl PharosRpcClient {
 		rpc_response.result.ok_or(ProverError::MissingRpcResult)
 	}
 
+	/// Fetch the latest block number.
+	pub async fn get_block_number(&self) -> Result<u64, ProverError> {
+		self.provider
+			.get_block_number()
+			.await
+			.map_err(|e| ProverError::ProviderError(e.to_string()))
+	}
+
+	/// Fetch a block header by number, converting the response to [`CodecHeader`].
+	pub async fn get_block_by_number(&self, block_number: u64) -> Result<CodecHeader, ProverError> {
+		let block = self
+			.provider
+			.get_block_by_number(BlockNumberOrTag::Number(block_number))
+			.await
+			.map_err(|e| ProverError::ProviderError(e.to_string()))?
+			.ok_or(ProverError::BlockNotFound(block_number))?;
+
+		let h = &block.header.inner;
+
+		Ok(CodecHeader {
+			parent_hash: H256::from(h.parent_hash.0),
+			uncle_hash: H256::from(h.ommers_hash.0),
+			coinbase: H160::from(h.beneficiary.0 .0),
+			state_root: H256::from(h.state_root.0),
+			transactions_root: H256::from(h.transactions_root.0),
+			receipts_root: H256::from(h.receipts_root.0),
+			logs_bloom: {
+				let mut bloom = [0u8; 256];
+				bloom.copy_from_slice(h.logs_bloom.as_ref());
+				bloom.into()
+			},
+			difficulty: U256::from_big_endian(&h.difficulty.to_be_bytes::<32>()),
+			number: U256::from(h.number),
+			gas_limit: h.gas_limit,
+			gas_used: h.gas_used,
+			timestamp: h.timestamp,
+			extra_data: h.extra_data.to_vec(),
+			mix_hash: H256::from(h.mix_hash.0),
+			nonce: H64::from(h.nonce.0),
+			base_fee_per_gas: h.base_fee_per_gas.map(U256::from),
+			withdrawals_hash: h.withdrawals_root.map(|v| H256::from(v.0)),
+			blob_gas_used: h.blob_gas_used,
+			excess_blob_gas_used: h.excess_blob_gas,
+			parent_beacon_root: h.parent_beacon_block_root.map(|v| H256::from(v.0)),
+			requests_hash: h.requests_hash.map(|v| H256::from(v.0)),
+		})
+	}
+
 	/// Fetch block proof using `debug_getBlockProof`.
 	pub async fn get_block_proof(&self, block_number: u64) -> Result<RpcBlockProof, ProverError> {
 		let block_hex = format!("0x{:x}", block_number);
 		self.call("debug_getBlockProof", vec![block_hex]).await
 	}
 
-	/// Fetch block by number using `eth_getBlockByNumber`.
-	pub async fn get_block_by_number(&self, block_number: u64) -> Result<RpcBlock, ProverError> {
-		let block_hex = format!("0x{:x}", block_number);
-		self.call("eth_getBlockByNumber", (block_hex, false)).await
-	}
-
 	/// Fetch account and storage proofs using `eth_getProof`.
+	///
+	/// This uses the raw JSON-RPC client because Pharos returns proof nodes
+	/// in its own hexary hash tree format rather than standard Ethereum MPT nodes.
 	pub async fn get_proof(
 		&self,
 		address: H160,
@@ -218,13 +258,6 @@ impl PharosRpcClient {
 		self.call("eth_getProof", (address_hex, keys_hex, block_hex)).await
 	}
 
-	/// Fetch the latest block number using `eth_blockNumber`.
-	pub async fn get_block_number(&self) -> Result<u64, ProverError> {
-		let result: String = self.call("eth_blockNumber", Vec::<()>::new()).await?;
-		u64::from_str_radix(result.trim_start_matches("0x"), 16)
-			.map_err(|_| ProverError::InvalidNumber)
-	}
-
 	/// Fetch validator info using `debug_getValidatorInfo`.
 	pub async fn get_validator_info(
 		&self,
@@ -235,19 +268,6 @@ impl PharosRpcClient {
 			None => "latest".to_string(),
 		};
 		self.call("debug_getValidatorInfo", vec![block_param]).await
-	}
-
-	/// Fetch a single storage value using `eth_getStorageAt`.
-	pub async fn get_storage_at(
-		&self,
-		address: H160,
-		key: H256,
-		block_number: u64,
-	) -> Result<String, ProverError> {
-		let address_hex = format!("0x{:x}", address);
-		let key_hex = format!("0x{:x}", key);
-		let block_hex = format!("0x{:x}", block_number);
-		self.call("eth_getStorageAt", (address_hex, key_hex, block_hex)).await
 	}
 }
 

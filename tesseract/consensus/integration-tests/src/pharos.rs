@@ -20,6 +20,7 @@ use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
 use subxt_utils::Hyperbridge;
 use tesseract_evm::EvmConfig;
+use pharos_primitives::Config;
 use tesseract_pharos::{PharosHost, PharosHostConfig, Testnet};
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
@@ -79,7 +80,7 @@ async fn pharos_consensus_updates() -> anyhow::Result<()> {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: PHAROS_CONSENSUS_CLIENT_ID,
 			consensus_state_id: *b"PHAR",
-			unbonding_period: 60 * 60 * 27,
+			unbonding_period: Testnet::UNBONDING_PERIOD,
 			challenge_periods: vec![(StateMachine::Evm(688689), 5 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![],
 		})

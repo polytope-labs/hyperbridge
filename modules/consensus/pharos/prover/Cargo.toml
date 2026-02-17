@@ -15,6 +15,9 @@ thiserror = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { package = "serde_json", version = "1.0.99" }
-tiny-keccak = { version = "2.0", features = ["keccak"] }
+sp-core = { workspace = true }
 hex = { workspace = true }
 ethabi = { workspace = true }
+alloy-provider = { workspace = true }
+alloy-eips = { workspace = true }
+futures = { workspace = true }

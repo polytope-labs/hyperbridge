@@ -11,6 +11,7 @@ ismp = { workspace = true }
 pharos-primitives = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 geth-primitives = { workspace = true }
+evm-state-machine = { path = "../evm", default-features = false }
 
 codec = { workspace = true, default-features = false }
 primitive-types = { workspace = true }
@@ -30,6 +31,7 @@ std = [
     "pharos-primitives/std",
     "pallet-ismp-host-executive/std",
     "geth-primitives/std",
+    "evm-state-machine/std",
     "primitive-types/std",
     "ethabi/std",
     "alloy-rlp/std",

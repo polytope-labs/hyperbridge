@@ -33,17 +33,23 @@
 //! 4. Decode the validator set from the proven storage values
 
 use crate::error::Error;
-use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, vec::Vec};
 use ismp::messaging::Keccak256;
 use pharos_primitives::{
-	spv, ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS,
+	spv, PharosProofNode, ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS,
 };
 use primitive_types::{H256, U256};
 
 /// This function verifies that the provided validator set is correctly stored
 /// in the staking contract at the given block.
 ///
-/// The `epoch` parameter is the epoch this validator set will be valid for,
+/// The `epoch` parameter is the epoch this validator set will be valid for.
+///
+/// Verification steps:
+/// 1. Verify the account proof against the state root
+/// 2. Recompute expected storage keys from the storage values
+/// 3. Verify each storage value against its per-key proof path
+/// 4. Decode the verified storage values into a ValidatorSet
 pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	state_root: H256,
 	proof: &ValidatorSetProof,
@@ -60,37 +66,30 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 		return Err(Error::AccountTrieLookupFailed);
 	}
 
+	// Extract the storage root from the verified account value.
+	// The raw_account_value is RLP([nonce, balance, storage_root, code_hash]).
+	// We must use this proven storage root rather than trusting an unverified field.
+	// In Pharos's flat trie, the storage_root in the account is empty ([0u8; 32]),
+	// so we fall back to state_root since storage proofs verify against the state trie.
+	let decoded_root = spv::decode_storage_root(&proof.raw_account_value)
+		.ok_or(Error::AccountValueDecodeFailed)?;
+	let storage_hash =
+		if decoded_root == [0u8; 32] { state_root } else { H256::from(decoded_root) };
+
 	let layout = StakingContractLayout::default();
 
-	// Decode the validator set from the storage proof
-	let decoded_set = decode_validator_set_from_proof::<H>(proof, &layout, epoch)?;
+	// Recompute expected storage keys from the storage values
+	let keys = compute_all_storage_keys::<H>(&proof.storage_values, &layout)?;
+
+	// Verify each storage value against its per-key proof path
+	verify_all_storage_proofs(&keys, &proof.storage_values, &proof.storage_proof, &storage_hash)?;
+
+	// Decode the verified storage values into a ValidatorSet
+	let decoded_set = decode_validator_set_from_storage::<H>(&proof.storage_values, epoch)?;
 
 	validate_validator_set(&decoded_set)?;
 
 	Ok(decoded_set)
-}
-
-/// Decode validator set from the proof's storage data.
-///
-/// The proof contains storage values extracted from `eth_getProof` responses,
-/// ordered as: [totalStake, activePoolIds length, pool_id_0..n,
-/// validator_0_bls_header, validator_0_bls_data_0..2, validator_0_stake, ...]
-fn decode_validator_set_from_proof<H: Keccak256>(
-	proof: &ValidatorSetProof,
-	_layout: &StakingContractLayout,
-	epoch: u64,
-) -> Result<ValidatorSet, Error> {
-	if proof.storage_values.len() < 2 {
-		return Err(Error::InsufficientStorageValues {
-			expected: 2,
-			got: proof.storage_values.len(),
-		});
-	}
-
-	// The prover orders storage values in a well-known order:
-	// [totalStake, activePoolIds length, pool_id_0, ..., pool_id_n,
-	//  validator_0_bls_header, validator_0_bls_data_0..2, validator_0_stake, ...]
-	decode_validator_set_from_storage::<H>(&proof.storage_values, epoch)
 }
 
 /// Decode validator set from storage values.
@@ -149,7 +148,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	let expected_total = validators_data_start + (count * VALIDATOR_FIELDS);
 
 	// If we have detailed validator data
-	if values.len() >= expected_total {
+	if values.len() == expected_total {
 		for i in 0..count {
 			// Pool ID from activePoolIds array
 			let pool_id = {
@@ -267,6 +266,96 @@ fn decode_bls_key_from_string_slot(
 
 	let key_start = bls_bytes.len() - 48;
 	bls_bytes[key_start..].try_into().map_err(|_| Error::BlsKeyConversionFailed)
+}
+
+/// Recompute the expected storage keys in the same order as `storage_values`.
+///
+/// The order matches the prover's output:
+/// [totalStake, activePoolIds length, pool_id_0..n,
+///  validator_0_bls_header, validator_0_bls_data_0..3, validator_0_stake, ...]
+fn compute_all_storage_keys<H: Keccak256>(
+	storage_values: &[Vec<u8>],
+	layout: &StakingContractLayout,
+) -> Result<Vec<H256>, Error> {
+	if storage_values.len() < 2 {
+		return Err(Error::InsufficientStorageValues { expected: 2, got: storage_values.len() });
+	}
+
+	let mut keys = Vec::new();
+
+	// Index 0: totalStake
+	keys.push(layout.raw_slot_key(layout.total_stake_slot));
+
+	// Index 1: activePoolIds length
+	keys.push(layout.raw_slot_key(layout.active_pool_set_slot));
+
+	// Parse validator count from storage_values[1]
+	let count_val = decode_u256_from_storage(&storage_values[1])?;
+	let count = count_val.low_u64() as usize;
+
+	// Pool ID array element keys
+	for i in 0..count {
+		keys.push(layout.array_element_key::<H>(layout.active_pool_set_slot, i as u64));
+	}
+
+	// Extract pool IDs from storage values to compute validator keys
+	let pool_set_start = 2;
+	let pool_ids_end = pool_set_start + count;
+
+	if storage_values.len() < pool_ids_end {
+		return Err(Error::InsufficientPoolIds {
+			expected: pool_ids_end,
+			validators: count,
+			got: storage_values.len(),
+		});
+	}
+
+	for i in 0..count {
+		let v = &storage_values[pool_set_start + i];
+		let mut bytes = [0u8; 32];
+		if v.len() <= 32 {
+			bytes[32 - v.len()..].copy_from_slice(v);
+		}
+		let pool_id = H256::from(bytes);
+
+		let validator_keys = layout.get_validator_keys::<H>(&pool_id);
+		keys.extend(validator_keys);
+	}
+
+	Ok(keys)
+}
+
+/// Verify each storage value against its per-key proof path in the storage trie.
+fn verify_all_storage_proofs(
+	keys: &[H256],
+	values: &[Vec<u8>],
+	storage_proof: &BTreeMap<H256, Vec<PharosProofNode>>,
+	storage_hash: &H256,
+) -> Result<(), Error> {
+	if keys.len() != values.len() {
+		return Err(Error::SlotValueLengthMismatch { slots: keys.len(), values: values.len() });
+	}
+
+	let address: [u8; 20] = STAKING_CONTRACT_ADDRESS.0 .0;
+
+	for (key, value) in keys.iter().zip(values.iter()) {
+		let proof_nodes = storage_proof.get(key).ok_or(Error::StorageProofLookupFailed)?;
+
+		// Pad value to 32 bytes (left-padded, big-endian) as stored in the trie
+		let mut padded_value = [0u8; 32];
+		if value.len() <= 32 {
+			padded_value[32 - value.len()..].copy_from_slice(value);
+		} else {
+			return Err(Error::StorageValueTooLarge);
+		}
+
+		if !spv::verify_storage_proof(proof_nodes, &address, &key.0, &padded_value, &storage_hash.0)
+		{
+			return Err(Error::StorageProofLookupFailed);
+		}
+	}
+
+	Ok(())
 }
 
 /// Validate the internal consistency of a validator set.

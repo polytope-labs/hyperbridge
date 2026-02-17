@@ -85,7 +85,7 @@ impl<C: Config> PharosHost<C> {
 	/// Create a new PharosHost
 	pub async fn new(host: &PharosHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
-		let prover = PharosProver::new(&host.rpc_url);
+		let prover = PharosProver::new(&host.rpc_url)?;
 
 		Ok(Self {
 			consensus_state_id: {
@@ -241,7 +241,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 			consensus_state: initial_consensus_state.encode(),
 			consensus_client_id: PHAROS_CONSENSUS_CLIENT_ID,
 			consensus_state_id: self.consensus_state_id,
-			unbonding_period: 60 * 60 * 27,
+			unbonding_period: C::UNBONDING_PERIOD,
 			challenge_periods: vec![(self.state_machine, 5 * 60)].into_iter().collect(),
 			state_machine_commitments: vec![(
 				ismp::consensus::StateMachineId {

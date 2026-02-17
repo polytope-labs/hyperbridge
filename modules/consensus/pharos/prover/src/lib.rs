@@ -207,16 +207,70 @@ impl<C: Config> PharosProver<C> {
 			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
 
-		// Fetch validator data concurrently (one RPC call per validator to work
-		// around Pharos RPC limitations on batch size).
+		// Fetch validator data concurrently with two-phase fetching per validator.
+		// Phase 1: fetch BLS string header + stake to determine BLS data slot count.
+		// Phase 2: fetch the dynamically-computed BLS data slots.
+		// All validators run concurrently, with sequential phases per validator.
 		let validator_futures: Vec<_> = pool_ids
 			.iter()
 			.map(|pool_id| {
-				let keys = self.get_validator_storage_keys(pool_id);
+				let (bls_string_slot, stake_slot) =
+					self.get_validator_header_and_stake_keys(pool_id);
 				let rpc = self.rpc.clone();
 				async move {
-					let proof = rpc.get_proof(address, keys.clone(), block_number).await?;
-					Ok::<_, ProverError>((keys, proof))
+					// fetch BLS header + stake
+					let phase1_keys = vec![bls_string_slot, stake_slot];
+					let phase1_proof = rpc.get_proof(address, phase1_keys, block_number).await?;
+
+					if phase1_proof.storage_proof.len() < 2 {
+						return Err(ProverError::MissingStorageProof(
+							"BLS header or stake in phase 1",
+						));
+					}
+
+					// Determine BLS data slot count from the string header value
+					let header_hex = &phase1_proof.storage_proof[0].value;
+					let data_slot_count = bls_data_slots_from_hex(header_hex)?;
+
+					// fetch BLS data slots
+					let bls_data_base = H256::from(keccak256(bls_string_slot.as_bytes()));
+					let bls_data_base_pos = U256::from_big_endian(bls_data_base.as_bytes());
+					let mut data_keys = Vec::new();
+					for i in 0..data_slot_count {
+						data_keys.push(H256((bls_data_base_pos + U256::from(i)).to_big_endian()));
+					}
+
+					let phase2_proof = if !data_keys.is_empty() {
+						Some(rpc.get_proof(address, data_keys.clone(), block_number).await?)
+					} else {
+						None
+					};
+
+					// Assemble in order: [header, data_0..N, stake]
+					let mut all_keys = Vec::new();
+					let mut all_proofs = Vec::new();
+					let mut all_values = Vec::new();
+
+					// Header
+					all_keys.push(bls_string_slot);
+					all_proofs.push(rpc_to_proof_nodes(&phase1_proof.storage_proof[0].proof)?);
+					all_values.push(hex_to_bytes(&phase1_proof.storage_proof[0].value)?);
+
+					// Data slots
+					if let Some(p2) = phase2_proof {
+						for (j, sp) in p2.storage_proof.iter().enumerate() {
+							all_keys.push(data_keys[j]);
+							all_proofs.push(rpc_to_proof_nodes(&sp.proof)?);
+							all_values.push(hex_to_bytes(&sp.value)?);
+						}
+					}
+
+					// Stake
+					all_keys.push(stake_slot);
+					all_proofs.push(rpc_to_proof_nodes(&phase1_proof.storage_proof[1].proof)?);
+					all_values.push(hex_to_bytes(&phase1_proof.storage_proof[1].value)?);
+
+					Ok::<_, ProverError>((all_keys, all_proofs, all_values))
 				}
 			})
 			.collect();
@@ -224,10 +278,10 @@ impl<C: Config> PharosProver<C> {
 		let validator_results = futures::future::join_all(validator_futures).await;
 
 		for result in validator_results {
-			let (validator_keys, val_proof) = result?;
-			for (j, sp) in val_proof.storage_proof.iter().enumerate() {
-				storage_proof.insert(validator_keys[j], rpc_to_proof_nodes(&sp.proof)?);
-				storage_values.push(hex_to_bytes(&sp.value)?);
+			let (keys, proofs, values) = result?;
+			for (j, key) in keys.iter().enumerate() {
+				storage_proof.insert(*key, proofs[j].clone());
+				storage_values.push(values[j].clone());
 			}
 		}
 
@@ -243,18 +297,13 @@ impl<C: Config> PharosProver<C> {
 		H256(element_pos.to_big_endian())
 	}
 
-	/// Get storage keys for a specific validator's data.
+	/// Get the BLS string header slot and stake slot for a validator.
 	///
-	/// Returns keys for:
-	/// - BLS public key string slot (offset 3 from validator base)
-	/// - BLS public key data slots (4 slots for long string: 98 chars with "0x" prefix)
-	/// - totalStake (offset 8 from validator base)
-	fn get_validator_storage_keys(&self, pool_id: &H256) -> Vec<H256> {
+	/// These are fetched first (phase 1) to determine the dynamic BLS data slot count
+	/// from the string header value before fetching the data slots (phase 2).
+	fn get_validator_header_and_stake_keys(&self, pool_id: &H256) -> (H256, H256) {
 		const BLS_PUBLIC_KEY_OFFSET: u64 = 3;
 		const TOTAL_STAKE_OFFSET: u64 = 8;
-		const BLS_STRING_DATA_SLOTS: u64 = 4;
-
-		let mut keys = Vec::new();
 
 		// Calculate validator base slot: keccak256(pool_id || mapping_slot)
 		let mut data = [0u8; 64];
@@ -265,22 +314,10 @@ impl<C: Config> PharosProver<C> {
 		let base_slot = H256::from(keccak256(&data));
 		let base_pos = U256::from_big_endian(base_slot.as_bytes());
 
-		// BLS public key string slot (offset 3)
 		let bls_string_slot = H256((base_pos + U256::from(BLS_PUBLIC_KEY_OFFSET)).to_big_endian());
-		keys.push(bls_string_slot);
+		let stake_slot = H256((base_pos + U256::from(TOTAL_STAKE_OFFSET)).to_big_endian());
 
-		// BLS public key data slots (for long strings at keccak256(string_slot))
-		let bls_data_base = H256::from(keccak256(bls_string_slot.as_bytes()));
-		let bls_data_base_pos = U256::from_big_endian(bls_data_base.as_bytes());
-		for i in 0..BLS_STRING_DATA_SLOTS {
-			let slot_pos = bls_data_base_pos + U256::from(i);
-			keys.push(H256(slot_pos.to_big_endian()));
-		}
-
-		// totalStake slot (offset 8)
-		keys.push(H256((base_pos + U256::from(TOTAL_STAKE_OFFSET)).to_big_endian()));
-
-		keys
+		(bls_string_slot, stake_slot)
 	}
 
 	/// Convert RPC block proof to BlockProof.
@@ -316,6 +353,31 @@ pub fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Result<Vec<PharosProofNode>
 			})
 		})
 		.collect()
+}
+
+/// Determine the number of BLS data slots from a hex-encoded string header value.
+///
+/// For Solidity long strings, the header slot contains `length * 2 + 1`.
+/// The byte length is `(value - 1) / 2`, and the slot count is `ceil(length / 32)`.
+fn bls_data_slots_from_hex(hex_value: &str) -> Result<u64, ProverError> {
+	let bytes = hex_to_bytes(hex_value)?;
+	let mut padded = [0u8; 32];
+	if bytes.len() <= 32 {
+		padded[32 - bytes.len()..].copy_from_slice(&bytes);
+	}
+	let val = U256::from_big_endian(&padded);
+	let val_bytes = val.to_big_endian();
+	let lowest_byte = val_bytes[31];
+
+	if lowest_byte & 1 == 0 {
+		// Short string - data is in the header itself
+		Ok(0)
+	} else {
+		// Long string - header = length * 2 + 1
+		let length = (val - U256::from(1)) / U256::from(2);
+		let str_len = length.low_u64();
+		Ok((str_len + 31) / 32)
+	}
 }
 
 /// Keccak256 hash using sp_core.

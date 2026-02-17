@@ -105,7 +105,10 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 /// - Slot 1: activePoolIds (bytes32[] array)
 ///
 /// Values are ordered: [totalStake, poolCount, poolId_0..poolId_n,
-///   validator_0_bls_header, validator_0_bls_data_0..2, validator_0_stake, ...]
+///   validator_0_bls_header, validator_0_bls_data_0..N_0, validator_0_stake, ...]
+///
+/// The number of BLS data slots per validator varies based on whether the key
+/// was registered with or without a "0x" prefix (3 or 4 data slots respectively).
 fn decode_validator_set_from_storage<H: Keccak256>(
 	values: &[Vec<u8>],
 	epoch: u64,
@@ -117,7 +120,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 
 	// Parse global state
 	// Index 0: totalStake
-	let total_stake = decode_u256_from_storage(&values[0])?;
+	let _total_stake = decode_u256_from_storage(&values[0])?;
 
 	// Index 1: activePoolIds array length (slot 1)
 	let validator_count = decode_u256_from_storage(&values[1])?;
@@ -138,48 +141,52 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 
 	let mut validator_set = ValidatorSet::new(epoch);
 
-	// Slots per validator in the detailed proof:
-	// - 1 BLS string slot (header)
-	// - 4 BLS data slots (for long string: 98 chars with "0x" prefix)
-	// - 1 totalStake
-	const VALIDATOR_FIELDS: usize = 6;
-
-	let validators_data_start = pool_ids_end;
-	let expected_total = validators_data_start + (count * VALIDATOR_FIELDS);
-
-	// If we have detailed validator data
-	if values.len() == expected_total {
-		for i in 0..count {
-			// Pool ID from activePoolIds array
-			let pool_id = {
-				let v = &values[pool_set_start + i];
-				let mut bytes = [0u8; 32];
-				if v.len() <= 32 {
-					bytes[32 - v.len()..].copy_from_slice(v);
-				}
-				H256::from(bytes)
-			};
-
-			let base_idx = validators_data_start + (i * VALIDATOR_FIELDS);
-
-			// BLS public key: string slot at base_idx, data slots at base_idx+1..base_idx+5
-			let bls_string_slot = &Some(values[base_idx].clone());
-			let bls_data_slots: Vec<Option<Vec<u8>>> =
-				values[base_idx + 1..base_idx + 5].iter().map(|v| Some(v.clone())).collect();
-			let bls_key = decode_bls_key_from_string_slot(bls_string_slot, Some(&bls_data_slots))?;
-
-			// totalStake at base_idx + 5
-			let stake = decode_u256_from_storage(&values[base_idx + 5])?;
-
-			let validator = ValidatorInfo { bls_public_key: bls_key, pool_id, stake };
-
-			if !validator_set.add_validator(validator) {
-				return Err(Error::DuplicateValidator);
+	let mut idx = pool_ids_end;
+	for i in 0..count {
+		// Pool ID from activePoolIds array
+		let pool_id = {
+			let v = &values[pool_set_start + i];
+			let mut bytes = [0u8; 32];
+			if v.len() <= 32 {
+				bytes[32 - v.len()..].copy_from_slice(v);
 			}
+			H256::from(bytes)
+		};
+
+		// BLS header at current index
+		if idx >= values.len() {
+			return Err(Error::InsufficientStorageValues { expected: idx + 1, got: values.len() });
 		}
-	} else {
-		// Minimal proof - we need full validator data to decode the validator set
-		return Err(Error::IncompleteValidatorProof { expected: expected_total, got: values.len() });
+		let data_slots = bls_data_slots_from_header(&values[idx])?;
+
+		let bls_string_slot = &Some(values[idx].clone());
+		idx += 1;
+
+		// BLS data slots (dynamic count)
+		if idx + data_slots > values.len() {
+			return Err(Error::InsufficientStorageValues {
+				expected: idx + data_slots,
+				got: values.len(),
+			});
+		}
+		let bls_data_slots: Vec<Option<Vec<u8>>> =
+			values[idx..idx + data_slots].iter().map(|v| Some(v.clone())).collect();
+		idx += data_slots;
+
+		let bls_key = decode_bls_key_from_string_slot(bls_string_slot, Some(&bls_data_slots))?;
+
+		// totalStake
+		if idx >= values.len() {
+			return Err(Error::InsufficientStorageValues { expected: idx + 1, got: values.len() });
+		}
+		let stake = decode_u256_from_storage(&values[idx])?;
+		idx += 1;
+
+		let validator = ValidatorInfo { bls_public_key: bls_key, pool_id, stake };
+
+		if !validator_set.add_validator(validator) {
+			return Err(Error::DuplicateValidator);
+		}
 	}
 
 	log::debug!(
@@ -198,8 +205,10 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 /// - Short strings (< 32 bytes): data is stored directly in the slot, length in lowest byte
 /// - Long strings (>= 32 bytes): slot contains (length * 2 + 1), data at keccak256(slot)
 ///
-/// The BLS public key is a 48-byte value, stored as a 98-character hex string
-/// (96 hex chars + "0x" prefix), so it's a long string requiring 4 data slots.
+/// The BLS public key is a 48-byte value, stored as a hex string. The number of
+/// data slots varies based on whether the key includes a "0x" prefix:
+/// - With prefix: 98 chars → ceil(98/32) = 4 data slots
+/// - Without prefix: 96 chars → ceil(96/32) = 3 data slots
 fn decode_bls_key_from_string_slot(
 	header_value: &Option<Vec<u8>>,
 	data_slots: Option<&[Option<Vec<u8>>]>,
@@ -272,7 +281,10 @@ fn decode_bls_key_from_string_slot(
 ///
 /// The order matches the prover's output:
 /// [totalStake, activePoolIds length, pool_id_0..n,
-///  validator_0_bls_header, validator_0_bls_data_0..3, validator_0_stake, ...]
+///  validator_0_bls_header, validator_0_bls_data_0..N_0, validator_0_stake, ...]
+///
+/// The number of BLS data slots per validator is dynamically determined from
+/// each validator's BLS string header value in `storage_values`.
 fn compute_all_storage_keys<H: Keccak256>(
 	storage_values: &[Vec<u8>],
 	layout: &StakingContractLayout,
@@ -310,6 +322,9 @@ fn compute_all_storage_keys<H: Keccak256>(
 		});
 	}
 
+	// For each validator, dynamically determine the BLS data slot count
+	// from the header value in storage_values
+	let mut idx = pool_ids_end;
 	for i in 0..count {
 		let v = &storage_values[pool_set_start + i];
 		let mut bytes = [0u8; 32];
@@ -318,8 +333,20 @@ fn compute_all_storage_keys<H: Keccak256>(
 		}
 		let pool_id = H256::from(bytes);
 
-		let validator_keys = layout.get_validator_keys::<H>(&pool_id);
+		// The BLS header value is at the current index
+		if idx >= storage_values.len() {
+			return Err(Error::InsufficientStorageValues {
+				expected: idx + 1,
+				got: storage_values.len(),
+			});
+		}
+		let data_slots = bls_data_slots_from_header(&storage_values[idx])?;
+
+		let validator_keys = layout.get_validator_keys::<H>(&pool_id, data_slots);
 		keys.extend(validator_keys);
+
+		// Advance index: 1 (header) + data_slots + 1 (stake)
+		idx += 1 + data_slots + 1;
 	}
 
 	Ok(keys)
@@ -542,9 +569,18 @@ impl StakingContractLayout {
 	///
 	/// Returns keys for:
 	/// - BLS public key string slot (offset 3)
-	/// - BLS public key data slots (3 slots for long string at keccak256(string_slot))
+	/// - BLS public key data slots (dynamic count based on string length)
 	/// - totalStake (offset 8)
-	pub fn get_validator_keys<H: Keccak256>(&self, pool_id: &H256) -> Vec<H256> {
+	///
+	/// The `bls_data_slot_count` parameter specifies how many data slots to include
+	/// for the BLS public key string. This is derived from the string header value:
+	/// - Keys with "0x" prefix (98 chars): ceil(98/32) = 4 slots
+	/// - Keys without prefix (96 chars): ceil(96/32) = 3 slots
+	pub fn get_validator_keys<H: Keccak256>(
+		&self,
+		pool_id: &H256,
+		bls_data_slot_count: usize,
+	) -> Vec<H256> {
 		let offsets = ValidatorStructOffsets::default();
 		let mut keys = Vec::new();
 
@@ -553,11 +589,10 @@ impl StakingContractLayout {
 		keys.push(bls_string_slot);
 
 		// BLS public key data slots (for long strings)
-		// Data is stored at keccak256(string_slot) and continues for 4 slots
-		// (98-char hex string with "0x" prefix needs ceil(98/32) = 4 slots)
+		// Data is stored at keccak256(string_slot) for `bls_data_slot_count` slots
 		let bls_data_base = self.string_data_slot::<H>(&bls_string_slot);
 		let bls_data_base_pos = U256::from_big_endian(bls_data_base.as_bytes());
-		for i in 0..BLS_STRING_DATA_SLOTS {
+		for i in 0..bls_data_slot_count {
 			let slot_pos = bls_data_base_pos + U256::from(i);
 			keys.push(H256(slot_pos.to_big_endian()));
 		}
@@ -569,9 +604,29 @@ impl StakingContractLayout {
 	}
 }
 
-/// Number of storage slots needed for BLS public key string data.
-/// BLS keys are 48 bytes = 96 hex chars + "0x" prefix = 98 chars = 4 slots (ceil(98/32))
-const BLS_STRING_DATA_SLOTS: u64 = 4;
+/// Determine the number of BLS data slots from the Solidity string header value.
+///
+/// For long strings (>= 32 bytes), the header slot contains `length * 2 + 1`.
+/// The actual byte length is `(header_value - 1) / 2`, and the number of 32-byte
+/// data slots is `ceil(length / 32)`.
+///
+/// For short strings (< 32 bytes), the data is stored directly in the header slot
+/// and no additional data slots are needed (returns 0).
+pub fn bls_data_slots_from_header(header_value: &[u8]) -> Result<usize, Error> {
+	let header_val = decode_u256_from_storage(header_value)?;
+	let header_bytes = header_val.to_big_endian();
+	let lowest_byte = header_bytes[31];
+
+	if lowest_byte & 1 == 0 {
+		// Short string - data is in the header itself
+		Ok(0)
+	} else {
+		// Long string - header = length * 2 + 1
+		let length = (header_val - 1) / 2;
+		let str_len = length.low_u64() as usize;
+		Ok((str_len + 31) / 32)
+	}
+}
 
 /// Decode a U256 value from RLP-encoded storage value.
 pub fn decode_u256_from_storage(value: &[u8]) -> Result<U256, Error> {

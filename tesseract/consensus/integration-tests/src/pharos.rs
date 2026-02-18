@@ -51,7 +51,6 @@ async fn pharos_consensus_updates() -> anyhow::Result<()> {
 
 	let host_config = PharosHostConfig {
 		consensus_update_frequency: Some(300),
-		rpc_url: pharos_rpc_url,
 	};
 
 	let pharos_host = PharosHost::<Testnet>::new(&host_config, &evm_config).await?;

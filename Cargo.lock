@@ -10713,6 +10713,7 @@ dependencies = [
 name = "ismp-pharos"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "geth-primitives",
  "ismp",
  "log",

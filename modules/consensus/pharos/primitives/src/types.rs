@@ -174,13 +174,8 @@ pub struct PharosProofNode {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValidatorSetProof {
-	/// Account proof nodes (verified against state_root from header)
-	pub account_proof: Vec<PharosProofNode>,
-	/// Per-key storage proof nodes (storage key -> proof path, verified against storage root)
+	/// Per-key storage proof nodes (storage key -> proof path, verified against state_root)
 	pub storage_proof: BTreeMap<H256, Vec<PharosProofNode>>,
-	/// RLP-encoded account value (rawValue from eth_getProof response)
-	/// Format: RLP([nonce, balance, storage_root, code_hash])
-	pub raw_account_value: Vec<u8>,
 	/// Raw storage values in order: [totalStake, activePoolIds length,
 	/// pool_id_0..pool_id_n, validator_0_bls_header, validator_0_bls_data_0..2,
 	/// validator_0_stake, ...]

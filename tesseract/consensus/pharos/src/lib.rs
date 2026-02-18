@@ -39,8 +39,6 @@ pub use pharos_primitives::{Mainnet, Testnet};
 pub struct PharosHostConfig {
 	/// Frequency (in seconds) to check for new updates
 	pub consensus_update_frequency: Option<u64>,
-	/// Pharos JSON-RPC URL
-	pub rpc_url: String,
 }
 
 /// Top-level config for Pharos relayer
@@ -85,7 +83,11 @@ impl<C: Config> PharosHost<C> {
 	/// Create a new PharosHost
 	pub async fn new(host: &PharosHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
-		let prover = PharosProver::new(&host.rpc_url)?;
+		let rpc_url = evm
+			.rpc_urls
+			.first()
+			.ok_or_else(|| anyhow::anyhow!("No RPC URL configured in EVM config"))?;
+		let prover = PharosProver::new(rpc_url)?;
 
 		Ok(Self {
 			consensus_state_id: {

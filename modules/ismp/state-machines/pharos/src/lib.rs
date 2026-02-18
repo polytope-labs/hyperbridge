@@ -39,14 +39,12 @@ use primitive_types::{H160, H256};
 /// Pharos-specific state proof (replaces EvmStateProof).
 ///
 /// Contains Pharos hexary hash tree proof data with SHA-256 hashing.
+/// Pharos uses a flat trie where storage proofs verify directly against
+/// the state_root, so no separate account proof is needed.
 #[derive(Encode, Decode, Clone)]
 pub struct PharosStateProof {
-	/// Account proof nodes for the contract
-	pub contract_proof: Vec<PharosProofNode>,
 	/// Map of storage key (slot hash) to storage proof nodes
 	pub storage_proof: BTreeMap<Vec<u8>, Vec<PharosProofNode>>,
-	/// RLP-encoded account value (rawValue from eth_getProof)
-	pub raw_account_value: Vec<u8>,
 }
 
 /// Pharos state machine client for ISMP state proof verification.
@@ -113,21 +111,11 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 ) -> Result<(), Error> {
 	let pharos_proof = decode_pharos_state_proof(proof)?;
 
-	// Verify the account proof against state_root
 	let state_root = H256::from_slice(&root.state_root[..]);
 	let address: [u8; 20] = contract_address.0;
-	if !spv::verify_account_proof(
-		&pharos_proof.contract_proof,
-		&address,
-		&pharos_proof.raw_account_value,
-		&state_root.0,
-	) {
-		return Err(Error::Custom("Invalid contract account proof".to_string()));
-	}
 
-	let commitment_keys = req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec());
+	let commitment_keys = req_res_commitment_key::<H, _>(item, |k| k.to_vec());
 
-	// Verify each commitment exists in the storage proof.
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	for slot_hash in commitment_keys {
 		let storage_proof_nodes = pharos_proof
@@ -160,17 +148,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, Error> {
 	let pharos_proof = decode_pharos_state_proof(proof)?;
 
-	// Verify the account proof against state_root
 	let state_root = H256::from_slice(&root.state_root[..]);
-	let address: [u8; 20] = ismp_address.0;
-	if !spv::verify_account_proof(
-		&pharos_proof.contract_proof,
-		&address,
-		&pharos_proof.raw_account_value,
-		&state_root.0,
-	) {
-		return Err(Error::Custom("Invalid contract account proof".to_string()));
-	}
 
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	let mut map = BTreeMap::new();
@@ -179,12 +157,10 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		let (contract_addr, slot_hash) = if key.len() == 52 {
 			// First 20 bytes = contract address, last 32 = slot hash
 			let addr = H160::from_slice(&key[..20]);
-			let slot = H::keccak256(&key[20..]).0.to_vec();
-			(addr, slot)
+			(addr, key[20..].to_vec())
 		} else if key.len() == 32 {
 			// Direct slot hash for the ISMP host contract
-			let slot = H::keccak256(&key).0.to_vec();
-			(ismp_address, slot)
+			(ismp_address, key.clone())
 		} else if key.len() == 20 {
 			map.insert(key, None);
 			continue;
@@ -196,24 +172,24 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 
 		let contract_address: [u8; 20] = contract_addr.0;
 
+		let slot_key: [u8; 32] = slot_hash
+			.try_into()
+			.map_err(|_| Error::Custom("Invalid slot hash length: expected 32 bytes".to_string()))?;
+
 		// Look up the storage proof for this slot and verify it
-		if let Some(storage_proof_nodes) = pharos_proof.storage_proof.get(&slot_hash) {
-			if let Ok(slot_key) = <[u8; 32]>::try_from(slot_hash.as_slice()) {
-				if let Some(value_hash) = spv::verify_storage_membership_proof(
-					storage_proof_nodes,
-					&contract_address,
-					&slot_key,
-					&state_root.0,
-				) {
-					map.insert(key, Some(value_hash.to_vec()));
-					continue;
-				}
+		if let Some(storage_proof_nodes) = pharos_proof.storage_proof.get(slot_key.as_slice()) {
+			if let Some(value_hash) = spv::verify_storage_membership_proof(
+				storage_proof_nodes,
+				&contract_address,
+				&slot_key,
+				&state_root.0,
+			) {
+				map.insert(key, Some(value_hash.to_vec()));
+			} else {
+				map.insert(key, None);
 			}
-			// Proof verification failed - key not found or invalid
-			map.insert(key, None);
 		} else {
-			// No proof provided for this key
-			map.insert(key, None);
+			return Err(Error::Custom("Missing storage proof for key".to_string()));
 		}
 	}
 

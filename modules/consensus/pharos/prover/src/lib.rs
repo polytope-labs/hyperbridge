@@ -194,10 +194,6 @@ impl<C: Config> PharosProver<C> {
 		let mut storage_proof: BTreeMap<H256, Vec<PharosProofNode>> = BTreeMap::new();
 		let mut storage_values: Vec<Vec<u8>> = Vec::new();
 
-		// Use account proof from the base proof (verified against state_root)
-		let account_proof = rpc_to_proof_nodes(&base_proof.account_proof)?;
-		let raw_account_value = hex_to_bytes(&base_proof.raw_value)?;
-
 		for (i, sp) in base_proof.storage_proof.iter().enumerate() {
 			storage_proof.insert(base_keys[i], rpc_to_proof_nodes(&sp.proof)?);
 			storage_values.push(hex_to_bytes(&sp.value)?);
@@ -285,7 +281,7 @@ impl<C: Config> PharosProver<C> {
 			}
 		}
 
-		Ok(ValidatorSetProof { account_proof, storage_proof, raw_account_value, storage_values })
+		Ok(ValidatorSetProof { storage_proof, storage_values })
 	}
 
 	/// Calculate the storage key for a dynamic array element.

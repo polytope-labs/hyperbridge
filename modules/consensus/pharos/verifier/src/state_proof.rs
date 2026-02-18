@@ -15,22 +15,17 @@
 
 //! State proof verification for Pharos validator sets.
 //!
-//! This module handles verification of Merkle-Patricia trie proofs for the
-//! validator set stored in the staking contract at
-//! `0x4100000000000000000000000000000000000000`.
+//! This module handles verification of storage proofs for the validator set
+//! stored in the staking contract at `0x4100000000000000000000000000000000000000`.
 //!
-//! ## Proof Structure
-//!
-//! The validator set proof consists of:
-//! 1. Account proof - proves the staking contract exists at the expected address
-//! 2. Storage proof - proves the validator set data in the contract's storage
+//! Pharos uses a flat trie, so storage slot proofs verify directly against the
+//! state root — no separate account proof is needed.
 //!
 //! ## Verification Steps
 //!
-//! 1. Verify the account proof against the state root from the block header
-//! 2. Extract the storage root from the proven account
-//! 3. Verify the storage proof against the storage root
-//! 4. Decode the validator set from the proven storage values
+//! 1. Recompute expected storage keys from the storage values
+//! 2. Verify each storage value against its per-key proof path and the state root
+//! 3. Decode the verified storage values into a ValidatorSet
 
 use crate::error::Error;
 use alloc::{collections::BTreeMap, vec::Vec};
@@ -46,26 +41,14 @@ use primitive_types::{H256, U256};
 /// The `epoch` parameter is the epoch this validator set will be valid for.
 ///
 /// Verification steps:
-/// 1. Verify the account proof against the state root
-/// 2. Recompute expected storage keys from the storage values
-/// 3. Verify each storage value against its per-key proof path
-/// 4. Decode the verified storage values into a ValidatorSet
+/// 1. Recompute expected storage keys from the storage values
+/// 2. Verify each storage value against its per-key proof path and the state root
+/// 3. Decode the verified storage values into a ValidatorSet
 pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 	state_root: H256,
 	proof: &ValidatorSetProof,
 	epoch: u64,
 ) -> Result<ValidatorSet, Error> {
-	// Verify the account proof against the state root using Pharos SPV
-	let address: [u8; 20] = STAKING_CONTRACT_ADDRESS.0 .0;
-	if !spv::verify_account_proof(
-		&proof.account_proof,
-		&address,
-		&proof.raw_account_value,
-		&state_root.0,
-	) {
-		return Err(Error::AccountTrieLookupFailed);
-	}
-
 	let layout = StakingContractLayout::default();
 
 	// Recompute expected storage keys from the storage values

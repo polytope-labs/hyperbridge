@@ -8,12 +8,13 @@ publish = false
 
 [dependencies]
 log = { workspace = true, default-features = false }
+anyhow = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 ismp = { workspace = true }
-pharos-verifier = { path = "../../../consensus/pharos/verifier", default-features = false }
-pharos-primitives = { path = "../../../consensus/pharos/primitives", default-features = false }
+pharos-verifier = { workspace = true }
+pharos-primitives = { workspace = true }
 sync-committee-primitives = { workspace = true }
 geth-primitives = { workspace = true }
 pharos-state-machine = { workspace = true }
@@ -28,6 +29,7 @@ features = ["sp-core"]
 default = ["std"]
 std = [
     "log/std",
+    "anyhow/std",
     "polkadot-sdk/std",
     "codec/std",
     "scale-info/std",

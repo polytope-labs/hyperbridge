@@ -39,6 +39,34 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 	sp_io::hashing::sha2_256(data)
 }
 
+/// Walk bottom-up from the leaf through parent nodes, verifying each hash link,
+/// and check that the final hash equals the expected root.
+///
+/// `proof_nodes` are ordered root-to-leaf. The leaf hash is computed from the
+/// last node, then verified against each parent up to the root.
+fn verify_proof_walk(proof_nodes: &[PharosProofNode], root: &[u8; 32]) -> bool {
+	let leaf = &proof_nodes[proof_nodes.len() - 1];
+	let mut current_hash = sha256(&leaf.proof_node);
+
+	for i in (0..proof_nodes.len() - 1).rev() {
+		let parent = &proof_nodes[i];
+		let begin = parent.next_begin_offset as usize;
+		let end = parent.next_end_offset as usize;
+
+		if end > parent.proof_node.len() || begin >= end || (end - begin) != 32 {
+			return false;
+		}
+
+		if parent.proof_node[begin..end] != current_hash {
+			return false;
+		}
+
+		current_hash = sha256(&parent.proof_node);
+	}
+
+	current_hash == *root
+}
+
 /// Verify a Pharos hexary hash tree proof (bottom-up).
 ///
 /// `proof_nodes` are ordered root-to-leaf (index 0 = root, last = leaf).
@@ -79,31 +107,7 @@ pub fn verify_pharos_proof(
 		return false;
 	}
 
-	// Walk bottom-up, hashing each node and checking the parent contains it
-	let mut current_hash = sha256(leaf_data);
-
-	// Iterate from second-to-last to first (bottom-up, skipping the leaf)
-	for i in (0..proof_nodes.len() - 1).rev() {
-		let parent = &proof_nodes[i];
-		let begin = parent.next_begin_offset as usize;
-		let end = parent.next_end_offset as usize;
-
-		// Validate offsets
-		if end > parent.proof_node.len() || begin >= end || (end - begin) != 32 {
-			return false;
-		}
-
-		// Check that the current hash appears at the expected position in the parent
-		if parent.proof_node[begin..end] != current_hash {
-			return false;
-		}
-
-		// Hash this parent node to get the hash to check in the next parent
-		current_hash = sha256(&parent.proof_node);
-	}
-
-	// Final hash should equal the expected root
-	current_hash == *root
+	verify_proof_walk(proof_nodes, root)
 }
 
 /// Verify an account proof against the state root.
@@ -124,22 +128,22 @@ pub fn verify_account_proof(
 /// Verify a storage proof for a single key.
 ///
 /// `address` is the 20-byte contract address.
-/// `storage_key` is the 32-byte storage slot hash.
+/// `slot_hash` is the 32-byte storage slot hash.
 /// `storage_value` is the 32-byte padded storage value.
-/// `storage_hash` is the storage trie root from the account proof.
+/// `storage_root` is the storage trie root from the account proof.
 pub fn verify_storage_proof(
 	proof_nodes: &[PharosProofNode],
 	address: &[u8; 20],
-	storage_key: &[u8; 32],
+	slot_hash: &[u8; 32],
 	storage_value: &[u8; 32],
-	storage_hash: &[u8; 32],
+	storage_root: &[u8; 32],
 ) -> bool {
-	// For storage proofs, the key is address || storage_key (52 bytes)
+	// For storage proofs, the key is address || slot_hash (52 bytes)
 	let mut key = [0u8; 52];
 	key[..20].copy_from_slice(address);
-	key[20..].copy_from_slice(storage_key);
+	key[20..].copy_from_slice(slot_hash);
 
-	verify_pharos_proof(proof_nodes, &key, storage_value, storage_hash)
+	verify_pharos_proof(proof_nodes, &key, storage_value, storage_root)
 }
 
 /// Verify a Pharos proof for key membership without requiring the value (bottom-up).
@@ -173,26 +177,7 @@ pub fn verify_pharos_proof_membership(
 	let mut value_hash = [0u8; 32];
 	value_hash.copy_from_slice(&leaf_data[33..65]);
 
-	// Walk bottom-up, hashing each node and checking the parent contains it
-	let mut current_hash = sha256(leaf_data);
-
-	for i in (0..proof_nodes.len() - 1).rev() {
-		let parent = &proof_nodes[i];
-		let begin = parent.next_begin_offset as usize;
-		let end = parent.next_end_offset as usize;
-
-		if end > parent.proof_node.len() || begin >= end || (end - begin) != 32 {
-			return None;
-		}
-
-		if parent.proof_node[begin..end] != current_hash {
-			return None;
-		}
-
-		current_hash = sha256(&parent.proof_node);
-	}
-
-	if current_hash == *root {
+	if verify_proof_walk(proof_nodes, root) {
 		Some(value_hash)
 	} else {
 		None
@@ -206,12 +191,12 @@ pub fn verify_pharos_proof_membership(
 pub fn verify_storage_membership_proof(
 	proof_nodes: &[PharosProofNode],
 	address: &[u8; 20],
-	storage_key: &[u8; 32],
-	storage_hash: &[u8; 32],
+	slot_hash: &[u8; 32],
+	storage_root: &[u8; 32],
 ) -> Option<[u8; 32]> {
 	let mut key = [0u8; 52];
 	key[..20].copy_from_slice(address);
-	key[20..].copy_from_slice(storage_key);
+	key[20..].copy_from_slice(slot_hash);
 
-	verify_pharos_proof_membership(proof_nodes, &key, storage_hash)
+	verify_pharos_proof_membership(proof_nodes, &key, storage_root)
 }

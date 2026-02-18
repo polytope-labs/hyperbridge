@@ -86,10 +86,6 @@ pub enum Error {
 		block_number: u64,
 	},
 
-	/// Trie lookup failed during account proof verification
-	#[error("Account proof trie lookup failed")]
-	AccountTrieLookupFailed,
-
 	/// Storage proof lookup failed
 	#[error("Storage proof lookup failed")]
 	StorageProofLookupFailed,

@@ -100,7 +100,7 @@ impl<
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), Error> {
 		let update = VerifierStateUpdate::decode(&mut &proof[..])
-			.map_err(|_| Error::Custom("Cannot decode pharos client update".to_string()))?;
+			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
@@ -117,7 +117,7 @@ impl<
 		};
 
 		let new_state = verify_pharos_block::<C, H>(trusted_state, update.clone())
-			.map_err(|e| Error::Custom(alloc::format!("Verification failed: {:?}", e)))?;
+			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 
 		let state_commitment = StateCommitmentHeight {
 			commitment: StateCommitment {
@@ -187,10 +187,10 @@ impl<
 		};
 
 		verify_pharos_block::<C, H>(trusted_state.clone(), update_1)
-			.map_err(|e| Error::AnyHow(alloc::format!("{:?}", e)))?;
+			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 
 		verify_pharos_block::<C, H>(trusted_state, update_2)
-			.map_err(|e| Error::AnyHow(alloc::format!("{:?}", e)))?;
+			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 
 		Ok(())
 	}

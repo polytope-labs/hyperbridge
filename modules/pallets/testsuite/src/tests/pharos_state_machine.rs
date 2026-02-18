@@ -23,12 +23,12 @@ use pharos_prover::{
 use primitive_types::{H160, H256, U256};
 use std::sync::Arc;
 
-const ATLANTIC_RPC: &str = "https://atlantic-rpc.dplabs-internal.com";
-
 #[tokio::test]
 #[ignore]
 async fn test_pharos_account_proof_verification() {
-	let rpc = PharosRpcClient::new(ATLANTIC_RPC).expect("Failed to create RPC client");
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let rpc = PharosRpcClient::new(&rpc_url).expect("Failed to create RPC client");
 
 	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
 	let target_block = block_number.saturating_sub(5);
@@ -67,7 +67,9 @@ async fn test_pharos_account_proof_verification() {
 #[tokio::test]
 #[ignore]
 async fn test_pharos_storage_proof_verification() {
-	let rpc = PharosRpcClient::new(ATLANTIC_RPC).expect("Failed to create RPC client");
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let rpc = PharosRpcClient::new(&rpc_url).expect("Failed to create RPC client");
 
 	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
 	let target_block = block_number.saturating_sub(5);
@@ -141,7 +143,9 @@ async fn test_pharos_storage_proof_verification() {
 #[tokio::test]
 #[ignore]
 async fn test_pharos_multiple_storage_proofs() {
-	let rpc = PharosRpcClient::new(ATLANTIC_RPC).expect("Failed to create RPC client");
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let rpc = PharosRpcClient::new(&rpc_url).expect("Failed to create RPC client");
 
 	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
 	let target_block = block_number.saturating_sub(5);

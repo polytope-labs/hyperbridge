@@ -26,12 +26,12 @@ use pharos_primitives::{Config, Testnet, PHAROS_ATLANTIC_CHAIN_ID};
 use pharos_prover::PharosProver;
 use primitive_types::H256;
 
-const ATLANTIC_RPC: &str = "https://atlantic-rpc.dplabs-internal.com";
-
 #[tokio::test]
 #[ignore]
 async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
-	let prover = PharosProver::<Testnet>::new(ATLANTIC_RPC).expect("Failed to create prover");
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let prover = PharosProver::<Testnet>::new(&rpc_url).expect("Failed to create prover");
 
 	let latest_block_num = prover.get_latest_block().await.expect("Failed to get block number");
 	println!("Latest block: {}", latest_block_num);
@@ -100,6 +100,18 @@ async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
 				consensus_state_id: PHAROS_CONSENSUS_CLIENT_ID,
 			};
 			assert!(commitments.contains_key(&state_id), "Should have state commitment");
+
+			let heights = &commitments[&state_id];
+			assert_eq!(heights.len(), 1, "Should have exactly one state commitment");
+			assert_eq!(
+				heights[0].height, target_block,
+				"Commitment height should match the target block"
+			);
+
+			assert_eq!(
+				new_state.finalized_height, target_block,
+				"Finalized height should match the target block"
+			);
 		},
 		Err(e) => {
 			panic!("Verification failed: {:?}", e);
@@ -110,7 +122,9 @@ async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
 #[tokio::test]
 #[ignore]
 async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
-	let prover = PharosProver::<Testnet>::new(ATLANTIC_RPC).expect("Failed to create prover");
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let prover = PharosProver::<Testnet>::new(&rpc_url).expect("Failed to create prover");
 
 	let latest_block_num = prover.get_latest_block().await.expect("Failed to get block number");
 	println!("Latest block: {}", latest_block_num);
@@ -206,6 +220,13 @@ async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
 				consensus_state_id: PHAROS_CONSENSUS_CLIENT_ID,
 			};
 			assert!(commitments.contains_key(&state_id), "Should have state commitment");
+
+			let heights = &commitments[&state_id];
+			assert_eq!(heights.len(), 1, "Should have exactly one state commitment");
+			assert_eq!(
+				heights[0].height, target_block,
+				"Commitment height should match the epoch boundary block"
+			);
 		},
 		Err(e) => {
 			panic!("Epoch boundary verification failed: {:?}", e);

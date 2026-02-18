@@ -8,7 +8,6 @@ publish = false
 
 [dependencies]
 log = { workspace = true, default-features = false }
-anyhow = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
@@ -29,7 +28,6 @@ features = ["sp-core"]
 default = ["std"]
 std = [
     "log/std",
-    "anyhow/std",
     "polkadot-sdk/std",
     "codec/std",
     "scale-info/std",

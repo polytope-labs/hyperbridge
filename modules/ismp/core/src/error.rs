@@ -214,4 +214,6 @@ pub enum Error {
 	},
 	/// Error decoding signature
 	SignatureDecodingFailed,
+	/// Anyhow error: {0}
+	AnyHow(String),
 }

@@ -187,10 +187,10 @@ impl<
 		};
 
 		verify_pharos_block::<C, H>(trusted_state.clone(), update_1)
-			.map_err(|_| Error::Custom("Failed to verify first header".to_string()))?;
+			.map_err(|e| Error::AnyHow(alloc::format!("{:?}", e)))?;
 
 		verify_pharos_block::<C, H>(trusted_state, update_2)
-			.map_err(|_| Error::Custom("Failed to verify second header".to_string()))?;
+			.map_err(|e| Error::AnyHow(alloc::format!("{:?}", e)))?;
 
 		Ok(())
 	}

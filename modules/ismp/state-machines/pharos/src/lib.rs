@@ -125,20 +125,10 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 		return Err(Error::Custom("Invalid contract account proof".to_string()));
 	}
 
-	// Extract the storage root from the verified account value
-	// The account value is RLP([nonce, balance, storage_root,
-	// code_hash]). In Pharos's flat trie, the per-account storage_root is empty,
-	// so we fall back to state_root since storage proofs verify against the state trie.
-	let decoded_root =
-		spv::decode_storage_root(&pharos_proof.raw_account_value).ok_or_else(|| {
-			Error::Custom("Failed to decode storage root from account value".to_string())
-		})?;
-	let storage_hash =
-		if decoded_root == [0u8; 32] { state_root } else { H256::from(decoded_root) };
-
 	let commitment_keys = req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec());
 
-	// Verify each commitment exists in the storage proof
+	// Verify each commitment exists in the storage proof.
+	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	for slot_hash in commitment_keys {
 		let storage_proof_nodes = pharos_proof
 			.storage_proof
@@ -153,7 +143,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 			storage_proof_nodes,
 			&address,
 			&slot_key,
-			&storage_hash.0,
+			&state_root.0,
 		)
 		.ok_or_else(|| Error::Custom("Storage membership proof verification failed".to_string()))?;
 	}
@@ -182,16 +172,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		return Err(Error::Custom("Invalid contract account proof".to_string()));
 	}
 
-	// Extract the storage root from the verified account value.
-	// In Pharos's flat trie, the per-account storage_root is
-	// empty, so we fall back to state_root since storage proofs verify against the
-	// state trie.
-	let decoded_root =
-		spv::decode_storage_root(&pharos_proof.raw_account_value).ok_or_else(|| {
-			Error::Custom("Failed to decode storage root from account value".to_string())
-		})?;
-	let storage_hash =
-		if decoded_root == [0u8; 32] { state_root } else { H256::from(decoded_root) };
+	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	let mut map = BTreeMap::new();
 
 	for key in keys {
@@ -222,7 +203,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 					storage_proof_nodes,
 					&contract_address,
 					&slot_key,
-					&storage_hash.0,
+					&state_root.0,
 				) {
 					map.insert(key, Some(value_hash.to_vec()));
 					continue;

@@ -33,49 +33,6 @@
 //! Root check: final hash == expected root
 
 use crate::types::PharosProofNode;
-use alloy_rlp::Header;
-
-/// Decode the storage root from an RLP-encoded Ethereum account value.
-///
-/// The account value format is: RLP([nonce, balance, storage_root, code_hash]).
-/// This should be called after verifying the account proof so the raw value is trusted.
-///
-/// Returns the 32-byte storage root hash. If the storage root field is empty
-/// (as in Pharos's flat trie where storage lives in the state trie), returns
-/// `[0u8; 32]` — callers should fall back to the state root in that case.
-///
-/// Returns `None` only if RLP decoding fails entirely.
-pub fn decode_storage_root(raw_account_value: &[u8]) -> Option<[u8; 32]> {
-	let mut buf = raw_account_value;
-
-	// Decode outer RLP list header
-	let list_header = Header::decode(&mut buf).ok()?;
-	if !list_header.list {
-		return None;
-	}
-
-	// Skip field 0: nonce
-	let h = Header::decode(&mut buf).ok()?;
-	buf = &buf[h.payload_length..];
-
-	// Skip field 1: balance
-	let h = Header::decode(&mut buf).ok()?;
-	buf = &buf[h.payload_length..];
-
-	// Decode field 2: storage_root
-	let h = Header::decode(&mut buf).ok()?;
-	if h.payload_length == 0 {
-		// Empty storage root (Pharos flat trie — storage is in the state trie)
-		return Some([0u8; 32]);
-	}
-	if h.payload_length == 32 && buf.len() >= 32 {
-		let mut root = [0u8; 32];
-		root.copy_from_slice(&buf[..32]);
-		return Some(root);
-	}
-
-	None
-}
 
 /// Compute SHA-256 hash of the given data.
 pub fn sha256(data: &[u8]) -> [u8; 32] {

@@ -90,10 +90,6 @@ pub enum Error {
 	#[error("Account proof trie lookup failed")]
 	AccountTrieLookupFailed,
 
-	/// Failed to decode storage root from the RLP-encoded account value
-	#[error("Failed to decode storage root from account value")]
-	AccountValueDecodeFailed,
-
 	/// Storage proof lookup failed
 	#[error("Storage proof lookup failed")]
 	StorageProofLookupFailed,

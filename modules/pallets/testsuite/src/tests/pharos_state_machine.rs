@@ -103,13 +103,6 @@ async fn test_pharos_storage_proof_verification() {
 	let storage_proof_nodes =
 		rpc_to_proof_nodes(&storage_entry.proof).expect("Failed to convert storage proof nodes");
 
-	// Extract storage hash from the verified account value.
-	// In Pharos's flat trie, the per-account storage root is empty,
-	// so we fall back to state_root for storage proof verification.
-	let decoded_root = spv::decode_storage_root(&raw_value)
-		.expect("Failed to decode account value");
-	let storage_hash = if decoded_root == [0u8; 32] { state_root.0 } else { decoded_root };
-
 	println!("Storage key: {}", storage_entry.key);
 	println!("Storage value: {}", storage_entry.value);
 	println!("Storage proof nodes: {}", storage_proof_nodes.len());
@@ -132,12 +125,13 @@ async fn test_pharos_storage_proof_verification() {
 		storage_key[32 - key_bytes.len()..].copy_from_slice(&key_bytes);
 	}
 
+	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	let storage_valid = spv::verify_storage_proof(
 		&storage_proof_nodes,
 		&address_bytes,
 		&storage_key,
 		&padded_value,
-		&storage_hash,
+		&state_root.0,
 	);
 
 	assert!(storage_valid, "Storage proof verification should pass for totalStake");
@@ -180,12 +174,7 @@ async fn test_pharos_multiple_storage_proofs() {
 	assert!(account_valid, "Account proof verification should pass");
 	println!("Account proof verification: PASSED");
 
-	// Extract storage hash from the verified account value.
-	// In Pharos's flat trie, the per-account storage root is empty,
-	// so we fall back to state_root for storage proof verification.
-	let decoded_root = spv::decode_storage_root(&raw_value)
-		.expect("Failed to decode account value");
-	let storage_hash = if decoded_root == [0u8; 32] { state_root.0 } else { decoded_root };
+	// Pharos uses a flat trie — storage proofs verify directly against state_root.
 	assert!(!proof_stake.storage_proof.is_empty(), "Should have storage proof for totalStake");
 	let stake_entry = &proof_stake.storage_proof[0];
 	let stake_proof_nodes =
@@ -213,16 +202,11 @@ async fn test_pharos_multiple_storage_proofs() {
 		&address_bytes,
 		&stake_key,
 		&stake_padded,
-		&storage_hash,
+		&state_root.0,
 	);
 	assert!(stake_valid, "Storage proof for totalStake should pass");
 	println!("Storage proof [totalStake] verification: PASSED");
 
-	let epoch_raw_value =
-		hex_to_bytes(&proof_epoch.raw_value).expect("Failed to parse epoch raw_value");
-	let epoch_decoded_root = spv::decode_storage_root(&epoch_raw_value)
-		.expect("Failed to decode epoch account value");
-	let epoch_storage_hash = if epoch_decoded_root == [0u8; 32] { state_root.0 } else { epoch_decoded_root };
 	assert!(
 		!proof_epoch.storage_proof.is_empty(),
 		"Should have storage proof for epochLength"
@@ -253,7 +237,7 @@ async fn test_pharos_multiple_storage_proofs() {
 		&address_bytes,
 		&epoch_key,
 		&epoch_padded,
-		&epoch_storage_hash,
+		&state_root.0,
 	);
 	assert!(epoch_valid, "Storage proof for epochLength should pass");
 	println!("Storage proof [epochLength] verification: PASSED");

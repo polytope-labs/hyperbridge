@@ -66,23 +66,14 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 		return Err(Error::AccountTrieLookupFailed);
 	}
 
-	// Extract the storage root from the verified account value.
-	// The raw_account_value is RLP([nonce, balance, storage_root, code_hash]).
-	// We must use this proven storage root rather than trusting an unverified field.
-	// In Pharos's flat trie, the storage_root in the account is empty ([0u8; 32]),
-	// so we fall back to state_root since storage proofs verify against the state trie.
-	let decoded_root = spv::decode_storage_root(&proof.raw_account_value)
-		.ok_or(Error::AccountValueDecodeFailed)?;
-	let storage_hash =
-		if decoded_root == [0u8; 32] { state_root } else { H256::from(decoded_root) };
-
 	let layout = StakingContractLayout::default();
 
 	// Recompute expected storage keys from the storage values
 	let keys = compute_all_storage_keys::<H>(&proof.storage_values, &layout)?;
 
-	// Verify each storage value against its per-key proof path
-	verify_all_storage_proofs(&keys, &proof.storage_values, &proof.storage_proof, &storage_hash)?;
+	// Verify each storage value against its per-key proof path.
+	// Pharos uses a flat trie — storage proofs verify directly against state_root.
+	verify_all_storage_proofs(&keys, &proof.storage_values, &proof.storage_proof, &state_root)?;
 
 	// Decode the verified storage values into a ValidatorSet
 	let decoded_set = decode_validator_set_from_storage::<H>(&proof.storage_values, epoch)?;

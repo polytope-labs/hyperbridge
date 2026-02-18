@@ -9,7 +9,6 @@ publish = false
 [dependencies]
 codec = { workspace = true, features = ["derive"] }
 alloy-primitives = { workspace = true }
-alloy-rlp = { workspace = true }
 crypto-utils = { workspace = true, default-features = false }
 primitive-types = { workspace = true, features = ["serde_no_std", "impl-codec"] }
 hex-literal = { workspace = true }
@@ -24,7 +23,6 @@ default = ["std"]
 std = [
     "codec/std",
     "alloy-primitives/std",
-    "alloy-rlp/std",
     "crypto-utils/std",
     "primitive-types/std",
     "anyhow/std",

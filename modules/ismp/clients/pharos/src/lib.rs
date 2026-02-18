@@ -100,7 +100,7 @@ impl<
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), Error> {
 		let update = VerifierStateUpdate::decode(&mut &proof[..])
-			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
+			.map_err(|e| Error::AnyHow(anyhow::anyhow!("{:?}", e).into()))?;
 
 		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;

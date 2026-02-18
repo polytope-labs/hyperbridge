@@ -45,6 +45,8 @@ use primitive_types::{H160, H256};
 pub struct PharosStateProof {
 	/// Map of storage key (slot hash) to storage proof nodes
 	pub storage_proof: BTreeMap<Vec<u8>, Vec<PharosProofNode>>,
+	/// Map of storage key (slot hash) to the 32-byte padded storage value
+	pub storage_values: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 /// Pharos state machine client for ISMP state proof verification.
@@ -172,25 +174,42 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 
 		let contract_address: [u8; 20] = contract_addr.0;
 
-		let slot_key: [u8; 32] = slot_hash
-			.try_into()
-			.map_err(|_| Error::Custom("Invalid slot hash length: expected 32 bytes".to_string()))?;
+		let slot_key: [u8; 32] = slot_hash.clone().try_into().map_err(|_| {
+			Error::Custom("Invalid slot hash length: expected 32 bytes".to_string())
+		})?;
 
-		// Look up the storage proof for this slot and verify it
-		if let Some(storage_proof_nodes) = pharos_proof.storage_proof.get(slot_key.as_slice()) {
-			if let Some(value_hash) = spv::verify_storage_membership_proof(
-				storage_proof_nodes,
-				&contract_address,
-				&slot_key,
-				&state_root.0,
-			) {
-				map.insert(key, Some(value_hash.to_vec()));
-			} else {
-				map.insert(key, None);
-			}
+		// Pharos does not support non-membership proofs, so all keys must have
+		// a proof and value. Missing entries indicate an incomplete proof.
+		let storage_proof_nodes = pharos_proof
+			.storage_proof
+			.get(slot_key.as_slice())
+			.ok_or_else(|| Error::Custom("Missing storage proof for key".to_string()))?;
+
+		let storage_value = pharos_proof
+			.storage_values
+			.get(&slot_hash)
+			.ok_or_else(|| Error::Custom("Missing storage value for key".to_string()))?;
+
+		// Pad value to 32 bytes for proof verification
+		let mut padded_value = [0u8; 32];
+		if storage_value.len() <= 32 {
+			padded_value[32 - storage_value.len()..].copy_from_slice(storage_value);
 		} else {
-			return Err(Error::Custom("Missing storage proof for key".to_string()));
+			return Err(Error::Custom("Storage value exceeds 32 bytes".to_string()));
 		}
+
+		// Verify the proof with the actual value
+		if !spv::verify_storage_proof(
+			storage_proof_nodes,
+			&contract_address,
+			&slot_key,
+			&padded_value,
+			&state_root.0,
+		) {
+			return Err(Error::Custom("Storage proof verification failed".to_string()));
+		}
+
+		map.insert(key, Some(storage_value.clone()));
 	}
 
 	Ok(map)

@@ -26,11 +26,11 @@ hex-literal = "0.4.1"
 
 [dependencies.sp1-beefy]
 git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "9967f43e85c00363ca59712991ea72951cdfa12c"
+rev = "4c9c5ce0ede6b9f63ddef415f206eb1bdb040c16"
 
 [dependencies.sp1-beefy-primitives]
 git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "9967f43e85c00363ca59712991ea72951cdfa12c"
+rev = "4c9c5ce0ede6b9f63ddef415f206eb1bdb040c16"
 
 [dev-dependencies]
 ethers = { workspace = true }

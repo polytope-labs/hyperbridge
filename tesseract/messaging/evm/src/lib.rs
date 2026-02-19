@@ -332,8 +332,11 @@ impl EvmClient {
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		if self.config.initial_height.is_none() {
-			self.initial_height =
-				counterparty.query_latest_height(self.state_machine_id()).await?.into();
+			self.initial_height = counterparty
+				.query_latest_height(self.state_machine_id())
+				.await
+				.unwrap_or(self.initial_height as u32)
+				.into();
 		}
 
 		log::info!("Initialized height for {:?} at {}", self.state_machine, self.initial_height);

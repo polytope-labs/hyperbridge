@@ -36,10 +36,18 @@ jobs:
               with:
                   toolchain: stable
 
-            - name: Install dependencies
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
+            - name: Install Dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libudev-dev make protobuf-compiler pkg-config libsnappy-dev
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config libsnappy-dev librocksdb-dev rocksdb-tools
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - name: Build polyhedron
               run: |

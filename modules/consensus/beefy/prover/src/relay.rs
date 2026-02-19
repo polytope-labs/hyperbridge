@@ -82,28 +82,34 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 	Ok((signed_commitment, latest_beefy_finalized))
 }
 
+/// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root
+const BEEFY_WHITELISTED_PARATHREADS: &'static [u32] = &[3367];
+
 /// Fetch all parachain headers committed by BEEFY at provided height
 pub async fn paras_parachains<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	at: Option<HashFor<T>>,
-	para_ids: Vec<u32>,
 ) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
 	let ids = rpc
 		.state_get_storage(PARAS_PARACHAINS.as_slice(), at)
 		.await?
 		.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
 		.transpose()?
-		.ok_or_else(|| anyhow!("No beefy authorities found!"))?.into_iter().chain(para_ids.into_iter()).collect::<BTreeSet<_>>();
+		.ok_or_else(|| anyhow!("No beefy authorities found!"))?
+		.into_iter()
+		.chain(BEEFY_WHITELISTED_PARATHREADS.into_iter().cloned())
+		.collect::<BTreeSet<_>>();
 
 	let mut heads = vec![];
 	for id in ids {
-		let head = rpc
+		if let Some(head) = rpc
 			.state_get_storage(parachain_header_storage_key(id).as_ref(), at)
 			.await?
 			.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
 			.transpose()?
-			.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
-		heads.push((id, head));
+		{
+			heads.push((id, head));
+		}
 	}
 	heads.sort_by_key(|(id, _)| *id);
 
@@ -230,7 +236,6 @@ fn subtree_heights(leaves_length: u64) -> Vec<u64> {
 pub async fn query_mmr_leaf<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	block_hash: HashFor<T>,
-	para_ids: Vec<u32>,
 ) -> Result<MmrLeaf<u32, H256, H256, H256>, anyhow::Error> {
 	let header = rpc
 		.chain_get_header(Some(block_hash))
@@ -241,7 +246,7 @@ pub async fn query_mmr_leaf<T: Config>(
 	let parent_hash = HashFor::<T>::decode(&mut header.parent_hash.as_ref())?;
 	let beefy_next_authority_set = beefy_mmr_leaf_next_authorities(rpc, Some(block_hash)).await?;
 	let leaf_extra = {
-		let heads = paras_parachains(rpc, Some(parent_hash), para_ids).await?;
+		let heads = paras_parachains(rpc, Some(parent_hash)).await?;
 
 		// Calculate leaf hashes from the parachain headers
 		let leaf_hashes = heads.iter().map(|leaf| keccak_256(&leaf.encode())).collect::<Vec<_>>();
@@ -266,7 +271,6 @@ pub async fn query_mmr_leaf<T: Config>(
 pub async fn fetch_mmr_proof<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	block_number: u32,
-	para_ids: Vec<u32>,
 	query_batch_size: Option<u32>,
 ) -> Result<(LeafProof<H256>, MmrLeaf<u32, H256, H256, H256>), anyhow::Error> {
 	use tokio_stream::StreamExt;
@@ -324,7 +328,6 @@ pub async fn fetch_mmr_proof<T: Config>(
 				.map(|block| {
 					let rpc = rpc.clone();
 					let block = *block;
-					let para_ids = para_ids.clone();
 					tokio::spawn(async move {
 						// we try to reconstruct the mmr leaf from onchain data because offchain db
 						// where mmr_generateProof fetches leaves from might be corrupted
@@ -333,7 +336,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 							.await?
 							.ok_or_else(|| anyhow!("Block hash not found"))?;
 
-						let leaf = query_mmr_leaf(&rpc, block_hash, para_ids).await?;
+						let leaf = query_mmr_leaf(&rpc, block_hash).await?;
 						Ok::<_, anyhow::Error>(leaf)
 					})
 				})
@@ -359,7 +362,7 @@ pub async fn fetch_mmr_proof<T: Config>(
 
 		leaves.pop().expect("leaves is always > 1; qed")
 	} else {
-		query_mmr_leaf(rpc, block_hash, para_ids).await?
+		query_mmr_leaf(rpc, block_hash).await?
 	};
 
 	Ok((
@@ -433,7 +436,7 @@ mod tests {
 		for block in 25420896..25420999 {
 			dbg!();
 			dbg!(block);
-			let (proof, leaf) = fetch_mmr_proof(&relay_rpc, block, vec![], None).await.unwrap();
+			let (proof, leaf) = fetch_mmr_proof(&relay_rpc, block, None).await.unwrap();
 
 			// dbg!(&leaf);
 

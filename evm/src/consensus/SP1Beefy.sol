@@ -32,10 +32,10 @@ contract SP1Beefy is IConsensus, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
-    bytes32 public immutable _verificationKey;
+    bytes32 public immutable verificationKey;
 
     // Sp1 verifier contract
-    ISP1Verifier public immutable _verifier;
+    ISP1Verifier public immutable verifier;
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
@@ -46,9 +46,9 @@ contract SP1Beefy is IConsensus, ERC165 {
     // Genesis block should not be provided
     error IllegalGenesisBlock();
 
-    constructor(ISP1Verifier verifier, bytes32 verificationKey) {
-        _verifier = verifier;
-        _verificationKey = verificationKey;
+    constructor(ISP1Verifier v, bytes32 vk) {
+        verifier = v;
+        verificationKey = vk;
     }
 
     /**
@@ -117,7 +117,7 @@ contract SP1Beefy is IConsensus, ERC165 {
             })
         );
 
-        _verifier.verifyProof(_verificationKey, publicInputs, proof.proof);
+        verifier.verifyProof(verificationKey, publicInputs, proof.proof);
 
         uint256 statesLen = proof.headers.length;
         IntermediateState[] memory intermediates = new IntermediateState[](statesLen);

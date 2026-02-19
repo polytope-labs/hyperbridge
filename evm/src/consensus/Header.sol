@@ -74,7 +74,6 @@ library HeaderImpl {
 
         // sanity check
         if (timestamp == 0) revert TimestampNotFound();
-        if (childTrieRoot == bytes32(0)) revert ChildTrieRootNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
     }

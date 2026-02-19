@@ -316,7 +316,7 @@ impl ProofBackend for RedisProofBackend {
 				.await
 				.context("Failed to subscribe to mandatory queue")?
 				.map_ok(|_item| StreamMessage::EpochChanged)
-				.map_err(|e| anyhow::anyhow!("Redis error: {:?}", e))
+				.map_err(anyhow::Error::from)
 		};
 		let messages_stream = {
 			pubsub
@@ -324,7 +324,7 @@ impl ProofBackend for RedisProofBackend {
 				.await
 				.context("Failed to subscribe to messages queue")?
 				.map_ok(|_item| StreamMessage::NewMessages)
-				.map_err(|e| anyhow::anyhow!("Redis error: {:?}", e))
+				.map_err(anyhow::Error::from)
 		};
 		let combined = futures::stream::select(mandatory_stream, messages_stream);
 		let yield_once = futures::stream::iter(vec![Ok(StreamMessage::EpochChanged)]);

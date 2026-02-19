@@ -277,7 +277,7 @@ impl OpHost {
 				FaultDisputeGame::new(event.dispute_proxy.0, self.beacon_execution_client.clone());
 			let extra_data = contract.extra_data().call().await?;
 			let timestamp = contract.created_at().call().await?;
-			let l2_block_number = contract.l_2_block_number().call().await?;
+			let l2_block_number = contract.l_2_sequence_number().call().await?;
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
 			if l2_block_number.low_u64() >

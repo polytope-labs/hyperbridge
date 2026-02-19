@@ -331,7 +331,7 @@ async fn construct_state_proposal(
 
 					let latest_claim = game.root_claim().call().await?;
 					let latest_claim_l2_block_number =
-						game.l_2_block_number().call().await?.low_u64();
+						game.l_2_sequence_number().call().await?.low_u64();
 
 					let latest_claim_header = client
 						.op_execution_client

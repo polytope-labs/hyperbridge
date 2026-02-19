@@ -3,7 +3,6 @@ import { ethers } from "ethers"
 import type { Hex } from "viem"
 import { keccak256, encodeAbiParameters, toHex } from "viem"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
-import IntentGatewayV2Abi from "@/configs/abis/IntentGatewayV2.abi.json"
 
 import { OrderStatus, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
@@ -450,26 +449,90 @@ export class IntentGatewayV2Service {
 	}
 
 	static computeOrderCommitment(order: OrderV2): string {
-		const placeOrderAbi = IntentGatewayV2Abi.find(
-			(item: any) => item.type === "function" && item.name === "placeOrder",
+		const encoded = encodeAbiParameters(
+			[
+				{
+					name: "order",
+					type: "tuple",
+					components: [
+						{ name: "user", type: "bytes32" },
+						{ name: "source", type: "bytes" },
+						{ name: "destination", type: "bytes" },
+						{ name: "deadline", type: "uint256" },
+						{ name: "nonce", type: "uint256" },
+						{ name: "fees", type: "uint256" },
+						{ name: "session", type: "address" },
+						{
+							name: "predispatch",
+							type: "tuple",
+							components: [
+								{
+									name: "assets",
+									type: "tuple[]",
+									components: [
+										{ name: "token", type: "bytes32" },
+										{ name: "amount", type: "uint256" },
+									],
+								},
+								{ name: "call", type: "bytes" },
+							],
+						},
+						{
+							name: "inputs",
+							type: "tuple[]",
+							components: [
+								{ name: "token", type: "bytes32" },
+								{ name: "amount", type: "uint256" },
+							],
+						},
+						{
+							name: "output",
+							type: "tuple",
+							components: [
+								{ name: "beneficiary", type: "bytes32" },
+								{
+									name: "assets",
+									type: "tuple[]",
+									components: [
+										{ name: "token", type: "bytes32" },
+										{ name: "amount", type: "uint256" },
+									],
+								},
+								{ name: "call", type: "bytes" },
+							],
+						},
+					],
+				},
+			],
+			[
+				{
+					user: order.user,
+					source: order.sourceChain.startsWith("0x")
+						? (order.sourceChain as `0x${string}`)
+						: toHex(order.sourceChain),
+					destination: order.destChain.startsWith("0x")
+						? (order.destChain as `0x${string}`)
+						: toHex(order.destChain),
+					deadline: order.deadline,
+					nonce: order.nonce,
+					fees: order.fees,
+					session: (
+						order.session || "0x0000000000000000000000000000000000000000"
+					).toLowerCase() as `0x${string}`,
+					predispatch: {
+						assets: order.predispatch.assets.map((a) => ({ token: a.token, amount: a.amount })),
+						call: order.predispatch.call,
+					},
+					inputs: order.inputs.map((i) => ({ token: i.token, amount: i.amount })),
+					output: {
+						beneficiary: order.outputs.beneficiary,
+						assets: order.outputs.assets.map((a) => ({ token: a.token, amount: a.amount })),
+						call: order.outputs.call,
+					},
+				},
+			],
 		)
-		const orderType = placeOrderAbi?.inputs?.[0]
-		if (!orderType) throw new Error("Could not find Order type in ABI")
 
-		const abiOrder = {
-			user: order.user,
-			source: order.sourceChain.startsWith("0x") ? order.sourceChain : toHex(order.sourceChain),
-			destination: order.destChain.startsWith("0x") ? order.destChain : toHex(order.destChain),
-			deadline: order.deadline,
-			nonce: order.nonce,
-			fees: order.fees,
-			session: order.session || "0x0000000000000000000000000000000000000000",
-			predispatch: order.predispatch,
-			inputs: order.inputs,
-			output: order.outputs,
-		}
-
-		const encoded = encodeAbiParameters([orderType] as any, [abiOrder as any])
 		return keccak256(encoded)
 	}
 }

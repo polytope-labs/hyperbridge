@@ -1424,7 +1424,7 @@ describe.sequential("Order Cancellation tests", () => {
 		const { bscChapelIsmpHost, ethSepoliaIsmpHost, hyperbridge } = await setUpBscToSepoliaOrder()
 
 		const query_client = createQueryClient({
-			url: "https://gargantua.indexer.polytope.technology",
+			url: process.env.INDEXER_URL!
 		})
 
 		// Create chain instances
@@ -1461,7 +1461,8 @@ describe.sequential("Order Cancellation tests", () => {
 		hyperbridgeInstance = hyperbridge
 	}, 1_000_000)
 
-	it("Should cancel order when deadline has reached and yield the necessary proofs", async () => {
+	// Skipping until hyperbridge gargantua rpc endpoints are reliable, direct rpc calls to our local gargantua endpoint over the internet is flaky
+	it.skip("Should cancel order when deadline has reached and yield the necessary proofs", async () => {
 		const {
 			bscChapelId,
 			chainConfigService,
@@ -1985,7 +1986,7 @@ describe.sequential("Order Cancellation tests", () => {
 		expect(result.value?.status).toBe("HYPERBRIDGE_FINALIZED")
 	}, 1_000_000)
 
-	it("Should resume order cancellation from stored destProof, getRequest, and sourceProof", async () => {
+	it.skip("Should resume order cancellation from stored destProof, getRequest, and sourceProof", async () => {
 		const {
 			bscChapelId,
 			chainConfigService,

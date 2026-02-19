@@ -22,6 +22,7 @@ export {
 	getGasPriceFromEtherscan,
 	USE_ETHERSCAN_CHAINS,
 	TESTNET_CHAINS,
+	parseStateMachineId,
 	retryPromise,
 	orderV2Commitment,
 	getContractCallInput,

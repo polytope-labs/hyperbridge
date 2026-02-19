@@ -61,6 +61,31 @@ level = "debug"  # Options: trace, debug, info, warn, error
 maxRechecks = 10
 recheckDelayMs = 30000  # 30 seconds
 
+# Rebalancing configuration
+# Trigger percentage: rebalancing triggers when balance falls to (1 - triggerPercentage) * baseBalance
+# Example: triggerPercentage = 0.5 means trigger when balance <= 50% of base
+[rebalancing]
+triggerPercentage = 0.5
+
+# Base balances per chain and per asset (in USD value, treated as $1 per token)
+# Format: [rebalancing.baseBalances."USDC"] or [rebalancing.baseBalances."USDT"]
+# Then specify per chainId as string keys
+[rebalancing.baseBalances."USDC"]
+"1" = "10000"      # Ethereum Mainnet: $10k USDC base
+"56" = "10000"     # BSC Mainnet: $10k USDC base
+"42161" = "10000"  # Arbitrum: $10k USDC base
+"8453" = "10000"   # Base: $10k USDC base
+"137" = "10000"    # Polygon: $10k USDC base
+"130" = "10000"    # Unichain: $10k USDC base
+
+[rebalancing.baseBalances."USDT"]
+"1" = "10000"      # Ethereum Mainnet: $10k USDT base
+"56" = "10000"     # BSC Mainnet: $10k USDT base
+"42161" = "10000"  # Arbitrum: $10k USDT base
+"8453" = "10000"   # Base: $10k USDT base
+"137" = "10000"    # Polygon: $10k USDT base
+"130" = "10000"    # Unichain: $10k USDT base
+
 # Strategy configuration
 # You can configure multiple strategies
 # All strategies use the filler.privateKey from above

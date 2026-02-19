@@ -1,5 +1,5 @@
 import Decimal from "decimal.js"
-import fetch from "node-fetch"
+import { safeFetch as fetch } from "@/utils/safeFetch"
 import type { Hex } from "viem"
 
 import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "@/addresses/chainlink-price-feeds.addresses"

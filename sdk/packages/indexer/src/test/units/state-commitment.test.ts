@@ -1,6 +1,5 @@
 import { ApiPromise, WsProvider } from "@polkadot/api"
 import { fetchStateCommitmentsEVM, fetchStateCommitmentsSubstrate } from "@/utils/state-machine.helper"
-import { JsonRpcProvider } from "@ethersproject/providers"
 import { stringify } from "safe-stable-stringify"
 
 describe("fetchStateCommitmentsSubstrate Integration Test", () => {
@@ -28,11 +27,9 @@ describe("fetchStateCommitmentsSubstrate Integration Test", () => {
 
 describe("fetchEvmStateCommitmentsFromHeight Integration Test", () => {
 	test("fetches real state commitment on EVM chain", async () => {
-		let client = new JsonRpcProvider(process.env.BSC_RPC_URL)
 		// @ts-ignore
 		global.chainId = 97
 		const result = await fetchStateCommitmentsEVM({
-			client,
 			stateMachineId: "KUSAMA-4009",
 			consensusStateId: "ETH0",
 			height: 4120654n,
@@ -46,11 +43,9 @@ describe("fetchEvmStateCommitmentsFromHeight Integration Test", () => {
 	}, 30000) // Increase timeout to 30 seconds
 
 	test("fetches real state commitment on EVM chain", async () => {
-		let client = new JsonRpcProvider(process.env.BSC_RPC_URL)
 		// @ts-ignore
 		global.chainId = 56
 		const result = await fetchStateCommitmentsEVM({
-			client,
 			stateMachineId: "POLKADOT-3367",
 			consensusStateId: "ETH0",
 			height: 4432117n,

@@ -60,7 +60,10 @@ jobs:
                   BASE_MAINNET=${{ secrets.BASE_MAINNET }}
                   POLYGON_MAINNET=${{ secrets.POLYGON_MAINNET }}
                   ARBITRUM_MAINNET=${{ secrets.ARBITRUM_MAINNET }}
+                  ARBITRUM_SEPOLIA=${{ secrets.ARBITRUM_SEPOLIA }}
+                  POLYGON_AMOY=${{ secrets.POLYGON_AMOY }}
                   SEPOLIA=${{ secrets.SEPOLIA }}
+                  BUNDLER_URL=${{ secrets.BUNDLER_URL }}
                   COIN_GECKGO_API_KEY=${{secrets.COINGECKO}}
                   PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
                   TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
@@ -110,11 +113,29 @@ jobs:
                   echo "GraphQL server is available!"
                   sleep 10  # Give it a few more seconds to fully initialize
 
-            - name: Run SDK tests
-              run: pnpm --filter="@hyperbridge/sdk" test
+            - name: Run SDK test - intents-coprocessor
+              run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
 
-            - name: Run Intent Filler tests
-              run: pnpm --filter="filler" test
+            - name: Run filler-v2 test - filler
+              run: pnpm --filter="@hyperbridge/filler-v2" test:filler
+
+            - name: Run SDK test - concurrent (non-sequential tests)
+              run: pnpm --filter="@hyperbridge/sdk" test:concurrent
+
+            - name: Run SDK test - requests
+              run: pnpm --filter="@hyperbridge/sdk" test:requests
+
+            - name: Run SDK test - hyperbridge
+              run: cd packages/sdk && pnpm vitest --watch=false --sequence.concurrent=false src/tests/sequential/hyperbridge.test.ts
+
+            - name: Run SDK test - intent-gateway
+              run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
+
+            # - name: Run filler-v2 test - cctp
+            #   run: cd packages/filler-v2 && pnpm vitest --watch=false --maxConcurrency=1 src/tests/rebalancers/cctp.test.ts
+
+            # - name: Run Intent Filler tests
+            #   run: pnpm --filter="filler" test
 
             - name: Clean up
               if: always()

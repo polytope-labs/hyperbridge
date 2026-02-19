@@ -6,8 +6,8 @@ import { Option as PolkadotOption } from "@polkadot/types"
 import { logger } from "ethers"
 import { TextEncoder } from "util"
 import { CHAINS_BY_ISMP_HOST } from "@/constants"
+import { providers } from "ethers"
 import { Codec } from "@polkadot/types/types"
-import { Provider } from "@ethersproject/providers"
 
 // Define ConsensusStateId as 4-byte array
 const ConsensusStateId = Vector(u8, 4)
@@ -112,12 +112,11 @@ export async function fetchStateCommitmentsSubstrate(params: {
 }
 
 export async function fetchStateCommitmentsEVM(params: {
-	client: Provider
 	stateMachineId: string
 	consensusStateId: string
 	height: bigint
 }): Promise<StateCommitment | null> {
-	const { client, stateMachineId, consensusStateId, height } = params
+	const { stateMachineId, consensusStateId, height } = params
 
 	const state_machine_height: StateMachineHeight = {
 		id: {
@@ -147,16 +146,16 @@ export async function fetchStateCommitmentsEVM(params: {
 	// Generate keys for timestamp, overlay, and state root
 	const [timestampKey, overlayKey, stateRootKey] = generateStateCommitmentKeys(paraId, height)
 
-	// Query the three storage values
-	const timestampValue = await client.getStorageAt(hostContract, bytesToHex(timestampKey))
+	// For all other EVM chains, use SubQuery's api provider which correctly
+	// queries storage at the specific block height being indexed.
+	const provider = api as providers.Provider
+	const timestampValue = await provider.getStorageAt(hostContract, bytesToHex(timestampKey))
+	const overlayRootValue = await provider.getStorageAt(hostContract, bytesToHex(overlayKey))
+	const stateRootValue = await provider.getStorageAt(hostContract, bytesToHex(stateRootKey))
 
 	if (!timestampValue) {
 		return null
 	}
-
-	const overlayRootValue = await client.getStorageAt(hostContract, bytesToHex(overlayKey))
-
-	const stateRootValue = await client.getStorageAt(hostContract, bytesToHex(stateRootKey))
 
 	// Parse timestamp from big-endian bytes to BigInt
 	const timestamp = BigInt(timestampValue) / 1000n

@@ -154,4 +154,21 @@ export class ChainConfigService {
 	getHyperbridgeAddress(): string {
 		return hyperbridgeAddress
 	}
+
+	/**
+	 * Get the LayerZero Endpoint ID for the chain
+	 * Used for USDT0 cross-chain transfers via LayerZero OFT
+	 */
+	getLayerZeroEid(chain: string): number | undefined {
+		return this.getConfig(chain)?.layerZeroEid
+	}
+
+	/**
+	 * Get the USDT0 OFT contract address for the chain
+	 * On Ethereum: OFT Adapter (locks/unlocks USDT)
+	 * On other chains: OFT contract (mints/burns USDT0)
+	 */
+	getUsdt0OftAddress(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.addresses.Usdt0Oft as HexString | undefined
+	}
 }

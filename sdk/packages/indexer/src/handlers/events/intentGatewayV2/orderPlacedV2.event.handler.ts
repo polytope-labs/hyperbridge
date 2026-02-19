@@ -8,8 +8,10 @@ import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
 import { Interface } from "@ethersproject/abi"
 import IntentGatewayV2Abi from "@/configs/abis/IntentGatewayV2.abi.json"
-import { INTENT_GATEWAY_ADDRESSES } from "@/constants"
+import { INTENT_GATEWAY_V2_ADDRESSES } from "@/constants"
 import { bytes32ToBytes20, bytes20ToBytes32 } from "@/utils/transfer.helpers"
+
+const intentGatewayInterface = new Interface(IntentGatewayV2Abi)
 
 export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Promise<void> => {
 	logger.info(`[Intent Gateway V2] Order Placed Event: ${stringify(event)}`)
@@ -19,122 +21,109 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 
 	const chain = getHostStateMachine(chainId)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
-	let graffiti = DEFAULT_REFERRER
-	let decodedOrder: OrderV2 | null = null
+	const txMeta = { transactionHash, blockNumber, timestamp }
+
+	let order: OrderV2 = {
+		user: args.user as Hex,
+		sourceChain: args.source,
+		destChain: args.destination,
+		deadline: BigInt(args.deadline.toString()),
+		nonce: BigInt(args.nonce.toString()),
+		fees: BigInt(args.fees.toString()),
+		session: args.session as Hex,
+		predispatch: {
+			assets: args.predispatch.map((token) => ({
+				token: token.token as Hex,
+				amount: BigInt(token.amount.toString()),
+			})),
+			call: "0x",
+		},
+		inputs: args.inputs.map((token) => ({
+			token: token.token as Hex,
+			amount: BigInt(token.amount.toString()),
+		})),
+		outputs: {
+			beneficiary: "0x",
+			assets: args.outputs.map((token) => ({
+				token: token.token as Hex,
+				amount: BigInt(token.amount.toString()),
+			})),
+			call: "0x",
+		},
+	}
+
+	let decoded: { decodedOrder: any; graffitiArg: string } | null = null
 
 	// Try to decode from direct transaction input first (direct call to IntentGateway)
 	if (transaction?.input) {
-		logger.info(`Decoding transaction data for referral points: ${stringify(transaction.input)}`)
-
 		try {
-			const { name, args: decodedArgs } = new Interface(IntentGatewayV2Abi).parseTransaction({
-				data: transaction.input,
-			})
-			logger.info(`Decoded graffiti: ${stringify({ graffiti: decodedArgs[1] })}`)
-
-			if (name === "placeOrder") {
-				// decodedArgs[0] is the order object, decodedArgs[1] is the graffiti
-				decodedOrder = decodedArgs[0]
-
-				if (decodedArgs[1].toLowerCase() !== args.user.toLowerCase()) {
-					// Either Default Referrer or Actual Referrer
-					// Normalize to 32 bytes
-					graffiti = bytes20ToBytes32(decodedArgs[1] as string) as Hex
-					logger.info(`Using ${stringify(graffiti)} as graffiti`)
-				}
-
-				if (decodedOrder?.outputs) {
-					decodedOrder.outputs.assets = args[10].map((token) => ({
-						token: token[0] as Hex,
-						amount: BigInt(token[1].toString()),
-					}))
-				}
-			}
+			decoded = decodePlaceOrder(transaction.input)
 		} catch (e: any) {
-			logger.info(
-				`Failed to decode direct transaction input, trying nested call: ${stringify({
-					error: e as unknown as Error,
-				})}`,
-			)
+			logger.info(`Failed to decode direct transaction input, trying nested call: ${e.message}`)
 		}
 	}
 
-	// If direct decoding failed or didn't find placeOrder, try to find IntentGateway call in nested calls
-	if (!decodedOrder) {
-		const intentGatewayAddress = INTENT_GATEWAY_ADDRESSES[chain] // TODO: Update with V2 address
+	// If direct decoding failed, try to find IntentGateway call in nested calls
+	if (!decoded) {
+		const intentGatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[chain]
 		if (!intentGatewayAddress) {
 			logger.error(`No IntentGatewayV2 address found for chain: ${chain}`)
 		} else {
 			try {
-				logger.info(`Attempting to find IntentGateway call in nested calls for transaction: ${transactionHash}`)
-				const intentGatewayCalldata = await getContractCallInput(transactionHash, intentGatewayAddress, chain)
-
-				if (intentGatewayCalldata) {
-					logger.info(`Found IntentGateway call in nested calls, decoding calldata`)
-					const { name, args: decodedArgs } = new Interface(IntentGatewayV2Abi).parseTransaction({
-						data: intentGatewayCalldata,
-					})
-
-					if (name === "placeOrder") {
-						// decodedArgs[0] is the order object, decodedArgs[1] is the graffiti
-						decodedOrder = decodedArgs[0]
-
-						if (decodedArgs[1].toLowerCase() !== args.user.toLowerCase()) {
-							// Either Default Referrer or Actual Referrer
-							// Normalize to 32 bytes
-							graffiti = bytes20ToBytes32(decodedArgs[1] as string) as Hex
-							logger.info(`Using ${stringify(graffiti)} as graffiti`)
-						}
-
-						if (decodedOrder?.outputs) {
-							decodedOrder.outputs.assets = args[10].map((token) => ({
-								token: token[0] as Hex,
-								amount: BigInt(token[1].toString()),
-							}))
-						}
-					}
+				const calldata = await getContractCallInput(transactionHash, intentGatewayAddress, chain)
+				if (calldata) {
+					decoded = decodePlaceOrder(calldata)
 				} else {
-					logger.warn(`IntentGateway call not found in nested calls for transaction: ${transactionHash}`)
+					logger.warn(`IntentGateway call not found in nested calls for tx: ${transactionHash}`)
 				}
 			} catch (e: any) {
-				logger.error(
-					`Error finding or decoding nested IntentGateway call: ${stringify({
-						error: e as unknown as Error,
-					})}`,
-				)
+				logger.error(`Error decoding nested IntentGateway call: ${e.message}`)
 			}
 		}
 	}
 
-	if (decodedOrder) {
-		const order: OrderV2 = decodedOrder
+	if (!decoded) return
 
-		logger.info(
-			`[Intent Gateway V2] Computing Order Commitment: ${stringify({
-				order,
-			})}`,
-		)
+	const { graffiti } = applyDecodedOrder(order, decoded.decodedOrder, decoded.graffitiArg, args.user)
+	const commitment = IntentGatewayV2Service.computeOrderCommitment(order)
+	order.id = commitment
 
-		const commitment = IntentGatewayV2Service.computeOrderCommitment(order)
+	logger.info(`[Intent Gateway V2] Order Commitment: ${commitment}`)
 
-		order.id = commitment
+	await IntentGatewayV2Service.getOrCreateOrder(
+		{ ...order, user: bytes32ToBytes20(order.user) as Hex },
+		graffiti,
+		txMeta,
+	)
 
-		logger.info(`[Intent Gateway V2] Order Commitment: ${commitment}`)
-
-		await IntentGatewayV2Service.getOrCreateOrder(
-			{ ...order, user: bytes32ToBytes20(order.user) as Hex },
-			graffiti,
-			{
-				transactionHash,
-				blockNumber,
-				timestamp,
-			},
-		)
-
-		await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.PLACED, {
-			transactionHash,
-			blockNumber,
-			timestamp,
-		})
-	}
+	await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.PLACED, txMeta)
 })
+
+/**
+ * Attempts to decode a placeOrder call from raw calldata.
+ * Returns the decoded order and graffiti args on success, or null if the call isn't placeOrder.
+ */
+function decodePlaceOrder(calldata: string): { decodedOrder: any; graffitiArg: string } | null {
+	const { name, args: decodedArgs } = intentGatewayInterface.parseTransaction({ data: calldata })
+	if (name !== "placeOrder") return null
+	return { decodedOrder: decodedArgs[0], graffitiArg: decodedArgs[1] as string }
+}
+
+function applyDecodedOrder(
+	order: OrderV2,
+	decodedOrder: any,
+	graffitiArg: string,
+	userAddress: string,
+): { order: OrderV2; graffiti: Hex } {
+	order.outputs.beneficiary = decodedOrder.output.beneficiary as Hex
+	order.outputs.call = decodedOrder.output.call as Hex
+	order.predispatch.call = decodedOrder.predispatch.call as Hex
+
+	let graffiti: Hex = DEFAULT_REFERRER as Hex
+	if (graffitiArg.toLowerCase() !== userAddress.toLowerCase()) {
+		graffiti = bytes20ToBytes32(graffitiArg) as Hex
+		logger.info(`Using referrer graffiti: ${graffiti}`)
+	}
+
+	return { order, graffiti }
+}

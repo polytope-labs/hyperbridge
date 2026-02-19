@@ -16,9 +16,11 @@ import {
 } from "../services/FillerConfigService.js"
 import { ChainClientManager } from "../services/ChainClientManager.js"
 import { ContractInteractionService } from "../services/ContractInteractionService.js"
+import { RebalancingService } from "../services/RebalancingService.js"
 import { getLogger, configureLogger } from "../services/Logger.js"
 import { CacheService } from "../services/CacheService.js"
 import { BidStorageService } from "../services/BidStorageService.js"
+import type { BinanceCexConfig } from "../services/rebalancers/index.js"
 import { Decimal } from "decimal.js"
 
 // ASCII art header
@@ -67,6 +69,24 @@ interface PendingQueueConfig {
 	recheckDelayMs: number
 }
 
+interface RebalancingConfig {
+	triggerPercentage: number
+	baseBalances: {
+		USDC?: Record<string, string>
+		USDT?: Record<string, string>
+	}
+}
+
+interface BinanceConfig {
+	apiKey: string
+	apiSecret: string
+	basePath?: string
+	timeout?: number
+	depositTimeoutMs?: number
+	pollIntervalMs?: number
+	withdrawTimeoutMs?: number
+}
+
 interface FillerTomlConfig {
 	filler: {
 		privateKey: string
@@ -85,6 +105,8 @@ interface FillerTomlConfig {
 	strategies: StrategyConfig[]
 	chains: UserProvidedChainConfig[]
 	confirmationPolicies: Record<string, ChainConfirmationPolicy>
+	rebalancing?: RebalancingConfig
+	binance?: BinanceConfig
 }
 
 const program = new Command()
@@ -133,6 +155,7 @@ program
 				solverAccountContractAddress: config.filler.solverAccountContractAddress,
 				dataDir: config.filler.dataDir,
 				bundlerUrl: config.filler.bundlerUrl,
+				rebalancing: config.rebalancing,
 			}
 
 			const configService = new FillerConfigService(fillerChainConfigs, fillerConfigForService)
@@ -224,6 +247,31 @@ program
 				}
 			})
 
+			// Initialize rebalancing service if config is provided
+			let rebalancingService: RebalancingService | undefined
+			const rebalancingConfig = configService.getRebalancingConfig()
+			if (rebalancingConfig) {
+				let binanceConfig: BinanceCexConfig | undefined
+				if (config.binance) {
+					binanceConfig = {
+						apiKey: config.binance.apiKey,
+						apiSecret: config.binance.apiSecret,
+						basePath: config.binance.basePath,
+						timeout: config.binance.timeout,
+						pollIntervalMs: config.binance.pollIntervalMs,
+					}
+					logger.info("Binance CEX rebalancing configured")
+				}
+
+				rebalancingService = new RebalancingService(
+					chainClientManager,
+					configService,
+					privateKey,
+					binanceConfig,
+				)
+				logger.info("Rebalancing service initialized")
+			}
+
 			// Initialize and start the intent filler
 			logger.info("Starting intent filler...")
 			const intentFiller = new IntentFiller(
@@ -234,6 +282,7 @@ program
 				chainClientManager,
 				contractService,
 				privateKey,
+				rebalancingService,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)

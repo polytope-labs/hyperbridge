@@ -16,6 +16,14 @@ export interface GasFeeBumpConfig {
 	maxFeePerGasBumpPercent?: number
 }
 
+export interface RebalancingConfig {
+	triggerPercentage: number
+	baseBalances: {
+		USDC?: Record<string, string>
+		USDT?: Record<string, string>
+	}
+}
+
 export interface FillerConfig {
 	privateKey: string
 	maxConcurrentOrders: number
@@ -31,6 +39,7 @@ export interface FillerConfig {
 	 * If not provided, defaults will be used (8% for priority fee, 10% for max fee).
 	 */
 	gasFeeBump?: GasFeeBumpConfig
+	rebalancing?: RebalancingConfig
 }
 
 /**
@@ -212,5 +221,58 @@ export class FillerConfigService {
 	 */
 	getGasFeeBumpConfig(): GasFeeBumpConfig | undefined {
 		return this.fillerConfig?.gasFeeBump
+	}
+
+	/**
+	 * Get the LayerZero Endpoint ID for the chain
+	 * Used for USDT0 cross-chain transfers via LayerZero OFT
+	 */
+	getLayerZeroEid(chain: string): number | undefined {
+		return this.chainConfigService.getLayerZeroEid(chain)
+	}
+
+	/**
+	 * Get the USDT0 OFT contract address for the chain
+	 * On Ethereum: OFT Adapter (locks/unlocks USDT)
+	 * On other chains: OFT contract (mints/burns USDT0)
+	 */
+	getUsdt0OftAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getUsdt0OftAddress(chain)
+	}
+
+	/**
+	 * Get rebalancing configuration
+	 */
+	getRebalancingConfig(): RebalancingConfig | undefined {
+		return this.fillerConfig?.rebalancing
+	}
+
+	/**
+	 * Get base balance for a specific chain and asset
+	 * @param chainId Chain ID as number
+	 * @param asset "USDC" or "USDT"
+	 * @returns Base balance as Decimal, or undefined if not configured
+	 */
+	getBaseBalance(chainId: number, asset: "USDC" | "USDT"): number | undefined {
+		const rebalancingConfig = this.fillerConfig?.rebalancing
+		if (!rebalancingConfig) {
+			return undefined
+		}
+
+		const chainIdStr = chainId.toString()
+		const baseBalances = rebalancingConfig.baseBalances[asset]
+		if (!baseBalances || !baseBalances[chainIdStr]) {
+			return undefined
+		}
+
+		return Number.parseFloat(baseBalances[chainIdStr])
+	}
+
+	/**
+	 * Get trigger percentage for rebalancing
+	 * @returns Trigger percentage (0-1), or undefined if not configured
+	 */
+	getTriggerPercentage(): number | undefined {
+		return this.fillerConfig?.rebalancing?.triggerPercentage
 	}
 }

@@ -15,9 +15,15 @@ import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import { Mutex } from "async-mutex"
+import { TronWeb } from "tronweb"
+
+function isTronChain(chainId: number): boolean {
+	return new Set([728126428, 3448148188]).has(chainId)
+}
 
 export class EventMonitor extends EventEmitter {
 	private clients: Map<number, PublicClient> = new Map()
+	private tronWebInstances: Map<number, TronWeb> = new Map()
 	private listening: boolean = false
 	private clientManager: ChainClientManager
 	private configService: FillerConfigService
@@ -36,6 +42,14 @@ export class EventMonitor extends EventEmitter {
 			const client = this.clientManager.getPublicClient(chainName)
 			this.clients.set(config.chainId, client)
 			this.scanningMutexes.set(config.chainId, new Mutex())
+
+			if (isTronChain(config.chainId)) {
+				const tronWeb = new TronWeb({
+					fullHost: this.configService.getRpcUrl(chainName),
+				})
+				this.tronWebInstances.set(config.chainId, tronWeb)
+				this.logger.info({ chainId: config.chainId }, "Initialized TronWeb instance")
+			}
 		})
 	}
 
@@ -132,7 +146,7 @@ export class EventMonitor extends EventEmitter {
 					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: logs.length },
 					"Found events in block scan",
 				)
-				await this.processLogs(client, logs)
+				await this.processLogs(chainId, client, logs)
 			}
 
 			// Update lastScannedBlock only after successful processing
@@ -141,7 +155,58 @@ export class EventMonitor extends EventEmitter {
 		}
 	}
 
-	private async processLogs(client: PublicClient, logs: any[]): Promise<void> {
+	/**
+	 * Retrieves the placeOrder calldata for a transaction.
+	 *
+	 * Tron: Reads top-level calldata via TronWeb since debug_traceTransaction is unavailable.
+	 * EVM: Uses debug_traceTransaction with callTracer to find IntentGateway calls.
+	 */
+	private async getPlaceOrderCalldata(
+		chainId: number,
+		client: PublicClient,
+		txHash: string,
+		intentGatewayAddress: string,
+	): Promise<HexString> {
+		if (isTronChain(chainId)) {
+			return this.getTronCalldata(chainId, txHash)
+		}
+
+		// For other EVM chains, use debug_traceTransaction (handles both direct and nested calls)
+		const callInput = await getContractCallInput(client as any, txHash as HexString, intentGatewayAddress)
+
+		if (!callInput) {
+			throw new Error(`Failed to extract calldata from trace for tx ${txHash}`)
+		}
+
+		return callInput
+	}
+
+	/**
+	 * Retrieves top-level calldata from a Tron transaction via TronWeb.
+	 * Only works for direct calls to IntentGateway (not nested/multicall).
+	 */
+	private async getTronCalldata(chainId: number, txHash: string): Promise<HexString> {
+		const tronWeb = this.tronWebInstances.get(chainId)
+		if (!tronWeb) {
+			throw new Error(`TronWeb instance not found for chain ${chainId}`)
+		}
+
+		const tx = await retryPromise(() => tronWeb.trx.getTransaction(txHash), {
+			maxRetries: 3,
+			backoffMs: 250,
+			logMessage: `Failed to get Tron transaction ${txHash}`,
+		})
+
+		const data = `0x${(tx?.raw_data?.contract?.[0]?.parameter?.value as any)?.data}`
+		if (!data) {
+			throw new Error(`No calldata found in Tron transaction ${txHash}`)
+		}
+
+		// Tron returns calldata without 0x prefix, add it for viem compatibility
+		return data as HexString
+	}
+
+	private async processLogs(chainId: number, client: PublicClient, logs: any[]): Promise<void> {
 		for (const log of logs) {
 			try {
 				const decodedLog = log as unknown as DecodedOrderV2PlacedLog
@@ -175,12 +240,13 @@ export class EventMonitor extends EventEmitter {
 					transactionHash: decodedLog.transactionHash,
 				}
 
-				// Get the other missing data using callTracer and calculate commitment
+				// Get the calldata — uses TronWeb for Tron chains, debug_traceTransaction for others
 				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(order.source)
 
-				const placeOrderCallInput = await getContractCallInput(
-					client as any,
-					order.transactionHash as HexString,
+				const placeOrderCallInput = await this.getPlaceOrderCalldata(
+					chainId,
+					client,
+					order.transactionHash as string,
 					intentGatewayAddress,
 				)
 

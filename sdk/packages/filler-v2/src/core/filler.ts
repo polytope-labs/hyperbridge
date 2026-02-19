@@ -10,7 +10,7 @@ import {
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { ChainClientManager, ContractInteractionService, DelegationService } from "@/services"
+import { ChainClientManager, ContractInteractionService, DelegationService, RebalancingService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 
@@ -22,6 +22,8 @@ export class IntentFiller {
 	private chainClientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private delegationService?: DelegationService
+	private rebalancingService?: RebalancingService
+	private rebalancingInterval?: NodeJS.Timeout
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -36,11 +38,13 @@ export class IntentFiller {
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		privateKey: HexString,
+		rebalancingService?: RebalancingService,
 	) {
 		this.configService = configService
 		this.privateKey = privateKey
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService
+		this.rebalancingService = rebalancingService
 		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager)
 		this.strategies = strategies
 		this.config = config
@@ -102,10 +106,73 @@ export class IntentFiller {
 
 	public start(): void {
 		this.monitor.startListening()
+
+		// Start periodic rebalancing if service is configured
+		if (this.rebalancingService) {
+			this.startRebalancing()
+		}
+	}
+
+	/**
+	 * Start periodic rebalancing checks.
+	 * Checks every 5 minutes for triggers and executes rebalancing if needed.
+	 */
+	private startRebalancing(): void {
+		// Run initial check after 30 seconds (to let the filler start up)
+		setTimeout(() => {
+			this.checkAndRebalance().catch((error) => {
+				this.logger.error({ error }, "Error in initial rebalancing check")
+			})
+		}, 30_000)
+
+		// Then check every 5 minutes
+		this.rebalancingInterval = setInterval(
+			() => {
+				this.checkAndRebalance().catch((error) => {
+					this.logger.error({ error }, "Error in periodic rebalancing check")
+				})
+			},
+			5 * 60 * 1000,
+		) // 5 minutes
+
+		this.logger.info("Periodic rebalancing checks started (every 5 minutes)")
+	}
+
+	/**
+	 * Check for rebalancing triggers and execute if needed.
+	 */
+	private async checkAndRebalance(): Promise<void> {
+		if (!this.rebalancingService) {
+			return
+		}
+
+		try {
+			const result = await this.rebalancingService.rebalancePortfolio()
+			if (result.success && result.transfers.length > 0) {
+				this.logger.info(
+					{
+						transferCount: result.transfers.length,
+						executedCount: result.executedTransfers.length,
+					},
+					"Portfolio rebalancing completed",
+				)
+			} else if (result.transfers.length === 0) {
+				this.logger.debug("No rebalancing needed")
+			}
+		} catch (error) {
+			this.logger.error({ error }, "Portfolio rebalancing failed")
+		}
 	}
 
 	public stop(): void {
 		this.monitor.stopListening()
+
+		// Stop rebalancing interval
+		if (this.rebalancingInterval) {
+			clearInterval(this.rebalancingInterval)
+			this.rebalancingInterval = undefined
+			this.logger.info("Periodic rebalancing checks stopped")
+		}
 
 		// Wait for all queues to complete
 		const promises: Promise<void>[] = []

@@ -54,12 +54,21 @@ export const SONEMIUM = {
 	mainnet: "EVM-1868",
 } as const
 
+export const TRON = {
+	testnet: "EVM-3448148188",
+	mainnet: "EVM-728126428",
+} as const
+
+// Chain IDs for Tron networks that don't support eth_getStorageAt with a specific block number
+export const TRON_CHAIN_IDS: ReadonlySet<string> = new Set(["3448148188", "728126428"])
+
 import ENV_CONFIG from "./env-config.json"
 import { CHAIN_IDS_BY_GENESIS } from "./chain-ids-by-genesis"
 import { CHAINS_BY_ISMP_HOST } from "./chains-by-ismp-host"
 import { INTENT_GATEWAY_ADDRESSES } from "./intent-gateway-addresses"
+import { INTENT_GATEWAY_V2_ADDRESSES } from "./intent-gateway-v2-addresses"
 import { TOKEN_GATEWAY_ADDRESSES } from "./token-gateway-addresses"
-export { CHAIN_IDS_BY_GENESIS, CHAINS_BY_ISMP_HOST, ENV_CONFIG, TOKEN_GATEWAY_ADDRESSES, INTENT_GATEWAY_ADDRESSES }
+export { CHAIN_IDS_BY_GENESIS, CHAINS_BY_ISMP_HOST, ENV_CONFIG, TOKEN_GATEWAY_ADDRESSES, INTENT_GATEWAY_ADDRESSES, INTENT_GATEWAY_V2_ADDRESSES }
 
 // Replaced by auto-generated version
 

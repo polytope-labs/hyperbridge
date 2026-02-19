@@ -1291,6 +1291,7 @@ export class IndexerClient {
 					if (request.source === this.config.hyperbridge.config.stateMachineId) {
 						return
 					}
+
 					// Get the latest state machine update for hyperbridge on the destination chain
 					const hyperbridgeFinalized = await this.waitOrAbort({
 						signal,

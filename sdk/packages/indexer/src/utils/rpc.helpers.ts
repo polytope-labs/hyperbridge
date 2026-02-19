@@ -1,4 +1,4 @@
-import fetch from "node-fetch"
+import { safeFetch as fetch } from "./safeFetch"
 import { u64 } from "scale-ts"
 import { Hex, hexToBytes, keccak256, stringToBytes } from "viem"
 import { Option as PolkadotOption } from "@polkadot/types"

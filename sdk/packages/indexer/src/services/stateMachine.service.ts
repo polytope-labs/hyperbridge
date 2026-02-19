@@ -42,7 +42,6 @@ export class StateMachineService {
 		logger.info(`Using Consensus State ID: ${consensusStateId}`)
 
 		const stateCommitment = await fetchStateCommitmentsEVM({
-			client: api,
 			stateMachineId,
 			consensusStateId,
 			height: BigInt(height.toString()),

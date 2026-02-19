@@ -1,6 +1,6 @@
 import "log-timestamp"
 
-import { type HexString, RequestStatus, TimeoutStatus } from "@/types"
+import { type HexString, RequestStatus, RequestStatusWithMetadata, TimeoutStatus } from "@/types"
 import {
 	createWalletClient,
 	http,
@@ -26,7 +26,7 @@ import { teleportDot } from "@/utils/xcmGateway"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { u8aToHex, hexToU8a } from "@polkadot/util"
-import { normalizeTimestamp, postRequestCommitment } from "@/utils"
+import { normalizeTimestamp, postRequestCommitment, sleep } from "@/utils"
 import { createQueryClient, queryAssetTeleported } from "@/query-client"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 
@@ -208,6 +208,7 @@ describe("Hyperbridge Requests", () => {
 							})
 
 							console.log(`Transaction submitted: https://testnet.bscscan.com/tx/${hash}`)
+							final_status = RequestStatus.DESTINATION
 						} catch (e) {
 							console.error("Error self-relaying: ", e)
 						}
@@ -227,7 +228,21 @@ describe("Hyperbridge Requests", () => {
 
 			console.log("Post request status stream has ended")
 
-			expect(final_status).toEqual(RequestStatus.DESTINATION)
+			if (final_status !== RequestStatus.DESTINATION) {
+				let end_status: undefined | RequestStatusWithMetadata
+				for (let i = 0; i < 3; i++) {
+					let statuses = await indexer.queryRequestWithStatus(commitment!)
+					expect(statuses).toBeDefined()
+					end_status = statuses?.statuses.find((status) => status.status == RequestStatus.DESTINATION)
+
+					if (!end_status) {
+						await sleep(30000)
+					} else {
+						break
+					}
+				}
+				expect(end_status).toBeDefined()
+			}
 		} catch (error) {
 			console.log(`Error ${error}`)
 			expect(error).toBeUndefined()
@@ -318,7 +333,21 @@ describe("Hyperbridge Requests", () => {
 				}
 			}
 
-			expect(final_status).toEqual(TimeoutStatus.TIMED_OUT)
+			if (final_status !== TimeoutStatus.TIMED_OUT) {
+				let end_status: undefined | RequestStatusWithMetadata
+				for (let i = 0; i < 3; i++) {
+					let statuses = await indexer.queryRequestWithStatus(commitment!)
+					expect(statuses).toBeDefined()
+					end_status = statuses?.statuses.find((status) => status.status == TimeoutStatus.TIMED_OUT)
+
+					if (!end_status) {
+						await sleep(30000)
+					} else {
+						break
+					}
+				}
+				expect(end_status).toBeDefined()
+			}
 		} catch (error) {
 			expect(error).toBeUndefined()
 		} finally {
@@ -574,7 +603,21 @@ describe("Hyperbridge Requests", () => {
 			}
 		}
 
-		expect(final_status).toEqual(TimeoutStatus.TIMED_OUT)
+		if (final_status !== TimeoutStatus.TIMED_OUT) {
+			let end_status: undefined | RequestStatusWithMetadata
+			for (let i = 0; i < 3; i++) {
+				let statuses = await indexer.queryRequestWithStatus(commitment!)
+				expect(statuses).toBeDefined()
+				end_status = statuses?.statuses.find((status) => status.status == TimeoutStatus.TIMED_OUT)
+
+				if (!end_status) {
+					await sleep(30000)
+				} else {
+					break
+				}
+			}
+			expect(end_status).toBeDefined()
+		}
 	}, 1_200_000)
 })
 

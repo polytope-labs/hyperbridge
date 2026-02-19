@@ -25,7 +25,7 @@ import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
 import { createQueryClient } from "@/query-client"
 import { IndexerClient } from "@/client"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
-import { bscTestnet, gnosisChiado } from "viem/chains"
+import { arbitrumSepolia, bscTestnet } from "viem/chains"
 import tokenGateway from "@/abis/tokenGateway"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import erc6160 from "@/abis/erc6160"
@@ -33,6 +33,7 @@ import { getPostRequestEventFromTx } from "@/utils/txEvents"
 import { TokenGateway } from "@/protocols/tokenGateway"
 import { EvmChain } from "@/chains/evm"
 import { SubstrateChain } from "@/chains/substrate"
+import { bigIntReplacer } from "@/helpers/data.helpers"
 
 // private key for testnet transactions
 const secret_key = process.env.SECRET_PHRASE || ""
@@ -193,7 +194,7 @@ describe("teleport function", () => {
 	it("should query the order status", async () => {
 		const { bscTokenGateway, bscPublicClient, bscWalletClient } = await setUp()
 		const bscIsmpHostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as HexString
-		const gnosisChiadoIsmpHostAddress = "0x58a41b89f4871725e5d898d98ef4bf917601c5eb" as HexString
+		const arbitrumSepoliaIsmpHostAddress = "0x3435bD7e5895356535459D6087D1eB982DAd90e7" as HexString
 		const query_client = createQueryClient({
 			url: process.env.INDEXER_URL!,
 		})
@@ -207,10 +208,10 @@ describe("teleport function", () => {
 		})
 
 		const destChain = await getChain({
-			consensusStateId: "GNO0",
-			rpcUrl: process.env.GNOSIS_CHIADO!,
-			stateMachineId: "EVM-10200",
-			host: gnosisChiadoIsmpHostAddress,
+			consensusStateId: "ETH0",
+			rpcUrl: process.env.ARBITRUM_SEPOLIA!,
+			stateMachineId: "EVM-421614",
+			host: arbitrumSepoliaIsmpHostAddress,
 		})
 
 		const hyperbridgeChain = await getChain({
@@ -236,7 +237,7 @@ describe("teleport function", () => {
 			assetId: u8aToHex(keccakAsU8a("USD.h")),
 			redeem: false,
 			to: bytes20ToBytes32(privateKeyToAddress(process.env.PRIVATE_KEY as any) as HexString),
-			dest: stringToHex("EVM-10200"),
+			dest: stringToHex("EVM-421614"),
 			timeout: 65337297n,
 			nativeCost: BigInt(0),
 			data: "0x" as HexString,
@@ -266,7 +267,7 @@ describe("teleport function", () => {
 			confirmations: 1,
 		})
 
-		console.log("Teleported to Gnosis Chiado:", receipt.transactionHash)
+		console.log("Teleported to Arbitrum Sepolia:", receipt.transactionHash)
 
 		const postRequest = await getPostRequestEventFromTx(bscPublicClient, tx)
 
@@ -288,7 +289,7 @@ describe("teleport function", () => {
 
 		// Stream the teleport status
 		for await (const status of indexer.tokenGatewayAssetTeleportedStatusStream(commitment)) {
-			console.log(JSON.stringify(status, (_, value) => (typeof value === "bigint" ? value.toString() : value), 4))
+			console.log(JSON.stringify(status, bigIntReplacer, 4))
 			switch (status.status) {
 				case "TELEPORTED": {
 					console.log(
@@ -298,7 +299,7 @@ describe("teleport function", () => {
 				}
 				case "RECEIVED": {
 					console.log(
-						`Status ${status.status}, Transaction: https://gnosis-chiado.blockscout.com/tx/${status.metadata.transactionHash}`,
+						`Status ${status.status}, Transaction: https://sepolia.arbiscan.io/tx/${status.metadata.transactionHash}`,
 					)
 					break
 				}
@@ -344,7 +345,7 @@ describe("TokenGateway SDK", () => {
 		const assetId = u8aToHex(keccakAsU8a("USDH")) as HexString
 		const recipientAddress = bytes20ToBytes32(ADDRESS_ZERO)
 		const amount = BigInt(1_000_000) // 1 USDH (assuming 6 decimals)
-		const timeout = 0
+		const timeout = 0n
 
 		const teleportParams = {
 			amount,
@@ -399,7 +400,7 @@ describe("TokenGateway SDK", () => {
 		const assetId = u8aToHex(keccakAsU8a("USDH")) as HexString
 		const recipientAddress = bytes20ToBytes32(ADDRESS_ZERO)
 		const amount = BigInt(10_000_000) // 10 USDH (assuming 6 decimals) - larger amount
-		const timeout = 0
+		const timeout = 0n
 
 		const teleportParams = {
 			amount,
@@ -452,7 +453,7 @@ describe("TokenGateway SDK", () => {
 		const assetId = u8aToHex(keccakAsU8a("USDH")) as HexString
 		const recipientAddress = bytes20ToBytes32(ADDRESS_ZERO)
 		const amount = BigInt(1_000_000) // 1 USDH (assuming 6 decimals)
-		const timeout = 0
+		const timeout = 0n
 
 		const teleportParams = {
 			amount,
@@ -549,10 +550,10 @@ async function setUp() {
 		transport: http(process.env.BSC_CHAPEL),
 	})
 
-	const gnosisChiadoWalletClient = createWalletClient({
-		chain: gnosisChiado,
+	const arbitrumSepoliaWalletClient = createWalletClient({
+		chain: arbitrumSepolia,
 		account,
-		transport: http(process.env.GNOSIS_CHIADO),
+		transport: http(process.env.ARBITRUM_SEPOLIA),
 	})
 
 	const bscPublicClient = createPublicClient({
@@ -560,9 +561,9 @@ async function setUp() {
 		transport: http(process.env.BSC_CHAPEL),
 	})
 
-	const gnosisChiadoPublicClient = createPublicClient({
-		chain: gnosisChiado,
-		transport: http(process.env.GNOSIS_CHIADO),
+	const arbitrumSepoliaPublicClient = createPublicClient({
+		chain: arbitrumSepolia,
+		transport: http(process.env.ARBITRUM_SEPOLIA),
 	})
 
 	const bscTokenGateway = getContract({
@@ -571,19 +572,19 @@ async function setUp() {
 		client: { public: bscPublicClient, wallet: bscWalletClient },
 	})
 
-	const gnosisChiadoTokenGateway = getContract({
+	const arbitrumSepoliaTokenGateway = getContract({
 		address: process.env.TOKEN_GATEWAY_ADDRESS! as HexString,
 		abi: tokenGateway.ABI,
-		client: { public: gnosisChiadoPublicClient, wallet: gnosisChiadoWalletClient },
+		client: { public: arbitrumSepoliaPublicClient, wallet: arbitrumSepoliaWalletClient },
 	})
 
 	return {
 		bscTokenGateway,
-		gnosisChiadoTokenGateway,
+		arbitrumSepoliaTokenGateway,
 		bscPublicClient,
-		gnosisChiadoPublicClient,
+		arbitrumSepoliaPublicClient,
 		bscWalletClient,
-		gnosisChiadoWalletClient,
+		arbitrumSepoliaWalletClient,
 	}
 }
 

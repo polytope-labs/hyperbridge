@@ -28,7 +28,9 @@ import {
 	polygon,
 	unichain,
 	soneium,
+	tron,
 } from "viem/chains"
+import { tronNile } from "@/configs/chain"
 
 import { flatten, zip } from "lodash-es"
 import { match } from "ts-pattern"
@@ -76,6 +78,8 @@ const chains = {
 	[gnosisChiado.id]: gnosisChiado,
 	[polygon.id]: polygon,
 	[unichain.id]: unichain,
+	[tron.id]: tron,
+	[tronNile.id]: tronNile,
 }
 
 /**

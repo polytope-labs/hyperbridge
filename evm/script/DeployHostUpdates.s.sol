@@ -11,7 +11,7 @@ import {BaseScript} from "./BaseScript.sol";
 import "../src/core/HandlerV1.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
-import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "@sp1-contracts/v6.0.0/SP1VerifierGroth16.sol";
 import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 

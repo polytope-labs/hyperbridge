@@ -153,11 +153,11 @@ fi
 
 # Expand "testnet" or "mainnet" to actual chain lists
 if [ "$CHAINS" = "testnet" ]; then
-    CHAINS="sepolia,optimism-sepolia,arbitrum-sepolia,base-sepolia,polygon-amoy,bsc-testnet,gnosis-chiado,sei-testnet"
+    CHAINS="sepolia,optimism-sepolia,arbitrum-sepolia,base-sepolia,polygon-amoy,bsc-testnet,polkadot-testnet"
     echo -e "${GREEN}Deploying to all testnet chains: ${YELLOW}${CHAINS}${NC}"
     echo ""
 elif [ "$CHAINS" = "mainnet" ]; then
-    CHAINS="ethereum,optimism,arbitrum,base,bsc,gnosis,soneium,polygon,unichain,inkchain,sei"
+    CHAINS="ethereum,optimism,arbitrum,base,bsc,gnosis,soneium,polygon,unichain"
     echo -e "${GREEN}Deploying to all mainnet chains: ${YELLOW}${CHAINS}${NC}"
     echo ""
 fi
@@ -269,14 +269,25 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     echo ""
 
     # Build forge command for this chain (using single-chain run())
-    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 200"
+    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 500"
+
+    # Detect blockscout chains for verification
+    VERIFIER_FLAGS=""
+    case $chain in
+        soneium)
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://soneium.blockscout.com/api/ --verifier-api-key $SONEIUM_BLOCKSCOUT_API_KEY"
+            ;;
+        gnosis-chiado)
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://gnosis-chiado.blockscout.com/api/ --verifier-api-key $GNOSIS_BLOCKSCOUT_API_KEY"
+            ;;
+    esac
 
     # Add flags based on mode
     if [ "$MODE" = "full" ]; then
-        FORGE_CMD="$FORGE_CMD --broadcast --verify --sender $ADMIN"
+        FORGE_CMD="$FORGE_CMD --broadcast --verify $VERIFIER_FLAGS --sender $ADMIN"
 
     elif [ "$MODE" = "verify" ]; then
-        FORGE_CMD="$FORGE_CMD --verify --resume --broadcast --private-key $PRIVATE_KEY"
+        FORGE_CMD="$FORGE_CMD --verify $VERIFIER_FLAGS --resume --broadcast --sender $ADMIN --private-key $PRIVATE_KEY"
     fi
 
     # Execute the command

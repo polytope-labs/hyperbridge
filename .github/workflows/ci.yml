@@ -155,7 +155,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
-                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
             - name: Download SVM Releases List
@@ -238,7 +238,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
                   curl -L https://sp1.succinct.xyz | bash
-                  ~/.sp1/bin/sp1up
+                  ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
             - name: Download SVM Releases List

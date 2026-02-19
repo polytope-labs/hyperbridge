@@ -61,8 +61,9 @@ where
 		consensus_state: ConsensusState,
 	) -> Result<Sp1BeefyProof, anyhow::Error> {
 		let authority = match signed_commitment.commitment.validator_set_id {
-			id if id == consensus_state.current_authorities.id =>
-				consensus_state.current_authorities,
+			id if id == consensus_state.current_authorities.id => {
+				consensus_state.current_authorities
+			},
 			id if id == consensus_state.next_authorities.id => consensus_state.next_authorities,
 			_ => Err(anyhow::anyhow!(
 				"Unknown validator set {}",
@@ -103,7 +104,6 @@ where
 			let paras = beefy_prover::relay::paras_parachains(
 				&self.inner.relay_rpc,
 				Some(HashFor::<R>::decode(&mut &*block_hash.encode())?),
-				self.inner.para_ids.clone(),
 			)
 			.await?;
 			let leaf_hashes = paras.iter().map(|l| keccak_256(&l.encode())).collect::<Vec<_>>();

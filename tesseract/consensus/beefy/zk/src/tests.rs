@@ -3,7 +3,7 @@ use codec::Decode;
 use ethers::abi::AbiEncode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_solidity_abi::beefy::{BeefyConsensusProof, BeefyConsensusState};
+use ismp_solidity_abi::{beefy::BeefyConsensusState, sp1_beefy::Sp1BeefyProof};
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use subxt::{
@@ -114,40 +114,40 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	// )
 	// .await?;
 
-	// let sp1_prover = sp1_beefy::local::LocalProver::new(true);
+	let sp1_prover = sp1_beefy::local::LocalProver::new().await.unwrap();
 
-	// let prover = Prover::new(
-	// 	beefy_prover::Prover {
-	// 		beefy_activation_block: activation_block,
-	// 		relay: relay.clone(),
-	// 		relay_rpc: relay_rpc.clone(),
-	// 		relay_rpc_client: relay_rpc_client.clone(),
-	// 		para,
-	// 		para_rpc,
-	// 		para_rpc_client,
-	// 		para_ids: vec![para_id],
-	// 		query_batch_size: None,
-	// 	},
-	// 	sp1_prover,
-	// );
+	let prover = crate::Prover::new(
+		beefy_prover::Prover {
+			beefy_activation_block: activation_block,
+			relay: relay.clone(),
+			relay_rpc: relay_rpc.clone(),
+			relay_rpc_client: relay_rpc_client.clone(),
+			para,
+			para_rpc,
+			para_rpc_client,
+			para_ids: vec![para_id],
+			query_batch_size: None,
+		},
+		sp1_prover,
+	);
 
 	// ============================================================================
 	// Naive Prover Setup (Active)
 	// ============================================================================
-	let prover = beefy_prover::Prover {
-		beefy_activation_block: activation_block,
-		relay: relay.clone(),
-		relay_rpc: relay_rpc.clone(),
-		relay_rpc_client: relay_rpc_client.clone(),
-		para,
-		para_rpc,
-		para_rpc_client,
-		para_ids: vec![para_id],
-		query_batch_size: None,
-	};
+	// let prover = beefy_prover::Prover {
+	// 	beefy_activation_block: activation_block,
+	// 	relay: relay.clone(),
+	// 	relay_rpc: relay_rpc.clone(),
+	// 	relay_rpc_client: relay_rpc_client.clone(),
+	// 	para,
+	// 	para_rpc,
+	// 	para_rpc_client,
+	// 	para_ids: vec![para_id],
+	// 	query_batch_size: None,
+	// };
 
 	// Get initial consensus state
-	let consensus_state = prover.get_initial_consensus_state(None).await?;
+	let consensus_state = prover.inner.get_initial_consensus_state(None).await?;
 
 	// Log the ABI-encoded BeefyConsensusState
 	let encoded_consensus_state = BeefyConsensusState::from(consensus_state.clone()).encode_hex();
@@ -158,6 +158,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	println!("==============================================\n");
 
 	let mut subscription: RpcSubscription<String> = prover
+		.inner
 		.relay_rpc_client
 		.subscribe(
 			"beefy_subscribeJustifications",
@@ -188,8 +189,10 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 		};
 
 		// Naive prover consensus proof
-		let proof: BeefyConsensusProof =
-			prover.consensus_proof(signed_commitment.clone()).await?.into();
+		let proof: Sp1BeefyProof = prover
+			.consensus_proof(signed_commitment.clone(), consensus_state.clone())
+			.await?
+			.into();
 
 		println!("\n=== Consensus proof (ABI-encoded) ===");
 		println!("0x{}", hex::encode([&[0u8], AbiEncode::encode(proof).as_slice()].concat()));

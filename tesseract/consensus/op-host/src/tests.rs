@@ -100,21 +100,25 @@ async fn test_dispute_game_proof_verification() {
 
 	let op_client = OpHost::new(&host, &config.evm_config).await.expect("Host creation failed");
 
+	// Use recent L1 (Sepolia) block range where dispute game events exist.
+	let from_block = 10291800u64;
+	let to_block = 10291900u64;
+
 	let events = op_client
-		.latest_dispute_games(5524041, 5524180, vec![0])
+		.latest_dispute_games(from_block, to_block, vec![0])
 		.await
 		.expect("Failed to fetch latest event");
 	assert!(events.len() >= 1);
 
 	let _payload_proof = op_client
-		.fetch_dispute_game_payload(5524180, vec![0], events)
+		.fetch_dispute_game_payload(to_block, vec![0], events)
 		.await
 		.expect("Error fetching payload proof")
 		.unwrap();
 
 	let l1_header = op_client
 		.beacon_execution_client
-		.get_block(BlockId::number(5524180))
+		.get_block(BlockId::number(to_block))
 		.await
 		.unwrap()
 		.expect("Block should exist");

@@ -1,51 +1,30 @@
 use crate::{EvmClient, EvmConfig};
 use alloy::{primitives::B256, providers::Provider};
-use codec::Decode;
-use evm_state_machine::{
-	get_contract_account, get_value_from_proof, types::EvmStateProof, verify_membership,
-};
 use hex_literal::hex;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	messaging::{hash_request, Proof},
-	router::{PostRequest, RequestResponse},
+	router::{PostRequest, Request, RequestResponse},
 };
 use ismp_solidity_abi::evm_host::EvmHostInstance;
-use ismp_testsuite::mocks::{Host, Keccak256Hasher};
+use ismp_testsuite::mocks::Keccak256Hasher;
 use primitive_types::{H160, H256};
-use std::str::FromStr;
 use tesseract_primitives::{IsmpProvider, Query};
 
-// source :
-// 45544845
-// dest :
-// 42415345
-// from :
-// D21C7893BD7A96732E65CEB2B9E6DD9CA95846C9
-// to :
-// 66819E1BBB03760D227745C71FE76C5783A5F810
-// timeoutTimestamp :
-// 1707167196
-// data :
-// 68656C6C6F2066726F6D2045544845
-// gaslimit :
-// 0
-// fee :
-// 0
+// Sepolia ISMP host contract
+const ISMP_HOST: H160 = H160(hex!("2EdB74C269948b60ec1000040E104cef0eABaae8"));
 
-const ISMP_HOST: H160 = H160(hex!("7b27ab4C64cdc30d219cEa9aC3Dd442Fd4D00E50"));
 #[tokio::test]
 #[ignore]
 async fn test_ismp_state_proof() {
 	dotenv::dotenv().ok();
 	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");
-	let signing_key =
-		std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
+	let signing_key = std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
 	let config = EvmConfig {
 		rpc_urls: vec![geth_url.clone()],
-		state_machine: StateMachine::Evm(1),
-		consensus_state_id: "SYNC".to_string(),
+		state_machine: StateMachine::Evm(11155111),
+		consensus_state_id: "ETH0".to_string(),
 		ismp_host: ISMP_HOST,
 		signer: signing_key,
 		..Default::default()
@@ -53,28 +32,35 @@ async fn test_ismp_state_proof() {
 
 	let client = EvmClient::new(config).await.expect("Host creation failed");
 
-	let post = PostRequest {
-		source: StateMachine::from_str(
-			&String::from_utf8(hex::decode("45544845").unwrap()).unwrap(),
+	// This request was dispatched on Sepolia at block 10290141.
+	let post_request = PostRequest {
+		source: StateMachine::Evm(11155111),
+		dest: StateMachine::Evm(420420417),
+		nonce: 13813,
+		from: hex!("fcda26ca021d5535c3059547390e6ccd8de7aca6").to_vec(),
+		to: hex!("1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c").to_vec(),
+		timeout_timestamp: 1771479552,
+		body: hex!(
+			"0000000000000000000000000000000000000000000000000000005af3107a40"
+			"000f8a193ff464434486c0daf7db2a895884365d2bc84ba47a68fcf89c1b14b5"
+			"b800000000000000000000000000000000000000000000000000000000000000"
+			"000000000000000000000000006cb7f088fc3d07e145dc0418f12f74268d0d03"
+			"090000000000000000000000003bd450e3456c4d7e293cd07757c7d1e001843b"
+			"b6"
 		)
-		.unwrap(),
-		dest: StateMachine::from_str(&String::from_utf8(hex::decode("42415345").unwrap()).unwrap())
-			.unwrap(),
-		nonce: 119,
-		from: hex::decode("D21C7893BD7A96732E65CEB2B9E6DD9CA95846C9").unwrap(),
-		to: hex::decode("66819E1BBB03760D227745C71FE76C5783A5F810").unwrap(),
-		timeout_timestamp: 1707167196,
-		body: hex::decode("68656C6C6F2066726F6D2045544845").unwrap(),
+		.to_vec(),
 	};
 
-	let req = ismp::router::Request::Post(post.clone());
+	let request = Request::Post(post_request);
+	let commitment = hash_request::<Keccak256Hasher>(&request);
+
 	let query = Query {
-		source_chain: post.source,
-		dest_chain: post.dest,
-		nonce: post.nonce,
-		commitment: hash_request::<Host>(&req),
+		source_chain: StateMachine::Evm(11155111),
+		dest_chain: StateMachine::Evm(420420417),
+		nonce: 13813,
+		commitment,
 	};
-	let at = 5224621u64;
+	let at = 10290141u64;
 	let block = client
 		.client
 		.get_block_by_number(at.into())
@@ -87,7 +73,7 @@ async fn test_ismp_state_proof() {
 	let host_contract = EvmHostInstance::new(host_addr, (*client.client).clone());
 
 	let request_meta = host_contract
-		.requestCommitments(B256::from_slice(&query.commitment.0))
+		.requestCommitments(B256::from_slice(&commitment.0))
 		.call()
 		.await
 		.unwrap();
@@ -99,45 +85,29 @@ async fn test_ismp_state_proof() {
 		.query_requests_proof(at, vec![query], StateMachine::Polkadot(1))
 		.await
 		.unwrap();
-	let evm_state_proof = EvmStateProof::decode(&mut &*proof).unwrap();
-	let contract_root = get_contract_account::<Keccak256Hasher>(
-		evm_state_proof.contract_proof,
-		&ISMP_HOST.0,
-		state_root.0.into(),
-	)
-	.unwrap()
-	.storage_root;
 
-	let key = sp_core::keccak_256(&client.request_commitment_key(query.commitment).1 .0).to_vec();
-	let value = get_value_from_proof::<Keccak256Hasher>(
-		key.clone(),
-		H256::from_slice(contract_root.as_slice()),
-		evm_state_proof.storage_proof.get(&key).unwrap().clone(),
-	)
-	.unwrap();
-	assert!(value.is_some());
-
-	let decoded_address: alloy_primitives::Address =
-		alloy_rlp::Decodable::decode(&mut &*value.unwrap()).unwrap();
-
-	assert_eq!(request_meta.sender.0, decoded_address.0);
-
-	verify_membership::<Keccak256Hasher>(
-		RequestResponse::Request(vec![req]),
-		StateCommitment { timestamp: 0, overlay_root: None, state_root: state_root.0.into() },
-		&Proof {
-			height: StateMachineHeight {
-				id: StateMachineId {
-					state_id: StateMachine::Evm(97),
-					consensus_state_id: [0, 0, 0, 0],
-				},
-				height: 0,
+	let state_commitment = StateCommitment {
+		timestamp: block.header.timestamp,
+		overlay_root: None,
+		state_root: H256::from(state_root.0),
+	};
+	let membership_proof = Proof {
+		height: StateMachineHeight {
+			id: StateMachineId {
+				state_id: StateMachine::Evm(11155111),
+				consensus_state_id: *b"ETH0",
 			},
-			proof,
+			height: at,
 		},
+		proof: proof.clone(),
+	};
+	evm_state_machine::verify_membership::<Keccak256Hasher>(
+		RequestResponse::Request(vec![request]),
+		state_commitment,
+		&membership_proof,
 		ISMP_HOST,
 	)
-	.unwrap();
+	.expect("verify_membership should succeed");
 }
 
 const NEW_HOST: H160 = H160(hex!("Bc0fA79725aCD430D507855e77f30C9d9ED4dC24"));
@@ -146,8 +116,7 @@ const NEW_HOST: H160 = H160(hex!("Bc0fA79725aCD430D507855e77f30C9d9ED4dC24"));
 async fn fetch_state_commitment() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
 	let geth_url = std::env::var("SEPOLIA_URL").expect("SEPOLIA_URL must be set.");
-	let signing_key =
-		std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
+	let signing_key = std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
 	let config = EvmConfig {
 		rpc_urls: vec![geth_url.clone()],
 		state_machine: StateMachine::Evm(1),

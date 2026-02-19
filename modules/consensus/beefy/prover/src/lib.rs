@@ -199,13 +199,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		let (mmr_proof, latest_leaf) = fetch_mmr_proof(
-			&self.relay_rpc,
-			block_number.try_into()?,
-			self.para_ids.clone(),
-			self.query_batch_size,
-		)
-		.await?;
+		let (mmr_proof, latest_leaf) =
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
+				.await?;
 
 		// Determine the active authority set based on the validator_set_id in the commitment
 		let authority_set = if signed_commitment.commitment.validator_set_id ==
@@ -256,7 +252,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let heads = paras_parachains(
 			&self.relay_rpc,
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
-			self.para_ids.clone(),
 		)
 		.await?;
 
@@ -297,13 +292,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		let (mmr_proof, latest_leaf) = fetch_mmr_proof(
-			&self.relay_rpc,
-			block_number.try_into()?,
-			self.para_ids.clone(),
-			self.query_batch_size,
-		)
-		.await?;
+		let (mmr_proof, latest_leaf) =
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
+				.await?;
 
 		// create authorities proof
 		let signatures = signed_commitment
@@ -348,7 +339,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let heads = paras_parachains(
 			&self.relay_rpc,
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
-			self.para_ids.clone(),
 		)
 		.await?;
 

@@ -93,7 +93,10 @@ pub async fn paras_parachains<T: Config>(
 		.await?
 		.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
 		.transpose()?
-		.ok_or_else(|| anyhow!("No beefy authorities found!"))?.into_iter().chain(para_ids.into_iter()).collect::<BTreeSet<_>>();
+		.ok_or_else(|| anyhow!("No beefy authorities found!"))?
+		.into_iter()
+		.chain(para_ids.into_iter())
+		.collect::<BTreeSet<_>>();
 
 	let mut heads = vec![];
 	for id in ids {

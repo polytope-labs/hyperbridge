@@ -682,7 +682,7 @@ where
 		let prover = match config.proof_variant {
 			ProofVariant::FiatShamir => Prover::FiatShamir(prover, PhantomData),
 			ProofVariant::Zk => {
-				let sp1_prover = zk_beefy::LocalProver::new(true);
+				let sp1_prover = zk_beefy::LocalProver::new().await?;
 				Prover::ZK(zk_beefy::Prover::new(prover, sp1_prover))
 			},
 			ProofVariant::Naive => Prover::Naive(prover, PhantomData),

@@ -3,7 +3,10 @@ use alloy_sol_types::SolValue;
 use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_solidity_abi::beefy::{BeefyConsensusProof, BeefyConsensusState};
+use ismp_solidity_abi::{
+	beefy::{BeefyConsensusProof, BeefyConsensusState},
+	sp1_beefy::Sp1BeefyProof,
+};
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use subxt::{
@@ -114,9 +117,9 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	// )
 	// .await?;
 
-	// let sp1_prover = sp1_beefy::local::LocalProver::new(true);
+	// let sp1_prover = sp1_beefy::local::LocalProver::new().await.unwrap();
 
-	// let prover = Prover::new(
+	// let prover = crate::Prover::new(
 	// 	beefy_prover::Prover {
 	// 		beefy_activation_block: activation_block,
 	// 		relay: relay.clone(),
@@ -142,7 +145,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 		para,
 		para_rpc,
 		para_rpc_client,
-		para_ids: vec![para_id],
+		para_ids: vec![],
 		query_batch_size: None,
 	};
 

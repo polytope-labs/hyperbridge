@@ -199,13 +199,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		let (mmr_proof, latest_leaf) = fetch_mmr_proof(
-			&self.relay_rpc,
-			block_number.try_into()?,
-			self.para_ids.clone(),
-			self.query_batch_size,
-		)
-		.await?;
+		let (mmr_proof, latest_leaf) =
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
+				.await?;
 
 		// Determine the active authority set based on the validator_set_id in the commitment
 		let authority_set = if signed_commitment.commitment.validator_set_id ==
@@ -256,29 +252,28 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let heads = paras_parachains(
 			&self.relay_rpc,
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
-			self.para_ids.clone(),
 		)
 		.await?;
 
-		let (parachains, indices): (Vec<_>, Vec<_>) = self
-			.para_ids
-			.iter()
-			.map(|id| {
-				let index = heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist");
-				(
-					ParachainHeader {
-						header: heads[index].1.clone(),
-						index,
-						para_id: heads[index].0,
-					},
-					index,
-				)
+		let (parachains, indices): (Vec<_>, Vec<_>) = heads
+			.clone()
+			.into_iter()
+			.enumerate()
+			.filter_map(|(index, (para_id, header))| {
+				if self.para_ids.contains(&para_id) {
+					Some((ParachainHeader { header, index, para_id }, index))
+				} else {
+					None
+				}
 			})
 			.unzip();
 
-		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let proof = util::merkle_proof(&leaves, &indices);
-
+		let proof = if parachains.len() > 0 {
+			let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+			util::merkle_proof(&leaves, &indices)
+		} else {
+			vec![]
+		};
 		let parachain = ParachainProof { parachains, proof };
 
 		Ok((ConsensusMessage { mmr, parachain }, bitmap))
@@ -297,13 +292,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query blockhash for blocknumber"))?;
 
-		let (mmr_proof, latest_leaf) = fetch_mmr_proof(
-			&self.relay_rpc,
-			block_number.try_into()?,
-			self.para_ids.clone(),
-			self.query_batch_size,
-		)
-		.await?;
+		let (mmr_proof, latest_leaf) =
+			fetch_mmr_proof(&self.relay_rpc, block_number.try_into()?, self.query_batch_size)
+				.await?;
 
 		// create authorities proof
 		let signatures = signed_commitment
@@ -348,29 +339,28 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let heads = paras_parachains(
 			&self.relay_rpc,
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
-			self.para_ids.clone(),
 		)
 		.await?;
 
-		let (parachains, indices): (Vec<_>, Vec<_>) = self
-			.para_ids
-			.iter()
-			.map(|id| {
-				let index = heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist");
-				(
-					ParachainHeader {
-						header: heads[index].1.clone(),
-						index,
-						para_id: heads[index].0,
-					},
-					index,
-				)
+		let (parachains, indices): (Vec<_>, Vec<_>) = heads
+			.clone()
+			.into_iter()
+			.enumerate()
+			.filter_map(|(index, (para_id, header))| {
+				if self.para_ids.contains(&para_id) {
+					Some((ParachainHeader { header, index, para_id }, index))
+				} else {
+					None
+				}
 			})
 			.unzip();
 
-		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let proof = util::merkle_proof(&leaves, &indices);
-
+		let proof = if parachains.len() > 0 {
+			let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+			util::merkle_proof(&leaves, &indices)
+		} else {
+			vec![]
+		};
 		let parachain = ParachainProof { parachains, proof };
 
 		Ok(ConsensusMessage { mmr, parachain })

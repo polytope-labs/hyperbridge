@@ -85,7 +85,7 @@ mod beefy {
 	impl From<beefy_verifier_primitives::ParachainProof> for ParachainProof {
 		fn from(value: beefy_verifier_primitives::ParachainProof) -> Self {
 			ParachainProof {
-				parachain: value
+				parachains: value
 					.parachains
 					.into_iter()
 					.map(|parachain| Parachain {
@@ -93,8 +93,7 @@ mod beefy {
 						id: parachain.para_id.to_u256(),
 						header: Bytes::from(parachain.header),
 					})
-					.collect::<Vec<_>>()[0]
-					.clone(),
+					.collect(),
 				proof: value
 					.proof
 					.into_iter()

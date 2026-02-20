@@ -159,7 +159,7 @@ async fn test_verify_revive_state_proof() -> Result<(), Box<dyn std::error::Erro
 			.trim_start_matches("0x"),
 	)?;
 
-	let mut input = &account_info_bytes[..];
+	let input = &account_info_bytes[..];
 	let account_info = AccountInfo::decode(&mut &input[..])?;
 	let AccountType::Contract(info) = account_info.account_type;
 	let trie_id = info.trie_id;

@@ -25,6 +25,9 @@ alloy-sol-types = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-contract = { workspace = true }
 alloy-rlp = { workspace = true }
+alloy-json-rpc = { workspace = true }
+alloy-transport = { workspace = true }
+tower = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
 reqwest-retry = "0.3.0"

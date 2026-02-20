@@ -89,7 +89,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 				let client = Arc::new(provider);
 				let ping = PingModuleInstance::new(PING_ADDR, client.clone());
 
-				let host_addr = ping.host().call().await.context(format!("Error in {chain}"))?._0;
+				let host_addr = Address::from(ping.host().call().await.context(format!("Error in {chain}"))?.0);
 				dbg!((&chain, &host_addr));
 
 				if respond.is_some() {
@@ -175,7 +175,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 					}
 				} else {
 					let host = EvmHostInstance::new(host_addr, client.clone());
-					let fee_token = host.feeToken().call().await.context(format!("Error in {chain}"))?._0;
+					let fee_token = Address::from(host.feeToken().call().await.context(format!("Error in {chain}"))?.0);
 					let erc_20 = ERC20Instance::new(fee_token, client.clone());
 					let call = erc_20.approve(PING_ADDR, AlloyU256::MAX);
 					let gas = call.estimate_gas().await.context(format!("Error in {chain}"))?;

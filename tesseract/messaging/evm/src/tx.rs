@@ -9,6 +9,7 @@ use crate::{
 use anyhow::anyhow;
 use codec::Decode;
 use alloy::{
+	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
 	primitives::{Address, Bytes, B256, U256 as AlloyU256},
 	providers::Provider,
 	rpc::types::{TransactionReceipt, TransactionRequest},
@@ -196,7 +197,7 @@ pub async fn wait_for_success(
 					None
 				})
 				.collect();
-			if receipt.status() {
+			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
 				log::info!("Tx for {:?} succeeded", state_machine);
 			} else {
 				log::info!(
@@ -269,7 +270,7 @@ pub async fn wait_for_success(
 						wait_for_transaction_receipt(cancel_hash, client.client.clone()).await
 					{
 						let prelude = "Cancellation Tx";
-						if receipt.status() {
+						if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
 							log::info!("{prelude} for {:?} succeeded", state_machine);
 						} else {
 							log::info!("{prelude} for {:?} reverted", state_machine);
@@ -286,148 +287,6 @@ pub async fn wait_for_success(
 			}
 		},
 	}
-}
-
-/// Result of estimating gas for a message
-#[derive(Clone)]
-pub struct MessageGasEstimate {
-	/// Estimated gas for execution
-	pub gas_estimate: u64,
-	/// Calldata bytes for L2 data cost calculation
-	pub calldata: Vec<u8>,
-}
-
-/// Function estimates gas for messages without sending them
-pub async fn estimate_gas_for_messages(
-	client: &EvmClient,
-	messages: Vec<Message>,
-) -> anyhow::Result<Vec<MessageGasEstimate>> {
-	let handler = client.handler().await?;
-	let handler_addr = Address::from_slice(&handler.0);
-	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
-	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
-	let mut estimates = Vec::new();
-
-	for message in messages {
-		match message {
-			Message::Consensus(msg) => {
-				let call = contract.handleConsensus(ismp_host, Bytes::from(msg.consensus_proof));
-				let gas_estimate = call.estimate_gas().await.unwrap_or(0);
-				let calldata = call.calldata().to_vec();
-				estimates.push(MessageGasEstimate { gas_estimate, calldata });
-			},
-			Message::Request(msg) => {
-				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
-				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
-				let k_and_leaf_indices = membership_proof
-					.leaf_indices_and_pos
-					.iter()
-					.map(|LeafIndexAndPos { pos, leaf_index }| {
-						let k_index = mmr_position_to_k_index(vec![*pos], mmr_size)[0].1;
-						(k_index, *leaf_index)
-					})
-					.collect::<Vec<_>>();
-
-				let mut leaves = msg
-					.requests
-					.iter()
-					.cloned()
-					.zip(k_and_leaf_indices)
-					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
-						request: convert_post_request(post),
-						index: AlloyU256::from(leaf_index),
-						kIndex: AlloyU256::from(k_index),
-					})
-					.collect::<Vec<_>>();
-				leaves.sort_by(|a, b| a.index.cmp(&b.index));
-
-				let post_message = PostRequestMessage {
-					proof: Proof {
-						height: StateMachineHeight {
-							stateMachineId: {
-								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										AlloyU256::from(id),
-									_ => continue,
-								}
-							},
-							height: AlloyU256::from(msg.proof.height.height),
-						},
-						multiproof: membership_proof.items.iter().map(|node| B256::from_slice(&node.0)).collect(),
-						leafCount: AlloyU256::from(membership_proof.leaf_count),
-					},
-					requests: leaves,
-				};
-
-				let call = contract.handlePostRequests(ismp_host, post_message);
-				let gas_estimate = call.estimate_gas().await.unwrap_or(0);
-				let calldata = call.calldata().to_vec();
-				estimates.push(MessageGasEstimate { gas_estimate, calldata });
-			},
-			Message::Response(ResponseMessage { datagram, proof, .. }) => {
-				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
-				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
-				let k_and_leaf_indices = membership_proof
-					.leaf_indices_and_pos
-					.iter()
-					.map(|LeafIndexAndPos { pos, leaf_index }| {
-						let k_index = mmr_position_to_k_index(vec![*pos], mmr_size)[0].1;
-						(k_index, *leaf_index)
-					})
-					.collect::<Vec<_>>();
-
-				match datagram {
-					RequestResponse::Response(responses) => {
-						let mut leaves = responses
-							.iter()
-							.cloned()
-							.zip(k_and_leaf_indices)
-							.filter_map(|(res, (k_index, leaf_index))| match res {
-								Response::Post(res) => Some(PostResponseLeaf {
-									response: convert_post_response(res),
-									index: AlloyU256::from(leaf_index),
-									kIndex: AlloyU256::from(k_index),
-								}),
-								_ => None,
-							})
-							.collect::<Vec<_>>();
-						leaves.sort_by(|a, b| a.index.cmp(&b.index));
-
-						let message = PostResponseMessage {
-							proof: Proof {
-								height: StateMachineHeight {
-									stateMachineId: {
-										match proof.height.id.state_id {
-											StateMachine::Polkadot(id) |
-											StateMachine::Kusama(id) => AlloyU256::from(id),
-											_ => continue,
-										}
-									},
-									height: AlloyU256::from(proof.height.height),
-								},
-								multiproof: membership_proof
-									.items
-									.iter()
-									.map(|node| B256::from_slice(&node.0))
-									.collect(),
-								leafCount: AlloyU256::from(membership_proof.leaf_count),
-							},
-							responses: leaves,
-						};
-
-						let call = contract.handlePostResponses(ismp_host, message);
-						let gas_estimate = call.estimate_gas().await.unwrap_or(0);
-						let calldata = call.calldata().to_vec();
-						estimates.push(MessageGasEstimate { gas_estimate, calldata });
-					},
-					RequestResponse::Request(..) => continue,
-				}
-			},
-			Message::Timeout(_) | Message::FraudProof(_) => continue,
-		}
-	}
-
-	Ok(estimates)
 }
 
 /// Function generates contract calls from batches of messages without sending them.

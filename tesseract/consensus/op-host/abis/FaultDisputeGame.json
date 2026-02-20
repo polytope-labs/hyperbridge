@@ -212,7 +212,7 @@
               "type": "bytes32"
             }
           ],
-          "internalType": "struct Types.OutputRootProof",
+          "internalType": "struct OutputRootProof",
           "name": "_outputRootProof",
           "type": "tuple"
         },

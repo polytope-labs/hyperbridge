@@ -974,6 +974,8 @@ dependencies = [
  "alloy-primitives 1.5.2",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "alloy-sol-macro 1.5.2",
+ "alloy-sol-types 1.5.2",
  "anyhow",
  "arbitrum-verifier",
  "async-trait",
@@ -13326,9 +13328,12 @@ name = "op-host"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-contract",
  "alloy-primitives 1.5.2",
  "alloy-rlp",
  "alloy-rlp-derive",
+ "alloy-sol-macro 1.5.2",
+ "alloy-sol-types 1.5.2",
  "anyhow",
  "async-trait",
  "dotenv",

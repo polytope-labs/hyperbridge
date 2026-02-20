@@ -98,13 +98,7 @@ pub struct GasBreakdown {
 	pub unit_wei_cost: U256,
 }
 
-fn alloy_u256_to_primitive(val: AlloyU256) -> U256 {
-	U256::from_little_endian(&val.to_le_bytes::<32>())
-}
-
-fn primitive_to_alloy_u256(val: U256) -> AlloyU256 {
-	AlloyU256::from_limbs(val.0)
-}
+use geth_primitives::{alloy_u256_to_primitive, primitive_u256_to_alloy as primitive_to_alloy_u256};
 
 /// Function gets current gas price (for execution) in wei and return the equivalent in USD,
 pub async fn get_current_gas_cost_in_usd(
@@ -122,7 +116,7 @@ pub async fn get_current_gas_cost_in_usd(
 					let arb_gas_info_contract =
 						ArbGasInfoInstance::new(Address::from_slice(&ARB_GAS_INFO), client.clone());
 					let prices = arb_gas_info_contract.getPricesInWei().call().await?;
-					let oracle_gas_price = prices._5; // Last return value is L2 gas price
+					let oracle_gas_price = prices._5;
 					gas_price = alloy_u256_to_primitive(std::cmp::max(
 						AlloyU256::from(node_gas_price),
 						oracle_gas_price,
@@ -154,8 +148,11 @@ pub async fn get_current_gas_cost_in_usd(
 	let unit_wei = get_cost_of_one_wei(token_usd);
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 
-	let gas_price_gwei = gas_price / U256::from(1_000_000_000u64);
-	log::debug!("Returned gas price for {chain:?}: {} Gwei", gas_price_gwei);
+	log::debug!(
+		"Returned gas price for {chain:?}: {} Gwei",
+		alloy::primitives::utils::format_units(AlloyU256::from(gas_price.as_u128()), "gwei")
+			.unwrap_or_default()
+	);
 
 	Ok(GasBreakdown { gas_price, gas_price_cost: gas_price_cost.into(), unit_wei_cost: unit_wei })
 }

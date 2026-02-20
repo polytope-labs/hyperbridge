@@ -229,7 +229,7 @@
               "type": "uint128"
             }
           ],
-          "internalType": "struct Types.OutputProposal",
+          "internalType": "struct OutputProposal",
           "name": "",
           "type": "tuple"
         }
@@ -265,7 +265,7 @@
               "type": "uint128"
             }
           ],
-          "internalType": "struct Types.OutputProposal",
+          "internalType": "struct OutputProposal",
           "name": "",
           "type": "tuple"
         }

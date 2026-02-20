@@ -333,9 +333,9 @@ impl From<router::GetRequest> for GetRequest {
 			nonce: value.nonce,
 			keys: value.keys.into_iter().map(Into::into).collect(),
 			from: {
-				let mut address = [0u8; 20];
-				address.copy_from_slice(&value.from[..20.min(value.from.len())]);
-				alloy_primitives::Address::from(address)
+				let mut address = H160::default();
+				address.0.copy_from_slice(&value.from);
+				alloy_primitives::Address::from(address.0)
 			},
 			context: value.context.into(),
 			timeoutTimestamp: value.timeout_timestamp,

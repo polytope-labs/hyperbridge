@@ -35,6 +35,7 @@ members = [
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/bsc",
+    "modules/ismp/clients/pharos",
     "modules/ismp/clients/grandpa",
     "modules/ismp/testsuite",
     "modules/ismp/clients/ismp-arbitrum",
@@ -59,6 +60,9 @@ members = [
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
     "modules/consensus/tendermint/ics23-primitives",
+    "modules/consensus/pharos/primitives",
+    "modules/consensus/pharos/verifier",
+    "modules/consensus/pharos/prover",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -68,6 +72,7 @@ members = [
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
+    "modules/ismp/state-machines/pharos",
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-fees",
 
@@ -117,6 +122,7 @@ members = [
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
+    "tesseract/consensus/pharos",
 
 
     # Airdrop
@@ -264,9 +270,13 @@ tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", defaul
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
+pharos-primitives = { path = "./modules/consensus/pharos/primitives", default-features = false }
+pharos-verifier = { path = "./modules/consensus/pharos/verifier", default-features = false }
+pharos-prover = { path = "./modules/consensus/pharos/prover", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
+ismp-pharos = { path = "./modules/ismp/clients/pharos", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
@@ -277,6 +287,7 @@ ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features =
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
+pharos-state-machine = { path = "./modules/ismp/state-machines/pharos", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # ismp modules
@@ -333,6 +344,7 @@ tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
+tesseract-pharos = { path = "tesseract/consensus/pharos" }
 
 
 [workspace.dependencies.codec]
@@ -382,6 +394,15 @@ default-features = false
 version = "1.1.2"
 default-features = false
 features = ["rlp"]
+
+[workspace.dependencies.alloy-provider]
+version = "~1.0"
+default-features = false
+features = ["reqwest", "reqwest-default-tls"]
+
+[workspace.dependencies.alloy-eips]
+version = "~1.3"
+default-features = false
 
 [workspace.dependencies.scale-info]
 version = "2.1.1"

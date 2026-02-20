@@ -1,5 +1,4 @@
 mod byte_list;
-mod byte_vector;
 use core::fmt;
 
 fn write_bytes_to_lower_hex<T: AsRef<[u8]>>(f: &mut fmt::Formatter<'_>, data: T) -> fmt::Result {
@@ -13,4 +12,4 @@ fn write_bytes_to_lower_hex<T: AsRef<[u8]>>(f: &mut fmt::Formatter<'_>, data: T)
 }
 
 pub use byte_list::ByteList;
-pub use byte_vector::ByteVector;
+pub use crypto_utils::ssz::ByteVector;

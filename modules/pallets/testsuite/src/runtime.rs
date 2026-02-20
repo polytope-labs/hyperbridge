@@ -258,6 +258,7 @@ impl pallet_ismp::Config for Test {
 			Test,
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
+		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = (

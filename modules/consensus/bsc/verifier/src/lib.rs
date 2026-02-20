@@ -20,14 +20,13 @@ use polkadot_sdk::*;
 
 use alloc::vec::Vec;
 use anyhow::anyhow;
-use bls::{point_to_pubkey, types::G1ProjectivePoint};
+use crypto_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
 use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
 use sp_core::H256;
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
-use sync_committee_verifier::crypto::pubkey_to_projective;
 
 pub mod primitives;
 
@@ -163,13 +162,4 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		finalized_header: update.source_header,
 		next_validators: next_validator_addresses,
 	})
-}
-
-pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
-	let aggregate = keys
-		.into_iter()
-		.filter_map(|key| pubkey_to_projective(key).ok())
-		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
-
-	point_to_pubkey(aggregate.into())
 }

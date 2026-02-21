@@ -4,7 +4,9 @@
         "overview",
         "dispatching",
         "receiving",
+        "testnet-fee-token",
         "contract-addresses",
+        "intent-gateway",
         "api"
     ],
     "defaultOpen": false

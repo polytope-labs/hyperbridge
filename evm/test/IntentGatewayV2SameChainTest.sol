@@ -1527,4 +1527,392 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             "Calldata should execute after full fill"
         );
     }
+
+    /*//////////////////////////////////////////////////////////////
+                    ROUNDING DUST IN PARTIAL FILLS (Finding #4)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Verifies that rounding dust from integer division in partial fills
+    /// is not permanently locked. The final solver completing the order should
+    /// receive the full remaining escrow balance rather than a truncated amount.
+    function testPartialFill_RoundingDustReleasedToFinalSolver() public {
+        // Choose amounts that produce rounding truncation:
+        // input = 100 USDC (100e6), output = 3 DAI (3e18)
+        // Each of 3 solvers fills 1 DAI. Proportional release per fill:
+        //   100e6 * 1e18 / 3e18 = 33333333 (truncated from 33333333.33...)
+        // Without fix: 3 * 33333333 = 99999999, leaving 1 unit locked.
+        // With fix: final solver gets remaining balance = 100e6 - 2*33333333 = 33333334
+        uint256 inputAmount = 100 * 1e6; // 100 USDC
+        uint256 outputAmount = 3 * 1e18; // 3 DAI
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // User places order
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+
+        uint256 fillPerSolver = 1e18; // Each solver fills 1 DAI
+        uint256 truncatedRelease = (inputAmount * fillPerSolver) / outputAmount; // 33333333
+
+        // --- Solver 1 fills 1 DAI ---
+        address solver1 = makeAddr("solver1");
+        vm.deal(solver1, 1 ether);
+        deal(address(dai), solver1, 10 * 1e18);
+        uint256 solver1UsdcBefore = usdc.balanceOf(solver1);
+
+        vm.startPrank(solver1);
+        dai.approve(address(intentGateway), fillPerSolver);
+        TokenInfo[] memory out1 = new TokenInfo[](1);
+        out1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: out1}));
+        vm.stopPrank();
+
+        assertEq(
+            usdc.balanceOf(solver1),
+            solver1UsdcBefore + truncatedRelease,
+            "Solver1 should receive truncated proportional USDC"
+        );
+
+        // --- Solver 2 fills 1 DAI ---
+        address solver2 = makeAddr("solver2");
+        vm.deal(solver2, 1 ether);
+        deal(address(dai), solver2, 10 * 1e18);
+        uint256 solver2UsdcBefore = usdc.balanceOf(solver2);
+
+        vm.startPrank(solver2);
+        dai.approve(address(intentGateway), fillPerSolver);
+        TokenInfo[] memory out2 = new TokenInfo[](1);
+        out2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: out2}));
+        vm.stopPrank();
+
+        assertEq(
+            usdc.balanceOf(solver2),
+            solver2UsdcBefore + truncatedRelease,
+            "Solver2 should receive truncated proportional USDC"
+        );
+
+        // --- Solver 3 fills final 1 DAI (completes the order) ---
+        address solver3 = makeAddr("solver3");
+        vm.deal(solver3, 1 ether);
+        deal(address(dai), solver3, 10 * 1e18);
+        uint256 solver3UsdcBefore = usdc.balanceOf(solver3);
+
+        vm.startPrank(solver3);
+        dai.approve(address(intentGateway), fillPerSolver);
+        TokenInfo[] memory out3 = new TokenInfo[](1);
+        out3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: out3}));
+        vm.stopPrank();
+
+        // Final solver should receive the remaining balance (truncatedRelease + 1 rounding unit)
+        uint256 expectedFinalRelease = inputAmount - (2 * truncatedRelease); // 33333334
+        assertEq(
+            usdc.balanceOf(solver3),
+            solver3UsdcBefore + expectedFinalRelease,
+            "Final solver should receive remaining escrow including rounding dust"
+        );
+        assertGt(expectedFinalRelease, truncatedRelease, "Final release should be larger due to rounding dust");
+
+        // Gateway should have zero USDC — no dust locked
+        assertEq(usdc.balanceOf(address(intentGateway)), 0, "Gateway should have zero USDC - no rounding dust locked");
+    }
+
+    /// @notice Same test with native ETH to verify rounding dust fix works for native tokens too
+    function testPartialFill_RoundingDustReleasedToFinalSolver_NativeETH() public {
+        // input = 1 ether, output = 3 DAI
+        // Per fill: 1e18 * 1e18 / 3e18 = 333333333333333333 (truncated)
+        // Without fix: 3 * 333333333333333333 = 999999999999999999, leaving 1 wei locked
+        uint256 inputAmount = 1 ether;
+        uint256 outputAmount = 3 * 1e18;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(0), amount: inputAmount}); // native ETH
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        intentGateway.placeOrder{value: inputAmount}(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+
+        uint256 fillPerSolver = 1e18;
+        uint256 truncatedRelease = (inputAmount * fillPerSolver) / outputAmount;
+
+        // --- Solver 1 ---
+        address solver1 = makeAddr("ethSolver1");
+        vm.deal(solver1, 10 ether);
+        deal(address(dai), solver1, 10 * 1e18);
+        uint256 solver1EthBefore = solver1.balance;
+
+        vm.startPrank(solver1);
+        dai.approve(address(intentGateway), fillPerSolver);
+        TokenInfo[] memory out1 = new TokenInfo[](1);
+        out1[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: out1}));
+        vm.stopPrank();
+
+        assertEq(solver1.balance, solver1EthBefore + truncatedRelease, "Solver1 gets truncated ETH");
+
+        // --- Solver 2 ---
+        address solver2 = makeAddr("ethSolver2");
+        vm.deal(solver2, 10 ether);
+        deal(address(dai), solver2, 10 * 1e18);
+        uint256 solver2EthBefore = solver2.balance;
+
+        vm.startPrank(solver2);
+        dai.approve(address(intentGateway), fillPerSolver);
+        TokenInfo[] memory out2 = new TokenInfo[](1);
+        out2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: out2}));
+        vm.stopPrank();
+
+        assertEq(solver2.balance, solver2EthBefore + truncatedRelease, "Solver2 gets truncated ETH");
+
+        // --- Solver 3 (final) ---
+        address solver3 = makeAddr("ethSolver3");
+        vm.deal(solver3, 10 ether);
+        deal(address(dai), solver3, 10 * 1e18);
+        uint256 solver3EthBefore = solver3.balance;
+
+        vm.startPrank(solver3);
+        dai.approve(address(intentGateway), fillPerSolver);
+        TokenInfo[] memory out3 = new TokenInfo[](1);
+        out3[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: fillPerSolver});
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: out3}));
+        vm.stopPrank();
+
+        uint256 expectedFinalRelease = inputAmount - (2 * truncatedRelease);
+        assertEq(solver3.balance, solver3EthBefore + expectedFinalRelease, "Final solver gets remaining ETH + dust");
+        assertGt(expectedFinalRelease, truncatedRelease, "Final release includes rounding dust");
+
+        // Gateway should have zero ETH locked
+        assertEq(address(intentGateway).balance, 0, "Gateway should have zero ETH - no rounding dust locked");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+              NATIVE ETH SURPLUS ACCOUNTING (Finding #2)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Verifies that native ETH surplus (protocol share) is correctly accounted
+    /// for in the msgValue tracker during same-chain fills, preventing the protocol's
+    /// dust from being consumed by subsequent operations.
+    function testSameChainSwap_NativeETHSurplus_CorrectAccounting() public {
+        // Order: user escrows 1000 USDC, wants 1 ETH output
+        // Solver provides 1.1 ETH (0.1 ETH surplus)
+        // With 50% surplusShareBps: 0.05 ETH to beneficiary, 0.05 ETH to protocol
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 requestedETH = 1 ether;
+        uint256 solverETH = 1.1 ether; // 0.1 ETH surplus
+
+        uint256 surplus = solverETH - requestedETH;
+        uint256 protocolShare = (surplus * SURPLUS_SHARE_BPS) / 10_000; // 0.05 ETH
+        uint256 beneficiaryShare = surplus - protocolShare; // 0.05 ETH
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: requestedETH}); // native ETH output
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+
+        // Solver fills with surplus native ETH
+        vm.startPrank(solver);
+        uint256 userEthBefore = user.balance;
+        uint256 gatewayEthBefore = address(intentGateway).balance;
+        uint256 solverUsdcBefore = usdc.balanceOf(solver);
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(0), amount: solverETH});
+
+        intentGateway.fillOrder{value: solverETH}(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+        );
+        vm.stopPrank();
+
+        // User receives requested + beneficiary share
+        assertEq(
+            user.balance,
+            userEthBefore + requestedETH + beneficiaryShare,
+            "User should receive requested ETH + beneficiary surplus share"
+        );
+
+        // Protocol dust retained in gateway
+        assertEq(
+            address(intentGateway).balance,
+            gatewayEthBefore + protocolShare,
+            "Gateway should retain protocol's ETH surplus share as dust"
+        );
+
+        // Solver receives escrowed USDC
+        assertEq(usdc.balanceOf(solver), solverUsdcBefore + inputAmount, "Solver should receive escrowed USDC");
+    }
+
+    /// @notice Tests that with mixed output tokens (native ETH + ERC20) and surplus,
+    /// the msgValue tracker correctly accounts for protocolShare on the native ETH pair,
+    /// preventing protocol dust from being consumed by subsequent operations.
+    function testSameChainSwap_MixedOutputs_NativeETHSurplusAccounting() public {
+        // 2 pairs: USDC->ETH (with surplus) and DAI->USDC (with surplus)
+        uint256 usdcInputAmount = 1000 * 1e6;
+        uint256 daiInputAmount = 500 * 1e18;
+        uint256 ethOutputRequired = 0.5 ether;
+        uint256 usdcOutputRequired = 400 * 1e6;
+        uint256 solverEth = 0.6 ether; // 0.1 ETH surplus
+        uint256 solverUsdc = 420 * 1e6; // 20 USDC surplus
+
+        uint256 ethSurplus = solverEth - ethOutputRequired;
+        uint256 ethProtocolShare = (ethSurplus * SURPLUS_SHARE_BPS) / 10_000;
+        uint256 ethBeneficiaryShare = ethSurplus - ethProtocolShare;
+
+        uint256 usdcSurplus = solverUsdc - usdcOutputRequired;
+        uint256 usdcProtocolShare = (usdcSurplus * SURPLUS_SHARE_BPS) / 10_000;
+        uint256 usdcBeneficiaryShare = usdcSurplus - usdcProtocolShare;
+
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcInputAmount});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiInputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: ethOutputRequired}); // native ETH
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcOutputRequired});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), usdcInputAmount);
+        dai.approve(address(intentGateway), daiInputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+
+        // Solver fills both pairs with surplus
+        vm.startPrank(solver);
+        uint256 userEthBefore = user.balance;
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        uint256 solverEthBefore = solver.balance;
+
+        usdc.approve(address(intentGateway), solverUsdc);
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](2);
+        solverOutputs[0] = TokenInfo({token: bytes32(0), amount: solverEth});
+        solverOutputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: solverUsdc});
+
+        // Solver sends exactly solverEth as msg.value — no extra ETH for USDC transfer
+        intentGateway.fillOrder{value: solverEth}(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+        );
+        vm.stopPrank();
+
+        // User receives ETH output + beneficiary share
+        assertEq(
+            user.balance,
+            userEthBefore + ethOutputRequired + ethBeneficiaryShare,
+            "User should receive ETH output + beneficiary surplus"
+        );
+
+        // User receives USDC output + beneficiary share
+        assertEq(
+            usdc.balanceOf(user),
+            userUsdcBefore + usdcOutputRequired + usdcBeneficiaryShare,
+            "User should receive USDC output + beneficiary surplus"
+        );
+
+        // Gateway retains ETH protocol share + USDC protocol share
+        // (gateway also had the escrowed USDC input which was released to solver)
+        assertEq(
+            address(intentGateway).balance, ethProtocolShare, "Gateway should retain ETH protocol share as dust"
+        );
+
+        // Solver spent exactly solverEth in ETH
+        assertEq(
+            solverEthBefore - solver.balance, solverEth, "Solver should have spent exactly solverEth"
+        );
+    }
 }

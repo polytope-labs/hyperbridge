@@ -599,10 +599,9 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             uint256 solverAmount = options.outputs[i].amount;
 
             if (isSameChain) {
-                if (solverAmount == 0) continue;
-
                 uint256 alreadyFilled = _partialFills[commitment][outputToken];
                 uint256 remaining = totalRequired - alreadyFilled;
+                if (remaining == 0 || solverAmount == 0) continue;
                 uint256 fillAmount;
 
                 // Surplus only applies if this pair has not been partially filled
@@ -625,7 +624,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 _partialFills[commitment][outputToken] = amountFilled;
                 uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
 
-                if (token == address(0)) {
+                if (token == address(0)) { 
                     if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
                     msgValue -= (beneficiaryTotal + protocolShare);
                     (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
@@ -641,7 +640,14 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 if (protocolShare > 0) emit DustCollected(token, protocolShare);
 
                 // Compute proportional input release for this pair
-                uint256 escrowedAmount = (order.inputs[i].amount * fillAmount) / totalRequired;
+                // On the final fill for this pair, release the full remaining escrow
+                // to avoid rounding dust being permanently locked
+                uint256 escrowedAmount;
+                if (amountFilled == totalRequired) {
+                    escrowedAmount = _orders[commitment][address(uint160(uint256(order.inputs[i].token)))];
+                } else {
+                    escrowedAmount = (order.inputs[i].amount * fillAmount) / totalRequired;
+                }
                 escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: escrowedAmount});
                 outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
             } else {
@@ -666,14 +672,14 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                     uint256 beneficiaryTotal = totalRequired + beneficiaryShare;
                     (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
                     if (!sent) revert InsufficientNativeToken();
-                    msgValue -= beneficiaryTotal;
+                    msgValue -= (beneficiaryTotal + protocolShare);
                 } else {
                     IERC20(token).safeTransferFrom(msg.sender, beneficiary, totalRequired + beneficiaryShare);
                     if (protocolShare > 0) {
                         IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
-                        emit DustCollected(token, protocolShare);
                     }
                 }
+                if (protocolShare > 0) emit DustCollected(token, protocolShare);
             }
         }
 
@@ -984,20 +990,16 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     function withdraw(WithdrawalRequest memory body, bool isRefund, bool finalize) internal {
         address beneficiary = address(uint160(uint256(body.beneficiary)));
-
         if (finalize) _filled[body.commitment] = beneficiary;
 
         // redeem escrowed tokens
         uint256 len = body.tokens.length;
-        for (uint256 i; i < len;) {
+        for (uint256 i; i < len; i++) {
             address token = address(uint160(uint256(body.tokens[i].token)));
             uint256 escrowed = _orders[body.commitment][token];
             if (escrowed == 0) revert UnknownOrder();
-            uint256 amount = body.tokens[i].amount;
 
-            unchecked {
-                ++i;
-            }
+            uint256 amount = body.tokens[i].amount;
             if (amount == 0) continue;
 
             _orders[body.commitment][token] -= amount;
@@ -1013,8 +1015,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             // redeem tx fees
             uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
             if (fees > 0) {
-                IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
                 delete _orders[body.commitment][TRANSACTION_FEES];
+                IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
             }
 
             if (isRefund) {

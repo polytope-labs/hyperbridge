@@ -129,6 +129,11 @@ fn strip_request(req: SerializedRequest) -> Result<SerializedRequest, TransportE
 			if let Some(obj) = item.as_object_mut() {
 				changed |= obj.remove("type").is_some();
 				changed |= obj.remove("accessList").is_some();
+				// Tron uses `data` instead of `input`
+				if let Some(input_val) = obj.remove("input") {
+					obj.insert("data".to_string(), input_val);
+					changed = true;
+				}
 			}
 		}
 		changed
@@ -220,6 +225,20 @@ mod tests {
 		let result = strip_request(req).unwrap();
 		let result_params = result.params().unwrap().get().to_owned();
 		assert_eq!(original_params, result_params);
+	}
+
+	#[test]
+	fn renames_input_to_data() {
+		let req = make_serialized_request(
+			"eth_call",
+			json!([{"to": "0xdead", "input": "0x1234"}, "latest"]),
+		);
+		let result = strip_request(req).unwrap();
+		let params: serde_json::Value =
+			serde_json::from_str(result.params().unwrap().get()).unwrap();
+		let obj = params[0].as_object().unwrap();
+		assert!(!obj.contains_key("input"));
+		assert_eq!(obj.get("data").unwrap(), "0x1234");
 	}
 
 	#[test]

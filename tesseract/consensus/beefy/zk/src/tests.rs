@@ -5,7 +5,7 @@ use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_solidity_abi::{
 	beefy::{BeefyConsensusProof, BeefyConsensusState},
-	sp1_beefy::Sp1BeefyProof,
+	sp1_beefy::SP1BeefyProof,
 };
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};

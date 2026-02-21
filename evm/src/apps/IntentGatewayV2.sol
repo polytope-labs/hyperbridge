@@ -825,13 +825,17 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             // Build tokens with remaining escrowed amounts (handles partially filled orders)
             uint256 inputsLen = order.inputs.length;
             TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);
+            bool hasEscrow = false;
             for (uint256 i; i < inputsLen;) {
                 address token = address(uint160(uint256(order.inputs[i].token)));
-                remainingTokens[i] = TokenInfo({token: order.inputs[i].token, amount: _orders[commitment][token]});
+                uint256 escrowed = _orders[commitment][token];
+                if (escrowed > 0) hasEscrow = true;
+                remainingTokens[i] = TokenInfo({token: order.inputs[i].token, amount: escrowed});
                 unchecked {
                     ++i;
                 }
             }
+            if (!hasEscrow) revert UnknownOrder();
 
             WithdrawalRequest memory body =
                 WithdrawalRequest({commitment: commitment, tokens: remainingTokens, beneficiary: order.user});
@@ -996,13 +1000,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         uint256 len = body.tokens.length;
         for (uint256 i; i < len; i++) {
             address token = address(uint160(uint256(body.tokens[i].token)));
-            uint256 escrowed = _orders[body.commitment][token];
-            if (escrowed == 0) revert UnknownOrder();
-
             uint256 amount = body.tokens[i].amount;
             if (amount == 0) continue;
 
-            _orders[body.commitment][token] -= amount;
+            uint256 escrowed = _orders[body.commitment][token];
+            if (escrowed == 0) revert UnknownOrder();
+
+            _orders[body.commitment][token] = escrowed - amount;
             if (token == address(0)) {
                 (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();

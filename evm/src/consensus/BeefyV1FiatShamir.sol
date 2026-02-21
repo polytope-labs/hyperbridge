@@ -157,7 +157,6 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, relay, parachain, signersBitmap);
 
-
         return (abi.encode(newState), intermediates);
     }
 

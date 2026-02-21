@@ -552,6 +552,9 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         // For cross-chain, must be on the destination chain
         if (!isSameChain && orderDest != currentChain) revert WrongChain();
 
+        // Ensure the order has not been fully filled or cancelled
+        if (_filled[commitment] != address(0)) revert Filled();
+
         if (_params.solverSelection) {
             // Verify solver selection
             bytes32 solver;
@@ -566,9 +569,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             if (address(uint160(uint256(storedSessionKey))) != order.session) revert Unauthorized();
         }
 
-        // Ensure the order has not been fully filled or cancelled
-        if (_filled[commitment] != address(0)) revert Filled();
-
         // Validate that solver outputs are provided and match order outputs length
         uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
@@ -582,15 +582,15 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         address beneficiary = address(uint160(uint256(order.output.beneficiary)));
         bool isFullyFilled = true;
 
-        // For same-chain: build proportional input release amounts and track output fills
-        TokenInfo[] memory inputReleases;
+        // For same-chain: build proportional escrowed input amounts and track output fills
+        TokenInfo[] memory escrowedInputs;
         TokenInfo[] memory outputFills;
         if (isSameChain) {
-            inputReleases = new TokenInfo[](outputsLen);
+            escrowedInputs = new TokenInfo[](outputsLen);
             outputFills = new TokenInfo[](outputsLen);
         }
 
-        for (uint256 i; i < outputsLen;) {
+        for (uint256 i; i < outputsLen; i++) {
             bytes32 outputToken = order.output.assets[i].token;
             if (options.outputs[i].token != outputToken) revert InvalidInput();
 
@@ -599,6 +599,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             uint256 solverAmount = options.outputs[i].amount;
 
             if (isSameChain) {
+                if (solverAmount == 0) continue;
+
                 uint256 alreadyFilled = _partialFills[commitment][outputToken];
                 uint256 remaining = totalRequired - alreadyFilled;
                 uint256 fillAmount;
@@ -616,35 +618,31 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                         beneficiaryShare = dust - protocolShare;
                     }
                 } else {
-                    // Partial fill or completing a partially filled pair — cap to remaining
                     fillAmount = solverAmount > remaining ? remaining : solverAmount;
                 }
 
                 uint256 amountFilled = alreadyFilled + fillAmount;
                 _partialFills[commitment][outputToken] = amountFilled;
+                uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
 
-                if (fillAmount > 0 || beneficiaryShare > 0) {
-                    uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
-                    if (token == address(0)) {
-                        if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
-                        msgValue -= (beneficiaryTotal + protocolShare);
-                        (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
-                        if (!sent) revert InsufficientNativeToken();
-                    } else {
-                        IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryTotal);
-                        if (protocolShare > 0) {
-                            IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
-                        }
+                if (token == address(0)) {
+                    if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
+                    msgValue -= (beneficiaryTotal + protocolShare);
+                    (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
+                    if (!sent) revert InsufficientNativeToken();
+                } else {
+                    IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryTotal);
+                    if (protocolShare > 0) {
+                        IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
                     }
-                    
-                    if (protocolShare > 0) emit DustCollected(token, protocolShare);
                 }
 
-                // Compute proportional input release for this pair
-                uint256 inputRelease = (order.inputs[i].amount * fillAmount) / totalRequired;
                 if (totalRequired > amountFilled) isFullyFilled = false;
+                if (protocolShare > 0) emit DustCollected(token, protocolShare);
 
-                inputReleases[i] = TokenInfo({token: order.inputs[i].token, amount: inputRelease});
+                // Compute proportional input release for this pair
+                uint256 escrowedAmount = (order.inputs[i].amount * fillAmount) / totalRequired;
+                escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: escrowedAmount});
                 outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
             } else {
                 // Cross-chain: all-or-nothing with surplus handling
@@ -677,18 +675,12 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                     }
                 }
             }
-
-            unchecked {
-                ++i;
-            }
         }
 
         if (isSameChain) {
             // Release proportional escrowed inputs to solver via withdraw
             WithdrawalRequest memory body = WithdrawalRequest({
-                commitment: commitment, 
-                tokens: inputReleases, 
-                beneficiary: bytes32(uint256(uint160(msg.sender)))
+                commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
             });
             withdraw(body, false, isFullyFilled);
 
@@ -699,10 +691,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 emit OrderFilled({commitment: commitment, filler: msg.sender});
             } else {
                 emit PartialFill({
-                    commitment: commitment, 
-                    filler: msg.sender, 
-                    outputs: outputFills, 
-                    inputs: inputReleases
+                    commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs
                 });
             }
         } else {
@@ -714,9 +703,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 bytes1(uint8(RequestKind.RedeemEscrow)),
                 abi.encode(
                     WithdrawalRequest({
-                        commitment: commitment, 
-                        tokens: order.inputs, 
-                        beneficiary: bytes32(uint256(uint160(msg.sender)))
+                        commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
                     })
                 )
             );
@@ -737,7 +724,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 // try to pay for dispatch with fee token
                 dispatchWithFeeToken(request, msg.sender);
             }
-            
+
             emit OrderFilled({commitment: commitment, filler: msg.sender});
         }
 
@@ -834,19 +821,14 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 address token = address(uint160(uint256(order.inputs[i].token)));
-                remainingTokens[i] = TokenInfo({
-                    token: order.inputs[i].token,
-                    amount: _orders[commitment][token]
-                });
-                unchecked { ++i; }
+                remainingTokens[i] = TokenInfo({token: order.inputs[i].token, amount: _orders[commitment][token]});
+                unchecked {
+                    ++i;
+                }
             }
 
             WithdrawalRequest memory body =
-                WithdrawalRequest({
-                    commitment: commitment, 
-                    tokens: remainingTokens, 
-                    beneficiary: order.user
-                });
+                WithdrawalRequest({commitment: commitment, tokens: remainingTokens, beneficiary: order.user});
 
             withdraw(body, true, true);
         } else if (currentChain == orderSource) {

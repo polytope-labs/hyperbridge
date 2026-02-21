@@ -1696,7 +1696,9 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Filler receives proportional input: 1000 * 500 / 1000 = 500 USDC
         uint256 expectedInputRelease = (inputAmount * partialAmount) / outputAmount;
-        assertEq(usdc.balanceOf(filler), fillerUsdcBefore + expectedInputRelease, "Filler should receive proportional USDC");
+        assertEq(
+            usdc.balanceOf(filler), fillerUsdcBefore + expectedInputRelease, "Filler should receive proportional USDC"
+        );
     }
 
     function testFillOrderInsufficientNativeToken() public {

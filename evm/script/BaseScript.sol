@@ -18,7 +18,6 @@ abstract contract BaseScript is Script, Config {
     function setUp() public {
         // Load config
         _loadConfig(vm.envString("CONFIG"), true);
-
     }
 
     /// @notice Deploy to a single chain (current network)

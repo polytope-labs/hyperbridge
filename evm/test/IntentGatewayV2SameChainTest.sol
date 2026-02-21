@@ -250,9 +250,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         );
 
         // Verify protocol retained its fee
-        assertEq(
-            usdc.balanceOf(address(gatewayWithFees)), expectedFee, "Gateway should retain protocol fee"
-        );
+        assertEq(usdc.balanceOf(address(gatewayWithFees)), expectedFee, "Gateway should retain protocol fee");
     }
 
     function testSameChainSwap_WithSurplus() public {
@@ -828,8 +826,14 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Verify all tokens swapped
         assertEq(user.balance, userEthBefore + ethOutputAmount, "User should receive ETH");
-        assertEq(usdc.balanceOf(user), userUsdcBefore - usdcInputAmount + usdcOutputAmount, "User should receive USDC output");
-        assertEq(usdc.balanceOf(solver), solverUsdcBefore + usdcInputAmount - usdcOutputAmount, "Solver should receive USDC input");
+        assertEq(
+            usdc.balanceOf(user), userUsdcBefore - usdcInputAmount + usdcOutputAmount, "User should receive USDC output"
+        );
+        assertEq(
+            usdc.balanceOf(solver),
+            solverUsdcBefore + usdcInputAmount - usdcOutputAmount,
+            "Solver should receive USDC input"
+        );
         assertEq(dai.balanceOf(solver), solverDaiBefore + daiInputAmount, "Solver should receive DAI");
     }
 
@@ -988,7 +992,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Solver receives proportional input: 1000 * 800 / 900 = 888.888... USDC
         uint256 expectedInputRelease = (inputAmount * partialAmount) / requestedAmount;
-        assertEq(usdc.balanceOf(solver), solverUsdcBefore + expectedInputRelease, "Solver should receive proportional USDC");
+        assertEq(
+            usdc.balanceOf(solver), solverUsdcBefore + expectedInputRelease, "Solver should receive proportional USDC"
+        );
 
         // Gateway still holds remaining escrowed USDC
         assertEq(
@@ -1089,10 +1095,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
                         PARTIAL FILL TESTS
     //////////////////////////////////////////////////////////////*/
 
-    function _placeStandardOrder(uint256 inputAmount, uint256 outputAmount)
-        internal
-        returns (Order memory order)
-    {
+    function _placeStandardOrder(uint256 inputAmount, uint256 outputAmount) internal returns (Order memory order) {
         TokenInfo[] memory inputs = new TokenInfo[](1);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
 
@@ -1384,14 +1387,16 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
     function testPartialFill_WithProtocolFee() public {
         IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
-        gatewayWithFees.setParams(Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: false,
-            surplusShareBps: SURPLUS_SHARE_BPS,
-            protocolFeeBps: PROTOCOL_FEE_BPS,
-            priceOracle: address(0)
-        }));
+        gatewayWithFees.setParams(
+            Params({
+                host: address(host),
+                dispatcher: address(dispatcher),
+                solverSelection: false,
+                surplusShareBps: SURPLUS_SHARE_BPS,
+                protocolFeeBps: PROTOCOL_FEE_BPS,
+                priceOracle: address(0)
+            })
+        );
 
         uint256 inputAmount = 1000 * 1e6;
         uint256 outputAmount = 900 * 1e18;
@@ -1439,7 +1444,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Solver gets proportional input after fee: amountAfterFee * 450/900 = amountAfterFee / 2
         uint256 expectedInput = (amountAfterFee * fill) / outputAmount;
-        assertEq(usdc.balanceOf(solver), solverUsdcBefore + expectedInput, "Solver receives proportional input after fee");
+        assertEq(
+            usdc.balanceOf(solver), solverUsdcBefore + expectedInput, "Solver receives proportional input after fee"
+        );
         // Gateway retains protocol fee + remaining escrow
         assertEq(
             usdc.balanceOf(address(gatewayWithFees)),
@@ -1461,9 +1468,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         Call[] memory calls = new Call[](1);
         calls[0] = Call({
-            to: address(dai),
-            value: 0,
-            data: abi.encodeWithSelector(IERC20.approve.selector, address(intentGateway), 1)
+            to: address(dai), value: 0, data: abi.encodeWithSelector(IERC20.approve.selector, address(intentGateway), 1)
         });
 
         Order memory order = Order({
@@ -1477,9 +1482,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
             output: PaymentInfo({
-                beneficiary: bytes32(uint256(uint160(user))),
-                assets: outputAssets,
-                call: abi.encode(calls)
+                beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: abi.encode(calls)
             })
         });
 
@@ -1501,7 +1504,11 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Allowance should still be 0 (calldata not executed yet)
-        assertEq(dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)), 0, "Calldata should not execute on partial fill");
+        assertEq(
+            dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)),
+            0,
+            "Calldata should not execute on partial fill"
+        );
 
         // Complete the fill — calldata should execute
         address solver2 = makeAddr("solver2");
@@ -1514,6 +1521,10 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Allowance should now be 1 (calldata executed)
-        assertEq(dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)), 1, "Calldata should execute after full fill");
+        assertEq(
+            dai.allowance(address(intentGateway.params().dispatcher), address(intentGateway)),
+            1,
+            "Calldata should execute after full fill"
+        );
     }
 }

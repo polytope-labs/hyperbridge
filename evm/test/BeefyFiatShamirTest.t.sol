@@ -43,10 +43,12 @@ contract BeefyFiatShamirDebugDetailedTest is Test {
         console.log("Next authority set len:", intialState.nextAuthoritySet.len);
 
         // Check which authority set will be used
-        bool isCurrentAuthorities = relay.signedCommitment.commitment.validatorSetId == intialState.currentAuthoritySet.id;
+        bool isCurrentAuthorities =
+            relay.signedCommitment.commitment.validatorSetId == intialState.currentAuthoritySet.id;
         console.log("\nUsing current authority set:", isCurrentAuthorities);
 
-        uint256 authoritySetLen = isCurrentAuthorities ? intialState.currentAuthoritySet.len : intialState.nextAuthoritySet.len;
+        uint256 authoritySetLen =
+            isCurrentAuthorities ? intialState.currentAuthoritySet.len : intialState.nextAuthoritySet.len;
         console.log("Authority set length:", authoritySetLen);
 
         // Count set bits manually to see if that's where it fails
@@ -57,17 +59,18 @@ contract BeefyFiatShamirDebugDetailedTest is Test {
         console.log("Bitmap word 3:", signersBitmap[3]);
 
         // Try to verify - this should cause Panic(0x11)
-        (bytes memory newState, IntermediateState[] memory intermediates) = consensus.verifyConsensus(trustedState, proof);
+        (bytes memory newState, IntermediateState[] memory intermediates) =
+            consensus.verifyConsensus(trustedState, proof);
 
         assert(intermediates.length == 0);
-        
+
         console.log("Verification succeeded!");
         console.log("New state length:", newState.length);
 
         // Decode and log the new state
         BeefyConsensusState memory updatedState = abi.decode(newState, (BeefyConsensusState));
         assert(updatedState.latestHeight > intialState.latestHeight);
-        
+
         console.log("\n=== New Consensus State ===");
         console.log("New latest height:", updatedState.latestHeight);
         console.log("New current authority set ID:", updatedState.currentAuthoritySet.id);

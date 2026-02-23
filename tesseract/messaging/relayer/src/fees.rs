@@ -1,7 +1,6 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
 use anyhow::anyhow;
 use futures::StreamExt;
-use tokio_stream::wrappers::IntervalStream;
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
@@ -15,6 +14,7 @@ use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
 };
 use tesseract_substrate::config::KeccakSubstrateChain;
+use tokio_stream::wrappers::IntervalStream;
 use tracing::instrument;
 use transaction_fees::TransactionPayment;
 

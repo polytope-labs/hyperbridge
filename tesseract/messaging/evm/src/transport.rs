@@ -120,8 +120,8 @@ fn strip_request(req: SerializedRequest) -> Result<SerializedRequest, TransportE
 		None => return Ok(req),
 	};
 
-	let mut params_value: serde_json::Value = serde_json::from_str(&params_raw)
-		.map_err(|e| TransportErrorKind::custom(e))?;
+	let mut params_value: serde_json::Value =
+		serde_json::from_str(&params_raw).map_err(|e| TransportErrorKind::custom(e))?;
 
 	let modified = if let Some(arr) = params_value.as_array_mut() {
 		let mut changed = false;
@@ -217,10 +217,7 @@ mod tests {
 
 	#[test]
 	fn skips_non_tx_methods() {
-		let req = make_serialized_request(
-			"eth_getBlockByNumber",
-			json!(["0x1", true]),
-		);
+		let req = make_serialized_request("eth_getBlockByNumber", json!(["0x1", true]));
 		let original_params = req.params().unwrap().get().to_owned();
 		let result = strip_request(req).unwrap();
 		let result_params = result.params().unwrap().get().to_owned();

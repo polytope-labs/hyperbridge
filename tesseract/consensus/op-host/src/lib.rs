@@ -164,13 +164,13 @@ impl OpHost {
 				};
 
 				let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
-				let signing_key = alloy::signers::k256::ecdsa::SigningKey::from_slice(signer.seed().as_slice())?;
+				let signing_key =
+					alloy::signers::k256::ecdsa::SigningKey::from_slice(signer.seed().as_slice())?;
 				let wallet_signer = PrivateKeySigner::from_signing_key(signing_key);
 				let wallet = EthereumWallet::from(wallet_signer);
 
-				let signer_provider = ProviderBuilder::new()
-					.wallet(wallet)
-					.connect_http(beacon_rpc_url.parse()?);
+				let signer_provider =
+					ProviderBuilder::new().wallet(wallet).connect_http(beacon_rpc_url.parse()?);
 
 				let client = ClientBuilder::new(Client::new())
 					.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(
@@ -280,7 +280,8 @@ impl OpHost {
 
 			let extra_data = contract.extraData().block(BlockId::latest()).call().await?;
 			let timestamp = contract.createdAt().block(BlockId::latest()).call().await?;
-			let l2_block_number = contract.l2SequenceNumber().block(BlockId::latest()).call().await?;
+			let l2_block_number =
+				contract.l2SequenceNumber().block(BlockId::latest()).call().await?;
 
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
@@ -325,7 +326,11 @@ impl OpHost {
 				.get_block(BlockId::number(l2_block_num))
 				.await?
 				.ok_or_else(|| {
-					anyhow!("{:?} Header not found for {:?}", self.evm.state_machine, l2_block_number)
+					anyhow!(
+						"{:?} Header not found for {:?}",
+						self.evm.state_machine,
+						l2_block_number
+					)
 				})?;
 
 			let header = block.into();

@@ -1,5 +1,5 @@
-use anyhow::anyhow;
 use alloy_sol_types::SolValue;
+use anyhow::anyhow;
 use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
@@ -153,7 +153,8 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 	let consensus_state = prover.get_initial_consensus_state(None).await?;
 
 	// Log the ABI-encoded BeefyConsensusState
-	let encoded_consensus_state = hex::encode(BeefyConsensusState::from(consensus_state.clone()).abi_encode());
+	let encoded_consensus_state =
+		hex::encode(BeefyConsensusState::from(consensus_state.clone()).abi_encode());
 	println!("\n=== Initial Consensus State (ABI-encoded) ===");
 	println!("0x{}", encoded_consensus_state);
 	println!("\n=== Consensus State Details ===");

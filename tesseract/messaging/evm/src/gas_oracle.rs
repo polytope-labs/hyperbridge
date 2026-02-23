@@ -99,7 +99,9 @@ pub struct GasBreakdown {
 	pub unit_wei_cost: U256,
 }
 
-use geth_primitives::{alloy_u256_to_primitive, primitive_u256_to_alloy as primitive_to_alloy_u256};
+use geth_primitives::{
+	alloy_u256_to_primitive, primitive_u256_to_alloy as primitive_to_alloy_u256,
+};
 
 /// Function gets current gas price (for execution) in wei and return the equivalent in USD,
 pub async fn get_current_gas_cost_in_usd(
@@ -116,7 +118,11 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract =
 						ArbGasInfoInstance::new(Address::from_slice(&ARB_GAS_INFO), client.clone());
-					let prices = arb_gas_info_contract.getPricesInWei().block(BlockId::latest()).call().await?;
+					let prices = arb_gas_info_contract
+						.getPricesInWei()
+						.block(BlockId::latest())
+						.call()
+						.await?;
 					let oracle_gas_price = prices._5;
 					gas_price = alloy_u256_to_primitive(std::cmp::max(
 						AlloyU256::from(node_gas_price),
@@ -130,7 +136,8 @@ pub async fn get_current_gas_cost_in_usd(
 						Address::from_slice(&OP_GAS_ORACLE),
 						client.clone(),
 					);
-					let ovm_gas_price = ovm_gas_price_oracle.gasPrice().block(BlockId::latest()).call().await?;
+					let ovm_gas_price =
+						ovm_gas_price_oracle.gasPrice().block(BlockId::latest()).call().await?;
 					gas_price = alloy_u256_to_primitive(std::cmp::max(
 						AlloyU256::from(node_gas_price),
 						ovm_gas_price,
@@ -183,8 +190,7 @@ async fn get_price_from_uniswap_router(
 		return Err(anyhow!("Uniswap V2 Router not configured in Host Params"));
 	}
 
-	let router =
-		IUniswapV2Router::IUniswapV2RouterInstance::new(params.uniswapV2, client.clone());
+	let router = IUniswapV2Router::IUniswapV2RouterInstance::new(params.uniswapV2, client.clone());
 	let native_token = router.WETH().block(BlockId::latest()).call().await?;
 
 	let fee_token_contract = IERC20::IERC20Instance::new(fee_token, client.clone());
@@ -222,8 +228,9 @@ pub async fn get_l2_data_cost(
 			id if is_op_stack(id) => {
 				let ovm_gas_price_oracle =
 					OvmGasPriceOracleInstance::new(Address::from_slice(&OP_GAS_ORACLE), client);
-				let data_cost_bytes =
-					alloy_u256_to_primitive(ovm_gas_price_oracle.getL1Fee(rlp_tx).block(BlockId::latest()).call().await?);
+				let data_cost_bytes = alloy_u256_to_primitive(
+					ovm_gas_price_oracle.getL1Fee(rlp_tx).block(BlockId::latest()).call().await?,
+				);
 				data_cost = data_cost_bytes * unit_wei_cost
 			},
 

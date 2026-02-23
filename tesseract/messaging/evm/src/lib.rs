@@ -190,7 +190,8 @@ impl EvmClient {
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 
-		let rpc_url = config.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URLs provided"))?;
+		let rpc_url =
+			config.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URLs provided"))?;
 		let url: alloy::transports::http::reqwest::Url = rpc_url.parse()?;
 		let http_client = alloy::transports::http::reqwest::Client::builder()
 			.timeout(Duration::from_secs(180))
@@ -199,14 +200,16 @@ impl EvmClient {
 		let rpc_client = match config.transport {
 			RpcTransport::Tron => {
 				use crate::transport::TronLayer;
-				let http = alloy::transports::http::Http::with_client(http_client.clone(), url.clone());
+				let http =
+					alloy::transports::http::Http::with_client(http_client.clone(), url.clone());
 				alloy::rpc::client::ClientBuilder::default()
 					.layer(TronLayer)
 					.transport(http, false)
 			},
-			RpcTransport::Standard => {
-				alloy::rpc::client::RpcClient::new_http_with_client(http_client.clone(), url.clone())
-			},
+			RpcTransport::Standard => alloy::rpc::client::RpcClient::new_http_with_client(
+				http_client.clone(),
+				url.clone(),
+			),
 		};
 		let client = Arc::new(RootProvider::new(rpc_client));
 		let chain_id = client.get_chain_id().await?;
@@ -222,13 +225,11 @@ impl EvmClient {
 					.layer(TronLayer)
 					.transport(http, false)
 			},
-			RpcTransport::Standard => {
-				alloy::rpc::client::RpcClient::new_http_with_client(http_client, url)
-			},
+			RpcTransport::Standard =>
+				alloy::rpc::client::RpcClient::new_http_with_client(http_client, url),
 		};
-		let signer_provider = ProviderBuilder::new()
-			.wallet(wallet)
-			.connect_client(signer_rpc_client);
+		let signer_provider =
+			ProviderBuilder::new().wallet(wallet).connect_client(signer_rpc_client);
 		let signer = Arc::new(signer_provider);
 
 		let consensus_state_id = {
@@ -269,17 +270,17 @@ impl EvmClient {
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
 		use alloy::rpc::types::Filter;
 		use alloy_sol_types::SolEvent;
-		use ismp_solidity_abi::evm_host::EvmHost::{
-			GetRequestEvent, PostRequestEvent, PostResponseEvent, PostRequestHandled,
-			PostResponseHandled, GetRequestHandled, StateMachineUpdated as EvmStateMachineUpdated,
+		use ismp_solidity_abi::{
+			evm_host::EvmHost::{
+				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
+				PostResponseEvent, PostResponseHandled,
+				StateMachineUpdated as EvmStateMachineUpdated,
+			},
+			EvmHostEvents,
 		};
-		use ismp_solidity_abi::EvmHostEvents;
 
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
-		let filter = Filter::new()
-			.address(host_addr)
-			.from_block(from)
-			.to_block(to);
+		let filter = Filter::new().address(host_addr).from_block(from).to_block(to);
 
 		let logs = self.client.get_logs(&filter).await?;
 
@@ -330,7 +331,8 @@ impl EvmClient {
 		let gas = call.estimate_gas().await?;
 		let pending = call.gas(gas).send().await?;
 		let tx_hash = *pending.tx_hash();
-		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone()).await?;
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone())
+			.await?;
 
 		Ok(())
 	}
@@ -348,7 +350,8 @@ impl EvmClient {
 		let gas = call.estimate_gas().await?;
 		let pending = call.gas(gas).send().await?;
 		let tx_hash = *pending.tx_hash();
-		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone()).await?;
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone())
+			.await?;
 
 		Ok(())
 	}

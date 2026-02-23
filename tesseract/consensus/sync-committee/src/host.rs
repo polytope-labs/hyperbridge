@@ -302,13 +302,9 @@ impl<
 		let initial_consensus_state = self.get_consensus_state(params, None).await?;
 
 		let number = self.el.get_block_number().await?;
-		let block = self
-			.el
-			.get_block(BlockId::number(number))
-			.await?
-			.ok_or_else(|| {
-				anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
-			})?;
+		let block = self.el.get_block(BlockId::number(number)).await?.ok_or_else(|| {
+			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+		})?;
 		state_machine_commitments.push((
 			StateMachineId {
 				state_id: self.state_machine,

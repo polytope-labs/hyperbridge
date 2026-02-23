@@ -302,11 +302,10 @@ async fn test_verify_evm_post_request_events() -> Result<(), Box<dyn std::error:
 		// Convert to alloy types for decoding
 		let topics: Vec<B256> = log_topics
 			.iter()
-			.map(|t| {
-				B256::from_slice(&hex::decode(t.trim_start_matches("0x")).unwrap_or_default())
-			})
+			.map(|t| B256::from_slice(&hex::decode(t.trim_start_matches("0x")).unwrap_or_default()))
 			.collect();
-		let data = AlloyBytes::from(hex::decode(log_data.trim_start_matches("0x")).unwrap_or_default());
+		let data =
+			AlloyBytes::from(hex::decode(log_data.trim_start_matches("0x")).unwrap_or_default());
 		let log_data = LogData::new(topics.clone(), data).unwrap();
 
 		// Try to decode as PostRequestEvent

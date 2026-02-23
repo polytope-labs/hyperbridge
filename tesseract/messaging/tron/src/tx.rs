@@ -30,8 +30,8 @@
 
 use std::{collections::BTreeSet, time::Duration};
 
-use anyhow::{anyhow, Context};
 use alloy::providers::Provider;
+use anyhow::{anyhow, Context};
 use ismp::{
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse},

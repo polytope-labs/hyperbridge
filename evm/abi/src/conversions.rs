@@ -113,10 +113,7 @@ mod beefy {
 
 	impl From<ConsensusMessage> for BeefyConsensusProof {
 		fn from(message: ConsensusMessage) -> Self {
-			BeefyConsensusProof {
-				relay: message.mmr.into(),
-				parachain: message.parachain.into(),
-			}
+			BeefyConsensusProof { relay: message.mmr.into(), parachain: message.parachain.into() }
 		}
 	}
 
@@ -146,10 +143,7 @@ mod beefy {
 	type SpMmrLeaf = sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256>;
 	impl From<beefy_verifier_primitives::ParachainHeader> for ParachainHeader {
 		fn from(value: beefy_verifier_primitives::ParachainHeader) -> Self {
-			ParachainHeader {
-				header: Bytes::from(value.header),
-				id: value.para_id.to_u256(),
-			}
+			ParachainHeader { header: Bytes::from(value.header), id: value.para_id.to_u256() }
 		}
 	}
 

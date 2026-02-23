@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
-use alloy_sol_types::SolValue;
 use hex_literal::hex;
 use polkadot_sdk::*;
 use primitive_types::H256;
@@ -214,8 +214,7 @@ where
 					.collect::<Vec<_>>()
 					.try_into()
 					.expect("bitmap should have exactly 4 words");
-				let encoded =
-					(message.relay, message.parachain, bitmap_words).abi_encode();
+				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode();
 				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
 			},
 		};

@@ -27,8 +27,7 @@ async fn test_payload_proof_verification() {
 		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
 	};
-	let signing_key =
-		std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
+	let signing_key = std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
 	let config = ArbConfig {
 		host: host.clone(),
 		evm_config: EvmConfig {

@@ -6,8 +6,6 @@ use crate::{
 	},
 	AlloyProvider, EvmClient,
 };
-use anyhow::anyhow;
-use codec::Decode;
 use alloy::{
 	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
 	primitives::{Address, Bytes, B256, U256 as AlloyU256},
@@ -15,18 +13,19 @@ use alloy::{
 	rpc::types::{TransactionReceipt, TransactionRequest},
 	transports::TransportError,
 };
+use alloy_sol_types::SolEvent;
+use anyhow::anyhow;
+use codec::Decode;
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse, Response},
 };
-use alloy_sol_types::SolEvent;
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		HandlerInstance, PostRequestLeaf, PostRequestMessage,
-		PostResponseLeaf, PostResponseMessage, Proof,
-		StateMachineHeight,
+		HandlerInstance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
@@ -80,8 +79,7 @@ pub async fn submit_messages(
 
 		let tx_hash = *pending.tx_hash();
 		let is_consensus = matches!(messages[index], Message::Consensus(_));
-		let retry_message =
-			if is_consensus { Some(messages[index].clone()) } else { None };
+		let retry_message = if is_consensus { Some(messages[index].clone()) } else { None };
 		let evs = wait_for_success(
 			client,
 			H256::from_slice(tx_hash.as_slice()),
@@ -90,9 +88,7 @@ pub async fn submit_messages(
 			is_consensus,
 		)
 		.await?;
-		if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
-			evs.is_empty()
-		{
+		if matches!(messages[index], Message::Request(_) | Message::Response(_)) && evs.is_empty() {
 			cancelled.push(messages[index].clone())
 		}
 		events.extend(evs);
@@ -158,10 +154,10 @@ pub async fn wait_for_success(
 				.iter()
 				.filter_map(|l| {
 					if let Ok(ev) = PostRequestHandled::decode_log(&l.inner) {
-						return Some(H256::from_slice(ev.commitment.as_slice()))
+						return Some(H256::from_slice(ev.commitment.as_slice()));
 					}
 					if let Ok(ev) = PostResponseHandled::decode_log(&l.inner) {
-						return Some(H256::from_slice(ev.commitment.as_slice()))
+						return Some(H256::from_slice(ev.commitment.as_slice()));
 					}
 					None
 				})
@@ -206,10 +202,8 @@ pub async fn wait_for_success(
 
 				match msg {
 					Message::Consensus(consensus_msg) => {
-						let call = contract.handleConsensus(
-							ismp_host,
-							Bytes::from(consensus_msg.consensus_proof),
-						);
+						let call = contract
+							.handleConsensus(ismp_host, Bytes::from(consensus_msg.consensus_proof));
 						let estimated_gas = call
 							.estimate_gas()
 							.await
@@ -265,10 +259,7 @@ pub async fn generate_contract_calls(
 	messages: Vec<Message>,
 	debug_trace: bool,
 ) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
-	log::trace!(
-		"[evm::tx] generate_contract_calls: called with {} messages",
-		messages.len(),
-	);
+	log::trace!("[evm::tx] generate_contract_calls: called with {} messages", messages.len(),);
 
 	let handler = client.handler().await?;
 	let handler_addr = Address::from_slice(&handler.0);
@@ -289,8 +280,12 @@ pub async fn generate_contract_calls(
 	log::trace!("[evm::tx] set_gas_price: {}", set_gas_price());
 
 	let mut gas_price = if set_gas_price() {
-		let gas_cost = get_current_gas_cost_in_usd(client.state_machine, client.config.ismp_host.0.into(), client.client.clone())
-			.await?;
+		let gas_cost = get_current_gas_cost_in_usd(
+			client.state_machine,
+			client.config.ismp_host.0.into(),
+			client.client.clone(),
+		)
+		.await?;
 		log::trace!("[evm::tx] Got gas price: {}", gas_cost.gas_price);
 		gas_cost.gas_price
 	} else {
@@ -333,12 +328,20 @@ pub async fn generate_contract_calls(
 				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 				let calldata = call.calldata().clone();
 
-				let tx = TransactionRequest::default()
-					.from(from_address)
-					.to(handler_addr)
-					.input(calldata.into())
-					.gas_price(gas_price_u128)
-					.gas_limit(gas_limit);
+				let tx = if gas_price != Default::default() {
+					TransactionRequest::default()
+						.from(from_address)
+						.to(handler_addr)
+						.input(calldata.into())
+						.gas_price(gas_price_u128)
+						.gas_limit(gas_limit)
+				} else {
+					TransactionRequest::default()
+						.from(from_address)
+						.to(handler_addr)
+						.input(calldata.into())
+						.gas_limit(gas_limit)
+				};
 				tx_requests.push(tx);
 				log::trace!("[evm::tx] Message {}: handleConsensus call added", index);
 			},
@@ -399,7 +402,11 @@ pub async fn generate_contract_calls(
 							},
 							height: AlloyU256::from(msg.proof.height.height),
 						},
-						multiproof: membership_proof.items.into_iter().map(|node| B256::from_slice(&node.0)).collect(),
+						multiproof: membership_proof
+							.items
+							.into_iter()
+							.map(|node| B256::from_slice(&node.0))
+							.collect(),
 						leafCount: AlloyU256::from(membership_proof.leaf_count),
 					},
 					requests: leaves,
@@ -407,29 +414,34 @@ pub async fn generate_contract_calls(
 
 				let call = contract.handlePostRequests(ismp_host, post_message);
 				log::trace!("[evm::tx] Estimating gas for handlePostRequests...");
-				let estimated_gas = call
-					.estimate_gas()
-					.await
-					.unwrap_or_else(|e| {
-						let fallback = get_chain_gas_limit(client.state_machine) / 4;
-						log::warn!(
-							"[evm::tx] Gas estimation failed: {}, using fallback: {}",
-							e,
-							fallback
-						);
+				let estimated_gas = call.estimate_gas().await.unwrap_or_else(|e| {
+					let fallback = get_chain_gas_limit(client.state_machine) / 4;
+					log::warn!(
+						"[evm::tx] Gas estimation failed: {}, using fallback: {}",
+						e,
 						fallback
-					});
+					);
+					fallback
+				});
 				log::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
 				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 				log::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
 				let calldata = call.calldata().clone();
 
-				let tx = TransactionRequest::default()
-					.from(from_address)
-					.to(handler_addr)
-					.input(calldata.into())
-					.gas_price(gas_price_u128)
-					.gas_limit(gas_limit);
+				let tx = if gas_price != Default::default() {
+					TransactionRequest::default()
+						.from(from_address)
+						.to(handler_addr)
+						.input(calldata.into())
+						.gas_price(gas_price_u128)
+						.gas_limit(gas_limit)
+				} else {
+					TransactionRequest::default()
+						.from(from_address)
+						.to(handler_addr)
+						.input(calldata.into())
+						.gas_limit(gas_limit)
+				};
 				tx_requests.push(tx);
 				log::trace!("[evm::tx] Message {}: handlePostRequests call added", index);
 			},
@@ -469,56 +481,62 @@ pub async fn generate_contract_calls(
 							.collect::<Vec<_>>();
 						leaves.sort_by(|a, b| a.index.cmp(&b.index));
 
-						let message = PostResponseMessage {
-							proof: Proof {
-								height: StateMachineHeight {
-									stateMachineId: {
-										match proof.height.id.state_id {
-											StateMachine::Polkadot(id) |
-											StateMachine::Kusama(id) => AlloyU256::from(id),
-											_ => {
-												log::error!("Expected polkadot or kusama state machines");
-												continue;
-											},
-										}
+						let message =
+							PostResponseMessage {
+								proof: Proof {
+									height: StateMachineHeight {
+										stateMachineId: {
+											match proof.height.id.state_id {
+												StateMachine::Polkadot(id) |
+												StateMachine::Kusama(id) => AlloyU256::from(id),
+												_ => {
+													log::error!("Expected polkadot or kusama state machines");
+													continue;
+												},
+											}
+										},
+										height: AlloyU256::from(proof.height.height),
 									},
-									height: AlloyU256::from(proof.height.height),
+									multiproof: membership_proof
+										.items
+										.into_iter()
+										.map(|node| B256::from_slice(&node.0))
+										.collect(),
+									leafCount: AlloyU256::from(membership_proof.leaf_count),
 								},
-								multiproof: membership_proof
-									.items
-									.into_iter()
-									.map(|node| B256::from_slice(&node.0))
-									.collect(),
-								leafCount: AlloyU256::from(membership_proof.leaf_count),
-							},
-							responses: leaves,
-						};
+								responses: leaves,
+							};
 
 						let call = contract.handlePostResponses(ismp_host, message);
 						log::trace!("[evm::tx] Estimating gas for handlePostResponses...");
-						let estimated_gas = call
-							.estimate_gas()
-							.await
-							.unwrap_or_else(|e| {
-								let fallback = get_chain_gas_limit(client.state_machine) / 4;
-								log::warn!(
-									"[evm::tx] Gas estimation failed: {}, using fallback: {}",
-									e,
-									fallback
-								);
+						let estimated_gas = call.estimate_gas().await.unwrap_or_else(|e| {
+							let fallback = get_chain_gas_limit(client.state_machine) / 4;
+							log::warn!(
+								"[evm::tx] Gas estimation failed: {}, using fallback: {}",
+								e,
 								fallback
-							});
+							);
+							fallback
+						});
 						log::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
 						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 						log::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
 						let calldata = call.calldata().clone();
 
-						let tx = TransactionRequest::default()
-							.from(from_address)
-							.to(handler_addr)
-							.input(calldata.into())
-							.gas_price(gas_price_u128)
-							.gas_limit(gas_limit);
+						let tx = if gas_price != Default::default() {
+							TransactionRequest::default()
+								.from(from_address)
+								.to(handler_addr)
+								.input(calldata.into())
+								.gas_price(gas_price_u128)
+								.gas_limit(gas_limit)
+						} else {
+							TransactionRequest::default()
+								.from(from_address)
+								.to(handler_addr)
+								.input(calldata.into())
+								.gas_limit(gas_limit)
+						};
 						tx_requests.push(tx);
 						log::trace!("[evm::tx] Message {}: handlePostResponses call added", index);
 					},
@@ -665,7 +683,11 @@ mod tests {
 		println!("Fetching block {block_number}...");
 
 		// Get block by number
-		let block: Option<alloy::rpc::types::Block> = provider.get_block_by_number(block_number.into()).full().await.expect("Failed to fetch block");
+		let block: Option<alloy::rpc::types::Block> = provider
+			.get_block_by_number(block_number.into())
+			.full()
+			.await
+			.expect("Failed to fetch block");
 		match block {
 			Some(block) => {
 				println!("Block found!");

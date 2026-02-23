@@ -83,13 +83,12 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 				)?;
 				let wallet = PrivateKeySigner::from_signing_key(signing_key_bytes);
 				let wallet = alloy::network::EthereumWallet::from(wallet);
-				let provider = ProviderBuilder::new()
-					.wallet(wallet)
-					.connect_http(url.parse()?);
+				let provider = ProviderBuilder::new().wallet(wallet).connect_http(url.parse()?);
 				let client = Arc::new(provider);
 				let ping = PingModuleInstance::new(PING_ADDR, client.clone());
 
-				let host_addr = Address::from(ping.host().call().await.context(format!("Error in {chain}"))?.0);
+				let host_addr =
+					Address::from(ping.host().call().await.context(format!("Error in {chain}"))?.0);
 				dbg!((&chain, &host_addr));
 
 				if respond.is_some() {
@@ -175,7 +174,9 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 					}
 				} else {
 					let host = EvmHostInstance::new(host_addr, client.clone());
-					let fee_token = Address::from(host.feeToken().call().await.context(format!("Error in {chain}"))?.0);
+					let fee_token = Address::from(
+						host.feeToken().call().await.context(format!("Error in {chain}"))?.0,
+					);
 					let erc_20 = ERC20Instance::new(fee_token, client.clone());
 					let call = erc_20.approve(PING_ADDR, AlloyU256::MAX);
 					let gas = call.estimate_gas().await.context(format!("Error in {chain}"))?;

@@ -2,9 +2,6 @@ use crate::{
 	abi::{erc_20::Erc20Instance, EvmHostInstance},
 	state_comitment_key, EvmClient,
 };
-use anyhow::{anyhow, Error};
-use beefy_verifier_primitives::ConsensusState;
-use codec::Encode;
 use alloy::{
 	eips::BlockId,
 	primitives::{Address, B256, U256 as AlloyU256},
@@ -12,6 +9,9 @@ use alloy::{
 	sol_types::SolType,
 };
 use alloy_sol_types::SolEvent;
+use anyhow::{anyhow, Error};
+use beefy_verifier_primitives::ConsensusState;
+use codec::Encode;
 
 use evm_state_machine::types::EvmStateProof;
 
@@ -76,7 +76,11 @@ impl IsmpProvider for EvmClient {
 		};
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
-		let value = contract.latestStateMachineHeight(AlloyU256::from(id)).block(BlockId::latest()).call().await?;
+		let value = contract
+			.latestStateMachineHeight(AlloyU256::from(id))
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		Ok(value.try_into().unwrap_or(0))
 	}
 
@@ -133,8 +137,11 @@ impl IsmpProvider for EvmClient {
 	) -> Result<Duration, Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
-		let value =
-			contract.stateMachineCommitmentUpdateTime(height.try_into()?).block(BlockId::latest()).call().await?;
+		let value = contract
+			.stateMachineCommitmentUpdateTime(height.try_into()?)
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		Ok(Duration::from_secs(value.try_into().unwrap_or(0)))
 	}
 
@@ -161,14 +168,10 @@ impl IsmpProvider for EvmClient {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let keys: Vec<B256> = keys
 			.into_iter()
-			.map(|query| B256::from_slice(&self.request_commitment_key(query.commitment).1.0))
+			.map(|query| B256::from_slice(&self.request_commitment_key(query.commitment).1 .0))
 			.collect();
 
-		let proof = self
-			.client
-			.get_proof(host_addr, keys)
-			.block_id(at.into())
-			.await?;
+		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.to_vec()).collect(),
 			storage_proof: {
@@ -196,14 +199,10 @@ impl IsmpProvider for EvmClient {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let keys: Vec<B256> = keys
 			.into_iter()
-			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1.0))
+			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1 .0))
 			.collect();
 
-		let proof = self
-			.client
-			.get_proof(host_addr, keys)
-			.block_id(at.into())
-			.await?;
+		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
 		let proof = EvmStateProof {
 			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.to_vec()).collect(),
 			storage_proof: {
@@ -232,11 +231,7 @@ impl IsmpProvider for EvmClient {
 				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
 				let host_addr = Address::from_slice(&self.config.ismp_host.0);
 				let locations: Vec<B256> = keys.iter().map(|key| B256::from_slice(key)).collect();
-				let proof = self
-					.client
-					.get_proof(host_addr, locations)
-					.block_id(at.into())
-					.await?;
+				let proof = self.client.get_proof(host_addr, locations).block_id(at.into()).await?;
 				let mut storage_proofs = vec![];
 				for proof in proof.storage_proof {
 					storage_proofs.push(StorageProof::new(
@@ -282,12 +277,9 @@ impl IsmpProvider for EvmClient {
 
 				for (contract_address, slot_hashes) in contract_addresses_to_keys {
 					let addr = Address::from_slice(&contract_address.0);
-					let slots: Vec<B256> = slot_hashes.into_iter().map(|slot| B256::from_slice(&slot.0)).collect();
-					let proof = self
-						.client
-						.get_proof(addr, slots)
-						.block_id(at.into())
-						.await?;
+					let slots: Vec<B256> =
+						slot_hashes.into_iter().map(|slot| B256::from_slice(&slot.0)).collect();
+					let proof = self.client.get_proof(addr, slots).block_id(at.into()).await?;
 					contract_proofs.push(StorageProof::new(
 						proof.account_proof.into_iter().map(|node| node.to_vec()),
 					));
@@ -354,14 +346,23 @@ impl IsmpProvider for EvmClient {
 	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
-		let address = host_contract.requestReceipts(B256::from_slice(&hash.0)).block(BlockId::latest()).call().await?;
+		let address = host_contract
+			.requestReceipts(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		Ok(address.to_vec())
 	}
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
-		let address = host_contract.responseReceipts(B256::from_slice(&hash.0)).block(BlockId::latest()).call().await?.relayer;
+		let address = host_contract
+			.responseReceipts(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?
+			.relayer;
 		Ok(address.to_vec())
 	}
 
@@ -383,11 +384,8 @@ impl IsmpProvider for EvmClient {
 
 	/// Returns gas estimate for message execution and it's value in USD.
 	/// Uses debug_traceCall to verify that the message would actually be handled successfully.
-	async fn estimate_gas(
-		&self,
-		msg: Vec<Message>,
-	) -> Result<Vec<EstimateGasReturnParams>, Error> {
-		use crate::tx::generate_contract_calls;
+	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		use crate::{gas_oracle::is_orbit_chain, tx::generate_contract_calls};
 		use alloy::{
 			providers::ext::DebugApi,
 			rpc::types::{
@@ -399,7 +397,6 @@ impl IsmpProvider for EvmClient {
 				TransactionRequest,
 			},
 		};
-		use crate::gas_oracle::is_orbit_chain;
 
 		let (tx_requests, _) = generate_contract_calls(self, msg.clone(), true).await?;
 
@@ -415,9 +412,7 @@ impl IsmpProvider for EvmClient {
 				tracer: Some(GethDebugTracerType::BuiltInTracer(
 					GethDebugBuiltInTracerType::CallTracer,
 				)),
-				tracer_config: GethDebugTracerConfig(serde_json::to_value(
-					call_config,
-				)?),
+				tracer_config: GethDebugTracerConfig(serde_json::to_value(call_config)?),
 				..Default::default()
 			},
 			..Default::default()
@@ -451,11 +446,7 @@ impl IsmpProvider for EvmClient {
 					tokio::spawn(async move {
 						let call_debug = client
 							.client
-							.debug_trace_call(
-								tx_req,
-								BlockId::latest(),
-								debug_trace_call_options,
-							)
+							.debug_trace_call(tx_req, BlockId::latest(), debug_trace_call_options)
 							.await;
 
 						let mut gas_to_be_used = U256::zero();
@@ -491,15 +482,12 @@ impl IsmpProvider for EvmClient {
 									_ => unreachable!("Only request/responses are estimated"),
 								};
 
-								if successful_execution &&
-									is_orbit_chain(client.chain_id as u32)
-								{
+								if successful_execution && is_orbit_chain(client.chain_id as u32) {
 									let estimate_tx = TransactionRequest::default()
 										.from(from_address)
 										.to(handler_addr)
 										.input(
-											alloy::primitives::Bytes::from(calldata.clone())
-												.into(),
+											alloy::primitives::Bytes::from(calldata.clone()).into(),
 										);
 									let estimated_gas =
 										client.client.estimate_gas(estimate_tx).await?;
@@ -509,9 +497,7 @@ impl IsmpProvider for EvmClient {
 								}
 							},
 							Ok(trace) => {
-								log::error!(
-									"Unexpected geth trace variant: {trace:?}"
-								);
+								log::error!("Unexpected geth trace variant: {trace:?}");
 							},
 							Err(err) => {
 								log::error!(
@@ -523,8 +509,7 @@ impl IsmpProvider for EvmClient {
 
 						let gas_cost_for_data_in_usd = match client.state_machine {
 							StateMachine::Evm(_) => {
-								use alloy::consensus::TxLegacy;
-								use alloy::primitives::TxKind;
+								use alloy::{consensus::TxLegacy, primitives::TxKind};
 								use alloy_rlp::Encodable;
 
 								let unsigned_tx = TxLegacy {
@@ -572,7 +557,11 @@ impl IsmpProvider for EvmClient {
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
-		let fee_metadata = host_contract.requestCommitments(B256::from_slice(&hash.0)).block(BlockId::latest()).call().await?;
+		let fee_metadata = host_contract
+			.requestCommitments(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		// erc20 tokens are formatted in 18 decimals
 		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
 	}
@@ -580,7 +569,11 @@ impl IsmpProvider for EvmClient {
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
-		let fee_metadata = host_contract.responseCommitments(B256::from_slice(&hash.0)).block(BlockId::latest()).call().await?;
+		let fee_metadata = host_contract
+			.responseCommitments(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		// erc20 tokens are formatted in 18 decimals
 		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
 	}

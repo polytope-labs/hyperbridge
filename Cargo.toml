@@ -366,8 +366,8 @@ features = ["rlp", "parity-codec"]
 # rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
 
 [workspace.dependencies.foundry-evm]
-git = "https://github.com/polytope-labs/foundry"
-rev = "1db7f747d7033a760c747fabbeef706576c88e34"
+git = "https://github.com/foundry-rs/foundry"
+rev = "b0a9dd9ceda36f63e2326ce530c10e6916f4b8a2"
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"

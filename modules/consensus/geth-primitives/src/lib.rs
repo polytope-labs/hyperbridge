@@ -19,9 +19,9 @@ extern crate alloc;
 use alloc::vec::Vec;
 use alloy_primitives::{Address, FixedBytes, B256};
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
-use ethabi::ethereum_types::{Bloom, H64};
 #[cfg(feature = "std")]
 use alloy_rpc_types_eth::Block;
+use ethabi::ethereum_types::{Bloom, H64};
 use ismp::messaging::Keccak256;
 use primitive_types::{H160, H256, U256};
 
@@ -107,7 +107,9 @@ impl<T> From<Block<T>> for CodecHeader {
 			withdrawals_hash: header.withdrawals_root.map(|h| H256::from_slice(h.as_slice())),
 			blob_gas_used: header.blob_gas_used,
 			excess_blob_gas_used: header.excess_blob_gas,
-			parent_beacon_root: header.parent_beacon_block_root.map(|h| H256::from_slice(h.as_slice())),
+			parent_beacon_root: header
+				.parent_beacon_block_root
+				.map(|h| H256::from_slice(h.as_slice())),
 			requests_hash: header.requests_hash.map(|h| H256::from_slice(h.as_slice())),
 		}
 	}

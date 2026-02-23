@@ -115,20 +115,15 @@ impl<C: Config> BscPosProver<C> {
             // We will skip such updates.
             (params.fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
 		{
-			let mut header = self
-				.fetch_header(B256::from(source_header.parent_hash.0))
-				.await?
-				.ok_or_else(|| {
-					anyhow!("header block could not be fetched {}", source_header.parent_hash)
-				})?;
+			let mut header =
+				self.fetch_header(B256::from(source_header.parent_hash.0)).await?.ok_or_else(
+					|| anyhow!("header block could not be fetched {}", source_header.parent_hash),
+				)?;
 			epoch_header_ancestry.insert(0, header.clone());
 			while header.number.low_u64() > epoch_header_number {
-				header = self
-					.fetch_header(B256::from(header.parent_hash.0))
-					.await?
-					.ok_or_else(|| {
-						anyhow!("header block could not be fetched {}", header.parent_hash)
-					})?;
+				header = self.fetch_header(B256::from(header.parent_hash.0)).await?.ok_or_else(
+					|| anyhow!("header block could not be fetched {}", header.parent_hash),
+				)?;
 				epoch_header_ancestry.insert(0, header.clone());
 			}
 		}

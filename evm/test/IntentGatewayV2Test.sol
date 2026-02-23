@@ -1647,14 +1647,16 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    function testFillOrderInsufficientSolverAmount() public {
+    function testFillOrderPartialAmount_IsValidPartialFill() public {
         uint256 inputAmount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        uint256 partialAmount = 500 * 1e18;
 
         TokenInfo[] memory inputs = new TokenInfo[](1);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
         PaymentInfo memory output =
             PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
@@ -1677,16 +1679,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
+        uint256 userDaiBefore = dai.balanceOf(user);
+        uint256 fillerUsdcBefore = usdc.balanceOf(filler);
+
         vm.startPrank(filler);
-        dai.approve(address(intentGateway), 500 * 1e18);
-        dai.approve(address(intentGateway), type(uint256).max);
+        dai.approve(address(intentGateway), partialAmount);
 
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18}); // Less than requested
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: partialAmount});
 
-        vm.expectRevert(IntentGatewayV2.InvalidInput.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
+
+        // User receives partial output
+        assertEq(dai.balanceOf(user), userDaiBefore + partialAmount, "User should receive partial DAI");
+
+        // Filler receives proportional input: 1000 * 500 / 1000 = 500 USDC
+        uint256 expectedInputRelease = (inputAmount * partialAmount) / outputAmount;
+        assertEq(
+            usdc.balanceOf(filler), fillerUsdcBefore + expectedInputRelease, "Filler should receive proportional USDC"
+        );
     }
 
     function testFillOrderInsufficientNativeToken() public {

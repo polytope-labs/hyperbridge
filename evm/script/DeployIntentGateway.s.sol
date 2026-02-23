@@ -115,25 +115,27 @@ contract DeployScript is BaseScript {
         decimalsUpdates[7].sourceChain = bytes("EVM-130");
         decimalsUpdates[7].tokens = new VWAPOracle.TokenDecimal[](2);
         decimalsUpdates[7].tokens[0] = VWAPOracle.TokenDecimal({
-            token: 0x078D782b760474a361dDA0AF3839290b0EF57AD6, // USDC 
+            token: 0x078D782b760474a361dDA0AF3839290b0EF57AD6, // USDC
             decimals: 6
         });
         decimalsUpdates[7].tokens[1] = VWAPOracle.TokenDecimal({
-            token: 0x9151434b16b9763660705744891fA906F660EcC5, // USDT 
+            token: 0x9151434b16b9763660705744891fA906F660EcC5, // USDT
             decimals: 6
         });
 
         priceOracle.init(HOST_ADDRESS, decimalsUpdates);
         console.log("VWAPOracle initialized with token decimals");
 
-        intentGateway.setParams(Params({
-            host: HOST_ADDRESS,
-            dispatcher: config.get("CALL_DISPATCHER").toAddress(),
-            solverSelection: config.get("7702").toBool(),
-            surplusShareBps: 0,
-            protocolFeeBps: 0,
-            priceOracle: address(priceOracle)
-        }));
+        intentGateway.setParams(
+            Params({
+                host: HOST_ADDRESS,
+                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
+                solverSelection: config.get("7702").toBool(),
+                surplusShareBps: 0,
+                protocolFeeBps: 0,
+                priceOracle: address(priceOracle)
+            })
+        );
 
         config.set("INTENT_GATEWAY", address(intentGateway));
         config.set("SOLVER_ACCOUNT", address(solverAccount));

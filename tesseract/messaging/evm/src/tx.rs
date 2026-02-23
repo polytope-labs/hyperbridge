@@ -24,8 +24,8 @@ use alloy_sol_types::SolEvent;
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		HandlerInstance, PostRequest as SolPostRequest, PostRequestLeaf, PostRequestMessage,
-		PostResponse as SolPostResponse, PostResponseLeaf, PostResponseMessage, Proof,
+		HandlerInstance, PostRequestLeaf, PostRequestMessage,
+		PostResponseLeaf, PostResponseMessage, Proof,
 		StateMachineHeight,
 	},
 };
@@ -37,28 +37,6 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
-use ismp::router::{PostRequest, PostResponse};
-
-fn convert_post_request(post: PostRequest) -> SolPostRequest {
-	SolPostRequest {
-		source: Bytes::from(post.source.to_string().as_bytes().to_vec()),
-		dest: Bytes::from(post.dest.to_string().as_bytes().to_vec()),
-		nonce: post.nonce,
-		from: Bytes::from(post.from.clone()),
-		to: Bytes::from(post.to.clone()),
-		timeoutTimestamp: post.timeout_timestamp,
-		body: Bytes::from(post.body.clone()),
-	}
-}
-
-
-fn convert_post_response(res: PostResponse) -> SolPostResponse {
-	SolPostResponse {
-		request: convert_post_request(res.post),
-		response: Bytes::from(res.response.clone()),
-		timeoutTimestamp: res.timeout_timestamp,
-	}
-}
 
 /// Check if an error is a rate limit (429) or other retryable RPC error using alloy's
 /// structured error types. This covers HTTP 429, Alchemy -32016, Infura -32005, QuickNode
@@ -82,16 +60,7 @@ pub async fn submit_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
-	let (tx_requests, gas_price) = match generate_contract_calls(client, messages.clone()).await {
-		Ok(result) => result,
-		Err(err) => {
-			if is_rate_limit_error(&err) {
-				log::info!("Retrying tx submission, got rate limit error");
-				return submit_messages(&client, messages).await;
-			}
-			return Err(err);
-		},
-	};
+	let (tx_requests, gas_price) = generate_contract_calls(client, messages.clone(), false).await?;
 
 	let mut events = BTreeSet::new();
 	let mut cancelled: Vec<Message> = vec![];
@@ -244,7 +213,7 @@ pub async fn wait_for_success(
 						let estimated_gas = call
 							.estimate_gas()
 							.await
-							.unwrap_or(get_chain_gas_limit(client.state_machine));
+							.unwrap_or(get_chain_gas_limit(client.state_machine) / 4);
 						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100);
 						let call = call.gas_price(new_gas_price.low_u128()).gas(gas_limit);
 						let pending = call.send().await?;
@@ -294,6 +263,7 @@ pub async fn wait_for_success(
 pub async fn generate_contract_calls(
 	client: &EvmClient,
 	messages: Vec<Message>,
+	debug_trace: bool,
 ) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
 	log::trace!(
 		"[evm::tx] generate_contract_calls: called with {} messages",
@@ -310,13 +280,26 @@ pub async fn generate_contract_calls(
 
 	let mut tx_requests = Vec::new();
 
-	let gas_cost = get_current_gas_cost_in_usd(client.state_machine, client.config.ismp_host.0.into(), client.client.clone())
-		.await?;
-	let mut gas_price = gas_cost.gas_price;
-	log::trace!("[evm::tx] Got gas price: {}", gas_price);
+	// If debug trace is false or the client type is erigon, then the gas price must be set
+	// Geth does not require gas price to be set when debug tracing, but the erigon implementation
+	// does https://github.com/ledgerwatch/erigon/blob/cfb55a3cd44736ac092003be41659cc89061d1be/core/state_transition.go#L246
+	// Erigon does not support block overrides when tracing so we don't have the option of omitting
+	// the gas price by overriding the base fee
+	let set_gas_price = || !debug_trace || client.client_type.erigon();
+	log::trace!("[evm::tx] set_gas_price: {}", set_gas_price());
 
-	// Apply gas price buffer (in basis points, e.g. 100 = 1%)
-	if client.config.gas_price_buffer.is_some() {
+	let mut gas_price = if set_gas_price() {
+		let gas_cost = get_current_gas_cost_in_usd(client.state_machine, client.config.ismp_host.0.into(), client.client.clone())
+			.await?;
+		log::trace!("[evm::tx] Got gas price: {}", gas_cost.gas_price);
+		gas_cost.gas_price
+	} else {
+		log::trace!("[evm::tx] Using default gas price (debug_trace mode)");
+		Default::default()
+	};
+
+	// Only use gas price buffer when submitting transactions
+	if !debug_trace && client.config.gas_price_buffer.is_some() {
 		let buffer_bps = client.config.gas_price_buffer.unwrap_or_default();
 		let buffer = (U256::from(buffer_bps) * gas_price) / U256::from(10000u32);
 		log::trace!(
@@ -330,6 +313,7 @@ pub async fn generate_contract_calls(
 
 	// Convert U256 to u128 for gas_price parameter
 	let gas_price_u128 = gas_price.low_u128();
+	let from_address = Address::from_slice(&client.address);
 
 	for (index, message) in messages.into_iter().enumerate() {
 		log::trace!("[evm::tx] Processing message {}", index);
@@ -345,11 +329,12 @@ pub async fn generate_contract_calls(
 				let estimated_gas = call
 					.estimate_gas()
 					.await
-					.unwrap_or(get_chain_gas_limit(client.state_machine));
+					.unwrap_or(get_chain_gas_limit(client.state_machine) / 4);
 				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
 				let calldata = call.calldata().clone();
 
 				let tx = TransactionRequest::default()
+					.from(from_address)
 					.to(handler_addr)
 					.input(calldata.into())
 					.gas_price(gas_price_u128)
@@ -390,7 +375,7 @@ pub async fn generate_contract_calls(
 					.into_iter()
 					.zip(k_and_leaf_indices)
 					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
-						request: convert_post_request(post),
+						request: post.into(),
 						index: AlloyU256::from(leaf_index),
 						kIndex: AlloyU256::from(k_index),
 					})
@@ -426,7 +411,7 @@ pub async fn generate_contract_calls(
 					.estimate_gas()
 					.await
 					.unwrap_or_else(|e| {
-						let fallback = get_chain_gas_limit(client.state_machine);
+						let fallback = get_chain_gas_limit(client.state_machine) / 4;
 						log::warn!(
 							"[evm::tx] Gas estimation failed: {}, using fallback: {}",
 							e,
@@ -440,6 +425,7 @@ pub async fn generate_contract_calls(
 				let calldata = call.calldata().clone();
 
 				let tx = TransactionRequest::default()
+					.from(from_address)
 					.to(handler_addr)
 					.input(calldata.into())
 					.gas_price(gas_price_u128)
@@ -474,7 +460,7 @@ pub async fn generate_contract_calls(
 							.zip(k_and_leaf_indices)
 							.filter_map(|(res, (k_index, leaf_index))| match res {
 								Response::Post(res) => Some(PostResponseLeaf {
-									response: convert_post_response(res),
+									response: res.into(),
 									index: AlloyU256::from(leaf_index),
 									kIndex: AlloyU256::from(k_index),
 								}),
@@ -514,7 +500,7 @@ pub async fn generate_contract_calls(
 							.estimate_gas()
 							.await
 							.unwrap_or_else(|e| {
-								let fallback = get_chain_gas_limit(client.state_machine);
+								let fallback = get_chain_gas_limit(client.state_machine) / 4;
 								log::warn!(
 									"[evm::tx] Gas estimation failed: {}, using fallback: {}",
 									e,
@@ -528,6 +514,7 @@ pub async fn generate_contract_calls(
 						let calldata = call.calldata().clone();
 
 						let tx = TransactionRequest::default()
+							.from(from_address)
 							.to(handler_addr)
 							.input(calldata.into())
 							.gas_price(gas_price_u128)

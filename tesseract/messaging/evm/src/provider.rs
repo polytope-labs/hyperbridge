@@ -401,7 +401,7 @@ impl IsmpProvider for EvmClient {
 		};
 		use crate::gas_oracle::is_orbit_chain;
 
-		let (tx_requests, _) = generate_contract_calls(self, msg.clone()).await?;
+		let (tx_requests, _) = generate_contract_calls(self, msg.clone(), true).await?;
 
 		// Setup debug trace call options with the call tracer
 		let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
@@ -427,22 +427,6 @@ impl IsmpProvider for EvmClient {
 		let handler_addr = Address::from_slice(&handler.0);
 		let from_address = Address::from_slice(&self.address);
 
-		// For erigon clients, we need to set gas price even when tracing
-		let trace_gas_price = if self.client_type.erigon() {
-			Some(
-				get_current_gas_cost_in_usd(
-					self.state_machine,
-					self.config.ismp_host.0.into(),
-					self.client.clone(),
-				)
-				.await?
-				.gas_price
-				.low_u128(),
-			)
-		} else {
-			None
-		};
-
 		let gas_breakdown = get_current_gas_cost_in_usd(
 			self.state_machine,
 			self.config.ismp_host.0.into(),
@@ -462,21 +446,13 @@ impl IsmpProvider for EvmClient {
 					let gas_breakdown_unit_wei_cost = gas_breakdown.unit_wei_cost;
 					let gas_breakdown_gas_price_cost = gas_breakdown.gas_price_cost;
 					let calldata = tx_req.input.input().cloned().unwrap_or_default().to_vec();
+					let tx_req = tx_req.clone();
 					let _msg = _msg.clone();
 					tokio::spawn(async move {
-						let mut tx = TransactionRequest::default()
-							.from(from_address)
-							.to(handler_addr)
-							.input(alloy::primitives::Bytes::from(calldata.clone()).into());
-
-						if let Some(gas_price) = trace_gas_price {
-							tx = tx.gas_price(gas_price);
-						}
-
 						let call_debug = client
 							.client
 							.debug_trace_call(
-								tx,
+								tx_req,
 								BlockId::latest(),
 								debug_trace_call_options,
 							)

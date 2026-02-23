@@ -196,16 +196,17 @@ impl EvmClient {
 			.timeout(Duration::from_secs(180))
 			.build()?;
 
-		let is_tron = config.transport == RpcTransport::Tron;
-
-		let rpc_client = if is_tron {
-			use crate::transport::TronLayer;
-			let http = alloy::transports::http::Http::with_client(http_client.clone(), url.clone());
-			alloy::rpc::client::ClientBuilder::default()
-				.layer(TronLayer)
-				.transport(http, false)
-		} else {
-			alloy::rpc::client::RpcClient::new_http_with_client(http_client.clone(), url.clone())
+		let rpc_client = match config.transport {
+			RpcTransport::Tron => {
+				use crate::transport::TronLayer;
+				let http = alloy::transports::http::Http::with_client(http_client.clone(), url.clone());
+				alloy::rpc::client::ClientBuilder::default()
+					.layer(TronLayer)
+					.transport(http, false)
+			},
+			RpcTransport::Standard => {
+				alloy::rpc::client::RpcClient::new_http_with_client(http_client.clone(), url.clone())
+			},
 		};
 		let client = Arc::new(RootProvider::new(rpc_client));
 		let chain_id = client.get_chain_id().await?;
@@ -213,14 +214,17 @@ impl EvmClient {
 		// Create signer provider with wallet filler
 		let private_key_signer = PrivateKeySigner::from_slice(signer.seed().as_slice())?;
 		let wallet = EthereumWallet::from(private_key_signer.clone());
-		let signer_rpc_client = if is_tron {
-			use crate::transport::TronLayer;
-			let http = alloy::transports::http::Http::with_client(http_client, url);
-			alloy::rpc::client::ClientBuilder::default()
-				.layer(TronLayer)
-				.transport(http, false)
-		} else {
-			alloy::rpc::client::RpcClient::new_http_with_client(http_client, url)
+		let signer_rpc_client = match config.transport {
+			RpcTransport::Tron => {
+				use crate::transport::TronLayer;
+				let http = alloy::transports::http::Http::with_client(http_client, url);
+				alloy::rpc::client::ClientBuilder::default()
+					.layer(TronLayer)
+					.transport(http, false)
+			},
+			RpcTransport::Standard => {
+				alloy::rpc::client::RpcClient::new_http_with_client(http_client, url)
+			},
 		};
 		let signer_provider = ProviderBuilder::new()
 			.wallet(wallet)

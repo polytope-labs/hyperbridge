@@ -307,6 +307,30 @@ impl From<router::PostRequest> for PostRequest {
 	}
 }
 
+impl From<router::PostRequest> for crate::handler::Handler::PostRequest {
+	fn from(value: router::PostRequest) -> Self {
+		Self {
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
+			nonce: value.nonce,
+			from: value.from.into(),
+			to: value.to.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+			body: value.body.into(),
+		}
+	}
+}
+
+impl From<router::PostResponse> for crate::handler::Handler::PostResponse {
+	fn from(value: router::PostResponse) -> Self {
+		Self {
+			request: value.post.into(),
+			response: value.response.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+		}
+	}
+}
+
 impl TryFrom<PostRequest> for router::PostRequest {
 	type Error = anyhow::Error;
 	fn try_from(value: PostRequest) -> Result<Self, Self::Error> {

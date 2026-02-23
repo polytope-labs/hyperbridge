@@ -147,6 +147,9 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     /// @notice Thrown when there are insufficient native tokens to complete an action.
     error InsufficientNativeToken();
 
+    /// @notice Thrown when a transfer fails.
+    error TransferFailed();
+
     /// @notice Thrown when an action is attempted on an order that has not yet expired.
     error NotExpired();
 
@@ -658,7 +661,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                     (bool sent,) = req.beneficiary.call{value: amount}("");
                     if (!sent) revert InsufficientNativeToken();
                 } else {
-                    IERC20(token).safeTransfer(req.beneficiary, amount);
+                    (bool success,) = token.call(abi.encodeWithSelector(IERC20.transfer.selector, req.beneficiary, amount));
+                    if (!success) revert TransferFailed();
                 }
                 unchecked {
                     ++i;
@@ -689,7 +693,8 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
-                IERC20(token).safeTransfer(beneficiary, amount);
+                (bool success,) = token.call(abi.encodeWithSelector(IERC20.transfer.selector, beneficiary, amount));
+                if (!success) revert TransferFailed();
             }
 
             _orders[body.commitment][token] -= amount;
@@ -701,7 +706,9 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         // redeem tx fees
         uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
         if (fees > 0) {
-            IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
+            address feeToken = IDispatcher(host()).feeToken();
+            (bool success,) = feeToken.call(abi.encodeWithSelector(IERC20.transfer.selector, beneficiary, fees));
+            if (!success) revert TransferFailed();
             delete _orders[body.commitment][TRANSACTION_FEES];
         }
 

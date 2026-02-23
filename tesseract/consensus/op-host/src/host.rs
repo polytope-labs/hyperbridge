@@ -303,7 +303,7 @@ async fn construct_state_proposal(
 				// 1. The most recent 3 games are invalid
 				// 2. The latest valid game is for a block less than our commitment block number
 				// 3. The op-proposer interval for proposing is not yet in its last quarter
-				let latest_game_count = contract.gameCount().call().await?;
+				let latest_game_count = contract.gameCount().block(BlockId::latest()).call().await?;
 				let latest_game_index = alloy_u256_to_primitive(latest_game_count) - U256::one();
 				let mut proposal = None;
 				let mut latest_valid_game = None;
@@ -311,7 +311,7 @@ async fn construct_state_proposal(
 				let range =
 					(latest_game_index.as_u64().saturating_sub(2))..=latest_game_index.as_u64();
 				for game_index in range.rev() {
-					let game_data = contract.gameAtIndex(primitive_u256_to_alloy(U256::from(game_index))).call().await?;
+					let game_data = contract.gameAtIndex(primitive_u256_to_alloy(U256::from(game_index))).block(BlockId::latest()).call().await?;
 					let dispute_proxy = game_data.proxy_;
 
 					let game = FaultDisputeGame::new(
@@ -319,15 +319,15 @@ async fn construct_state_proposal(
 						&*client.beacon_execution_client,
 					);
 
-					let latest_game_type = game.gameType().call().await?;
+					let latest_game_type = game.gameType().block(BlockId::latest()).call().await?;
 					// If this game is not the respected game type we continue our search
 					if latest_game_type != respected_game_type {
 						continue;
 					}
 
-					let latest_claim = game.rootClaim().call().await?;
+					let latest_claim = game.rootClaim().block(BlockId::latest()).call().await?;
 					let latest_claim_l2_block_number =
-						alloy_u256_to_primitive(game.l2BlockNumber().call().await?).as_u64();
+						alloy_u256_to_primitive(game.l2BlockNumber().block(BlockId::latest()).call().await?).as_u64();
 
 					let latest_claim_header = client
 						.op_execution_client
@@ -374,6 +374,7 @@ async fn construct_state_proposal(
 
 					let game_lookup = contract
 						.games(respected_game_type, root_claim.0.into(), extra_data.clone().into())
+						.block(BlockId::latest())
 						.call()
 						.await?;
 					let proxy_addr = game_lookup.proxy_;
@@ -386,7 +387,7 @@ async fn construct_state_proposal(
 
 					// When was the last claim submitted
 					let game = FaultDisputeGame::new(latest_valid_game.proxy, &*client.beacon_execution_client);
-					let creation_time = game.createdAt().call().await?;
+					let creation_time = game.createdAt().block(BlockId::latest()).call().await?;
 					let current_block_num =
 						client.beacon_execution_client.get_block_number().await?;
 					let current_block_header = client
@@ -397,7 +398,7 @@ async fn construct_state_proposal(
 					let diff =
 						current_block_header.header.timestamp.saturating_sub(creation_time as u64);
 
-					let creator = game.gameCreator().call().await?;
+					let creator = game.gameCreator().block(BlockId::latest()).call().await?;
 					let op_proposer = from_hex(&proposer_config.op_proposer)?;
 
 					// If the time since the last proposal is greater than 3/4 of the proposal
@@ -411,7 +412,7 @@ async fn construct_state_proposal(
 						break proposal;
 					}
 
-					let bond = contract.initBonds(respected_game_type).call().await?;
+					let bond = contract.initBonds(respected_game_type).block(BlockId::latest()).call().await?;
 
 					proposal = Some(StateProposal {
 						root_claim,
@@ -424,7 +425,7 @@ async fn construct_state_proposal(
 					break proposal;
 				} else {
 					log::trace!(target: "tesseract","Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
-					let bond = contract.initBonds(respected_game_type).call().await?;
+					let bond = contract.initBonds(respected_game_type).block(BlockId::latest()).call().await?;
 					proposal = Some(StateProposal {
 						root_claim,
 						game_type: respected_game_type,

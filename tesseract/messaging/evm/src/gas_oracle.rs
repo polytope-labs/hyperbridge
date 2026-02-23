@@ -3,6 +3,7 @@ use crate::{
 	AlloyProvider,
 };
 use alloy::{
+	eips::BlockId,
 	primitives::{Address, Bytes as AlloyBytes, U256 as AlloyU256},
 	providers::Provider,
 };
@@ -115,7 +116,7 @@ pub async fn get_current_gas_cost_in_usd(
 					let node_gas_price = client.get_gas_price().await?;
 					let arb_gas_info_contract =
 						ArbGasInfoInstance::new(Address::from_slice(&ARB_GAS_INFO), client.clone());
-					let prices = arb_gas_info_contract.getPricesInWei().call().await?;
+					let prices = arb_gas_info_contract.getPricesInWei().block(BlockId::latest()).call().await?;
 					let oracle_gas_price = prices._5;
 					gas_price = alloy_u256_to_primitive(std::cmp::max(
 						AlloyU256::from(node_gas_price),
@@ -129,7 +130,7 @@ pub async fn get_current_gas_cost_in_usd(
 						Address::from_slice(&OP_GAS_ORACLE),
 						client.clone(),
 					);
-					let ovm_gas_price = ovm_gas_price_oracle.gasPrice().call().await?;
+					let ovm_gas_price = ovm_gas_price_oracle.gasPrice().block(BlockId::latest()).call().await?;
 					gas_price = alloy_u256_to_primitive(std::cmp::max(
 						AlloyU256::from(node_gas_price),
 						ovm_gas_price,
@@ -168,7 +169,7 @@ async fn get_price_from_uniswap_router(
 	client: Arc<AlloyProvider>,
 ) -> Result<U256, Error> {
 	let host = EvmHostInstance::new(Address::from_slice(&ismp_host.0), client.clone());
-	let params = host.hostParams().call().await?;
+	let params = host.hostParams().block(BlockId::latest()).call().await?;
 
 	// There are no uniswap pool on testnet, return 1 usd as native token value
 	if params.hyperbridge.0.starts_with(b"KUSAMA") {
@@ -184,18 +185,18 @@ async fn get_price_from_uniswap_router(
 
 	let router =
 		IUniswapV2Router::IUniswapV2RouterInstance::new(params.uniswapV2, client.clone());
-	let native_token = router.WETH().call().await?;
+	let native_token = router.WETH().block(BlockId::latest()).call().await?;
 
 	let fee_token_contract = IERC20::IERC20Instance::new(fee_token, client.clone());
-	let fee_token_decimals = fee_token_contract.decimals().call().await?;
+	let fee_token_decimals = fee_token_contract.decimals().block(BlockId::latest()).call().await?;
 
 	let native_token_contract = IERC20::IERC20Instance::new(native_token, client.clone());
-	let native_decimals = native_token_contract.decimals().call().await?;
+	let native_decimals = native_token_contract.decimals().block(BlockId::latest()).call().await?;
 
 	let path = vec![fee_token, native_token];
 	let amount_out = primitive_to_alloy_u256(U256::from(10).pow(U256::from(native_decimals)));
 
-	let amounts = router.getAmountsIn(amount_out, path).call().await?;
+	let amounts = router.getAmountsIn(amount_out, path).block(BlockId::latest()).call().await?;
 
 	if amounts.is_empty() {
 		return Err(anyhow!("Invalid amounts returned from Uniswap V2 Router"));
@@ -222,7 +223,7 @@ pub async fn get_l2_data_cost(
 				let ovm_gas_price_oracle =
 					OvmGasPriceOracleInstance::new(Address::from_slice(&OP_GAS_ORACLE), client);
 				let data_cost_bytes =
-					alloy_u256_to_primitive(ovm_gas_price_oracle.getL1Fee(rlp_tx).call().await?);
+					alloy_u256_to_primitive(ovm_gas_price_oracle.getL1Fee(rlp_tx).block(BlockId::latest()).call().await?);
 				data_cost = data_cost_bytes * unit_wei_cost
 			},
 

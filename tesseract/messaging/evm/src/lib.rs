@@ -4,6 +4,7 @@ use crate::{
 };
 
 use alloy::{
+	eips::BlockId,
 	network::EthereumWallet,
 	primitives::{Address, U256 as AlloyU256},
 	providers::{
@@ -394,14 +395,14 @@ impl EvmClient {
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
-		let params = contract.hostParams().call().await?;
+		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		Ok(H160::from_slice(params.hostManager.as_slice()))
 	}
 
 	pub async fn handler(&self) -> Result<H160, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
-		let params = contract.hostParams().call().await?;
+		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		Ok(H160::from_slice(params.handler.as_slice()))
 	}
 }

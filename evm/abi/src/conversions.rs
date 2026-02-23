@@ -123,7 +123,9 @@ mod beefy {
 			Commitment {
 				payload: vec![Payload {
 					id: FixedBytes::from(*b"mh"),
-					data: Bytes::from(value.payload.get_raw(b"mh").unwrap().clone()),
+					data: Bytes::from(
+						value.payload.get_raw(b"mh").expect("mmr payload not present").clone(),
+					),
 				}],
 				blockNumber: value.block_number.to_u256(),
 				validatorSetId: value.validator_set_id.to_u256(),
@@ -243,17 +245,39 @@ mod beefy {
 	impl From<BeefyConsensusState> for ConsensusState {
 		fn from(value: BeefyConsensusState) -> Self {
 			ConsensusState {
-				beefy_activation_block: value.beefyActivationBlock.try_into().unwrap_or(0),
-				latest_beefy_height: value.latestHeight.try_into().unwrap_or(0),
+				beefy_activation_block: value
+					.beefyActivationBlock
+					.try_into()
+					.expect("beefy activation block out of bounds"),
+				latest_beefy_height: value
+					.latestHeight
+					.try_into()
+					.expect("Beefy latest height out of bounds"),
 				mmr_root_hash: Default::default(),
 				current_authorities: BeefyNextAuthoritySet {
-					id: value.currentAuthoritySet.id.try_into().unwrap_or(0),
-					len: value.currentAuthoritySet.len.try_into().unwrap_or(0),
+					id: value
+						.currentAuthoritySet
+						.id
+						.try_into()
+						.expect("current authority set id out of bounds"),
+					len: value
+						.currentAuthoritySet
+						.len
+						.try_into()
+						.expect("current authority set length out of bounds"),
 					keyset_commitment: H256(value.currentAuthoritySet.root.0),
 				},
 				next_authorities: BeefyNextAuthoritySet {
-					id: value.nextAuthoritySet.id.try_into().unwrap_or(0),
-					len: value.nextAuthoritySet.len.try_into().unwrap_or(0),
+					id: value
+						.nextAuthoritySet
+						.id
+						.try_into()
+						.expect("next authority set out of bounds"),
+					len: value
+						.nextAuthoritySet
+						.len
+						.try_into()
+						.expect("next authority set length out of bounds"),
 					keyset_commitment: H256(value.nextAuthoritySet.root.0),
 				},
 			}
@@ -265,11 +289,14 @@ impl From<IntermediateState> for local::IntermediateState {
 	fn from(value: IntermediateState) -> Self {
 		local::IntermediateState {
 			height: local::StateMachineHeight {
-				state_machine_id: value.stateMachineId.try_into().unwrap_or(0),
-				height: value.height.try_into().unwrap_or(0),
+				state_machine_id: value
+					.stateMachineId
+					.try_into()
+					.expect("state machine id out of bounds"),
+				height: value.height.try_into().expect("state machine height out of bounds"),
 			},
 			commitment: local::StateCommitment {
-				timestamp: value.commitment.timestamp.try_into().unwrap_or(0),
+				timestamp: value.commitment.timestamp.try_into().expect("timestamp out of bounds"),
 				state_root: H256(value.commitment.stateRoot.0),
 				overlay_root: H256(value.commitment.overlayRoot.0),
 			},
@@ -333,10 +360,10 @@ impl TryFrom<PostRequest> for router::PostRequest {
 				.map_err(|err| anyhow!("{err}"))?,
 			dest: StateMachine::from_str(&String::from_utf8(value.dest.to_vec())?)
 				.map_err(|err| anyhow!("{err}"))?,
-			nonce: value.nonce.try_into().unwrap_or(0),
+			nonce: value.nonce.try_into()?,
 			from: value.from.to_vec(),
 			to: value.to.to_vec(),
-			timeout_timestamp: value.timeoutTimestamp.try_into().unwrap_or(0),
+			timeout_timestamp: value.timeoutTimestamp.try_into()?,
 			body: value.body.to_vec(),
 		})
 	}
@@ -434,14 +461,14 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					post: router::PostRequest {
 						source: StateMachine::from_str(&resp.dest).map_err(|e| anyhow!("{}", e))?,
 						dest: StateMachine::from_str(&resp.source).map_err(|e| anyhow!("{}", e))?,
-						nonce: resp.nonce.try_into().unwrap_or(0),
+						nonce: resp.nonce.try_into()?,
 						from: resp.to.0.to_vec(),
 						to: resp.from.0.to_vec(),
-						timeout_timestamp: resp.timeoutTimestamp.try_into().unwrap_or(0),
+						timeout_timestamp: resp.timeoutTimestamp.try_into()?,
 						body: resp.body.to_vec(),
 					},
 					response: resp.response.to_vec(),
-					timeout_timestamp: resp.responseTimeoutTimestamp.try_into().unwrap_or(0),
+					timeout_timestamp: resp.responseTimeoutTimestamp.try_into()?,
 				})),
 			EvmHostEvents::PostRequestHandled(handled) =>
 				Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
@@ -466,7 +493,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 							.map_err(|e| anyhow!("{}", e))?,
 						consensus_state_id: Default::default(),
 					},
-					latest_height: filter.height.try_into().unwrap_or(0),
+					latest_height: filter.height.try_into()?,
 				})),
 			EvmHostEvents::PostRequestTimeoutHandled(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
@@ -500,7 +527,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 								.map_err(|e| anyhow!("{}", e))?,
 							consensus_state_id: Default::default(),
 						},
-						height: vetoed.height.try_into().unwrap_or(0),
+						height: vetoed.height.try_into()?,
 					},
 					fisherman: vetoed.fisherman.0.to_vec(),
 				})),
@@ -521,10 +548,10 @@ impl TryFrom<PostRequestEvent> for router::PostRequest {
 		Ok(router::PostRequest {
 			source: StateMachine::from_str(&post.source).map_err(|e| anyhow!("{}", e))?,
 			dest: StateMachine::from_str(&post.dest).map_err(|e| anyhow!("{}", e))?,
-			nonce: post.nonce.try_into().unwrap_or(0),
+			nonce: post.nonce.try_into()?,
 			from: post.from.0.to_vec(),
 			to: post.to.0.to_vec(),
-			timeout_timestamp: post.timeoutTimestamp.try_into().unwrap_or(0),
+			timeout_timestamp: post.timeoutTimestamp.try_into()?,
 			body: post.body.to_vec(),
 		})
 	}
@@ -537,12 +564,12 @@ impl TryFrom<GetRequestEvent> for router::GetRequest {
 		Ok(router::GetRequest {
 			source: StateMachine::from_str(&get.source).map_err(|e| anyhow!("{}", e))?,
 			dest: StateMachine::from_str(&get.dest).map_err(|e| anyhow!("{}", e))?,
-			nonce: get.nonce.try_into().unwrap_or(0),
+			nonce: get.nonce.try_into()?,
 			from: get.from.0.to_vec(),
 			keys: get.keys.into_iter().map(|key| key.to_vec()).collect(),
-			height: get.height.try_into().unwrap_or(0),
+			height: get.height.try_into()?,
 			context: get.context.to_vec(),
-			timeout_timestamp: get.timeoutTimestamp.try_into().unwrap_or(0),
+			timeout_timestamp: get.timeoutTimestamp.try_into()?,
 		})
 	}
 }

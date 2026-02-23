@@ -32,7 +32,8 @@ const PING_ADDR: Address = Address::new(hex!("FE9f23F0F2fE83b8B9576d3FC94e9a7458
 #[ignore]
 async fn dispatch_ping() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
-	// let _polygon_url = std::env::var("POLYGON_URL").expect("OP_URL was missing in env variables");
+	// let _polygon_url = std::env::var("POLYGON_URL").expect("OP_URL was missing in env
+	// variables");
 	let _arb_url = std::env::var("ARBITRUM_URL").expect("ARB_URL was missing in env variables");
 	let _sepolia_url = std::env::var("SEPOLIA_URL").expect("GETH_URL was missing in env variables");
 	let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");

@@ -29,6 +29,7 @@ use sync_committee_prover::{
 };
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd,
+	tx::get_chain_gas_limit,
 	AlloySignerProvider,
 };
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
@@ -327,7 +328,7 @@ async fn construct_state_proposal(
 
 					let latest_claim = game.rootClaim().block(BlockId::latest()).call().await?;
 					let latest_claim_l2_block_number =
-						alloy_u256_to_primitive(game.l2BlockNumber().block(BlockId::latest()).call().await?).as_u64();
+						alloy_u256_to_primitive(game.l2SequenceNumber().block(BlockId::latest()).call().await?).as_u64();
 
 					let latest_claim_header = client
 						.op_execution_client
@@ -459,19 +460,26 @@ async fn submit_state_proposal(
 	let factory_addr = Address::from_slice(&dispute_game_factory_address.0);
 	let contract = DisputeGameFactory::new(factory_addr, &*proposer);
 
+	let call = contract.create(
+		proposal.game_type,
+		proposal.root_claim.0.into(),
+		proposal.extra_data.into(),
+	).value(primitive_u256_to_alloy(proposal.bond));
+
+	let gas_limit = call
+		.estimate_gas()
+		.await
+		.unwrap_or(get_chain_gas_limit(client.l1_state_machine));
+
 	// Fetch L1 gas price
-	let _gas_breakdown = get_current_gas_cost_in_usd(
+	let gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
 		client.evm.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 	)
 	.await?;
 
-	let call = contract.create(
-		proposal.game_type,
-		proposal.root_claim.0.into(),
-		proposal.extra_data.into(),
-	).value(primitive_u256_to_alloy(proposal.bond));
+	let call = call.gas_price(gas_breakdown.gas_price.low_u128()).gas(gas_limit);
 
 	let pending_tx = call.send().await?;
 	let receipt = pending_tx.get_receipt().await?;
@@ -496,7 +504,7 @@ async fn fetch_beacon_header(
 		.expect("Expected consensus client to be available");
 	let primary_url = proposer_config
 		.beacon_consensus_rpcs
-		.first()
+		.get(0)
 		.cloned()
 		.ok_or_else(|| anyhow!("Missing beacon rpc urls"))?;
 	let path = header_route(block_id);
@@ -528,7 +536,7 @@ async fn fetch_finalized_checkpoint(
 		.expect("Expected consensus client to be available");
 	let primary_url = proposer_config
 		.beacon_consensus_rpcs
-		.first()
+		.get(0)
 		.cloned()
 		.ok_or_else(|| anyhow!("Missing beacon rpc urls"))?;
 	let path = finality_checkpoints(block_id);

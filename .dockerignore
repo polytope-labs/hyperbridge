@@ -4,6 +4,7 @@ target
 !target/release/tesseract
 !target/release/telemetry-server
 !target/release/hyperbridge
+!target/release/polyhedron
 
 .github
 .cargo

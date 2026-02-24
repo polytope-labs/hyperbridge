@@ -13,6 +13,7 @@ subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"
+async-stream = "0.3"
 tokio = { workspace = true, features = ["full", "sync"] }
 finality-grandpa = "0.16.2"
 log = "0.4.20"

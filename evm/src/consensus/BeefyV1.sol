@@ -14,54 +14,30 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import "./Codec.sol";
+import {Codec} from "./Codec.sol";
+import {Header, HeaderImpl} from "./Header.sol";
+import {
+    Vote,
+    RelayChainProof,
+    BeefyConsensusProof,
+    Commitment,
+    BeefyConsensusState,
+    PartialBeefyMmrLeaf,
+    Parachain,
+    ParachainProof
+} from "./Types.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
 import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
-import {StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+import {Node, StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
-
-struct Vote {
-    // secp256k1 signature from a member of the authority set
-    bytes signature;
-    // This member's index in the set
-    uint256 authorityIndex;
-}
-
-// The signed commitment holds a commitment to the latest
-// finalized state as well as votes from a supermajority
-// of the authority set which confirms this state
-struct SignedCommitment {
-    // A commitment to the finalized state
-    Commitment commitment;
-    // The confirming votes
-    Vote[] votes;
-}
-
-struct RelayChainProof {
-    // Signed commitment
-    SignedCommitment signedCommitment;
-    // Latest leaf added to mmr
-    BeefyMmrLeaf latestMmrLeaf;
-    // Proof for the latest mmr leaf
-    bytes32[] mmrProof;
-    // Proof for authorities in current/next session
-    Node[][] proof;
-}
-
-struct BeefyConsensusProof {
-    // The proof items for the relay chain consensus
-    RelayChainProof relay;
-    // Proof items for parachain headers
-    ParachainProof parachain;
-}
 
 /**
  * @title The BEEFY Consensus Client.
@@ -116,11 +92,8 @@ contract BeefyV1 is IConsensus, ERC165 {
         (RelayChainProof memory relay, ParachainProof memory parachain) =
             abi.decode(encodedProof, (RelayChainProof, ParachainProof));
 
-        (BeefyConsensusState memory newState, IntermediateState memory intermediate) =
+        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
-
-        IntermediateState[] memory intermediates = new IntermediateState[](1);
-        intermediates[0] = intermediate;
 
         return (abi.encode(newState), intermediates);
     }
@@ -130,14 +103,10 @@ contract BeefyV1 is IConsensus, ERC165 {
     function verifyConsensus(BeefyConsensusState memory trustedState, BeefyConsensusProof memory proof)
         internal
         pure
-        returns (BeefyConsensusState memory, IntermediateState memory)
+        returns (BeefyConsensusState memory, IntermediateState[] memory)
     {
-        // verify mmr root proofs
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
-
-        // verify intermediate state commitment proofs
-        IntermediateState memory intermediate = verifyParachainHeaderProof(headsRoot, proof.parachain);
-
+        IntermediateState[] memory intermediate = verifyParachainHeaderProof(headsRoot, proof.parachain);
         return (state, intermediate);
     }
 
@@ -247,28 +216,33 @@ contract BeefyV1 is IConsensus, ERC165 {
     function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
         internal
         pure
-        returns (IntermediateState memory)
+        returns (IntermediateState[] memory)
     {
-        Node[] memory leaves = new Node[](1);
-        Parachain memory para = proof.parachain;
+        uint256 len = proof.parachains.length;
+        Node[] memory leaves = new Node[](len);
+        IntermediateState[] memory intermediates = new IntermediateState[](len);
 
-        Header memory header = Codec.DecodeHeader(para.header);
-        if (header.number == 0) revert IllegalGenesisBlock();
+        for (uint256 i = 0; i < len; i++) {
+            Parachain memory para = proof.parachains[i];
+            Header memory header = Codec.DecodeHeader(para.header);
+            if (header.number == 0) revert IllegalGenesisBlock();
 
-        // verify header
-        leaves[0] = Node(
-            para.index,
-            keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
-        );
+            leaves[i] = Node(
+                para.index,
+                keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
+            );
 
-        bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
-        if (!valid) revert InvalidMmrProof();
-        // extract the state commitment
-        StateCommitment memory commitment = header.stateCommitment();
-        IntermediateState memory intermediate =
-            IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
+            StateCommitment memory commitment = header.stateCommitment();
+            intermediates[i] =
+                IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
+        }
 
-        return intermediate;
+        if (len > 0) {
+            bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
+            if (!valid) revert InvalidMmrProof();
+        }
+
+        return intermediates;
     }
 
     // @dev Calculates the mmr leaf index for a block whose parent number is given.

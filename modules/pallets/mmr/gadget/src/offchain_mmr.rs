@@ -348,7 +348,8 @@ where
 		self.write_gadget_state_or_log();
 
 		// Remove offchain MMR nodes for stale forks.
-		let stale_forks = match self.client.expand_forks(&notification.stale_heads) {
+		let stale_hashes: Vec<_> = notification.stale_blocks.iter().map(|sb| sb.hash).collect();
+		let stale_forks = match self.client.expand_forks(&stale_hashes) {
 			Ok(forks) => forks,
 			Err(e) => {
 				warn!(target: LOG_TARGET, "{:?}", e);

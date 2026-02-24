@@ -1,0 +1,51 @@
+[package]
+name = "tesseract-tron"
+version = "0.1.0"
+edition = "2021"
+description = "TRON transport layer for ISMP messaging relay"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+tesseract-evm = { workspace = true, default-features = true }
+tesseract-primitives = { workspace = true, default-features = true }
+
+ismp = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+tokio-stream = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0.105"
+
+anyhow = { workspace = true }
+log = { workspace = true }
+
+sp-core = { workspace = true, features = ["full_crypto"] }
+sha2 = "0.10"
+hex = { workspace = true }
+bs58 = "0.5"
+hmac = "0.12"
+base64 = "0.22"
+chrono = "0.4"
+
+ethers = { workspace = true, features = ["rustls"] }
+primitive-types = { workspace = true, default-features = true }
+serde-hex-utils = { workspace = true, default-features = false }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["frame-support"]
+
+[dev-dependencies]
+dotenv = { workspace = true }
+env_logger = "0.10.0"
+envy = "0.4"
+
+[features]
+testing = []

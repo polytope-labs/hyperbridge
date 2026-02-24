@@ -17,7 +17,7 @@ use ethers::{
 		signer::SignerMiddlewareError, transaction::eip2718::TypedTransaction, ContractError, Log,
 		NameOrAddress, Provider, ProviderError, Wallet,
 	},
-	providers::{Http, Middleware, PendingTransaction},
+	providers::{Middleware, PendingTransaction},
 	types::{TransactionReceipt, TransactionRequest, H160},
 };
 use geth_primitives::{new_u256, old_u256};
@@ -43,10 +43,12 @@ use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
+use crate::transport::OmniClient;
+
 /// Type alias
 type SolidityFunctionCall<T> = FunctionCall<
-	Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
-	SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
+	Arc<SignerMiddleware<Provider<OmniClient>, Wallet<ecdsa::SigningKey>>>,
+	SignerMiddleware<Provider<OmniClient>, Wallet<ecdsa::SigningKey>>,
 	T,
 >;
 
@@ -118,13 +120,62 @@ pub async fn submit_messages(
 	Ok((events, cancelled))
 }
 
+/// Waits for a transaction receipt by polling with a 7-second interval for up to 10 minutes.
+///
+/// # Arguments
+/// * `tx_hash` - The transaction hash to poll for
+/// * `provider` - The Ethereum provider to query
+///
+/// # Returns
+/// * `Ok(Some(TransactionReceipt))` if the receipt is found
+/// * `Ok(None)` if the receipt is not found after 10 minutes
+/// * `Err` if there's an error querying the provider
+pub async fn wait_for_transaction_receipt(
+	tx_hash: H256,
+	provider: Arc<Provider<OmniClient>>,
+) -> Result<Option<TransactionReceipt>, anyhow::Error> {
+	let poll_interval = Duration::from_secs(7);
+	let max_duration = Duration::from_secs(5 * 60); // 5 minutes
+	let start_time = tokio::time::Instant::now();
+
+	loop {
+		// Check if we've exceeded the maximum duration
+		if start_time.elapsed() >= max_duration {
+			log::error!("Transaction receipt not found after 10 minutes for tx: {:?}", tx_hash);
+			return Ok(None);
+		}
+
+		// Query for the transaction receipt
+		match provider.get_transaction_receipt(tx_hash.0).await {
+			Ok(Some(receipt)) => {
+				log::trace!("Transaction receipt found for tx: {:?}", tx_hash);
+				return Ok(Some(receipt));
+			},
+			Ok(None) => {
+				// Receipt not yet available, continue polling
+				log::trace!(
+					"Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds",
+					tx_hash
+				);
+			},
+			Err(err) => {
+				log::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
+				// Continue polling despite the error, as it might be transient
+			},
+		}
+
+		// Wait for the poll interval before the next attempt
+		tokio::time::sleep(poll_interval).await;
+	}
+}
+
 #[async_recursion::async_recursion]
 pub async fn wait_for_success<'a, T>(
 	state_machine: &StateMachine,
 	ismp_host: H160,
-	provider: Arc<Provider<Http>>,
-	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
-	tx: PendingTransaction<'a, Http>,
+	provider: Arc<Provider<OmniClient>>,
+	signer: Arc<SignerMiddleware<Provider<OmniClient>, Wallet<SigningKey>>>,
+	tx: PendingTransaction<'a, OmniClient>,
 	gas_price: Option<U256>,
 	retry: Option<SolidityFunctionCall<T>>,
 	is_consensus: bool,
@@ -208,7 +259,10 @@ where
 				.await;
 
 			if let Ok(pending) = pending {
-				if let Ok(Some(receipt)) = pending.await {
+				let cancel_tx_hash = pending.tx_hash().0;
+				if let Ok(Some(receipt)) =
+					wait_for_transaction_receipt(cancel_tx_hash.into(), client_clone.clone()).await
+				{
 					// we're going to error anyways
 					let _ = log_receipt(receipt, true);
 				}
@@ -226,42 +280,37 @@ where
 		}
 	};
 
-	// Race transaction submission by a five minute timer
-	let sleep = tokio::time::sleep(Duration::from_secs(5 * 60));
+	// Get the transaction hash from the PendingTransaction
+	let tx_hash = tx.tx_hash().0;
 
-	tokio::select! {
-		_ = sleep => {
+	// Wait for the transaction receipt with custom polling logic
+	match wait_for_transaction_receipt(tx_hash.into(), provider.clone()).await? {
+		Some(receipt) => {
+			let events = receipt
+				.logs
+				.iter()
+				.filter_map(|l| {
+					let log = Log {
+						topics: l.clone().topics,
+						data: l.clone().data,
+						..Default::default()
+					};
+					if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
+						return Some(ev.commitment.into())
+					}
+					if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
+						return Some(ev.commitment.into())
+					}
+					None
+				})
+				.collect();
+			log_receipt(receipt, false)?;
+			Ok(events)
+		},
+		None => {
+			// Receipt not found after 10 minutes
 			return handle_failed_tx().await;
 		},
-		result = tx => {
-			match result {
-				Ok(Some(receipt)) => {
-					let events =  receipt.logs.iter().filter_map(|l| {
-						let log = Log {
-							topics: l.clone().topics,
-							data: l.clone().data,
-							..Default::default()
-						};
-						if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
-							return Some(ev.commitment.into())
-						}
-						if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
-							return Some(ev.commitment.into())
-						}
-						None
-					}).collect();
-					log_receipt(receipt, false)?;
-					Ok(events)
-				},
-				Ok(None) => {
-					return handle_failed_tx().await;
-				},
-				Err(err) => {
-					log::error!("Error broadcasting transaction to {:?}: {err:?}", state_machine);
-					Err(err)?
-				},
-			}
-		}
 	}
 }
 
@@ -272,9 +321,19 @@ pub async fn generate_contract_calls(
 	messages: Vec<Message>,
 	debug_trace: bool,
 ) -> anyhow::Result<Vec<SolidityFunctionCall<()>>> {
+	log::trace!(
+		"[evm::tx] generate_contract_calls: called with {} messages, debug_trace={}",
+		messages.len(),
+		debug_trace
+	);
+
 	let handler = client.handler().await?;
+	log::trace!("[evm::tx] Got handler at address: {:?}", handler.0);
+
 	let contract = IsmpHandler::new(handler.0, client.signer.clone());
 	let ismp_host = client.config.ismp_host;
+	log::trace!("[evm::tx] ISMP host: {:?}", ismp_host);
+
 	let mut calls = Vec::new();
 	// If debug trace is false or the client type is erigon, then the gas price must be set
 	// Geth does not require gas price to be set when debug tracing, but the erigon implementation
@@ -282,24 +341,45 @@ pub async fn generate_contract_calls(
 	// Erigon does not support block overrides when tracing so we don't have the option of omiting
 	// the gas price by overriding the base fee
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
+	log::trace!("[evm::tx] set_gas_price: {}", set_gas_price());
+
 	let mut gas_price = if set_gas_price() {
-		get_current_gas_cost_in_usd(client.state_machine, ismp_host.0.into(), client.client.clone())
-			.await?
-			.gas_price
+		let gas_cost = get_current_gas_cost_in_usd(
+			client.state_machine,
+			ismp_host.0.into(),
+			client.client.clone(),
+		)
+		.await?;
+		log::trace!("[evm::tx] Got gas price: {}", gas_cost.gas_price);
+		gas_cost.gas_price
 	} else {
+		log::trace!("[evm::tx] Using default gas price (debug_trace mode)");
 		Default::default()
 	};
 
 	// Only use gas price buffer when submitting transactions
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
-		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(10000u32);
-		gas_price = gas_price + buffer
+		let buffer_bps = client.config.gas_price_buffer.unwrap_or_default();
+		let buffer = (U256::from(buffer_bps) * gas_price) / U256::from(10000u32);
+		log::trace!(
+			"[evm::tx] Applying gas price buffer: {} bps, buffer amount: {}",
+			buffer_bps,
+			buffer
+		);
+		gas_price = gas_price + buffer;
+		log::trace!("[evm::tx] Final gas price with buffer: {}", gas_price);
 	}
 
-	for message in messages {
+	for (index, message) in messages.into_iter().enumerate() {
+		log::trace!("[evm::tx] Processing message {}", index);
 		match message {
 			Message::Consensus(msg) => {
+				log::trace!("[evm::tx] Message {}: Consensus message", index);
+				log::trace!(
+					"[evm::tx] Consensus proof length: {} bytes",
+					msg.consensus_proof.len()
+				);
+
 				let call =
 					contract.handle_consensus(ismp_host.0.into(), msg.consensus_proof.into());
 				let estimated_gas = call
@@ -311,9 +391,22 @@ pub async fn generate_contract_calls(
 				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
 
 				calls.push(call);
+				log::trace!("[evm::tx] Message {}: handleConsensus call added", index);
 			},
 			Message::Request(msg) => {
+				log::trace!(
+					"[evm::tx] Message {}: Request message with {} requests",
+					index,
+					msg.requests.len()
+				);
+
 				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
+				log::trace!(
+					"[evm::tx] Decoded MMR proof: leaf_count={}, items={}",
+					membership_proof.leaf_count,
+					membership_proof.items.len()
+				);
+
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
 				let k_and_leaf_indices = membership_proof
 					.leaf_indices_and_pos
@@ -323,6 +416,10 @@ pub async fn generate_contract_calls(
 						(k_index, leaf_index)
 					})
 					.collect::<Vec<_>>();
+				log::trace!(
+					"[evm::tx] Computed {} k_indices and leaf_indices",
+					k_and_leaf_indices.len()
+				);
 
 				let mut leaves = msg
 					.requests
@@ -335,13 +432,17 @@ pub async fn generate_contract_calls(
 					})
 					.collect::<Vec<_>>();
 				leaves.sort_by_key(|leaf| leaf.index);
+				log::trace!("[evm::tx] Created and sorted {} request leaves", leaves.len());
+
 				let post_message = PostRequestMessage {
 					proof: Proof {
 						height: StateMachineHeight {
 							state_machine_id: {
 								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
+									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
+										log::trace!("[evm::tx] State machine ID: {}", id);
+										id.into()
+									},
 									_ => {
 										panic!("Expected polkadot or kusama state machines");
 									},
@@ -356,22 +457,41 @@ pub async fn generate_contract_calls(
 				};
 
 				let call = contract.handle_post_requests(ismp_host.0.into(), post_message);
-				let estimated_gas = call
-					.estimate_gas()
-					.await
-					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+				log::trace!("[evm::tx] Estimating gas for handlePostRequests...");
+				let estimated_gas = call.estimate_gas().await.unwrap_or_else(|e| {
+					let fallback = get_chain_gas_limit(client.state_machine).into();
+					log::warn!(
+						"[evm::tx] Gas estimation failed: {}, using fallback: {}",
+						e,
+						fallback
+					);
+					fallback
+				});
+				log::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
 
-				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
+				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+				log::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
+
+				// U256 Conversion needed because of ether-rs and polkadot-sdk
+				// incompatibility
 				let call = if set_gas_price() {
 					call.gas_price(old_u256(gas_price)).gas(gas_limit)
 				} else {
 					call.gas(gas_limit)
 				};
-				calls.push(call)
+				calls.push(call);
+				log::trace!("[evm::tx] Message {}: handlePostRequests call added", index);
 			},
 			Message::Response(ResponseMessage { datagram, proof, .. }) => {
+				log::trace!("[evm::tx] Message {}: Response message", index);
+
 				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
+				log::trace!(
+					"[evm::tx] Decoded MMR proof: leaf_count={}, items={}",
+					membership_proof.leaf_count,
+					membership_proof.items.len()
+				);
+
 				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
 				let k_and_leaf_indices = membership_proof
 					.leaf_indices_and_pos
@@ -381,9 +501,15 @@ pub async fn generate_contract_calls(
 						(k_index, leaf_index)
 					})
 					.collect::<Vec<_>>();
+				log::trace!(
+					"[evm::tx] Computed {} k_indices and leaf_indices",
+					k_and_leaf_indices.len()
+				);
 
 				let call = match datagram {
 					RequestResponse::Response(responses) => {
+						log::trace!("[evm::tx] Processing {} responses", responses.len());
+
 						let mut leaves = responses
 							.into_iter()
 							.zip(k_and_leaf_indices)
@@ -393,42 +519,61 @@ pub async fn generate_contract_calls(
 									index: leaf_index.into(),
 									k_index: k_index.into(),
 								}),
-								_ => None,
+								_ => {
+									log::trace!("[evm::tx] Skipping non-Post response");
+									None
+								},
 							})
 							.collect::<Vec<_>>();
 						leaves.sort_by_key(|leaf| leaf.index);
-						let message =
-							PostResponseMessage {
-								proof: Proof {
-									height: StateMachineHeight {
-										state_machine_id: {
-											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => id.into(),
-												_ => {
-													log::error!("Expected polkadot or kusama state machines");
-													continue;
-												},
-											}
-										},
-										height: proof.height.height.into(),
+						log::trace!(
+							"[evm::tx] Created and sorted {} response leaves",
+							leaves.len()
+						);
+
+						let message = PostResponseMessage {
+							proof: Proof {
+								height: StateMachineHeight {
+									state_machine_id: {
+										match proof.height.id.state_id {
+											StateMachine::Polkadot(id) |
+											StateMachine::Kusama(id) => {
+												log::trace!("[evm::tx] State machine ID: {}", id);
+												id.into()
+											},
+											_ => {
+												log::error!("[evm::tx] Expected polkadot or kusama state machines");
+												continue;
+											},
+										}
 									},
-									multiproof: membership_proof
-										.items
-										.into_iter()
-										.map(|node| node.0)
-										.collect(),
-									leaf_count: membership_proof.leaf_count.into(),
+									height: proof.height.height.into(),
 								},
-								responses: leaves,
-							};
+								multiproof: membership_proof
+									.items
+									.into_iter()
+									.map(|node| node.0)
+									.collect(),
+								leaf_count: membership_proof.leaf_count.into(),
+							},
+							responses: leaves,
+						};
 
 						let call = contract.handle_post_responses(ismp_host.0.into(), message);
-						let estimated_gas = call
-							.estimate_gas()
-							.await
-							.unwrap_or(get_chain_gas_limit(client.state_machine).into());
+						log::trace!("[evm::tx] Estimating gas for handlePostResponses...");
+						let estimated_gas = call.estimate_gas().await.unwrap_or_else(|e| {
+							let fallback = get_chain_gas_limit(client.state_machine).into();
+							log::warn!(
+								"[evm::tx] Gas estimation failed: {}, using fallback: {}",
+								e,
+								fallback
+							);
+							fallback
+						});
+						log::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
+
 						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
+						log::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
 
 						if set_gas_price() {
 							// U256 Conversion needed because of ether-rs and polkadot-sdk
@@ -438,17 +583,27 @@ pub async fn generate_contract_calls(
 							call.gas(gas_limit)
 						}
 					},
-					RequestResponse::Request(..) =>
-						Err(anyhow!("Get requests are not supported by relayer"))?,
+					RequestResponse::Request(..) => {
+						log::error!("[evm::tx] Get requests are not supported by relayer");
+						Err(anyhow!("Get requests are not supported by relayer"))?
+					},
 				};
 
 				calls.push(call);
+				log::trace!("[evm::tx] Message {}: handlePostResponses call added", index);
 			},
-			Message::Timeout(_) => Err(anyhow!("Timeout messages not supported by relayer"))?,
-			Message::FraudProof(_) => Err(anyhow!("Unexpected fraud proof message"))?,
+			Message::Timeout(_) => {
+				log::error!("[evm::tx] Timeout messages not supported by relayer");
+				Err(anyhow!("Timeout messages not supported by relayer"))?
+			},
+			Message::FraudProof(_) => {
+				log::error!("[evm::tx] Unexpected fraud proof message");
+				Err(anyhow!("Unexpected fraud proof message"))?
+			},
 		}
 	}
 
+	log::trace!("[evm::tx] generate_contract_calls: returning {} calls", calls.len());
 	Ok(calls)
 }
 
@@ -525,4 +680,91 @@ pub async fn handle_message_submission(
 	}
 
 	Ok(TxResult { receipts: results, unsuccessful: cancelled })
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ethers::providers::{Http, Provider};
+
+	#[tokio::test]
+	#[ignore] // Requires local RPC node
+	async fn test_wait_for_transaction_receipt() {
+		// Initialize logger
+		let _ = env_logger::builder().is_test(true).try_init();
+
+		// Create provider
+		let http = Http::new_with_client(
+			"http://localhost:8545".parse::<reqwest::Url>().unwrap(),
+			reqwest::Client::new(),
+		);
+		let provider = Provider::new(crate::transport::OmniClient::Http(http));
+		let provider = Arc::new(provider);
+
+		// Transaction hash to test
+		let tx_hash: H256 = "0xf43c2f2910bb84fdd9f4bd94378469195d4e0b401802c6fb8d3d74a20abef3da"
+			.parse()
+			.expect("Failed to parse transaction hash");
+
+		// Wait for transaction receipt
+		match wait_for_transaction_receipt(tx_hash, provider).await {
+			Ok(Some(receipt)) => {
+				println!("✅ Transaction receipt found!");
+				println!("Transaction hash: {:?}", receipt.transaction_hash);
+				println!("Block number: {:?}", receipt.block_number);
+				println!("Gas used: {:?}", receipt.gas_used);
+				println!("Status: {:?}", receipt.status);
+				println!("From: {:?}", receipt.from);
+				println!("To: {:?}", receipt.to);
+				println!("Number of logs: {}", receipt.logs.len());
+			},
+			Ok(None) => {
+				println!("❌ Transaction receipt not found after 10 minutes");
+			},
+			Err(err) => {
+				println!("❌ Error fetching transaction receipt: {err:?}");
+			},
+		}
+	}
+
+	#[tokio::test]
+	#[ignore] // Requires local RPC node
+	async fn test_get_block() {
+		// Initialize logger
+		let _ = env_logger::builder().is_test(true).try_init();
+
+		// Create provider
+		let provider =
+			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
+		let provider = Arc::new(provider);
+
+		// Block number to test
+		let block_number: u64 = 4726213;
+
+		println!("Fetching block {block_number}...");
+
+		// Get block by number
+		match provider.get_block(block_number).await {
+			Ok(Some(block)) => {
+				println!("✅ Block found!");
+				println!("Block number: {:?}", block.number);
+				println!("Block hash: {:?}", block.hash);
+				println!("Parent hash: {:?}", block.parent_hash);
+				println!("Timestamp: {:?}", block.timestamp);
+				println!("Gas used: {:?}", block.gas_used);
+				println!("Gas limit: {:?}", block.gas_limit);
+				println!("Miner: {:?}", block.author);
+				println!("Number of transactions: {}", block.transactions.len());
+				println!("State root: {:?}", block.state_root);
+			},
+			Ok(None) => {
+				println!("❌ Block not found");
+				panic!("Block {block_number} should exist");
+			},
+			Err(err) => {
+				println!("❌ Error fetching block: {err:?}");
+				panic!("Failed to fetch block: {err:?}");
+			},
+		}
+	}
 }

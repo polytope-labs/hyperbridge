@@ -37,7 +37,7 @@ pub mod pallet {
 		pallet_prelude::*,
 		traits::{
 			Currency, ExistenceRequirement, Get, LockIdentifier, LockableCurrency,
-			ReservableCurrency, SignedImbalance, WithdrawReasons,
+			ReservableCurrency, SignedImbalance, ValidatorRegistration, WithdrawReasons,
 			fungible::{self, Inspect, Mutate},
 			tokens::{Fortitude, Precision, Preservation},
 		},
@@ -189,6 +189,13 @@ pub mod pallet {
 			/// The new controller account.
 			new_controller: T::AccountId,
 		},
+		/// A collator was rewarded for authoring a block.
+		CollatorRewarded {
+			/// The collator who authored the block.
+			collator: T::AccountId,
+			/// The reward amount.
+			amount: <T as pallet::Config>::Balance,
+		},
 	}
 
 	#[pallet::call]
@@ -263,12 +270,19 @@ pub mod pallet {
 			if reward > Zero::zero() {
 				let treasury_account = T::TreasuryAccount::get().into_account_truncating();
 
-				let _ = T::NativeCurrency::transfer(
+				let result = T::NativeCurrency::transfer(
 					&treasury_account,
 					&author,
 					reward,
 					frame_support::traits::ExistenceRequirement::KeepAlive,
 				);
+
+				if result.is_ok() {
+					Self::deposit_event(Event::CollatorRewarded {
+						collator: author,
+						amount: reward,
+					});
+				}
 			}
 		}
 	}
@@ -540,6 +554,22 @@ pub mod pallet {
 			balance: Self::Balance,
 		) -> SignedImbalance<Self::Balance, Self::PositiveImbalance> {
 			T::NativeCurrency::make_free_balance_be(who, balance)
+		}
+	}
+
+	/// Implementation of `ValidatorRegistration` that checks if a stash account
+	/// has a registered controller with valid session keys.
+	impl<T: Config> ValidatorRegistration<T::AccountId> for Pallet<T>
+	where
+		T::AccountId: Into<<T as pallet_session::Config>::ValidatorId> + Clone,
+	{
+		fn is_registered(stash: &T::AccountId) -> bool {
+			if let Some(controller) = Controller::<T>::get(stash) {
+				let validator_id: <T as pallet_session::Config>::ValidatorId = controller.into();
+				pallet_session::NextKeys::<T>::get(&validator_id).is_some()
+			} else {
+				false
+			}
 		}
 	}
 }

@@ -319,11 +319,15 @@ impl ismp_tendermint::pallet::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
+impl BenchmarkHelper<H256, ()> for XcmBenchmarkHelper {
 	fn create_asset_id_parameter(id: u32) -> H256 {
 		use codec::Encode;
 		use staging_xcm::v5::Junction::Parachain;
 		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
+	}
+
+	fn create_reserve_id_parameter(_id: u32) -> () {
+		()
 	}
 }
 
@@ -355,6 +359,7 @@ impl pallet_assets::Config for Runtime {
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
 	type Holder = ();
+	type ReserveData = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }
@@ -368,6 +373,25 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+}
+
+parameter_types! {
+	pub const IntentsStorageDepositFee: Balance = EXISTENTIAL_DEPOSIT * 10;
+}
+
+impl pallet_intents_coprocessor::Config for Runtime {
+	type Dispatcher = Ismp;
+	type Currency = Balances;
+	type StorageDepositFee = IntentsStorageDepositFee;
+	type GovernanceOrigin = EitherOfDiverse<
+		WhitelistedCaller,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {

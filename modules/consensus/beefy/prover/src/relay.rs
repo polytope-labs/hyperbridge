@@ -1,6 +1,8 @@
 // Copyright (C) 2022 Polytope Labs.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::BTreeSet;
+
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use futures::stream::FuturesOrdered;
@@ -80,6 +82,9 @@ pub async fn fetch_latest_beefy_justification<T: Config>(
 	Ok((signed_commitment, latest_beefy_finalized))
 }
 
+/// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root
+const BEEFY_WHITELISTED_PARATHREADS: &'static [u32] = &[3367];
+
 /// Fetch all parachain headers committed by BEEFY at provided height
 pub async fn paras_parachains<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
@@ -90,17 +95,21 @@ pub async fn paras_parachains<T: Config>(
 		.await?
 		.map(|data| Vec::<u32>::decode(&mut data.as_ref()))
 		.transpose()?
-		.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
+		.ok_or_else(|| anyhow!("No beefy authorities found!"))?
+		.into_iter()
+		.chain(BEEFY_WHITELISTED_PARATHREADS.into_iter().cloned())
+		.collect::<BTreeSet<_>>();
 
 	let mut heads = vec![];
 	for id in ids {
-		let head = rpc
+		if let Some(head) = rpc
 			.state_get_storage(parachain_header_storage_key(id).as_ref(), at)
 			.await?
 			.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
 			.transpose()?
-			.ok_or_else(|| anyhow!("No beefy authorities found!"))?;
-		heads.push((id, head));
+		{
+			heads.push((id, head));
+		}
 	}
 	heads.sort_by_key(|(id, _)| *id);
 

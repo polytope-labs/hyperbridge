@@ -24,6 +24,7 @@ use tesseract_substrate::{
 	SubstrateClient, SubstrateConfig,
 };
 use tesseract_substrate_evm::{SubstrateEvmClient, SubstrateEvmClientConfig};
+use tesseract_tron::{TronClient, TronConfig};
 
 /// The AnyConfig wraps the configuration options for all supported chains
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -37,6 +38,8 @@ pub enum AnyConfig {
 	Tendermint(TendermintEvmClientConfig),
 	/// Configuration for substrate-evm(revive) based chains
 	SubstrateEvm(SubstrateEvmClientConfig),
+	/// Configuration for Tron chains
+	Tron(TronConfig),
 }
 
 impl AnyConfig {
@@ -46,6 +49,7 @@ impl AnyConfig {
 			Self::Evm(config) => config.state_machine,
 			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.state_machine,
 			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.state_machine,
+			Self::Tron(config) => config.state_machine(),
 		}
 	}
 }
@@ -103,6 +107,11 @@ impl AnyConfig {
 			},
 			AnyConfig::SubstrateEvm(config) => {
 				let mut client = SubstrateEvmClient::<Blake2SubstrateChain>::new(config).await?;
+				client.set_latest_finalized_height(hyperbridge).await?;
+				Arc::new(client) as Arc<dyn IsmpProvider>
+			},
+			AnyConfig::Tron(config) => {
+				let mut client = TronClient::new(config).await?;
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
 			},

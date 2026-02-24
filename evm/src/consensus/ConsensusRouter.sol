@@ -18,19 +18,21 @@ import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConse
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /**
- * @title The Multi-Proof Consensus Client.
+ * @title The Consensus Router.
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice Routes consensus verification to either SP1Beefy (ZK proof) or BeefyV1 (naive proof)
- * based on the first byte of the proof.
+ * @notice Routes consensus verification to either SP1Beefy (ZK proof), BeefyV1 (naive proof),
+ * or BeefyV1FiatShamir (Fiat-Shamir sampled proof) based on the first byte of the proof.
  */
-contract MultiProofClient is IConsensus, ERC165 {
+contract ConsensusRouter is IConsensus, ERC165 {
     // Proof type enum
     enum ProofType {
         // 0x00 - BeefyV1 naive proof
         Naive,
         // 0x01 - SP1Beefy ZK proof
-        ZK
+        ZK,
+        // 0x02 - BeefyV1FiatShamir sampled proof
+        FiatShamir
     }
 
     // SP1 Beefy consensus client
@@ -39,15 +41,19 @@ contract MultiProofClient is IConsensus, ERC165 {
     // BeefyV1 consensus client
     IConsensus public immutable beefyV1;
 
+    // BeefyV1FiatShamir consensus client
+    IConsensus public immutable beefyV1FiatShamir;
+
     // Invalid proof type provided
     error InvalidProofType(uint8 proofType);
 
     // Empty proof provided
     error EmptyProof();
 
-    constructor(IConsensus _sp1Beefy, IConsensus _beefyV1) {
+    constructor(IConsensus _sp1Beefy, IConsensus _beefyV1, IConsensus _beefyV1FiatShamir) {
         sp1Beefy = _sp1Beefy;
         beefyV1 = _beefyV1;
+        beefyV1FiatShamir = _beefyV1FiatShamir;
     }
 
     /**
@@ -61,6 +67,7 @@ contract MultiProofClient is IConsensus, ERC165 {
      * @dev Given some opaque consensus proof, routes to the appropriate verifier based on the first byte.
      * First byte 0x00 -> BeefyV1 (naive proof)
      * First byte 0x01 -> SP1Beefy (ZK proof)
+     * First byte 0x02 -> BeefyV1FiatShamir (Fiat-Shamir sampled proof)
      */
     function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
         external
@@ -87,6 +94,9 @@ contract MultiProofClient is IConsensus, ERC165 {
         } else if (proofType == ProofType.Naive) {
             // Route to BeefyV1 for naive proof verification
             return beefyV1.verifyConsensus(encodedState, actualProof);
+        } else if (proofType == ProofType.FiatShamir) {
+            // Route to BeefyV1FiatShamir for Fiat-Shamir sampled proof verification
+            return beefyV1FiatShamir.verifyConsensus(encodedState, actualProof);
         } else {
             revert InvalidProofType(proofTypeByte);
         }

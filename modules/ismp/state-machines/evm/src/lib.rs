@@ -58,7 +58,7 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 		.storage_proof
 		.remove(&contract_address.0.to_vec())
 		.ok_or_else(|| Error::Custom("Ismp contract account trie proof is missing".to_string()))?;
-	let keys = req_res_commitment_key::<H>(item);
+	let keys = req_res_commitment_key::<H, _>(item, |k| H::keccak256(k).0.to_vec());
 	let root = H256::from_slice(&root.state_root[..]);
 	let contract_root = get_contract_account::<H>(
 		evm_state_proof.contract_proof,

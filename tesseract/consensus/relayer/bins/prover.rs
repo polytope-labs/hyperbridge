@@ -17,6 +17,7 @@
 
 use anyhow::anyhow;
 use clap::Parser;
+use std::sync::Arc;
 use tesseract_beefy::prover::{BeefyProver, Prover};
 use tesseract_consensus::logging;
 use tesseract_substrate::{
@@ -57,18 +58,30 @@ async fn main() -> Result<(), anyhow::Error> {
 	};
 
 	let mut beefy_prover = {
-		let beefy_config =
-			config.remove("beefy").ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
-		BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::LocalProver>::new(
-			beefy_config.try_into()?,
-			substrate,
-			prover,
-		)
+		let beefy_config: tesseract_beefy::prover::BeefyProverConfig = config
+			.remove("beefy")
+			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?
+			.try_into()?;
+
+		// Create Redis backend for prover
+		let redis_config = beefy_config
+			.redis
+			.as_ref()
+			.ok_or_else(|| anyhow::anyhow!("Redis configuration is required for prover"))?;
+		let mut redis_cfg = redis_config.clone();
+		redis_cfg.realtime = true;
+		let backend = Arc::new(tesseract_beefy::backend::RedisProofBackend::new(redis_cfg).await?);
+
+		BeefyProver::<
+			Blake2SubstrateChain,
+			KeccakSubstrateChain,
+			zk_beefy::LocalProver,
+			tesseract_beefy::backend::RedisProofBackend,
+		>::new(beefy_config, substrate, prover, backend)
 		.await?
 	};
 
-	beefy_prover.init_queues().await?;
-	// run the prover
+	// run the prover (queues are initialized in new())
 	beefy_prover.run().await;
 
 	Ok(())

@@ -24,6 +24,7 @@ async fn bsc_consensus_updates() -> anyhow::Result<()> {
 		ismp_host: Default::default(),
 		handler: Default::default(),
 		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+		transport: tesseract_evm::transport::RpcTransport::Standard,
 		..Default::default()
 	};
 

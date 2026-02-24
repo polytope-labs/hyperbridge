@@ -24,6 +24,7 @@ polygon-amoy = "${POLYGON_AMOY_RPC_URL}"
 bsc-testnet = "${BSC_TESTNET_RPC_URL}"
 gnosis-chiado = "${GNOSIS_CHIADO_RPC_URL}"
 sei-testnet = "${SEI_TESTNET_RPC_URL}"
+polkadot-testnet = "${POLKADOT_TESTNET_URL}"
 
 # mainnet
 ethereum = "${ETHEREUM_RPC_URL}"
@@ -48,16 +49,17 @@ polygon-amoy = { chain = 80002, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "http
 bsc-testnet = { chain = 97, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 gnosis-chiado = { chain = 10200, key = "${GNOSIS_BLOCKSCOUT_API_KEY}",url = "https://gnosis-chiado.blockscout.com/api" }
 sei-testnet = { chain = 1328, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+polkadot-testnet = { chain = 420420417, key="${ROUTESCAN_API_KEY}", url = "https://api.routescan.io/v2/network/testnet/evm/420420417/etherscan/api" }
 
 # mainnet
-ethereum = { chain = 1, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-arbitrum = { chain = 42161, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-optimism = { chain = 10, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-base = { chain = 8453, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-bsc = { chain = 56, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-gnosis = { chain = 100, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-soneium = { chain = 1868, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-polygon = { chain = 137, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-unichain = { chain = 130, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-inkchain = { chain = 57073, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
-sei = { chain = 1329, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
+ethereum = { chain = 1, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }
+arbitrum = { chain = 42161, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=42161" }
+optimism = { chain = 10, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=10" }
+base = { chain = 8453, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=8453" }
+bsc = { chain = 56, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=56" }
+gnosis = { chain = 100, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=100" }
+soneium = { chain = 1868, key="${SONEIUM_BLOCKSCOUT_API_KEY}", url = "https://soneium.blockscout.com/api" }
+polygon = { chain = 137, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=137" }
+unichain = { chain = 130, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=130" }
+inkchain = { chain = 57073, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=57073" }
+sei = { chain = 1329, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1329" }

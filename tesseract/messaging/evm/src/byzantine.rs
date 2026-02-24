@@ -27,6 +27,7 @@ impl ByzantineHandler for EvmClient {
 			},
 			height: event.latest_height,
 		};
+
 		let Some(header) = self.client.get_block(event.latest_height).await? else {
 			// If block header is not found veto the state commitment
 			log::info!(

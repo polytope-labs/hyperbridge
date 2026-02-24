@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use bsc_verifier::{
-	primitives::{compute_epoch, parse_extra, Config, VALIDATOR_BIT_SET_SIZE},
+	primitives::{Config, VALIDATOR_BIT_SET_SIZE, compute_epoch, parse_extra},
 	verify_bsc_header,
 };
 use codec::{Decode, Encode};
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 
 use bsc_prover::UpdateParams;
@@ -26,7 +26,7 @@ use ismp_bsc::ConsensusState;
 use sp_core::H160;
 use std::{cmp::max, sync::Arc, time::Duration};
 
-use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
+use crate::{BscPosHost, KeccakHasher, notification::consensus_notification};
 use bsc_prover::get_rotation_block;
 use ssz_rs::{Bitvector, Deserialize};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
@@ -66,10 +66,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						Err(_) =>
 							return Some((
 								Err(anyhow!(
-						"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
-						client.state_machine,
-						counterparty.state_machine_id().state_id
-					)),
+									"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
+									client.state_machine,
+									counterparty.state_machine_id().state_id
+								)),
 								(interval, None),
 							)),
 					};
@@ -84,10 +84,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 					} else {
 						return Some((
 							Err(anyhow!(
-							"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
-							client.state_machine,
-							counterparty.state_machine_id().state_id
-						)),
+								"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
+								client.state_machine,
+								counterparty.state_machine_id().state_id
+							)),
 							(interval, None),
 						));
 					};
@@ -183,8 +183,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									let extra_data =
 										parse_extra::<KeccakHasher, C>(&update.attested_header)
 											.expect(
-											"Infallible, was parsed before update was generated",
-										);
+												"Infallible, was parsed before update was generated",
+											);
 
 									let validators_bit_set =
 										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
@@ -201,7 +201,9 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									if validators_bit_set.iter().as_bitslice().count_ones() <
 										((2 * next_validators.validators.len() / 3) + 1)
 									{
-										log::trace!("Not enough participants in bsc update for block {block:?}");
+										log::trace!(
+											"Not enough participants in bsc update for block {block:?}"
+										);
 										block += 1;
 										continue;
 									}
@@ -231,9 +233,9 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								Err(_) =>
 									return Some((
 										Err(anyhow!(
-										"Not a fatal error: Error fetching authority enactment update for {}",
-										client.state_machine
-									)),
+											"Not a fatal error: Error fetching authority enactment update for {}",
+											client.state_machine
+										)),
 										(interval, None),
 									)),
 							}
@@ -297,8 +299,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									let extra_data =
 										parse_extra::<KeccakHasher, C>(&update.attested_header)
 											.expect(
-											"Infallible, was parsed before update was generated",
-										);
+												"Infallible, was parsed before update was generated",
+											);
 
 									let validators_bit_set =
 										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
@@ -315,7 +317,9 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									if validators_bit_set.iter().as_bitslice().count_ones() <
 										((2 * consensus_state.current_validators.len() / 3) + 1)
 									{
-										log::trace!("Not enough participants in bsc update for block {block:?}");
+										log::trace!(
+											"Not enough participants in bsc update for block {block:?}"
+										);
 										block += 1;
 										continue;
 									}
@@ -369,9 +373,9 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								Err(err) =>
 									return Some((
 										Err(anyhow!(
-										"Not a fatal error: Error fetching sync update for {} \n {err:?}",
-										client.state_machine
-									)),
+											"Not a fatal error: Error fetching sync update for {} \n {err:?}",
+											client.state_machine
+										)),
 										(interval, None),
 									)),
 							}

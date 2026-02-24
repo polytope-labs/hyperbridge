@@ -8,11 +8,11 @@ use alloy::{
 	network::EthereumWallet,
 	primitives::{Address, U256 as AlloyU256},
 	providers::{
+		Identity, Provider, ProviderBuilder, RootProvider,
 		fillers::{
 			BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
 			WalletFiller,
 		},
-		Identity, Provider, ProviderBuilder, RootProvider,
 	},
 	signers::local::PrivateKeySigner,
 };
@@ -27,11 +27,11 @@ use evm_state_machine::presets::{
 
 use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
-use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
+use sp_core::{H160, Pair, bytes::from_hex, keccak_256};
 use std::{sync::Arc, time::Duration};
 use tesseract_primitives::{
-	queue::{start_pipeline, PipelineQueue},
 	IsmpProvider, StateMachineUpdated, StreamError, TxResult,
+	queue::{PipelineQueue, start_pipeline},
 };
 use tx::handle_message_submission;
 
@@ -229,8 +229,7 @@ impl EvmClient {
 			match config.transport {
 				RpcTransport::Tron => {
 					use crate::transport::TronLayer;
-					let http =
-						alloy::transports::http::Http::with_client(http_client, url);
+					let http = alloy::transports::http::Http::with_client(http_client, url);
 					let rpc_client = alloy::rpc::client::ClientBuilder::default()
 						.layer(TronLayer)
 						.transport(http, false);
@@ -252,8 +251,7 @@ impl EvmClient {
 				})
 				.collect::<Result<_, anyhow::Error>>()?;
 			let active_count = transports.len();
-			let service =
-				alloy::transports::layers::FallbackService::new(transports, active_count);
+			let service = alloy::transports::layers::FallbackService::new(transports, active_count);
 			match config.transport {
 				RpcTransport::Tron => {
 					use crate::transport::TronLayer;
@@ -275,8 +273,7 @@ impl EvmClient {
 		// Create signer provider with wallet filler
 		let private_key_signer = PrivateKeySigner::from_slice(signer.seed().as_slice())?;
 		let wallet = EthereumWallet::from(private_key_signer.clone());
-		let signer_provider =
-			ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
+		let signer_provider = ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
 		let signer = Arc::new(signer_provider);
 
 		let consensus_state_id = {
@@ -318,12 +315,12 @@ impl EvmClient {
 		use alloy::rpc::types::Filter;
 		use alloy_sol_types::SolEvent;
 		use ismp_solidity_abi::{
+			EvmHostEvents,
 			evm_host::EvmHost::{
 				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
 				PostResponseEvent, PostResponseHandled,
 				StateMachineUpdated as EvmStateMachineUpdated,
 			},
-			EvmHostEvents,
 		};
 
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);

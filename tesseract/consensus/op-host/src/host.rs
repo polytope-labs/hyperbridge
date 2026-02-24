@@ -1,35 +1,35 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 
 use alloy::{eips::BlockId, hex, primitives::Address, providers::Provider};
-use futures::{stream, StreamExt};
-use geth_primitives::{alloy_u256_to_primitive, primitive_u256_to_alloy, CodecHeader, Header};
+use futures::{StreamExt, stream};
+use geth_primitives::{CodecHeader, Header, alloy_u256_to_primitive, primitive_u256_to_alloy};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	events::Event,
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_optimism::{
-	ConsensusState, OptimismConsensusProof, OptimismConsensusType, OptimismUpdate,
-	OPTIMISM_CONSENSUS_CLIENT_ID,
+	ConsensusState, OPTIMISM_CONSENSUS_CLIENT_ID, OptimismConsensusProof, OptimismConsensusType,
+	OptimismUpdate,
 };
-use op_verifier::{calculate_output_root, CANNON, _PERMISSIONED};
+use op_verifier::{_PERMISSIONED, CANNON, calculate_output_root};
 use reqwest::Url;
-use sp_core::{bytes::from_hex, Encode, H160, H256, U256};
+use sp_core::{Encode, H160, H256, U256, bytes::from_hex};
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
 use sync_committee_prover::{
 	responses::{self, finality_checkpoint_response::FinalityCheckpoint},
 	routes::{finality_checkpoints, header_route},
 };
 use tesseract_evm::{
-	gas_oracle::get_current_gas_cost_in_usd, tx::get_chain_gas_limit, AlloySignerProvider,
+	AlloySignerProvider, gas_oracle::get_current_gas_cost_in_usd, tx::get_chain_gas_limit,
 };
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
 
 use crate::{
-	abi::{DisputeGameFactory, FaultDisputeGame},
 	OpHost, ProposerConfig,
+	abi::{DisputeGameFactory, FaultDisputeGame},
 };
 use codec::Decode;
 use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
@@ -380,7 +380,7 @@ async fn construct_state_proposal(
 					let proxy_addr = game_lookup.proxy_;
 
 					// If game exists exit
-					if proxy_addr.0 .0 != H160::zero().0 {
+					if proxy_addr.0.0 != H160::zero().0 {
 						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
 						break proposal;
 					}

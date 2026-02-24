@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::providers::Provider;
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use futures::FutureExt;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},

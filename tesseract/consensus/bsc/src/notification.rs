@@ -3,7 +3,7 @@ use codec::{Decode, Encode};
 use ismp::messaging::{ConsensusMessage, Message};
 use ismp_bsc::ConsensusState;
 
-use bsc_verifier::primitives::{compute_epoch, BscClientUpdate, Config};
+use bsc_verifier::primitives::{BscClientUpdate, Config, compute_epoch};
 use sp_core::H160;
 
 use std::{cmp::max, sync::Arc};

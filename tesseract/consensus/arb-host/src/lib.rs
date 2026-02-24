@@ -8,15 +8,15 @@ use alloy::{
 };
 use anyhow::anyhow;
 use arbitrum_verifier::{
-	ArbitrumBoldProof, ArbitrumPayloadProof, AssertionState, GlobalState as RustGlobalState,
-	ASSERTIONS_SLOT, NODES_SLOT,
+	ASSERTIONS_SLOT, ArbitrumBoldProof, ArbitrumPayloadProof, AssertionState,
+	GlobalState as RustGlobalState, NODES_SLOT,
 };
-use geth_primitives::{alloy_u256_to_primitive, CodecHeader};
+use geth_primitives::{CodecHeader, alloy_u256_to_primitive};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use primitive_types::{H160, H256, U256};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tesseract_evm::{derive_map_key, AlloyProvider, EvmClient, EvmConfig};
+use tesseract_evm::{AlloyProvider, EvmClient, EvmConfig, derive_map_key};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 mod abi;
 mod host;

@@ -23,12 +23,12 @@ use alloy::{
 	providers::{Provider, RootProvider},
 	rpc::client::RpcClient,
 	transports::{
-		http::{reqwest::Url, Http},
+		http::{Http, reqwest::Url},
 		layers::FallbackService,
 	},
 };
 use anyhow::anyhow;
-use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config};
+use bsc_verifier::primitives::{BscClientUpdate, Config, compute_epoch, parse_extra};
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use sp_core::H256;
@@ -61,14 +61,11 @@ impl<C: Config> BscPosProver<C> {
 		}
 
 		let client = if urls.len() == 1 {
-			let url = urls
-				.into_iter()
-				.next()
-				.ok_or_else(|| anyhow!("Expected at least one URL"))?;
+			let url =
+				urls.into_iter().next().ok_or_else(|| anyhow!("Expected at least one URL"))?;
 			RootProvider::new_http(url)
 		} else {
-			let transports: Vec<Http<_>> =
-				urls.into_iter().map(|url| Http::new(url)).collect();
+			let transports: Vec<Http<_>> = urls.into_iter().map(|url| Http::new(url)).collect();
 			let active_count = transports.len();
 			let service = FallbackService::new(transports, active_count);
 			let rpc_client = RpcClient::builder().transport(service, false);

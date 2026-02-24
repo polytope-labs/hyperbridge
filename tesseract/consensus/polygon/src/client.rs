@@ -1,22 +1,19 @@
 use std::{fmt::Debug, sync::Arc};
 
-use alloy::{
-	eips::BlockId,
-	providers::Provider,
-};
+use alloy::{eips::BlockId, providers::Provider};
 use async_trait::async_trait;
 use cometbft::{
 	account::Id as CometbftAccountId,
-	block::{signed_header::SignedHeader, Height},
+	block::{Height, signed_header::SignedHeader},
 	public_key::PublicKey,
 	validator::Info as Validator,
 };
-use cometbft_rpc::{endpoint::abci_query::AbciQuery, Client as OtherClient, HttpClient, Url};
+use cometbft_rpc::{Client as OtherClient, HttpClient, Url, endpoint::abci_query::AbciQuery};
 use geth_primitives::CodecHeader;
 use ismp_polygon::Milestone;
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tendermint_primitives::{Client as TendermintClient, ProverError};
 
 use base64::Engine;

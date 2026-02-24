@@ -1,14 +1,14 @@
 use crate::{
+	AlloyProvider, EvmClient,
 	gas_oracle::{
 		ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID, CHIADO_CHAIN_ID, CRONOS_CHAIN_ID,
 		CRONOS_TESTNET_CHAIN_ID, GNOSIS_CHAIN_ID, INJECTIVE_CHAIN_ID, INJECTIVE_TESTNET_CHAIN_ID,
 		SEI_CHAIN_ID, SEI_TESTNET_CHAIN_ID,
 	},
-	AlloyProvider, EvmClient,
 };
 use alloy::{
 	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
-	primitives::{Address, Bytes, B256, U256 as AlloyU256},
+	primitives::{Address, B256, Bytes, U256 as AlloyU256},
 	providers::Provider,
 	rpc::types::{TransactionReceipt, TransactionRequest},
 	transports::TransportError,
@@ -18,7 +18,7 @@ use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, ResponseMessage},
+	messaging::{Message, ResponseMessage, hash_request, hash_response},
 	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{
@@ -481,31 +481,32 @@ pub async fn generate_contract_calls(
 							.collect::<Vec<_>>();
 						leaves.sort_by(|a, b| a.index.cmp(&b.index));
 
-						let message =
-							PostResponseMessage {
-								proof: Proof {
-									height: StateMachineHeight {
-										stateMachineId: {
-											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => AlloyU256::from(id),
-												_ => {
-													log::error!("Expected polkadot or kusama state machines");
-													continue;
-												},
-											}
-										},
-										height: AlloyU256::from(proof.height.height),
+						let message = PostResponseMessage {
+							proof: Proof {
+								height: StateMachineHeight {
+									stateMachineId: {
+										match proof.height.id.state_id {
+											StateMachine::Polkadot(id) |
+											StateMachine::Kusama(id) => AlloyU256::from(id),
+											_ => {
+												log::error!(
+													"Expected polkadot or kusama state machines"
+												);
+												continue;
+											},
+										}
 									},
-									multiproof: membership_proof
-										.items
-										.into_iter()
-										.map(|node| B256::from_slice(&node.0))
-										.collect(),
-									leafCount: AlloyU256::from(membership_proof.leaf_count),
+									height: AlloyU256::from(proof.height.height),
 								},
-								responses: leaves,
-							};
+								multiproof: membership_proof
+									.items
+									.into_iter()
+									.map(|node| B256::from_slice(&node.0))
+									.collect(),
+								leafCount: AlloyU256::from(membership_proof.leaf_count),
+							},
+							responses: leaves,
+						};
 
 						let call = contract.handlePostResponses(ismp_host, message);
 						log::trace!("[evm::tx] Estimating gas for handlePostResponses...");

@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use codec::Encode;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment},
 	host::StateMachine,
 	messaging::{CreateConsensusState, Message, StateCommitmentHeight},
 };
-use ismp_polygon::{ConsensusState, PolygonConsensusUpdate, POLYGON_CONSENSUS_CLIENT_ID};
+use ismp_polygon::{ConsensusState, POLYGON_CONSENSUS_CLIENT_ID, PolygonConsensusUpdate};
 use serde::{Deserialize, Serialize};
 use std::{future::pending, sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};

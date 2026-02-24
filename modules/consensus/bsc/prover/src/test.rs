@@ -15,8 +15,9 @@
 
 use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use bsc_verifier::{
-	primitives::{compute_epoch, parse_extra, Testnet, VALIDATOR_BIT_SET_SIZE},
-	verify_bsc_header, NextValidators,
+	NextValidators,
+	primitives::{Testnet, VALIDATOR_BIT_SET_SIZE, compute_epoch, parse_extra},
+	verify_bsc_header,
 };
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;

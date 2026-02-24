@@ -16,7 +16,7 @@
 use alloy::providers::Provider;
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
-	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
+	primitives::{BscClientUpdate, Config, compute_epoch, parse_extra},
 	verify_bsc_header,
 };
 pub use geth_primitives::Header;
@@ -77,11 +77,7 @@ pub struct BscPosHost<C: Config> {
 
 impl<C: Config> BscPosHost<C> {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let urls = evm
-			.rpc_urls
-			.iter()
-			.map(|u| u.parse())
-			.collect::<Result<Vec<_>, _>>()?;
+		let urls = evm.rpc_urls.iter().map(|u| u.parse()).collect::<Result<Vec<_>, _>>()?;
 		let prover = BscPosProver::new(urls)?;
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 

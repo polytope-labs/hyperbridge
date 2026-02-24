@@ -1,6 +1,6 @@
 use crate::{
-	abi::{arb_gas_info::ArbGasInfoInstance, ovm_gas_price_oracle::OvmGasPriceOracleInstance},
 	AlloyProvider,
+	abi::{arb_gas_info::ArbGasInfoInstance, ovm_gas_price_oracle::OvmGasPriceOracleInstance},
 };
 use alloy::{
 	eips::BlockId,
@@ -8,7 +8,7 @@ use alloy::{
 	providers::Provider,
 };
 use alloy_sol_macro::sol;
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use hex_literal::hex;
 use ismp::host::StateMachine;
 use ismp_solidity_abi::evm_host::EvmHostInstance;
@@ -256,8 +256,8 @@ pub fn convert_27_decimals_to_18_decimals(value: U256) -> Result<U256, Error> {
 #[cfg(test)]
 mod test {
 	use super::{
-		get_current_gas_cost_in_usd, get_l2_data_cost, ARBITRUM_CHAIN_ID, BSC_CHAIN_ID,
-		ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, POLYGON_CHAIN_ID,
+		ARBITRUM_CHAIN_ID, BSC_CHAIN_ID, ETHEREUM_CHAIN_ID, GNOSIS_CHAIN_ID, POLYGON_CHAIN_ID,
+		get_current_gas_cost_in_usd, get_l2_data_cost,
 	};
 	use alloy::{primitives::Bytes, providers::RootProvider};
 	use ismp::host::StateMachine;

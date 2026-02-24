@@ -21,7 +21,11 @@ use alloy::{
 	eips::BlockId,
 	primitives::B256,
 	providers::{Provider, RootProvider},
-	transports::http::reqwest::Url,
+	rpc::client::RpcClient,
+	transports::{
+		http::{reqwest::Url, Http},
+		layers::FallbackService,
+	},
 };
 use anyhow::anyhow;
 use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config};
@@ -34,9 +38,9 @@ use tracing::{instrument, trace};
 
 #[derive(Clone)]
 pub struct BscPosProver<C: Config> {
-	/// Execution Rpc client
+	/// Execution RPC client with fallback support for multiple URLs
 	pub client: Arc<RootProvider>,
-	/// Phamtom data
+	/// Phantom data
 	_phantom_data: PhantomData<C>,
 }
 
@@ -51,9 +55,27 @@ pub struct UpdateParams {
 	pub fetch_val_set_change: bool,
 }
 impl<C: Config> BscPosProver<C> {
-	pub fn new(url: Url) -> Self {
-		let client = RootProvider::new_http(url);
-		Self { client: Arc::new(client), _phantom_data: PhantomData }
+	pub fn new(urls: Vec<Url>) -> Result<Self, anyhow::Error> {
+		if urls.is_empty() {
+			return Err(anyhow!("At least one RPC URL must be provided"));
+		}
+
+		let client = if urls.len() == 1 {
+			let url = urls
+				.into_iter()
+				.next()
+				.ok_or_else(|| anyhow!("Expected at least one URL"))?;
+			RootProvider::new_http(url)
+		} else {
+			let transports: Vec<Http<_>> =
+				urls.into_iter().map(|url| Http::new(url)).collect();
+			let active_count = transports.len();
+			let service = FallbackService::new(transports, active_count);
+			let rpc_client = RpcClient::builder().transport(service, false);
+			RootProvider::new(rpc_client)
+		};
+
+		Ok(Self { client: Arc::new(client), _phantom_data: PhantomData })
 	}
 
 	pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(

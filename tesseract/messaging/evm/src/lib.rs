@@ -48,6 +48,32 @@ pub mod tx;
 
 pub type AlloyProvider = RootProvider;
 
+/// Create a RootProvider from multiple URLs with automatic failover,
+/// which uses alloy FallbackService when multiple URLs are provided.
+pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
+	use alloy::{
+		rpc::client::RpcClient,
+		transports::{http::Http, layers::FallbackService},
+	};
+
+	if urls.is_empty() {
+		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
+	}
+
+	if urls.len() == 1 {
+		Ok(RootProvider::new_http(urls[0].parse()?))
+	} else {
+		let transports: Vec<Http<_>> = urls
+			.iter()
+			.map(|u| Ok(Http::new(u.parse()?)))
+			.collect::<Result<_, anyhow::Error>>()?;
+		let active_count = transports.len();
+		let service = FallbackService::new(transports, active_count);
+		let rpc_client = RpcClient::builder().transport(service, false);
+		Ok(RootProvider::new(rpc_client))
+	}
+}
+
 /// Recommended fillers for transaction sending (gas, blob gas, nonce, chain ID)
 type RecommendedFills =
 	JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>;
@@ -190,46 +216,67 @@ impl EvmClient {
 		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
 		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
 
-		let rpc_url =
-			config.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URLs provided"))?;
-		let url: alloy::transports::http::reqwest::Url = rpc_url.parse()?;
+		if config.rpc_urls.is_empty() {
+			return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
+		}
+
 		let http_client = alloy::transports::http::reqwest::Client::builder()
 			.timeout(Duration::from_secs(180))
 			.build()?;
 
-		let rpc_client = match config.transport {
-			RpcTransport::Tron => {
-				use crate::transport::TronLayer;
-				let http =
-					alloy::transports::http::Http::with_client(http_client.clone(), url.clone());
-				alloy::rpc::client::ClientBuilder::default()
-					.layer(TronLayer)
-					.transport(http, false)
-			},
-			RpcTransport::Standard => alloy::rpc::client::RpcClient::new_http_with_client(
-				http_client.clone(),
-				url.clone(),
-			),
+		let root_provider = if config.rpc_urls.len() == 1 {
+			let url: alloy::transports::http::reqwest::Url = config.rpc_urls[0].parse()?;
+			match config.transport {
+				RpcTransport::Tron => {
+					use crate::transport::TronLayer;
+					let http =
+						alloy::transports::http::Http::with_client(http_client, url);
+					let rpc_client = alloy::rpc::client::ClientBuilder::default()
+						.layer(TronLayer)
+						.transport(http, false);
+					RootProvider::new(rpc_client)
+				},
+				RpcTransport::Standard => {
+					let rpc_client =
+						alloy::rpc::client::RpcClient::new_http_with_client(http_client, url);
+					RootProvider::new(rpc_client)
+				},
+			}
+		} else {
+			let transports: Vec<alloy::transports::http::Http<_>> = config
+				.rpc_urls
+				.iter()
+				.map(|u| {
+					let url: alloy::transports::http::reqwest::Url = u.parse()?;
+					Ok(alloy::transports::http::Http::with_client(http_client.clone(), url))
+				})
+				.collect::<Result<_, anyhow::Error>>()?;
+			let active_count = transports.len();
+			let service =
+				alloy::transports::layers::FallbackService::new(transports, active_count);
+			match config.transport {
+				RpcTransport::Tron => {
+					use crate::transport::TronLayer;
+					let rpc_client = alloy::rpc::client::ClientBuilder::default()
+						.layer(TronLayer)
+						.transport(service, false);
+					RootProvider::new(rpc_client)
+				},
+				RpcTransport::Standard => {
+					let rpc_client =
+						alloy::rpc::client::RpcClient::builder().transport(service, false);
+					RootProvider::new(rpc_client)
+				},
+			}
 		};
-		let client = Arc::new(RootProvider::new(rpc_client));
+		let client = Arc::new(root_provider.clone());
 		let chain_id = client.get_chain_id().await?;
 
 		// Create signer provider with wallet filler
 		let private_key_signer = PrivateKeySigner::from_slice(signer.seed().as_slice())?;
 		let wallet = EthereumWallet::from(private_key_signer.clone());
-		let signer_rpc_client = match config.transport {
-			RpcTransport::Tron => {
-				use crate::transport::TronLayer;
-				let http = alloy::transports::http::Http::with_client(http_client, url);
-				alloy::rpc::client::ClientBuilder::default()
-					.layer(TronLayer)
-					.transport(http, false)
-			},
-			RpcTransport::Standard =>
-				alloy::rpc::client::RpcClient::new_http_with_client(http_client, url),
-		};
 		let signer_provider =
-			ProviderBuilder::new().wallet(wallet).connect_client(signer_rpc_client);
+			ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
 		let signer = Arc::new(signer_provider);
 
 		let consensus_state_id = {

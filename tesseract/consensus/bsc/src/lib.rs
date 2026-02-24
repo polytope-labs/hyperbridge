@@ -77,8 +77,12 @@ pub struct BscPosHost<C: Config> {
 
 impl<C: Config> BscPosHost<C> {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let url = evm.rpc_urls.first().ok_or_else(|| anyhow::anyhow!("No RPC URL provided"))?;
-		let prover = BscPosProver::new(url.parse()?);
+		let urls = evm
+			.rpc_urls
+			.iter()
+			.map(|u| u.parse())
+			.collect::<Result<Vec<_>, _>>()?;
+		let prover = BscPosProver::new(urls)?;
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
 		Ok(Self {

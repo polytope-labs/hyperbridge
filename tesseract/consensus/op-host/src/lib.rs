@@ -3,7 +3,7 @@ use alloy::{
 	eips::BlockId,
 	network::EthereumWallet,
 	primitives::{Address, B256},
-	providers::{Provider, ProviderBuilder, RootProvider},
+	providers::{Provider, ProviderBuilder},
 	rpc::types::Filter,
 	signers::local::PrivateKeySigner,
 	sol_types::SolEvent,
@@ -134,17 +134,8 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let op_rpc_url = evm
-			.rpc_urls
-			.first()
-			.ok_or_else(|| anyhow!("No RPC URLs provided for OP Stack"))?;
-		let el = RootProvider::new_http(op_rpc_url.parse()?);
-
-		let beacon_rpc_url = host
-			.ethereum_rpc_url
-			.first()
-			.ok_or_else(|| anyhow!("No RPC URLs provided for beacon client"))?;
-		let beacon_client = RootProvider::new_http(beacon_rpc_url.parse()?);
+		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
+		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
 		let l1_chain_id = beacon_client.get_chain_id().await?;
 		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
@@ -169,8 +160,9 @@ impl OpHost {
 				let wallet_signer = PrivateKeySigner::from_signing_key(signing_key);
 				let wallet = EthereumWallet::from(wallet_signer);
 
+				let beacon_provider = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 				let signer_provider =
-					ProviderBuilder::new().wallet(wallet).connect_http(beacon_rpc_url.parse()?);
+					ProviderBuilder::new().wallet(wallet).connect_provider(beacon_provider);
 
 				let client = ClientBuilder::new(Client::new())
 					.with(ChainMiddleware::new(SwitchProviderMiddleware::_new(

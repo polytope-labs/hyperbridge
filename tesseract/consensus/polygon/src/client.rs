@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use alloy::{
 	eips::BlockId,
-	providers::{Provider, RootProvider},
+	providers::Provider,
 };
 use async_trait::async_trait;
 use cometbft::{
@@ -22,7 +22,7 @@ use tendermint_primitives::{Client as TendermintClient, ProverError};
 use base64::Engine;
 
 /// Type alias for alloy HTTP provider
-pub type AlloyProvider = RootProvider;
+pub type AlloyProvider = tesseract_evm::AlloyProvider;
 
 #[derive(Clone)]
 /// A client implementation for interacting with Heimdall nodes.
@@ -55,7 +55,7 @@ impl HeimdallClient {
 	/// - The consensus RPC URL is invalid
 	/// - The HTTP client cannot be created
 	/// - The execution RPC provider cannot be created
-	pub fn new(url: &str, execution_rpc: &str) -> Result<Self, ProverError> {
+	pub fn new(url: &str, execution_rpcs: &[String]) -> Result<Self, ProverError> {
 		let raw_client = ReqwestClient::new();
 		let consensus_rpc_url = url.to_string();
 		let client_url = url
@@ -65,10 +65,9 @@ impl HeimdallClient {
 		let http_client =
 			HttpClient::new(client_url).map_err(|e| ProverError::NetworkError(e.to_string()))?;
 
-		let execution_url = execution_rpc.parse().map_err(|e| {
-			ProverError::NetworkError(format!("Failed to parse execution RPC URL: {}", e))
+		let provider = tesseract_evm::create_provider(execution_rpcs).map_err(|e| {
+			ProverError::NetworkError(format!("Failed to create execution RPC provider: {}", e))
 		})?;
-		let provider = RootProvider::new_http(execution_url);
 		let execution_rpc_client = Arc::new(provider);
 
 		Ok(Self { raw_client, consensus_rpc_url, http_client, execution_rpc_client })

@@ -23,12 +23,12 @@ use alloy::{
 	providers::{Provider, RootProvider},
 	rpc::client::RpcClient,
 	transports::{
-		http::{Http, reqwest::Url},
+		http::{reqwest::Url, Http},
 		layers::FallbackService,
 	},
 };
 use anyhow::anyhow;
-use bsc_verifier::primitives::{BscClientUpdate, Config, compute_epoch, parse_extra};
+use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config};
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use sp_core::H256;

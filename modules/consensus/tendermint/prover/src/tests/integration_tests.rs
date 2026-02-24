@@ -267,7 +267,8 @@ mod tests {
 	async fn test_abci_query_milestone_proof_inner() -> Result<(), Box<dyn std::error::Error>> {
 		use cometbft_rpc::endpoint::abci_query::AbciQuery;
 
-		let client = HeimdallClient::new(&get_polygon_rpc_url(), &get_polygon_execution_rpc_url())?;
+		let client =
+			HeimdallClient::new(&get_polygon_rpc_url(), &[get_polygon_execution_rpc_url()])?;
 		let latest_height = client.latest_height().await?;
 
 		let (milestone_number, milestone) =
@@ -454,8 +455,9 @@ mod tests {
 	async fn run_integration_test_heimdall(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		let client: HeimdallClient = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
-			.expect("Failed to create client");
+		let client: HeimdallClient =
+			HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])
+				.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
@@ -595,7 +597,7 @@ mod tests {
 
 	/// Basic Heimdall RPC test: header and validator retrieval
 	async fn test_polygon_basic_rpc(rpc_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-		let client = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
+		let client = HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])
 			.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;

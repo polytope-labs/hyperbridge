@@ -4,16 +4,16 @@ use alloy::{eips::BlockId, providers::Provider};
 use async_trait::async_trait;
 use cometbft::{
 	account::Id as CometbftAccountId,
-	block::{Height, signed_header::SignedHeader},
+	block::{signed_header::SignedHeader, Height},
 	public_key::PublicKey,
 	validator::Info as Validator,
 };
-use cometbft_rpc::{Client as OtherClient, HttpClient, Url, endpoint::abci_query::AbciQuery};
+use cometbft_rpc::{endpoint::abci_query::AbciQuery, Client as OtherClient, HttpClient, Url};
 use geth_primitives::CodecHeader;
 use ismp_polygon::Milestone;
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tendermint_primitives::{Client as TendermintClient, ProverError};
 
 use base64::Engine;

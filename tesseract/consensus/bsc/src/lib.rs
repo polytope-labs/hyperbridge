@@ -16,7 +16,7 @@
 use alloy::providers::Provider;
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
-	primitives::{BscClientUpdate, Config, compute_epoch, parse_extra},
+	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
 	verify_bsc_header,
 };
 pub use geth_primitives::Header;

@@ -1,7 +1,6 @@
 use crate::{
-	EvmClient,
-	abi::{EvmHostInstance, erc_20::Erc20Instance},
-	state_comitment_key,
+	abi::{erc_20::Erc20Instance, EvmHostInstance},
+	state_comitment_key, EvmClient,
 };
 use alloy::{
 	eips::BlockId,
@@ -10,7 +9,7 @@ use alloy::{
 	sol_types::SolType,
 };
 use alloy_sol_types::SolEvent;
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::ConsensusState;
 use codec::Encode;
 
@@ -30,7 +29,7 @@ use crate::{
 	tx::get_chain_gas_limit,
 };
 use ethereum_triedb::StorageProof;
-use futures::{FutureExt, stream::FuturesOrdered};
+use futures::{stream::FuturesOrdered, FutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
 	host::StateMachine,
@@ -40,8 +39,8 @@ use primitive_types::U256;
 use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature, StateMachineUpdated,
-	StateProofQueryType, TxResult, wait_for_challenge_period,
+	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
+	StateMachineUpdated, StateProofQueryType, TxResult,
 };
 
 use ismp_solidity_abi::beefy::BeefyConsensusState;
@@ -169,7 +168,7 @@ impl IsmpProvider for EvmClient {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let keys: Vec<B256> = keys
 			.into_iter()
-			.map(|query| B256::from_slice(&self.request_commitment_key(query.commitment).1.0))
+			.map(|query| B256::from_slice(&self.request_commitment_key(query.commitment).1 .0))
 			.collect();
 
 		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
@@ -200,7 +199,7 @@ impl IsmpProvider for EvmClient {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
 		let keys: Vec<B256> = keys
 			.into_iter()
-			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1.0))
+			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1 .0))
 			.collect();
 
 		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
@@ -393,12 +392,12 @@ impl IsmpProvider for EvmClient {
 		use alloy::{
 			providers::ext::DebugApi,
 			rpc::types::{
-				TransactionRequest,
 				trace::geth::{
 					CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
 					GethDebugTracerType, GethDebugTracingCallOptions, GethDebugTracingOptions,
 					GethDefaultTracingOptions, GethTrace,
 				},
+				TransactionRequest,
 			},
 		};
 
@@ -817,8 +816,8 @@ impl IsmpProvider for EvmClient {
 	}
 
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		let key_1 = self.request_commitment_key(commitment).0.0.to_vec();
-		let key_2 = self.request_commitment_key(commitment).1.0.to_vec();
+		let key_1 = self.request_commitment_key(commitment).0 .0.to_vec();
+		let key_2 = self.request_commitment_key(commitment).1 .0.to_vec();
 		vec![key_1, key_2]
 	}
 
@@ -827,8 +826,8 @@ impl IsmpProvider for EvmClient {
 	}
 
 	fn response_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
-		let key_1 = self.response_commitment_key(commitment).0.0.to_vec();
-		let key_2 = self.response_commitment_key(commitment).1.0.to_vec();
+		let key_1 = self.response_commitment_key(commitment).0 .0.to_vec();
+		let key_2 = self.response_commitment_key(commitment).1 .0.to_vec();
 		vec![key_1, key_2]
 	}
 

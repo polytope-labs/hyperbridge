@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{Config, VALIDATOR_BIT_SET_SIZE, compute_epoch, parse_extra},
+	primitives::{compute_epoch, parse_extra, Config, VALIDATOR_BIT_SET_SIZE},
 	verify_bsc_header,
 };
 use codec::{Decode, Encode};
-use futures::{StreamExt, stream};
+use futures::{stream, StreamExt};
 use ismp::messaging::{ConsensusMessage, CreateConsensusState, Message};
 
 use bsc_prover::UpdateParams;
@@ -26,7 +26,7 @@ use ismp_bsc::ConsensusState;
 use sp_core::H160;
 use std::{cmp::max, sync::Arc, time::Duration};
 
-use crate::{BscPosHost, KeccakHasher, notification::consensus_notification};
+use crate::{notification::consensus_notification, BscPosHost, KeccakHasher};
 use bsc_prover::get_rotation_block;
 use ssz_rs::{Bitvector, Deserialize};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
@@ -183,8 +183,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									let extra_data =
 										parse_extra::<KeccakHasher, C>(&update.attested_header)
 											.expect(
-												"Infallible, was parsed before update was generated",
-											);
+											"Infallible, was parsed before update was generated",
+										);
 
 									let validators_bit_set =
 										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(
@@ -299,8 +299,8 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									let extra_data =
 										parse_extra::<KeccakHasher, C>(&update.attested_header)
 											.expect(
-												"Infallible, was parsed before update was generated",
-											);
+											"Infallible, was parsed before update was generated",
+										);
 
 									let validators_bit_set =
 										Bitvector::<VALIDATOR_BIT_SET_SIZE>::deserialize(

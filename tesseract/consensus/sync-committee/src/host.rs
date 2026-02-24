@@ -16,7 +16,7 @@ use crate::{GetConsensusStateParams, L2Host, SyncCommitteeHost};
 use alloy::{eips::BlockId, providers::Provider};
 use codec::{Decode, Encode};
 
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use futures::{StreamExt, TryFutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
@@ -28,15 +28,15 @@ use std::{collections::BTreeMap, sync::Arc};
 use sync_committee_primitives::{constants::Config, util::compute_sync_committee_period};
 
 use crate::notification::consensus_notification;
-use op_verifier::{_PERMISSIONED, CANNON};
+use op_verifier::{CANNON, _PERMISSIONED};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]
 impl<
-	T: Config + Send + Sync + 'static,
-	const ETH1_DATA_VOTES_BOUND: usize,
-	const PROPOSER_LOOK_AHEAD_LIMIT: usize,
-> IsmpHost for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
+		T: Config + Send + Sync + 'static,
+		const ETH1_DATA_VOTES_BOUND: usize,
+		const PROPOSER_LOOK_AHEAD_LIMIT: usize,
+	> IsmpHost for SyncCommitteeHost<T, ETH1_DATA_VOTES_BOUND, PROPOSER_LOOK_AHEAD_LIMIT>
 {
 	async fn start_consensus(&self, counterparty: Arc<dyn IsmpProvider>) -> Result<(), Error> {
 		let client = SyncCommitteeHost::clone(&self);

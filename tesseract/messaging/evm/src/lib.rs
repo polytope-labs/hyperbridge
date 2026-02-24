@@ -8,11 +8,11 @@ use alloy::{
 	network::EthereumWallet,
 	primitives::{Address, U256 as AlloyU256},
 	providers::{
-		Identity, Provider, ProviderBuilder, RootProvider,
 		fillers::{
 			BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
 			WalletFiller,
 		},
+		Identity, Provider, ProviderBuilder, RootProvider,
 	},
 	signers::local::PrivateKeySigner,
 };
@@ -27,11 +27,11 @@ use evm_state_machine::presets::{
 
 use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
-use sp_core::{H160, Pair, bytes::from_hex, keccak_256};
+use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
 use tesseract_primitives::{
+	queue::{start_pipeline, PipelineQueue},
 	IsmpProvider, StateMachineUpdated, StreamError, TxResult,
-	queue::{PipelineQueue, start_pipeline},
 };
 use tx::handle_message_submission;
 
@@ -315,12 +315,12 @@ impl EvmClient {
 		use alloy::rpc::types::Filter;
 		use alloy_sol_types::SolEvent;
 		use ismp_solidity_abi::{
-			EvmHostEvents,
 			evm_host::EvmHost::{
 				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
 				PostResponseEvent, PostResponseHandled,
 				StateMachineUpdated as EvmStateMachineUpdated,
 			},
+			EvmHostEvents,
 		};
 
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);

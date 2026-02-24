@@ -2,17 +2,17 @@ use std::{sync::Arc, time::Duration};
 
 use crate::ArbHost;
 use alloy::providers::Provider;
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 
 use codec::{Decode, Encode};
-use futures::{StreamExt, stream};
+use futures::{stream, StreamExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
 	messaging::{ConsensusMessage, CreateConsensusState, Message, StateCommitmentHeight},
 };
 use ismp_arbitrum::{
-	ARBITRUM_CONSENSUS_CLIENT_ID, ArbitrumConsensusProof, ArbitrumConsensusType, ArbitrumUpdate,
-	ConsensusState,
+	ArbitrumConsensusProof, ArbitrumConsensusType, ArbitrumUpdate, ConsensusState,
+	ARBITRUM_CONSENSUS_CLIENT_ID,
 };
 use log::trace;
 use tesseract_primitives::{IsmpHost, IsmpProvider};

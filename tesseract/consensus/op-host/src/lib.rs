@@ -9,21 +9,21 @@ use alloy::{
 	sol_types::SolEvent,
 };
 use anyhow::anyhow;
-use geth_primitives::{Header, alloy_u256_to_primitive};
+use geth_primitives::{alloy_u256_to_primitive, Header};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use op_verifier::{
-	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT, OptimismDisputeGameProof, OptimismPayloadProof,
-	calculate_output_root, get_game_uuid,
+	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof,
+	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
 };
 use primitive_types::{H160, H256, U256};
 use reqwest::Client;
 use reqwest_chain::ChainMiddleware;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use serde::{Deserialize, Serialize};
-use sp_core::{Pair, bytes::from_hex, keccak_256};
+use sp_core::{bytes::from_hex, keccak_256, Pair};
 use std::sync::Arc;
 use sync_committee_prover::middleware::SwitchProviderMiddleware;
-use tesseract_evm::{AlloyProvider, AlloySignerProvider, EvmClient, EvmConfig, derive_map_key};
+use tesseract_evm::{derive_map_key, AlloyProvider, AlloySignerProvider, EvmClient, EvmConfig};
 use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider};
 
 mod abi;
@@ -346,7 +346,7 @@ impl OpHost {
 				dispute_game_proof,
 				timestamp,
 				header,
-				proxy: proxy_addr.0.0.into(),
+				proxy: proxy_addr.0 .0.into(),
 				extra_data: extra_data.to_vec(),
 				game_type: event.gameType,
 			};

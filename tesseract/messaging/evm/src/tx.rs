@@ -1,14 +1,14 @@
 use crate::{
-	AlloyProvider, EvmClient,
 	gas_oracle::{
 		ARBITRUM_CHAIN_ID, ARBITRUM_SEPOLIA_CHAIN_ID, CHIADO_CHAIN_ID, CRONOS_CHAIN_ID,
 		CRONOS_TESTNET_CHAIN_ID, GNOSIS_CHAIN_ID, INJECTIVE_CHAIN_ID, INJECTIVE_TESTNET_CHAIN_ID,
 		SEI_CHAIN_ID, SEI_TESTNET_CHAIN_ID,
 	},
+	AlloyProvider, EvmClient,
 };
 use alloy::{
 	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
-	primitives::{Address, B256, Bytes, U256 as AlloyU256},
+	primitives::{Address, Bytes, B256, U256 as AlloyU256},
 	providers::Provider,
 	rpc::types::{TransactionReceipt, TransactionRequest},
 	transports::TransportError,
@@ -18,7 +18,7 @@ use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
 	host::StateMachine,
-	messaging::{Message, ResponseMessage, hash_request, hash_response},
+	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{

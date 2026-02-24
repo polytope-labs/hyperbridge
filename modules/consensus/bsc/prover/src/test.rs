@@ -15,9 +15,8 @@
 
 use alloy::{eips::BlockNumberOrTag, providers::Provider};
 use bsc_verifier::{
-	NextValidators,
-	primitives::{Testnet, VALIDATOR_BIT_SET_SIZE, compute_epoch, parse_extra},
-	verify_bsc_header,
+	primitives::{compute_epoch, parse_extra, Testnet, VALIDATOR_BIT_SET_SIZE},
+	verify_bsc_header, NextValidators,
 };
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
@@ -44,7 +43,7 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 	dotenv::dotenv().ok();
 	let consensus_url = std::env::var("BSC_URL").unwrap();
 	let url = consensus_url.parse().expect("Invalid URL");
-	BscPosProver::new(url)
+	BscPosProver::new(vec![url]).expect("Failed to create prover")
 }
 
 #[tokio::test]

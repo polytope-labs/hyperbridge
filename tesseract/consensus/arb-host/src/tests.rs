@@ -1,5 +1,5 @@
 use alloy::providers::Provider;
-use alloy_primitives::{Address, Bytes, U256, keccak256};
+use alloy_primitives::{keccak256, Address, Bytes, U256};
 use alloy_rlp::Decodable;
 // use arbitrum_verifier::verify_arbitrum_payload;
 use geth_primitives::Header;

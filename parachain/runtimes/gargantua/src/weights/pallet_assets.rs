@@ -554,4 +554,8 @@ impl<T: frame_system::Config> pallet_assets::WeightInfo for WeightInfo<T> {
 	fn allowance() -> Weight {
 		Default::default()
 	}
+
+	fn set_reserves(_n: u32) -> Weight {
+		Default::default()
+	}
 }

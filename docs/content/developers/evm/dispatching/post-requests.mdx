@@ -160,8 +160,12 @@ The Hyperbridge protocol ultimately collects its fees in the `feeToken` (usually
 | Native token (ETH, BNB, POL, DOT etc.) | Sent with transaction via `msg.value` |
 | Fee token (set by IsmpHost) | Requires ERC20 approval before dispatch |
 
+<Callout type="info">
+For testing purposes on testnet, you can use the testnet fee token, [Hyper USD](https://sepolia.etherscan.io/address/0xA801da100bF16D07F668F4A49E1f71fc54D05177). The contract address is the same across several EVM chains. Check out the [guide](/developers/guides/testnet-fee-token) on how to get the token. 
+</Callout>
 
 ### Fee Token Payment (Recommended)
+
 
 Your contract must extend `HyperApp`, which allows you to use the `dispatchWithFeeToken()` helper which handles all fee calculations and token approvals automatically:
 

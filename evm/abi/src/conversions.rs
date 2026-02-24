@@ -64,7 +64,7 @@ mod beefy {
 						id: parachain.para_id.into(),
 						header: parachain.header.into(),
 					})
-					.collect::<Vec<_>>()[0]
+					.collect::<Vec<_>>()
 					.clone(),
 				proof: value
 					.proof

@@ -1032,7 +1032,7 @@ pub mod beefy {
 		Hash,
 	)]
 	pub struct ParachainProof {
-		pub parachain: Parachain,
+		pub parachain: ::std::vec::Vec<Parachain>,
 		pub proof: ::std::vec::Vec<::std::vec::Vec<Node>>,
 	}
 	///`Payload(bytes2,bytes)`

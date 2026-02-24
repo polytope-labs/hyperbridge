@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 350" fill="none">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#888"/>
+    </marker>
+  </defs>
+
+  <rect width="860" height="350" rx="8" fill="#111"/>
+
+  <!-- Title -->
+  <text x="430" y="30" text-anchor="middle" fill="#ccc" font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace" font-size="15" font-weight="600">Cross-Chain Swap</text>
+  <text x="430" y="48" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="10">settlement via ISMP through Hyperbridge -- all-or-nothing fills</text>
+
+  <!-- Source Chain -->
+  <rect x="20" y="65" width="370" height="210" rx="4" fill="#181818" stroke="#333" stroke-width="1"/>
+  <text x="40" y="82" fill="#555" font-family="ui-monospace, monospace" font-size="9">source chain</text>
+
+  <!-- Destination Chain -->
+  <rect x="470" y="65" width="370" height="210" rx="4" fill="#181818" stroke="#333" stroke-width="1"/>
+  <text x="490" y="82" fill="#555" font-family="ui-monospace, monospace" font-size="9">destination chain</text>
+
+  <!-- User -->
+  <rect x="40" y="100" width="120" height="48" rx="3" fill="none" stroke="#555" stroke-width="1"/>
+  <text x="100" y="122" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="11" font-weight="600">User</text>
+  <text x="100" y="138" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">100 USDC</text>
+
+  <!-- Arrow User -> Source Gateway -->
+  <line x1="160" y1="124" x2="210" y2="124" stroke="#555" stroke-width="1" marker-end="url(#ah)"/>
+  <text x="185" y="116" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="7">escrow</text>
+
+  <!-- Source Gateway -->
+  <rect x="220" y="100" width="145" height="48" rx="3" fill="none" stroke="#666" stroke-width="1"/>
+  <text x="292" y="120" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="10" font-weight="600">IntentGateway</text>
+  <text x="292" y="136" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">escrow: 100 USDC</text>
+
+  <!-- Beneficiary -->
+  <rect x="490" y="100" width="120" height="48" rx="3" fill="none" stroke="#555" stroke-width="1"/>
+  <text x="550" y="122" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="11" font-weight="600">Beneficiary</text>
+  <text x="550" y="138" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">receives DAI</text>
+
+  <!-- Solver -->
+  <rect x="680" y="100" width="120" height="48" rx="3" fill="none" stroke="#555" stroke-width="1"/>
+  <text x="740" y="122" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="11" font-weight="600">Solver</text>
+  <text x="740" y="138" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">fills 99 DAI</text>
+
+  <!-- Arrow Solver -> Beneficiary -->
+  <line x1="680" y1="124" x2="615" y2="124" stroke="#888" stroke-width="1" marker-end="url(#ah)"/>
+  <text x="647" y="116" text-anchor="middle" fill="#777" font-family="ui-monospace, monospace" font-size="8">99 DAI</text>
+
+  <!-- Hyperbridge bridge -->
+  <rect x="340" y="185" width="180" height="45" rx="3" fill="none" stroke="#666" stroke-width="1"/>
+  <text x="430" y="206" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="10" font-weight="600">Hyperbridge (ISMP)</text>
+  <text x="430" y="220" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="8">settlement message</text>
+
+  <!-- Arrow from Solver -> Hyperbridge -->
+  <path d="M 740 148 L 740 207 L 520 207" stroke="#555" stroke-width="1" fill="none" marker-end="url(#ah)" stroke-dasharray="4,3"/>
+  <text x="640" y="198" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="7">dispatch</text>
+
+  <!-- Arrow from Hyperbridge -> Source Gateway -->
+  <path d="M 340 207 L 292 207 L 292 148" stroke="#555" stroke-width="1" fill="none" marker-end="url(#ah)" stroke-dasharray="4,3"/>
+  <text x="260" y="198" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="7">onAccept</text>
+
+  <!-- Escrow release label -->
+  <rect x="195" y="248" width="195" height="28" rx="3" fill="none" stroke="#444" stroke-width="1"/>
+  <text x="292" y="267" text-anchor="middle" fill="#999" font-family="ui-monospace, monospace" font-size="9">escrow released to solver</text>
+
+  <line x1="292" y1="230" x2="292" y2="248" stroke="#555" stroke-width="1" marker-end="url(#ah)"/>
+
+  <!-- Legend -->
+  <line x1="30" y1="320" x2="60" y2="320" stroke="#555" stroke-width="1" stroke-dasharray="4,3"/>
+  <text x="67" y="324" fill="#555" font-family="ui-monospace, monospace" font-size="9">cross-chain (ISMP)</text>
+  <line x1="230" y1="320" x2="260" y2="320" stroke="#888" stroke-width="1"/>
+  <text x="267" y="324" fill="#555" font-family="ui-monospace, monospace" font-size="9">direct transfer</text>
+  <text x="480" y="324" fill="#444" font-family="ui-monospace, monospace" font-size="9">all-or-nothing -- no partial fills</text>
+</svg>

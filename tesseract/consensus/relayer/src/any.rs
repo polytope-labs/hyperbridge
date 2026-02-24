@@ -10,6 +10,7 @@ use subxt::{
 };
 
 use arb_host::ArbConfig;
+use evm_host::EvmHostConfig;
 use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use op_host::OpConfig;
 use tesseract_beefy::{
@@ -51,10 +52,12 @@ pub enum AnyConfig {
 	Polygon(PolygonPosConfig),
 	/// Tendermint Config
 	Tendermint(TendermintConfig),
+	/// EVM Host chain config
+	EvmHost(EvmHostConfig),
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
-	Beefy(BeefyHost<R, P, zk_beefy::LocalProver>),
+	Beefy(BeefyHost<R, P, zk_beefy::LocalProver, tesseract_beefy::backend::RedisProofBackend>),
 	Grandpa(GrandpaHost<R, P>),
 }
 
@@ -165,10 +168,18 @@ impl HyperbridgeHostConfig {
 		let host = match self.host {
 			ConsensusHost::Beefy { substrate, prover, beefy } => {
 				let client = SubstrateClient::<P>::new(substrate).await?;
-				let prover = Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone()).await?;
-				AnyHost::Beefy(
-					BeefyHost::<R, P, zk_beefy::LocalProver>::new(beefy, prover, client).await?,
-				)
+				let prover_instance =
+					Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone()).await?;
+
+				// Create Redis backend (required for relayer)
+				let redis_config = beefy.redis.as_ref().ok_or_else(|| {
+					anyhow::anyhow!("Redis configuration is required for relayer")
+				})?;
+				let config = redis_config.clone();
+				let backend =
+					Arc::new(tesseract_beefy::backend::RedisProofBackend::new(config).await?);
+
+				AnyHost::Beefy(BeefyHost::new(beefy, prover_instance, client, backend).await?)
 			},
 			ConsensusHost::Grandpa(grandpa) =>
 				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?),
@@ -193,6 +204,7 @@ impl AnyConfig {
 			AnyConfig::Grandpa(config) => config.substrate.state_machine,
 			AnyConfig::Polygon(config) => config.evm_config.state_machine,
 			AnyConfig::Tendermint(config) => config.evm_config.state_machine,
+			AnyConfig::EvmHost(config) => config.evm_config.state_machine,
 		}
 	}
 
@@ -210,6 +222,7 @@ impl AnyConfig {
 			AnyConfig::Grandpa(_) => None,
 			AnyConfig::Polygon(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Tendermint(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::EvmHost(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

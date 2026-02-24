@@ -83,10 +83,9 @@ where
 			})?;
 
 		let (new_state, verified_parachains) =
-			verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)
-				.map_err(|e| {
-					Error::Custom(format!("Error verifying Beefy consensus update: {e:?}"))
-				})?;
+			verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof).map_err(|e| {
+				Error::Custom(format!("Error verifying Beefy consensus update: {e:?}"))
+			})?;
 
 		if verified_parachains.is_empty() {
 			return Ok((new_state, BTreeMap::new()));

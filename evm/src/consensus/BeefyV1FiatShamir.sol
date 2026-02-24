@@ -74,12 +74,12 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * the worst case where exactly 2/3+1 validators sign and all adversarial
  * validators participate, the adversarial fraction in the bitmap is at most
  * f/(2/3+1/N) ≈ f/(2/3). With f approaching 1/3, this gives at most ~1/2
- * adversarial signers. The probability that all SAMPLE_SIZE=10 randomly sampled
- * signers are adversarial is at most (1/2)^10 ≈ 0.098%.
+ * adversarial signers. The probability that all SAMPLE_SIZE=5 randomly sampled
+ * signers are adversarial is at most (1/2)^5 ≈ 3.125%.
  *
  * ## Gas savings
  *
- * Only 10 ecrecover calls (30,000 gas) instead of ~200+ (600,000+ gas), and a
+ * Only 5 ecrecover calls (15,000 gas) instead of ~200+ (600,000+ gas), and a
  * proportionally smaller merkle multi-proof. The bitmap verification and
  * transcript construction add negligible overhead.
  */

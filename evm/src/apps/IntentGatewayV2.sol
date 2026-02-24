@@ -37,6 +37,7 @@ import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
@@ -365,6 +366,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             reducedInputs = new TokenInfo[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 uint256 originalAmount = order.inputs[i].amount;
+                if (originalAmount == 0) revert InvalidInput();
                 uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
                 uint256 reducedAmount = originalAmount - protocolFee;
                 address token = address(uint160(uint256(order.inputs[i].token)));
@@ -421,6 +423,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             // Transfer tokens from call dispatcher back to IntentGateway
             Call[] memory transferCalls = new Call[](inputsLen);
             for (uint256 i; i < inputsLen;) {
+                if (order.inputs[i].amount == 0) revert InvalidInput();
                 address token = address(uint160(uint256(order.inputs[i].token)));
                 uint256 requiredAmount = order.inputs[i].amount;
                 uint256 balance;
@@ -601,7 +604,10 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             if (isSameChain) {
                 uint256 alreadyFilled = _partialFills[commitment][outputToken];
                 uint256 remaining = totalRequired - alreadyFilled;
-                if (remaining == 0 || solverAmount == 0) continue;
+                if (remaining == 0 || solverAmount == 0) {
+                    if (solverAmount == 0 && remaining > 0) isFullyFilled = false;
+                    continue;
+                }
                 uint256 fillAmount;
 
                 // Surplus only applies if this pair has not been partially filled
@@ -624,7 +630,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 _partialFills[commitment][outputToken] = amountFilled;
                 uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
 
-                if (token == address(0)) { 
+                if (token == address(0)) {
                     if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
                     msgValue -= (beneficiaryTotal + protocolShare);
                     (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
@@ -874,7 +880,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 dest: order.destination,
                 keys: keys,
                 timeout: 0,
-                height: uint64(options.height),
+                height: SafeCast.toUint64(options.height),
                 fee: options.relayerFee,
                 context: context
             });

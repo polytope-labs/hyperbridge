@@ -123,7 +123,7 @@ contract DeployScript is BaseScript {
             decimals: 6
         });
 
-        priceOracle.init(HOST_ADDRESS, decimalsUpdates);
+        priceOracle.init(HOST_ADDRESS, address(intentGateway), decimalsUpdates);
         console.log("VWAPOracle initialized with token decimals");
 
         intentGateway.setParams(

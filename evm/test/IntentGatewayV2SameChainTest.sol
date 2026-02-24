@@ -1906,13 +1906,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Gateway retains ETH protocol share + USDC protocol share
         // (gateway also had the escrowed USDC input which was released to solver)
-        assertEq(
-            address(intentGateway).balance, ethProtocolShare, "Gateway should retain ETH protocol share as dust"
-        );
+        assertEq(address(intentGateway).balance, ethProtocolShare, "Gateway should retain ETH protocol share as dust");
 
         // Solver spent exactly solverEth in ETH
-        assertEq(
-            solverEthBefore - solver.balance, solverEth, "Solver should have spent exactly solverEth"
-        );
+        assertEq(solverEthBefore - solver.balance, solverEth, "Solver should have spent exactly solverEth");
     }
 }

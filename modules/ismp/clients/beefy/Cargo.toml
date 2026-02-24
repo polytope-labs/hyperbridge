@@ -11,10 +11,8 @@ primitive-types = { workspace = true }
 ismp = { workspace = true }
 beefy-verifier = { workspace = true }
 pallet-ismp = { workspace = true }
-ismp-parachain = { workspace = true }
 substrate-state-machine = { workspace = true }
 beefy-verifier-primitives = { workspace = true }
-rs_merkle = {workspace = true}
 
 [dependencies.scale-info]
 version = "2.1.1"
@@ -47,7 +45,5 @@ std = [
     "beefy-verifier-primitives/std",
     "beefy-verifier/std",
     "substrate-state-machine/std",
-    "rs_merkle/std",
-    "ismp-parachain/std"
 ]
 

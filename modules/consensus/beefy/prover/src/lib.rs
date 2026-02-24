@@ -255,26 +255,28 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)
 		.await?;
 
-		let (parachains, indices): (Vec<_>, Vec<_>) = heads
-			.clone()
-			.into_iter()
-			.enumerate()
-			.filter_map(|(index, (para_id, header))| {
-				if self.para_ids.contains(&para_id) {
-					Some((ParachainHeader { header, index, para_id }, index))
-				} else {
-					None
-				}
+		let (parachains, indices): (Vec<_>, Vec<_>) = self
+			.para_ids
+			.iter()
+			.map(|id| {
+				let index = heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist");
+				(
+					ParachainHeader {
+						header: heads[index].1.clone(),
+						index: index as u32,
+						para_id: heads[index].0,
+					},
+					index,
+				)
 			})
 			.unzip();
 
-		let proof = if parachains.len() > 0 {
-			let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-			util::merkle_proof(&leaves, &indices)
-		} else {
-			vec![]
-		};
-		let parachain = ParachainProof { parachains, proof };
+		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+		let proof = util::merkle_proof(&leaves, &indices);
+
+		let proof: Vec<[u8; 32]> = proof.into_iter().flatten().map(|(_, hash)| hash).collect();
+
+		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
 		Ok((ConsensusMessage { mmr, parachain }, bitmap))
 	}

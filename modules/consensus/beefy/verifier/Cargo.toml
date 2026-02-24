@@ -18,7 +18,6 @@ beefy-verifier-primitives = { workspace = true }
 ismp = { workspace = true, default-features = false }
 merkle-mountain-range = {workspace = true, default-features = false}
 rs_merkle = {workspace = true}
-k256 = { workspace = true }
 beefy-prover = { workspace = true}
 subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
@@ -36,6 +35,7 @@ features = [
 ]
 
 [dev-dependencies]
+k256 = { workspace = true }
 
 
 [features]
@@ -50,6 +50,4 @@ std = [
     "polkadot-sdk/std",
     "merkle-mountain-range/std",
     "rs_merkle/std",
-    "k256/std"
-
 ]

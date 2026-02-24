@@ -25,18 +25,37 @@ use beefy_prover::{
 	util::{hash_authority_addresses, merkle_proof},
 };
 use beefy_verifier_primitives::{
-	BeefyConsensusProof, BeefyMmrLeaf, Node, ParachainHeader, ParachainProof, RelaychainProof,
+	BeefyConsensusProof, BeefyMmrLeaf, ParachainHeader, ParachainProof, RelaychainProof,
 	SignatureWithAuthorityIndex,
 };
 use ismp::messaging::Keccak256;
+use k256::ecdsa::{RecoveryId, Signature as K256Signature, VerifyingKey};
+use polkadot_sdk::sp_consensus_beefy::ecdsa_crypto::Signature;
 
-use crate::{sp_consensus_beefy::ecdsa_crypto::Signature, verify_consensus};
+use crate::{EcdsaRecover, verify_consensus};
 
 struct TestKeccak256;
 
 impl Keccak256 for TestKeccak256 {
 	fn keccak256(bytes: &[u8]) -> H256 {
 		sp_core::hashing::keccak_256(bytes).into()
+	}
+}
+
+impl EcdsaRecover for TestKeccak256 {
+	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
+		let recovery_id = RecoveryId::from_byte(signature[64])
+			.ok_or_else(|| anyhow::anyhow!("Invalid recovery id"))?;
+		let k256_sig = K256Signature::from_slice(&signature[0..64])
+			.map_err(|e| anyhow::anyhow!("Invalid signature format: {e}"))?;
+		let recovered_verifying_key =
+			VerifyingKey::recover_from_prehash(prehash, &k256_sig, recovery_id)
+				.map_err(|e| anyhow::anyhow!("Failed to recover public key: {e}"))?;
+		let uncompressed_point = recovered_verifying_key.to_encoded_point(false);
+		let uncompressed_bytes = &uncompressed_point.as_bytes()[1..];
+		let mut result = [0u8; 64];
+		result.copy_from_slice(uncompressed_bytes);
+		Ok(result)
 	}
 }
 
@@ -136,7 +155,7 @@ async fn test_verify_consensus() {
 		.iter()
 		.enumerate()
 		.filter_map(|(index, sig)| {
-			sig.as_ref().map(|s| {
+			sig.as_ref().map(|s: &Signature| {
 				let slice: &[u8] = s.as_ref();
 				let signature_array: [u8; 65] =
 					slice.try_into().expect("Signature should be 65 bytes long");
@@ -149,26 +168,6 @@ async fn test_verify_consensus() {
 	let authority_address_hashes =
 		hash_authority_addresses(current_authorities.into_iter().map(|x| x.encode()).collect())
 			.unwrap();
-
-	println!("\n======= PROVER DEBUG =======");
-	let is_current_set =
-		signed_commitment_raw.commitment.validator_set_id == trusted_state.current_authorities.id;
-	let target_root = if is_current_set {
-		trusted_state.current_authorities.keyset_commitment
-	} else {
-		trusted_state.next_authorities.keyset_commitment
-	};
-	println!("Target Merkle Root: {:?}", H256::from(target_root));
-	println!("Prover-side calculated authority leaf hashes:");
-
-	for sig in signatures.iter().take(5) {
-		let index = sig.index as usize;
-		if index < authority_address_hashes.len() {
-			let hash = authority_address_hashes[index];
-			println!("[{:?}] - {:?}", index, H256::from(hash));
-		}
-	}
-	println!("==========================\n");
 
 	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
 	let authority_proof_2d = merkle_proof(&authority_address_hashes, &authority_indices);

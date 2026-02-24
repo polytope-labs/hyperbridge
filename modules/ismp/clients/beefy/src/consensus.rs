@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::collections::BTreeMap;
-use beefy_verifier::{MerkleKeccak256, verify_consensus};
+use beefy_verifier::verify_consensus;
 use beefy_verifier_primitives::{
 	BeefyConsensusProof, ConsensusState, ParachainProof, RelaychainProof,
 };
@@ -29,17 +29,18 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::StateCommitmentHeight,
 };
-use ismp_parachain::Parachains;
 use pallet_ismp::{ConsensusDigest, ISMP_ID, ISMP_TIMESTAMP_ID, TimestampDigest};
 use polkadot_sdk::*;
 use primitive_types::H256;
-use rs_merkle::MerkleProof;
 use sp_runtime::{
 	DigestItem,
 	generic::Header,
 	traits::{BlakeTwo256, Header as _},
 };
 use substrate_state_machine::SubstrateStateMachine;
+
+use crate::{Config, Parachains, SubstrateCrypto};
+
 pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
 
 /// Beefy consensus client implementation
@@ -47,7 +48,7 @@ pub struct BeefyConsensusClient<H, T, S = SubstrateStateMachine<H>>(PhantomData<
 
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
-	T: ismp_parachain::Config,
+	T: Config,
 	S: StateMachineClient + From<StateMachine> + 'static,
 > Default for BeefyConsensusClient<H, T, S>
 {
@@ -59,7 +60,7 @@ impl<
 impl<H, T, S> ConsensusClient for BeefyConsensusClient<H, T, S>
 where
 	H: IsmpHost + Send + Sync + Default + 'static,
-	T: ismp_parachain::Config,
+	T: Config,
 	S: StateMachineClient + From<StateMachine> + 'static,
 {
 	fn verify_consensus(
@@ -81,55 +82,27 @@ where
 				))
 			})?;
 
-		let verified_updates = verify_consensus::<H>(consensus_state, consensus_proof.clone())
-			.map_err(|e| Error::Custom(format!("Error verifying Beefy consensus update: {e:?}")))?;
+		let (new_state, verified_parachains) =
+			verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)
+				.map_err(|e| {
+					Error::Custom(format!("Error verifying Beefy consensus update: {e:?}"))
+				})?;
 
-		let parachain_proof = consensus_proof.parachain;
-		let parachains = parachain_proof.parachains;
-		let heads_root: H256 = verified_updates.1;
-
-		if parachains.is_empty() {
-			return Ok((verified_updates.0, BTreeMap::new()));
-		}
-
-		let mut indexed_leaf_hashes = Vec::with_capacity(parachains.len());
-
-		for para_header in &parachains {
-			let leaf = (para_header.para_id, para_header.header.clone());
-			let hash = H::keccak256(&leaf.encode()).0;
-			indexed_leaf_hashes.push((para_header.index as usize, hash));
-		}
-
-		indexed_leaf_hashes.sort_by_key(|(index, _)| *index);
-
-		let (leaf_indices, leaf_hashes): (Vec<usize>, Vec<[u8; 32]>) =
-			indexed_leaf_hashes.into_iter().unzip();
-		let proof_hashes: Vec<[u8; 32]> =
-			parachain_proof.proof.iter().map(|node| (*node).into()).collect();
-		let merkle_proof = MerkleProof::<MerkleKeccak256>::new(proof_hashes);
-		let valid = merkle_proof.verify(
-			heads_root.0,
-			&leaf_indices,
-			&leaf_hashes,
-			parachain_proof.total_leaves as usize,
-		);
-		if !valid {
-			return Err(Error::Custom("Error verifying Beefy consensus update".to_string()))
+		if verified_parachains.is_empty() {
+			return Ok((new_state, BTreeMap::new()));
 		}
 
 		let mut intermediates = BTreeMap::new();
-		for para_header in parachains {
-			let mut state_commitments_vec = Vec::new();
+		for para_header in verified_parachains {
+			// Skip parachains not tracked by this consensus client
+			if !Parachains::<T>::contains_key(para_header.para_id) {
+				continue;
+			}
+
 			let header = Header::<u32, BlakeTwo256>::decode(&mut &*para_header.header)
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
-			if !Parachains::<T>::contains_key(para_header.para_id) {
-				Err(Error::Custom(format!(
-					"Parachain with id {} not registered",
-					para_header.para_id
-				)))?
-			}
-
+			let mut state_commitments_vec = Vec::new();
 			let (mut timestamp, mut overlay_root) = (0, H256::default());
 
 			for digest in header.digest().logs.iter() {
@@ -183,7 +156,7 @@ where
 				.insert(StateMachineId { state_id, consensus_state_id }, state_commitments_vec);
 		}
 
-		Ok((verified_updates.0, intermediates))
+		Ok((new_state, intermediates))
 	}
 
 	fn verify_fraud_proof(
@@ -230,13 +203,13 @@ where
 		let empty_parachain_proof =
 			ParachainProof { parachains: vec![], proof: vec![], total_leaves: 0 };
 
-		verify_consensus::<H>(
+		verify_consensus::<SubstrateCrypto>(
 			consensus_state.clone(),
 			BeefyConsensusProof { relay: first_proof, parachain: empty_parachain_proof.clone() },
 		)
 		.map_err(|e| Error::Custom(format!("First proof verification failed: {e:?}")))?;
 
-		verify_consensus::<H>(
+		verify_consensus::<SubstrateCrypto>(
 			consensus_state,
 			BeefyConsensusProof { relay: second_proof, parachain: empty_parachain_proof },
 		)
@@ -257,7 +230,7 @@ where
 			))?,
 		};
 
-		if !Parachains::<T>::contains_key(&para_id) {
+		if !Parachains::<T>::contains_key(para_id) {
 			Err(Error::Custom(format!("Parachain with id {para_id} not registered")))?
 		}
 

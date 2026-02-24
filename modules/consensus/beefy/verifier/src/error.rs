@@ -11,10 +11,6 @@ pub enum Error {
 	MmrRootHashMissing,
 	#[error("Invalid MMR root hash length: expected 32, found {len}")]
 	InvalidMmrRootHashLength { len: usize },
-	#[error("Invalid signature recovery ID")]
-	InvalidRecoveryId,
-	#[error("Invalid signature format")]
-	InvalidSignatureFormat,
 	#[error("Failed to recover public key from signature")]
 	FailedToRecoverPublicKey,
 	#[error("Invalid authorities proof")]
@@ -23,4 +19,6 @@ pub enum Error {
 	MmrVerificationFailed(String),
 	#[error("Invalid MMR proof: calculated root does not match provided root")]
 	InvalidMmrProof,
+	#[error("Invalid parachain header proof: merkle proof verification failed")]
+	InvalidParachainProof,
 }

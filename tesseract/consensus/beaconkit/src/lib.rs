@@ -29,19 +29,21 @@ use ismp_beacon_kit::{ConsensusState, BEACON_KIT_CONSENSUS_CLIENT_ID};
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use tendermint_primitives::{self, Client, CodecTrustedState};
-use tendermint_prover::CometBFTClient;
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
+pub mod beacon_api_client;
 mod notification;
+
+use beacon_api_client::BeaconKitApiClient;
 
 /// Host configuration for BeaconKit relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeaconKitHostConfig {
 	/// Frequency (in seconds) to check for new updates
 	pub consensus_update_frequency: Option<u64>,
-	/// CometBFT Json RPC URL
-	pub rpc_url: String,
+	/// BeaconKit Beacon API URL
+	pub beacon_api_url: String,
 	/// Trusting period in seconds for light client verification
 	pub trusting_period_secs: Option<u64>,
 	/// Unbonding period in seconds for CreateConsensusState
@@ -75,7 +77,7 @@ pub struct BeaconKitHost {
 	pub state_machine: StateMachine,
 	pub host: BeaconKitHostConfig,
 	pub provider: Arc<dyn IsmpProvider>,
-	pub prover: Arc<CometBFTClient>,
+	pub prover: Arc<BeaconKitApiClient>,
 }
 
 impl BeaconKitHost {
@@ -91,12 +93,15 @@ impl BeaconKitHost {
 			.try_into()
 			.map_err(|_| anyhow::anyhow!("Failed to convert consensus_state_id to [u8; 4]"))?;
 
+		let prover = BeaconKitApiClient::new(&host.beacon_api_url)
+			.map_err(|e| anyhow::anyhow!("Failed to create BeaconKit API client: {}", e))?;
+
 		Ok(Self {
 			consensus_state_id,
 			state_machine: evm.state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
-			prover: Arc::new(CometBFTClient::new(&host.rpc_url).await?),
+			prover: Arc::new(prover),
 		})
 	}
 

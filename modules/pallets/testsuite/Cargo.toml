@@ -55,6 +55,7 @@ ismp-grandpa = { workspace = true, default-features = true }
 ismp-beacon-kit = { workspace = true, default-features = true }
 tendermint-prover = { workspace = true, default-features = true }
 tendermint-primitives = { workspace = true, default-features = true }
+tesseract-beaconkit = { path = "../../../tesseract/consensus/beaconkit" }
 tendermint-verifier = { workspace = true, default-features = true }
 cometbft = { workspace = true, default-features = false, features = ["rust-crypto"] }
 sha2 = "0.10"

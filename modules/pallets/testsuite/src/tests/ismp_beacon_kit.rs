@@ -22,28 +22,21 @@ use polkadot_sdk::sp_runtime::BoundedVec;
 use std::io::Read;
 use tendermint_primitives::{
 	Client, CodecConsensusProof, CodecTrustedState, ConsensusProof, TrustedState,
-	VerificationOptions, Validator, PubKey,
+	VerificationOptions,
 };
-use tendermint_prover::CometBFTClient;
+use tesseract_beaconkit::beacon_api_client::BeaconKitApiClient;
 
 use crate::runtime::{new_test_ext, set_timestamp, Ismp, Test};
 
-/// Fetch all transactions from a block at the given height.
-/// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
-async fn fetch_block_txs(rpc_url: &str, height: u64) -> anyhow::Result<Vec<Vec<u8>>> {
-	let request_body = serde_json::json!({
-		"jsonrpc": "2.0",
-		"id": "1",
-		"method": "block",
-		"params": {
-			"height": height.to_string()
-		}
-	});
+/// Fetch all transactions from a block at the given height using the beacon API.
+/// Uses `GET /cometbft/v1/block/{height}` endpoint.
+async fn fetch_block_txs(beacon_api_url: &str, height: u64) -> anyhow::Result<Vec<Vec<u8>>> {
+	let base_url = beacon_api_url.trim_end_matches('/');
+	let url = format!("{}/cometbft/v1/block/{}", base_url, height);
 
 	let http_client = reqwest::Client::new();
 	let response = http_client
-		.post(rpc_url)
-		.json(&request_body)
+		.get(&url)
 		.send()
 		.await
 		.map_err(|e| anyhow::anyhow!("Block fetch request failed: {}", e))?;
@@ -58,9 +51,8 @@ async fn fetch_block_txs(rpc_url: &str, height: u64) -> anyhow::Result<Vec<Vec<u
 		.map_err(|e| anyhow::anyhow!("Failed to parse block response: {}", e))?;
 
 	let txs = rpc_response
-		.get("result")
-		.and_then(|r| r.get("block"))
-		.and_then(|b| b.get("data"))
+		.get("data")
+		.and_then(|d| d.get("data"))
 		.and_then(|d| d.get("txs"))
 		.and_then(|t| t.as_array())
 		.ok_or_else(|| anyhow::anyhow!("Failed to extract txs from block response"))?;
@@ -91,8 +83,10 @@ async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 	let _ = tracing_subscriber::fmt::try_init();
 	dotenv::dotenv().ok();
 
-	let rpc_url = std::env::var("BEACONKIT_COMETBFT_RPC").expect("BEACONKIT_COMETBFT_RPC must be set");
-	let client = CometBFTClient::new(&rpc_url).await?;
+	let beacon_api_url =
+		std::env::var("BEACONKIT_BEACON_API").expect("BEACONKIT_BEACON_API must be set");
+	let client = BeaconKitApiClient::new(&beacon_api_url)
+		.map_err(|e| anyhow::anyhow!("Failed to create BeaconKit API client: {}", e))?;
 
 	let chain_id = client.chain_id().await?;
 
@@ -127,9 +121,8 @@ async fn beaconkit_verify_consensus() -> anyhow::Result<()> {
 	let encoded_consensus_state = consensus_state.encode();
 
 	let target_header = client.signed_header(target_height).await?;
-	let target_validators = client.validators(target_height).await?;
 	let target_next_validators = client.next_validators(target_height).await?;
-	let txs = fetch_block_txs(&rpc_url, target_height).await?;
+	let txs = fetch_block_txs(&beacon_api_url, target_height).await?;
 
 	println!("Target block has {} transactions", txs.len());
 	println!("Target header commit has {} signatures", target_header.commit.signatures.len());

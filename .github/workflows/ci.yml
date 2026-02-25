@@ -30,7 +30,7 @@ env:
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
-    BEACONKIT_COMETBFT_RPC: ${{secrets.BEACONKIT_COMETBFT_RPC}}
+    BEACONKIT_BEACON_API: ${{secrets.BEACONKIT_BEACON_API}}
 
 jobs:
     check-wasm:

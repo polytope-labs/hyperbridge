@@ -17,7 +17,6 @@
 
 use crate::{BeaconKitHost, ConsensusState};
 use codec::Decode;
-use cometbft::block::Height;
 use ismp_beacon_kit::BeaconKitUpdate;
 use polkadot_sdk::sp_runtime::BoundedVec;
 use std::{sync::Arc, vec::Vec};
@@ -158,30 +157,21 @@ pub async fn consensus_notification(
 
 /// Fetch all transactions from a block at the given height.
 ///
+/// Uses the BeaconKit CometBFT-compatible block endpoint:
+/// `GET /cometbft/v1/block/{height}`
+///
 /// Returns all transactions in the block as a vector.
 /// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
 async fn fetch_block_txs(
 	client: &BeaconKitHost,
 	height: u64,
 ) -> anyhow::Result<Vec<Vec<u8>>> {
-	let height = Height::try_from(height)
-		.map_err(|e| anyhow::anyhow!("Invalid height: {}", e))?;
-
-	let rpc_url = &client.host.rpc_url;
-
-	let block_request = serde_json::json!({
-		"jsonrpc": "2.0",
-		"id": "1",
-		"method": "block",
-		"params": {
-			"height": height.value().to_string()
-		}
-	});
+	let beacon_api_url = client.host.beacon_api_url.trim_end_matches('/');
+	let url = format!("{}/cometbft/v1/block/{}", beacon_api_url, height);
 
 	let http_client = reqwest::Client::new();
 	let block_response = http_client
-		.post(rpc_url)
-		.json(&block_request)
+		.get(&url)
 		.send()
 		.await
 		.map_err(|e| anyhow::anyhow!("Block fetch request failed: {}", e))?;
@@ -196,9 +186,8 @@ async fn fetch_block_txs(
 		.map_err(|e| anyhow::anyhow!("Failed to parse block response: {}", e))?;
 
 	let txs = block_json
-		.get("result")
-		.and_then(|r| r.get("block"))
-		.and_then(|b| b.get("data"))
+		.get("data")
+		.and_then(|d| d.get("data"))
 		.and_then(|d| d.get("txs"))
 		.and_then(|t| t.as_array())
 		.ok_or_else(|| anyhow::anyhow!("Failed to extract txs from block response"))?;

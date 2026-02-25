@@ -33,8 +33,8 @@ async fn beaconkit_consensus_updates() -> anyhow::Result<()> {
 
 	let beaconkit_execution_url =
 		std::env::var("BEACONKIT_EXECUTION_RPC").expect("BEACONKIT_EXECUTION_RPC must be set");
-	let beaconkit_cometbft_rpc =
-		std::env::var("BEACONKIT_COMETBFT_RPC").expect("BEACONKIT_COMETBFT_RPC must be set");
+	let beaconkit_beacon_api =
+		std::env::var("BEACONKIT_BEACON_API").expect("BEACONKIT_BEACON_API must be set");
 
 	let evm_config = EvmConfig {
 		rpc_urls: vec![beaconkit_execution_url.clone()],
@@ -52,7 +52,7 @@ async fn beaconkit_consensus_updates() -> anyhow::Result<()> {
 
 	let host_config = BeaconKitHostConfig {
 		consensus_update_frequency: Some(300),
-		rpc_url: beaconkit_cometbft_rpc,
+		beacon_api_url: beaconkit_beacon_api,
 		trusting_period_secs: Some(82 * 3600),
 		unbonding_period_secs: Some(82 * 3600),
 		clock_drift_secs: Some(86400),

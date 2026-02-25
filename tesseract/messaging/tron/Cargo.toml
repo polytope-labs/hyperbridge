@@ -33,7 +33,7 @@ hmac = "0.12"
 base64 = "0.22"
 chrono = "0.4"
 
-ethers = { workspace = true, features = ["rustls"] }
+alloy = { workspace = true, features = ["provider-http", "providers", "reqwest-default-tls"] }
 primitive-types = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
 

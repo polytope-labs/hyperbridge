@@ -31,7 +31,6 @@ env_logger = "0.10.0"
 # feature flag needed so sync-committee tests pass, eth pos server in CI does not support fusaka
 sync-committee-primitives = { path= "../primitives", features = ["nofulu"] }
 sync-committee-verifier = { path= "../verifier" }
-ethers = { workspace = true, features = ["ws", "default"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"]}
 parity-scale-codec = "3.2.2"
 reqwest-eventsource = "0.4.0"

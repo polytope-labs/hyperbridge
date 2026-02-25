@@ -16,7 +16,8 @@ hex = "0.4.3"
 hex-literal = "0.4.1"
 primitive-types = "0.12.1"
 futures = "0.3.28"
-ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
+alloy-sol-types = { workspace = true }
+alloy = { workspace = true, features = ["providers", "signer-local", "network", "reqwest-default-tls"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 merkle-mountain-range = { workspace = true }

@@ -3,7 +3,7 @@
 // #[cfg(test)]
 // mod tests;
 
-pub use ethers::{abi::Token, types::U256, utils::keccak256};
+pub use alloy_primitives::{keccak256, U256};
 use merkle_mountain_range::{util::MemMMR, Error, Merge};
 use pallet_ismp::offchain::Leaf;
 use pallet_mmr_tree::mmr::Hasher;
@@ -20,7 +20,7 @@ impl rs_merkle::Hasher for Keccak256 {
 	type Hash = [u8; 32];
 
 	fn hash(data: &[u8]) -> [u8; 32] {
-		keccak256(data)
+		keccak256(data).0
 	}
 }
 

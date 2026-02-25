@@ -23,7 +23,7 @@ on:
     #         - main
     #     paths:
     #         - "**/*.rs"
-    #         - "**/*.toml"
+    #         - "**/Cargo.toml"
     #         - "**/Cargo.lock"
     #         - ".github/workflows/ci.yml"
 
@@ -86,6 +86,31 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
 
             - name: Install toolchain
               uses: dtolnay/rust-toolchain@nightly
@@ -179,6 +204,15 @@ jobs:
               run: |
                   pnpm install
 
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -262,6 +296,15 @@ jobs:
               run: |
                   pnpm install
 
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -320,6 +363,31 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -383,6 +451,31 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:
@@ -473,6 +566,31 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -541,6 +659,31 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
             - uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
@@ -595,6 +738,31 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
 
             - uses: webfactory/ssh-agent@v0.7.0
               with:

@@ -1,6 +1,5 @@
 use crate::{config::HyperbridgeConfig, create_client_map, logging};
 use anyhow::anyhow;
-use ethers::providers::interval;
 use futures::StreamExt;
 use ismp::{
 	consensus::StateMachineHeight,
@@ -15,6 +14,7 @@ use tesseract_primitives::{
 	HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
 };
 use tesseract_substrate::config::KeccakSubstrateChain;
+use tokio_stream::wrappers::IntervalStream;
 use tracing::instrument;
 use transaction_fees::TransactionPayment;
 
@@ -315,7 +315,7 @@ where
 		10u128.pow(18))
 	.into();
 	tracing::info!("Minimum auto-withdrawal amount set to ${:?}", Cost(min_amount));
-	let mut interval = interval(frequency);
+	let mut interval = IntervalStream::new(tokio::time::interval(frequency));
 
 	while let Some(_) = interval.next().await {
 		let stream = futures::stream::iter(clients.keys().cloned().into_iter());

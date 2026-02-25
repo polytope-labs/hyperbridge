@@ -33,6 +33,31 @@ jobs:
               with:
                   toolchain: stable
 
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
             - name: Build
               run: |
                   sudo apt-get update -y

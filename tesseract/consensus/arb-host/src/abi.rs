@@ -1,5 +1,18 @@
-#![allow(clippy::all, ambiguous_glob_reexports)]
+#![allow(clippy::all)]
 #![allow(non_snake_case)]
-pub mod i_rollup;
-pub mod i_rollup_bold;
-pub mod shared_types;
+
+use alloy_sol_macro::sol;
+
+sol!(
+	#[allow(missing_docs)]
+	#[derive(Debug, PartialEq, Eq)]
+	IRollup,
+	"abis/IRollupCore.json"
+);
+
+sol!(
+	#[allow(missing_docs)]
+	#[derive(Debug, PartialEq, Eq)]
+	IRollupBold,
+	"abis/IRollupCoreBold.json"
+);

@@ -362,12 +362,12 @@ where
 	async fn query_initial_consensus_state(
 		&self,
 	) -> Result<Option<CreateConsensusState>, anyhow::Error> {
-		use ethers::abi::AbiEncode;
+		use alloy_sol_types::SolValue;
 		let consensus_state: BeefyConsensusState =
 			self.prover.query_initial_consensus_state(None).await?.inner.into();
 
 		Ok(Some(CreateConsensusState {
-			consensus_state: consensus_state.encode(),
+			consensus_state: consensus_state.abi_encode(),
 			consensus_client_id: *b"BEEF",
 			consensus_state_id: self.config.consensus_state_id,
 			unbonding_period: 60 * 60 * 60 * 27,

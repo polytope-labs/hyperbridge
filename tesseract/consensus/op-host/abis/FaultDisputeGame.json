@@ -1,701 +1,1697 @@
 {
   "abi": [
     {
-      "inputs": [
-        { "internalType": "GameType", "name": "_gameType", "type": "uint32" },
-        {
-          "internalType": "Claim",
-          "name": "_absolutePrestate",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_maxGameDepth",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_splitDepth",
-          "type": "uint256"
-        },
-        {
-          "internalType": "Duration",
-          "name": "_clockExtension",
-          "type": "uint64"
-        },
-        {
-          "internalType": "Duration",
-          "name": "_maxClockDuration",
-          "type": "uint64"
-        },
-        {
-          "internalType": "contract IBigStepper",
-          "name": "_vm",
-          "type": "address"
-        },
-        {
-          "internalType": "contract IDelayedWETH",
-          "name": "_weth",
-          "type": "address"
-        },
-        {
-          "internalType": "contract IAnchorStateRegistry",
-          "name": "_anchorStateRegistry",
-          "type": "address"
-        },
-        { "internalType": "uint256", "name": "_l2ChainId", "type": "uint256" }
-      ],
-      "stateMutability": "nonpayable",
-      "type": "constructor"
-    },
-    { "inputs": [], "name": "AlreadyInitialized", "type": "error" },
-    { "inputs": [], "name": "AnchorRootNotFound", "type": "error" },
-    { "inputs": [], "name": "BlockNumberMatches", "type": "error" },
-    { "inputs": [], "name": "BondTransferFailed", "type": "error" },
-    { "inputs": [], "name": "CannotDefendRootClaim", "type": "error" },
-    { "inputs": [], "name": "ClaimAboveSplit", "type": "error" },
-    { "inputs": [], "name": "ClaimAlreadyExists", "type": "error" },
-    { "inputs": [], "name": "ClaimAlreadyResolved", "type": "error" },
-    { "inputs": [], "name": "ClockNotExpired", "type": "error" },
-    { "inputs": [], "name": "ClockTimeExceeded", "type": "error" },
-    { "inputs": [], "name": "ContentLengthMismatch", "type": "error" },
-    { "inputs": [], "name": "DuplicateStep", "type": "error" },
-    { "inputs": [], "name": "EmptyItem", "type": "error" },
-    { "inputs": [], "name": "GameDepthExceeded", "type": "error" },
-    { "inputs": [], "name": "GameNotInProgress", "type": "error" },
-    { "inputs": [], "name": "IncorrectBondAmount", "type": "error" },
-    { "inputs": [], "name": "InvalidChallengePeriod", "type": "error" },
-    { "inputs": [], "name": "InvalidClockExtension", "type": "error" },
-    { "inputs": [], "name": "InvalidDataRemainder", "type": "error" },
-    { "inputs": [], "name": "InvalidDisputedClaimIndex", "type": "error" },
-    { "inputs": [], "name": "InvalidHeader", "type": "error" },
-    { "inputs": [], "name": "InvalidHeaderRLP", "type": "error" },
-    { "inputs": [], "name": "InvalidLocalIdent", "type": "error" },
-    { "inputs": [], "name": "InvalidOutputRootProof", "type": "error" },
-    { "inputs": [], "name": "InvalidParent", "type": "error" },
-    { "inputs": [], "name": "InvalidPrestate", "type": "error" },
-    { "inputs": [], "name": "InvalidSplitDepth", "type": "error" },
-    { "inputs": [], "name": "L2BlockNumberChallenged", "type": "error" },
-    { "inputs": [], "name": "MaxDepthTooLarge", "type": "error" },
-    { "inputs": [], "name": "NoCreditToClaim", "type": "error" },
-    { "inputs": [], "name": "OutOfOrderResolution", "type": "error" },
-    { "inputs": [], "name": "UnexpectedList", "type": "error" },
-    {
-      "inputs": [
-        { "internalType": "Claim", "name": "rootClaim", "type": "bytes32" }
-      ],
-      "name": "UnexpectedRootClaim",
-      "type": "error"
-    },
-    { "inputs": [], "name": "UnexpectedString", "type": "error" },
-    { "inputs": [], "name": "ValidStep", "type": "error" },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "parentIndex",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "Claim",
-          "name": "claim",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "claimant",
-          "type": "address"
-        }
-      ],
-      "name": "Move",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "enum GameStatus",
-          "name": "status",
-          "type": "uint8"
-        }
-      ],
-      "name": "Resolved",
-      "type": "event"
-    },
-    {
-      "inputs": [],
-      "name": "absolutePrestate",
-      "outputs": [
-        {
-          "internalType": "Claim",
-          "name": "absolutePrestate_",
-          "type": "bytes32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        { "internalType": "uint256", "name": "_ident", "type": "uint256" },
-        {
-          "internalType": "uint256",
-          "name": "_execLeafIdx",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_partOffset",
-          "type": "uint256"
-        }
-      ],
-      "name": "addLocalData",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "anchorStateRegistry",
-      "outputs": [
-        {
-          "internalType": "contract IAnchorStateRegistry",
-          "name": "registry_",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        { "internalType": "Claim", "name": "_disputed", "type": "bytes32" },
-        {
-          "internalType": "uint256",
-          "name": "_parentIndex",
-          "type": "uint256"
-        },
-        { "internalType": "Claim", "name": "_claim", "type": "bytes32" }
-      ],
-      "name": "attack",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "version",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "stateRoot",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "messagePasserStorageRoot",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "latestBlockhash",
-              "type": "bytes32"
-            }
-          ],
-          "internalType": "struct Types.OutputRootProof",
-          "name": "_outputRootProof",
-          "type": "tuple"
-        },
-        { "internalType": "bytes", "name": "_headerRLP", "type": "bytes" }
-      ],
-      "name": "challengeRootL2Block",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        { "internalType": "address", "name": "_recipient", "type": "address" }
-      ],
-      "name": "claimCredit",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-      "name": "claimData",
-      "outputs": [
-        { "internalType": "uint32", "name": "parentIndex", "type": "uint32" },
-        {
-          "internalType": "address",
-          "name": "counteredBy",
-          "type": "address"
-        },
-        { "internalType": "address", "name": "claimant", "type": "address" },
-        { "internalType": "uint128", "name": "bond", "type": "uint128" },
-        { "internalType": "Claim", "name": "claim", "type": "bytes32" },
-        { "internalType": "Position", "name": "position", "type": "uint128" },
-        { "internalType": "Clock", "name": "clock", "type": "uint128" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "claimDataLen",
-      "outputs": [
-        { "internalType": "uint256", "name": "len_", "type": "uint256" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [{ "internalType": "Hash", "name": "", "type": "bytes32" }],
-      "name": "claims",
-      "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "clockExtension",
-      "outputs": [
-        {
-          "internalType": "Duration",
-          "name": "clockExtension_",
-          "type": "uint64"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
+      "type": "function",
       "name": "createdAt",
-      "outputs": [
-        { "internalType": "Timestamp", "name": "", "type": "uint64" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
-      "name": "credit",
-      "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        { "internalType": "Claim", "name": "_disputed", "type": "bytes32" },
-        {
-          "internalType": "uint256",
-          "name": "_parentIndex",
-          "type": "uint256"
-        },
-        { "internalType": "Claim", "name": "_claim", "type": "bytes32" }
-      ],
-      "name": "defend",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
       "inputs": [],
-      "name": "extraData",
-      "outputs": [
-        { "internalType": "bytes", "name": "extraData_", "type": "bytes" }
-      ],
-      "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "gameCreator",
-      "outputs": [
-        { "internalType": "address", "name": "creator_", "type": "address" }
-      ],
-      "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "gameData",
-      "outputs": [
-        { "internalType": "GameType", "name": "gameType_", "type": "uint32" },
-        { "internalType": "Claim", "name": "rootClaim_", "type": "bytes32" },
-        { "internalType": "bytes", "name": "extraData_", "type": "bytes" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "gameType",
-      "outputs": [
-        { "internalType": "GameType", "name": "gameType_", "type": "uint32" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_claimIndex",
-          "type": "uint256"
-        }
-      ],
-      "name": "getChallengerDuration",
-      "outputs": [
-        { "internalType": "Duration", "name": "duration_", "type": "uint64" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_claimIndex",
-          "type": "uint256"
-        }
-      ],
-      "name": "getNumToResolve",
       "outputs": [
         {
-          "internalType": "uint256",
-          "name": "numRemainingChildren_",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        { "internalType": "Position", "name": "_position", "type": "uint128" }
-      ],
-      "name": "getRequiredBond",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "requiredBond_",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "initialize",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "l1Head",
-      "outputs": [
-        { "internalType": "Hash", "name": "l1Head_", "type": "bytes32" }
-      ],
-      "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "l2BlockNumber",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "l2BlockNumber_",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "l2BlockNumberChallenged",
-      "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "l2BlockNumberChallenger",
-      "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "l2ChainId",
-      "outputs": [
-        { "internalType": "uint256", "name": "l2ChainId_", "type": "uint256" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "maxClockDuration",
-      "outputs": [
-        {
-          "internalType": "Duration",
-          "name": "maxClockDuration_",
+          "name": "",
           "type": "uint64"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
+      "type": "function",
+      "name": "extraData",
       "inputs": [],
-      "name": "maxGameDepth",
       "outputs": [
         {
-          "internalType": "uint256",
-          "name": "maxGameDepth_",
-          "type": "uint256"
+          "name": "extraData_",
+          "type": "bytes",
+          "internalType": "bytes"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "pure"
     },
     {
-      "inputs": [
-        { "internalType": "Claim", "name": "_disputed", "type": "bytes32" },
-        {
-          "internalType": "uint256",
-          "name": "_challengeIndex",
-          "type": "uint256"
-        },
-        { "internalType": "Claim", "name": "_claim", "type": "bytes32" },
-        { "internalType": "bool", "name": "_isAttack", "type": "bool" }
-      ],
-      "name": "move",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-      "name": "resolutionCheckpoints",
+      "type": "function",
+      "name": "gameCreator",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "bool",
-          "name": "initialCheckpointComplete",
-          "type": "bool"
-        },
+          "name": "creator_",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "gameData",
+      "inputs": [],
+      "outputs": [
         {
-          "internalType": "uint32",
-          "name": "subgameIndex",
+          "name": "gameType_",
           "type": "uint32"
         },
         {
-          "internalType": "Position",
-          "name": "leftmostPosition",
-          "type": "uint128"
+          "name": "rootClaim_",
+          "type": "bytes32"
         },
         {
-          "internalType": "address",
-          "name": "counteredBy",
-          "type": "address"
+          "name": "extraData_",
+          "type": "bytes",
+          "internalType": "bytes"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
+      "type": "function",
+      "name": "gameType",
       "inputs": [],
-      "name": "resolve",
       "outputs": [
         {
-          "internalType": "enum GameStatus",
-          "name": "status_",
-          "type": "uint8"
+          "name": "gameType_",
+          "type": "uint32"
         }
       ],
-      "stateMutability": "nonpayable",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_claimIndex",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "_numToResolve",
-          "type": "uint256"
-        }
-      ],
-      "name": "resolveClaim",
+      "type": "function",
+      "name": "initialize",
+      "inputs": [],
       "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
+      "stateMutability": "payable"
     },
     {
+      "type": "function",
+      "name": "l1Head",
       "inputs": [],
-      "name": "resolvedAt",
-      "outputs": [
-        { "internalType": "Timestamp", "name": "", "type": "uint64" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-      "name": "resolvedSubgames",
-      "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "rootClaim",
-      "outputs": [
-        { "internalType": "Claim", "name": "rootClaim_", "type": "bytes32" }
-      ],
-      "stateMutability": "pure",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "splitDepth",
       "outputs": [
         {
-          "internalType": "uint256",
-          "name": "splitDepth_",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "startingBlockNumber",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "startingBlockNumber_",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "startingOutputRoot",
-      "outputs": [
-        { "internalType": "Hash", "name": "root", "type": "bytes32" },
-        {
-          "internalType": "uint256",
-          "name": "l2BlockNumber",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "startingRootHash",
-      "outputs": [
-        {
-          "internalType": "Hash",
-          "name": "startingRootHash_",
+          "name": "l1Head_",
           "type": "bytes32"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "pure"
     },
     {
+      "type": "function",
+      "name": "l2SequenceNumber",
       "inputs": [],
+      "outputs": [
+        {
+          "name": "l2SequenceNumber_",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "resolve",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "status_",
+          "type": "uint8",
+          "internalType": "enum GameStatus"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "resolvedAt",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "rootClaim",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "rootClaim_",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "rootClaimByChainId",
+      "inputs": [
+        {
+          "name": "_chainId",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rootClaim_",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
       "name": "status",
-      "outputs": [
-        { "internalType": "enum GameStatus", "name": "", "type": "uint8" }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "_claimIndex",
-          "type": "uint256"
-        },
-        { "internalType": "bool", "name": "_isAttack", "type": "bool" },
-        { "internalType": "bytes", "name": "_stateData", "type": "bytes" },
-        { "internalType": "bytes", "name": "_proof", "type": "bytes" }
-      ],
-      "name": "step",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        { "internalType": "uint256", "name": "", "type": "uint256" },
-        { "internalType": "uint256", "name": "", "type": "uint256" }
-      ],
-      "name": "subgames",
-      "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
       "inputs": [],
-      "name": "version",
-      "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "vm",
       "outputs": [
         {
-          "internalType": "contract IBigStepper",
-          "name": "vm_",
-          "type": "address"
+          "name": "",
+          "type": "uint8",
+          "internalType": "enum GameStatus"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
+      "type": "function",
+      "name": "wasRespectedGameTypeWhenCreated",
       "inputs": [],
-      "name": "weth",
       "outputs": [
         {
-          "internalType": "contract IDelayedWETH",
-          "name": "weth_",
-          "type": "address"
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "Resolved",
+      "inputs": [
+        {
+          "name": "status",
+          "type": "uint8",
+          "indexed": true,
+          "internalType": "enum GameStatus"
+        }
+      ],
+      "anonymous": false
     }
-  ]
+  ],
+  "bytecode": {
+    "object": "0x",
+    "sourceMap": "",
+    "linkReferences": {}
+  },
+  "deployedBytecode": {
+    "object": "0x",
+    "sourceMap": "",
+    "linkReferences": {}
+  },
+  "methodIdentifiers": {
+    "createdAt()": "cf09e0d0",
+    "extraData()": "609d3334",
+    "gameCreator()": "37b1b229",
+    "gameData()": "fa24f743",
+    "gameType()": "bbdc02db",
+    "initialize()": "8129fc1c",
+    "l1Head()": "6361506d",
+    "l2SequenceNumber()": "99735e32",
+    "resolve()": "2810e1d6",
+    "resolvedAt()": "19effeb4",
+    "rootClaim()": "bcef3b55",
+    "rootClaimByChainId(uint256)": "5e234947",
+    "status()": "200d2ed2",
+    "wasRespectedGameTypeWhenCreated()": "250e69bd"
+  },
+  "rawMetadata": "{\"compiler\":{\"version\":\"0.8.19+commit.7dd6d404\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"enum GameStatus\",\"name\":\"status\",\"type\":\"uint8\"}],\"name\":\"Resolved\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"createdAt\",\"outputs\":[{\"internalType\":\"Timestamp\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"extraData\",\"outputs\":[{\"internalType\":\"bytes\",\"name\":\"extraData_\",\"type\":\"bytes\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"gameCreator\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"creator_\",\"type\":\"address\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"gameData\",\"outputs\":[{\"internalType\":\"GameType\",\"name\":\"gameType_\",\"type\":\"uint32\"},{\"internalType\":\"Claim\",\"name\":\"rootClaim_\",\"type\":\"bytes32\"},{\"internalType\":\"bytes\",\"name\":\"extraData_\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"gameType\",\"outputs\":[{\"internalType\":\"GameType\",\"name\":\"gameType_\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"initialize\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"l1Head\",\"outputs\":[{\"internalType\":\"Hash\",\"name\":\"l1Head_\",\"type\":\"bytes32\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"l2SequenceNumber\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"l2SequenceNumber_\",\"type\":\"uint256\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"resolve\",\"outputs\":[{\"internalType\":\"enum GameStatus\",\"name\":\"status_\",\"type\":\"uint8\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"resolvedAt\",\"outputs\":[{\"internalType\":\"Timestamp\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"rootClaim\",\"outputs\":[{\"internalType\":\"Claim\",\"name\":\"rootClaim_\",\"type\":\"bytes32\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_chainId\",\"type\":\"uint256\"}],\"name\":\"rootClaimByChainId\",\"outputs\":[{\"internalType\":\"Claim\",\"name\":\"rootClaim_\",\"type\":\"bytes32\"}],\"stateMutability\":\"pure\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"status\",\"outputs\":[{\"internalType\":\"enum GameStatus\",\"name\":\"\",\"type\":\"uint8\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"wasRespectedGameTypeWhenCreated\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"interfaces/dispute/IDisputeGame.sol\":\"IDisputeGame\"},\"evmVersion\":\"paris\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"none\"},\"optimizer\":{\"enabled\":true,\"runs\":999999},\"remappings\":[\":@lib-keccak/=lib/lib-keccak/contracts/lib/\",\":@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/\",\":@openzeppelin/contracts-v5/=lib/openzeppelin-contracts-v5/contracts/\",\":@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/\",\":@rari-capital/solmate/=lib/solmate/\",\":@solady-test/=lib/lib-keccak/lib/solady/test/\",\":@solady-v0.0.245/=lib/solady-v0.0.245/src/\",\":@solady/=lib/solady/src/\",\":automate/=lib/automate/contracts/\",\":clones-with-immutable-args/=lib/clones-with-immutable-args/src/\",\":ds-test/=lib/forge-std/lib/ds-test/src/\",\":erc4626-tests/=lib/openzeppelin-contracts-v5/lib/erc4626-tests/\",\":forge-std/=lib/forge-std/src/\",\":hardhat/=lib/automate/node_modules/hardhat/\",\":interfaces/=interfaces/\",\":kontrol-cheatcodes/=lib/kontrol-cheatcodes/src/\",\":lib-keccak/=lib/lib-keccak/contracts/\",\":openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/\",\":openzeppelin-contracts-v5/=lib/openzeppelin-contracts-v5/\",\":openzeppelin-contracts/=lib/openzeppelin-contracts/\",\":prb-test/=lib/automate/lib/prb-test/src/\",\":prb/-est/=lib/automate/lib/prb-test/src/\",\":safe-contracts/=lib/safe-contracts/contracts/\",\":solady-v0.0.245/=lib/solady-v0.0.245/src/\",\":solady/=lib/solady/\",\":solmate/=lib/solmate/src/\"]},\"sources\":{\"interfaces/dispute/IDisputeGame.sol\":{\"keccak256\":\"0x7d8f8d0d36478cbc31e0d785fb938415d68a976630503e0852558b35bb3dcc72\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://2ec9226b7d794ebfe817f1c0d6abf872a3134907d4674675d06b4c6cd373cf96\",\"dweb:/ipfs/QmQX17Hy8RvgSy9xP7EQBFeZ6WEDaDmNd8XR8ijN12c4US\"]},\"interfaces/dispute/IInitializable.sol\":{\"keccak256\":\"0x1e54bef3b504bfee672805f814ea0cbfed6e1c5626ac3724033134312d08802a\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://fb8b0ed19b600b052271b9cd0639b27e5db495159cd7dd7a37ea4bf38bc8ceda\",\"dweb:/ipfs/QmZnZeKiBXmwvafwjBi4j4XLJB5EYxUEWd2sTun24pofbm\"]},\"src/dispute/lib/LibPosition.sol\":{\"keccak256\":\"0x7c5f19f8f54f06de2ce1c6cdcc5c7af65ac405130a4066cdaf146ca315818241\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://06905e5ede94784e32748ad60557cb0b0829089d65430518e7042b80d2f64e2d\",\"dweb:/ipfs/QmeGKMmnFnow2VrRvTSPavCrToqQ3qDpEaR1tVoK6Hzg8K\"]},\"src/dispute/lib/LibUDT.sol\":{\"keccak256\":\"0x41d55e9c74d979b5b797198e38449e7cef4f925e04d61f7699e9c150c4a659d3\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://d57ee17a2deedb173e485ebfb2fc123099e4c6eafb66719a7327c88513f47b7a\",\"dweb:/ipfs/QmSJGyuPVmpVxrxUPZ5ivgYKP7jEUKeAAwc8Ey9RTGgxCW\"]},\"src/dispute/lib/Types.sol\":{\"keccak256\":\"0xf4e4dcff18d3e2638ce19d430e945faf36877f227b62d8d1112e0ea085063a9e\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://7107fd5c1051976a0faa5c333b0e218d17df8796de04aeb1ea7d5abe664f1ad9\",\"dweb:/ipfs/QmTHF85S8J89KzeEviRAxrofka9gcAWKKK4CJVmAXJeYAG\"]}},\"version\":1}",
+  "metadata": {
+    "compiler": {
+      "version": "0.8.19+commit.7dd6d404"
+    },
+    "language": "Solidity",
+    "output": {
+      "abi": [
+        {
+          "inputs": [
+            {
+              "internalType": "enum GameStatus",
+              "name": "status",
+              "type": "uint8",
+              "indexed": true
+            }
+          ],
+          "type": "event",
+          "name": "Resolved",
+          "anonymous": false
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "createdAt",
+          "outputs": [
+            {
+              "internalType": "Timestamp",
+              "name": "",
+              "type": "uint64"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "pure",
+          "type": "function",
+          "name": "extraData",
+          "outputs": [
+            {
+              "internalType": "bytes",
+              "name": "extraData_",
+              "type": "bytes"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "pure",
+          "type": "function",
+          "name": "gameCreator",
+          "outputs": [
+            {
+              "internalType": "address",
+              "name": "creator_",
+              "type": "address"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "gameData",
+          "outputs": [
+            {
+              "internalType": "GameType",
+              "name": "gameType_",
+              "type": "uint32"
+            },
+            {
+              "internalType": "Claim",
+              "name": "rootClaim_",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "bytes",
+              "name": "extraData_",
+              "type": "bytes"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "gameType",
+          "outputs": [
+            {
+              "internalType": "GameType",
+              "name": "gameType_",
+              "type": "uint32"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "payable",
+          "type": "function",
+          "name": "initialize"
+        },
+        {
+          "inputs": [],
+          "stateMutability": "pure",
+          "type": "function",
+          "name": "l1Head",
+          "outputs": [
+            {
+              "internalType": "Hash",
+              "name": "l1Head_",
+              "type": "bytes32"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "pure",
+          "type": "function",
+          "name": "l2SequenceNumber",
+          "outputs": [
+            {
+              "internalType": "uint256",
+              "name": "l2SequenceNumber_",
+              "type": "uint256"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "nonpayable",
+          "type": "function",
+          "name": "resolve",
+          "outputs": [
+            {
+              "internalType": "enum GameStatus",
+              "name": "status_",
+              "type": "uint8"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "resolvedAt",
+          "outputs": [
+            {
+              "internalType": "Timestamp",
+              "name": "",
+              "type": "uint64"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "pure",
+          "type": "function",
+          "name": "rootClaim",
+          "outputs": [
+            {
+              "internalType": "Claim",
+              "name": "rootClaim_",
+              "type": "bytes32"
+            }
+          ]
+        },
+        {
+          "inputs": [
+            {
+              "internalType": "uint256",
+              "name": "_chainId",
+              "type": "uint256"
+            }
+          ],
+          "stateMutability": "pure",
+          "type": "function",
+          "name": "rootClaimByChainId",
+          "outputs": [
+            {
+              "internalType": "Claim",
+              "name": "rootClaim_",
+              "type": "bytes32"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "status",
+          "outputs": [
+            {
+              "internalType": "enum GameStatus",
+              "name": "",
+              "type": "uint8"
+            }
+          ]
+        },
+        {
+          "inputs": [],
+          "stateMutability": "view",
+          "type": "function",
+          "name": "wasRespectedGameTypeWhenCreated",
+          "outputs": [
+            {
+              "internalType": "bool",
+              "name": "",
+              "type": "bool"
+            }
+          ]
+        }
+      ],
+      "devdoc": {
+        "kind": "dev",
+        "methods": {},
+        "version": 1
+      },
+      "userdoc": {
+        "kind": "user",
+        "methods": {},
+        "version": 1
+      }
+    },
+    "settings": {
+      "remappings": [
+        "@lib-keccak/=lib/lib-keccak/contracts/lib/",
+        "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+        "@openzeppelin/contracts-v5/=lib/openzeppelin-contracts-v5/contracts/",
+        "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+        "@rari-capital/solmate/=lib/solmate/",
+        "@solady-test/=lib/lib-keccak/lib/solady/test/",
+        "@solady-v0.0.245/=lib/solady-v0.0.245/src/",
+        "@solady/=lib/solady/src/",
+        "automate/=lib/automate/contracts/",
+        "clones-with-immutable-args/=lib/clones-with-immutable-args/src/",
+        "ds-test/=lib/forge-std/lib/ds-test/src/",
+        "erc4626-tests/=lib/openzeppelin-contracts-v5/lib/erc4626-tests/",
+        "forge-std/=lib/forge-std/src/",
+        "hardhat/=lib/automate/node_modules/hardhat/",
+        "interfaces/=interfaces/",
+        "kontrol-cheatcodes/=lib/kontrol-cheatcodes/src/",
+        "lib-keccak/=lib/lib-keccak/contracts/",
+        "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/",
+        "openzeppelin-contracts-v5/=lib/openzeppelin-contracts-v5/",
+        "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+        "prb-test/=lib/automate/lib/prb-test/src/",
+        "prb/-est/=lib/automate/lib/prb-test/src/",
+        "safe-contracts/=lib/safe-contracts/contracts/",
+        "solady-v0.0.245/=lib/solady-v0.0.245/src/",
+        "solady/=lib/solady/",
+        "solmate/=lib/solmate/src/"
+      ],
+      "optimizer": {
+        "enabled": true,
+        "runs": 999999
+      },
+      "metadata": {
+        "bytecodeHash": "none"
+      },
+      "compilationTarget": {
+        "interfaces/dispute/IDisputeGame.sol": "IDisputeGame"
+      },
+      "evmVersion": "paris",
+      "libraries": {}
+    },
+    "sources": {
+      "interfaces/dispute/IDisputeGame.sol": {
+        "keccak256": "0x7d8f8d0d36478cbc31e0d785fb938415d68a976630503e0852558b35bb3dcc72",
+        "urls": [
+          "bzz-raw://2ec9226b7d794ebfe817f1c0d6abf872a3134907d4674675d06b4c6cd373cf96",
+          "dweb:/ipfs/QmQX17Hy8RvgSy9xP7EQBFeZ6WEDaDmNd8XR8ijN12c4US"
+        ],
+        "license": "MIT"
+      },
+      "interfaces/dispute/IInitializable.sol": {
+        "keccak256": "0x1e54bef3b504bfee672805f814ea0cbfed6e1c5626ac3724033134312d08802a",
+        "urls": [
+          "bzz-raw://fb8b0ed19b600b052271b9cd0639b27e5db495159cd7dd7a37ea4bf38bc8ceda",
+          "dweb:/ipfs/QmZnZeKiBXmwvafwjBi4j4XLJB5EYxUEWd2sTun24pofbm"
+        ],
+        "license": "MIT"
+      },
+      "src/dispute/lib/LibPosition.sol": {
+        "keccak256": "0x7c5f19f8f54f06de2ce1c6cdcc5c7af65ac405130a4066cdaf146ca315818241",
+        "urls": [
+          "bzz-raw://06905e5ede94784e32748ad60557cb0b0829089d65430518e7042b80d2f64e2d",
+          "dweb:/ipfs/QmeGKMmnFnow2VrRvTSPavCrToqQ3qDpEaR1tVoK6Hzg8K"
+        ],
+        "license": "MIT"
+      },
+      "src/dispute/lib/LibUDT.sol": {
+        "keccak256": "0x41d55e9c74d979b5b797198e38449e7cef4f925e04d61f7699e9c150c4a659d3",
+        "urls": [
+          "bzz-raw://d57ee17a2deedb173e485ebfb2fc123099e4c6eafb66719a7327c88513f47b7a",
+          "dweb:/ipfs/QmSJGyuPVmpVxrxUPZ5ivgYKP7jEUKeAAwc8Ey9RTGgxCW"
+        ],
+        "license": "MIT"
+      },
+      "src/dispute/lib/Types.sol": {
+        "keccak256": "0xf4e4dcff18d3e2638ce19d430e945faf36877f227b62d8d1112e0ea085063a9e",
+        "urls": [
+          "bzz-raw://7107fd5c1051976a0faa5c333b0e218d17df8796de04aeb1ea7d5abe664f1ad9",
+          "dweb:/ipfs/QmTHF85S8J89KzeEviRAxrofka9gcAWKKK4CJVmAXJeYAG"
+        ],
+        "license": "MIT"
+      }
+    },
+    "version": 1
+  },
+  "storageLayout": {
+    "storage": [],
+    "types": {}
+  },
+  "userdoc": {
+    "version": 1,
+    "kind": "user"
+  },
+  "devdoc": {
+    "version": 1,
+    "kind": "dev"
+  },
+  "ast": {
+    "absolutePath": "interfaces/dispute/IDisputeGame.sol",
+    "id": 1502,
+    "exportedSymbols": {
+      "Claim": [
+        2708
+      ],
+      "GameStatus": [
+        2831
+      ],
+      "GameType": [
+        2800
+      ],
+      "Hash": [
+        2755
+      ],
+      "IDisputeGame": [
+        1501
+      ],
+      "IInitializable": [
+        1750
+      ],
+      "Timestamp": [
+        2770
+      ]
+    },
+    "nodeType": "SourceUnit",
+    "src": "32:1223:8",
+    "nodes": [
+      {
+        "id": 1404,
+        "nodeType": "PragmaDirective",
+        "src": "32:23:8",
+        "nodes": [],
+        "literals": [
+          "solidity",
+          "^",
+          "0.8",
+          ".0"
+        ]
+      },
+      {
+        "id": 1406,
+        "nodeType": "ImportDirective",
+        "src": "57:71:8",
+        "nodes": [],
+        "absolutePath": "interfaces/dispute/IInitializable.sol",
+        "file": "interfaces/dispute/IInitializable.sol",
+        "nameLocation": "-1:-1:-1",
+        "scope": 1502,
+        "sourceUnit": 1751,
+        "symbolAliases": [
+          {
+            "foreign": {
+              "id": 1405,
+              "name": "IInitializable",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 1750,
+              "src": "66:14:8",
+              "typeDescriptions": {}
+            },
+            "nameLocation": "-1:-1:-1"
+          }
+        ],
+        "unitAlias": ""
+      },
+      {
+        "id": 1412,
+        "nodeType": "ImportDirective",
+        "src": "129:89:8",
+        "nodes": [],
+        "absolutePath": "src/dispute/lib/Types.sol",
+        "file": "src/dispute/lib/Types.sol",
+        "nameLocation": "-1:-1:-1",
+        "scope": 1502,
+        "sourceUnit": 3026,
+        "symbolAliases": [
+          {
+            "foreign": {
+              "id": 1407,
+              "name": "Timestamp",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 2770,
+              "src": "138:9:8",
+              "typeDescriptions": {}
+            },
+            "nameLocation": "-1:-1:-1"
+          },
+          {
+            "foreign": {
+              "id": 1408,
+              "name": "GameStatus",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 2831,
+              "src": "149:10:8",
+              "typeDescriptions": {}
+            },
+            "nameLocation": "-1:-1:-1"
+          },
+          {
+            "foreign": {
+              "id": 1409,
+              "name": "GameType",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 2800,
+              "src": "161:8:8",
+              "typeDescriptions": {}
+            },
+            "nameLocation": "-1:-1:-1"
+          },
+          {
+            "foreign": {
+              "id": 1410,
+              "name": "Claim",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 2708,
+              "src": "171:5:8",
+              "typeDescriptions": {}
+            },
+            "nameLocation": "-1:-1:-1"
+          },
+          {
+            "foreign": {
+              "id": 1411,
+              "name": "Hash",
+              "nodeType": "Identifier",
+              "overloadedDeclarations": [],
+              "referencedDeclaration": 2755,
+              "src": "178:4:8",
+              "typeDescriptions": {}
+            },
+            "nameLocation": "-1:-1:-1"
+          }
+        ],
+        "unitAlias": ""
+      },
+      {
+        "id": 1501,
+        "nodeType": "ContractDefinition",
+        "src": "220:1034:8",
+        "nodes": [
+          {
+            "id": 1419,
+            "nodeType": "EventDefinition",
+            "src": "267:42:8",
+            "nodes": [],
+            "anonymous": false,
+            "eventSelector": "5e186f09b9c93491f14e277eea7faa5de6a2d4bda75a79af7a3684fbfb42da60",
+            "name": "Resolved",
+            "nameLocation": "273:8:8",
+            "parameters": {
+              "id": 1418,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1417,
+                  "indexed": true,
+                  "mutability": "mutable",
+                  "name": "status",
+                  "nameLocation": "301:6:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1419,
+                  "src": "282:25:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_enum$_GameStatus_$2831",
+                    "typeString": "enum GameStatus"
+                  },
+                  "typeName": {
+                    "id": 1416,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1415,
+                      "name": "GameStatus",
+                      "nameLocations": [
+                        "282:10:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2831,
+                      "src": "282:10:8"
+                    },
+                    "referencedDeclaration": 2831,
+                    "src": "282:10:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_enum$_GameStatus_$2831",
+                      "typeString": "enum GameStatus"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "281:27:8"
+            }
+          },
+          {
+            "id": 1425,
+            "nodeType": "FunctionDefinition",
+            "src": "315:55:8",
+            "nodes": [],
+            "functionSelector": "cf09e0d0",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "createdAt",
+            "nameLocation": "324:9:8",
+            "parameters": {
+              "id": 1420,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "333:2:8"
+            },
+            "returnParameters": {
+              "id": 1424,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1423,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1425,
+                  "src": "359:9:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_Timestamp_$2770",
+                    "typeString": "Timestamp"
+                  },
+                  "typeName": {
+                    "id": 1422,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1421,
+                      "name": "Timestamp",
+                      "nameLocations": [
+                        "359:9:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2770,
+                      "src": "359:9:8"
+                    },
+                    "referencedDeclaration": 2770,
+                    "src": "359:9:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_Timestamp_$2770",
+                      "typeString": "Timestamp"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "358:11:8"
+            },
+            "scope": 1501,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1431,
+            "nodeType": "FunctionDefinition",
+            "src": "375:56:8",
+            "nodes": [],
+            "functionSelector": "19effeb4",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "resolvedAt",
+            "nameLocation": "384:10:8",
+            "parameters": {
+              "id": 1426,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "394:2:8"
+            },
+            "returnParameters": {
+              "id": 1430,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1429,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1431,
+                  "src": "420:9:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_Timestamp_$2770",
+                    "typeString": "Timestamp"
+                  },
+                  "typeName": {
+                    "id": 1428,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1427,
+                      "name": "Timestamp",
+                      "nameLocations": [
+                        "420:9:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2770,
+                      "src": "420:9:8"
+                    },
+                    "referencedDeclaration": 2770,
+                    "src": "420:9:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_Timestamp_$2770",
+                      "typeString": "Timestamp"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "419:11:8"
+            },
+            "scope": 1501,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1437,
+            "nodeType": "FunctionDefinition",
+            "src": "436:53:8",
+            "nodes": [],
+            "functionSelector": "200d2ed2",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "status",
+            "nameLocation": "445:6:8",
+            "parameters": {
+              "id": 1432,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "451:2:8"
+            },
+            "returnParameters": {
+              "id": 1436,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1435,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1437,
+                  "src": "477:10:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_enum$_GameStatus_$2831",
+                    "typeString": "enum GameStatus"
+                  },
+                  "typeName": {
+                    "id": 1434,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1433,
+                      "name": "GameStatus",
+                      "nameLocations": [
+                        "477:10:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2831,
+                      "src": "477:10:8"
+                    },
+                    "referencedDeclaration": 2831,
+                    "src": "477:10:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_enum$_GameStatus_$2831",
+                      "typeString": "enum GameStatus"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "476:12:8"
+            },
+            "scope": 1501,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1443,
+            "nodeType": "FunctionDefinition",
+            "src": "494:63:8",
+            "nodes": [],
+            "functionSelector": "bbdc02db",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "gameType",
+            "nameLocation": "503:8:8",
+            "parameters": {
+              "id": 1438,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "511:2:8"
+            },
+            "returnParameters": {
+              "id": 1442,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1441,
+                  "mutability": "mutable",
+                  "name": "gameType_",
+                  "nameLocation": "546:9:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1443,
+                  "src": "537:18:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_GameType_$2800",
+                    "typeString": "GameType"
+                  },
+                  "typeName": {
+                    "id": 1440,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1439,
+                      "name": "GameType",
+                      "nameLocations": [
+                        "537:8:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2800,
+                      "src": "537:8:8"
+                    },
+                    "referencedDeclaration": 2800,
+                    "src": "537:8:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_GameType_$2800",
+                      "typeString": "GameType"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "536:20:8"
+            },
+            "scope": 1501,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1448,
+            "nodeType": "FunctionDefinition",
+            "src": "562:64:8",
+            "nodes": [],
+            "functionSelector": "37b1b229",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "gameCreator",
+            "nameLocation": "571:11:8",
+            "parameters": {
+              "id": 1444,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "582:2:8"
+            },
+            "returnParameters": {
+              "id": 1447,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1446,
+                  "mutability": "mutable",
+                  "name": "creator_",
+                  "nameLocation": "616:8:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1448,
+                  "src": "608:16:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_address",
+                    "typeString": "address"
+                  },
+                  "typeName": {
+                    "id": 1445,
+                    "name": "address",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "608:7:8",
+                    "stateMutability": "nonpayable",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_address",
+                      "typeString": "address"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "607:18:8"
+            },
+            "scope": 1501,
+            "stateMutability": "pure",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1454,
+            "nodeType": "FunctionDefinition",
+            "src": "631:62:8",
+            "nodes": [],
+            "functionSelector": "bcef3b55",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "rootClaim",
+            "nameLocation": "640:9:8",
+            "parameters": {
+              "id": 1449,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "649:2:8"
+            },
+            "returnParameters": {
+              "id": 1453,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1452,
+                  "mutability": "mutable",
+                  "name": "rootClaim_",
+                  "nameLocation": "681:10:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1454,
+                  "src": "675:16:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_Claim_$2708",
+                    "typeString": "Claim"
+                  },
+                  "typeName": {
+                    "id": 1451,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1450,
+                      "name": "Claim",
+                      "nameLocations": [
+                        "675:5:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2708,
+                      "src": "675:5:8"
+                    },
+                    "referencedDeclaration": 2708,
+                    "src": "675:5:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_Claim_$2708",
+                      "typeString": "Claim"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "674:18:8"
+            },
+            "scope": 1501,
+            "stateMutability": "pure",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1462,
+            "nodeType": "FunctionDefinition",
+            "src": "698:87:8",
+            "nodes": [],
+            "functionSelector": "5e234947",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "rootClaimByChainId",
+            "nameLocation": "707:18:8",
+            "parameters": {
+              "id": 1457,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1456,
+                  "mutability": "mutable",
+                  "name": "_chainId",
+                  "nameLocation": "734:8:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1462,
+                  "src": "726:16:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 1455,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "726:7:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "725:18:8"
+            },
+            "returnParameters": {
+              "id": 1461,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1460,
+                  "mutability": "mutable",
+                  "name": "rootClaim_",
+                  "nameLocation": "773:10:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1462,
+                  "src": "767:16:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_Claim_$2708",
+                    "typeString": "Claim"
+                  },
+                  "typeName": {
+                    "id": 1459,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1458,
+                      "name": "Claim",
+                      "nameLocations": [
+                        "767:5:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2708,
+                      "src": "767:5:8"
+                    },
+                    "referencedDeclaration": 2708,
+                    "src": "767:5:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_Claim_$2708",
+                      "typeString": "Claim"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "766:18:8"
+            },
+            "scope": 1501,
+            "stateMutability": "pure",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1468,
+            "nodeType": "FunctionDefinition",
+            "src": "790:55:8",
+            "nodes": [],
+            "functionSelector": "6361506d",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "l1Head",
+            "nameLocation": "799:6:8",
+            "parameters": {
+              "id": 1463,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "805:2:8"
+            },
+            "returnParameters": {
+              "id": 1467,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1466,
+                  "mutability": "mutable",
+                  "name": "l1Head_",
+                  "nameLocation": "836:7:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1468,
+                  "src": "831:12:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_Hash_$2755",
+                    "typeString": "Hash"
+                  },
+                  "typeName": {
+                    "id": 1465,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1464,
+                      "name": "Hash",
+                      "nameLocations": [
+                        "831:4:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2755,
+                      "src": "831:4:8"
+                    },
+                    "referencedDeclaration": 2755,
+                    "src": "831:4:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_Hash_$2755",
+                      "typeString": "Hash"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "830:14:8"
+            },
+            "scope": 1501,
+            "stateMutability": "pure",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1473,
+            "nodeType": "FunctionDefinition",
+            "src": "850:78:8",
+            "nodes": [],
+            "functionSelector": "99735e32",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "l2SequenceNumber",
+            "nameLocation": "859:16:8",
+            "parameters": {
+              "id": 1469,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "875:2:8"
+            },
+            "returnParameters": {
+              "id": 1472,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1471,
+                  "mutability": "mutable",
+                  "name": "l2SequenceNumber_",
+                  "nameLocation": "909:17:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1473,
+                  "src": "901:25:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 1470,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "901:7:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "900:27:8"
+            },
+            "scope": 1501,
+            "stateMutability": "pure",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1478,
+            "nodeType": "FunctionDefinition",
+            "src": "933:69:8",
+            "nodes": [],
+            "functionSelector": "609d3334",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "extraData",
+            "nameLocation": "942:9:8",
+            "parameters": {
+              "id": 1474,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "951:2:8"
+            },
+            "returnParameters": {
+              "id": 1477,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1476,
+                  "mutability": "mutable",
+                  "name": "extraData_",
+                  "nameLocation": "990:10:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1478,
+                  "src": "977:23:8",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bytes_memory_ptr",
+                    "typeString": "bytes"
+                  },
+                  "typeName": {
+                    "id": 1475,
+                    "name": "bytes",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "977:5:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bytes_storage_ptr",
+                      "typeString": "bytes"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "976:25:8"
+            },
+            "scope": 1501,
+            "stateMutability": "pure",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1484,
+            "nodeType": "FunctionDefinition",
+            "src": "1007:57:8",
+            "nodes": [],
+            "functionSelector": "2810e1d6",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "resolve",
+            "nameLocation": "1016:7:8",
+            "parameters": {
+              "id": 1479,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1023:2:8"
+            },
+            "returnParameters": {
+              "id": 1483,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1482,
+                  "mutability": "mutable",
+                  "name": "status_",
+                  "nameLocation": "1055:7:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1484,
+                  "src": "1044:18:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_enum$_GameStatus_$2831",
+                    "typeString": "enum GameStatus"
+                  },
+                  "typeName": {
+                    "id": 1481,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1480,
+                      "name": "GameStatus",
+                      "nameLocations": [
+                        "1044:10:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2831,
+                      "src": "1044:10:8"
+                    },
+                    "referencedDeclaration": 2831,
+                    "src": "1044:10:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_enum$_GameStatus_$2831",
+                      "typeString": "enum GameStatus"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "1043:20:8"
+            },
+            "scope": 1501,
+            "stateMutability": "nonpayable",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1495,
+            "nodeType": "FunctionDefinition",
+            "src": "1069:106:8",
+            "nodes": [],
+            "functionSelector": "fa24f743",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "gameData",
+            "nameLocation": "1078:8:8",
+            "parameters": {
+              "id": 1485,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1086:2:8"
+            },
+            "returnParameters": {
+              "id": 1494,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1488,
+                  "mutability": "mutable",
+                  "name": "gameType_",
+                  "nameLocation": "1121:9:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1495,
+                  "src": "1112:18:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_GameType_$2800",
+                    "typeString": "GameType"
+                  },
+                  "typeName": {
+                    "id": 1487,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1486,
+                      "name": "GameType",
+                      "nameLocations": [
+                        "1112:8:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2800,
+                      "src": "1112:8:8"
+                    },
+                    "referencedDeclaration": 2800,
+                    "src": "1112:8:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_GameType_$2800",
+                      "typeString": "GameType"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 1491,
+                  "mutability": "mutable",
+                  "name": "rootClaim_",
+                  "nameLocation": "1138:10:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1495,
+                  "src": "1132:16:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_userDefinedValueType$_Claim_$2708",
+                    "typeString": "Claim"
+                  },
+                  "typeName": {
+                    "id": 1490,
+                    "nodeType": "UserDefinedTypeName",
+                    "pathNode": {
+                      "id": 1489,
+                      "name": "Claim",
+                      "nameLocations": [
+                        "1132:5:8"
+                      ],
+                      "nodeType": "IdentifierPath",
+                      "referencedDeclaration": 2708,
+                      "src": "1132:5:8"
+                    },
+                    "referencedDeclaration": 2708,
+                    "src": "1132:5:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_userDefinedValueType$_Claim_$2708",
+                      "typeString": "Claim"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 1493,
+                  "mutability": "mutable",
+                  "name": "extraData_",
+                  "nameLocation": "1163:10:8",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1495,
+                  "src": "1150:23:8",
+                  "stateVariable": false,
+                  "storageLocation": "memory",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bytes_memory_ptr",
+                    "typeString": "bytes"
+                  },
+                  "typeName": {
+                    "id": 1492,
+                    "name": "bytes",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "1150:5:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bytes_storage_ptr",
+                      "typeString": "bytes"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "1111:63:8"
+            },
+            "scope": 1501,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "id": 1500,
+            "nodeType": "FunctionDefinition",
+            "src": "1180:72:8",
+            "nodes": [],
+            "functionSelector": "250e69bd",
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "wasRespectedGameTypeWhenCreated",
+            "nameLocation": "1189:31:8",
+            "parameters": {
+              "id": 1496,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1220:2:8"
+            },
+            "returnParameters": {
+              "id": 1499,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 1498,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 1500,
+                  "src": "1246:4:8",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bool",
+                    "typeString": "bool"
+                  },
+                  "typeName": {
+                    "id": 1497,
+                    "name": "bool",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "1246:4:8",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bool",
+                      "typeString": "bool"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "1245:6:8"
+            },
+            "scope": 1501,
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          }
+        ],
+        "abstract": false,
+        "baseContracts": [
+          {
+            "baseName": {
+              "id": 1413,
+              "name": "IInitializable",
+              "nameLocations": [
+                "246:14:8"
+              ],
+              "nodeType": "IdentifierPath",
+              "referencedDeclaration": 1750,
+              "src": "246:14:8"
+            },
+            "id": 1414,
+            "nodeType": "InheritanceSpecifier",
+            "src": "246:14:8"
+          }
+        ],
+        "canonicalName": "IDisputeGame",
+        "contractDependencies": [],
+        "contractKind": "interface",
+        "fullyImplemented": false,
+        "linearizedBaseContracts": [
+          1501,
+          1750
+        ],
+        "name": "IDisputeGame",
+        "nameLocation": "230:12:8",
+        "scope": 1502,
+        "usedErrors": []
+      }
+    ],
+    "license": "MIT"
+  },
+  "id": 8
 }

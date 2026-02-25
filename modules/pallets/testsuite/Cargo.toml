@@ -65,6 +65,10 @@ tokio = { workspace = true }
 ethers = { workspace = true }
 ismp-solidity-abi = { workspace = true }
 
+[dependencies.alloy]
+workspace = true
+features = ["sol-types"]
+
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true

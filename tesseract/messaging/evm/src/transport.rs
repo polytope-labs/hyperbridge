@@ -13,206 +13,144 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Pluggable JSON-RPC transport layer for [`EvmClient`](crate::EvmClient).
+//! Pluggable JSON-RPC transport for [`EvmClient`](crate::EvmClient).
 //!
-//! [`OmniClient`] is an enum that dispatches JSON-RPC calls to either the
-//! standard ethers [`Http`] transport or [`TronJsonRpc`], a thin wrapper
-//! that strips EIP-1559 fields (`type`, `accessList`) which TRON's JSON-RPC
+//! When [`RpcTransport::Tron`] is selected, a [`TronLayer`] is applied to the
+//! alloy RPC client.  This Tower layer intercepts every outgoing JSON-RPC
+//! request and strips the `type` and `accessList` fields that TRON's JSON-RPC
 //! proxy cannot parse.
-//!
-//! The variant is selected at construction time via [`RpcTransport`] in the
-//! [`EvmConfig`](crate::EvmConfig).
 
-use async_trait::async_trait;
-use ethers::providers::{Http, JsonRpcClient, ProviderError, RpcError};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::fmt;
-use thiserror::Error;
+use alloy_json_rpc::{Request, RequestPacket, ResponsePacket, SerializedRequest};
+use alloy_transport::{TransportError, TransportErrorKind};
+use serde::{Deserialize, Serialize};
+use std::{
+	future::Future,
+	pin::Pin,
+	task::{Context, Poll},
+};
+use tower::{Layer, Service};
 
-/// Type alias for the error type produced by the [`Http`] JSON-RPC client.
-type HttpError = <Http as JsonRpcClient>::Error;
+/// RPC methods whose params contain transaction-like objects with `type`/`accessList`.
+const TX_OBJECT_METHODS: &[&str] = &[
+	"eth_call",
+	"eth_estimateGas",
+	"eth_sendTransaction",
+	"eth_signTransaction",
+	"debug_traceCall",
+];
 
 /// Selects which JSON-RPC transport [`EvmClient`](crate::EvmClient) uses.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RpcTransport {
-	/// Standard ethers [`Http`] transport.  Works with any Ethereum-compatible
+	/// Standard HTTP transport.  Works with any Ethereum-compatible
 	/// JSON-RPC endpoint.
 	#[default]
 	Standard,
-	/// TRON-compatible transport.  Wraps [`Http`] and strips the `type` and
-	/// `accessList` fields from every JSON-RPC request parameter object before
-	/// forwarding, because TRON's JSON-RPC proxy rejects them with
-	/// `"JSON parse error"`.
+	/// TRON-compatible transport.  Applies [`TronLayer`] to strip EIP-1559
+	/// fields (`type`, `accessList`) that TRON's JSON-RPC proxy rejects.
 	Tron,
 }
 
-/// A JSON-RPC client that wraps [`Http`] and removes EVM transaction-type
-/// fields (`type`, `accessList`) that TRON's JSON-RPC proxy cannot parse.
-///
-/// Every outbound request is intercepted: its parameters are serialised to
-/// [`serde_json::Value`], any top-level object in a JSON array has the
-/// offending keys removed, and the sanitised value is forwarded to the
-/// inner [`Http`] transport.
-pub struct TronJsonRpc {
-	inner: Http,
-}
+/// Tower layer that strips `type` and `accessList` fields from JSON-RPC
+/// request parameters for TRON compatibility.
+#[derive(Debug, Clone, Copy)]
+pub struct TronLayer;
 
-impl TronJsonRpc {
-	/// Wrap an existing [`Http`] transport.
-	pub fn new(inner: Http) -> Self {
-		Self { inner }
+impl<S> Layer<S> for TronLayer {
+	type Service = TronService<S>;
+
+	fn layer(&self, inner: S) -> Self::Service {
+		TronService { inner }
 	}
 }
 
-impl fmt::Debug for TronJsonRpc {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("TronJsonRpc").field("inner", &self.inner).finish()
+/// Tower service that strips incompatible fields from JSON-RPC requests.
+#[derive(Debug, Clone)]
+pub struct TronService<S> {
+	inner: S,
+}
+
+impl<S> Service<RequestPacket> for TronService<S>
+where
+	S: Service<RequestPacket, Response = ResponsePacket, Error = TransportError>
+		+ Send
+		+ Clone
+		+ 'static,
+	S::Future: Send + 'static,
+{
+	type Response = ResponsePacket;
+	type Error = TransportError;
+	type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+		self.inner.poll_ready(cx)
 	}
-}
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl JsonRpcClient for TronJsonRpc {
-	type Error = HttpError;
+	fn call(&mut self, req: RequestPacket) -> Self::Future {
+		let modified = match req {
+			RequestPacket::Single(ser_req) => strip_request(ser_req).map(RequestPacket::Single),
+			RequestPacket::Batch(batch) => batch
+				.into_iter()
+				.map(strip_request)
+				.collect::<Result<Vec<_>, _>>()
+				.map(RequestPacket::Batch),
+		};
 
-	async fn request<T, R>(&self, method: &str, params: T) -> Result<R, Self::Error>
-	where
-		T: fmt::Debug + Serialize + Send + Sync,
-		R: DeserializeOwned + Send,
-	{
-		// Serialise → strip → forward.  The extra serialisation round-trip is
-		// negligible compared to the network RTT.
-		let value = serde_json::to_value(&params)
-			.map_err(|e| ProviderError::SerdeJson(e))
-			.map_err(|e| match e {
-				ProviderError::SerdeJson(e) => HttpError::SerdeJson {
-					err: e,
-					text: "failed to serialize params for field stripping".into(),
-				},
-				_ => unreachable!(),
-			})?;
-		let cleaned = strip_tx_type_fields(value);
-		self.inner.request(method, cleaned).await
-	}
-}
-
-/// A unified JSON-RPC client that dispatches to either [`Http`] (standard) or
-/// [`TronJsonRpc`] (TRON-compatible).
-///
-/// `EvmClient` stores `Provider<OmniClient>` so that the transport can be
-/// selected at runtime via [`RpcTransport`] in the config, without changing
-/// any downstream type signatures.
-pub enum OmniClient {
-	/// Standard ethers HTTP transport.
-	Http(Http),
-	/// TRON-compatible transport that strips EIP-1559 fields.
-	Tron(TronJsonRpc),
-}
-
-impl Clone for TronJsonRpc {
-	fn clone(&self) -> Self {
-		Self { inner: self.inner.clone() }
-	}
-}
-
-impl Clone for OmniClient {
-	fn clone(&self) -> Self {
-		match self {
-			OmniClient::Http(inner) => OmniClient::Http(inner.clone()),
-			OmniClient::Tron(inner) => OmniClient::Tron(inner.clone()),
+		match modified {
+			Ok(req) => {
+				let fut = self.inner.call(req);
+				Box::pin(fut)
+			},
+			Err(e) => Box::pin(async move { Err(e) }),
 		}
 	}
 }
 
-impl OmniClient {
-	/// Construct an [`OmniClient`] from an [`Http`] transport and a
-	/// [`RpcTransport`] selector.
-	pub fn new(http: Http, transport: &RpcTransport) -> Self {
-		match transport {
-			RpcTransport::Standard => OmniClient::Http(http),
-			RpcTransport::Tron => OmniClient::Tron(TronJsonRpc::new(http)),
-		}
-	}
-}
-
-impl fmt::Debug for OmniClient {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			OmniClient::Http(inner) => f.debug_tuple("OmniClient::Http").field(inner).finish(),
-			OmniClient::Tron(inner) => f.debug_tuple("OmniClient::Tron").field(inner).finish(),
-		}
-	}
-}
-
-/// Unified error type for [`OmniClient`].
-///
-/// Both variants use the same underlying [`Http`] error since [`TronJsonRpc`]
-/// delegates to [`Http`] after stripping fields.
-#[derive(Debug, Error)]
-pub enum OmniClientError {
-	#[error(transparent)]
-	Http(HttpError),
-}
-
-impl RpcError for OmniClientError {
-	fn as_error_response(&self) -> Option<&ethers::providers::JsonRpcError> {
-		match self {
-			OmniClientError::Http(e) => e.as_error_response(),
-		}
+/// Strip `type` and `accessList` from the params of a single JSON-RPC request.
+/// Only processes methods that send transaction-like objects; all others pass through
+/// with zero overhead.
+fn strip_request(req: SerializedRequest) -> Result<SerializedRequest, TransportError> {
+	if !TX_OBJECT_METHODS.contains(&req.method()) {
+		return Ok(req);
 	}
 
-	fn as_serde_error(&self) -> Option<&serde_json::Error> {
-		match self {
-			OmniClientError::Http(e) => e.as_serde_error(),
-		}
-	}
-}
+	let params_raw = match req.params() {
+		Some(raw) => raw.get().to_owned(),
+		None => return Ok(req),
+	};
 
-impl From<OmniClientError> for ProviderError {
-	fn from(err: OmniClientError) -> Self {
-		match err {
-			OmniClientError::Http(e) => e.into(),
-		}
-	}
-}
+	let mut params_value: serde_json::Value =
+		serde_json::from_str(&params_raw).map_err(|e| TransportErrorKind::custom(e))?;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl JsonRpcClient for OmniClient {
-	type Error = OmniClientError;
-
-	async fn request<T, R>(&self, method: &str, params: T) -> Result<R, Self::Error>
-	where
-		T: fmt::Debug + Serialize + Send + Sync,
-		R: DeserializeOwned + Send,
-	{
-		match self {
-			OmniClient::Http(inner) =>
-				inner.request(method, params).await.map_err(OmniClientError::Http),
-			OmniClient::Tron(inner) =>
-				inner.request(method, params).await.map_err(OmniClientError::Http),
-		}
-	}
-}
-
-/// Remove `type` and `accessList` from any object inside a top-level JSON
-/// array.
-///
-/// For `eth_call`, `eth_estimateGas`, and similar methods, ethers sends the
-/// parameters as a JSON array whose first element is the transaction call
-/// object.  This function walks each element and strips the keys that TRON
-/// cannot parse.
-fn strip_tx_type_fields(mut value: serde_json::Value) -> serde_json::Value {
-	if let Some(arr) = value.as_array_mut() {
+	let modified = if let Some(arr) = params_value.as_array_mut() {
+		let mut changed = false;
 		for item in arr.iter_mut() {
 			if let Some(obj) = item.as_object_mut() {
-				obj.remove("type");
-				obj.remove("accessList");
+				changed |= obj.remove("type").is_some();
+				changed |= obj.remove("accessList").is_some();
+				// Tron uses `data` instead of `input`
+				if let Some(input_val) = obj.remove("input") {
+					obj.insert("data".to_string(), input_val);
+					changed = true;
+				}
 			}
 		}
+		changed
+	} else {
+		false
+	};
+
+	if !modified {
+		return Ok(req);
 	}
-	value
+
+	// Reconstruct the SerializedRequest with modified params
+	let (meta, _) = req.decompose();
+	let new_params = serde_json::value::to_raw_value(&params_value)
+		.map_err(|e| TransportErrorKind::custom(e))?;
+	let new_request = Request { meta, params: new_params };
+	new_request.serialize().map_err(|e| TransportErrorKind::custom(e))
 }
 
 #[cfg(test)]
@@ -220,54 +158,84 @@ mod tests {
 	use super::*;
 	use serde_json::json;
 
+	fn make_serialized_request(
+		method: &'static str,
+		params: serde_json::Value,
+	) -> SerializedRequest {
+		let raw_params = serde_json::value::to_raw_value(&params).unwrap();
+		let request = alloy_json_rpc::Request {
+			meta: alloy_json_rpc::RequestMeta::new(method.into(), alloy_json_rpc::Id::Number(1)),
+			params: raw_params,
+		};
+		request.serialize().unwrap()
+	}
+
 	#[test]
 	fn strips_type_and_access_list() {
-		let input = json!([
-			{"to": "0xdead", "data": "0x1234", "type": "0x02", "accessList": []},
-			"latest"
-		]);
-		let output = strip_tx_type_fields(input);
-		let obj = output[0].as_object().unwrap();
+		let req = make_serialized_request(
+			"eth_call",
+			json!([
+				{"to": "0xdead", "data": "0x1234", "type": "0x02", "accessList": []},
+				"latest"
+			]),
+		);
+		let result = strip_request(req).unwrap();
+		let params: serde_json::Value =
+			serde_json::from_str(result.params().unwrap().get()).unwrap();
+		let obj = params[0].as_object().unwrap();
 		assert!(!obj.contains_key("type"));
 		assert!(!obj.contains_key("accessList"));
 		assert!(obj.contains_key("to"));
 		assert!(obj.contains_key("data"));
-		assert_eq!(output[1], "latest");
+		assert_eq!(params[1], "latest");
 	}
 
 	#[test]
 	fn strips_legacy_type_field() {
-		let input = json!([
-			{"to": "0xdead", "data": "0x1234", "type": "0x00"},
-			"latest"
-		]);
-		let output = strip_tx_type_fields(input);
-		let obj = output[0].as_object().unwrap();
+		let req = make_serialized_request(
+			"eth_estimateGas",
+			json!([{"to": "0xdead", "data": "0x1234", "type": "0x00"}, "latest"]),
+		);
+		let result = strip_request(req).unwrap();
+		let params: serde_json::Value =
+			serde_json::from_str(result.params().unwrap().get()).unwrap();
+		let obj = params[0].as_object().unwrap();
 		assert!(!obj.contains_key("type"));
 	}
 
 	#[test]
 	fn leaves_clean_params_alone() {
-		let input = json!([
-			{"to": "0xdead", "data": "0x1234"},
-			"latest"
-		]);
-		let output = strip_tx_type_fields(input.clone());
-		assert_eq!(input, output);
+		let req = make_serialized_request(
+			"eth_call",
+			json!([{"to": "0xdead", "data": "0x1234"}, "latest"]),
+		);
+		let original_params = req.params().unwrap().get().to_owned();
+		let result = strip_request(req).unwrap();
+		let result_params = result.params().unwrap().get().to_owned();
+		assert_eq!(original_params, result_params);
 	}
 
 	#[test]
-	fn handles_non_array_params() {
-		let input = json!({"method": "test"});
-		let output = strip_tx_type_fields(input.clone());
-		assert_eq!(input, output);
+	fn skips_non_tx_methods() {
+		let req = make_serialized_request("eth_getBlockByNumber", json!(["0x1", true]));
+		let original_params = req.params().unwrap().get().to_owned();
+		let result = strip_request(req).unwrap();
+		let result_params = result.params().unwrap().get().to_owned();
+		assert_eq!(original_params, result_params);
 	}
 
 	#[test]
-	fn handles_null_params() {
-		let input = json!(null);
-		let output = strip_tx_type_fields(input.clone());
-		assert_eq!(input, output);
+	fn renames_input_to_data() {
+		let req = make_serialized_request(
+			"eth_call",
+			json!([{"to": "0xdead", "input": "0x1234"}, "latest"]),
+		);
+		let result = strip_request(req).unwrap();
+		let params: serde_json::Value =
+			serde_json::from_str(result.params().unwrap().get()).unwrap();
+		let obj = params[0].as_object().unwrap();
+		assert!(!obj.contains_key("input"));
+		assert_eq!(obj.get("data").unwrap(), "0x1234");
 	}
 
 	#[test]

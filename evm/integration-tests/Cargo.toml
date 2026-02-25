@@ -27,7 +27,6 @@ subxt = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 
 trie-db = { workspace = true, default-features = true }
-ethers = { workspace = true, default-features = true }
 forge-testsuite = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true, features = ["default"] }
 mmr-primitives = { workspace = true, default-features = true }

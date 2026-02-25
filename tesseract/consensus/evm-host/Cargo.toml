@@ -11,9 +11,6 @@ primitive-types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 log = "0.4"
 
-# Ethereum dependencies
-ethers = { workspace = true }
-
 # Workspace dependencies
 ismp = { workspace = true }
 tesseract-evm = { workspace = true }

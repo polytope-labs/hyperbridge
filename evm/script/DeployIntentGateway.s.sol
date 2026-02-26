@@ -25,7 +25,7 @@ contract DeployScript is BaseScript {
         console.log("VWAPOracle deployed at:", address(priceOracle));
 
         // Initialize price oracle with token decimals
-        VWAPOracle.TokenDecimalsUpdate[] memory decimalsUpdates = new VWAPOracle.TokenDecimalsUpdate[](8);
+        VWAPOracle.TokenDecimalsUpdate[] memory decimalsUpdates = new VWAPOracle.TokenDecimalsUpdate[](9);
 
         // Ethereum
         decimalsUpdates[0].sourceChain = bytes("EVM-1");
@@ -120,6 +120,18 @@ contract DeployScript is BaseScript {
         });
         decimalsUpdates[7].tokens[1] = VWAPOracle.TokenDecimal({
             token: 0x9151434b16b9763660705744891fA906F660EcC5, // USDT
+            decimals: 6
+        });
+        
+        // Tron
+        decimalsUpdates[8].sourceChain = bytes("EVM-728126428");
+        decimalsUpdates[8].tokens = new VWAPOracle.TokenDecimal[](2);
+        decimalsUpdates[8].tokens[0] = VWAPOracle.TokenDecimal({
+            token: 0x742b023b58488B4be587bBA63ed11134b02217B3, // USDC
+            decimals: 6
+        });
+        decimalsUpdates[8].tokens[1] = VWAPOracle.TokenDecimal({
+            token: 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C, // USDT
             decimals: 6
         });
 

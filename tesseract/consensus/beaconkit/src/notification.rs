@@ -166,8 +166,8 @@ async fn fetch_block_txs(
 	client: &BeaconKitHost,
 	height: u64,
 ) -> anyhow::Result<Vec<Vec<u8>>> {
-	let beacon_api_url = client.host.beacon_api_url.trim_end_matches('/');
-	let url = format!("{}/cometbft/v1/block/{}", beacon_api_url, height);
+	let base_url = client.prover.base_url.trim_end_matches('/');
+	let url = format!("{}/cometbft/v1/block/{}", base_url, height);
 
 	let http_client = reqwest::Client::new();
 	let block_response = http_client

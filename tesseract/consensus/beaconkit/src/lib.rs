@@ -42,8 +42,6 @@ use beacon_api_client::BeaconKitApiClient;
 pub struct BeaconKitHostConfig {
 	/// Frequency (in seconds) to check for new updates
 	pub consensus_update_frequency: Option<u64>,
-	/// BeaconKit Beacon API URL
-	pub beacon_api_url: String,
 	/// Trusting period in seconds for light client verification
 	pub trusting_period_secs: Option<u64>,
 	/// Unbonding period in seconds for CreateConsensusState
@@ -93,7 +91,7 @@ impl BeaconKitHost {
 			.try_into()
 			.map_err(|_| anyhow::anyhow!("Failed to convert consensus_state_id to [u8; 4]"))?;
 
-		let prover = BeaconKitApiClient::new(&host.beacon_api_url)
+		let prover = BeaconKitApiClient::new(&evm.rpc_urls[0])
 			.map_err(|e| anyhow::anyhow!("Failed to create BeaconKit API client: {}", e))?;
 
 		Ok(Self {

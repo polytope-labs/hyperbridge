@@ -18,7 +18,7 @@ use crate::{
 	governance::WhitelistedCaller,
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
 	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp,
-	TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
+	TokenGateway, TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
 	MIN_TECH_COLLECTIVE_APPROVAL,
 };
 use anyhow::anyhow;
@@ -47,6 +47,7 @@ use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::{Permill, Weight};
 use sp_std::prelude::*;
+use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 
@@ -375,6 +376,47 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 	>;
 }
 
+impl pallet_hyperbridge::Config for Runtime {
+	type IsmpHost = Ismp;
+}
+
+parameter_types! {
+	pub const Decimals: u8 = 10;
+}
+
+pub struct NativeAssetId;
+impl Get<H256> for NativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
+	}
+}
+
+pub struct AssetAdmin;
+impl Get<AccountId> for AssetAdmin {
+	fn get() -> AccountId {
+		TokenGateway::pallet_account()
+	}
+}
+
+impl pallet_token_gateway::Config for Runtime {
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type NativeCurrency = Balances;
+	type NativeAssetId = NativeAssetId;
+	type CreateOrigin = EitherOfDiverse<
+		WhitelistedCaller,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type Decimals = Decimals;
+	type AssetAdmin = AssetAdmin;
+	type EvmToSubstrate = ();
+	type WeightInfo = crate::weights::pallet_token_gateway::WeightInfo<Runtime>;
+}
+
 parameter_types! {
 	pub const IntentsStorageDepositFee: Balance = EXISTENTIAL_DEPOSIT * 10;
 }
@@ -413,6 +455,10 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
+				pallet_token_gateway::Pallet::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
+				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
@@ -451,6 +497,8 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			id if id == xcm_gateway =>
 				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
+			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
+				pallet_token_gateway::Pallet::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(Weight::from_parts(300_000_000, 0)),
 		}

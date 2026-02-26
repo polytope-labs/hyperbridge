@@ -1013,6 +1013,10 @@ mod runtime {
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(62)]
 	pub type IsmpBsc = ismp_bsc::pallet;
+	#[runtime::pallet_index(63)]
+	pub type Hyperbridge = pallet_hyperbridge;
+	#[runtime::pallet_index(64)]
+	pub type TokenGateway = pallet_token_gateway;
 
 	// Governance
 	#[runtime::pallet_index(80)]
@@ -1089,6 +1093,7 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
+		[pallet_token_gateway, TokenGateway]
 	);
 }
 

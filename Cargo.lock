@@ -12970,6 +12970,7 @@ dependencies = [
  "pallet-collator-manager",
  "pallet-consensus-incentives",
  "pallet-fishermen",
+ "pallet-hyperbridge",
  "pallet-intents-coprocessor",
  "pallet-ismp",
  "pallet-ismp-demo",
@@ -12980,6 +12981,7 @@ dependencies = [
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
+ "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
  "pallet-xcm-gateway",
@@ -12991,6 +12993,7 @@ dependencies = [
  "smallvec",
  "substrate-state-machine",
  "substrate-wasm-builder",
+ "token-gateway-primitives",
 ]
 
 [[package]]

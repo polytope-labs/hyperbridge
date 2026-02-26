@@ -14,6 +14,7 @@
 // limitations under the License.
 
 //! ISMP error definitions
+#![allow(unused)]
 
 use crate::{
 	consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},

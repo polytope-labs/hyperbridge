@@ -1,0 +1,36 @@
+---
+layout: landing
+title: Hyperbridge Documentation
+description: Secure interoperability requires the verification of various proofs, including consensus proofs, consensus fault proofs, state proofs, and state transition validity proofs. For blockchains to securely interoperate, they must verify these proofs onchain to confirm the finalized (irreversible) state of their counterparty.
+---
+
+# Hyperbridge Protocol
+
+**Secure interoperability** requires the verification of various proofs, including consensus proofs, consensus fault proofs, state proofs, and state transition validity proofs. For blockchains to securely interoperate, they must **verify these proofs onchain** to confirm the finalized (irreversible) state of their counterparty.
+
+However, these verification processes are compute-intensive and do not scale well, particularly when multiple blockchains need to communicate. This limitation leads to the proliferation of _attestation networks_ which employ the use of multi-sig committees who attest to the state of a counterparty chain. These types of architectures have resulted in a cumulative loss of $2 billion in crypto assets. (sources [[1]](https://defillama.com/hacks), [[2]](https://rekt.news/leaderboard/)).
+
+The only solution to this problem is the coprocessor model, where the verification operations are performed offchain and the results are securely reported back onchain alongside cryptographic proofs of correct execution.
+
+## Coprocessor Model
+
+Hyperbridge is an example of such a coprocessor, more specifically, a crypto-economic coprocessor. Hyperbridge pioneers a new class of coprocessors that leverage their consensus proofs to attest to the correctness of the **computations performed onchain**.
+
+## Proof Aggregation
+
+Hyperbridge scales trust-free interoperability to all chains by verifying and aggregating the finalized states of all chains into a single proof. This proof allows any blockchain to receive all cross-chain messages aggregated by Hyperbridge.
+
+## Permissionless Relayers
+
+Hyperbridge is the first cross-chain protocol of its kind that leverages cryptographic proofs to power a decentralized and permissionless network of relayers. These relayers, which operate **without the need for any whitelisting or staking**, are tasked with transmitting messages across chains on behalf of users and applications. They are fully incentivized to relay messages by the fees paid by users who wish to perform cross-chain operations.
+
+## Where to Start
+
+ - [Hyperbridge For Developers](/developers)
+ - [Hyperbridge Protocol Specification](/protocol)
+
+## Useful Links
+
+ - [Polytope Labs, "Introducing Hyperbridge: An Interoperability Coprocessor"](https://blog.hyperbridge.network/introducing-hyperbridge-interoperability-coprocessor)
+ - [Polytope Labs, "Cryptoeconomic Coprocessors and their applications"](https://blog.hyperbridge.network/cryptoeconomic-coprocessors)
+ - [Rob Habermeier, "Coprocessor Market Structure: Cryptoeconomic vs ZK"](https://www.rob.tech/blog/coprocessor-competition/)

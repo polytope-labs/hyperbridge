@@ -1,0 +1,204 @@
+---
+title: IConsensus
+description: API reference for IConsensus - interface for consensus clients that verify Hyperbridge finality.
+---
+
+# IConsensus
+
+Interface for consensus clients that verify Hyperbridge's finality. Each consensus client implements specific consensus algorithms to validate state commitments.
+
+```solidity lineNumbers
+interface IConsensus
+```
+
+## Overview
+
+Consensus clients are responsible for:
+- Verifying consensus proofs from Hyperbridge
+- Validating authority set transitions
+- Confirming finalized state commitments
+- Extracting intermediate states for parachains/rollups
+
+**Available Implementations:**
+
+- **BeefyV1** - BEEFY consensus with secp256k1 verification
+- **SP1Beefy** - ZK proof-based BEEFY consensus
+
+---
+
+## Functions
+
+### verifyConsensus()
+
+Verifies a consensus proof and returns the new consensus state along with newly finalized intermediate states.
+
+```solidity lineNumbers
+function verifyConsensus(
+    bytes calldata encodedState,
+    bytes calldata encodedProof
+) external view returns (
+    bytes memory,
+    IntermediateState[] memory
+)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `encodedState` | `bytes` | Current encoded consensus state |
+| `encodedProof` | `bytes` | Encoded consensus proof from Hyperbridge |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bytes` | New encoded consensus state after verification |
+| - | `IntermediateState[]` | Array of newly finalized state commitments |
+
+**Process:**
+1. Decodes the current consensus state
+2. Decodes the consensus proof
+3. Verifies authority signatures or ZK proof
+4. Validates MMR proofs for state commitments
+5. Checks authority set transitions
+6. Extracts finalized parachain/rollup states
+7. Returns updated consensus state and intermediate states
+
+**Reverts:**
+- If consensus proof is invalid
+- If signatures don't meet supermajority threshold
+- If authority set is unknown
+- If MMR proofs are invalid
+- If proof is for a stale height
+
+---
+
+### supportsInterface()
+
+ERC-165 interface detection.
+
+```solidity lineNumbers
+function supportsInterface(bytes4 interfaceId) external view returns (bool)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `interfaceId` | `bytes4` | The interface identifier to check |
+
+| Returns | Type | Description |
+|---------|------|-------------|
+| - | `bool` | True if the contract implements the interface |
+
+---
+
+## Events
+
+The `IConsensus` interface does not define any events directly. Events are emitted by the implementation contract.
+
+---
+
+## Structs
+
+### IntermediateState
+
+Represents a finalized state commitment for a specific state machine at a specific height.
+
+```solidity lineNumbers
+struct IntermediateState {
+    uint256 stateMachineId;
+    uint256 height;
+    StateCommitment commitment;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stateMachineId` | `uint256` | Numeric identifier of the state machine |
+| `height` | `uint256` | Block height/number |
+| `commitment` | `StateCommitment` | The state commitment containing roots and timestamp |
+
+**Usage:**
+Returned by `verifyConsensus()` to indicate which state machines have new finalized states.
+
+---
+
+### StateCommitment
+
+A cryptographic commitment to a state machine's state.
+
+```solidity lineNumbers
+struct StateCommitment {
+    uint256 timestamp;
+    bytes32 overlayRoot;
+    bytes32 stateRoot;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | `uint256` | Block timestamp |
+| `overlayRoot` | `bytes32` | Root of the overlay tree (for child chains) |
+| `stateRoot` | `bytes32` | Root of the state trie |
+
+---
+
+### BeefyConsensusState
+
+State maintained by BEEFY consensus clients.
+
+```solidity lineNumbers
+struct BeefyConsensusState {
+    uint256 latestHeight;
+    AuthoritySetCommitment currentAuthoritySet;
+    AuthoritySetCommitment nextAuthoritySet;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `latestHeight` | `uint256` | Latest verified relay chain height |
+| `currentAuthoritySet` | `AuthoritySetCommitment` | Current active authority set |
+| `nextAuthoritySet` | `AuthoritySetCommitment` | Next scheduled authority set |
+
+---
+
+### AuthoritySetCommitment
+
+Merkle commitment to a BEEFY authority set.
+
+```solidity lineNumbers
+struct AuthoritySetCommitment {
+    uint256 id;
+    uint256 len;
+    bytes32 root;
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `uint256` | Authority set ID |
+| `len` | `uint256` | Number of authorities in set |
+| `root` | `bytes32` | Merkle root of authority public keys |
+
+---
+
+## Implementations
+
+### `BeefyV1`
+- Verifies secp256k1 signatures from BEEFY authorities
+- Validates MMR (Merkle Mountain Range) proofs
+- Checks authority set membership via merkle proofs
+- Supports supermajority threshold validation
+- Location: `BeefyV1.sol`
+
+### `SP1Beefy`
+- Delegates signature verification to SP1 zkVM
+- Verifies ZK proofs instead of individual signatures
+- More gas-efficient for large authority sets
+- Same security guarantees as BeefyV1
+- Location: `SP1Beefy.sol`
+
+---
+
+## See Also
+
+- [IHandler](/developers/evm/api/ihandler) - Handler that calls consensus clients
+- [IHost](/developers/evm/api/ihost) - Host that stores consensus state
+- [BEEFY Protocol](https://spec.polkadot.network/sect-finality#sect-grandpa-beefy) - BEEFY specification

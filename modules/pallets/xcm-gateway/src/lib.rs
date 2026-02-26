@@ -428,7 +428,7 @@ where
 			}
 		);
 
-		let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
+		let body = Body::abi_decode(&mut &post.body[1..]).map_err(|_| {
 			ismp::error::Error::ModuleDispatchError {
 				msg: "Token Gateway: Failed to decode request body".to_string(),
 				meta: Meta {
@@ -527,7 +527,7 @@ where
 		match request {
 			Timeout::Request(Request::Post(post)) => {
 				let request = Request::Post(post.clone());
-				let body = Body::abi_decode(&mut &post.body[1..], true).map_err(|_| {
+				let body = Body::abi_decode(&mut &post.body[1..]).map_err(|_| {
 					ismp::error::Error::ModuleDispatchError {
 						msg: "Token Gateway: Failed to decode request body".to_string(),
 						meta: Meta {

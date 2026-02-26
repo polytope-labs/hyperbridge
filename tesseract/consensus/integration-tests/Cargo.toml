@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [dependencies]
 anyhow = "1.0.75"
-tokio = { version = "1.27.0", features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 env_logger = "0.10.0"
@@ -16,7 +16,8 @@ hex = "0.4.3"
 hex-literal = "0.4.1"
 primitive-types = "0.12.1"
 futures = "0.3.28"
-ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
+alloy-sol-types = { workspace = true }
+alloy = { workspace = true, features = ["providers", "signer-local", "network", "reqwest-default-tls"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 merkle-mountain-range = { workspace = true }

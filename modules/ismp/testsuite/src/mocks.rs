@@ -434,6 +434,12 @@ fn weight() -> Weight {
 
 pub struct MockRouter(pub Host);
 
+impl Default for MockRouter {
+	fn default() -> Self {
+		Self(Host::default())
+	}
+}
+
 impl IsmpRouter for MockRouter {
 	fn module_for_id(&self, _bytes: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
 		Ok(Box::new(MockModule))

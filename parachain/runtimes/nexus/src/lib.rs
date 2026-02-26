@@ -39,9 +39,7 @@ use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
-use cumulus_pallet_parachain_system::{
-	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
-};
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_asset_rate::AssetKindFactory;
 use polkadot_sdk::{pallet_session::disabling::UpToLimitDisablingStrategy, *};
@@ -229,7 +227,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 6_200,
+	spec_version: 6_400,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -485,7 +483,6 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
-	type SelectCore = DefaultCoreSelector<Self>;
 	type RelayParentOffset = ConstU32<0>;
 }
 
@@ -544,6 +541,7 @@ impl pallet_message_queue::Config for Runtime {
 parameter_types! {
 	pub const Period: u32 = 24 * HOURS;
 	pub const Offset: u32 = 0;
+	pub const SessionKeyDeposit: Balance = EXISTENTIAL_DEPOSIT * 10;
 }
 
 impl pallet_session::Config for Runtime {
@@ -559,6 +557,8 @@ impl pallet_session::Config for Runtime {
 	type Keys = SessionKeys;
 	type DisablingStrategy = UpToLimitDisablingStrategy;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
+	type Currency = Balances;
+	type KeyDeposit = SessionKeyDeposit;
 }
 
 impl pallet_aura::Config for Runtime {
@@ -592,7 +592,7 @@ impl pallet_collator_selection::Config for Runtime {
 	type KickThreshold = Period;
 	type ValidatorId = <Self as frame_system::Config>::AccountId;
 	type ValidatorIdOf = pallet_collator_selection::IdentityCollator;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
 	type WeightInfo = weights::pallet_collator_selection::WeightInfo<Runtime>;
 }
 
@@ -1043,6 +1043,8 @@ mod runtime {
 	pub type MessagingFees = pallet_messaging_fees;
 	#[runtime::pallet_index(93)]
 	pub type CollatorManager = pallet_collator_manager;
+	#[runtime::pallet_index(94)]
+	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1079,6 +1081,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
+		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_referenda, Referenda]
 		[pallet_whitelist, Whitelist]
@@ -1086,8 +1089,6 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
-		[pallet_migrations, Migrations]
-		[pallet_messaging_fees, MessagingFees]
 	);
 }
 
@@ -1115,7 +1116,7 @@ impl_runtime_apis! {
 			VERSION
 		}
 
-		fn execute_block(block: Block) {
+		fn execute_block(block: <Block as BlockT>::LazyBlock) {
 			Executive::execute_block(block)
 		}
 
@@ -1153,7 +1154,7 @@ impl_runtime_apis! {
 		}
 
 		fn check_inherents(
-			block: Block,
+			block: <Block as BlockT>::LazyBlock,
 			data: sp_inherents::InherentData,
 		) -> sp_inherents::CheckInherentsResult {
 			data.check_extrinsics(&block)
@@ -1367,7 +1368,7 @@ impl_runtime_apis! {
 			Vec<frame_benchmarking::BenchmarkList>,
 			Vec<frame_support::traits::StorageInfo>,
 		) {
-			use frame_benchmarking::{Benchmarking, BenchmarkList};
+			use frame_benchmarking::BenchmarkList;
 			use frame_support::traits::StorageInfoTrait;
 			use frame_system_benchmarking::Pallet as SystemBench;
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
@@ -1382,7 +1383,7 @@ impl_runtime_apis! {
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+			use frame_benchmarking::BenchmarkBatch;
 			use frame_system_benchmarking::Pallet as SystemBench;
 
 			impl frame_system_benchmarking::Config for Runtime {

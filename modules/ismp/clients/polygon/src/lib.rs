@@ -19,15 +19,13 @@ use alloc::{
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use codec::{Decode, Encode};
 use geth_primitives::Header;
-use ibc::core::{
-	commitment_types::{
-		commitment::CommitmentProofBytes,
-		merkle::{MerklePath, MerkleProof},
-		proto::v1::MerkleRoot,
-		specs::ProofSpecs,
-	},
-	host::types::path::PathBytes,
+use ibc_core_commitment_types::{
+	commitment::CommitmentProofBytes,
+	merkle::{MerklePath, MerkleProof},
+	proto::v1::MerkleRoot,
+	specs::ProofSpecs,
 };
+use ibc_core_host::types::path::PathBytes;
 use ismp::{
 	consensus::{
 		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,

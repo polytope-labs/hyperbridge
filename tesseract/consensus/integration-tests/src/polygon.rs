@@ -33,6 +33,7 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 		gas_price_buffer: None,
 		client_type: Default::default(),
 		initial_height: None,
+		transport: tesseract_evm::transport::RpcTransport::Standard,
 	};
 
 	let host_config = HostConfig {

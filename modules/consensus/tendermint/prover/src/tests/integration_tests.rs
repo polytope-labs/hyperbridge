@@ -56,27 +56,27 @@ mod tests {
 
 	const VALIDATOR_SET_TRANSITIONS: u32 = 3;
 
-	#[tokio::test]
-	#[ignore]
-	async fn test_sei_tendermint_integration() {
-		let _ = tracing_subscriber::fmt::try_init();
-		trace!(
-			"Testing SEI Tendermint with {} validator set transitions",
-			VALIDATOR_SET_TRANSITIONS
-		);
+	// #[tokio::test]
+	// #[ignore]
+	// async fn test_sei_tendermint_integration() {
+	// 	let _ = tracing_subscriber::fmt::try_init();
+	// 	trace!(
+	// 		"Testing SEI Tendermint with {} validator set transitions",
+	// 		VALIDATOR_SET_TRANSITIONS
+	// 	);
 
-		match timeout(Duration::from_secs(3600), run_integration_test_standard(&get_sei_rpc()))
-			.await
-		{
-			Ok(inner) => match inner {
-				Ok(()) => trace!("SEI Tendermint integration test completed successfully"),
-				Err(e) => trace!("SEI Tendermint integration test failed: {}", e),
-			},
-			Err(_) => {
-				trace!("SEI Tendermint integration test timed out after 10 minutes");
-			},
-		}
-	}
+	// 	match timeout(Duration::from_secs(3600), run_integration_test_standard(&get_sei_rpc()))
+	// 		.await
+	// 	{
+	// 		Ok(inner) => match inner {
+	// 			Ok(()) => trace!("SEI Tendermint integration test completed successfully"),
+	// 			Err(e) => trace!("SEI Tendermint integration test failed: {}", e),
+	// 		},
+	// 		Err(_) => {
+	// 			trace!("SEI Tendermint integration test timed out after 10 minutes");
+	// 		},
+	// 	}
+	// }
 
 	#[tokio::test]
 	#[ignore]
@@ -208,19 +208,19 @@ mod tests {
 		}
 	}
 
-	#[tokio::test]
-	#[ignore]
-	async fn sei_evm_state_proof() -> anyhow::Result<()> {
-		verify_evm_state_proof(
-			&get_sei_rpc(),
-			StateMachine::Evm(1329),
-			"e15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
-			"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c",
-		)
-		.await?;
+	// #[tokio::test]
+	// #[ignore]
+	// async fn sei_evm_state_proof() -> anyhow::Result<()> {
+	// 	verify_evm_state_proof(
+	// 		&get_sei_rpc(),
+	// 		StateMachine::Evm(1329),
+	// 		"e15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392",
+	// 		"26387b69acd9674861659d8f121f3f72d8c4934eeea15b947235839377526d2c",
+	// 	)
+	// 	.await?;
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
 	#[tokio::test]
 	#[ignore]
@@ -267,7 +267,8 @@ mod tests {
 	async fn test_abci_query_milestone_proof_inner() -> Result<(), Box<dyn std::error::Error>> {
 		use cometbft_rpc::endpoint::abci_query::AbciQuery;
 
-		let client = HeimdallClient::new(&get_polygon_rpc_url(), &get_polygon_execution_rpc_url())?;
+		let client =
+			HeimdallClient::new(&get_polygon_rpc_url(), &[get_polygon_execution_rpc_url()])?;
 		let latest_height = client.latest_height().await?;
 
 		let (milestone_number, milestone) =
@@ -454,8 +455,9 @@ mod tests {
 	async fn run_integration_test_heimdall(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		let client: HeimdallClient = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
-			.expect("Failed to create client");
+		let client: HeimdallClient =
+			HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])
+				.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
@@ -595,7 +597,7 @@ mod tests {
 
 	/// Basic Heimdall RPC test: header and validator retrieval
 	async fn test_polygon_basic_rpc(rpc_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-		let client = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
+		let client = HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])
 			.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;

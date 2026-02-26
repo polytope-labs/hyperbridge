@@ -64,6 +64,11 @@ log = { workspace = true }
 primitive-types = { workspace = true }
 base64 = "0.21"
 blst = "0.3.11"
+ismp-solidity-abi = { workspace = true }
+
+[dependencies.alloy]
+workspace = true
+features = ["sol-types"]
 
 [dependencies.polkadot-sdk]
 workspace = true

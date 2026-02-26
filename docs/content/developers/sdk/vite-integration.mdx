@@ -1,0 +1,148 @@
+---
+title: Vite Integration
+description: Set up the Hyperbridge SDK with Vite projects and handle WebAssembly dependencies.
+---
+
+# Vite Integration
+
+The Hyperbridge SDK includes a Vite plugin to handle WebAssembly dependencies correctly during development and production builds.
+
+## Overview
+
+The Vite plugin automatically:
+
+- Copies necessary WebAssembly files to the correct location in Vite's dependency cache
+- Handles WASM file resolution during development
+- Ensures proper bundling for production builds
+- Configures logging levels for SDK operations
+
+## Installation
+
+The plugin is included with the SDK package, so no additional installation is required:
+
+```bash lineNumbers
+npm install @hyperbridge/sdk
+```
+
+## Basic Setup
+
+### vite.config.ts
+
+Add the Hyperbridge plugin to your Vite configuration:
+
+```typescript lineNumbers title="vite.config.ts" icon=typescript
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
+
+export default defineConfig({
+  plugins: [
+    react(),
+    hyperbridge()
+  ]
+})
+```
+
+### With Options
+
+Configure the plugin with custom options:
+
+```typescript lineNumbers title="vite.config.ts" icon=typescript
+import { defineConfig } from "vite"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
+
+export default defineConfig({
+  plugins: [
+    hyperbridge({
+      logLevel: "trace" // Set SDK log level
+    })
+  ]
+})
+```
+
+## Configuration Options
+
+### Plugin Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `logLevel` | `string` | `"info"` | Set the logging level for SDK operations |
+
+### Log Levels
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| `trace` | Most verbose logging | Deep debugging, development |
+| `debug` | Detailed debug information | Troubleshooting issues |
+| `info` | General information | Default, production |
+| `warn` | Warning messages only | Production monitoring |
+| `error` | Error messages only | Production, minimal logging |
+
+## Framework Examples
+
+### React with Vite
+
+```typescript lineNumbers title="vite.config.ts" icon=typescript
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
+
+export default defineConfig({
+  plugins: [
+    react(),
+    hyperbridge({
+      logLevel: "info"
+    })
+  ],
+  resolve: {
+    alias: {
+      "@": "/src"
+    }
+  }
+})
+```
+
+### Vue with Vite
+
+```typescript lineNumbers title="vite.config.ts" icon=typescript
+import { defineConfig } from "vite"
+import vue from "@vitejs/plugin-vue"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    hyperbridge()
+  ]
+})
+```
+
+### Svelte with Vite
+
+```typescript lineNumbers title="vite.config.ts" icon=typescript
+import { defineConfig } from "vite"
+import { svelte } from "@sveltejs/vite-plugin-svelte"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
+
+export default defineConfig({
+  plugins: [
+    svelte(),
+    hyperbridge()
+  ]
+})
+```
+
+### Vanilla TypeScript
+
+```typescript lineNumbers title="vite.config.ts" icon=typescript
+import { defineConfig } from "vite"
+import hyperbridge from "@hyperbridge/sdk/plugins/vite"
+
+export default defineConfig({
+  plugins: [
+    hyperbridge({
+      logLevel: "debug"
+    })
+  ]
+})
+```

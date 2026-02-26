@@ -14,7 +14,7 @@ primitive-types = { workspace = true, default-features = false}
 anyhow = { workspace = true }
 cometbft = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
-ibc = { workspace = true, default-features = false }
+ibc-core-commitment-types = { workspace = true, default-features = false }
 
 
 [dependencies.polkadot-sdk]
@@ -31,7 +31,7 @@ std = [
     "ripemd/std",
     "blake2/std",
     "blake3/std",
-    "ibc/std",
+    "ibc-core-commitment-types/std",
     "cometbft/std",
     "prost/std",
 ]

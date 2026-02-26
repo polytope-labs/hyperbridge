@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.4.1"
+version = "1.6.0"
 edition = "2021"
 
 [lib]
@@ -14,6 +14,10 @@ path = "bins/relayer.rs"
 [[bin]]
 name = "beefy-prover"
 path = "bins/prover.rs"
+
+[[bin]]
+name = "polyhedron"
+path = "bins/polyhedron.rs"
 
 [dependencies]
 log = "0.4.19"
@@ -30,7 +34,7 @@ serde = { workspace = true, features = ["derive", "alloc"] }
 json = { version = "1.0.132", package = "serde_json" }
 toml = "0.7.4"
 clap = { version = "4.3.5", features = ["derive"] }
-tokio = { version = "1.32.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 primitive-types =  { workspace = true }
 subxt = { workspace = true, default-features = false }
@@ -38,17 +42,20 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
+zk-beefy = { path = "../beefy/zk" }
 tesseract-bsc = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 arb-host = { workspace = true }
 op-host = { workspace = true }
+evm-host = { path = "../evm-host" }
 ismp = { workspace = true  }
 tesseract-substrate = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
 tesseract-tendermint = { workspace = true }
+tesseract-tron = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

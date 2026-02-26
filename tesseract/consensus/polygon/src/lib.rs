@@ -61,8 +61,6 @@ impl PolygonPosHost {
 	/// Create a new PolygonPosHost
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
-		let execution_rpc_url =
-			evm.rpc_urls.get(0).ok_or_else(|| anyhow!("No rpc urls privided"))?;
 		Ok(Self {
 			consensus_state_id: {
 				let mut consensus_state_id: ConsensusStateId = Default::default();
@@ -73,7 +71,7 @@ impl PolygonPosHost {
 			host: host.clone(),
 			evm: evm.clone(),
 			provider: Arc::new(ismp_provider),
-			prover: HeimdallClient::new(&host.heimdall_rpc_url, &execution_rpc_url)?,
+			prover: HeimdallClient::new(&host.heimdall_rpc_url, &evm.rpc_urls)?,
 		})
 	}
 

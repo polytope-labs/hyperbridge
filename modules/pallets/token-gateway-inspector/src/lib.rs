@@ -19,11 +19,10 @@
 
 extern crate alloc;
 
-use alloy_sol_types::SolValue;
 use ismp::router::PostRequest;
 use polkadot_sdk::*;
 
-use alloc::{format, vec};
+use alloc::format;
 use primitive_types::{H256, U256};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -32,6 +31,7 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloy_sol_types::SolType;
 	use frame_support::{pallet_prelude::*, Blake2_128Concat};
 
 	use ismp::host::StateMachine;
@@ -103,18 +103,26 @@ pub mod pallet {
 
 	impl<T: Config> Pallet<T> {
 		pub fn is_token_gateway_request(body: &[u8]) -> Option<(H256, U256)> {
-			if let Ok(body) = Body::abi_decode(&mut &body[1..], true) {
-				return Some((
-					H256::from(body.asset_id.0),
-					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
-				))
-			}
-
-			if let Ok(body) = BodyWithCall::abi_decode(&mut &body[1..], true) {
-				return Some((
-					H256::from(body.asset_id.0),
-					U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
-				))
+			// Body has 5 fixed-size fields (uint256 + bytes32 + bool + bytes32 + bytes32) = 160
+			// bytes BodyWithCall adds dynamic bytes field, so it will be > 160 bytes
+			// Check length first to avoid trial-and-error decoding
+			if body.len() > pallet_token_gateway::types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR {
+				if let Ok(body) = <BodyWithCall as SolType>::abi_decode(&mut &body[1..]) {
+					log::trace!("Decoded BodyWithCall: {body:#?}");
+					return Some((
+						H256::from(body.asset_id.0),
+						U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					));
+				}
+			} else if body.len() == pallet_token_gateway::types::BODY_BYTES_SIZE_WITH_DISCRIMINATOR
+			{
+				if let Ok(body) = <Body as SolType>::abi_decode_validate(&mut &body[1..]) {
+					log::trace!("Decoded Body: {body:#?}");
+					return Some((
+						H256::from(body.asset_id.0),
+						U256::from_big_endian(&body.amount.to_be_bytes::<32>()),
+					));
+				}
 			}
 			None
 		}

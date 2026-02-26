@@ -82,6 +82,18 @@ impl pallet_state_coprocessor::Config for Runtime {
 	type Mmr = Mmr;
 }
 
+parameter_types! {
+	pub const IntentStorageDepositFee: Balance = 100 * EXISTENTIAL_DEPOSIT;
+}
+
+impl pallet_intents_coprocessor::Config for Runtime {
+	type Dispatcher = Ismp;
+	type Currency = Balances;
+	type StorageDepositFee = IntentStorageDepositFee;
+	type GovernanceOrigin = EnsureRoot<AccountId>;
+	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
+}
+
 impl ismp_arbitrum::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
@@ -226,11 +238,15 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
-impl BenchmarkHelper<H256> for XcmBenchmarkHelper {
+impl BenchmarkHelper<H256, ()> for XcmBenchmarkHelper {
 	fn create_asset_id_parameter(id: u32) -> H256 {
 		use codec::Encode;
 		use staging_xcm::{prelude::Location, v5::Junction::Parachain};
 		sp_io::hashing::keccak_256(&Location::new(1, Parachain(id)).encode()).into()
+	}
+
+	fn create_reserve_id_parameter(_id: u32) -> () {
+		()
 	}
 }
 
@@ -262,6 +278,7 @@ impl pallet_assets::Config for Runtime {
 	type Extra = ();
 	type RemoveItemsLimit = ConstU32<5>;
 	type Holder = ();
+	type ReserveData = ();
 	#[cfg(feature = "runtime-benchmarks")]
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }

@@ -7,7 +7,7 @@ description = "SNARK Circuits for BEEFY consensus proofs written in noir"
 
 [dependencies]
 tracing = { workspace = true }
-tokio = { version = "1.35.1", features = ["fs", "macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }
 rs_merkle = "1.4.1"
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
@@ -24,18 +24,38 @@ merkle-mountain-range = { workspace = true }
 polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
 
-sp1-beefy = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
-sp1-beefy-primitives = { git = "ssh://git@github.com/polytope-labs/sp1-beefy.git", rev = "2bf78874685560ca2b623594699dfa4daa2f3342" }
+[dependencies.sp1-beefy]
+git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+rev = "4c9c5ce0ede6b9f63ddef415f206eb1bdb040c16"
+
+[dependencies.sp1-beefy-primitives]
+git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
+rev = "4c9c5ce0ede6b9f63ddef415f206eb1bdb040c16"
 
 [dev-dependencies]
-ethers = { workspace = true }
+alloy-sol-types = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 futures = "0.3.27"
 envy = "0.4.2"
 subxt-utils = { workspace = true, default-features = true }
 hex = { version = "0.4.3", features = [] }
+beefy-prover = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }
+tesseract-tron = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-primitives = { workspace = true }
+ismp = { workspace = true, default-features = true }
+sp-core = { workspace = true, features = ["full_crypto"] }
+tokio-stream = { workspace = true }
+beefy-verifier-primitives = { workspace = true, default-features = true  }
+log = { workspace = true }
 
 [dev-dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime"]
+
+[features]
+default = ["local"]
+cluster = ["sp1-beefy/cluster"]
+local = ["sp1-beefy/local"]

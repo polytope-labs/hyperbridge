@@ -27,7 +27,7 @@ import {
     Params,
     ParamsUpdate,
     DestinationFee,
-    RequestBody,
+    WithdrawalRequest,
     FillOptions,
     SelectOptions,
     CancelOptions,
@@ -41,14 +41,13 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-
 import {ICallDispatcher, Call} from "../interfaces/ICallDispatcher.sol";
 
 /**
  * @title IntentGatewayV2
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @dev The IntentGateway allows for the creation and fulfillment of cross-chain orders.
+ * @dev The IntentGateway allows for the creation and fulfillment of same-chain & cross-chain orders.
  */
 contract IntentGatewayV2 is HyperApp, EIP712 {
     using SafeERC20 for IERC20;
@@ -69,7 +68,9 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         /// @dev Identifies a request for updating parameters.
         UpdateParams,
         /// @dev Identifies a request for sweeping accumulated dust
-        SweepDust
+        SweepDust,
+        /// @dev Identifies a request for refunding an escrow (cancellation from destination chain)
+        RefundEscrow
     }
 
     /**
@@ -90,13 +91,13 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The key is a bytes32 hash representing the intent, and the value is the address
      * that filled the intent.
      */
-    mapping(bytes32 => address) private _filled;
+    mapping(bytes32 => address) public _filled;
 
     /**
      * @dev Private variable to store the nonce value.
      * This nonce is used to ensure the uniqueness of orders.
      */
-    uint256 private _nonce;
+    uint256 public _nonce;
 
     /**
      * @dev Private variable to store the parameters for the IntentGateway module.
@@ -116,20 +117,28 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * The inner mapping key is an address representing the escrowed token contract.
      * The inner mapping value is a uint256 representing the order amount.
      */
-    mapping(bytes32 => mapping(address => uint256)) private _orders;
+    mapping(bytes32 => mapping(address => uint256)) public _orders;
 
     /**
      * @dev Mapping to store instances of contracts.
      * The key the keccak(stateMachineId) and the value is the address of a known contract instance.
      */
-    mapping(bytes32 => address) private _instances;
+    mapping(bytes32 => address) public _instances;
+
+    /**
+     * @dev Mapping to track cumulative filled output amounts for partial fills.
+     * The outer key is the order commitment hash.
+     * The inner key is the output token identifier (bytes32).
+     * The value is the cumulative amount of that output token filled so far.
+     */
+    mapping(bytes32 => mapping(bytes32 => uint256)) public _partialFills;
 
     /**
      * @dev Mapping to store destination-specific protocol fees.
      * The key is keccak256(stateMachineId) and the value is the protocol fee in basis points.
      * If the value is 0, falls back to the source chain protocol fee from _params.protocolFeeBps.
      */
-    mapping(bytes32 => uint256) private _destinationProtocolFees;
+    mapping(bytes32 => uint256) public _destinationProtocolFees;
 
     /// @notice Thrown when an unauthorized action is attempted.
     error Unauthorized();
@@ -192,6 +201,15 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      * @param filler The address of the entity that filled the order.
      */
     event OrderFilled(bytes32 indexed commitment, address filler);
+
+    /**
+     * @dev Emitted when an order is partially filled.
+     * @param commitment The unique identifier of the order.
+     * @param filler The address of the entity that partially filled the order.
+     * @param outputs The output tokens and amounts that were filled in this partial fill.
+     * @param inputs The input tokens and amounts that were released to the filler.
+     */
+    event PartialFill(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
      * @dev Emitted when an escrow is released.
@@ -279,12 +297,11 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     /**
      * @dev Checks that the request originates from a known instance of the IntentGateway.
      */
-    modifier authenticate(PostRequest calldata request) {
+    function authenticate(PostRequest calldata request) internal view {
         if (request.from.length != 20) revert InvalidInput();
         address module = address(bytes20(request.from));
         // IntentGateway only accepts incoming assets from itself or known instances
         if (instance(request.source) != module) revert Unauthorized();
-        _;
     }
 
     /**
@@ -356,7 +373,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 if (protocolFee > 0) emit DustCollected(token, protocolFee);
 
                 reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
-
                 unchecked {
                     ++i;
                 }
@@ -525,7 +541,20 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         if (order.deadline < block.number) revert Expired();
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // cross-chain limit orders don't need solver selection, they can be filled directly
+        address hostAddr = host();
+        bytes32 currentChain = keccak256(IDispatcher(hostAddr).host());
+        bytes32 orderSource = keccak256(order.source);
+        bytes32 orderDest = keccak256(order.destination);
+        bool isSameChain = orderSource == orderDest;
+
+        // For same-chain swaps, must be on the source chain
+        if (isSameChain && orderSource != currentChain) revert WrongChain();
+        // For cross-chain, must be on the destination chain
+        if (!isSameChain && orderDest != currentChain) revert WrongChain();
+
+        // Ensure the order has not been fully filled or cancelled
+        if (_filled[commitment] != address(0)) revert Filled();
+
         if (_params.solverSelection) {
             // Verify solver selection
             bytes32 solver;
@@ -540,153 +569,229 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             if (address(uint160(uint256(storedSessionKey))) != order.session) revert Unauthorized();
         }
 
-        address hostAddr = host();
-
-        // Ensure the order is being filled on the correct chain
-        if (keccak256(order.destination) != keccak256(IDispatcher(hostAddr).host())) revert WrongChain();
-
-        // Ensure the order has not been filled
-        if (_filled[commitment] != address(0)) revert Filled();
-
         // Validate that solver outputs are provided and match order outputs length
         uint256 outputsLen = order.output.assets.length;
         if (options.outputs.length != outputsLen) revert InvalidInput();
+        if (order.inputs.length != outputsLen) revert InvalidInput();
 
-        // no sneaky replay attacks
-        _filled[commitment] = msg.sender;
+        // For cross-chain: mark filled immediately to prevent replay
+        if (!isSameChain) _filled[commitment] = msg.sender;
 
-        // fill the order
+        // Fill the order outputs
         uint256 msgValue = msg.value;
         address beneficiary = address(uint160(uint256(order.output.beneficiary)));
+        bool isFullyFilled = true;
+
+        // For same-chain: build proportional escrowed input amounts and track output fills
+        TokenInfo[] memory escrowedInputs;
+        TokenInfo[] memory outputFills;
+        if (isSameChain) {
+            escrowedInputs = new TokenInfo[](outputsLen);
+            outputFills = new TokenInfo[](outputsLen);
+        }
+
+        for (uint256 i; i < outputsLen; i++) {
+            bytes32 outputToken = order.output.assets[i].token;
+            if (options.outputs[i].token != outputToken) revert InvalidInput();
+
+            address token = address(uint160(uint256(outputToken)));
+            uint256 totalRequired = order.output.assets[i].amount;
+            uint256 solverAmount = options.outputs[i].amount;
+
+            if (isSameChain) {
+                uint256 alreadyFilled = _partialFills[commitment][outputToken];
+                uint256 remaining = totalRequired - alreadyFilled;
+                if (remaining == 0 || solverAmount == 0) continue;
+                uint256 fillAmount;
+
+                // Surplus only applies if this pair has not been partially filled
+                uint256 beneficiaryShare = 0;
+                uint256 protocolShare = 0;
+                if (alreadyFilled == 0 && solverAmount > totalRequired) {
+                    fillAmount = totalRequired;
+                    uint256 dust = solverAmount - totalRequired;
+                    if (order.output.call.length > 0) {
+                        protocolShare = dust;
+                    } else {
+                        protocolShare = (dust * _params.surplusShareBps) / 10_000;
+                        beneficiaryShare = dust - protocolShare;
+                    }
+                } else {
+                    fillAmount = solverAmount > remaining ? remaining : solverAmount;
+                }
+
+                uint256 amountFilled = alreadyFilled + fillAmount;
+                _partialFills[commitment][outputToken] = amountFilled;
+                uint256 beneficiaryTotal = fillAmount + beneficiaryShare;
+
+                if (token == address(0)) { 
+                    if (msgValue < beneficiaryTotal + protocolShare) revert InsufficientNativeToken();
+                    msgValue -= (beneficiaryTotal + protocolShare);
+                    (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
+                    if (!sent) revert InsufficientNativeToken();
+                } else {
+                    IERC20(token).safeTransferFrom(msg.sender, beneficiary, beneficiaryTotal);
+                    if (protocolShare > 0) {
+                        IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+                    }
+                }
+
+                if (totalRequired > amountFilled) isFullyFilled = false;
+                if (protocolShare > 0) emit DustCollected(token, protocolShare);
+
+                // Compute proportional input release for this pair
+                // On the final fill for this pair, release the full remaining escrow
+                // to avoid rounding dust being permanently locked
+                uint256 escrowedAmount;
+                if (amountFilled == totalRequired) {
+                    escrowedAmount = _orders[commitment][address(uint160(uint256(order.inputs[i].token)))];
+                } else {
+                    escrowedAmount = (order.inputs[i].amount * fillAmount) / totalRequired;
+                }
+                escrowedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: escrowedAmount});
+                outputFills[i] = TokenInfo({token: outputToken, amount: fillAmount});
+            } else {
+                // Cross-chain: all-or-nothing with surplus handling
+                if (solverAmount < totalRequired) revert InvalidInput();
+
+                uint256 dust = solverAmount - totalRequired;
+                uint256 beneficiaryShare = 0;
+                uint256 protocolShare = 0;
+
+                if (dust > 0) {
+                    if (order.output.call.length > 0) {
+                        protocolShare = dust;
+                    } else {
+                        protocolShare = (dust * _params.surplusShareBps) / 10_000;
+                        beneficiaryShare = dust - protocolShare;
+                    }
+                }
+
+                if (token == address(0)) {
+                    if (msgValue < solverAmount) revert InsufficientNativeToken();
+                    uint256 beneficiaryTotal = totalRequired + beneficiaryShare;
+                    (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
+                    if (!sent) revert InsufficientNativeToken();
+                    msgValue -= (beneficiaryTotal + protocolShare);
+                } else {
+                    IERC20(token).safeTransferFrom(msg.sender, beneficiary, totalRequired + beneficiaryShare);
+                    if (protocolShare > 0) {
+                        IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+                    }
+                }
+                if (protocolShare > 0) emit DustCollected(token, protocolShare);
+            }
+        }
+
+        if (isSameChain) {
+            // Release proportional escrowed inputs to solver via withdraw
+            WithdrawalRequest memory body = WithdrawalRequest({
+                commitment: commitment, tokens: escrowedInputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
+            });
+            withdraw(body, false, isFullyFilled);
+
+            if (isFullyFilled) {
+                // Execute calldata only after order is fully filled
+                _executeCalldata(order, outputsLen);
+
+                emit OrderFilled({commitment: commitment, filler: msg.sender});
+            } else {
+                emit PartialFill({
+                    commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs
+                });
+            }
+        } else {
+            // Execute calldata for cross-chain fills
+            _executeCalldata(order, outputsLen);
+
+            // Cross-chain swap: dispatch settlement message
+            bytes memory body = bytes.concat(
+                bytes1(uint8(RequestKind.RedeemEscrow)),
+                abi.encode(
+                    WithdrawalRequest({
+                        commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
+                    })
+                )
+            );
+            DispatchPost memory request = DispatchPost({
+                dest: order.source,
+                to: abi.encodePacked(instance(order.source)),
+                body: body,
+                timeout: 0,
+                fee: options.relayerFee,
+                payer: msg.sender
+            });
+
+            // dispatch settlement message
+            if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
+                // there's some native tokens left to pay for request dispatch
+                IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
+            } else {
+                // try to pay for dispatch with fee token
+                dispatchWithFeeToken(request, msg.sender);
+            }
+
+            emit OrderFilled({commitment: commitment, filler: msg.sender});
+        }
+
+        // Record spread with price oracle if configured
+        if (_params.priceOracle != address(0)) {
+            IIntentPriceOracle(_params.priceOracle)
+                .recordSpread(commitment, order.source, order.inputs, options.outputs);
+        }
+    }
+
+    /**
+     * @dev Executes post-fill calldata and sweeps any remaining tokens from the dispatcher.
+     */
+    function _executeCalldata(Order calldata order, uint256 outputsLen) internal {
+        if (order.output.call.length == 0) return;
+
+        address dispatcher = _params.dispatcher;
+        ICallDispatcher(dispatcher).dispatch(order.output.call);
+
+        // Sweep any tokens left in the dispatcher after execution
+        Call[] memory sweepCalls = new Call[](outputsLen);
+        uint256 sweepCount = 0;
+
         for (uint256 i; i < outputsLen;) {
             address token = address(uint160(uint256(order.output.assets[i].token)));
-            uint256 requestedAmount = order.output.assets[i].amount;
-
-            if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
-
-            uint256 solverAmount = options.outputs[i].amount;
-            if (solverAmount < requestedAmount) revert InvalidInput();
-
-            uint256 dust = solverAmount - requestedAmount;
-            uint256 beneficiaryShare = 0;
-            uint256 protocolShare = 0;
-
-            if (dust > 0) {
-                if (order.output.call.length > 0) {
-                    protocolShare = dust;
-                } else {
-                    protocolShare = (dust * _params.surplusShareBps) / 10_000;
-                    beneficiaryShare = dust - protocolShare;
-                }
-            }
 
             if (token == address(0)) {
-                if (msgValue < solverAmount) revert InsufficientNativeToken();
-
-                uint256 beneficiaryTotal = requestedAmount + beneficiaryShare;
-                (bool sent,) = beneficiary.call{value: beneficiaryTotal}("");
-                if (!sent) revert InsufficientNativeToken();
-
-                msgValue -= beneficiaryTotal;
+                uint256 balance = dispatcher.balance;
+                if (balance > 0) {
+                    sweepCalls[sweepCount] = Call({to: address(this), value: balance, data: ""});
+                    sweepCount++;
+                    emit DustCollected(token, balance);
+                }
             } else {
-                IERC20(token).safeTransferFrom(msg.sender, beneficiary, requestedAmount + beneficiaryShare);
-
-                if (protocolShare > 0) {
-                    IERC20(token).safeTransferFrom(msg.sender, address(this), protocolShare);
+                uint256 balance = IERC20(token).balanceOf(dispatcher);
+                if (balance > 0) {
+                    sweepCalls[sweepCount] = Call({
+                        to: token,
+                        value: 0,
+                        data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
+                    });
+                    sweepCount++;
+                    emit DustCollected(token, balance);
                 }
             }
-
-            if (protocolShare > 0) emit DustCollected(token, protocolShare);
 
             unchecked {
                 ++i;
             }
         }
 
-        if (order.output.call.length > 0) {
-            address dispatcher = _params.dispatcher;
-
-            ICallDispatcher(dispatcher).dispatch(order.output.call);
-
-            // Sweep any tokens left in the dispatcher after execution
-            uint256 assetsLen = order.output.assets.length;
-            Call[] memory sweepCalls = new Call[](assetsLen);
-            uint256 sweepCount = 0;
-
-            for (uint256 i; i < assetsLen;) {
-                address token = address(uint160(uint256(order.output.assets[i].token)));
-
-                if (token == address(0)) {
-                    // Native token
-                    uint256 balance = dispatcher.balance;
-                    if (balance > 0) {
-                        sweepCalls[sweepCount] = Call({to: address(this), value: balance, data: ""});
-                        sweepCount++;
-                        emit DustCollected(token, balance);
-                    }
-                } else {
-                    uint256 balance = IERC20(token).balanceOf(dispatcher);
-                    if (balance > 0) {
-                        sweepCalls[sweepCount] = Call({
-                            to: token,
-                            value: 0,
-                            data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
-                        });
-                        sweepCount++;
-                        emit DustCollected(token, balance);
-                    }
-                }
-
+        if (sweepCount > 0) {
+            Call[] memory finalCalls = new Call[](sweepCount);
+            for (uint256 i; i < sweepCount;) {
+                finalCalls[i] = sweepCalls[i];
                 unchecked {
                     ++i;
                 }
             }
-
-            if (sweepCount > 0) {
-                Call[] memory finalCalls = new Call[](sweepCount);
-                for (uint256 i; i < sweepCount;) {
-                    finalCalls[i] = sweepCalls[i];
-                    unchecked {
-                        ++i;
-                    }
-                }
-                ICallDispatcher(dispatcher).dispatch(abi.encode(finalCalls));
-            }
+            ICallDispatcher(dispatcher).dispatch(abi.encode(finalCalls));
         }
-
-        // construct settlement message
-        bytes memory body = bytes.concat(
-            bytes1(uint8(RequestKind.RedeemEscrow)),
-            abi.encode(
-                RequestBody({
-                    commitment: commitment, tokens: order.inputs, beneficiary: bytes32(uint256(uint160(msg.sender)))
-                })
-            )
-        );
-        DispatchPost memory request = DispatchPost({
-            dest: order.source,
-            to: abi.encodePacked(instance(order.source)),
-            body: body,
-            timeout: 0,
-            fee: options.relayerFee,
-            payer: msg.sender
-        });
-
-        // dispatch settlement message
-        if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
-            // there's some native tokens left to pay for request dispatch
-            IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
-        } else {
-            // try to pay for dispatch with fee token
-            dispatchWithFeeToken(request, msg.sender);
-        }
-
-        // Record spread with price oracle if configured
-        if (_params.priceOracle != address(0)) {
-            IIntentPriceOracle(_params.priceOracle).recordSpread(commitment, order.source, order.inputs, options.outputs);
-        }
-
-        emit OrderFilled({commitment: commitment, filler: msg.sender});
     }
 
     /**
@@ -700,53 +805,121 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     function cancelOrder(Order calldata order, CancelOptions calldata options) public payable {
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // only owner can cancel order
-        if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
-
-        // order has not yet expired
-        if (options.height <= order.deadline) revert NotExpired();
-
         // order has already been filled
         if (_filled[commitment] != address(0)) revert Filled();
 
-        // fetch the tokens
-        uint256 inputsLen = order.inputs.length;
-        for (uint256 i; i < inputsLen;) {
-            // check for order existence
-            if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        bytes memory context =
-            abi.encode(RequestBody({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
-
-        bytes[] memory keys = new bytes[](1);
-        keys[0] = bytes.concat(
-            // contract address
-            abi.encodePacked(instance(order.destination)),
-            // storage slot hash
-            calculateCommitmentSlotHash(commitment)
-        );
-        DispatchGet memory request = DispatchGet({
-            dest: order.destination,
-            keys: keys,
-            timeout: 0,
-            height: uint64(options.height),
-            fee: options.relayerFee,
-            context: context
-        });
-
-        // dispatch storage query request
         address hostAddr = host();
-        if (msg.value > 0) {
-            // there's some native tokens left to pay for request dispatch
-            IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+        bytes32 currentChain = keccak256(IDispatcher(hostAddr).host());
+        bytes32 orderSource = keccak256(order.source);
+        bytes32 orderDest = keccak256(order.destination);
+        bool isSameChain = orderSource == orderDest;
+
+        if (isSameChain) {
+            // Same-chain: validate locally and refund immediately
+            // only owner can cancel
+            if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+
+            // Verify we're on the correct chain
+            if (orderSource != currentChain) revert WrongChain();
+
+            // Build tokens with remaining escrowed amounts (handles partially filled orders)
+            uint256 inputsLen = order.inputs.length;
+            TokenInfo[] memory remainingTokens = new TokenInfo[](inputsLen);
+            bool hasEscrow = false;
+            for (uint256 i; i < inputsLen;) {
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                uint256 escrowed = _orders[commitment][token];
+                if (escrowed > 0) hasEscrow = true;
+                remainingTokens[i] = TokenInfo({token: order.inputs[i].token, amount: escrowed});
+                unchecked {
+                    ++i;
+                }
+            }
+            if (!hasEscrow) revert UnknownOrder();
+
+            WithdrawalRequest memory body =
+                WithdrawalRequest({commitment: commitment, tokens: remainingTokens, beneficiary: order.user});
+
+            withdraw(body, true, true);
+        } else if (currentChain == orderSource) {
+            // source chain: fetch storage proof from destination
+            // only owner can cancel order
+            if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+
+            // order has not yet expired
+            if (options.height <= order.deadline) revert NotExpired();
+
+            // Cross-chain: fetch storage proof
+            uint256 inputsLen = order.inputs.length;
+            for (uint256 i; i < inputsLen;) {
+                // check for order existence
+                if (_orders[commitment][address(uint160(uint256(order.inputs[i].token)))] == 0) revert UnknownOrder();
+
+                unchecked {
+                    ++i;
+                }
+            }
+
+            bytes memory context =
+                abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}));
+
+            bytes[] memory keys = new bytes[](1);
+            keys[0] = bytes.concat(
+                // contract address
+                abi.encodePacked(instance(order.destination)),
+                // storage slot hash
+                calculateCommitmentSlotHash(commitment)
+            );
+            DispatchGet memory request = DispatchGet({
+                dest: order.destination,
+                keys: keys,
+                timeout: 0,
+                height: uint64(options.height),
+                fee: options.relayerFee,
+                context: context
+            });
+
+            // dispatch storage query request
+            if (msg.value > 0) {
+                // there's some native tokens left to pay for request dispatch
+                IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+            } else {
+                // try to pay for dispatch with fee token
+                dispatchWithFeeToken(request, msg.sender);
+            }
+        } else if (currentChain == orderDest) {
+            // destination chain: dispatch RefundEscrow request to source chain
+            // If order hasn't expired, only owner can cancel
+            if (order.deadline >= block.number) {
+                if (order.user != bytes32(uint256(uint160(msg.sender)))) revert Unauthorized();
+            }
+
+            // Mark as cancelled locally to prevent fills
+            _filled[commitment] = address(uint160(uint256(order.user)));
+
+            bytes memory body = bytes.concat(
+                bytes1(uint8(RequestKind.RefundEscrow)),
+                abi.encode(WithdrawalRequest({commitment: commitment, tokens: order.inputs, beneficiary: order.user}))
+            );
+
+            DispatchPost memory request = DispatchPost({
+                dest: order.source,
+                to: abi.encodePacked(instance(order.source)),
+                body: body,
+                timeout: 0,
+                fee: options.relayerFee,
+                payer: msg.sender
+            });
+
+            // dispatch refund request
+            if (msg.value > 0) {
+                IDispatcher(hostAddr).dispatch{value: msg.value}(request);
+            } else {
+                // try to pay for dispatch with fee token
+                dispatchWithFeeToken(request, msg.sender);
+            }
         } else {
-            // try to pay for dispatch with fee token
-            dispatchWithFeeToken(request, msg.sender);
+            revert WrongChain();
         }
     }
 
@@ -758,7 +931,11 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         RequestKind kind = RequestKind(uint8(incoming.request.body[0]));
-        if (kind == RequestKind.RedeemEscrow) return redeem(incoming.request);
+        if (kind == RequestKind.RedeemEscrow || kind == RequestKind.RefundEscrow) {
+            authenticate(incoming.request);
+            WithdrawalRequest memory body = abi.decode(incoming.request.body[1:], (WithdrawalRequest));
+            return withdraw(body, kind == RequestKind.RefundEscrow, true);
+        }
 
         // only hyperbridge is permitted to perfom these actions
         if (keccak256(incoming.request.source) != keccak256(IDispatcher(host()).hyperbridge())) revert Unauthorized();
@@ -770,7 +947,6 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
         } else if (kind == RequestKind.UpdateParams) {
             // Decode the body which includes optional destination-specific protocol fee updates
             ParamsUpdate memory update = abi.decode(incoming.request.body[1:], (ParamsUpdate));
-
             emit ParamsUpdated({previous: _params, current: update.params});
             _params = update.params;
 
@@ -778,14 +954,12 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
             for (uint256 i; i < update.destinationFees.length;) {
                 bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
                 uint256 feeBps = update.destinationFees[i].destinationFeeBps;
-
                 _destinationProtocolFees[stateMachineId] = feeBps;
-
-                emit DestinationProtocolFeeUpdated(stateMachineId, feeBps);
 
                 unchecked {
                     ++i;
                 }
+                emit DestinationProtocolFeeUpdated(stateMachineId, feeBps);
             }
         } else if (kind == RequestKind.SweepDust) {
             SweepDust memory req = abi.decode(incoming.request.body[1:], (SweepDust));
@@ -802,57 +976,59 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
                 } else {
                     IERC20(token).safeTransfer(req.beneficiary, amount);
                 }
-
-                emit DustSwept(token, amount, req.beneficiary);
-
                 unchecked {
                     ++i;
                 }
+                emit DustSwept(token, amount, req.beneficiary);
             }
         }
     }
 
     /**
-     * @notice Redeems the escrowed tokens for an incoming post request.
-     * @dev This function is marked as internal and requires authentication.
-     * @param request The incoming post request data.
+     * @notice Withdraws the escrowed tokens for a request body.
+     * @param body The request body containing commitment, tokens, and beneficiary.
+     * @param isRefund Whether this is a refund (true) or a successful fill (false).
+     *   When true, uses remaining escrowed amount per token (handles partially filled orders).
+     * @param finalize When true, marks the order as filled/cancelled, releases tx fees, and emits events.
+     *   Set to false for partial fill escrow releases.
      */
-    function redeem(PostRequest calldata request) internal authenticate(request) {
-        RequestBody memory body = abi.decode(request.body[1:], (RequestBody));
+    function withdraw(WithdrawalRequest memory body, bool isRefund, bool finalize) internal {
         address beneficiary = address(uint160(uint256(body.beneficiary)));
+        if (finalize) _filled[body.commitment] = beneficiary;
 
         // redeem escrowed tokens
         uint256 len = body.tokens.length;
-        for (uint256 i; i < len;) {
+        for (uint256 i; i < len; i++) {
             address token = address(uint160(uint256(body.tokens[i].token)));
             uint256 amount = body.tokens[i].amount;
-            if (_orders[body.commitment][token] == 0) revert UnknownOrder();
+            if (amount == 0) continue;
 
+            uint256 escrowed = _orders[body.commitment][token];
+            if (escrowed == 0) revert UnknownOrder();
+
+            _orders[body.commitment][token] = escrowed - amount;
             if (token == address(0)) {
                 (bool sent,) = beneficiary.call{value: amount}("");
                 if (!sent) revert InsufficientNativeToken();
             } else {
                 IERC20(token).safeTransfer(beneficiary, amount);
             }
+        }
 
-            _orders[body.commitment][token] -= amount;
+        if (finalize) {
+            // redeem tx fees
+            uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
+            if (fees > 0) {
+                delete _orders[body.commitment][TRANSACTION_FEES];
+                IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
+            }
 
-            unchecked {
-                ++i;
+            if (isRefund) {
+                emit EscrowRefunded({commitment: body.commitment});
+            } else {
+                emit EscrowReleased({commitment: body.commitment});
             }
         }
-
-        // redeem tx fees
-        uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
-        if (fees > 0) {
-            IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
-
-            delete _orders[body.commitment][TRANSACTION_FEES];
-        }
-
-        _filled[body.commitment] = beneficiary;
-
-        emit EscrowReleased({commitment: body.commitment});
     }
 
     /**
@@ -864,38 +1040,7 @@ contract IntentGatewayV2 is HyperApp, EIP712 {
     function onGetResponse(IncomingGetResponse calldata incoming) external override onlyHost {
         if (incoming.response.values[0].value.length != 0) revert Filled();
 
-        RequestBody memory body = abi.decode(incoming.response.request.context, (RequestBody));
-        address beneficiary = address(uint160(uint256(body.beneficiary)));
-
-        // recover escrowed tokens
-        uint256 len = body.tokens.length;
-        for (uint256 i; i < len;) {
-            address token = address(uint160(uint256(body.tokens[i].token)));
-            uint256 amount = body.tokens[i].amount;
-            if (_orders[body.commitment][token] == 0) revert UnknownOrder();
-
-            if (token == address(0)) {
-                (bool sent,) = beneficiary.call{value: amount}("");
-                if (!sent) revert InsufficientNativeToken();
-            } else {
-                IERC20(token).safeTransfer(beneficiary, amount);
-            }
-
-            _orders[body.commitment][token] -= amount;
-
-            unchecked {
-                ++i;
-            }
-        }
-
-        // recover tx fees
-        uint256 fees = _orders[body.commitment][TRANSACTION_FEES];
-        if (fees > 0) {
-            IERC20(IDispatcher(host()).feeToken()).safeTransfer(beneficiary, fees);
-
-            delete _orders[body.commitment][TRANSACTION_FEES];
-        }
-
-        emit EscrowRefunded({commitment: body.commitment});
+        WithdrawalRequest memory body = abi.decode(incoming.response.request.context, (WithdrawalRequest));
+        withdraw(body, true, true);
     }
 }

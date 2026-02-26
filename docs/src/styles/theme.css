@@ -1,0 +1,299 @@
+@theme {
+    --font-math: "LatinModern1959";
+    --font-mono:
+        "BerkeleyMono", "BerkeleyMonoVariable", ui-monospace, monospace;
+}
+
+@theme inline {
+    --color-brand-purple: oklch(0.77 0.12 287 / 1);
+    --color-brand-white-200: oklch(from var(--color-brand-white-500) 70% c h);
+    --color-brand-white-300: oklch(from var(--color-brand-white-500) 90% c h);
+    --color-fd-primary: var(--color-brand-purple);
+}
+
+:root {
+    --color-fd-card: white;
+    --color-fd-secondary: oklch(0.95 0 0);
+    --color-fd-accent: oklch(0.98 0 0);
+    --color-fd-accent-foreground: var(--color-brand-purple);
+    --color-fd-muted-foreground: oklch(0.5 0 0);
+
+    &.dark {
+        --color-fd-card: var(--color-brand-black-500);
+        --color-fd-secondary: var(--color-brand-black-350);
+        --color-fd-accent: var(--color-brand-black-500);
+        --color-fd-muted-foreground: var(--color-brand-black-100);
+    }
+}
+
+.fd-steps {
+    border-color: var(--color-fd-secondary);
+}
+
+body {
+    @apply font-sans;
+    font-synthesis: none;
+    background-color: white;
+    color: oklch(0.3 0 0);
+}
+
+#nd-sidebar {
+    @apply font-sans;
+    background-color: oklch(0.98 0 0);
+    color: oklch(0.3 0 0);
+}
+
+:root.dark body {
+    @apply bg-brand-black-600 text-brand-white-400;
+}
+
+:root.dark #nd-sidebar {
+    @apply bg-brand-black-600 text-brand-white-400;
+}
+
+kbd {
+    @apply font-sans font-normal text-xs;
+}
+
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-brand-black-300);
+    }
+}
+
+/* Aside */
+#nd-sidebar {
+    div > p {
+        @apply font-medium;
+    }
+}
+
+/* Aside */
+
+/*Heading */
+:where(h1, h2, h3, h4, h5):not(
+    :where([class~="not-prose"], [class~="not-prose"] *)
+) {
+    @apply font-medium;
+    color: oklch(0.2 0 0);
+}
+
+:root.dark
+    :where(h1, h2, h3, h4, h5):not(
+        :where([class~="not-prose"], [class~="not-prose"] *)
+    ) {
+    @apply text-white;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    a {
+        color: oklch(0.2 0 0);
+    }
+}
+
+:root.dark h1,
+:root.dark h2,
+:root.dark h3,
+:root.dark h4,
+:root.dark h5,
+:root.dark h6 {
+    a {
+        @apply text-white;
+    }
+}
+
+/* End Heading */
+
+/* Links */
+a {
+    @apply no-underline hover:underline;
+    color: oklch(0.4 0 0);
+}
+
+:root.dark a {
+    @apply text-brand-white-400;
+}
+
+a[data-active="false"] {
+    @apply no-underline hover:underline;
+    color: oklch(0.5 0 0);
+}
+
+:root.dark a[data-active="false"] {
+    @apply text-brand-black-100;
+}
+
+a[data-active="true"] {
+    @apply no-underline hover:underline;
+    color: oklch(0.3 0 0);
+}
+
+:root.dark a[data-active="true"] {
+    @apply text-brand-white-400;
+}
+
+aside {
+    a[data-active="true"],
+    a[data-active="false"] {
+        @apply hover:no-underline;
+    }
+}
+
+.prose + div {
+    a {
+        @apply hover:no-underline;
+    }
+}
+
+/* Prose */
+.prose a[rel] {
+    @apply text-brand-purple no-underline hover:no-underline;
+}
+
+p {
+    @apply leading-[3ex] font-[300];
+    color: oklch(0.35 0 0);
+
+    a {
+        @apply font-normal text-brand-purple;
+    }
+
+    b,
+    strong {
+        @apply font-normal font-medium;
+        color: oklch(0.15 0 0);
+    }
+}
+
+:root.dark p {
+    @apply text-brand-white-300;
+
+    b,
+    strong {
+        @apply text-white;
+    }
+}
+
+.prose + div {
+    a div svg + p {
+        @apply font-medium;
+    }
+}
+
+/* End Prose */
+
+/* PsuedoCode*/
+@layer math-override {
+    .ps-root {
+        @apply rounded-sm text-lg border rounded-2xl;
+        background-color: oklch(0.97 0 0);
+        color: oklch(0.2 0 0);
+
+        * {
+            @apply font-math;
+        }
+
+        .with-caption {
+            @apply !border-none my-0;
+
+            > p {
+                @apply font-mono text-xs p-4 flex justify-center border-y-0 indent-0 w-full;
+                color: oklch(0.2 0 0);
+
+                .ps-keyword {
+                    @apply font-mono flex-1 indent-0 font-semibold whitespace-nowrap text-brand-purple;
+                    /*font-synthesis: unset !important;*/
+                }
+            }
+        }
+
+        .with-linenum {
+            @apply mt-0 border-t p-4 rounded-2xl font-math;
+            background-color: oklch(0.95 0 0);
+        }
+
+        .ps-block {
+            .ps-linenum {
+                @apply font-mono tabular-nums w-[3ch] text-end;
+                color: oklch(0.5 0 0);
+            }
+
+            .ps-keyword {
+                @apply font-semibold;
+                color: oklch(0.45 0.15 140);
+                font-synthesis: unset !important;
+            }
+
+            .ps-funcname {
+                color: oklch(0.55 0.15 80);
+                font-synthesis: unset !important;
+            }
+        }
+    }
+
+    :root.dark .ps-root {
+        @apply bg-brand-black-550;
+        color: white;
+
+        .with-caption {
+            > p {
+                @apply !text-white;
+            }
+        }
+
+        .with-linenum {
+            @apply bg-brand-black-500;
+        }
+
+        .ps-block {
+            .ps-linenum {
+                @apply text-brand-white-200;
+            }
+
+            .ps-keyword {
+                @apply text-lime-200;
+            }
+
+            .ps-funcname {
+                @apply text-yellow-400;
+            }
+        }
+    }
+}
+
+/* End PsuedoCode*/
+
+@layer code {
+    .katex > math[display="block"],
+    .katex-display {
+        @apply rounded-sm text-lg p-3 overflow-x-auto;
+        background-color: oklch(0.95 0 0);
+    }
+
+    :root.dark .katex > math[display="block"],
+    :root.dark .katex-display {
+        @apply bg-brand-black-500;
+    }
+}
+
+code,
+pre,
+kbd,
+code .line {
+    font-family: var(--font-mono);
+}
+
+/* Fix line number spacing in code blocks */
+[data-line-numbers]
+    .line:is(pre *):is(.shiki *):not(.not-fumadocs-codeblock *) {
+    padding-left: calc(var(--padding-left) + 9 * var(--spacing));
+}

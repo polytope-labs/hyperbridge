@@ -15,20 +15,18 @@
 
 //! Tendermint EVM State Machine client implementation
 
-use ibc::core::{
-	commitment_types::{
-		commitment::CommitmentProofBytes,
-		merkle::{MerklePath, MerkleProof},
-		proto::v1::MerkleRoot,
-		specs::ProofSpecs,
-	},
-	host::types::path::PathBytes,
+use ibc_core_commitment_types::{
+	commitment::CommitmentProofBytes,
+	merkle::{MerklePath, MerkleProof},
+	proto::v1::MerkleRoot,
+	specs::ProofSpecs,
 };
+use ibc_core_host::types::path::PathBytes;
 use ismp::{
 	consensus::{StateCommitment, StateMachineClient},
 	error::Error,
 	host::IsmpHost,
-	messaging::Proof,
+	messaging::{Keccak256, Proof},
 	router::RequestResponse,
 };
 use pallet_ismp_host_executive::EvmHosts;
@@ -71,7 +69,9 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 		let contract_address = EvmHosts::<T>::get(&proof.height.id.state_id)
 			.ok_or_else(|| Error::Custom("Ismp contract address not found".to_string()))?;
 
-		let slot_keys = req_res_commitment_key::<ICS23HostFunctions>(item);
+		let slot_keys = req_res_commitment_key::<ICS23HostFunctions, _>(item, |k| {
+			ICS23HostFunctions::keccak256(k).0.to_vec()
+		});
 
 		let proofs: Vec<crate::types::EvmKVProof> = codec::Decode::decode(&mut &proof.proof[..])
 			.map_err(|e| Error::Custom(e.to_string()))?;

@@ -30,9 +30,7 @@ mod weights;
 pub mod xcm;
 
 use alloc::vec::Vec;
-use cumulus_pallet_parachain_system::{
-	DefaultCoreSelector, RelayChainState, RelayNumberMonotonicallyIncreases,
-};
+use cumulus_pallet_parachain_system::{RelayChainState, RelayNumberMonotonicallyIncreases};
 use cumulus_primitives_core::AggregateMessageOrigin;
 use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
@@ -240,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 4_700,
+	spec_version: 5_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -458,7 +456,6 @@ impl cumulus_pallet_parachain_system::Config for Runtime {
 	type DmpQueue = frame_support::traits::EnqueueWithOrigin<MessageQueue, RelayOrigin>;
 	type WeightInfo = weights::cumulus_pallet_parachain_system::WeightInfo<Runtime>;
 	type ConsensusHook = ConsensusHook;
-	type SelectCore = DefaultCoreSelector<Self>;
 	type RelayParentOffset = ConstU32<0>;
 }
 
@@ -510,6 +507,7 @@ impl pallet_message_queue::Config for Runtime {
 parameter_types! {
 	pub const Period: u32 = 6 * HOURS;
 	pub const Offset: u32 = 0;
+	pub const SessionKeyDeposit: Balance = EXISTENTIAL_DEPOSIT * 10;
 }
 
 impl pallet_session::Config for Runtime {
@@ -525,6 +523,8 @@ impl pallet_session::Config for Runtime {
 	type Keys = SessionKeys;
 	type DisablingStrategy = UpToLimitDisablingStrategy;
 	type WeightInfo = weights::pallet_session::WeightInfo<Runtime>;
+	type Currency = Balances;
+	type KeyDeposit = SessionKeyDeposit;
 }
 
 impl pallet_aura::Config for Runtime {
@@ -808,6 +808,8 @@ mod runtime {
 	pub type StateCoprocessor = pallet_state_coprocessor;
 	#[runtime::pallet_index(61)]
 	pub type Fishermen = pallet_fishermen;
+	#[runtime::pallet_index(65)]
+	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 	#[runtime::pallet_index(62)]
 	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
 	#[runtime::pallet_index(63)]
@@ -845,8 +847,7 @@ mod benches {
 		[pallet_balances, Balances]
 		[pallet_session, cumulus_pallet_session_benchmarking::Pallet::<Runtime>]
 		[pallet_timestamp, Timestamp]
-		// benchmarks are broken in v1.6.0
-		// [pallet_collator_selection, CollatorSelection]
+		[pallet_collator_selection, CollatorSelection]
 		// todo: benchmarking requires painful configuration steps
 		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
@@ -861,6 +862,7 @@ mod benches {
 		[pallet_session, SessionBench::<Runtime>]
 		[ismp_grandpa, IsmpGrandpa]
 		[ismp_parachain, IsmpParachain]
+		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
 	);
@@ -890,7 +892,7 @@ impl_runtime_apis! {
 			VERSION
 		}
 
-		fn execute_block(block: Block) {
+		fn execute_block(block: <Block as BlockT>::LazyBlock) {
 			Executive::execute_block(block)
 		}
 
@@ -928,7 +930,7 @@ impl_runtime_apis! {
 		}
 
 		fn check_inherents(
-			block: Block,
+			block: <Block as BlockT>::LazyBlock,
 			data: sp_inherents::InherentData,
 		) -> sp_inherents::CheckInherentsResult {
 			data.check_extrinsics(&block)
@@ -1013,6 +1015,7 @@ impl_runtime_apis! {
 			TransactionPayment::length_to_fee(length)
 		}
 	}
+
 	impl pallet_mmr_runtime_api::MmrRuntimeApi<Block, <Block as BlockT>::Hash, BlockNumber, Leaf> for Runtime {
 		/// Return Block number where pallet-mmr was added to the runtime
 		fn pallet_genesis() -> Result<Option<BlockNumber>, sp_mmr_primitives::Error> {
@@ -1128,7 +1131,7 @@ impl_runtime_apis! {
 			Vec<frame_benchmarking::BenchmarkList>,
 			Vec<frame_support::traits::StorageInfo>,
 		) {
-			use frame_benchmarking::{Benchmarking, BenchmarkList};
+			use frame_benchmarking::BenchmarkList;
 			use frame_support::traits::StorageInfoTrait;
 			use frame_system_benchmarking::Pallet as SystemBench;
 			use cumulus_pallet_session_benchmarking::Pallet as SessionBench;
@@ -1143,7 +1146,7 @@ impl_runtime_apis! {
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>,  alloc::string::String> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch};
+			use frame_benchmarking::BenchmarkBatch;
 			use frame_system_benchmarking::Pallet as SystemBench;
 
 			impl frame_system_benchmarking::Config for Runtime {

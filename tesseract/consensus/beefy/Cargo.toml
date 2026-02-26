@@ -13,14 +13,15 @@ subxt = { workspace = true }
 codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
 futures = "0.3.28"
 async-trait = "0.1.53"
-tokio = { version = "1.32.0", features = ["full", "sync"] }
+async-stream = "0.3"
+tokio = { workspace = true, features = ["full", "sync"] }
 finality-grandpa = "0.16.2"
 log = "0.4.20"
 hex = { workspace = true }
 hex-literal = "0.4.1"
 sp-core = { workspace = true, features = ["full_crypto"] }
-ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
-ethabi = { version = "18.0.0", features = ["rlp", "full-serde"], default-features = false }
+alloy-sol-types = { workspace = true }
+alloy-primitives = { workspace = true }
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

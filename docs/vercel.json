@@ -1,0 +1,24 @@
+{
+  "redirects": [
+    {
+      "source": "/docs/developers/explore/permissionless-relayers",
+      "destination": "/docs/developers/explore/relayers",
+      "permanent": true
+    },
+    {
+      "source": "/docs/developers/explore/permissionless-relayers/:path*",
+      "destination": "/docs/developers/explore/relayers/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/docs/developers/configurations",
+      "destination": "/docs/developers/evm/contract-addresses",
+      "permanent": true
+    },
+    {
+      "source": "/docs/developers/configurations/:path*",
+      "destination": "/docs/developers/evm/contract-addresses/:path*",
+      "permanent": true
+    }
+  ]
+}

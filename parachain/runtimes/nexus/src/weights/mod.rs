@@ -33,6 +33,7 @@ pub mod pallet_balances;
 pub mod pallet_collator_selection;
 pub mod pallet_collective;
 pub mod pallet_conviction_voting;
+pub mod pallet_intents_coprocessor;
 pub mod pallet_message_queue;
 pub mod pallet_messaging_fees;
 pub mod pallet_multisig;

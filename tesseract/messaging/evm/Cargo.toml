@@ -6,14 +6,11 @@ description = "EVM primitives for ISMP messaging relay"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
-[build-dependencies]
-anyhow = { workspace = true }
-ethers-contract-abigen = { workspace = true }
-
 [dependencies]
 reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0.164", features = ["derive"] }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 primitive-types = { workspace = true, default-features = true }
 futures = "0.3.28"
 async-trait = "0.1.71"
@@ -22,15 +19,21 @@ serde_json = "1.0.105"
 hex-literal = { version = "0.4.1" }
 sp-core = { workspace = true, features = ["full_crypto"] }
 log = "0.4.19"
-ethers = { workspace = true, features = ["rustls"] }
-ethabi = { workspace = true, features = ["full-serde"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-default-tls"] }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-contract = { workspace = true }
+alloy-rlp = { workspace = true }
+alloy-json-rpc = { workspace = true }
+alloy-transport = { workspace = true }
+tower = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tokio-stream = { workspace = true }
 reqwest-retry = "0.3.0"
 reqwest-middleware = "0.2.4"
 async-recursion = "1.0.5"
-superchain-registry = { version = "0.11", default-features = false }
-op-alloy-genesis = "=0.6.2"                                          # need to pin this transitive dependency
+
 jsonrpsee = { workspace = true, features = ["ws-client"] }
 
 ismp-solidity-abi = { workspace = true, default-features = true }
@@ -50,7 +53,6 @@ reconnecting-jsonrpsee-ws-client = { workspace = true, default-features = true }
 pallet-ismp-host-executive = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
 tendermint-prover = {workspace =  true, default-features = false}
-ibc = {workspace = true, default-features = false }
 ics23 = { workspace = true, default-features = false }
 tendermint-ics23-primitives = { workspace = true, default-features = false }
 prost = { workspace = true, default-features = false }
@@ -68,11 +70,11 @@ version = "3.2.2"
 features = ["derive"]
 
 [dev-dependencies]
-alloy-rlp = { workspace = true, default-features = true }
 alloy-rlp-derive = { workspace = true, default-features = true }
 alloy-primitives = { workspace = true, default-features = true }
 hex = "0.4.3"
 dotenv = "0.15.0"
+env_logger = "0.10.0"
 
 [features]
 testing = []

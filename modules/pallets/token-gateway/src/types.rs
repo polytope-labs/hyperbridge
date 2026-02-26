@@ -27,6 +27,13 @@ use crate::Config;
 pub type AssetId<T> =
 	<<T as Config>::Assets as fungibles::Inspect<<T as frame_system::Config>::AccountId>>::AssetId;
 
+/// Size of Body struct in ABI encoding (5 fixed-size fields * 32 bytes each)
+/// uint256 (32) + bytes32 (32) + bool (32, padded) + bytes32 (32) + bytes32 (32) = 160 bytes
+pub const BODY_BYTES_SIZE: usize = 160;
+
+/// Size of Body with discriminator byte (1 byte + 160 bytes)
+pub const BODY_BYTES_SIZE_WITH_DISCRIMINATOR: usize = BODY_BYTES_SIZE + 1;
+
 /// Asset teleportation parameters
 #[derive(
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,

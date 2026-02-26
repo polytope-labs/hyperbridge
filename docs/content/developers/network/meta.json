@@ -1,0 +1,9 @@
+{
+  "title": "Network",
+  "pages": [
+    "node",
+    "collator",
+    "consensus-relayer",
+    "messaging-relayer"
+  ]
+}

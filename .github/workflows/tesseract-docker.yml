@@ -22,11 +22,6 @@ jobs:
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
-            - name: Download SVM Releases List
-              run: |
-                  wget -O /tmp/svm_releases_list.json https://raw.githubusercontent.com/nikitastupin/solc/2287d4326237172acf91ce42fd7ec18a67b7f512/linux/aarch64/list.json
-                  echo "SVM_RELEASES_LIST_JSON=/tmp/svm_releases_list.json" >> $GITHUB_ENV
-
             - uses: webfactory/ssh-agent@v0.5.4
               with:
                   ssh-private-key: "${{ secrets.SSH_KEY }}"
@@ -35,6 +30,31 @@ jobs:
               uses: dtolnay/rust-toolchain@nightly
               with:
                   toolchain: stable
+
+            - uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
 
             - name: Build
               run: |

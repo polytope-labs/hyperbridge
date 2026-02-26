@@ -1,0 +1,327 @@
+---
+title: HyperApp
+description: API reference for HyperApp - abstract base contract for building cross-chain applications with built-in utilities.
+---
+
+# HyperApp
+
+Abstract base contract for building cross-chain applications on Hyperbridge. Provides a simplified interface for implementing `IApp` with built-in utilities for fee estimation, host authorization, and cross-chain message handling.
+
+```solidity lineNumbers
+abstract contract HyperApp is IApp
+```
+
+## Overview
+
+`HyperApp` is the recommended way to build cross-chain applications. It provides automatic host authorization through the `onlyHost` modifier for secure callbacks, fee estimation utilities to calculate fees in both fee tokens and native tokens, and simplified dispatching with helper methods that handle token approvals and transfers automatically. The contract includes default implementations for all `IApp` callbacks with safe defaults, and native token support via Uniswap V2 integration for fee payment.
+
+The key benefits include less boilerplate code compared to implementing `IApp` directly, built-in security through host verification, flexible fee payment options (fee token or native), and easy extensibility where you only override the callbacks you need.
+
+---
+
+## Functions
+
+### host()
+
+Must be implemented by inheriting contracts to specify the Host address for the current chain.
+
+```solidity lineNumbers
+function host() public view virtual returns (address)
+```
+
+**Returns:** The `IHost` contract address for the current chain
+
+**Important:**
+- The Host is an immutable contract that never changes
+- This should typically return a constant or immutable address
+- Used by all modifiers and helper functions
+
+---
+
+### quote(DispatchPost)
+
+Returns the fee in the fee token for dispatching a POST request.
+
+```solidity lineNumbers
+function quote(DispatchPost memory request) public view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchPost` | The POST request to quote |
+
+**Returns:** Fee amount in the fee token
+
+**Formula:** `request.fee + (bodyLength * perByteFee)`
+
+---
+
+### quote(DispatchGet)
+
+Returns the fee in the fee token for dispatching a GET request.
+
+```solidity lineNumbers
+function quote(DispatchGet memory request) public view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchGet` | The GET request to quote |
+
+**Returns:** Fee amount in the fee token
+
+**Note:** Enforces a minimum fee of 32 bytes worth of data
+
+---
+
+### quote(DispatchPostResponse)
+
+Returns the fee in the fee token for dispatching a POST response.
+
+```solidity lineNumbers
+function quote(DispatchPostResponse memory response) public view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `response` | `DispatchPostResponse` | The POST response to quote |
+
+**Returns:** Fee amount in the fee token
+
+---
+
+### quoteNative(DispatchPost)
+
+Returns the fee in the native token (e.g., ETH) for dispatching a POST request.
+
+```solidity lineNumbers
+function quoteNative(DispatchPost memory request) public view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchPost` | The POST request to quote |
+
+**Returns:** Fee amount in the native token
+
+**Important:**
+- Uses Uniswap V2 to calculate native token equivalent
+- Requires valid Uniswap router configuration in Host
+- May revert if liquidity is insufficient
+
+---
+
+### quoteNative(DispatchGet)
+
+Returns the fee in the native token for dispatching a GET request.
+
+```solidity lineNumbers
+function quoteNative(DispatchGet memory request) public view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchGet` | The GET request to quote |
+
+**Returns:** Fee amount in the native token
+
+---
+
+### quoteNative(DispatchPostResponse)
+
+Returns the fee in the native token for dispatching a POST response.
+
+```solidity lineNumbers
+function quoteNative(DispatchPostResponse memory response) public view returns (uint256)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `response` | `DispatchPostResponse` | The POST response to quote |
+
+**Returns:** Fee amount in the native token
+
+---
+
+### dispatchWithFeeToken(DispatchPost)
+
+Dispatches a POST request using the fee token for payment, handling approvals automatically.
+
+```solidity lineNumbers
+function dispatchWithFeeToken(DispatchPost memory request, address payer) internal returns (bytes32)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchPost` | The POST request to dispatch |
+| `payer` | `address` | Address that will pay the fee token |
+
+**Returns:** Commitment hash identifying the dispatched request
+
+**Behavior:**
+1. Calculates the required fee using `quote()`
+2. If `payer != address(this)`, transfers fee tokens from payer to this contract
+3. Approves Host to spend the fee tokens
+4. Dispatches the request to Host
+
+**Requirements:**
+- If payer is not this contract, payer must have approved this contract to spend fee tokens
+- Payer must have sufficient fee token balance
+
+---
+
+### dispatchWithFeeToken(DispatchPostResponse)
+
+Dispatches a POST response using the fee token for payment, handling approvals automatically.
+
+```solidity lineNumbers
+function dispatchWithFeeToken(DispatchPostResponse memory response, address payer) internal returns (bytes32)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `response` | `DispatchPostResponse` | The POST response to dispatch |
+| `payer` | `address` | Address that will pay the fee token |
+
+**Returns:** Commitment hash identifying the dispatched response
+
+---
+
+### dispatchWithFeeToken(DispatchGet)
+
+Dispatches a GET request using the fee token for payment, handling approvals automatically.
+
+```solidity lineNumbers
+function dispatchWithFeeToken(DispatchGet memory request, address payer) internal returns (bytes32)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `DispatchGet` | The GET request to dispatch |
+| `payer` | `address` | Address that will pay the fee token |
+
+**Returns:** Commitment hash identifying the dispatched request
+
+---
+
+### onAccept()
+
+Called when a POST request is received. Override to handle incoming messages. Default implementation reverts with `UnexpectedCall()`.
+
+```solidity lineNumbers
+function onAccept(IncomingPostRequest calldata incoming) external virtual onlyHost
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `incoming` | `IncomingPostRequest` | The incoming POST request |
+
+**Access:** Only callable by Host (enforced by `onlyHost` modifier)
+
+---
+
+### onPostRequestTimeout()
+
+Called when a POST request you sent has timed out. Override to handle cleanup. Default implementation reverts with `UnexpectedCall()`.
+
+```solidity lineNumbers
+function onPostRequestTimeout(PostRequest memory request) external virtual onlyHost
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `PostRequest` | The timed-out request |
+
+**Access:** Only callable by Host
+
+**Important:** Must be idempotent as it can be called multiple times
+
+---
+
+### onPostResponse()
+
+Called when a POST response is received. Override to handle responses. Default implementation reverts with `UnexpectedCall()`.
+
+```solidity lineNumbers
+function onPostResponse(IncomingPostResponse memory incoming) external virtual onlyHost
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `incoming` | `IncomingPostResponse` | The incoming POST response |
+
+**Access:** Only callable by Host
+
+---
+
+### onPostResponseTimeout()
+
+Called when a POST response you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
+
+```solidity lineNumbers
+function onPostResponseTimeout(PostResponse memory response) external virtual onlyHost
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `response` | `PostResponse` | The timed-out response |
+
+**Access:** Only callable by Host
+
+---
+
+### onGetResponse()
+
+Called when a GET response is received. Override to process state data. Default implementation reverts with `UnexpectedCall()`.
+
+```solidity lineNumbers
+function onGetResponse(IncomingGetResponse memory incoming) external virtual onlyHost
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `incoming` | `IncomingGetResponse` | The incoming GET response with state data |
+
+**Access:** Only callable by Host
+
+**Important:** Response values are RLP-encoded, use an RLP decoder library
+
+---
+
+### onGetTimeout()
+
+Called when a GET request you sent has timed out. Default implementation reverts with `UnexpectedCall()`.
+
+```solidity lineNumbers
+function onGetTimeout(GetRequest memory request) external virtual onlyHost
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `GetRequest` | The timed-out GET request |
+
+**Access:** Only callable by Host
+
+---
+
+## Errors
+
+### UnauthorizedCall
+
+Thrown when a function restricted to the Host is called by another address.
+
+```solidity lineNumbers
+error UnauthorizedCall()
+```
+
+---
+
+### UnexpectedCall
+
+Thrown when a callback is invoked but not overridden by the inheriting contract.
+
+```solidity lineNumbers
+error UnexpectedCall()
+```
+
+---

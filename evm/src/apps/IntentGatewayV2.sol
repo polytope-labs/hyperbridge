@@ -197,6 +197,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
             for (uint256 i; i < assetsLen;) {
                 address token = address(uint160(uint256(order.predispatch.assets[i].token)));
                 uint256 amount = order.predispatch.assets[i].amount;
+                if (amount == 0) revert InvalidInput();
 
                 if (token == address(0)) {
                     if (amount > msgValue) revert InsufficientNativeToken();

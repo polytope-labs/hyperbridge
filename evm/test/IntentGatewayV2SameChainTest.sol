@@ -26,6 +26,7 @@ import {
     FillOptions,
     CancelOptions
 } from "../src/apps/IntentGatewayV2.sol";
+import {IntentsBase} from "../src/apps/intentsv2/IntentsBase.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -482,7 +483,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.startPrank(user);
         CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
 
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
     }
@@ -523,7 +524,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.startPrank(otherUser);
         CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
 
-        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
     }
@@ -695,7 +696,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.startPrank(user);
         CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
 
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
     }
@@ -750,7 +751,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
     }
@@ -876,7 +877,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(0), amount: 1 ether});
 
-        vm.expectRevert(IntentGatewayV2.InvalidInput.selector);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.fillOrder{value: 1 ether}(
             order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
@@ -934,7 +935,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
-        vm.expectRevert(IntentGatewayV2.Expired.selector);
+        vm.expectRevert(IntentsBase.Expired.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
     }
@@ -1051,7 +1052,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
 
         // Try to fill again
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
     }
@@ -1086,7 +1087,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.startPrank(user);
         CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
 
-        vm.expectRevert(IntentGatewayV2.UnknownOrder.selector);
+        vm.expectRevert(IntentsBase.UnknownOrder.selector);
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
     }
@@ -1249,7 +1250,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         dai.approve(address(intentGateway), 500 * 1e18);
         TokenInfo[] memory outputs2 = new TokenInfo[](1);
         outputs2[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: outputs2}));
         vm.stopPrank();
     }

@@ -17,8 +17,8 @@ use crate::{
 	alloc::{boxed::Box, string::ToString},
 	governance::WhitelistedCaller,
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp,
-	TokenGateway, TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
+	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp, TokenGateway,
+	TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
 	MIN_TECH_COLLECTIVE_APPROVAL,
 };
 use anyhow::anyhow;
@@ -47,9 +47,9 @@ use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
 use sp_runtime::{Permill, Weight};
 use sp_std::prelude::*;
-use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
+use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 
 #[derive(Default)]
 pub struct ProxyModule;

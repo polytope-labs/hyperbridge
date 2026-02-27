@@ -507,6 +507,9 @@ export class IndexerClient {
 			if (!hyperbridgeDelivered) return addFinalityEvents(request)
 		}
 
+		const isHyperbridgeTimedOut = request.statuses.some((s) => s.status === TimeoutStatus.HYPERBRIDGE_TIMED_OUT)
+		if (isHyperbridgeTimedOut) return addFinalityEvents(request)
+
 		// no need to query finality event if destination is hyperbridge
 		if (request.dest === this.config.hyperbridge.config.stateMachineId) {
 			return addFinalityEvents(request)

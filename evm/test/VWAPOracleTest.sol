@@ -59,15 +59,15 @@ contract VWAPOracleTest is Test {
         VWAPOracle.TokenDecimalsUpdate[] memory updates = new VWAPOracle.TokenDecimalsUpdate[](0);
         vm.prank(user);
         vm.expectRevert(VWAPOracle.Unauthorized.selector);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
     }
 
     function testInitOnlyOnce() public {
         VWAPOracle.TokenDecimalsUpdate[] memory updates = new VWAPOracle.TokenDecimalsUpdate[](0);
         vm.startPrank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
         vm.expectRevert(VWAPOracle.Unauthorized.selector);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
         vm.stopPrank();
     }
 
@@ -78,7 +78,7 @@ contract VWAPOracleTest is Test {
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
         vm.prank(admin);
         vm.expectRevert(VWAPOracle.InvalidInput.selector);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
     }
 
     function testInitWithHighDecimals() public {
@@ -88,7 +88,7 @@ contract VWAPOracleTest is Test {
         VWAPOracle.TokenDecimalsUpdate[] memory updates = new VWAPOracle.TokenDecimalsUpdate[](1);
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
         vm.prank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
 
         assertEq(oracle.decimals(sourceChain, address(usdc)), 24, "Should support high decimals");
     }
@@ -103,7 +103,7 @@ contract VWAPOracleTest is Test {
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
 
         vm.prank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
 
         bytes32 commitment = keccak256("order1");
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -132,7 +132,7 @@ contract VWAPOracleTest is Test {
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
 
         vm.prank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
 
         bytes32 commitment = keccak256("order1");
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -156,7 +156,7 @@ contract VWAPOracleTest is Test {
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
 
         vm.prank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
 
         bytes32 commitment = keccak256("order1");
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -178,7 +178,7 @@ contract VWAPOracleTest is Test {
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
 
         vm.prank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
 
         bytes32 commitment = keccak256("order1");
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -197,7 +197,7 @@ contract VWAPOracleTest is Test {
     function testRecordSpread_SkipsUnconfiguredSourceDecimals() public {
         vm.prank(admin);
         VWAPOracle.TokenDecimalsUpdate[] memory updates = new VWAPOracle.TokenDecimalsUpdate[](0);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
 
         bytes32 commitment = keccak256("order1");
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -627,6 +627,6 @@ contract VWAPOracleTest is Test {
         updates[0] = VWAPOracle.TokenDecimalsUpdate({sourceChain: sourceChain, tokens: tokens});
 
         vm.prank(admin);
-        oracle.init(host, updates);
+        oracle.init(host, address(this), updates);
     }
 }

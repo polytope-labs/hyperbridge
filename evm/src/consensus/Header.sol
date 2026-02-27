@@ -52,7 +52,6 @@ library HeaderImpl {
     uint256 public constant SLOT_DURATION = 12000;
 
     error TimestampNotFound();
-    error ChildTrieRootNotFound();
 
     // Extracts the `StateCommitment` from the provided header.
     function stateCommitment(Header calldata self) public pure returns (StateCommitment memory) {

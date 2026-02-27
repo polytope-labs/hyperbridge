@@ -44,6 +44,9 @@ pallet-token-governor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
+pallet-hyperbridge = { workspace = true }
+pallet-token-gateway = { workspace = true }
+token-gateway-primitives = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
@@ -154,6 +157,9 @@ std = [
     "hyperbridge-client-machine/std",
     "anyhow/std",
     "pallet-token-gateway-inspector/std",
+    "pallet-hyperbridge/std",
+    "pallet-token-gateway/std",
+    "token-gateway-primitives/std",
     "pallet-fishermen/std",
     "pallet-state-coprocessor/std",
     "ismp-grandpa/std",
@@ -179,6 +185,7 @@ runtime-benchmarks = [
     "ismp-parachain/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
     "pallet-messaging-fees/runtime-benchmarks",
+    "pallet-token-gateway/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

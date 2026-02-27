@@ -19,7 +19,8 @@
 //! instead of CometBFT RPC. Uses:
 //! - `GET /eth/v1/beacon/headers/head` for latest height
 //! - `GET /cometbft/v1/signed_header/{height}` for signed headers
-//! - `GET /eth/v1/beacon/states/{slot}/validators?status=active_ongoing,active_exiting,active_slashed` for validators
+//! - `GET /eth/v1/beacon/states/{slot}/validators?status=active_ongoing,active_exiting,
+//!   active_slashed` for validators
 //! - `GET /eth/v1/node/health` for health checks
 
 use cometbft::block::signed_header::SignedHeader;
@@ -91,9 +92,7 @@ impl BeaconKitApiClient {
 			.map_err(|e| ProverError::ConversionError(format!("Invalid address: {}", e)))?;
 
 		let power = cometbft::vote::Power::try_from(beacon_val.effective_balance)
-			.map_err(|e| {
-				ProverError::ConversionError(format!("Invalid voting power: {}", e))
-			})?;
+			.map_err(|e| ProverError::ConversionError(format!("Invalid voting power: {}", e)))?;
 
 		Ok(Validator {
 			address,
@@ -108,11 +107,8 @@ impl BeaconKitApiClient {
 #[async_trait::async_trait]
 impl Client for BeaconKitApiClient {
 	async fn latest_height(&self) -> Result<u64, ProverError> {
-		let url = format!(
-			"{}{}",
-			self.base_url,
-			sync_committee_prover::routes::header_route("head")
-		);
+		let url =
+			format!("{}{}", self.base_url, sync_committee_prover::routes::header_route("head"));
 
 		let resp: beacon_block_header_response::Response = self
 			.http
@@ -132,14 +128,9 @@ impl Client for BeaconKitApiClient {
 	async fn signed_header(&self, height: u64) -> Result<SignedHeader, ProverError> {
 		let url = format!("{}/cometbft/v1/signed_header/{}", self.base_url, height);
 
-		let response = self
-			.http
-			.get(&url)
-			.send()
-			.await
-			.map_err(|e| {
-				ProverError::NetworkError(format!("Signed header request failed: {}", e))
-			})?;
+		let response = self.http.get(&url).send().await.map_err(|e| {
+			ProverError::NetworkError(format!("Signed header request failed: {}", e))
+		})?;
 
 		if !response.status().is_success() {
 			return Err(ProverError::NetworkError(format!(
@@ -148,15 +139,9 @@ impl Client for BeaconKitApiClient {
 			)));
 		}
 
-		let resp: CometBftResponse<SignedHeader> = response
-			.json()
-			.await
-			.map_err(|e| {
-				ProverError::NetworkError(format!(
-					"Failed to parse signed header response: {}",
-					e
-				))
-			})?;
+		let resp: CometBftResponse<SignedHeader> = response.json().await.map_err(|e| {
+			ProverError::NetworkError(format!("Failed to parse signed header response: {}", e))
+		})?;
 
 		Ok(resp.data)
 	}
@@ -167,12 +152,8 @@ impl Client for BeaconKitApiClient {
 			self.base_url, height
 		);
 
-		let response = self
-			.http
-			.get(&url)
-			.send()
-			.await
-			.map_err(|e| {
+		let response =
+			self.http.get(&url).send().await.map_err(|e| {
 				ProverError::NetworkError(format!("Validators request failed: {}", e))
 			})?;
 
@@ -183,15 +164,9 @@ impl Client for BeaconKitApiClient {
 			)));
 		}
 
-		let resp: ValidatorsResponse = response
-			.json()
-			.await
-			.map_err(|e| {
-				ProverError::NetworkError(format!(
-					"Failed to parse validators response: {}",
-					e
-				))
-			})?;
+		let resp: ValidatorsResponse = response.json().await.map_err(|e| {
+			ProverError::NetworkError(format!("Failed to parse validators response: {}", e))
+		})?;
 
 		resp.data
 			.iter()

@@ -115,11 +115,8 @@ impl BeaconKitHost {
 			self.prover.next_validators(trusted_header.header.height.into()).await?;
 
 		let clock_drift = self.host.clock_drift_secs.unwrap_or(600);
-		let verification_options = tendermint_primitives::VerificationOptions::new(
-			2,
-			3,
-			clock_drift,
-		);
+		let verification_options =
+			tendermint_primitives::VerificationOptions::new(2, 3, clock_drift);
 
 		let trusted_state = tendermint_primitives::TrustedState::new(
 			trusted_header.header.chain_id.clone().into(),

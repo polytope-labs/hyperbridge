@@ -23,6 +23,7 @@
 
 extern crate alloc;
 
+pub mod pallet;
 mod primitives;
 
 pub use primitives::*;
@@ -90,9 +91,7 @@ pub fn compute_data_hash(txs: &[impl AsRef<[u8]>]) -> [u8; 32] {
 }
 
 /// BeaconKit consensus client implementation
-pub struct BeaconKitClient<H: IsmpHost, T: HostExecutiveConfig>(
-	core::marker::PhantomData<(H, T)>,
-);
+pub struct BeaconKitClient<H: IsmpHost, T: HostExecutiveConfig>(core::marker::PhantomData<(H, T)>);
 
 impl<H: IsmpHost, T: HostExecutiveConfig> Default for BeaconKitClient<H, T> {
 	fn default() -> Self {
@@ -100,8 +99,10 @@ impl<H: IsmpHost, T: HostExecutiveConfig> Default for BeaconKitClient<H, T> {
 	}
 }
 
-impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> ConsensusClient
-	for BeaconKitClient<H, T>
+impl<
+		H: IsmpHost + Send + Sync + Default + 'static,
+		T: HostExecutiveConfig + crate::pallet::Config + 'static,
+	> ConsensusClient for BeaconKitClient<H, T>
 {
 	fn verify_consensus(
 		&self,
@@ -146,9 +147,28 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 			.ok_or_else(|| Error::Custom("No transactions in update".to_string()))?;
 		let ssz_beacon_block = &beacon_block[100..];
 
-		let signed_beacon_block:BeaconBlock<MAX_PROPOSER_SLASHINGS, MAX_VALIDATORS_PER_COMMITTEE, MAX_ATTESTER_SLASHINGS, MAX_ATTESTATIONS, MAX_DEPOSITS, MAX_VOLUNTARY_EXITS, SYNC_COMMITTEE_SIZE, BYTES_PER_LOGS_BLOOM, MAX_EXTRA_DATA_BYTES, MAX_BYTES_PER_TRANSACTION, MAX_TRANSACTIONS_PER_PAYLOAD, MAX_WITHDRAWALS_PER_PAYLOAD, MAX_BLS_TO_EXECUTION_CHANGES, MAX_BLOB_COMMITMENTS_PER_BLOCK, MAX_COMMITTEES_PER_SLOT, MAX_DEPOSIT_REQUESTS_PER_PAYLOAD, MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD, MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD> =
-			deserialize(&ssz_beacon_block)
-				.map_err(|e| Error::Custom(format!("Failed to SSZ decode SignedBeaconBlock: {:?}", e)))?;
+		let signed_beacon_block: BeaconBlock<
+			MAX_PROPOSER_SLASHINGS,
+			MAX_VALIDATORS_PER_COMMITTEE,
+			MAX_ATTESTER_SLASHINGS,
+			MAX_ATTESTATIONS,
+			MAX_DEPOSITS,
+			MAX_VOLUNTARY_EXITS,
+			SYNC_COMMITTEE_SIZE,
+			BYTES_PER_LOGS_BLOOM,
+			MAX_EXTRA_DATA_BYTES,
+			MAX_BYTES_PER_TRANSACTION,
+			MAX_TRANSACTIONS_PER_PAYLOAD,
+			MAX_WITHDRAWALS_PER_PAYLOAD,
+			MAX_BLS_TO_EXECUTION_CHANGES,
+			MAX_BLOB_COMMITMENTS_PER_BLOCK,
+			MAX_COMMITTEES_PER_SLOT,
+			MAX_DEPOSIT_REQUESTS_PER_PAYLOAD,
+			MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD,
+			MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD,
+		> = deserialize(&ssz_beacon_block).map_err(|e| {
+			Error::Custom(format!("Failed to SSZ decode SignedBeaconBlock: {:?}", e))
+		})?;
 
 		let execution_payload = &signed_beacon_block.body.execution_payload;
 
@@ -201,13 +221,11 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 		let consensus_state: ConsensusState = Decode::decode(&mut &trusted_consensus_state[..])
 			.map_err(|e| Error::Custom(e.to_string()))?;
 
-
 		let height_1 = update_1.tendermint_update.signed_header.header.height;
 		let height_2 = update_2.tendermint_update.signed_header.header.height;
 		if height_1 != height_2 {
 			return Err(Error::Custom("Fraud proofs must be for the same block height".to_string()));
 		}
-
 
 		if proof_1 == proof_2 {
 			return Err(Error::Custom("Fraud proofs are identical".to_string()));
@@ -215,7 +233,6 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 
 		let trusted_state: TrustedState = consensus_state.tendermint_state.into();
 		let time = host.timestamp().as_secs();
-
 
 		let consensus_proof_1 = update_1
 			.tendermint_update
@@ -240,14 +257,13 @@ impl<H: IsmpHost + Send + Sync + Default + 'static, T: HostExecutiveConfig> Cons
 	}
 
 	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
-		match id {
-			StateMachine::Evm(chain_id)
-				if chain_id == BERACHAIN_MAINNET_CHAIN_ID
-					|| chain_id == BERACHAIN_BEPOLIA_CHAIN_ID =>
-			{
-				Ok(Box::new(EvmStateMachine::<H, T>::default()))
+		if crate::pallet::SupportedStateMachines::<T>::contains_key(id) {
+			match id {
+				StateMachine::Evm(_) => Ok(Box::new(EvmStateMachine::<H, T>::default())),
+				_ => Err(Error::Custom("Unsupported state machine type".to_string())),
 			}
-			_ => Err(Error::Custom("Unsupported state machine or chain ID".to_string())),
+		} else {
+			Err(Error::Custom(alloc::format!("State machine not supported: {id:?}")))
 		}
 	}
 }

@@ -59,7 +59,7 @@ pub async fn consensus_notification(
 		true,
 	);
 
-	match validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
+	match validator_set_hash_match.is_ok() || next_validator_set_hash_match.is_ok() {
 		true => {
 			log::trace!(target: "tesseract-beaconkit", "BeaconKit: Onchain Validator set matches signed header, constructing consensus proof");
 			let next_validators = client.prover.next_validators(latest_height).await?;
@@ -112,7 +112,7 @@ pub async fn consensus_notification(
 					header.header.validators_hash,
 					true,
 				);
-				if validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
+				if validator_set_hash_match.is_ok() || next_validator_set_hash_match.is_ok() {
 					log::trace!(target: "tesseract-beaconkit", "BeaconKit: validator set match found at {height}");
 					matched_header = Some(header);
 					break;
@@ -162,10 +162,7 @@ pub async fn consensus_notification(
 ///
 /// Returns all transactions in the block as a vector.
 /// The first transaction (txs[0]) is the SSZ-encoded SignedBeaconBlock.
-async fn fetch_block_txs(
-	client: &BeaconKitHost,
-	height: u64,
-) -> anyhow::Result<Vec<Vec<u8>>> {
+async fn fetch_block_txs(client: &BeaconKitHost, height: u64) -> anyhow::Result<Vec<Vec<u8>>> {
 	let base_url = client.prover.base_url.trim_end_matches('/');
 	let url = format!("{}/cometbft/v1/block/{}", base_url, height);
 
@@ -209,10 +206,8 @@ async fn fetch_block_txs(
 /// Decode a base64 string to bytes
 fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
 	use std::io::Read;
-	let mut decoder = base64::read::DecoderReader::new(
-		s.as_bytes(),
-		&base64::engine::general_purpose::STANDARD,
-	);
+	let mut decoder =
+		base64::read::DecoderReader::new(s.as_bytes(), &base64::engine::general_purpose::STANDARD);
 	let mut decoded = Vec::new();
 	decoder.read_to_end(&mut decoded)?;
 	Ok(decoded)

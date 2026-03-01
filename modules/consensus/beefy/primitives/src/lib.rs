@@ -89,25 +89,27 @@ pub struct PartialMmrLeaf {
 	pub beefy_next_authority_set: BeefyAuthoritySet<H256>,
 }
 
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Parachain header and metadata needed for merkle inclusion proof
 pub struct ParachainHeader {
 	/// scale encoded parachain header
 	pub header: Vec<u8>,
 	/// leaf index for parachain heads proof
-	pub index: usize,
+	pub index: u32,
 	/// ParaId for parachain
 	pub para_id: u32,
 }
 
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Parachain proofs definition
 pub struct ParachainProof {
 	/// List of parachains we have a proof for
 	pub parachains: Vec<ParachainHeader>,
 
 	/// Proof for parachain header inclusion in the parachain headers root
-	pub proof: Vec<Vec<(usize, [u8; 32])>>,
+	pub proof: Vec<[u8; 32]>,
+	/// Total leaves count for the proof
+	pub total_leaves: u32,
 }
 
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
@@ -117,6 +119,59 @@ pub struct ConsensusMessage {
 	pub parachain: ParachainProof,
 	/// proof for finalized mmr root
 	pub mmr: MmrProof,
+}
+
+/// Represents a node in a Merkle proof, containing a hash and its index at a specific layer.
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct Node {
+	/// The positional index of the node in its layer of the Merkle tree.
+	pub index: u32,
+	/// The hash of the node.
+	pub hash: H256,
+}
+
+/// Represents a canonical BEEFY Merkle Mountain Range (MMR) leaf.
+///
+/// This struct contains the essential data about a finalized block that is committed to the MMR.
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BeefyMmrLeaf {
+	/// The version of the MMR leaf format.
+	pub version: MmrLeafVersion,
+	/// A tuple containing the block number and hash of the parent block.
+	pub parent_block_and_hash: (u32, H256),
+	/// The authority set that will be active in the next BEEFY session.
+	pub beefy_next_authority_set: BeefyAuthoritySet<H256>,
+	/// The k-index of the leaf, used in MMR calculations.
+	pub k_index: u32,
+	/// The sequential index of this leaf in the MMR.
+	pub leaf_index: u32,
+	/// An extra data field
+	pub extra: H256,
+}
+
+/// Represents the proof components for verifying the relay chain's consensus state
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct RelaychainProof {
+	/// Signed commitment
+	pub signed_commitment: SignedCommitment,
+	/// Latest leaf added to mmr
+	pub latest_mmr_leaf: BeefyMmrLeaf,
+	/// Proof for the latest mmr leaf
+	pub mmr_proof: Vec<H256>,
+	/// Proof for authorities in current/next session
+	pub proof: Vec<H256>,
+}
+
+/// Represents a complete BEEFY consensus proof.
+///
+/// This proof contains all the necessary data to verify a BEEFY finality proof from the relay chain
+/// and to prove the inclusion of specific parachain headers within that finalized block.
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct BeefyConsensusProof {
+	/// The proof items for the relay chain consensus
+	pub relay: RelaychainProof,
+	/// The proof items for parachain headers
+	pub parachain: ParachainProof,
 }
 
 #[cfg(feature = "std")]

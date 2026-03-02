@@ -352,7 +352,7 @@ pub fn filter_signatures_for_challenge(
 		*last += 27;
 
 		filtered
-			.push(SignatureWithAuthorityIndex { index: authority_index as u32, signature: temp });
+			.push(SignatureWithAuthorityIndex { index: authority_index, signature: temp });
 	}
 
 	Ok(filtered)

@@ -20,8 +20,10 @@
 
 #![warn(missing_docs)]
 
+use pallet_intents_rpc::{BidCache, RpcBidInfo};
 use polkadot_sdk::*;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 use gargantua_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
 
@@ -44,6 +46,8 @@ pub struct FullDeps<C, P, B> {
 	pub pool: Arc<P>,
 	/// Backend used by the node.
 	pub backend: Arc<B>,
+	pub bid_cache: Arc<BidCache>,
+	pub bid_sender: broadcast::Sender<RpcBidInfo>,
 }
 
 /// Instantiate all RPC extensions.
@@ -74,18 +78,20 @@ where
 	B: sc_client_api::Backend<Block> + Send + Sync + 'static,
 	B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,
 {
+	use pallet_intents_rpc::{IntentsApiServer, IntentsRpcHandler};
 	use pallet_ismp_rpc::{IsmpApiServer, IsmpRpcHandler};
 	use pallet_mmr_rpc::{MmrApiServer, MmrRpcHandler};
 	use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
 	let mut module = RpcExtension::new(());
-	let FullDeps { client, pool, backend } = deps;
+	let FullDeps { client, pool, backend, bid_cache, bid_sender } = deps;
 
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(IsmpRpcHandler::new(client.clone(), backend.clone())?.into_rpc())?;
 	module.merge(MmrRpcHandler::new(client, backend.clone())?.into_rpc())?;
+	module.merge(IntentsRpcHandler::new(bid_cache, bid_sender).into_rpc())?;
 
 	Ok(module)
 }

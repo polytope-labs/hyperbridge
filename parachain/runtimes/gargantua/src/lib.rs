@@ -1190,6 +1190,38 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl pallet_intents_runtime_api::IntentsCoprocessorApi<Block> for Runtime {
+		fn extract_bid(extrinsic: Vec<u8>) -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
+			use codec::{Decode, Encode};
+			use sp_runtime::traits::StaticLookup;
+
+			let xt = UncheckedExtrinsic::decode(&mut &extrinsic[..]).ok()?;
+
+			let resolve_signer = || -> Option<Vec<u8>> {
+				match xt.preamble {
+					generic::Preamble::Signed(ref address, _, _) => {
+						let account = <Runtime as frame_system::Config>::Lookup::lookup(
+							address.clone(),
+						)
+						.ok()?;
+						Some(account.encode())
+					},
+					_ => None,
+				}
+			};
+
+			match xt.function {
+				RuntimeCall::IntentsCoprocessor(
+					pallet_intents_coprocessor::Call::place_bid { commitment, user_op },
+				) => Some((commitment, resolve_signer()?, user_op.to_vec())),
+				RuntimeCall::IntentsCoprocessor(
+					pallet_intents_coprocessor::Call::retract_bid { commitment },
+				) => Some((commitment, resolve_signer()?, Vec::new())),
+				_ => None,
+			}
+		}
+	}
+
 	impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime
 		where
 			RuntimeCall: codec::Codec,

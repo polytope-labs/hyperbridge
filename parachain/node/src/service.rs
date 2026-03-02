@@ -254,16 +254,48 @@ where
 		);
 	}
 
+	let db_path = parachain_config
+		.data_path
+		.join("intents-bids.db")
+		.to_string_lossy()
+		.to_string();
+	let bid_cache = Arc::new(
+		pallet_intents_rpc::BidCache::new(&db_path, Duration::from_secs(300))
+			.expect("Failed to create intents bid cache"),
+	);
+	let (bid_sender, _) = tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
+
+	task_manager.spawn_handle().spawn(
+		"intents-bid-watcher",
+		"intents",
+		pallet_intents_rpc::run_bid_watcher(
+			transaction_pool.clone(),
+			client.clone(),
+			bid_cache.clone(),
+			bid_sender.clone(),
+		),
+	);
+
+	task_manager.spawn_handle().spawn(
+		"intents-bid-cleanup",
+		"intents",
+		pallet_intents_rpc::run_bid_cleanup(bid_cache.clone(), Duration::from_secs(60)),
+	);
+
 	let rpc_builder = {
 		let client = client.clone();
 		let backend = backend.clone();
 		let transaction_pool = transaction_pool.clone();
+		let bid_cache = bid_cache.clone();
+		let bid_sender = bid_sender.clone();
 
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: transaction_pool.clone(),
 				backend: backend.clone(),
+				bid_cache: bid_cache.clone(),
+				bid_sender: bid_sender.clone(),
 			};
 
 			crate::rpc::create_full(deps).map_err(Into::into)

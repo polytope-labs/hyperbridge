@@ -8191,6 +8191,7 @@ dependencies = [
  "pallet-call-decompressor",
  "pallet-fishermen",
  "pallet-intents-coprocessor",
+ "pallet-intents-runtime-api",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -9225,6 +9226,8 @@ dependencies = [
  "log",
  "mmr-gadget 29.0.1",
  "nexus-runtime",
+ "pallet-intents-rpc",
+ "pallet-intents-runtime-api",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "pallet-ismp-runtime-api",
@@ -9238,6 +9241,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simnode-runtime-api",
+ "tokio",
 ]
 
 [[package]]
@@ -12971,6 +12975,7 @@ dependencies = [
  "pallet-consensus-incentives",
  "pallet-fishermen",
  "pallet-intents-coprocessor",
+ "pallet-intents-runtime-api",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
@@ -15072,6 +15077,30 @@ dependencies = [
  "primitive-types 0.13.1",
  "scale-info",
  "sp-io",
+]
+
+[[package]]
+name = "pallet-intents-rpc"
+version = "2506.2.0"
+dependencies = [
+ "futures",
+ "hex",
+ "jsonrpsee 0.24.10",
+ "log",
+ "pallet-intents-runtime-api",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "rusqlite",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "pallet-intents-runtime-api"
+version = "2506.2.0"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-sdk",
 ]
 
 [[package]]

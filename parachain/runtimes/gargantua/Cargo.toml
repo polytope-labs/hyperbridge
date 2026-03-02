@@ -38,6 +38,7 @@ pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-intents-coprocessor = { workspace = true }
+pallet-intents-runtime-api = { workspace = true }
 pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-mmr-tree = { workspace = true }
@@ -139,6 +140,7 @@ std = [
     "pallet-call-decompressor/std",
     "pallet-state-coprocessor/std",
     "pallet-intents-coprocessor/std",
+    "pallet-intents-runtime-api/std",
     "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",

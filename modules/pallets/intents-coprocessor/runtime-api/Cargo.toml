@@ -1,0 +1,17 @@
+[package]
+name = "pallet-intents-runtime-api"
+version = "2506.2.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+
+[dependencies]
+codec = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-api", "sp-core"]
+
+[features]
+default = ["std"]
+std = ["polkadot-sdk/std", "codec/std"]

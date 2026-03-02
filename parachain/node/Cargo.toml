@@ -20,12 +20,15 @@ codec = { workspace = true, default-features = true }
 serde = { workspace = true, default-features = true }
 jsonrpsee = { workspace = true }
 futures = "0.3.28"
+tokio = { workspace = true, features = ["sync"] }
 json = { workspace = true, default-features = true }
 
 # local
 gargantua-runtime = { workspace = true, default-features = true }
 nexus-runtime = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
+pallet-intents-rpc = { workspace = true }
+pallet-intents-runtime-api = { workspace = true, default-features = true }
 pallet-mmr-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }

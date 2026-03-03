@@ -21,7 +21,7 @@ contract DeployScript is BaseScript {
 
         SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
         console.log("SolverAccount deployed at:", address(solverAccount));
-        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin);
+        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin, address(intentGateway));
         console.log("VWAPOracle deployed at:", address(priceOracle));
 
         // Initialize price oracle with token decimals
@@ -135,7 +135,7 @@ contract DeployScript is BaseScript {
             decimals: 6
         });
 
-        priceOracle.init(HOST_ADDRESS, address(intentGateway), decimalsUpdates);
+        priceOracle.init(HOST_ADDRESS, decimalsUpdates);
         console.log("VWAPOracle initialized with token decimals");
 
         intentGateway.setParams(

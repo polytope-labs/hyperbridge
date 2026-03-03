@@ -51,6 +51,8 @@ abstract contract IntrinsicIntents is IntentsBase {
     function _fillSameChain(Order calldata order, FillOptions calldata options, bytes32 commitment) internal {
         uint256 outputsLen = order.output.assets.length;
 
+        _filled[commitment] = msg.sender;
+
         uint256 msgValue = msg.value;
         address beneficiary = address(uint160(uint256(order.output.beneficiary)));
         bool isFullyFilled = true;
@@ -127,6 +129,7 @@ abstract contract IntrinsicIntents is IntentsBase {
             _execute(order, outputsLen);
             emit OrderFilled({commitment: commitment, filler: msg.sender});
         } else {
+            delete _filled[commitment];
             emit PartialFill({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
         }
     }

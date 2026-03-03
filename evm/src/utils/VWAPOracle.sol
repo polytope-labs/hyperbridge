@@ -90,7 +90,7 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp, Context {
     /**
      * @dev Address for the intent gateway contract
      */
-    address private _intentGateway;
+    address public _intentGateway;
 
     /**
      * @dev Mapping from (sourceChainHash, token) => decimals for remote source chain tokens
@@ -115,8 +115,9 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp, Context {
         _;
     }
 
-    constructor(address admin) {
+    constructor(address admin, address intentGateway) {
         _admin = admin;
+        _intentGateway = intentGateway;
     }
 
     /**
@@ -151,11 +152,10 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp, Context {
      * @param updates Array of token decimal configurations for different chains
      * @dev Can only be called once by admin, then admin is reset to address(0)
      */
-    function init(address hostAddr, address intentGateway, TokenDecimalsUpdate[] memory updates) external {
+    function init(address hostAddr, TokenDecimalsUpdate[] memory updates) external {
         if (msg.sender != _admin) revert Unauthorized();
 
         _host = hostAddr;
-        _intentGateway = intentGateway;
 
         // Process all token decimal updates
         _processTokenDecimalsUpdates(updates);

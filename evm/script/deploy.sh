@@ -328,12 +328,20 @@ for tx in data.get('transactions', []):
         print(f\"{tx['contractName']}|{tx['contractAddress']}\")
 " 2>/dev/null)
 
+        # Map RPC alias names to forge --chain names
+        FORGE_CHAIN_NAME="$chain"
+        case $chain in
+            ethereum) FORGE_CHAIN_NAME="mainnet" ;;
+            gnosis) FORGE_CHAIN_NAME="xdai" ;;
+            inkchain) FORGE_CHAIN_NAME="ink" ;;
+        esac
+
         while IFS='|' read -r contract_name contract_address; do
             [ -z "$contract_name" ] && continue
             echo -e "  ${YELLOW}Verifying $contract_name at $contract_address...${NC}"
 
             if forge verify-contract "$contract_address" "$contract_name" \
-                --rpc-url "$chain" --chain "$chain" --watch --guess-constructor-args $VERIFIER_FLAGS 2>&1; then
+                --rpc-url "$chain" --chain "$FORGE_CHAIN_NAME" --watch --guess-constructor-args $VERIFIER_FLAGS 2>&1; then
                 echo -e "  ${GREEN}✓ $contract_name verified${NC}"
             else
                 echo -e "  ${RED}✗ $contract_name verification failed${NC}"

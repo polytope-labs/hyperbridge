@@ -368,11 +368,9 @@ pub fn run() -> Result<()> {
 						let client = components.client.clone();
 						let pool = components.transaction_pool.clone();
 						let backend = components.backend.clone();
-						let bid_cache = std::sync::Arc::new(
-							pallet_intents_rpc::BidCache::new(
-								std::time::Duration::from_secs(300),
-							),
-						);
+						let bid_cache = std::sync::Arc::new(pallet_intents_rpc::BidCache::new(
+							std::time::Duration::from_secs(300),
+						));
 						let (bid_sender, _) =
 							tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
 

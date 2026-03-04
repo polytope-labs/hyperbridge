@@ -41,16 +41,13 @@ async fn test_bid_discovery_via_rpc() -> Result<(), anyhow::Error> {
 		)
 		.await?;
 
-	let _: H256 = rpc_client
-		.request("author_submitExtrinsic", rpc_params![extrinsic])
-		.await?;
+	let _: H256 = rpc_client.request("author_submitExtrinsic", rpc_params![extrinsic]).await?;
 
 	// Allow the tx-pool watcher to process the import notification.
 	tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-	let bids: Vec<RpcBidInfo> = rpc_client
-		.request("intents_getBidsForOrder", rpc_params![commitment])
-		.await?;
+	let bids: Vec<RpcBidInfo> =
+		rpc_client.request("intents_getBidsForOrder", rpc_params![commitment]).await?;
 	assert!(!bids.is_empty(), "bid should be discoverable from the mempool before block inclusion");
 	assert_eq!(bids[0].commitment, commitment);
 	assert!(!bids[0].confirmed);
@@ -63,9 +60,8 @@ async fn test_bid_discovery_via_rpc() -> Result<(), anyhow::Error> {
 		.await?;
 	assert!(finalized);
 
-	let bids: Vec<RpcBidInfo> = rpc_client
-		.request("intents_getBidsForOrder", rpc_params![commitment])
-		.await?;
+	let bids: Vec<RpcBidInfo> =
+		rpc_client.request("intents_getBidsForOrder", rpc_params![commitment]).await?;
 	assert!(!bids.is_empty(), "bid should persist after block finalization");
 
 	Ok(())

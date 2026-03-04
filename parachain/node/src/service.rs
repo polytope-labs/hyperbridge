@@ -254,9 +254,7 @@ where
 		);
 	}
 
-	let bid_cache = Arc::new(
-		pallet_intents_rpc::BidCache::new(Duration::from_secs(300)),
-	);
+	let bid_cache = Arc::new(pallet_intents_rpc::BidCache::new(Duration::from_secs(300)));
 	let (bid_sender, _) = tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
 
 	task_manager.spawn_handle().spawn(

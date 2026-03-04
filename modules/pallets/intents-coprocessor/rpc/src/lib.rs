@@ -103,10 +103,9 @@ impl BidCache {
 		let entry = BidEntry { filler: filler.clone(), user_op, confirmed: false };
 
 		let mut bids = self.bids.write().expect("BidCache lock poisoned");
-		let order = bids.entry(commitment).or_insert_with(|| OrderBids {
-			first_seen: Instant::now(),
-			entries: Vec::new(),
-		});
+		let order = bids
+			.entry(commitment)
+			.or_insert_with(|| OrderBids { first_seen: Instant::now(), entries: Vec::new() });
 		if let Some(existing) = order.entries.iter_mut().find(|e| e.filler == filler) {
 			*existing = entry;
 		} else {
@@ -222,12 +221,7 @@ where
 			for (filler, user_op) in onchain_bids {
 				// Deduplicate: skip if a bid from this filler already exists in the cache
 				if !bids.iter().any(|b| b.filler == filler) {
-					bids.push(RpcBidInfo {
-						commitment,
-						filler,
-						user_op,
-						confirmed: true,
-					});
+					bids.push(RpcBidInfo { commitment, filler, user_op, confirmed: true });
 				}
 			}
 		}
@@ -308,12 +302,8 @@ pub async fn run_bid_watcher<P, C, Block>(
 					bid_cache.insert(commitment, filler.clone(), user_op.clone());
 				}
 
-				let _ = bid_sender.send(RpcBidInfo {
-					commitment,
-					filler,
-					user_op,
-					confirmed: false,
-				});
+				let _ =
+					bid_sender.send(RpcBidInfo { commitment, filler, user_op, confirmed: false });
 			},
 			Ok(None) => {},
 			Err(e) => {

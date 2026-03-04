@@ -405,19 +405,17 @@ pub fn run() -> Result<()> {
 						let extract_bid =
 							|encoded: &[u8]| -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
 								use codec::{Decode, Encode};
-								let xt =
-									gargantua_runtime::UncheckedExtrinsic::decode(
-										&mut &encoded[..],
-									)
-									.ok()?;
+								let xt = gargantua_runtime::UncheckedExtrinsic::decode(
+									&mut &encoded[..],
+								)
+								.ok()?;
 
 								let filler = match &xt.preamble {
-									sp_runtime::generic::Preamble::Signed(
-										address, _, _,
-									) => match address {
-										sp_runtime::MultiAddress::Id(id) => id.encode(),
-										_ => return None,
-									},
+									sp_runtime::generic::Preamble::Signed(address, _, _) =>
+										match address {
+											sp_runtime::MultiAddress::Id(id) => id.encode(),
+											_ => return None,
+										},
 									_ => return None,
 								};
 

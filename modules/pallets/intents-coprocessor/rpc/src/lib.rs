@@ -130,7 +130,6 @@ impl BidCache {
 		let mut bids = self.bids.write().expect("BidCache lock poisoned");
 		bids.retain(|_commitment, order| now.duration_since(order.first_seen) < self.ttl);
 	}
-
 }
 
 fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
@@ -183,7 +182,14 @@ where
 		let offchain_storage = backend
 			.offchain_storage()
 			.ok_or_else(|| "Offchain storage not available in backend".to_string())?;
-		Ok(Self { client, backend, offchain_storage, bid_cache, bid_sender, _marker: Default::default() })
+		Ok(Self {
+			client,
+			backend,
+			offchain_storage,
+			bid_cache,
+			bid_sender,
+			_marker: Default::default(),
+		})
 	}
 }
 
@@ -211,13 +217,12 @@ where
 		let mut current_key = prefix.clone();
 
 		loop {
-			let next_key =
-				match sc_client_api::StateBackend::next_storage_key(&state, &current_key)
-					.map_err(|e| runtime_error_into_rpc_error(format!("{e:?}")))?
-				{
-					Some(k) => k,
-					None => break,
-				};
+			let next_key = match sc_client_api::StateBackend::next_storage_key(&state, &current_key)
+				.map_err(|e| runtime_error_into_rpc_error(format!("{e:?}")))?
+			{
+				Some(k) => k,
+				None => break,
+			};
 
 			if !next_key.starts_with(&prefix) {
 				break;
@@ -233,9 +238,7 @@ where
 					offchain_key.extend_from_slice(commitment.as_bytes());
 					offchain_key.extend_from_slice(filler_encoded);
 
-					if let Some(data) =
-						self.offchain_storage.get(STORAGE_PREFIX, &offchain_key)
-					{
+					if let Some(data) = self.offchain_storage.get(STORAGE_PREFIX, &offchain_key) {
 						// Bid encoding: filler.encode() ++ user_op.encode()
 						if data.len() > filler_encoded.len() {
 							if let Ok(user_op) =
@@ -399,5 +402,4 @@ mod tests {
 
 		assert!(c.get_bids(&key).is_empty());
 	}
-
 }

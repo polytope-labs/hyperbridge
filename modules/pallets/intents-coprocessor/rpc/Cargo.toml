@@ -13,6 +13,7 @@ log = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["sync", "time"] }
 futures = { workspace = true }
 hex = { workspace = true, default-features = true }
+pallet-intents-coprocessor = { workspace = true, default-features = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

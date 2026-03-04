@@ -402,33 +402,7 @@ pub fn run() -> Result<()> {
 						})
 						.await?;
 
-						let extract_bid =
-							|encoded: &[u8]| -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
-								use codec::{Decode, Encode};
-								let xt = gargantua_runtime::UncheckedExtrinsic::decode(
-									&mut &encoded[..],
-								)
-								.ok()?;
-
-								let filler = match &xt.preamble {
-									sp_runtime::generic::Preamble::Signed(address, _, _) =>
-										match address {
-											sp_runtime::MultiAddress::Id(id) => id.encode(),
-											_ => return None,
-										},
-									_ => return None,
-								};
-
-								match xt.function {
-									gargantua_runtime::RuntimeCall::IntentsCoprocessor(
-										pallet_intents_coprocessor::Call::place_bid {
-											commitment,
-											user_op,
-										},
-									) => Some((commitment, filler, user_op.to_vec())),
-									_ => None,
-								}
-							};
+						let extract_bid = pallet_intents_rpc::make_extract_bid!(gargantua_runtime);
 
 						task_manager.spawn_handle().spawn(
 							"intents-bid-watcher",

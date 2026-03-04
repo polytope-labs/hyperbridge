@@ -50,33 +50,6 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
 
-/// Generate a bid-extractor closure that decodes `place_bid` extrinsics
-/// using the concrete runtime types.
-macro_rules! make_extract_bid {
-	($runtime:ident) => {
-		|encoded: &[u8]| -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
-			use codec::{Decode, Encode};
-
-			let xt = $runtime::UncheckedExtrinsic::decode(&mut &encoded[..]).ok()?;
-
-			let filler = match &xt.preamble {
-				sp_runtime::generic::Preamble::Signed(address, _, _) => match address {
-					sp_runtime::MultiAddress::Id(id) => id.encode(),
-					_ => return None,
-				},
-				_ => return None,
-			};
-
-			match xt.function {
-				$runtime::RuntimeCall::IntentsCoprocessor(
-					pallet_intents_coprocessor::Call::place_bid { commitment, user_op },
-				) => Some((commitment, filler, user_op.to_vec())),
-				_ => None,
-			}
-		}
-	};
-}
-
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = cumulus_client_service::ParachainHostFunctions;
 
@@ -575,7 +548,7 @@ pub async fn start_parachain_node(
 				collator_options,
 				para_id,
 				hwbench,
-				make_extract_bid!(gargantua_runtime),
+				pallet_intents_rpc::make_extract_bid!(gargantua_runtime),
 			)
 			.await,
 		chain if chain.contains("nexus") =>
@@ -585,7 +558,7 @@ pub async fn start_parachain_node(
 				collator_options,
 				para_id,
 				hwbench,
-				make_extract_bid!(nexus_runtime),
+				pallet_intents_rpc::make_extract_bid!(nexus_runtime),
 			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),

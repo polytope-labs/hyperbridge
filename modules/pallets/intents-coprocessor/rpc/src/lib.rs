@@ -34,7 +34,7 @@ use sp_core::{
 };
 use sp_runtime::traits::Block as BlockT;
 use std::{
-	collections::HashMap,
+	collections::{BTreeSet, HashMap},
 	sync::{Arc, RwLock},
 	time::{Duration, Instant},
 };
@@ -42,13 +42,25 @@ use tokio::sync::broadcast;
 
 const LOG_TARGET: &str = "intents-rpc";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RpcBidInfo {
 	pub commitment: H256,
 	#[serde(with = "hex_bytes")]
 	pub filler: Vec<u8>,
 	#[serde(with = "hex_bytes")]
 	pub user_op: Vec<u8>,
+}
+
+impl Ord for RpcBidInfo {
+	fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+		self.filler.cmp(&other.filler)
+	}
+}
+
+impl PartialOrd for RpcBidInfo {
+	fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+		Some(self.cmp(other))
+	}
 }
 
 mod hex_bytes {
@@ -108,7 +120,7 @@ impl BidCache {
 		}
 	}
 
-	pub fn get_bids(&self, commitment: &H256) -> Vec<RpcBidInfo> {
+	pub fn get_bids(&self, commitment: &H256) -> BTreeSet<RpcBidInfo> {
 		let bids = self.bids.read().expect("BidCache lock poisoned");
 		bids.get(commitment)
 			.map(|order| {
@@ -215,8 +227,9 @@ where
 
 		let prefix = bids_storage_prefix(&commitment);
 		let mut current_key = prefix.clone();
+		const MAX_ON_CHAIN_BIDS: usize = 10;
 
-		loop {
+		for _ in 0..MAX_ON_CHAIN_BIDS {
 			let next_key = match sc_client_api::StateBackend::next_storage_key(&state, &current_key)
 				.map_err(|e| runtime_error_into_rpc_error(format!("{e:?}")))?
 			{
@@ -233,23 +246,19 @@ where
 			if next_key.len() > filler_start {
 				let filler_encoded = &next_key[filler_start..];
 
-				if !bids.iter().any(|b| b.filler == filler_encoded) {
-					let mut offchain_key = b"intents::bid::".to_vec();
-					offchain_key.extend_from_slice(commitment.as_bytes());
-					offchain_key.extend_from_slice(filler_encoded);
+				let mut offchain_key = b"intents::bid::".to_vec();
+				offchain_key.extend_from_slice(commitment.as_bytes());
+				offchain_key.extend_from_slice(filler_encoded);
 
-					if let Some(data) = self.offchain_storage.get(STORAGE_PREFIX, &offchain_key) {
-						// Bid encoding: filler.encode() ++ user_op.encode()
-						if data.len() > filler_encoded.len() {
-							if let Ok(user_op) =
-								Vec::<u8>::decode(&mut &data[filler_encoded.len()..])
-							{
-								bids.push(RpcBidInfo {
-									commitment,
-									filler: filler_encoded.to_vec(),
-									user_op,
-								});
-							}
+				if let Some(data) = self.offchain_storage.get(STORAGE_PREFIX, &offchain_key) {
+					// Bid encoding: filler.encode() ++ user_op.encode()
+					if data.len() > filler_encoded.len() {
+						if let Ok(user_op) = Vec::<u8>::decode(&mut &data[filler_encoded.len()..]) {
+							bids.insert(RpcBidInfo {
+								commitment,
+								filler: filler_encoded.to_vec(),
+								user_op,
+							});
 						}
 					}
 				}
@@ -258,7 +267,7 @@ where
 			current_key = next_key;
 		}
 
-		Ok(bids)
+		Ok(bids.into_iter().collect())
 	}
 
 	async fn subscribe_bids(
@@ -290,12 +299,45 @@ where
 	}
 }
 
+/// Generate a bid-extractor closure that decodes `place_bid` extrinsics
+/// using the concrete runtime types.
+///
+/// The caller passes the runtime module (e.g. `gargantua_runtime`) and the
+/// macro produces a closure compatible with [`run_bid_watcher`].
+#[macro_export]
+macro_rules! make_extract_bid {
+	($runtime:ident) => {
+		|encoded: &[u8]| -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
+			use codec::{Decode, Encode};
+
+			let xt = $runtime::UncheckedExtrinsic::decode(&mut &encoded[..]).ok()?;
+
+			let filler = match &xt.preamble {
+				sp_runtime::generic::Preamble::Signed(address, _, _) => match address {
+					sp_runtime::MultiAddress::Id(id) => id.encode(),
+					_ => return None,
+				},
+				_ => return None,
+			};
+
+			match xt.function {
+				$runtime::RuntimeCall::IntentsCoprocessor(
+					pallet_intents_coprocessor::Call::place_bid { commitment, user_op },
+				) => Some((commitment, filler, user_op.to_vec())),
+				_ => None,
+			}
+		}
+	};
+}
+
 /// Watches the tx pool for bid-related extrinsics, updating the cache and
 /// notifying subscribers as they arrive.
 ///
 /// The `extract_bid` closure decodes extrinsic bytes using concrete runtime
 /// types (`UncheckedExtrinsic`, `RuntimeCall`) and returns
 /// `(commitment, filler_encoded, user_op)` for bid calls, or `None`.
+///
+/// Use [`make_extract_bid!`] to generate the closure.
 pub async fn run_bid_watcher<P, Block, F>(
 	pool: Arc<P>,
 	bid_cache: Arc<BidCache>,
@@ -353,7 +395,7 @@ mod tests {
 
 		c.insert(key, vec![1, 2, 3], vec![4, 5, 6]);
 
-		let bids = c.get_bids(&key);
+		let bids: Vec<_> = c.get_bids(&key).into_iter().collect();
 		assert_eq!(bids.len(), 1);
 		assert_eq!(bids[0].filler, vec![1, 2, 3]);
 		assert_eq!(bids[0].user_op, vec![4, 5, 6]);
@@ -381,7 +423,7 @@ mod tests {
 		c.insert(key, vec![1], vec![10]);
 		c.insert(key, vec![1], vec![99]);
 
-		let bids = c.get_bids(&key);
+		let bids: Vec<_> = c.get_bids(&key).into_iter().collect();
 		assert_eq!(bids.len(), 1);
 		assert_eq!(bids[0].user_op, vec![99]);
 	}

@@ -14,9 +14,3 @@
 // limitations under the License.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-
-use polkadot_sdk::*;
-
-sp_api::decl_runtime_apis! {
-	pub trait IntentsCoprocessorApi {}
-}

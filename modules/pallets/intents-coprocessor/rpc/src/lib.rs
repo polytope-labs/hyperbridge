@@ -13,25 +13,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Watches the transaction pool for `place_bid` and `retract_bid` extrinsics,
-//! exposing them over RPC before block inclusion for sub-second bid discovery.
+//! Watches the transaction pool for `place_bid` extrinsics, exposing them
+//! over RPC before block inclusion for sub-second bid discovery.
 
-use codec::Encode;
+use codec::{Decode, Encode};
 use jsonrpsee::{
 	core::{async_trait, RpcResult, SubscriptionResult},
 	proc_macros::rpc,
 	types::{ErrorObject, ErrorObjectOwned},
 	PendingSubscriptionSink, SubscriptionMessage,
 };
-use pallet_intents_runtime_api::IntentsCoprocessorApi;
 use polkadot_sdk::*;
 use sc_client_api::Backend;
 use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
 use serde::{Deserialize, Serialize};
-use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
 use sp_core::{
-	offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
+	offchain::{OffchainStorage, STORAGE_PREFIX},
 	H256,
 };
 use sp_runtime::traits::Block as BlockT;
@@ -49,10 +47,8 @@ pub struct RpcBidInfo {
 	pub commitment: H256,
 	#[serde(with = "hex_bytes")]
 	pub filler: Vec<u8>,
-	/// Empty for retractions.
 	#[serde(with = "hex_bytes")]
 	pub user_op: Vec<u8>,
-	pub confirmed: bool,
 }
 
 mod hex_bytes {
@@ -79,7 +75,6 @@ mod hex_bytes {
 struct BidEntry {
 	filler: Vec<u8>,
 	user_op: Vec<u8>,
-	confirmed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +95,7 @@ impl BidCache {
 	}
 
 	pub fn insert(&self, commitment: H256, filler: Vec<u8>, user_op: Vec<u8>) {
-		let entry = BidEntry { filler: filler.clone(), user_op, confirmed: false };
+		let entry = BidEntry { filler: filler.clone(), user_op };
 
 		let mut bids = self.bids.write().expect("BidCache lock poisoned");
 		let order = bids
@@ -110,16 +105,6 @@ impl BidCache {
 			*existing = entry;
 		} else {
 			order.entries.push(entry);
-		}
-	}
-
-	pub fn remove_bid(&self, commitment: &H256, filler: &[u8]) {
-		let mut bids = self.bids.write().expect("BidCache lock poisoned");
-		if let Some(order) = bids.get_mut(commitment) {
-			order.entries.retain(|e| e.filler != filler);
-			if order.entries.is_empty() {
-				bids.remove(commitment);
-			}
 		}
 	}
 
@@ -134,7 +119,6 @@ impl BidCache {
 						commitment: *commitment,
 						filler: e.filler.clone(),
 						user_op: e.user_op.clone(),
-						confirmed: e.confirmed,
 					})
 					.collect()
 			})
@@ -147,18 +131,23 @@ impl BidCache {
 		bids.retain(|_commitment, order| now.duration_since(order.first_seen) < self.ttl);
 	}
 
-	pub fn confirm_bid(&self, commitment: &H256, filler: &[u8]) {
-		let mut bids = self.bids.write().expect("BidCache lock poisoned");
-		if let Some(order) = bids.get_mut(commitment) {
-			if let Some(entry) = order.entries.iter_mut().find(|e| e.filler == filler) {
-				entry.confirmed = true;
-			}
-		}
-	}
 }
 
 fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(9877, format!("{e}"), None::<String>)
+}
+
+/// Construct the storage key prefix for iterating all fillers in the on-chain
+/// `Bids` double-map for a given order commitment.
+fn bids_storage_prefix(commitment: &H256) -> Vec<u8> {
+	let mut prefix = Vec::new();
+	prefix.extend_from_slice(&sp_core::hashing::twox_128(b"IntentsCoprocessor"));
+	prefix.extend_from_slice(&sp_core::hashing::twox_128(b"Bids"));
+	// Blake2_128Concat hasher: blake2_128(key) ++ key
+	let commitment_bytes = commitment.as_bytes();
+	prefix.extend_from_slice(&sp_core::hashing::blake2_128(commitment_bytes));
+	prefix.extend_from_slice(commitment_bytes);
+	prefix
 }
 
 #[rpc(client, server)]
@@ -172,10 +161,11 @@ pub trait IntentsApi {
 
 pub struct IntentsRpcHandler<C, Block, S, T> {
 	client: Arc<C>,
-	offchain_db: OffchainDb<S>,
+	backend: Arc<T>,
+	offchain_storage: S,
 	bid_cache: Arc<BidCache>,
 	bid_sender: broadcast::Sender<RpcBidInfo>,
-	_marker: std::marker::PhantomData<(Block, T)>,
+	_marker: std::marker::PhantomData<Block>,
 }
 
 impl<C, Block, S, T> IntentsRpcHandler<C, Block, S, T>
@@ -190,12 +180,10 @@ where
 		bid_cache: Arc<BidCache>,
 		bid_sender: broadcast::Sender<RpcBidInfo>,
 	) -> Result<Self, String> {
-		let offchain_db = OffchainDb::new(
-			backend
-				.offchain_storage()
-				.ok_or_else(|| "Offchain storage not available in backend".to_string())?,
-		);
-		Ok(Self { client, offchain_db, bid_cache, bid_sender, _marker: Default::default() })
+		let offchain_storage = backend
+			.offchain_storage()
+			.ok_or_else(|| "Offchain storage not available in backend".to_string())?;
+		Ok(Self { client, backend, offchain_storage, bid_cache, bid_sender, _marker: Default::default() })
 	}
 }
 
@@ -205,25 +193,66 @@ where
 	Block: BlockT,
 	S: OffchainStorage + Clone + Send + Sync + 'static,
 	T: Backend<Block> + Send + Sync + 'static,
-	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
-	C::Api: IntentsCoprocessorApi<Block>,
+	C: HeaderBackend<Block> + Send + Sync + 'static,
 {
 	fn get_bids_for_order(&self, commitment: H256) -> RpcResult<Vec<RpcBidInfo>> {
 		// Get mempool bids from in-memory cache
 		let mut bids = self.bid_cache.get_bids(&commitment);
 
-		// Query confirmed bids from offchain storage via the runtime API
-		let mut api = self.client.runtime_api();
-		api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
-		let at = self.client.info().best_hash;
+		// Query on-chain bids by iterating on-chain Bids storage and reading
+		// offchain storage directly from the backend.
+		let best_hash = self.client.info().best_hash;
+		let state = self
+			.backend
+			.state_at(best_hash, sc_client_api::TrieCacheContext::Untrusted)
+			.map_err(runtime_error_into_rpc_error)?;
 
-		if let Ok(onchain_bids) = api.get_bids_for_commitment(at, commitment) {
-			for (filler, user_op) in onchain_bids {
-				// Deduplicate: skip if a bid from this filler already exists in the cache
-				if !bids.iter().any(|b| b.filler == filler) {
-					bids.push(RpcBidInfo { commitment, filler, user_op, confirmed: true });
+		let prefix = bids_storage_prefix(&commitment);
+		let mut current_key = prefix.clone();
+
+		loop {
+			let next_key =
+				match sc_client_api::StateBackend::next_storage_key(&state, &current_key)
+					.map_err(|e| runtime_error_into_rpc_error(format!("{e:?}")))?
+				{
+					Some(k) => k,
+					None => break,
+				};
+
+			if !next_key.starts_with(&prefix) {
+				break;
+			}
+
+			// Key layout after prefix: blake2_128(filler) ++ filler_encoded
+			let filler_start = prefix.len() + 16;
+			if next_key.len() > filler_start {
+				let filler_encoded = &next_key[filler_start..];
+
+				if !bids.iter().any(|b| b.filler == filler_encoded) {
+					let mut offchain_key = b"intents::bid::".to_vec();
+					offchain_key.extend_from_slice(commitment.as_bytes());
+					offchain_key.extend_from_slice(filler_encoded);
+
+					if let Some(data) =
+						self.offchain_storage.get(STORAGE_PREFIX, &offchain_key)
+					{
+						// Bid encoding: filler.encode() ++ user_op.encode()
+						if data.len() > filler_encoded.len() {
+							if let Ok(user_op) =
+								Vec::<u8>::decode(&mut &data[filler_encoded.len()..])
+							{
+								bids.push(RpcBidInfo {
+									commitment,
+									filler: filler_encoded.to_vec(),
+									user_op,
+								});
+							}
+						}
+					}
 				}
 			}
+
+			current_key = next_key;
 		}
 
 		Ok(bids)
@@ -260,16 +289,19 @@ where
 
 /// Watches the tx pool for bid-related extrinsics, updating the cache and
 /// notifying subscribers as they arrive.
-pub async fn run_bid_watcher<P, C, Block>(
+///
+/// The `extract_bid` closure decodes extrinsic bytes using concrete runtime
+/// types (`UncheckedExtrinsic`, `RuntimeCall`) and returns
+/// `(commitment, filler_encoded, user_op)` for bid calls, or `None`.
+pub async fn run_bid_watcher<P, Block, F>(
 	pool: Arc<P>,
-	client: Arc<C>,
 	bid_cache: Arc<BidCache>,
 	bid_sender: broadcast::Sender<RpcBidInfo>,
+	extract_bid: F,
 ) where
 	Block: BlockT,
 	P: TransactionPool<Block = Block> + 'static,
-	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + 'static,
-	C::Api: IntentsCoprocessorApi<Block>,
+	F: Fn(&[u8]) -> Option<(H256, Vec<u8>, Vec<u8>)> + Send + 'static,
 {
 	use futures::StreamExt;
 
@@ -282,33 +314,15 @@ pub async fn run_bid_watcher<P, C, Block>(
 		};
 
 		let extrinsic_bytes = tx.data().encode();
-		let best_hash = client.info().best_hash;
 
-		match client.runtime_api().extract_bid(best_hash, extrinsic_bytes) {
-			Ok(Some((commitment, filler, user_op))) => {
-				let is_retraction = user_op.is_empty();
+		if let Some((commitment, filler, user_op)) = extract_bid(&extrinsic_bytes) {
+			log::info!(
+				target: LOG_TARGET,
+				"bid in mempool for {commitment:?}",
+			);
+			bid_cache.insert(commitment, filler.clone(), user_op.clone());
 
-				if is_retraction {
-					log::info!(
-						target: LOG_TARGET,
-						"retract_bid in mempool for {commitment:?}",
-					);
-					bid_cache.remove_bid(&commitment, &filler);
-				} else {
-					log::info!(
-						target: LOG_TARGET,
-						"place_bid in mempool for {commitment:?}",
-					);
-					bid_cache.insert(commitment, filler.clone(), user_op.clone());
-				}
-
-				let _ =
-					bid_sender.send(RpcBidInfo { commitment, filler, user_op, confirmed: false });
-			},
-			Ok(None) => {},
-			Err(e) => {
-				log::debug!(target: LOG_TARGET, "extract_bid failed: {e:?}");
-			},
+			let _ = bid_sender.send(RpcBidInfo { commitment, filler, user_op });
 		}
 	}
 }
@@ -340,7 +354,6 @@ mod tests {
 		assert_eq!(bids.len(), 1);
 		assert_eq!(bids[0].filler, vec![1, 2, 3]);
 		assert_eq!(bids[0].user_op, vec![4, 5, 6]);
-		assert!(!bids[0].confirmed);
 	}
 
 	#[test]
@@ -371,31 +384,6 @@ mod tests {
 	}
 
 	#[test]
-	fn remove_only_bid_clears_commitment() {
-		let c = cache();
-		let key = H256::random();
-
-		c.insert(key, vec![1], vec![10]);
-		c.remove_bid(&key, &[1]);
-
-		assert!(c.get_bids(&key).is_empty());
-	}
-
-	#[test]
-	fn remove_one_of_many_preserves_others() {
-		let c = cache();
-		let key = H256::random();
-
-		c.insert(key, vec![1], vec![10]);
-		c.insert(key, vec![2], vec![20]);
-		c.remove_bid(&key, &[1]);
-
-		let bids = c.get_bids(&key);
-		assert_eq!(bids.len(), 1);
-		assert_eq!(bids[0].filler, vec![2]);
-	}
-
-	#[test]
 	fn unknown_commitment_returns_empty() {
 		assert!(cache().get_bids(&H256::random()).is_empty());
 	}
@@ -412,15 +400,4 @@ mod tests {
 		assert!(c.get_bids(&key).is_empty());
 	}
 
-	#[test]
-	fn confirm_sets_flag() {
-		let c = cache();
-		let key = H256::random();
-
-		c.insert(key, vec![1], vec![10]);
-		assert!(!c.get_bids(&key)[0].confirmed);
-
-		c.confirm_bid(&key, &[1]);
-		assert!(c.get_bids(&key)[0].confirmed);
-	}
 }

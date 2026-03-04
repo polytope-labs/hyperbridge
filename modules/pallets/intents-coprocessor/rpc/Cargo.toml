@@ -14,15 +14,12 @@ tokio = { workspace = true, features = ["sync", "time"] }
 futures = { workspace = true }
 hex = { workspace = true, default-features = true }
 
-pallet-intents-runtime-api = { workspace = true, default-features = true }
-
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
 features = [
     "sc-client-api",
     "sc-transaction-pool-api",
-    "sp-api",
     "sp-blockchain",
     "sp-core",
     "sp-runtime",

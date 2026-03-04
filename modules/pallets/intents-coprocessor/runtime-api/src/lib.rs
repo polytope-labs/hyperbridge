@@ -15,21 +15,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-extern crate alloc;
-
-use alloc::vec::Vec;
 use polkadot_sdk::*;
 
 sp_api::decl_runtime_apis! {
-	pub trait IntentsCoprocessorApi {
-		/// Returns `(commitment, filler_bytes, user_op)` for `place_bid` extrinsics,
-		/// or `(commitment, filler_bytes, empty)` for `retract_bid`. `None` otherwise.
-		fn extract_bid(extrinsic: Vec<u8>) -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)>;
-
-		/// Returns all confirmed bids for a given order commitment as
-		/// `Vec<(filler_bytes, user_op)>`.
-		///
-		/// Requires `OffchainDbExt` to be registered by the caller.
-		fn get_bids_for_commitment(commitment: sp_core::H256) -> Vec<(Vec<u8>, Vec<u8>)>;
-	}
+	pub trait IntentsCoprocessorApi {}
 }

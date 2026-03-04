@@ -28,7 +28,7 @@ gargantua-runtime = { workspace = true, default-features = true }
 nexus-runtime = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
 pallet-intents-rpc = { workspace = true }
-pallet-intents-runtime-api = { workspace = true, default-features = true }
+pallet-intents-coprocessor = { workspace = true, default-features = true }
 pallet-mmr-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }

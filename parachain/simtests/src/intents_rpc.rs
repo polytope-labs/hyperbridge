@@ -50,7 +50,6 @@ async fn test_bid_discovery_via_rpc() -> Result<(), anyhow::Error> {
 		rpc_client.request("intents_getBidsForOrder", rpc_params![commitment]).await?;
 	assert!(!bids.is_empty(), "bid should be discoverable from the mempool before block inclusion");
 	assert_eq!(bids[0].commitment, commitment);
-	assert!(!bids[0].confirmed);
 
 	let block = rpc_client
 		.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])

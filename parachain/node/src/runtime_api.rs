@@ -93,7 +93,7 @@ pub trait BaseHostRuntimeApis:
 		opaque::Block,
 		gargantua_runtime::RuntimeCall,
 		opaque::AccountId,
-	> + pallet_intents_runtime_api::IntentsCoprocessorApi<opaque::Block>
+	>
 {
 }
 
@@ -120,6 +120,6 @@ impl<Api> BaseHostRuntimeApis for Api where
 			opaque::Block,
 			gargantua_runtime::RuntimeCall,
 			opaque::AccountId,
-		> + pallet_intents_runtime_api::IntentsCoprocessorApi<opaque::Block>
+		>
 {
 }

@@ -50,6 +50,33 @@ use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_prometheus_endpoint::Registry;
 
+/// Generate a bid-extractor closure that decodes `place_bid` extrinsics
+/// using the concrete runtime types.
+macro_rules! make_extract_bid {
+	($runtime:ident) => {
+		|encoded: &[u8]| -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
+			use codec::{Decode, Encode};
+
+			let xt = $runtime::UncheckedExtrinsic::decode(&mut &encoded[..]).ok()?;
+
+			let filler = match &xt.preamble {
+				sp_runtime::generic::Preamble::Signed(address, _, _) => match address {
+					sp_runtime::MultiAddress::Id(id) => id.encode(),
+					_ => return None,
+				},
+				_ => return None,
+			};
+
+			match xt.function {
+				$runtime::RuntimeCall::IntentsCoprocessor(
+					pallet_intents_coprocessor::Call::place_bid { commitment, user_op },
+				) => Some((commitment, filler, user_op.to_vec())),
+				_ => None,
+			}
+		}
+	};
+}
+
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = cumulus_client_service::ParachainHostFunctions;
 
@@ -169,18 +196,20 @@ where
 ///
 /// This is the actual implementation that is abstract over the executor and the runtime api.
 #[sc_tracing::logging::prefix_logs_with("Parachain")]
-async fn start_node_impl<Runtime>(
+async fn start_node_impl<Runtime, F>(
 	parachain_config: Configuration,
 	polkadot_config: Configuration,
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	extract_bid: F,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
 	Runtime::RuntimeApi: BaseHostRuntimeApis,
 	sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
 		sc_client_api::StateBackend<Keccak256>,
+	F: Fn(&[u8]) -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> + Send + 'static,
 {
 	let parachain_config = prepare_node_config(parachain_config);
 	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config.executor);
@@ -262,9 +291,9 @@ where
 		"intents",
 		pallet_intents_rpc::run_bid_watcher(
 			transaction_pool.clone(),
-			client.clone(),
 			bid_cache.clone(),
 			bid_sender.clone(),
+			extract_bid,
 		),
 	);
 
@@ -540,21 +569,23 @@ pub async fn start_parachain_node(
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
-			start_node_impl::<gargantua_runtime::RuntimeApi>(
+			start_node_impl::<gargantua_runtime::RuntimeApi, _>(
 				parachain_config,
 				polkadot_config,
 				collator_options,
 				para_id,
 				hwbench,
+				make_extract_bid!(gargantua_runtime),
 			)
 			.await,
 		chain if chain.contains("nexus") =>
-			start_node_impl::<nexus_runtime::RuntimeApi>(
+			start_node_impl::<nexus_runtime::RuntimeApi, _>(
 				parachain_config,
 				polkadot_config,
 				collator_options,
 				para_id,
 				hwbench,
+				make_extract_bid!(nexus_runtime),
 			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),

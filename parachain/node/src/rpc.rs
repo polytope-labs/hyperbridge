@@ -74,7 +74,6 @@ where
 		opaque::BlockNumber,
 		pallet_ismp::offchain::Leaf,
 	>,
-	C::Api: pallet_intents_runtime_api::IntentsCoprocessorApi<Block>,
 	P: TransactionPool + Sync + Send + 'static,
 	B: sc_client_api::Backend<Block> + Send + Sync + 'static,
 	B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,

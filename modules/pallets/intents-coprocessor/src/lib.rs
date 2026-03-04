@@ -25,7 +25,7 @@ pub mod types;
 mod weights;
 
 use alloc::vec::Vec;
-use codec::Encode as _;
+use codec::{Decode as _, Encode as _};
 use frame_support::{
 	ensure,
 	traits::{Currency, ReservableCurrency},
@@ -420,13 +420,36 @@ pub mod pallet {
 	where
 		T::AccountId: From<[u8; 32]>,
 	{
-		/// Dispatch a cross-chain message to a gateway contract
 		/// Generate offchain storage key for a bid
-		fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
+		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
 			let mut key = b"intents::bid::".to_vec();
 			key.extend_from_slice(commitment.as_bytes());
 			key.extend_from_slice(&filler.encode());
 			key
+		}
+
+		/// Query all confirmed bids for a given order commitment.
+		///
+		/// Iterates on-chain `Bids` storage for the commitment prefix, reads the
+		/// full `Bid` data from offchain storage for each filler, and returns
+		/// `(encoded_filler, user_op)` pairs.
+		///
+		/// Requires `OffchainDbExt` to be registered in the runtime API context.
+		pub fn get_bids_for_commitment(commitment: &H256) -> Vec<(Vec<u8>, Vec<u8>)> {
+			use sp_core::offchain::StorageKind;
+
+			let mut result = Vec::new();
+			for (filler, _deposit) in Bids::<T>::iter_prefix(commitment) {
+				let offchain_key = Self::offchain_bid_key(commitment, &filler);
+				if let Some(data) =
+					sp_io::offchain::local_storage_get(StorageKind::PERSISTENT, &offchain_key)
+				{
+					if let Ok(bid) = Bid::<T::AccountId>::decode(&mut &data[..]) {
+						result.push((filler.encode(), bid.user_op));
+					}
+				}
+			}
+			result
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

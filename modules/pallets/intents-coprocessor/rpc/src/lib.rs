@@ -25,11 +25,15 @@ use jsonrpsee::{
 };
 use pallet_intents_runtime_api::IntentsCoprocessorApi;
 use polkadot_sdk::*;
+use sc_client_api::Backend;
 use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
 use serde::{Deserialize, Serialize};
-use sp_api::ProvideRuntimeApi;
+use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
-use sp_core::H256;
+use sp_core::{
+	offchain::{storage::OffchainDb, OffchainDbExt, OffchainStorage},
+	H256,
+};
 use sp_runtime::traits::Block as BlockT;
 use std::{
 	collections::HashMap,
@@ -75,126 +79,57 @@ mod hex_bytes {
 struct BidEntry {
 	filler: Vec<u8>,
 	user_op: Vec<u8>,
-	observed_at: Instant,
 	confirmed: bool,
 }
 
-/// In-memory bid cache backed by SQLite for persistence across restarts.
+#[derive(Clone, Debug)]
+struct OrderBids {
+	first_seen: Instant,
+	entries: Vec<BidEntry>,
+}
+
+/// In-memory bid cache.
 pub struct BidCache {
-	bids: RwLock<HashMap<H256, Vec<BidEntry>>>,
-	db: std::sync::Mutex<rusqlite::Connection>,
+	bids: RwLock<HashMap<H256, OrderBids>>,
 	ttl: Duration,
 }
 
 impl BidCache {
-	pub fn new(db_path: &str, ttl: Duration) -> Result<Self, rusqlite::Error> {
-		let conn = rusqlite::Connection::open(db_path)?;
-		conn.execute_batch(
-			"CREATE TABLE IF NOT EXISTS bids (
-				commitment BLOB NOT NULL,
-				filler BLOB NOT NULL,
-				user_op BLOB NOT NULL,
-				confirmed INTEGER NOT NULL DEFAULT 0,
-				PRIMARY KEY (commitment, filler)
-			)",
-		)?;
-
-		let bids = Self::load_bids_from_db(&conn)?;
-		Ok(Self { bids: RwLock::new(bids), db: std::sync::Mutex::new(conn), ttl })
-	}
-
-	fn load_bids_from_db(
-		conn: &rusqlite::Connection,
-	) -> Result<HashMap<H256, Vec<BidEntry>>, rusqlite::Error> {
-		let mut bids: HashMap<H256, Vec<BidEntry>> = HashMap::new();
-		let mut stmt = conn.prepare("SELECT commitment, filler, user_op, confirmed FROM bids")?;
-		let rows = stmt.query_map([], |row| {
-			let commitment_bytes: Vec<u8> = row.get(0)?;
-			let filler: Vec<u8> = row.get(1)?;
-			let user_op: Vec<u8> = row.get(2)?;
-			let confirmed: bool = row.get(3)?;
-			Ok((commitment_bytes, filler, user_op, confirmed))
-		})?;
-
-		for row in rows {
-			let (commitment_bytes, filler, user_op, confirmed) = row?;
-			if commitment_bytes.len() == 32 {
-				let commitment = H256::from_slice(&commitment_bytes);
-				bids.entry(commitment).or_default().push(BidEntry {
-					filler,
-					user_op,
-					observed_at: Instant::now(),
-					confirmed,
-				});
-			}
-		}
-
-		Ok(bids)
-	}
-
-	fn persist_upsert(&self, commitment: &H256, filler: &[u8], user_op: &[u8]) {
-		if let Ok(db) = self.db.lock() {
-			if let Err(e) = db.execute(
-				"INSERT OR REPLACE INTO bids (commitment, filler, user_op, confirmed) \
-				 VALUES (?1, ?2, ?3, 0)",
-				rusqlite::params![commitment.as_bytes().to_vec(), filler, user_op],
-			) {
-				log::warn!(target: LOG_TARGET, "Failed to persist bid: {e}");
-			}
-		}
-	}
-
-	fn persist_delete(&self, commitment: &H256, filler: &[u8]) {
-		if let Ok(db) = self.db.lock() {
-			if let Err(e) = db.execute(
-				"DELETE FROM bids WHERE commitment = ?1 AND filler = ?2",
-				rusqlite::params![commitment.as_bytes().to_vec(), filler],
-			) {
-				log::warn!(target: LOG_TARGET, "Failed to delete bid: {e}");
-			}
-		}
+	pub fn new(ttl: Duration) -> Self {
+		Self { bids: RwLock::new(HashMap::new()), ttl }
 	}
 
 	pub fn insert(&self, commitment: H256, filler: Vec<u8>, user_op: Vec<u8>) {
-		let entry = BidEntry {
-			filler: filler.clone(),
-			user_op: user_op.clone(),
-			observed_at: Instant::now(),
-			confirmed: false,
-		};
+		let entry = BidEntry { filler: filler.clone(), user_op, confirmed: false };
 
-		{
-			let mut bids = self.bids.write().expect("BidCache lock poisoned");
-			let entries = bids.entry(commitment).or_default();
-			if let Some(existing) = entries.iter_mut().find(|e| e.filler == filler) {
-				*existing = entry;
-			} else {
-				entries.push(entry);
-			}
+		let mut bids = self.bids.write().expect("BidCache lock poisoned");
+		let order = bids.entry(commitment).or_insert_with(|| OrderBids {
+			first_seen: Instant::now(),
+			entries: Vec::new(),
+		});
+		if let Some(existing) = order.entries.iter_mut().find(|e| e.filler == filler) {
+			*existing = entry;
+		} else {
+			order.entries.push(entry);
 		}
-
-		self.persist_upsert(&commitment, &filler, &user_op);
 	}
 
 	pub fn remove_bid(&self, commitment: &H256, filler: &[u8]) {
-		{
-			let mut bids = self.bids.write().expect("BidCache lock poisoned");
-			if let Some(entries) = bids.get_mut(commitment) {
-				entries.retain(|e| e.filler != filler);
-				if entries.is_empty() {
-					bids.remove(commitment);
-				}
+		let mut bids = self.bids.write().expect("BidCache lock poisoned");
+		if let Some(order) = bids.get_mut(commitment) {
+			order.entries.retain(|e| e.filler != filler);
+			if order.entries.is_empty() {
+				bids.remove(commitment);
 			}
 		}
-
-		self.persist_delete(commitment, filler);
 	}
 
 	pub fn get_bids(&self, commitment: &H256) -> Vec<RpcBidInfo> {
 		let bids = self.bids.read().expect("BidCache lock poisoned");
 		bids.get(commitment)
-			.map(|entries| {
-				entries
+			.map(|order| {
+				order
+					.entries
 					.iter()
 					.map(|e| RpcBidInfo {
 						commitment: *commitment,
@@ -209,53 +144,15 @@ impl BidCache {
 
 	pub fn remove_expired(&self) {
 		let now = Instant::now();
-		let mut expired: Vec<H256> = Vec::new();
-
-		{
-			let mut bids = self.bids.write().expect("BidCache lock poisoned");
-			bids.retain(|commitment, entries| {
-				entries.retain(|e| now.duration_since(e.observed_at) < self.ttl);
-				if entries.is_empty() {
-					expired.push(*commitment);
-					false
-				} else {
-					true
-				}
-			});
-		}
-
-		if expired.is_empty() {
-			return;
-		}
-
-		if let Ok(db) = self.db.lock() {
-			for commitment in &expired {
-				if let Err(e) = db.execute(
-					"DELETE FROM bids WHERE commitment = ?1",
-					rusqlite::params![commitment.as_bytes().to_vec()],
-				) {
-					log::warn!(target: LOG_TARGET, "Failed to delete expired bid: {e}");
-				}
-			}
-		}
+		let mut bids = self.bids.write().expect("BidCache lock poisoned");
+		bids.retain(|_commitment, order| now.duration_since(order.first_seen) < self.ttl);
 	}
 
 	pub fn confirm_bid(&self, commitment: &H256, filler: &[u8]) {
-		{
-			let mut bids = self.bids.write().expect("BidCache lock poisoned");
-			if let Some(entries) = bids.get_mut(commitment) {
-				if let Some(entry) = entries.iter_mut().find(|e| e.filler == filler) {
-					entry.confirmed = true;
-				}
-			}
-		}
-
-		if let Ok(db) = self.db.lock() {
-			if let Err(e) = db.execute(
-				"UPDATE bids SET confirmed = 1 WHERE commitment = ?1 AND filler = ?2",
-				rusqlite::params![commitment.as_bytes().to_vec(), filler],
-			) {
-				log::warn!(target: LOG_TARGET, "Failed to confirm bid: {e}");
+		let mut bids = self.bids.write().expect("BidCache lock poisoned");
+		if let Some(order) = bids.get_mut(commitment) {
+			if let Some(entry) = order.entries.iter_mut().find(|e| e.filler == filler) {
+				entry.confirmed = true;
 			}
 		}
 	}
@@ -274,21 +171,68 @@ pub trait IntentsApi {
 	async fn subscribe_bids(&self, commitment: Option<H256>) -> SubscriptionResult;
 }
 
-pub struct IntentsRpcHandler {
+pub struct IntentsRpcHandler<C, Block, S, T> {
+	client: Arc<C>,
+	offchain_db: OffchainDb<S>,
 	bid_cache: Arc<BidCache>,
 	bid_sender: broadcast::Sender<RpcBidInfo>,
+	_marker: std::marker::PhantomData<(Block, T)>,
 }
 
-impl IntentsRpcHandler {
-	pub fn new(bid_cache: Arc<BidCache>, bid_sender: broadcast::Sender<RpcBidInfo>) -> Self {
-		Self { bid_cache, bid_sender }
+impl<C, Block, S, T> IntentsRpcHandler<C, Block, S, T>
+where
+	Block: BlockT,
+	S: OffchainStorage + Clone + Send + Sync + 'static,
+	T: Backend<Block, OffchainStorage = S> + Send + Sync + 'static,
+{
+	pub fn new(
+		client: Arc<C>,
+		backend: Arc<T>,
+		bid_cache: Arc<BidCache>,
+		bid_sender: broadcast::Sender<RpcBidInfo>,
+	) -> Result<Self, String> {
+		let offchain_db = OffchainDb::new(
+			backend
+				.offchain_storage()
+				.ok_or_else(|| "Offchain storage not available in backend".to_string())?,
+		);
+		Ok(Self { client, offchain_db, bid_cache, bid_sender, _marker: Default::default() })
 	}
 }
 
 #[async_trait]
-impl IntentsApiServer for IntentsRpcHandler {
+impl<C, Block, S, T> IntentsApiServer for IntentsRpcHandler<C, Block, S, T>
+where
+	Block: BlockT,
+	S: OffchainStorage + Clone + Send + Sync + 'static,
+	T: Backend<Block> + Send + Sync + 'static,
+	C: ProvideRuntimeApi<Block> + HeaderBackend<Block> + Send + Sync + 'static,
+	C::Api: IntentsCoprocessorApi<Block>,
+{
 	fn get_bids_for_order(&self, commitment: H256) -> RpcResult<Vec<RpcBidInfo>> {
-		Ok(self.bid_cache.get_bids(&commitment))
+		// Get mempool bids from in-memory cache
+		let mut bids = self.bid_cache.get_bids(&commitment);
+
+		// Query confirmed bids from offchain storage via the runtime API
+		let mut api = self.client.runtime_api();
+		api.register_extension(OffchainDbExt::new(self.offchain_db.clone()));
+		let at = self.client.info().best_hash;
+
+		if let Ok(onchain_bids) = api.get_bids_for_commitment(at, commitment) {
+			for (filler, user_op) in onchain_bids {
+				// Deduplicate: skip if a bid from this filler already exists in the cache
+				if !bids.iter().any(|b| b.filler == filler) {
+					bids.push(RpcBidInfo {
+						commitment,
+						filler,
+						user_op,
+						confirmed: true,
+					});
+				}
+			}
+		}
+
+		Ok(bids)
 	}
 
 	async fn subscribe_bids(
@@ -384,5 +328,109 @@ pub async fn run_bid_cleanup(bid_cache: Arc<BidCache>, interval: Duration) {
 	loop {
 		timer.tick().await;
 		bid_cache.remove_expired();
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn cache() -> BidCache {
+		BidCache::new(Duration::from_secs(300))
+	}
+
+	#[test]
+	fn insert_and_get() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1, 2, 3], vec![4, 5, 6]);
+
+		let bids = c.get_bids(&key);
+		assert_eq!(bids.len(), 1);
+		assert_eq!(bids[0].filler, vec![1, 2, 3]);
+		assert_eq!(bids[0].user_op, vec![4, 5, 6]);
+		assert!(!bids[0].confirmed);
+	}
+
+	#[test]
+	fn multiple_fillers_same_commitment() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1], vec![10]);
+		c.insert(key, vec![2], vec![20]);
+
+		let bids = c.get_bids(&key);
+		assert_eq!(bids.len(), 2);
+		assert!(bids.iter().any(|b| b.filler == vec![1]));
+		assert!(bids.iter().any(|b| b.filler == vec![2]));
+	}
+
+	#[test]
+	fn duplicate_filler_replaces_previous_bid() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1], vec![10]);
+		c.insert(key, vec![1], vec![99]);
+
+		let bids = c.get_bids(&key);
+		assert_eq!(bids.len(), 1);
+		assert_eq!(bids[0].user_op, vec![99]);
+	}
+
+	#[test]
+	fn remove_only_bid_clears_commitment() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1], vec![10]);
+		c.remove_bid(&key, &[1]);
+
+		assert!(c.get_bids(&key).is_empty());
+	}
+
+	#[test]
+	fn remove_one_of_many_preserves_others() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1], vec![10]);
+		c.insert(key, vec![2], vec![20]);
+		c.remove_bid(&key, &[1]);
+
+		let bids = c.get_bids(&key);
+		assert_eq!(bids.len(), 1);
+		assert_eq!(bids[0].filler, vec![2]);
+	}
+
+	#[test]
+	fn unknown_commitment_returns_empty() {
+		assert!(cache().get_bids(&H256::random()).is_empty());
+	}
+
+	#[test]
+	fn expired_entries_are_removed() {
+		let c = BidCache::new(Duration::from_millis(50));
+		let key = H256::random();
+
+		c.insert(key, vec![1], vec![10]);
+		std::thread::sleep(Duration::from_millis(100));
+		c.remove_expired();
+
+		assert!(c.get_bids(&key).is_empty());
+	}
+
+	#[test]
+	fn confirm_sets_flag() {
+		let c = cache();
+		let key = H256::random();
+
+		c.insert(key, vec![1], vec![10]);
+		assert!(!c.get_bids(&key)[0].confirmed);
+
+		c.confirm_bid(&key, &[1]);
+		assert!(c.get_bids(&key)[0].confirmed);
 	}
 }

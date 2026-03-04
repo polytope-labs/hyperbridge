@@ -13,7 +13,6 @@ log = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["sync", "time"] }
 futures = { workspace = true }
 hex = { workspace = true, default-features = true }
-rusqlite = { version = "0.25", features = ["bundled"] }
 
 pallet-intents-runtime-api = { workspace = true, default-features = true }
 

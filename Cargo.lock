@@ -15090,7 +15090,6 @@ dependencies = [
  "pallet-intents-runtime-api",
  "parity-scale-codec",
  "polkadot-sdk",
- "rusqlite",
  "serde",
  "tokio",
 ]
@@ -24002,6 +24001,8 @@ dependencies = [
  "nexus-runtime",
  "pallet-bridge-airdrop",
  "pallet-hyperbridge",
+ "pallet-intents-coprocessor",
+ "pallet-intents-rpc",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",

@@ -74,6 +74,7 @@ where
 		opaque::BlockNumber,
 		pallet_ismp::offchain::Leaf,
 	>,
+	C::Api: pallet_intents_runtime_api::IntentsCoprocessorApi<Block>,
 	P: TransactionPool + Sync + Send + 'static,
 	B: sc_client_api::Backend<Block> + Send + Sync + 'static,
 	B::State: sc_client_api::StateBackend<sp_runtime::traits::HashingFor<Block>>,
@@ -90,8 +91,12 @@ where
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
 	module.merge(IsmpRpcHandler::new(client.clone(), backend.clone())?.into_rpc())?;
-	module.merge(MmrRpcHandler::new(client, backend.clone())?.into_rpc())?;
-	module.merge(IntentsRpcHandler::new(bid_cache, bid_sender).into_rpc())?;
+	module.merge(MmrRpcHandler::new(client.clone(), backend.clone())?.into_rpc())?;
+	module.merge(
+		IntentsRpcHandler::new(client, backend, bid_cache, bid_sender)
+			.map_err(|e| e.to_string())?
+			.into_rpc(),
+	)?;
 
 	Ok(module)
 }

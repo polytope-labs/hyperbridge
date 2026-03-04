@@ -1443,6 +1443,10 @@ impl_runtime_apis! {
 				_ => None,
 			}
 		}
+
+		fn get_bids_for_commitment(commitment: sp_core::H256) -> Vec<(Vec<u8>, Vec<u8>)> {
+			pallet_intents_coprocessor::Pallet::<Runtime>::get_bids_for_commitment(&commitment)
+		}
 	}
 
 	impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime

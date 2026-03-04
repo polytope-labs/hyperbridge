@@ -368,20 +368,18 @@ pub fn run() -> Result<()> {
 						let client = components.client.clone();
 						let pool = components.transaction_pool.clone();
 						let backend = components.backend.clone();
-						let db_path = config
-							.data_path
-							.join("intents-bids.db")
-							.to_string_lossy()
-							.to_string();
 						let bid_cache = std::sync::Arc::new(
 							pallet_intents_rpc::BidCache::new(
-								&db_path,
 								std::time::Duration::from_secs(300),
-							)
-							.expect("Failed to create intents bid cache"),
+							),
 						);
 						let (bid_sender, _) =
 							tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
+
+						let watcher_pool = pool.clone();
+						let watcher_client = client.clone();
+						let watcher_cache = bid_cache.clone();
+						let watcher_sender = bid_sender.clone();
 
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
@@ -406,6 +404,27 @@ pub fn run() -> Result<()> {
 							}),
 						})
 						.await?;
+
+						task_manager.spawn_handle().spawn(
+							"intents-bid-watcher",
+							"intents",
+							pallet_intents_rpc::run_bid_watcher(
+								watcher_pool,
+								watcher_client,
+								watcher_cache.clone(),
+								watcher_sender,
+							),
+						);
+
+						task_manager.spawn_handle().spawn(
+							"intents-bid-cleanup",
+							"intents",
+							pallet_intents_rpc::run_bid_cleanup(
+								watcher_cache,
+								std::time::Duration::from_secs(60),
+							),
+						);
+
 						Ok(task_manager)
 					})
 				},

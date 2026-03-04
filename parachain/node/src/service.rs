@@ -254,14 +254,8 @@ where
 		);
 	}
 
-	let db_path = parachain_config
-		.data_path
-		.join("intents-bids.db")
-		.to_string_lossy()
-		.to_string();
 	let bid_cache = Arc::new(
-		pallet_intents_rpc::BidCache::new(&db_path, Duration::from_secs(300))
-			.expect("Failed to create intents bid cache"),
+		pallet_intents_rpc::BidCache::new(Duration::from_secs(300)),
 	);
 	let (bid_sender, _) = tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
 

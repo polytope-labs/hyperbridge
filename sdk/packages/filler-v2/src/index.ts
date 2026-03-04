@@ -6,6 +6,7 @@ export { EventMonitor } from "./core/event-monitor"
 
 // Strategy exports
 export { BasicFiller } from "./strategies/basic"
+export { FXFiller } from "./strategies/fx"
 
 // Configuration exports
 export { InterpolatedCurve, ConfirmationPolicy, FillerBpsPolicy } from "./config/interpolated-curve"

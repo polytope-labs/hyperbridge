@@ -68,7 +68,14 @@ import { CHAINS_BY_ISMP_HOST } from "./chains-by-ismp-host"
 import { INTENT_GATEWAY_ADDRESSES } from "./intent-gateway-addresses"
 import { INTENT_GATEWAY_V2_ADDRESSES } from "./intent-gateway-v2-addresses"
 import { TOKEN_GATEWAY_ADDRESSES } from "./token-gateway-addresses"
-export { CHAIN_IDS_BY_GENESIS, CHAINS_BY_ISMP_HOST, ENV_CONFIG, TOKEN_GATEWAY_ADDRESSES, INTENT_GATEWAY_ADDRESSES, INTENT_GATEWAY_V2_ADDRESSES }
+export {
+	CHAIN_IDS_BY_GENESIS,
+	CHAINS_BY_ISMP_HOST,
+	ENV_CONFIG,
+	TOKEN_GATEWAY_ADDRESSES,
+	INTENT_GATEWAY_ADDRESSES,
+	INTENT_GATEWAY_V2_ADDRESSES,
+}
 
 // Replaced by auto-generated version
 

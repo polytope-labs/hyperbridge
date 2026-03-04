@@ -8,7 +8,6 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { formatChain, getHostStateMachine } from "@/utils/substrate.helpers"
 import { timestampToDate } from "@/utils/date.helpers"
 
-
 export const handleAccumulateFeesEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	try {
 		logger.info(`iN ACCumulated fee event`)

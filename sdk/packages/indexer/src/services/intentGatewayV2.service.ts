@@ -11,6 +11,9 @@ import { OrderV2StatusMetadata } from "@/configs/src/types/models/OrderV2StatusM
 import { OrderV2PredispatchAsset } from "@/configs/src/types/models/OrderV2PredispatchAsset"
 import { OrderV2InputAsset } from "@/configs/src/types/models/OrderV2InputAsset"
 import { OrderV2OutputAsset } from "@/configs/src/types/models/OrderV2OutputAsset"
+import { OrderV2PartialFill } from "@/configs/src/types/models/OrderV2PartialFill"
+import { OrderV2PartialFillInputAsset } from "@/configs/src/types/models/OrderV2PartialFillInputAsset"
+import { OrderV2PartialFillOutputAsset } from "@/configs/src/types/models/OrderV2PartialFillOutputAsset"
 import { timestampToDate } from "@/utils/date.helpers"
 
 import { PointsService } from "./points.service"
@@ -446,6 +449,103 @@ export class IntentGatewayV2Service {
 		})
 
 		await orderStatusMetadata.save()
+	}
+
+	static async recordPartialFill(
+		commitment: string,
+		filler: string,
+		outputs: TokenInfo[],
+		inputs: TokenInfo[],
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+
+		// Ensure we at least log if the order doesn't exist yet (race between PLACED and PartialFill)
+		const orderPlaced = await OrderV2Placed.get(commitment)
+		if (!orderPlaced) {
+			logger.warn(
+				`OrderV2 ${stringify({
+					commitment,
+				})} does not exist yet but PartialFill event received. Recording partial fill linked by commitment.`,
+			)
+		}
+
+		const partialFillId = `${transactionHash}.${logIndex}`
+
+		let partialFill = await OrderV2PartialFill.get(partialFillId)
+		if (!partialFill) {
+			partialFill = await OrderV2PartialFill.create({
+				id: partialFillId,
+				orderId: commitment,
+				chain: chainId,
+				filler,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				transactionHash,
+				createdAt: timestampToDate(timestamp),
+			})
+		}
+
+		await partialFill.save()
+
+		// Create/update input assets for this partial fill
+		await Promise.all(
+			inputs.map(async (input, index) => {
+				const assetId = `${partialFillId}-input-${index}`
+				let assetEntity = await OrderV2PartialFillInputAsset.get(assetId)
+
+				if (!assetEntity) {
+					assetEntity = await OrderV2PartialFillInputAsset.create({
+						id: assetId,
+						partialFillId,
+						token: input.token,
+						amount: input.amount,
+						index,
+					})
+				}
+
+				await assetEntity.save()
+			}),
+		)
+
+		// Create/update output assets for this partial fill
+		await Promise.all(
+			outputs.map(async (output, index) => {
+				const assetId = `${partialFillId}-output-${index}`
+				let assetEntity = await OrderV2PartialFillOutputAsset.get(assetId)
+
+				// Try to reuse the beneficiary from the original order's output asset
+				const orderOutputAssetId = `${commitment}-output-${index}`
+				const orderOutputAsset = await OrderV2OutputAsset.get(orderOutputAssetId)
+				const beneficiary = orderOutputAsset?.beneficiary ?? "0x0000000000000000000000000000000000000000"
+
+				if (!assetEntity) {
+					assetEntity = await OrderV2PartialFillOutputAsset.create({
+						id: assetId,
+						partialFillId,
+						token: output.token,
+						amount: output.amount,
+						index,
+						beneficiary,
+					})
+				}
+
+				await assetEntity.save()
+			}),
+		)
+
+		logger.info(
+			`OrderV2 PartialFill recorded: ${stringify({
+				commitment,
+				partialFillId,
+				filler,
+			})}`,
+		)
 	}
 
 	static computeOrderCommitment(order: OrderV2): string {

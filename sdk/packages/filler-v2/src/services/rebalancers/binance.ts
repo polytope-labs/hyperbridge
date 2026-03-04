@@ -346,7 +346,7 @@ export class BinanceRebalancer {
 
 		this.logger.debug({ questionnaire, coin, network, address }, "Submitting travel rule withdrawal")
 
-		const resp = await this.walletClient.restAPI
+		const resp: WalletRestAPI.WithdrawTravelRuleResponse = await this.walletClient.restAPI
 			.withdrawTravelRule({
 				coin,
 				address,
@@ -358,11 +358,11 @@ export class BinanceRebalancer {
 
 		this.logger.debug({ resp }, "Travel rule withdrawal response")
 
-		if ((resp as any).accpted === false) {
-			throw new Error(`Travel rule withdrawal rejected: ${(resp as any).info || "unknown reason"}`)
+		if (resp.accpted === false) {
+			throw new Error(`Travel rule withdrawal rejected: ${resp.info || "unknown reason"}`)
 		}
 
-		const trId = (resp as any).trId
+		const trId = resp.trId
 		if (trId === undefined || trId === null) {
 			throw new Error(
 				`Binance did not return a trId for travel rule withdrawal. Response: ${JSON.stringify(resp)}`,
@@ -434,9 +434,9 @@ export class BinanceRebalancer {
 		while (Date.now() - startTime < timeoutMs) {
 			try {
 				// GET /sapi/v2/localentity/withdraw/history
-				const withdrawals: any[] = await this.signedRequest("GET", "/sapi/v2/localentity/withdraw/history", {})
+				const withdrawals = await this.walletClient.restAPI.withdrawHistoryV2({}).then((res) => res.data())
 
-				const match = withdrawals.find((w: any) => w.trId === trIdNum || String(w.trId) === trId)
+				const match = withdrawals.find((w) => w.trId === trIdNum || String(w.trId) === trId)
 
 				if (match) {
 					const withdrawalStatus = match.withdrawalStatus
@@ -556,64 +556,6 @@ export class BinanceRebalancer {
 		}
 
 		return txHash
-	}
-
-	/** Raw HMAC-SHA256 signed request to Binance SAPI (used for travel rule history). */
-	private async signedRequest(
-		method: "GET" | "POST",
-		path: string,
-		params: Record<string, string | number>,
-	): Promise<any> {
-		const { createHmac } = await import("crypto")
-
-		const basePath = this.config.basePath || "https://api.binance.com"
-		const apiKey = this.config.apiKey
-		const apiSecret = this.config.apiSecret
-
-		const timestamp = Date.now().toString()
-		const queryParams = new URLSearchParams()
-
-		for (const [key, value] of Object.entries(params)) {
-			if (value !== undefined && value !== null) {
-				queryParams.append(key, String(value))
-			}
-		}
-		queryParams.append("timestamp", timestamp)
-		queryParams.append("recvWindow", "5000")
-
-		const signature = createHmac("sha256", apiSecret).update(queryParams.toString()).digest("hex")
-
-		queryParams.append("signature", signature)
-
-		const url = method === "GET" ? `${basePath}${path}?${queryParams.toString()}` : `${basePath}${path}`
-
-		const fetchOptions: RequestInit = {
-			method,
-			headers: {
-				"X-MBX-APIKEY": apiKey,
-				"Content-Type": "application/x-www-form-urlencoded",
-			},
-		}
-
-		if (method === "POST") {
-			fetchOptions.body = queryParams.toString()
-		}
-
-		const response = await fetch(url, fetchOptions)
-
-		if (!response.ok) {
-			const body = await response.text()
-			let errorMsg: string
-			try {
-				const parsed = JSON.parse(body)
-				errorMsg = `Binance API error [${path}]: ${parsed.code} - ${parsed.msg}`
-			} catch {
-				errorMsg = `Binance API error [${path}]: ${response.status} ${response.statusText} - ${body}`
-			}
-			throw new Error(errorMsg)
-		}
-
-		return response.json()
 	}
 
 	/** Wait for a Binance deposit to be credited, using confirmTimes and minConfirm as primary criteria. */

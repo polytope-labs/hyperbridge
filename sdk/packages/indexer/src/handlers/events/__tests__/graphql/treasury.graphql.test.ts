@@ -32,16 +32,14 @@ describe("Incentives GraphQL Test", () => {
 
 			if (!response.ok) {
 				console.error(`Received non-ok response: ${response.status}`)
-				await new Promise(resolve => setTimeout(resolve, pollInterval))
+				await new Promise((resolve) => setTimeout(resolve, pollInterval))
 				continue
 			}
 
 			const json = (await response.json()) as any
 
 			if (json.errors) {
-				throw new Error(
-					`GraphQL query failed: ${JSON.stringify(json.errors)}`,
-				)
+				throw new Error(`GraphQL query failed: ${JSON.stringify(json.errors)}`)
 			}
 
 			if (json.data && json.data.treasury) {
@@ -49,13 +47,11 @@ describe("Incentives GraphQL Test", () => {
 				break
 			}
 
-			await new Promise(resolve => setTimeout(resolve, pollInterval))
+			await new Promise((resolve) => setTimeout(resolve, pollInterval))
 		}
 
 		if (!treasuryEntity) {
-			throw new Error(
-				`Test timed out after ${timeout / 1000}s waiting for the Treasury entity.`,
-			)
+			throw new Error(`Test timed out after ${timeout / 1000}s waiting for the Treasury entity.`)
 		}
 
 		console.log("Successfully fetched the Treasury entity.")

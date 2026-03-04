@@ -246,11 +246,7 @@ export class CacheService {
 		try {
 			this.cleanupStaleData()
 
-			if (!this.cacheData.feeTokens[chain]) {
-				this.cacheData.feeTokens[chain] = { address, decimals }
-			} else {
-				this.cacheData.feeTokens[chain] = { address, decimals }
-			}
+			this.cacheData.feeTokens[chain] = { address, decimals }
 		} catch (error) {
 			this.logger.error({ chain: chain, err: error }, "Error setting fee token with decimals")
 			throw error

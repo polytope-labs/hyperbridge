@@ -75,7 +75,7 @@ describe.sequential("Get and Post Requests", () => {
 			pollInterval: 1_000,
 		})
 
-	 timeoutIndexer = new IndexerClient({
+		timeoutIndexer = new IndexerClient({
 			source: sourceChain,
 			dest: polygonChain,
 			hyperbridge: hyperbridgeChain,

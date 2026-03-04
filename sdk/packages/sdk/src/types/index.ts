@@ -790,6 +790,16 @@ export enum RequestKind {
 	 * Identifies a request for updating parameters
 	 */
 	UpdateParams = 2,
+
+	/**
+	 * Identifies a request for sweeping accumulated protocol dust
+	 */
+	SweepDust = 3,
+
+	/**
+	 * Identifies a request for refunding escrowed tokens after cancellation
+	 */
+	RefundEscrow = 4,
 }
 
 /**
@@ -1255,8 +1265,8 @@ export interface DispatchInfoV2 {
 export interface OrderV2 {
 	id?: string
 	user: HexString
-	source: string
-	destination: string
+	source: HexString
+	destination: HexString
 	deadline: bigint
 	nonce: bigint
 	fees: bigint
@@ -1306,11 +1316,12 @@ export interface SubmitBidOptions {
 	maxFeePerGas: bigint
 	// Priority fee (tip)
 	maxPriorityFeePerGas: bigint
+	/** Pre-built ERC-7821 calldata encoding the UserOp execution (approvals + fillOrder). */
+	callData: HexString
 }
 
 export interface EstimateFillOrderV2Params {
 	order: OrderV2
-	solverPrivateKey: HexString
 	/**
 	 * Optional percentage to bump maxPriorityFeePerGas.
 	 * This is added on top of the base gasPrice.
@@ -1334,7 +1345,6 @@ export interface FillOrderEstimateV2 {
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
 	totalGasInFeeToken: bigint
-	nonce: bigint
 }
 
 /**
@@ -1412,6 +1422,8 @@ export const IntentOrderStatus = Object.freeze({
 	BIDS_RECEIVED: "BIDS_RECEIVED",
 	BID_SELECTED: "BID_SELECTED",
 	USEROP_SUBMITTED: "USEROP_SUBMITTED",
+	FILLED: "FILLED",
+	PARTIAL_FILL: "PARTIAL_FILL",
 	FAILED: "FAILED",
 })
 
@@ -1445,6 +1457,7 @@ export interface SelectBidResult {
 	solverAddress: HexString
 	commitment: HexString
 	txnHash?: HexString
+	fillStatus?: "full" | "partial"
 }
 
 /** Options for executing an intent order */

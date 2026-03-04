@@ -42,6 +42,8 @@ export class BidStorageService {
 
 		this.db = new Database(dbPath)
 		this.initializeSchema()
+
+		process.on("exit", () => this.close())
 	}
 
 	private resolveDatabasePath(dataDir?: string): string {

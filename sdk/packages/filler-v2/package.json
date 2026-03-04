@@ -24,6 +24,7 @@
 		"test:services": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/services.test.ts",
 		"test:filler": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/filler.test.ts",
 		"test:watch": "vitest",
+		"test:delegation": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/delegation.test.ts",
 		"lint": "biome lint .",
 		"lint:fix": "biome lint --write .",
 		"format": "prettier --write \"src/**/*.ts\"",

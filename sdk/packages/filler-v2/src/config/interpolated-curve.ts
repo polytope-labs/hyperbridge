@@ -17,6 +17,23 @@ export interface CurveConfig {
 	points: CurvePoint[]
 }
 
+/**
+ * A coordinate point on a price curve
+ * @property amount - The input threshold (e.g., USD amount)
+ * @property priceUsd - The cNGN price in USD at this threshold
+ */
+export interface PriceCurvePoint {
+	amount: string
+	priceUsd: string
+}
+
+/**
+ * Configuration for a price curve
+ */
+export interface PriceCurveConfig {
+	points: PriceCurvePoint[]
+}
+
 interface ParsedPoint {
 	amount: number
 	value: number
@@ -127,5 +144,64 @@ export class FillerBpsPolicy {
 
 	getBps(orderValueUsd: Decimal): bigint {
 		return BigInt(this.curve.getValue(orderValueUsd))
+	}
+}
+
+/**
+ * Manages cNGN prices (in USD) based on order value.
+ * Uses piecewise linear interpolation between configured USD thresholds.
+ */
+export class FillerPricePolicy {
+	private points: { amount: Decimal; priceUsd: Decimal }[]
+
+	constructor(config: PriceCurveConfig) {
+		if (!config.points || config.points.length < 1) {
+			throw new Error("Filler price policy: must have at least 1 point to define a curve")
+		}
+
+		this.points = config.points
+			.map((p) => ({
+				amount: new Decimal(p.amount),
+				priceUsd: new Decimal(p.priceUsd),
+			}))
+			.sort((a, b) => a.amount.comparedTo(b.amount))
+
+		for (const point of this.points) {
+			if (!point.amount.isFinite() || point.amount.isNegative()) {
+				throw new Error("Filler price policy: invalid amount")
+			}
+			if (!point.priceUsd.isFinite() || !point.priceUsd.isPositive()) {
+				throw new Error("Filler price policy: price must be a positive number")
+			}
+		}
+	}
+
+	getPrice(orderValueUsd: Decimal): Decimal {
+		const amount = orderValueUsd
+
+		// Below minimum configured amount, use the first point
+		if (amount.lte(this.points[0].amount)) {
+			return this.points[0].priceUsd
+		}
+
+		// Above maximum configured amount, use the last point
+		const lastPoint = this.points[this.points.length - 1]
+		if (amount.gte(lastPoint.amount)) {
+			return lastPoint.priceUsd
+		}
+
+		// Piecewise linear interpolation between surrounding points
+		for (let i = 0; i < this.points.length - 1; i++) {
+			const p1 = this.points[i]
+			const p2 = this.points[i + 1]
+
+			if (amount.gte(p1.amount) && amount.lte(p2.amount)) {
+				const t = amount.minus(p1.amount).div(p2.amount.minus(p1.amount))
+				return p1.priceUsd.plus(t.mul(p2.priceUsd.minus(p1.priceUsd)))
+			}
+		}
+
+		// Fallback (should not be reached due to earlier checks)
+		return lastPoint.priceUsd
 	}
 }

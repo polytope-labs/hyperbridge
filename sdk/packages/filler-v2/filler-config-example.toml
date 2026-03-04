@@ -23,14 +23,6 @@ substratePrivateKey = ""
 # Hyperbridge WebSocket URL
 hyperbridgeWsUrl = ""
 
-# ERC-4337 EntryPoint contract address
-entryPointAddress = ""
-
-# Address of the deployed SolverAccount.sol contract
-# The filler's EOA will delegate to this contract via EIP-7702
-# This enables the filler to participate in solver selection mode
-solverAccountContractAddress = ""
-
 # ERC-4337 bundler URL for UserOperation gas estimation
 bundlerUrl = ""
 

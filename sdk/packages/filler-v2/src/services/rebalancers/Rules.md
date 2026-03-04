@@ -15,7 +15,7 @@ This document defines how rebalancing should work for USDC and USDT balances acr
         - `baseBalance[c]["USDT"]` – target USDT balance on that chain.
     - USDC and USDT are both treated as \$1:
         - USD value = normalized token amount using token decimals  
-          (same logic as `ContractInteractionService.getTokenUsdValue`).
+          (same logic as `ContractInteractionService.getInputUsdValue`).
 
 ### 2. Trigger Conditions
 

@@ -40,7 +40,7 @@ const generateNodeServices = () => {
 		const serviceData = {
 			chainName,
 			image: config.type === "substrate" ? SUBSTRATE_IMAGE : EVM_IMAGE,
-			unfinalizedBlocks: config.type === "evm" && (config.unfinalizedBlocks !== false),
+			unfinalizedBlocks: config.type === "evm" && config.unfinalizedBlocks !== false,
 			blockConfirmations: config.blockConfirmations, // Pass block confirmations from config
 			config,
 			volumesPath: "../../",

@@ -1,7 +1,7 @@
 export interface RetryConfig {
-	maxRetries: number;
-	backoffMs: number;
-	logMessage?: string;
+	maxRetries: number
+	backoffMs: number
+	logMessage?: string
 }
 
 export async function retryPromise<T>(operation: () => Promise<T>, retryConfig: RetryConfig): Promise<T> {

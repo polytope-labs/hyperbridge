@@ -54,10 +54,10 @@ export class DailyTreasuryRewardService {
 
 	private static async getStorage(storageKey: string, logMessage: string): Promise<string | null> {
 		const operation = async (): Promise<string | null> => {
-			const hyperbridgeChain = getHostStateMachine(chainId);
-			const rpcUrl = replaceWebsocketWithHttp(ENV_CONFIG[hyperbridgeChain] || "");
+			const hyperbridgeChain = getHostStateMachine(chainId)
+			const rpcUrl = replaceWebsocketWithHttp(ENV_CONFIG[hyperbridgeChain] || "")
 			if (!rpcUrl) {
-				throw new Error(`No RPC URL found for Hyperbridge chain: ${hyperbridgeChain}`);
+				throw new Error(`No RPC URL found for Hyperbridge chain: ${hyperbridgeChain}`)
 			}
 
 			const response = await fetch(rpcUrl, {
@@ -69,31 +69,31 @@ export class DailyTreasuryRewardService {
 					method: "state_getStorage",
 					params: [storageKey],
 				}),
-			});
+			})
 
 			if (!response.ok) {
-				throw new Error(`RPC request failed with status ${response.status}`);
+				throw new Error(`RPC request failed with status ${response.status}`)
 			}
 
-			const result: SubstrateStorageResponse = await response.json();
+			const result: SubstrateStorageResponse = await response.json()
 
 			if (result.error) {
-				throw new Error(result.error.message);
+				throw new Error(result.error.message)
 			}
 
-			return result.result || null;
-		};
+			return result.result || null
+		}
 
 		try {
 			return await retryPromise(operation, {
 				maxRetries: 3,
 				backoffMs: 1000,
 				logMessage: `Fetch ${logMessage}`,
-			});
+			})
 		} catch (e) {
-			const errorMessage = e instanceof Error ? e.message : String(e);
-			logger.error(`All retries failed for ${logMessage}: ${errorMessage}`);
-			return null;
+			const errorMessage = e instanceof Error ? e.message : String(e)
+			logger.error(`All retries failed for ${logMessage}: ${errorMessage}`)
+			return null
 		}
 	}
 
@@ -149,7 +149,6 @@ export class DailyTreasuryRewardService {
 	 */
 	static async getFeeTokenDecimals(stateMachine: any): Promise<number> {
 		try {
-
 			const storageKey = this.generateFeeTokenDecimalsStorageKey(stateMachine)
 			logger.info(`storage key is ${storageKey}`)
 			const result = await this.getStorage(storageKey, "fee token decimals")

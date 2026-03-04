@@ -1046,6 +1046,11 @@ type OrderV2 @entity {
 	statusMetadata: [OrderV2StatusMetadata]! @derivedFrom(field: "order")
 
 	"""
+	Partial fill events for this order
+	"""
+	partialFills: [OrderV2PartialFill!]! @derivedFrom(field: "order")
+
+	"""
 	Predispatch assets for this order
 	"""
 	predispatchAssets: [OrderV2PredispatchAsset!]! @derivedFrom(field: "order")
@@ -1239,6 +1244,126 @@ type OrderV2StatusMetadata @entity {
 	The timestamp when this record was created
 	"""
 	createdAt: Date! @index
+}
+
+"""
+Represents a partial fill event for an OrderV2. Each record corresponds to a single on-chain PartialFill emission.
+"""
+type OrderV2PartialFill @entity {
+	"""
+	Unique identifier for the partial fill event. Recommended format: {commitment}.{sequence} or {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order this partial fill belongs to
+	"""
+	order: OrderV2!
+
+	"""
+	The chain on which the partial fill occurred
+	"""
+	chain: String! @index
+
+	"""
+	The address of the filler that executed this partial fill
+	"""
+	filler: String! @index
+
+	"""
+	The timestamp of the partial fill event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the partial fill occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the partial fill occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Input assets released from escrow for this partial fill
+	"""
+	inputAssets: [OrderV2PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
+
+	"""
+	Output assets delivered in this partial fill
+	"""
+	outputAssets: [OrderV2PartialFillOutputAsset!]! @derivedFrom(field: "partialFill")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents an input asset released from escrow in an OrderV2 partial fill
+"""
+type OrderV2PartialFillInputAsset @entity {
+	"""
+	Unique identifier: {partialFillId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The partial fill this input asset belongs to
+	"""
+	partialFill: OrderV2PartialFill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount released from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the partial fill input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset delivered in an OrderV2 partial fill
+"""
+type OrderV2PartialFillOutputAsset @entity {
+	"""
+	Unique identifier: {partialFillId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The partial fill this output asset belongs to
+	"""
+	partialFill: OrderV2PartialFill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount delivered in this partial fill
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the partial fill output assets array
+	"""
+	index: Int!
+
+	"""
+	Beneficiary address for this output
+	"""
+	beneficiary: String! @index
 }
 
 """

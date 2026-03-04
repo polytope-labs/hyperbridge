@@ -1,20 +1,22 @@
-import { toHex, maxUint256, formatUnits } from "viem"
+import { toHex, formatUnits, encodeFunctionData, maxUint256 } from "viem"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
 	HexString,
 	bytes32ToBytes20,
-	getGasPriceFromEtherscan,
-	USE_ETHERSCAN_CHAINS,
 	retryPromise,
 	OrderV2,
-	IntentGatewayV2,
+	IntentsV2,
 	EvmChain,
 	getChainId,
 	orderV2Commitment,
 	encodeUserOpScale,
 	type PackedUserOperation,
 	type FillOptionsV2,
+	encodeERC7821ExecuteBatch,
+	type ERC7821Call,
+	transformOrderForContract,
+	TokenInfoV2,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -25,6 +27,7 @@ import { CacheService } from "./CacheService"
 import { getLogger } from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
+import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
@@ -35,8 +38,9 @@ export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
 	private logger = getLogger("contract-service")
-	private sdkHelperCache: Map<string, IntentGatewayV2> = new Map()
+	private sdkHelperCache: Map<string, IntentsV2> = new Map()
 	private solverAccountAddress: HexString
+	private account: ReturnType<typeof privateKeyToAccount>
 	private bundlerUrl?: string
 
 	constructor(
@@ -49,6 +53,7 @@ export class ContractInteractionService {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
 		this.solverAccountAddress = privateKeyToAddress(this.privateKey)
+		this.account = privateKeyToAccount(this.privateKey)
 		this.bundlerUrl = bundlerUrl
 		this.initCache()
 	}
@@ -57,7 +62,7 @@ export class ContractInteractionService {
 	 * Gets the SDK helper for a given source and destination chain.
 	 * Instances are cached and reused to avoid redundant RPC calls.
 	 */
-	async getSdkHelper(source: string, destination: string): Promise<IntentGatewayV2> {
+	async getIntentsV2(source: string, destination: string): Promise<IntentsV2> {
 		const cacheKey = `${source}:${destination}`
 
 		const cached = this.sdkHelperCache.get(cacheKey)
@@ -79,8 +84,7 @@ export class ContractInteractionService {
 		})
 
 		// Pass bundlerUrl to IntentGatewayV2 for accurate gas estimation via eth_estimateUserOperationGas
-		const helper = new IntentGatewayV2(sourceEvmChain, destinationEvmChain, undefined, this.bundlerUrl)
-		await helper.ensureInitialized()
+		const helper = await IntentsV2.create(sourceEvmChain, destinationEvmChain, undefined, this.bundlerUrl)
 		this.sdkHelperCache.set(cacheKey, helper)
 
 		this.logger.debug(
@@ -105,6 +109,8 @@ export class ContractInteractionService {
 			await this.getTokenDecimals(usdc, destChain)
 			await this.getTokenDecimals(usdt, destChain)
 			for (const sourceChain of chainNames) {
+				// Same-chain intents don't dispatch cross-chain messages, so perByteFee is not needed.
+				// The SDK's estimateFillOrderV2 skips quoteNative for same-chain orders.
 				if (sourceChain === destChain) continue
 				// Check cache before making RPC call to avoid duplicate requests when cache is shared
 				const cachedPerByteFee = this.cacheService.getPerByteFee(destChain, sourceChain)
@@ -174,64 +180,6 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Approves ERC20 tokens for the contract if needed
-	 */
-	async approveTokensIfNeeded(order: OrderV2): Promise<void> {
-		const wallet = privateKeyToAccount(this.privateKey)
-		const destClient = this.clientManager.getPublicClient(order.destination)
-		const walletClient = this.clientManager.getWalletClient(order.destination)
-		const intentGateway = this.configService.getIntentGatewayV2Address(order.destination)
-
-		const tokens = [
-			...new Set(
-				order.output.assets.map((o) => bytes32ToBytes20(o.token)).filter((addr) => addr !== ADDRESS_ZERO),
-			),
-			(await this.getFeeTokenWithDecimals(order.destination)).address,
-		].map((address) => ({
-			address,
-			amount: order.output.assets.find((o) => bytes32ToBytes20(o.token) === address)?.amount || maxUint256 / 2n,
-		}))
-
-		for (const token of tokens) {
-			const allowance = await retryPromise(
-				() =>
-					destClient.readContract({
-						abi: ERC20_ABI,
-						address: token.address as HexString,
-						functionName: "allowance",
-						args: [wallet.address, intentGateway],
-					}),
-				{
-					maxRetries: 3,
-					backoffMs: 250,
-					logMessage: "Failed to get token allowance",
-				},
-			)
-
-			if (allowance < token.amount) {
-				this.logger.info({ token: token.address }, "Approving token")
-				const gasPrice = await destClient.getGasPrice()
-				const tx = await walletClient.writeContract({
-					abi: ERC20_ABI,
-					address: token.address as HexString,
-					functionName: "approve",
-					args: [intentGateway, maxUint256],
-					account: wallet,
-					chain: walletClient.chain,
-					gasPrice: gasPrice + (gasPrice * 2000n) / 10000n,
-				})
-
-				await retryPromise(() => destClient.waitForTransactionReceipt({ hash: tx }), {
-					maxRetries: 3,
-					backoffMs: 250,
-					logMessage: "Failed while waiting for approval transaction receipt",
-				})
-				this.logger.info({ token: token.address }, "Approved token")
-			}
-		}
-	}
-
-	/**
 	 * Estimates gas for filling an order and caches the full estimate for bid preparation
 	 */
 	async estimateGasFillPost(order: OrderV2): Promise<{
@@ -241,6 +189,7 @@ export class ContractInteractionService {
 		callGasLimit: bigint
 	}> {
 		try {
+			const client = this.clientManager.getPublicClient(order.destination)
 			const cachedEstimate = this.cacheService.getGasEstimate(order.id!)
 			if (cachedEstimate) {
 				return {
@@ -250,13 +199,20 @@ export class ContractInteractionService {
 					callGasLimit: cachedEstimate.callGasLimit,
 				}
 			}
-			const sdkHelper = await this.getSdkHelper(order.source, order.destination)
+
+			const sdkHelper = await this.getIntentsV2(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
 			const estimate = await sdkHelper.estimateFillOrderV2({
 				order,
-				solverPrivateKey: this.privateKey,
 				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
+			})
+
+			const nonce = await client.readContract({
+				address: this.configService.getEntryPointAddress(order.destination)!,
+				abi: ENTRYPOINT_ABI,
+				functionName: "getNonce",
+				args: [this.solverAccountAddress, BigInt(orderV2Commitment(order)) & ((1n << 192n) - 1n)],
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
@@ -271,7 +227,7 @@ export class ContractInteractionService {
 				estimate.preVerificationGas,
 				estimate.maxFeePerGas,
 				estimate.maxPriorityFeePerGas,
-				estimate.nonce,
+				nonce,
 			)
 			return {
 				totalCostInSourceFeeToken: estimate.totalGasInFeeToken,
@@ -328,54 +284,28 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Calculates the total USD value of tokens in an order's inputs and outputs.
+	 * Calculates the total USD value of an order's inputs.
+	 * Only stable (USDC/USDT) inputs contribute; non-stables contribute 0.
 	 *
-	 * @param order - The order to calculate token values for
-	 * @returns An object containing the total USD values of outputs and inputs
+	 * @param order - The order to calculate input value for
+	 * @returns The total USD value of inputs (sum of normalized stable amounts, or 0 if none)
 	 */
-	async getTokenUsdValue(order: OrderV2): Promise<{ outputUsdValue: Decimal; inputUsdValue: Decimal }> {
-		let outputUsdValue = new Decimal(0)
+	async getInputUsdValue(order: OrderV2): Promise<Decimal> {
 		let inputUsdValue = new Decimal(0)
-		const outputs = order.output.assets
 		const inputs = order.inputs
-
-		// Restrict to only USDC and USDT on both sides; otherwise throw error
-		const destUsdc = this.configService.getUsdcAsset(order.destination).toLowerCase()
-		const destUsdt = this.configService.getUsdtAsset(order.destination).toLowerCase()
 		const sourceUsdc = this.configService.getUsdcAsset(order.source).toLowerCase()
 		const sourceUsdt = this.configService.getUsdtAsset(order.source).toLowerCase()
 
-		const outputsAreStableOnly = outputs.every((o) => {
-			const addr = bytes32ToBytes20(o.token).toLowerCase()
-			return addr === destUsdc || addr === destUsdt
-		})
-		const inputsAreStableOnly = inputs.every((i) => {
-			const addr = bytes32ToBytes20(i.token).toLowerCase()
-			return addr === sourceUsdc || addr === sourceUsdt
-		})
-
-		if (!outputsAreStableOnly || !inputsAreStableOnly) {
-			throw new Error("Only USDC and USDT are supported for token value calculation")
-		}
-
-		// For stables, USD value equals the normalized token amount (peg ~ $1)
-		for (const output of outputs) {
-			const tokenAddress = bytes32ToBytes20(output.token)
-			const decimals = await this.getTokenDecimals(tokenAddress, order.destination)
-			const amount = output.amount
-			const tokenAmount = new Decimal(formatUnits(amount, decimals))
-			outputUsdValue = outputUsdValue.plus(tokenAmount)
-		}
-
 		for (const input of inputs) {
 			const tokenAddress = bytes32ToBytes20(input.token)
+			const addr = tokenAddress.toLowerCase()
+			if (addr !== sourceUsdc && addr !== sourceUsdt) continue
 			const decimals = await this.getTokenDecimals(tokenAddress, order.source)
-			const amount = input.amount
-			const tokenAmount = new Decimal(formatUnits(amount, decimals))
+			const tokenAmount = new Decimal(formatUnits(input.amount, decimals))
 			inputUsdValue = inputUsdValue.plus(tokenAmount)
 		}
 
-		return { outputUsdValue, inputUsdValue }
+		return inputUsdValue
 	}
 
 	/**
@@ -430,13 +360,20 @@ export class ContractInteractionService {
 			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
 		}
 
-		const sdkHelper = await this.getSdkHelper(order.source, order.destination)
+		const sdkHelper = await this.getIntentsV2(order.source, order.destination)
 
 		const fillOptions: FillOptionsV2 = {
 			relayerFee: cachedEstimate.dispatchFee,
 			nativeDispatchFee: cachedEstimate.nativeDispatchFee,
 			outputs: cachedFillerOutputs,
 		}
+
+		const callData = await this.buildApprovalAndFillCalldata(
+			order,
+			cachedFillerOutputs,
+			fillOptions,
+			cachedEstimate.totalCostInSourceFeeToken,
+		)
 
 		const commitment = orderV2Commitment(order)
 
@@ -452,6 +389,7 @@ export class ContractInteractionService {
 			preVerificationGas: cachedEstimate.preVerificationGas,
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
+			callData,
 		})
 
 		// Encode the UserOp as bytes for submission to Hyperbridge
@@ -468,5 +406,77 @@ export class ContractInteractionService {
 		)
 
 		return { commitment, userOp: encodedUserOp }
+	}
+
+	/**
+	 * Builds ERC-7821 batch calldata that prepends any required ERC20 approvals
+	 * before the fillOrder call, all within a single UserOp payload.
+	 */
+	public async buildApprovalAndFillCalldata(
+		order: OrderV2,
+		fillerOutputs: TokenInfoV2[],
+		fillOptions: FillOptionsV2,
+		requiredFeeTokenAmount: bigint,
+	): Promise<HexString> {
+		const chain = order.destination
+		const destClient = this.clientManager.getPublicClient(chain)
+		const intentGatewayV2Address = this.configService.getIntentGatewayV2Address(chain)
+
+		// Aggregate required amounts per ERC20 token
+		const perTokenRequired = new Map<string, bigint>()
+		for (const output of fillerOutputs) {
+			const addr = bytes32ToBytes20(output.token)
+			if (addr === ADDRESS_ZERO) continue
+			const key = addr.toLowerCase()
+			perTokenRequired.set(key, (perTokenRequired.get(key) ?? 0n) + output.amount)
+		}
+		const feeToken = await this.getFeeTokenWithDecimals(chain)
+		const feeKey = feeToken.address.toLowerCase()
+		perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
+
+		// Check allowances in parallel
+		const entries = [...perTokenRequired.entries()]
+		const allowances = await Promise.all(
+			entries.map(([tokenAddress]) =>
+				destClient.readContract({
+					abi: ERC20_ABI,
+					address: tokenAddress as HexString,
+					functionName: "allowance",
+					args: [this.solverAccountAddress, intentGatewayV2Address],
+				}),
+			),
+		)
+
+		const calls: ERC7821Call[] = []
+		for (const [i, [tokenAddress, required]] of entries.entries()) {
+			if (allowances[i] < required) {
+				calls.push({
+					target: tokenAddress as HexString,
+					value: 0n,
+					data: encodeFunctionData({
+						abi: ERC20_ABI,
+						functionName: "approve",
+						args: [intentGatewayV2Address, maxUint256],
+					}) as HexString,
+				})
+			}
+		}
+
+		// Append fillOrder call (after any approvals, or as the sole call)
+		const nativeOutputValue = fillerOutputs
+			.filter((asset) => bytes32ToBytes20(asset.token) === ADDRESS_ZERO)
+			.reduce((sum, asset) => sum + asset.amount, 0n)
+
+		calls.push({
+			target: intentGatewayV2Address,
+			value: nativeOutputValue + fillOptions.nativeDispatchFee,
+			data: encodeFunctionData({
+				abi: INTENT_GATEWAY_V2_ABI,
+				functionName: "fillOrder",
+				args: [transformOrderForContract(order) as any, fillOptions as any],
+			}) as HexString,
+		})
+
+		return encodeERC7821ExecuteBatch(calls)
 	}
 }

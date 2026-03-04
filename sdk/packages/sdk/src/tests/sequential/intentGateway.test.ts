@@ -1424,7 +1424,7 @@ describe.sequential("Order Cancellation tests", () => {
 		const { bscChapelIsmpHost, ethSepoliaIsmpHost, hyperbridge } = await setUpBscToSepoliaOrder()
 
 		const query_client = createQueryClient({
-			url: process.env.INDEXER_URL!
+			url: process.env.INDEXER_URL!,
 		})
 
 		// Create chain instances

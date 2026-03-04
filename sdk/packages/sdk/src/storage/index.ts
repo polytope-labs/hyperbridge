@@ -111,6 +111,7 @@ export const STORAGE_KEYS = Object.freeze({
 	destProof: (orderId: string) => `cancel-order:${orderId}:destProof`,
 	getRequest: (orderId: string) => `cancel-order:${orderId}:getRequest`,
 	sourceProof: (orderId: string) => `cancel-order:${orderId}:sourceProof`,
+	postCommitment: (orderId: string) => `cancel-order:${orderId}:postCommitment`,
 })
 
 /**
@@ -128,9 +129,11 @@ export interface SessionKeyData {
 	address: HexString
 
 	/**
-	 * The order commitment this session key is associated with
+	 * The order commitment this session key is associated with.
+	 * This may be undefined for session keys that were created
+	 * but whose corresponding order has not been finalized yet.
 	 */
-	commitment: HexString
+	commitment?: HexString
 
 	/**
 	 * Timestamp when the session key was created
@@ -152,12 +155,28 @@ export function createSessionKeyStorage(options: SessionKeyStorageOptions = {}) 
 	const baseStorage = createStorage({ driver })
 
 	const SESSION_KEY_PREFIX = "session-key:"
+	const SESSION_KEY_ADDRESS_PREFIX = "session-key-address:"
 
 	/**
 	 * Gets a session key by order commitment
 	 */
 	const getSessionKey = async (commitment: HexString): Promise<SessionKeyData | null> => {
 		const storageKey = `${SESSION_KEY_PREFIX}${commitment}`
+		const value = await baseStorage.getItem<string>(storageKey)
+		if (!value) return null
+
+		try {
+			return JSON.parse(value) as SessionKeyData
+		} catch {
+			return null
+		}
+	}
+
+	/**
+	 * Gets a session key by session key address
+	 */
+	const getSessionKeyByAddress = async (address: HexString): Promise<SessionKeyData | null> => {
+		const storageKey = `${SESSION_KEY_ADDRESS_PREFIX}${address.toLowerCase()}`
 		const value = await baseStorage.getItem<string>(storageKey)
 		if (!value) return null
 
@@ -177,10 +196,26 @@ export function createSessionKeyStorage(options: SessionKeyStorageOptions = {}) 
 	}
 
 	/**
+	 * Stores a session key for a session key address
+	 */
+	const setSessionKeyByAddress = async (address: HexString, data: SessionKeyData): Promise<void> => {
+		const storageKey = `${SESSION_KEY_ADDRESS_PREFIX}${address.toLowerCase()}`
+		await baseStorage.setItem(storageKey, JSON.stringify(data))
+	}
+
+	/**
 	 * Removes a session key by order commitment
 	 */
 	const removeSessionKey = async (commitment: HexString): Promise<void> => {
 		const storageKey = `${SESSION_KEY_PREFIX}${commitment}`
+		await baseStorage.removeItem(storageKey)
+	}
+
+	/**
+	 * Removes a session key by session key address
+	 */
+	const removeSessionKeyByAddress = async (address: HexString): Promise<void> => {
+		const storageKey = `${SESSION_KEY_ADDRESS_PREFIX}${address.toLowerCase()}`
 		await baseStorage.removeItem(storageKey)
 	}
 
@@ -207,8 +242,11 @@ export function createSessionKeyStorage(options: SessionKeyStorageOptions = {}) 
 
 	return Object.freeze({
 		getSessionKey,
+		getSessionKeyByAddress,
 		setSessionKey,
+		setSessionKeyByAddress,
 		removeSessionKey,
+		removeSessionKeyByAddress,
 		listSessionKeys,
 	})
 }
@@ -218,4 +256,5 @@ export function createSessionKeyStorage(options: SessionKeyStorageOptions = {}) 
  */
 export const SESSION_KEY_STORAGE_KEYS = Object.freeze({
 	sessionKey: (commitment: string) => `session-key:${commitment}`,
+	sessionKeyByAddress: (address: string) => `session-key-address:${address.toLowerCase()}`,
 })

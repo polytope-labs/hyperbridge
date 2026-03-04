@@ -247,7 +247,11 @@ export class IntentsCoprocessor {
 					}
 				})
 				.then((unsub) => {
-					unsubscribe = unsub
+					if (resolved) {
+						unsub()
+					} else {
+						unsubscribe = unsub
+					}
 				})
 				.catch((err: Error) => {
 					if (!resolved) {

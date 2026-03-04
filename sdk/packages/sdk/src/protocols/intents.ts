@@ -337,7 +337,7 @@ export class IntentGateway {
 			const nativeCurrency = client.chain?.nativeCurrency
 			const chainId = Number.parseInt(evmChainID.split("-")[1])
 			const feeTokenAmountDecimal = new Decimal(formatUnits(feeTokenAmount, feeToken.decimals))
-			const nativeTokenPriceUsd = new Decimal(await fetchPrice(nativeCurrency?.symbol!, chainId))
+			const nativeTokenPriceUsd = new Decimal(await fetchPrice(nativeCurrency?.symbol, chainId))
 			const totalCostInNativeToken = feeTokenAmountDecimal.dividedBy(nativeTokenPriceUsd)
 			return parseUnits(totalCostInNativeToken.toFixed(nativeCurrency?.decimals!), nativeCurrency?.decimals!)
 		}
@@ -394,7 +394,7 @@ export class IntentGateway {
 			const nativeCurrency = client.chain?.nativeCurrency
 			const chainId = Number.parseInt(evmChainID.split("-")[1])
 			const gasCostInToken = new Decimal(formatUnits(gasCostInWei, nativeCurrency?.decimals!))
-			const tokenPriceUsd = await fetchPrice(nativeCurrency?.symbol!, chainId)
+			const tokenPriceUsd = await fetchPrice(nativeCurrency?.symbol, chainId)
 			const gasCostUsd = gasCostInToken.times(tokenPriceUsd)
 			const feeTokenPriceUsd = new Decimal(1) // stable coin
 			const gasCostInFeeToken = gasCostUsd.dividedBy(feeTokenPriceUsd)

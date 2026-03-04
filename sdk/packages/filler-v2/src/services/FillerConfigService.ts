@@ -31,7 +31,6 @@ export interface FillerConfig {
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	entryPointAddress?: string
-	solverAccountContractAddress?: string
 	dataDir?: string
 	bundlerUrl?: string
 	/**
@@ -98,6 +97,14 @@ export class FillerConfigService {
 		return this.chainConfigService.getUsdcAsset(chain)
 	}
 
+	getUsdcDecimals(chain: string): number {
+		return this.chainConfigService.getUsdcDecimals(chain)
+	}
+
+	getUsdtDecimals(chain: string): number {
+		return this.chainConfigService.getUsdtDecimals(chain)
+	}
+
 	getChainId(chain: string): number {
 		return this.chainConfigService.getChainId(chain)
 	}
@@ -128,11 +135,12 @@ export class FillerConfigService {
 	}
 
 	private getChainIdFromStateMachineId(chain: string): number {
-		if (chain.includes("EVM")) {
-			return Number.parseInt(chain.slice(4))
+		const raw = chain.includes("EVM") ? chain.slice(4) : chain
+		const id = Number.parseInt(raw, 10)
+		if (Number.isNaN(id)) {
+			throw new Error(`Cannot derive chain ID from state machine ID: "${chain}"`)
 		}
-
-		return Number.parseInt(chain)
+		return id
 	}
 
 	getUniswapRouterV2Address(chain: string): HexString {
@@ -163,6 +171,14 @@ export class FillerConfigService {
 		return this.chainConfigService.getCoingeckoId(chain)
 	}
 
+	getCNgnAsset(chain: string): HexString | undefined {
+		return this.chainConfigService.getCNgnAsset(chain)
+	}
+
+	getCNgnDecimals(chain: string): number | undefined {
+		return this.chainConfigService.getCNgnDecimals(chain)
+	}
+
 	getConfiguredChainIds(): number[] {
 		return Array.from(this.rpcOverrides.keys())
 	}
@@ -187,8 +203,8 @@ export class FillerConfigService {
 		return this.chainConfigService.getEntryPointV08Address(chain) as HexString | undefined
 	}
 
-	getSolverAccountContractAddress(): HexString | undefined {
-		return this.fillerConfig?.solverAccountContractAddress as HexString | undefined
+	getSolverAccountContractAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getSolverAccountAddress(chain) as HexString | undefined
 	}
 
 	getDataDir(): string | undefined {

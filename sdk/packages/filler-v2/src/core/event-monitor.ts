@@ -1,31 +1,29 @@
 import { EventEmitter } from "events"
 import {
 	ChainConfig,
+	EvmChain,
+	IChain,
 	OrderV2,
+	TronChain,
 	orderV2Commitment,
 	hexToString,
 	retryPromise,
 	DecodedOrderV2PlacedLog,
-	getContractCallInput,
 	HexString,
+	tronChainIds,
+	getEvmChain,
+	IEvmChain,
 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
-import { PublicClient, decodeFunctionData } from "viem"
+import { decodeFunctionData } from "viem"
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import { Mutex } from "async-mutex"
-import { TronWeb } from "tronweb"
-
-function isTronChain(chainId: number): boolean {
-	return new Set([728126428, 3448148188]).has(chainId)
-}
 
 export class EventMonitor extends EventEmitter {
-	private clients: Map<number, PublicClient> = new Map()
-	private tronWebInstances: Map<number, TronWeb> = new Map()
+	private chains: Map<number, IEvmChain> = new Map()
 	private listening: boolean = false
-	private clientManager: ChainClientManager
 	private configService: FillerConfigService
 	private logger = getLogger("event-monitor")
 	private lastScannedBlock: Map<number, bigint> = new Map()
@@ -35,21 +33,19 @@ export class EventMonitor extends EventEmitter {
 	constructor(chainConfigs: ChainConfig[], configService: FillerConfigService, clientManager: ChainClientManager) {
 		super()
 		this.configService = configService
-		this.clientManager = clientManager
 
 		chainConfigs.forEach((config) => {
 			const chainName = `EVM-${config.chainId}`
-			const client = this.clientManager.getPublicClient(chainName)
-			this.clients.set(config.chainId, client)
-			this.scanningMutexes.set(config.chainId, new Mutex())
-
-			if (isTronChain(config.chainId)) {
-				const tronWeb = new TronWeb({
-					fullHost: this.configService.getRpcUrl(chainName),
-				})
-				this.tronWebInstances.set(config.chainId, tronWeb)
-				this.logger.info({ chainId: config.chainId }, "Initialized TronWeb instance")
+			const chainParams = {
+				stateMachineId: chainName,
+				chainId: config.chainId,
+				rpcUrl: this.configService.getRpcUrl(chainName),
+				host: this.configService.getHostAddress(chainName),
+				consensusStateId: this.configService.getConsensusStateId(chainName),
 			}
+			const chain = getEvmChain(chainParams)
+			this.chains.set(config.chainId, chain as IEvmChain)
+			this.scanningMutexes.set(config.chainId, new Mutex())
 		})
 	}
 
@@ -57,12 +53,17 @@ export class EventMonitor extends EventEmitter {
 		if (this.listening) return
 		this.listening = true
 
-		for (const [chainId, client] of this.clients.entries()) {
+		for (const [chainId, chain] of this.chains.entries()) {
 			try {
 				const orderPlacedEvent = INTENT_GATEWAY_V2_ABI.find(
 					(item) => item.type === "event" && item.name === "OrderPlaced",
 				)
 				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(`EVM-${chainId}`)
+
+				const client = chain.client
+				if (!client) {
+					throw new Error(`Chain ${chainId} does not expose a public client`)
+				}
 
 				const startBlock = await retryPromise(() => client.getBlockNumber(), {
 					maxRetries: 3,
@@ -83,7 +84,7 @@ export class EventMonitor extends EventEmitter {
 
 					await mutex.runExclusive(async () => {
 						try {
-							await this.scanBlocks(chainId, client, intentGatewayAddress, orderPlacedEvent)
+							await this.scanBlocks(chainId, chain, intentGatewayAddress, orderPlacedEvent)
 						} catch (error) {
 							this.logger.error({ chainId, err: error }, "Error in block scanner")
 						}
@@ -101,14 +102,14 @@ export class EventMonitor extends EventEmitter {
 
 	private async scanBlocks(
 		chainId: number,
-		client: PublicClient,
+		chain: IEvmChain,
 		intentGatewayAddress: `0x${string}`,
 		orderPlacedEvent: any,
 	): Promise<void> {
 		const lastScanned = this.lastScannedBlock.get(chainId)
 		if (!lastScanned) return
 
-		const currentBlock = await retryPromise(() => client.getBlockNumber(), {
+		const currentBlock = await retryPromise(() => chain.client.getBlockNumber(), {
 			maxRetries: 3,
 			backoffMs: 250,
 			logMessage: "Failed to get current block number",
@@ -128,7 +129,7 @@ export class EventMonitor extends EventEmitter {
 
 			const logs = await retryPromise(
 				() =>
-					client.getLogs({
+					chain.client.getLogs({
 						address: intentGatewayAddress,
 						event: orderPlacedEvent,
 						fromBlock,
@@ -146,7 +147,7 @@ export class EventMonitor extends EventEmitter {
 					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: logs.length },
 					"Found events in block scan",
 				)
-				await this.processLogs(chainId, client, logs)
+				await this.processLogs(chainId, chain, logs)
 			}
 
 			// Update lastScannedBlock only after successful processing
@@ -155,65 +156,14 @@ export class EventMonitor extends EventEmitter {
 		}
 	}
 
-	/**
-	 * Retrieves the placeOrder calldata for a transaction.
-	 *
-	 * Tron: Reads top-level calldata via TronWeb since debug_traceTransaction is unavailable.
-	 * EVM: Uses debug_traceTransaction with callTracer to find IntentGateway calls.
-	 */
-	private async getPlaceOrderCalldata(
-		chainId: number,
-		client: PublicClient,
-		txHash: string,
-		intentGatewayAddress: string,
-	): Promise<HexString> {
-		if (isTronChain(chainId)) {
-			return this.getTronCalldata(chainId, txHash)
-		}
-
-		// For other EVM chains, use debug_traceTransaction (handles both direct and nested calls)
-		const callInput = await getContractCallInput(client as any, txHash as HexString, intentGatewayAddress)
-
-		if (!callInput) {
-			throw new Error(`Failed to extract calldata from trace for tx ${txHash}`)
-		}
-
-		return callInput
-	}
-
-	/**
-	 * Retrieves top-level calldata from a Tron transaction via TronWeb.
-	 * Only works for direct calls to IntentGateway (not nested/multicall).
-	 */
-	private async getTronCalldata(chainId: number, txHash: string): Promise<HexString> {
-		const tronWeb = this.tronWebInstances.get(chainId)
-		if (!tronWeb) {
-			throw new Error(`TronWeb instance not found for chain ${chainId}`)
-		}
-
-		const tx = await retryPromise(() => tronWeb.trx.getTransaction(txHash), {
-			maxRetries: 3,
-			backoffMs: 250,
-			logMessage: `Failed to get Tron transaction ${txHash}`,
-		})
-
-		const data = `0x${(tx?.raw_data?.contract?.[0]?.parameter?.value as any)?.data}`
-		if (!data) {
-			throw new Error(`No calldata found in Tron transaction ${txHash}`)
-		}
-
-		// Tron returns calldata without 0x prefix, add it for viem compatibility
-		return data as HexString
-	}
-
-	private async processLogs(chainId: number, client: PublicClient, logs: any[]): Promise<void> {
+	private async processLogs(chainId: number, chain: IEvmChain, logs: any[]): Promise<void> {
 		for (const log of logs) {
 			try {
 				const decodedLog = log as unknown as DecodedOrderV2PlacedLog
 				let order: OrderV2 = {
 					user: decodedLog.args.user,
-					source: hexToString(decodedLog.args.source),
-					destination: hexToString(decodedLog.args.destination),
+					source: hexToString(decodedLog.args.source) as HexString,
+					destination: hexToString(decodedLog.args.destination) as HexString,
 					deadline: decodedLog.args.deadline,
 					nonce: decodedLog.args.nonce,
 					fees: decodedLog.args.fees,
@@ -240,12 +190,8 @@ export class EventMonitor extends EventEmitter {
 					transactionHash: decodedLog.transactionHash,
 				}
 
-				// Get the calldata — uses TronWeb for Tron chains, debug_traceTransaction for others
 				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(order.source)
-
-				const placeOrderCallInput = await this.getPlaceOrderCalldata(
-					chainId,
-					client,
+				const placeOrderCallInput = await chain.getPlaceOrderCalldata!(
 					order.transactionHash as string,
 					intentGatewayAddress,
 				)

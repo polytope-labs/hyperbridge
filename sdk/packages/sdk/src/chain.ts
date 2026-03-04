@@ -1,4 +1,7 @@
-import { EvmChain, SubstrateChain } from "@/chain"
+import { EvmChain } from "@/chains/evm"
+import { TronChain } from "@/chains/tron"
+import { SubstrateChain } from "@/chains/substrate"
+import type { PublicClient, TransactionReceipt } from "viem"
 import type {
 	GetResponseStorageValues,
 	HexString,
@@ -10,12 +13,15 @@ import type {
 	StateMachineHeight,
 	StateMachineIdParams,
 } from "@/types"
+import type { ChainConfigService } from "@/configs/ChainConfigService"
 import { isEvmChain, isSubstrateChain } from "@/utils"
 import { ExpectedError } from "./utils/exceptions"
+import { tronChainIds } from "./configs/chain"
 
 export * from "@/chains/evm"
 export * from "@/chains/substrate"
 export * from "@/chains/intentsCoprocessor"
+export * from "@/chains/tron"
 
 /**
  * Type representing an ISMP message.
@@ -158,8 +164,9 @@ export interface IChain {
 
 	/**
 	 * Query and return the encoded storage proof for the provided keys at the given height.
+	 * @param address - Optional contract address for EVM chains; defaults to host contract when omitted.
 	 */
-	queryStateProof(at: bigint, keys: HexString[]): Promise<HexString>
+	queryStateProof(at: bigint, keys: HexString[], address?: HexString): Promise<HexString>
 
 	/*
 	 * Query and return the encoded storage proof for requests
@@ -188,32 +195,71 @@ export interface IChain {
 }
 
 /**
- * Returns the chain interface for a given state machine identifier
+ * Interface for EVM-compatible chains (EVM and Tron).
+ * Extends IChain with methods required by IntentGatewayV2 and other EVM-specific protocols.
+ */
+export interface IEvmChain extends IChain {
+	readonly configService: ChainConfigService
+	readonly client: PublicClient
+	getHostNonce(): Promise<bigint>
+	quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint>
+	getFeeTokenWithDecimals(): Promise<{ address: HexString; decimals: number }>
+	getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString>
+	broadcastTransaction(signedTransaction: any): Promise<TransactionReceipt>
+}
+
+/**
+ * Returns the chain interface for a given state machine identifier.
+ *
+ * - For standard EVM chains, returns an `EvmChain`.
+ * - For Substrate chains, returns a connected `SubstrateChain`.
+ * - For Tron chains (identified by chain ID), constructs a `TronChain`
+ *   that delegates EVM behavior to an internal `EvmChain` and manages
+ *   its own TronWeb instance using the provided RPC URL.
+ *
  * @param chainConfig - Chain configuration
  * @returns Chain interface
  */
 export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Promise<IChain> {
 	if (isEvmChain(chainConfig.stateMachineId)) {
-		const config = chainConfig as IEvmConfig
-		const chainId = Number.parseInt(chainConfig.stateMachineId.split("-")[1])
-		const evmChain = new EvmChain({
+		return getEvmChain(chainConfig as IEvmConfig)
+	}
+
+	if (isSubstrateChain(chainConfig.stateMachineId)) {
+		return getSubstrateChain(chainConfig as ISubstrateConfig)
+	}
+
+	throw new ExpectedError(`Unsupported chain: ${chainConfig.stateMachineId}`)
+}
+
+export function getEvmChain(chainConfig: IEvmConfig): IChain {
+	const config = chainConfig as IEvmConfig
+	const chainId = Number.parseInt(config.stateMachineId.split("-")[1])
+
+	if (tronChainIds.has(chainId)) {
+		return new TronChain({
 			chainId,
 			rpcUrl: config.rpcUrl,
 			host: config.host,
 			consensusStateId: config.consensusStateId,
 		})
-
-		return evmChain
 	}
 
-	if (isSubstrateChain(chainConfig.stateMachineId)) {
-		const config = chainConfig as ISubstrateConfig
-		const substrateChain = new SubstrateChain(config)
+	const evmChain = new EvmChain({
+		chainId,
+		rpcUrl: config.rpcUrl,
+		host: config.host,
+		consensusStateId: config.consensusStateId,
+	})
 
-		await substrateChain.connect()
+	return evmChain
+}
 
-		return substrateChain
-	}
+export async function getSubstrateChain(chainConfig: ISubstrateConfig) {
+	const config = chainConfig as ISubstrateConfig
+	const substrateChain = new SubstrateChain(config)
 
-	throw new ExpectedError(`Unsupported chain: ${chainConfig.stateMachineId}`)
+	await substrateChain.connect()
+
+	return substrateChain
 }

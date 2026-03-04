@@ -287,9 +287,10 @@ export class SubstrateChain implements IChain {
 	 * Query the state proof for a given set of keys at a specific block height.
 	 * @param at The block height to query the state proof at.
 	 * @param keys The keys to query the state proof for.
+	 * @param _address - Optional address (ignored for Substrate; present for IChain compatibility).
 	 * @returns The state proof as a hexadecimal string.
 	 */
-	async queryStateProof(at: bigint, keys: HexString[]): Promise<HexString> {
+	async queryStateProof(at: bigint, keys: HexString[], _address?: HexString): Promise<HexString> {
 		const encodedKeys = keys.map((key) => Array.from(hexToBytes(key)))
 		const proof: any = await this.rpcClient.call("ismp_queryChildTrieProof", [Number(at), encodedKeys])
 		const basicProof = BasicProof.dec(toHex(proof.proof))

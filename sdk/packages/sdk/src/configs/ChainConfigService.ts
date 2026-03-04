@@ -66,6 +66,14 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.tokenDecimals?.USDT!
 	}
 
+	getCNgnAsset(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.assets?.cNGN as HexString | undefined
+	}
+
+	getCNgnDecimals(chain: string): number | undefined {
+		return this.getConfig(chain)?.tokenDecimals?.cNGN
+	}
+
 	getChainId(chain: string): number {
 		return this.getConfig(chain)?.chainId ?? 0
 	}
@@ -109,6 +117,10 @@ export class ChainConfigService {
 
 	getPermit2Address(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.Permit2 ?? "0x") as HexString
+	}
+
+	getSolverAccountAddress(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.addresses.SolverAccount as HexString | undefined
 	}
 
 	getCoingeckoId(chain: string): string | undefined {

@@ -152,7 +152,6 @@ program
 				substratePrivateKey: config.filler.substratePrivateKey,
 				hyperbridgeWsUrl: config.filler.hyperbridgeWsUrl,
 				entryPointAddress: config.filler.entryPointAddress,
-				solverAccountContractAddress: config.filler.solverAccountContractAddress,
 				dataDir: config.filler.dataDir,
 				bundlerUrl: config.filler.bundlerUrl,
 				rebalancing: config.rebalancing,
@@ -310,15 +309,15 @@ program
 			)
 
 			// Handle graceful shutdown
-			process.on("SIGINT", () => {
+			process.on("SIGINT", async () => {
 				logger.warn("Shutting down intent filler (SIGINT)...")
-				intentFiller.stop()
+				await intentFiller.stop()
 				process.exit(0)
 			})
 
-			process.on("SIGTERM", () => {
+			process.on("SIGTERM", async () => {
 				logger.warn("Shutting down intent filler (SIGTERM)...")
-				intentFiller.stop()
+				await intentFiller.stop()
 				process.exit(0)
 			})
 

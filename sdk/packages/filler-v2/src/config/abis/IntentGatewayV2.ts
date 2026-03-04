@@ -21,6 +21,54 @@ export const INTENT_GATEWAY_V2_ABI = [
 	},
 	{
 		type: "function",
+		name: "_destinationProtocolFees",
+		inputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],
+		outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_filled",
+		inputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],
+		outputs: [{ name: "", type: "address", internalType: "address" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_instances",
+		inputs: [{ name: "", type: "bytes32", internalType: "bytes32" }],
+		outputs: [{ name: "", type: "address", internalType: "address" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_nonce",
+		inputs: [],
+		outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_orders",
+		inputs: [
+			{ name: "", type: "bytes32", internalType: "bytes32" },
+			{ name: "", type: "address", internalType: "address" },
+		],
+		outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "_partialFills",
+		inputs: [
+			{ name: "", type: "bytes32", internalType: "bytes32" },
+			{ name: "", type: "bytes32", internalType: "bytes32" },
+		],
+		outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "calculateCommitmentSlotHash",
 		inputs: [{ name: "commitment", type: "bytes32", internalType: "bytes32" }],
 		outputs: [{ name: "", type: "bytes", internalType: "bytes" }],
@@ -822,6 +870,35 @@ export const INTENT_GATEWAY_V2_ABI = [
 		],
 		anonymous: false,
 	},
+	{
+		type: "event",
+		name: "PartialFill",
+		inputs: [
+			{ name: "commitment", type: "bytes32", indexed: true, internalType: "bytes32" },
+			{ name: "filler", type: "address", indexed: false, internalType: "address" },
+			{
+				name: "outputs",
+				type: "tuple[]",
+				indexed: false,
+				internalType: "struct TokenInfo[]",
+				components: [
+					{ name: "token", type: "bytes32", internalType: "bytes32" },
+					{ name: "amount", type: "uint256", internalType: "uint256" },
+				],
+			},
+			{
+				name: "inputs",
+				type: "tuple[]",
+				indexed: false,
+				internalType: "struct TokenInfo[]",
+				components: [
+					{ name: "token", type: "bytes32", internalType: "bytes32" },
+					{ name: "amount", type: "uint256", internalType: "uint256" },
+				],
+			},
+		],
+		anonymous: false,
+	},
 	{ type: "error", name: "Cancelled", inputs: [] },
 	{ type: "error", name: "ECDSAInvalidSignature", inputs: [] },
 	{
@@ -840,6 +917,14 @@ export const INTENT_GATEWAY_V2_ABI = [
 	{ type: "error", name: "InvalidInput", inputs: [] },
 	{ type: "error", name: "InvalidShortString", inputs: [] },
 	{ type: "error", name: "NotExpired", inputs: [] },
+	{
+		type: "error",
+		name: "SafeCastOverflowedUintDowncast",
+		inputs: [
+			{ name: "bits", type: "uint8", internalType: "uint8" },
+			{ name: "value", type: "uint256", internalType: "uint256" },
+		],
+	},
 	{
 		type: "error",
 		name: "SafeERC20FailedOperation",

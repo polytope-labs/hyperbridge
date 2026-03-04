@@ -40,40 +40,31 @@ describe("Incentives GraphQL Test", () => {
 
 			if (!response.ok) {
 				console.error(`Received non-ok response: ${response.status}`)
-				await new Promise(resolve => setTimeout(resolve, pollInterval))
+				await new Promise((resolve) => setTimeout(resolve, pollInterval))
 				continue
 			}
 
 			const json = (await response.json()) as any
 
 			if (json.errors) {
-				throw new Error(
-					`GraphQL query failed: ${JSON.stringify(json.errors)}`,
-				)
+				throw new Error(`GraphQL query failed: ${JSON.stringify(json.errors)}`)
 			}
 
-			if (
-				json.data?.hyperbridgeRelayerRewards?.nodes &&
-				json.data.hyperbridgeRelayerRewards.nodes.length > 0
-			) {
+			if (json.data?.hyperbridgeRelayerRewards?.nodes && json.data.hyperbridgeRelayerRewards.nodes.length > 0) {
 				rewardNodes = json.data.hyperbridgeRelayerRewards.nodes
 				break
 			}
 
-			await new Promise(resolve => setTimeout(resolve, pollInterval))
+			await new Promise((resolve) => setTimeout(resolve, pollInterval))
 		}
 
 		if (!rewardNodes) {
 			throw new Error(
-				`Test timed out after ${
-					timeout / 1000
-				}s waiting for HyperbridgeRelayerReward entities to be created.`,
+				`Test timed out after ${timeout / 1000}s waiting for HyperbridgeRelayerReward entities to be created.`,
 			)
 		}
 
-		console.log(
-			`Successfully fetched ${rewardNodes.length} relayer rewards.`,
-		)
+		console.log(`Successfully fetched ${rewardNodes.length} relayer rewards.`)
 		expect(rewardNodes.length).toBeGreaterThan(0)
 
 		const firstReward = rewardNodes[0]

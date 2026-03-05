@@ -389,7 +389,6 @@ mod tests {
 	fn insert_and_get() {
 		let c = cache();
 		let key = H256::random();
-
 		c.insert(key, vec![1, 2, 3], vec![4, 5, 6]).unwrap();
 
 		let bids: Vec<_> = c.get_bids(&key).unwrap().into_iter().collect();

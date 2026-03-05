@@ -414,7 +414,7 @@ pub fn run() -> Result<()> {
 								watcher_pool,
 								watcher_cache,
 								watcher_sender,
-								std::time::Duration::from_secs(60),
+								std::time::Duration::from_secs(180),
 							),
 						);
 

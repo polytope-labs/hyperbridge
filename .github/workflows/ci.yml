@@ -87,9 +87,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -104,9 +102,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -183,9 +183,7 @@ jobs:
                   ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -200,9 +198,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -270,9 +270,7 @@ jobs:
                   ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -287,9 +285,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -354,9 +354,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -371,9 +369,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -442,9 +442,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -459,9 +457,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -556,9 +556,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -573,9 +571,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -649,9 +649,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -666,9 +664,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -729,9 +729,7 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
-              with:
-                  version: 8
+            - uses: pnpm/action-setup@v4
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -746,9 +744,11 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              uses: foundry-rs/foundry-toolchain@v1
-              with:
-                  version: nightly
+              run: |
+                  export FOUNDRY_DIR="$HOME/.foundry"
+                  curl -L https://foundry.paradigm.xyz | bash
+                  $FOUNDRY_DIR/bin/foundryup
+                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
 
             - name: Build Foundry artifacts
               working-directory: evm

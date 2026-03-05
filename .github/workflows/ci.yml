@@ -88,6 +88,8 @@ jobs:
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -102,11 +104,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -184,6 +184,8 @@ jobs:
                   ~/.sp1/bin/cargo-prove prove --version
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -198,11 +200,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -271,6 +271,8 @@ jobs:
                   ~/.sp1/bin/cargo-prove prove --version
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -285,11 +287,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -355,6 +355,8 @@ jobs:
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -369,11 +371,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -443,6 +443,8 @@ jobs:
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -457,11 +459,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -557,6 +557,8 @@ jobs:
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -571,11 +573,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -650,6 +650,8 @@ jobs:
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -664,11 +666,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -730,6 +730,8 @@ jobs:
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
             - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -744,11 +746,9 @@ jobs:
                   pnpm install
 
             - name: Install Foundry
-              run: |
-                  export FOUNDRY_DIR="$HOME/.foundry"
-                  curl -L https://foundry.paradigm.xyz | bash
-                  $FOUNDRY_DIR/bin/foundryup
-                  echo "$FOUNDRY_DIR/bin" >> $GITHUB_PATH
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
 
             - name: Build Foundry artifacts
               working-directory: evm

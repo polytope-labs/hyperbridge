@@ -23,7 +23,7 @@ use jsonrpsee::{
 	types::{ErrorObject, ErrorObjectOwned},
 	PendingSubscriptionSink, SubscriptionMessage,
 };
-use polkadot_sdk::*;
+use polkadot_sdk::{frame_support::traits::IsSubType, *};
 use sc_client_api::Backend;
 use sc_transaction_pool_api::{InPoolTransaction, TransactionPool};
 use serde::{Deserialize, Serialize};
@@ -39,6 +39,8 @@ use std::{
 	time::{Duration, Instant},
 };
 use tokio::sync::broadcast;
+
+pub use pallet_intents_coprocessor;
 
 const LOG_TARGET: &str = "intents-rpc";
 
@@ -227,7 +229,7 @@ where
 
 		let prefix = bids_storage_prefix(&commitment);
 		let mut current_key = prefix.clone();
-		const MAX_ON_CHAIN_BIDS: usize = 10;
+		const MAX_ON_CHAIN_BIDS: usize = 30;
 
 		for _ in 0..MAX_ON_CHAIN_BIDS {
 			let next_key = match sc_client_api::StateBackend::next_storage_key(&state, &current_key)
@@ -246,9 +248,8 @@ where
 			if next_key.len() > filler_start {
 				let filler_encoded = &next_key[filler_start..];
 
-				let mut offchain_key = b"intents::bid::".to_vec();
-				offchain_key.extend_from_slice(commitment.as_bytes());
-				offchain_key.extend_from_slice(filler_encoded);
+				let offchain_key =
+					pallet_intents_coprocessor::offchain_bid_key_raw(&commitment, filler_encoded);
 
 				if let Some(data) = self.offchain_storage.get(STORAGE_PREFIX, &offchain_key) {
 					// Bid encoding: filler.encode() ++ user_op.encode()
@@ -299,54 +300,56 @@ where
 	}
 }
 
-/// Generate a bid-extractor closure that decodes `place_bid` extrinsics
-/// using the concrete runtime types.
+/// Extract a bid from encoded extrinsic bytes using generic runtime types.
 ///
-/// The caller passes the runtime module (e.g. `gargantua_runtime`) and the
-/// macro produces a closure compatible with [`run_bid_watcher`].
-#[macro_export]
-macro_rules! make_extract_bid {
-	($runtime:ident) => {
-		|encoded: &[u8]| -> Option<(sp_core::H256, Vec<u8>, Vec<u8>)> {
-			use codec::{Decode, Encode};
+/// Decodes the extrinsic and uses `IsSubType` to extract the pallet-level
+/// `place_bid` call, returning `(commitment, filler_encoded, user_op)`.
+pub fn extract_bid<T, Extra>(encoded: &[u8]) -> Option<(H256, Vec<u8>, Vec<u8>)>
+where
+	T: pallet_intents_coprocessor::Config,
+	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>> + Decode,
+	T::AccountId: Encode + From<[u8; 32]>,
+	Extra: Decode,
+{
+	let xt = sp_runtime::generic::UncheckedExtrinsic::<
+		sp_runtime::MultiAddress<T::AccountId, ()>,
+		T::RuntimeCall,
+		sp_runtime::MultiSignature,
+		Extra,
+	>::decode(&mut &encoded[..])
+	.ok()?;
 
-			let xt = $runtime::UncheckedExtrinsic::decode(&mut &encoded[..]).ok()?;
-
-			let filler = match &xt.preamble {
-				sp_runtime::generic::Preamble::Signed(address, _, _) => match address {
-					sp_runtime::MultiAddress::Id(id) => id.encode(),
-					_ => return None,
-				},
-				_ => return None,
-			};
-
-			match xt.function {
-				$runtime::RuntimeCall::IntentsCoprocessor(
-					pallet_intents_coprocessor::Call::place_bid { commitment, user_op },
-				) => Some((commitment, filler, user_op.to_vec())),
-				_ => None,
-			}
-		}
+	let filler = match &xt.preamble {
+		sp_runtime::generic::Preamble::Signed(address, _, _) => match address {
+			sp_runtime::MultiAddress::Id(id) => id.encode(),
+			_ => return None,
+		},
+		_ => return None,
 	};
+
+	match xt.function.is_sub_type()? {
+		pallet_intents_coprocessor::Call::place_bid { commitment, user_op } =>
+			Some((commitment.clone(), filler, user_op.to_vec())),
+		_ => None,
+	}
 }
 
 /// Watches the tx pool for bid-related extrinsics, updating the cache and
 /// notifying subscribers as they arrive.
 ///
-/// The `extract_bid` closure decodes extrinsic bytes using concrete runtime
-/// types (`UncheckedExtrinsic`, `RuntimeCall`) and returns
-/// `(commitment, filler_encoded, user_op)` for bid calls, or `None`.
-///
-/// Use [`make_extract_bid!`] to generate the closure.
-pub async fn run_bid_watcher<P, Block, F>(
+/// Generic over the runtime config `T` and signed extensions `Extra`.
+/// Uses `TryInto` to decode `place_bid` calls from the runtime's `RuntimeCall`.
+pub async fn run_bid_watcher<P, Block, T, Extra>(
 	pool: Arc<P>,
 	bid_cache: Arc<BidCache>,
 	bid_sender: broadcast::Sender<RpcBidInfo>,
-	extract_bid: F,
 ) where
 	Block: BlockT,
 	P: TransactionPool<Block = Block> + 'static,
-	F: Fn(&[u8]) -> Option<(H256, Vec<u8>, Vec<u8>)> + Send + 'static,
+	T: pallet_intents_coprocessor::Config,
+	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_coprocessor::Call<T>> + Decode,
+	T::AccountId: Encode + From<[u8; 32]>,
+	Extra: Decode + Send + 'static,
 {
 	use futures::StreamExt;
 
@@ -360,7 +363,7 @@ pub async fn run_bid_watcher<P, Block, F>(
 
 		let extrinsic_bytes = tx.data().encode();
 
-		if let Some((commitment, filler, user_op)) = extract_bid(&extrinsic_bytes) {
+		if let Some((commitment, filler, user_op)) = extract_bid::<T, Extra>(&extrinsic_bytes) {
 			log::info!(
 				target: LOG_TARGET,
 				"bid in mempool for {commitment:?}",

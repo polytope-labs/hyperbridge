@@ -15093,14 +15093,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-intents-runtime-api"
-version = "2506.2.0"
-dependencies = [
- "parity-scale-codec",
- "polkadot-sdk",
-]
-
-[[package]]
 name = "pallet-ismp"
 version = "2512.0.0"
 dependencies = [

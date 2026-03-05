@@ -26,7 +26,6 @@ members = [
     "modules/pallets/token-gateway-inspector",
     "modules/pallets/hyperbridge",
     "modules/pallets/intents-coprocessor",
-    "modules/pallets/intents-coprocessor/runtime-api",
     "modules/pallets/intents-coprocessor/rpc",
     "modules/pallets/state-coprocessor",
     "modules/ismp/clients/sync-committee",
@@ -309,7 +308,6 @@ pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = 
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
-pallet-intents-runtime-api = { path = "modules/pallets/intents-coprocessor/runtime-api", default-features = false }
 pallet-intents-rpc = { path = "modules/pallets/intents-coprocessor/rpc" }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }

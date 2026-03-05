@@ -369,7 +369,7 @@ pub fn run() -> Result<()> {
 						let pool = components.transaction_pool.clone();
 						let backend = components.backend.clone();
 						let bid_cache = std::sync::Arc::new(pallet_intents_rpc::BidCache::new(
-							std::time::Duration::from_secs(300),
+							std::time::Duration::from_secs(180),
 						));
 						let (bid_sender, _) =
 							tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
@@ -402,17 +402,15 @@ pub fn run() -> Result<()> {
 						})
 						.await?;
 
-						let extract_bid = pallet_intents_rpc::make_extract_bid!(gargantua_runtime);
-
 						task_manager.spawn_handle().spawn(
 							"intents-bid-watcher",
 							"intents",
-							pallet_intents_rpc::run_bid_watcher(
-								watcher_pool,
-								watcher_cache.clone(),
-								watcher_sender,
-								extract_bid,
-							),
+							pallet_intents_rpc::run_bid_watcher::<
+								_,
+								_,
+								gargantua_runtime::Runtime,
+								gargantua_runtime::SignedExtra,
+							>(watcher_pool, watcher_cache.clone(), watcher_sender),
 						);
 
 						task_manager.spawn_handle().spawn(

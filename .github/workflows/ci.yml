@@ -106,7 +106,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -202,7 +202,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -289,7 +289,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -373,7 +373,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -461,7 +461,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -575,7 +575,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -668,7 +668,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm
@@ -748,7 +748,7 @@ jobs:
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  version: nightly
+                  version: stable
 
             - name: Build Foundry artifacts
               working-directory: evm

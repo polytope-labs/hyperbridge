@@ -269,13 +269,8 @@ where
 			transaction_pool.clone(),
 			bid_cache.clone(),
 			bid_sender.clone(),
+			Duration::from_secs(60),
 		),
-	);
-
-	task_manager.spawn_handle().spawn(
-		"intents-bid-cleanup",
-		"intents",
-		pallet_intents_rpc::run_bid_cleanup(bid_cache.clone(), Duration::from_secs(60)),
 	);
 
 	let rpc_builder = {

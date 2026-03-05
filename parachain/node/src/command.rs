@@ -410,14 +410,10 @@ pub fn run() -> Result<()> {
 								_,
 								gargantua_runtime::Runtime,
 								gargantua_runtime::SignedExtra,
-							>(watcher_pool, watcher_cache.clone(), watcher_sender),
-						);
-
-						task_manager.spawn_handle().spawn(
-							"intents-bid-cleanup",
-							"intents",
-							pallet_intents_rpc::run_bid_cleanup(
+							>(
+								watcher_pool,
 								watcher_cache,
+								watcher_sender,
 								std::time::Duration::from_secs(60),
 							),
 						);

@@ -28,7 +28,7 @@ use tokio::sync::broadcast;
 use gargantua_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
 
 use crate::runtime_api::opaque;
-use sc_client_api::{AuxStore, BlockBackend, ProofProvider};
+use sc_client_api::{AuxStore, BlockBackend, ProofProvider, StorageProvider};
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
@@ -57,6 +57,7 @@ pub fn create_full<C, P, B>(
 where
 	C: ProvideRuntimeApi<Block>
 		+ HeaderBackend<Block>
+		+ StorageProvider<Block, B>
 		+ AuxStore
 		+ BlockBackend<Block>
 		+ ProofProvider<Block>

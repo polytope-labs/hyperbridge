@@ -298,8 +298,8 @@ impl RequestKind {
 				let params_update_sol =
 					sol_types::ParamsUpdate { params: params_sol, destinationFees: dest_fees_sol };
 
-				// Prepend request kind identifier (0 for UpdateParams)
-				let mut body = vec![0u8];
+				// Prepend request kind identifier (2 = UpdateParams in IntentsBase.RequestKind)
+				let mut body = vec![2u8];
 				body.extend_from_slice(&params_update_sol.abi_encode());
 				body
 			},
@@ -325,8 +325,8 @@ impl RequestKind {
 					outputs: outputs_sol,
 				};
 
-				// Prepend request kind identifier (2 for SweepDust)
-				let mut body = vec![2u8];
+				// Prepend request kind identifier (3 = SweepDust in IntentsBase.RequestKind)
+				let mut body = vec![3u8];
 				body.extend_from_slice(&sweep_sol.abi_encode());
 				body
 			},

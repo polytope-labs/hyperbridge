@@ -1,4 +1,5 @@
 export { IntentsV2 } from "./IntentsV2"
+export { OrderStatusChecker } from "./OrderStatusChecker"
 export { encodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof } from "./utils"
 export { SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {

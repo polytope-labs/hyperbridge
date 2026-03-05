@@ -1,5 +1,11 @@
 # @hyperbridge/sdk
 
+## 1.6.3
+
+### Patch Changes
+
+- Further improvements to intents v2
+
 ## 1.6.2
 
 ### Patch Changes

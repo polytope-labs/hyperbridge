@@ -231,10 +231,12 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x6b175474e89094c44da98b954eedeac495271d0f",
 			USDC: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
 			USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
+			cNGN: "0x17CDB2a01e7a34CbB3DD4b83260B05d0274C8dab",
 		},
 		tokenDecimals: {
 			USDC: 6,
 			USDT: 6,
+			cNGN: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 2, allowanceSlot: 5 },
@@ -244,6 +246,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20",
 			UniswapRouter02: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
@@ -292,6 +296,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
 			UniswapRouter02: "0x10ED43C718714eb63d5aA57B78B54704E256024E",
@@ -342,6 +348,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0xE05AFD4Eb2ce6d65c40e1048381BD0Ef8b4B299e",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -377,10 +385,12 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x50c5725949a6f0c72e6c4a641f24049a917db0cb",
 			USDC: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
 			USDT: "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+			cNGN: "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F",
 		},
 		tokenDecimals: {
 			USDC: 6,
 			USDT: 6,
+			cNGN: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
@@ -390,6 +400,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x6FFe92e4d7a9D589549644544780e6725E84b248",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -425,10 +437,12 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			DAI: "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
 			USDC: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
 			USDT: "0xc2132d05d31c914a87c6611c10748aeb04b58e8f",
+			cNGN: "0x52828daa48C1a9A06F37500882b42daf0bE04C3B",
 		},
 		tokenDecimals: {
 			USDC: 6,
 			USDT: 6,
+			cNGN: 6,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
@@ -438,6 +452,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0xD8d3db17C1dF65b301D45C84405CcAC1395C559a",
 			UniswapRouter02: "0xd2f9496824951D5237cC71245D659E48d0d5f9E8",
@@ -480,6 +496,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
 			TokenGateway: "0x8b536105b6Fae2aE9199f5146D3C57Dfe53b614E",
 			Host: "0x2A17C1c3616Bbc33FCe5aF5B965F166ba76cEDAf",
 			UniswapRouter02: "0x284f11109359a7e1306c3e447ef14d38400063ff",

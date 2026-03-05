@@ -1,4 +1,4 @@
-import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256 } from "viem"
+import { encodeFunctionData, toHex, pad, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import IntentGateway from "@/abis/IntentGateway"
@@ -41,11 +41,11 @@ export class GasEstimator {
 		const { order } = params
 		const solverPrivateKey = generatePrivateKey()
 		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
-		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(order.destination)
-		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(order.destination)
-		const chainId = BigInt(
-			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
-		)
+		const souceStateMachineId = isHex(order.source) ? hexToString(order.source) : order.source
+		const destStateMachineId = isHex(order.destination) ? hexToString(order.destination) : order.destination
+		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachineId)
+		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(destStateMachineId)
+		const chainId = BigInt(Number.parseInt(destStateMachineId.split("-")[1]))
 
 		const totalEthValue = order.output.assets
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
@@ -61,14 +61,14 @@ export class GasEstimator {
 
 		const { viem: stateOverrides, bundler: bundlerStateOverrides } = await this.buildStateOverride({
 			accountAddress: solverAccountAddress,
-			chain: order.destination,
+			chain: destStateMachineId,
 			outputAssets: assetsForOverrides,
 			spenderAddress: intentGatewayV2Address,
 			intentGatewayV2Address,
 			entryPointAddress,
 		})
 
-		const isSameChain = order.source === order.destination
+		const isSameChain = souceStateMachineId === destStateMachineId
 		let postRequestFeeInDestFeeToken = 0n
 		let protocolFeeInNativeToken = 0n
 
@@ -78,7 +78,7 @@ export class GasEstimator {
 				this.ctx,
 				postRequestGas,
 				"source",
-				order.source,
+				souceStateMachineId,
 			)
 			postRequestFeeInDestFeeToken = adjustDecimals(
 				postRequestFeeInSourceFeeToken,
@@ -87,13 +87,13 @@ export class GasEstimator {
 			)
 
 			const postRequest: IPostRequest = {
-				source: order.destination,
-				dest: order.source,
+				source: destStateMachineId,
+				dest: souceStateMachineId,
 				body: constructRedeemEscrowRequestBody({ ...order, id: orderV2Commitment(order) }, MOCK_ADDRESS),
 				timeoutTimestamp: 0n,
 				nonce: await this.ctx.source.getHostNonce(),
-				from: this.ctx.source.configService.getIntentGatewayV2Address(order.destination),
-				to: this.ctx.source.configService.getIntentGatewayV2Address(order.source),
+				from: this.ctx.source.configService.getIntentGatewayV2Address(destStateMachineId),
+				to: this.ctx.source.configService.getIntentGatewayV2Address(souceStateMachineId),
 			}
 
 			protocolFeeInNativeToken = await this.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() =>
@@ -216,7 +216,7 @@ export class GasEstimator {
 			this.ctx,
 			totalGas,
 			"dest",
-			order.destination,
+			destStateMachineId,
 			gasPrice,
 		)
 		const totalGasInSourceFeeToken = adjustDecimals(

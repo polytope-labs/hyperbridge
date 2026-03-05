@@ -316,7 +316,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 			destination: toHex(polygonAmoyId),
 			deadline: 12545151568145n,
 			nonce: 0n,
-			fees: parseUnits("0.005", sourceUsdtDecimals),
+			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
 			predispatch: { assets: [], call: "0x" as HexString },
 			inputs,

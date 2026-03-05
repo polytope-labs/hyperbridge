@@ -22,6 +22,7 @@ import { OrderExecutor } from "./OrderExecutor"
 import { OrderCanceller } from "./OrderCanceller"
 import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
+import { OrderStatusChecker } from "./OrderStatusChecker"
 import type { ERC7821Call } from "@/types"
 import { DEFAULT_GRAFFITI } from "@/utils"
 
@@ -41,6 +42,7 @@ export class IntentsV2 {
 	private readonly orderPlacer: OrderPlacer
 	private readonly orderExecutor: OrderExecutor
 	private readonly orderCanceller: OrderCanceller
+	private readonly orderStatusChecker: OrderStatusChecker
 	private readonly bidManager: BidManager
 	private readonly gasEstimator: GasEstimator
 
@@ -80,6 +82,7 @@ export class IntentsV2 {
 		this.orderPlacer = new OrderPlacer(this.ctx)
 		this.orderExecutor = new OrderExecutor(this.ctx, bidManager)
 		this.orderCanceller = new OrderCanceller(this.ctx)
+		this.orderStatusChecker = new OrderStatusChecker(this.ctx)
 		this.bidManager = bidManager
 		this.gasEstimator = gasEstimator
 		this._crypto = crypto
@@ -216,5 +219,13 @@ export class IntentsV2 {
 
 	decodeERC7821Execute(callData: HexString): ERC7821Call[] | null {
 		return this._crypto.decodeERC7821Execute(callData)
+	}
+
+	async isOrderFilled(order: OrderV2): Promise<boolean> {
+		return this.orderStatusChecker.isOrderFilled(order)
+	}
+
+	async isOrderRefunded(order: OrderV2): Promise<boolean> {
+		return this.orderStatusChecker.isOrderRefunded(order)
 	}
 }

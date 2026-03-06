@@ -9213,7 +9213,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.1"
+version = "1.4.2"
 dependencies = [
  "clap",
  "futures",
@@ -9225,6 +9225,8 @@ dependencies = [
  "log",
  "mmr-gadget 29.0.1",
  "nexus-runtime",
+ "pallet-intents-coprocessor",
+ "pallet-intents-rpc",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "pallet-ismp-runtime-api",
@@ -9238,6 +9240,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simnode-runtime-api",
+ "tokio",
 ]
 
 [[package]]
@@ -15075,6 +15078,21 @@ dependencies = [
  "primitive-types 0.13.1",
  "scale-info",
  "sp-io",
+]
+
+[[package]]
+name = "pallet-intents-rpc"
+version = "2506.2.0"
+dependencies = [
+ "futures",
+ "hex",
+ "jsonrpsee 0.24.10",
+ "log",
+ "pallet-intents-coprocessor",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -23976,6 +23994,8 @@ dependencies = [
  "nexus-runtime",
  "pallet-bridge-airdrop",
  "pallet-hyperbridge",
+ "pallet-intents-coprocessor",
+ "pallet-intents-rpc",
  "pallet-ismp",
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",

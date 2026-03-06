@@ -368,6 +368,16 @@ pub fn run() -> Result<()> {
 						let client = components.client.clone();
 						let pool = components.transaction_pool.clone();
 						let backend = components.backend.clone();
+						let bid_cache = std::sync::Arc::new(pallet_intents_rpc::BidCache::new(
+							std::time::Duration::from_secs(180),
+						));
+						let (bid_sender, _) =
+							tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
+
+						let watcher_pool = pool.clone();
+						let watcher_cache = bid_cache.clone();
+						let watcher_sender = bid_sender.clone();
+
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
 							_,
@@ -380,17 +390,34 @@ pub fn run() -> Result<()> {
 							config,
 							instant: cmd.instant,
 							rpc_builder: Box::new(move |_| {
-								let client = client.clone();
-								let pool = pool.clone();
-								let backend = backend.clone();
-								let full_deps = rpc::FullDeps { client, pool, backend };
-								let io =
-									rpc::create_full(full_deps).expect("Rpc to be initialized");
-
-								Ok(io)
+								let deps = rpc::FullDeps {
+									client: client.clone(),
+									pool: pool.clone(),
+									backend: backend.clone(),
+									bid_cache: bid_cache.clone(),
+									bid_sender: bid_sender.clone(),
+								};
+								rpc::create_full(deps).map_err(Into::into)
 							}),
 						})
 						.await?;
+
+						task_manager.spawn_handle().spawn(
+							"intents-bid-watcher",
+							"intents",
+							pallet_intents_rpc::run_bid_watcher::<
+								_,
+								_,
+								gargantua_runtime::Runtime,
+								gargantua_runtime::SignedExtra,
+							>(
+								watcher_pool,
+								watcher_cache,
+								watcher_sender,
+								std::time::Duration::from_secs(180),
+							),
+						);
+
 						Ok(task_manager)
 					})
 				},

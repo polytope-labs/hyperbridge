@@ -87,9 +87,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -183,9 +183,9 @@ jobs:
                   ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -270,9 +270,9 @@ jobs:
                   ~/.sp1/bin/sp1up --token $GITHUB_TOKEN
                   ~/.sp1/bin/cargo-prove prove --version
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -354,9 +354,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -442,9 +442,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -556,9 +556,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -649,9 +649,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3
@@ -729,9 +729,9 @@ jobs:
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3

@@ -1,0 +1,27 @@
+[package]
+name = "pallet-intents-rpc"
+version = "2506.2.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+
+[dependencies]
+codec = { workspace = true, features = ["derive"], default-features = true }
+jsonrpsee = { workspace = true, features = ["client-core", "server", "macros"] }
+serde = { workspace = true, features = ["derive"], default-features = true }
+log = { workspace = true, default-features = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+futures = { workspace = true }
+hex = { workspace = true, default-features = true }
+pallet-intents-coprocessor = { workspace = true, default-features = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "sc-client-api",
+    "sc-transaction-pool-api",
+    "sp-blockchain",
+    "sp-core",
+    "sp-runtime",
+]

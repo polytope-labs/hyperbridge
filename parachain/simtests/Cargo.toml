@@ -32,6 +32,8 @@ pallet-ismp-host-executive = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }
 pallet-ismp-rpc = { workspace = true }
+pallet-intents-rpc = { workspace = true }
+pallet-intents-coprocessor = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }

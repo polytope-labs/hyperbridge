@@ -50,6 +50,14 @@ pub use pallet::*;
 /// Pallet identifier for ISMP routing
 pub const PALLET_INTENTS_ID: &[u8] = b"pallet-intents";
 
+/// Generate the offchain storage key for a bid given raw commitment and filler bytes.
+pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8> {
+	let mut key = b"intents::bid::".to_vec();
+	key.extend_from_slice(commitment.as_bytes());
+	key.extend_from_slice(filler_encoded);
+	key
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
@@ -420,13 +428,9 @@ pub mod pallet {
 	where
 		T::AccountId: From<[u8; 32]>,
 	{
-		/// Dispatch a cross-chain message to a gateway contract
 		/// Generate offchain storage key for a bid
-		fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
-			let mut key = b"intents::bid::".to_vec();
-			key.extend_from_slice(commitment.as_bytes());
-			key.extend_from_slice(&filler.encode());
-			key
+		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
+			offchain_bid_key_raw(commitment, &filler.encode())
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

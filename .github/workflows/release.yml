@@ -146,10 +146,19 @@ jobs:
               run: |
                   pnpm install
 
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
             - name: Install dependencies
               run: |
-                  sudo apt-get update
-                  sudo apt-get install --assume-yes jq pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
                   rustup install nightly
                   rustup target add wasm32-unknown-unknown --toolchain nightly
                   rustup target add wasm32-unknown-unknown

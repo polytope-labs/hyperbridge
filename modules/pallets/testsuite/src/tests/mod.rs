@@ -1,4 +1,5 @@
 mod child_trie_proof_check;
+mod ismp_beacon_kit;
 mod pallet_call_decompressor;
 mod pallet_fishermen;
 mod pallet_hyperbridge;

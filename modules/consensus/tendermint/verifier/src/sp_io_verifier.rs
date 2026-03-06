@@ -30,10 +30,10 @@ pub fn validate_validator_set_hash(
 			.iter()
 			.map(|validator| {
 				let pub_key_bytes = {
-					if let Some(secp256k1_key) = validator.pub_key.secp256k1() {
+					if let Some(secp256k1_key) = validator.pub_key.clone().secp256k1() {
 						secp256k1_key.to_encoded_point(false).as_bytes().to_vec()
 					} else {
-						validator.pub_key.to_bytes()
+						validator.pub_key.clone().to_bytes()
 					}
 				};
 

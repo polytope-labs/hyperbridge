@@ -134,7 +134,7 @@ jobs:
               uses: actions/setup-node@v3
               with:
                   node-version: 22
-                  cache-dependency-path: "evm/yarn.lock"
+                  cache-dependency-path: "evm/pnpm-lock.lock"
                   cache: "yarn"
 
             - name: Install npm dependencies

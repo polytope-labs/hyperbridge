@@ -130,17 +130,21 @@ jobs:
                   chmod +x $HOME/bin/yarn
                   echo "$HOME/bin" >> $GITHUB_PATH
 
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
             - name: Set up Node
               uses: actions/setup-node@v3
               with:
                   node-version: 22
-                  cache-dependency-path: "evm/pnpm-lock.lock"
-                  cache: "yarn"
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
 
             - name: Install npm dependencies
               working-directory: evm
               run: |
-                  yarn install
+                  pnpm install
 
             - name: Install dependencies
               run: |

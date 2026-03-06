@@ -163,10 +163,11 @@ jobs:
             - name: Install dependencies
               run: |
                   ${{ matrix.packages_install }}
-            - name: Build artifacts
-            - uses: webfactory/ssh-agent@v0.7.0
+            - name: Setup SSH Agent
+              uses: webfactory/ssh-agent@v0.7.0
               with:
                   ssh-private-key: ${{ secrets.SSH_KEY }}
+            - name: Build artifacts
               run: |
                   # Actually do builds and make zips and whatnot
                   cargo dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json

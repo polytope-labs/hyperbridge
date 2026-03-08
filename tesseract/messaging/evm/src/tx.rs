@@ -54,6 +54,7 @@ fn is_rate_limit_error(err: &anyhow::Error) -> bool {
 	}
 }
 
+#[tracing::instrument(skip_all, fields(chain = ?client.state_machine))]
 #[async_recursion::async_recursion]
 pub async fn submit_messages(
 	client: &EvmClient,
@@ -70,7 +71,7 @@ pub async fn submit_messages(
 			Err(err) => {
 				let err = anyhow::Error::from(err);
 				if is_rate_limit_error(&err) {
-					log::info!("Retrying tx submission, got rate limit error");
+					tracing::info!("Retrying tx submission, got rate limit error");
 					return submit_messages(&client, messages).await;
 				}
 				return Err(err);
@@ -95,7 +96,11 @@ pub async fn submit_messages(
 	}
 
 	if !events.is_empty() {
-		log::trace!("Got {} receipts from executing on {:?}", events.len(), client.state_machine);
+		tracing::trace!(
+			"Got {} receipts from executing on {:?}",
+			events.len(),
+			client.state_machine
+		);
 	}
 
 	Ok((events, cancelled))
@@ -112,23 +117,23 @@ pub async fn wait_for_transaction_receipt(
 
 	loop {
 		if start_time.elapsed() >= max_duration {
-			log::error!("Transaction receipt not found after 5 minutes for tx: {:?}", tx_hash);
+			tracing::error!("Transaction receipt not found after 5 minutes for tx: {:?}", tx_hash);
 			return Ok(None);
 		}
 
 		match provider.get_transaction_receipt(B256::from_slice(&tx_hash.0)).await {
 			Ok(Some(receipt)) => {
-				log::trace!("Transaction receipt found for tx: {:?}", tx_hash);
+				tracing::trace!("Transaction receipt found for tx: {:?}", tx_hash);
 				return Ok(Some(receipt));
 			},
 			Ok(None) => {
-				log::trace!(
+				tracing::trace!(
 					"Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds",
 					tx_hash
 				);
 			},
 			Err(err) => {
-				log::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
+				tracing::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
 			},
 		}
 
@@ -136,6 +141,7 @@ pub async fn wait_for_transaction_receipt(
 	}
 }
 
+#[tracing::instrument(skip_all, fields(chain = ?client.state_machine, ?tx_hash))]
 #[async_recursion::async_recursion]
 pub async fn wait_for_success(
 	client: &EvmClient,
@@ -163,9 +169,9 @@ pub async fn wait_for_success(
 				})
 				.collect();
 			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
-				log::info!("Tx for {:?} succeeded", state_machine);
+				tracing::info!("Tx for {:?} succeeded", state_machine);
 			} else {
-				log::info!(
+				tracing::info!(
 					"Tx for {:?} with hash {:?} reverted",
 					state_machine,
 					receipt.transaction_hash
@@ -176,7 +182,7 @@ pub async fn wait_for_success(
 		},
 		None => {
 			// Transaction timed out - no receipt after 5 minutes
-			log::info!("No receipt for transaction on {:?}", state_machine);
+			tracing::info!("No receipt for transaction on {:?}", state_machine);
 
 			if let Some(msg) = retry_message {
 				// Retry consensus messages with 2x gas price
@@ -189,7 +195,7 @@ pub async fn wait_for_success(
 				.gas_price * 2;
 
 				let gas_gwei = new_gas_price.low_u128() as f64 / 1e9;
-				log::info!(
+				tracing::info!(
 					"Retrying consensus message on {:?} with gas {:.4} gwei",
 					state_machine,
 					gas_gwei,
@@ -234,9 +240,9 @@ pub async fn wait_for_success(
 					{
 						let prelude = "Cancellation Tx";
 						if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
-							log::info!("{prelude} for {:?} succeeded", state_machine);
+							tracing::info!("{prelude} for {:?} succeeded", state_machine);
 						} else {
-							log::info!("{prelude} for {:?} reverted", state_machine);
+							tracing::info!("{prelude} for {:?} reverted", state_machine);
 						}
 					}
 				}
@@ -245,7 +251,7 @@ pub async fn wait_for_success(
 					Err(anyhow!("Transaction to {:?} was cancelled!", state_machine))?
 				}
 
-				log::error!("Transaction to {:?} was cancelled!", state_machine);
+				tracing::error!("Transaction to {:?} was cancelled!", state_machine);
 				Ok(Default::default())
 			}
 		},
@@ -254,20 +260,21 @@ pub async fn wait_for_success(
 
 /// Function generates contract calls from batches of messages without sending them.
 /// Returns the unsent transaction requests along with the gas price used.
+#[tracing::instrument(skip_all, fields(chain = ?client.state_machine))]
 pub async fn generate_contract_calls(
 	client: &EvmClient,
 	messages: Vec<Message>,
 	debug_trace: bool,
 ) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
-	log::trace!("[evm::tx] generate_contract_calls: called with {} messages", messages.len(),);
+	tracing::trace!("[evm::tx] generate_contract_calls: called with {} messages", messages.len(),);
 
 	let handler = client.handler().await?;
 	let handler_addr = Address::from_slice(&handler.0);
-	log::trace!("[evm::tx] Got handler at address: {:?}", handler_addr);
+	tracing::trace!("[evm::tx] Got handler at address: {:?}", handler_addr);
 
 	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
 	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
-	log::trace!("[evm::tx] ISMP host: {:?}", ismp_host);
+	tracing::trace!("[evm::tx] ISMP host: {:?}", ismp_host);
 
 	let mut tx_requests = Vec::new();
 
@@ -277,7 +284,7 @@ pub async fn generate_contract_calls(
 	// Erigon does not support block overrides when tracing so we don't have the option of omitting
 	// the gas price by overriding the base fee
 	let set_gas_price = || !debug_trace || client.client_type.erigon();
-	log::trace!("[evm::tx] set_gas_price: {}", set_gas_price());
+	tracing::trace!("[evm::tx] set_gas_price: {}", set_gas_price());
 
 	let mut gas_price = if set_gas_price() {
 		let gas_cost = get_current_gas_cost_in_usd(
@@ -286,10 +293,10 @@ pub async fn generate_contract_calls(
 			client.client.clone(),
 		)
 		.await?;
-		log::trace!("[evm::tx] Got gas price: {}", gas_cost.gas_price);
+		tracing::trace!("[evm::tx] Got gas price: {}", gas_cost.gas_price);
 		gas_cost.gas_price
 	} else {
-		log::trace!("[evm::tx] Using default gas price (debug_trace mode)");
+		tracing::trace!("[evm::tx] Using default gas price (debug_trace mode)");
 		Default::default()
 	};
 
@@ -297,13 +304,13 @@ pub async fn generate_contract_calls(
 	if !debug_trace && client.config.gas_price_buffer.is_some() {
 		let buffer_bps = client.config.gas_price_buffer.unwrap_or_default();
 		let buffer = (U256::from(buffer_bps) * gas_price) / U256::from(10000u32);
-		log::trace!(
+		tracing::trace!(
 			"[evm::tx] Applying gas price buffer: {} bps, buffer amount: {}",
 			buffer_bps,
 			buffer
 		);
 		gas_price = gas_price + buffer;
-		log::trace!("[evm::tx] Final gas price with buffer: {}", gas_price);
+		tracing::trace!("[evm::tx] Final gas price with buffer: {}", gas_price);
 	}
 
 	// Convert U256 to u128 for gas_price parameter
@@ -311,11 +318,11 @@ pub async fn generate_contract_calls(
 	let from_address = Address::from_slice(&client.address);
 
 	for (index, message) in messages.into_iter().enumerate() {
-		log::trace!("[evm::tx] Processing message {}", index);
+		tracing::trace!("[evm::tx] Processing message {}", index);
 		match message {
 			Message::Consensus(msg) => {
-				log::trace!("[evm::tx] Message {}: Consensus message", index);
-				log::trace!(
+				tracing::trace!("[evm::tx] Message {}: Consensus message", index);
+				tracing::trace!(
 					"[evm::tx] Consensus proof length: {} bytes",
 					msg.consensus_proof.len()
 				);
@@ -343,17 +350,17 @@ pub async fn generate_contract_calls(
 						.gas_limit(gas_limit)
 				};
 				tx_requests.push(tx);
-				log::trace!("[evm::tx] Message {}: handleConsensus call added", index);
+				tracing::trace!("[evm::tx] Message {}: handleConsensus call added", index);
 			},
 			Message::Request(msg) => {
-				log::trace!(
+				tracing::trace!(
 					"[evm::tx] Message {}: Request message with {} requests",
 					index,
 					msg.requests.len()
 				);
 
 				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
-				log::trace!(
+				tracing::trace!(
 					"[evm::tx] Decoded MMR proof: leaf_count={}, items={}",
 					membership_proof.leaf_count,
 					membership_proof.items.len()
@@ -368,7 +375,7 @@ pub async fn generate_contract_calls(
 						(k_index, leaf_index)
 					})
 					.collect::<Vec<_>>();
-				log::trace!(
+				tracing::trace!(
 					"[evm::tx] Computed {} k_indices and leaf_indices",
 					k_and_leaf_indices.len()
 				);
@@ -384,7 +391,7 @@ pub async fn generate_contract_calls(
 					})
 					.collect::<Vec<_>>();
 				leaves.sort_by(|a, b| a.index.cmp(&b.index));
-				log::trace!("[evm::tx] Created and sorted {} request leaves", leaves.len());
+				tracing::trace!("[evm::tx] Created and sorted {} request leaves", leaves.len());
 
 				let post_message = PostRequestMessage {
 					proof: Proof {
@@ -392,7 +399,7 @@ pub async fn generate_contract_calls(
 							stateMachineId: {
 								match msg.proof.height.id.state_id {
 									StateMachine::Polkadot(id) | StateMachine::Kusama(id) => {
-										log::trace!("[evm::tx] State machine ID: {}", id);
+										tracing::trace!("[evm::tx] State machine ID: {}", id);
 										AlloyU256::from(id)
 									},
 									_ => {
@@ -413,19 +420,19 @@ pub async fn generate_contract_calls(
 				};
 
 				let call = contract.handlePostRequests(ismp_host, post_message);
-				log::trace!("[evm::tx] Estimating gas for handlePostRequests...");
+				tracing::trace!("[evm::tx] Estimating gas for handlePostRequests...");
 				let estimated_gas = call.estimate_gas().await.unwrap_or_else(|e| {
 					let fallback = get_chain_gas_limit(client.state_machine) / 4;
-					log::warn!(
+					tracing::warn!(
 						"[evm::tx] Gas estimation failed: {}, using fallback: {}",
 						e,
 						fallback
 					);
 					fallback
 				});
-				log::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
+				tracing::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
 				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
-				log::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
+				tracing::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
 				let calldata = call.calldata().clone();
 
 				let tx = if gas_price != Default::default() {
@@ -443,13 +450,13 @@ pub async fn generate_contract_calls(
 						.gas_limit(gas_limit)
 				};
 				tx_requests.push(tx);
-				log::trace!("[evm::tx] Message {}: handlePostRequests call added", index);
+				tracing::trace!("[evm::tx] Message {}: handlePostRequests call added", index);
 			},
 			Message::Response(ResponseMessage { datagram, proof, .. }) => {
-				log::trace!("[evm::tx] Message {}: Response message", index);
+				tracing::trace!("[evm::tx] Message {}: Response message", index);
 
 				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
-				log::trace!(
+				tracing::trace!(
 					"[evm::tx] Decoded MMR proof: leaf_count={}, items={}",
 					membership_proof.leaf_count,
 					membership_proof.items.len()
@@ -489,7 +496,7 @@ pub async fn generate_contract_calls(
 											StateMachine::Polkadot(id) |
 											StateMachine::Kusama(id) => AlloyU256::from(id),
 											_ => {
-												log::error!(
+												tracing::error!(
 													"Expected polkadot or kusama state machines"
 												);
 												continue;
@@ -509,19 +516,19 @@ pub async fn generate_contract_calls(
 						};
 
 						let call = contract.handlePostResponses(ismp_host, message);
-						log::trace!("[evm::tx] Estimating gas for handlePostResponses...");
+						tracing::trace!("[evm::tx] Estimating gas for handlePostResponses...");
 						let estimated_gas = call.estimate_gas().await.unwrap_or_else(|e| {
 							let fallback = get_chain_gas_limit(client.state_machine) / 4;
-							log::warn!(
+							tracing::warn!(
 								"[evm::tx] Gas estimation failed: {}, using fallback: {}",
 								e,
 								fallback
 							);
 							fallback
 						});
-						log::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
+						tracing::trace!("[evm::tx] Estimated gas: {}", estimated_gas);
 						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
-						log::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
+						tracing::trace!("[evm::tx] Gas limit with 5% buffer: {}", gas_limit);
 						let calldata = call.calldata().clone();
 
 						let tx = if gas_price != Default::default() {
@@ -539,26 +546,29 @@ pub async fn generate_contract_calls(
 								.gas_limit(gas_limit)
 						};
 						tx_requests.push(tx);
-						log::trace!("[evm::tx] Message {}: handlePostResponses call added", index);
+						tracing::trace!(
+							"[evm::tx] Message {}: handlePostResponses call added",
+							index
+						);
 					},
 					RequestResponse::Request(..) => {
-						log::error!("[evm::tx] Get requests are not supported by relayer");
+						tracing::error!("[evm::tx] Get requests are not supported by relayer");
 						Err(anyhow!("Get requests are not supported by relayer"))?
 					},
 				};
 			},
 			Message::Timeout(_) => {
-				log::error!("[evm::tx] Timeout messages not supported by relayer");
+				tracing::error!("[evm::tx] Timeout messages not supported by relayer");
 				Err(anyhow!("Timeout messages not supported by relayer"))?
 			},
 			Message::FraudProof(_) => {
-				log::error!("[evm::tx] Unexpected fraud proof message");
+				tracing::error!("[evm::tx] Unexpected fraud proof message");
 				Err(anyhow!("Unexpected fraud proof message"))?
 			},
 		}
 	}
 
-	log::trace!("[evm::tx] generate_contract_calls: returning {} calls", tx_requests.len());
+	tracing::trace!("[evm::tx] generate_contract_calls: returning {} calls", tx_requests.len());
 	Ok((tx_requests, gas_price))
 }
 
@@ -581,6 +591,7 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	}
 }
 
+#[tracing::instrument(skip_all, fields(chain = ?client.state_machine))]
 pub async fn handle_message_submission(
 	client: &EvmClient,
 	messages: Vec<Message>,

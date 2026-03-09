@@ -1,9 +1,6 @@
 name: Build Runtime
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/build-runtime.yml"
   push:
     tags:
       - "nexus-v[0-9]*"
@@ -40,8 +37,6 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             PACKAGE="${{ inputs.runtime }}"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            PACKAGE="nexus-runtime"
           else
             TAG="${GITHUB_REF_NAME}"
             if [[ "$TAG" == nexus-* ]]; then
@@ -185,7 +180,6 @@ jobs:
             RELEASE_NOTES.md
 
   publish-release:
-    if: github.event_name != 'pull_request'
     needs: [determine-runtime, build-runtime]
     runs-on: ubuntu-latest
     steps:

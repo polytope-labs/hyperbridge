@@ -1,6 +1,9 @@
 name: Build Runtime
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/build-runtime.yml"
   push:
     tags:
       - "nexus-v[0-9]*"
@@ -167,6 +170,7 @@ jobs:
             RELEASE_NOTES.md
 
   publish-release:
+    if: github.event_name != 'pull_request'
     needs: [determine-runtime, build-runtime]
     runs-on: arc-runner-set
     steps:

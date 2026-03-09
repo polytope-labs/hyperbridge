@@ -27,7 +27,7 @@ env:
 
 jobs:
   determine-runtime:
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     outputs:
       package: ${{ steps.runtime.outputs.package }}
       name: ${{ steps.runtime.outputs.name }}
@@ -53,7 +53,7 @@ jobs:
 
   build-runtime:
     needs: [determine-runtime]
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -168,7 +168,7 @@ jobs:
 
   publish-release:
     needs: [determine-runtime, build-runtime]
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

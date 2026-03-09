@@ -69,13 +69,22 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: Install dependencies
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler python3-pip
+          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+          pip3 install pycryptodome
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: stable
+
+      - name: Add wasm toolchain
+        run: |
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
-          pip3 install pycryptodome
 
       - name: Install subwasm
         run: |

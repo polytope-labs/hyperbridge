@@ -1,0 +1,187 @@
+name: Build Runtime
+
+on:
+  push:
+    tags:
+      - "nexus-v[0-9]*"
+      - "gargantua-v[0-9]*"
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: "Runtime to build"
+        required: true
+        type: choice
+        options:
+          - nexus-runtime
+          - gargantua-runtime
+      ref:
+        description: "Git tag to build from (e.g. nexus-v6500)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+
+jobs:
+  determine-runtime:
+    runs-on: arc-runner-set
+    outputs:
+      package: ${{ steps.runtime.outputs.package }}
+      name: ${{ steps.runtime.outputs.name }}
+      path: ${{ steps.runtime.outputs.path }}
+    steps:
+      - id: runtime
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PACKAGE="${{ inputs.runtime }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            if [[ "$TAG" == nexus-* ]]; then
+              PACKAGE="nexus-runtime"
+            elif [[ "$TAG" == gargantua-* ]]; then
+              PACKAGE="gargantua-runtime"
+            fi
+          fi
+
+          NAME="${PACKAGE%-runtime}"
+          echo "package=${PACKAGE}" >> "$GITHUB_OUTPUT"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "path=parachain/runtimes/${NAME}" >> "$GITHUB_OUTPUT"
+
+  build-runtime:
+    needs: [determine-runtime]
+    runs-on: arc-runner-set
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.ref }}
+          submodules: recursive
+
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+          pip3 install pycryptodome
+
+      - name: Install subwasm
+        run: |
+          curl -L -o subwasm.deb https://github.com/chevdor/subwasm/releases/download/v0.21.3/subwasm_linux_amd64_v0.21.3.deb
+          sudo dpkg -i subwasm.deb
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          key: runtime-build
+
+      - name: Build runtime
+        run: |
+          ./scripts/build_release_runtime.sh ${{ needs.determine-runtime.outputs.package }}
+
+      - name: Generate runtime info
+        id: info
+        env:
+          PACKAGE: ${{ needs.determine-runtime.outputs.package }}
+          NAME: ${{ needs.determine-runtime.outputs.name }}
+        run: |
+          WASM_NAME="${PACKAGE//-/_}"
+          WASM_PATH="target/release/wbuild/${PACKAGE}/${WASM_NAME}.compact.compressed.wasm"
+
+          # Get runtime info via subwasm
+          subwasm info "${WASM_PATH}" --json > runtime_info.json
+
+          SPEC_VERSION=$(jq -r '.core_version.specVersion // empty' runtime_info.json || echo "unknown")
+          SPEC_NAME=$(jq -r '.core_version.specName // empty' runtime_info.json || echo "${NAME}")
+          IMPL_NAME=$(jq -r '.core_version.implName // empty' runtime_info.json || echo "${NAME}")
+          IMPL_VERSION=$(jq -r '.core_version.implVersion // empty' runtime_info.json || echo "0")
+          TX_VERSION=$(jq -r '.core_version.transactionVersion // empty' runtime_info.json || echo "0")
+          AUTH_VERSION=$(jq -r '.core_version.authoringVersion // empty' runtime_info.json || echo "0")
+          META_VERSION=$(jq -r '.metadata_version // empty' runtime_info.json || echo "0")
+
+          WASM_SIZE=$(stat --printf="%s" "${WASM_PATH}")
+          WASM_SIZE_HUMAN=$(numfmt --to iec-i --format "%.2f" "${WASM_SIZE}")
+
+          # Compute keccak256
+          KECCAK256=$(python3 -c "
+          from Crypto.Hash import keccak
+          with open('${WASM_PATH}', 'rb') as f:
+              data = f.read()
+          k = keccak.new(digest_bits=256)
+          k.update(data)
+          print('0x' + k.hexdigest())
+          ")
+
+          RUSTC_VERSION=$(rustc --version)
+
+          echo "wasm_path=${WASM_PATH}" >> "$GITHUB_OUTPUT"
+          echo "wasm_name=${WASM_NAME}" >> "$GITHUB_OUTPUT"
+          echo "keccak256=${KECCAK256}" >> "$GITHUB_OUTPUT"
+          echo "spec_version=${SPEC_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "wasm_size=${WASM_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "wasm_size_human=${WASM_SIZE_HUMAN}" >> "$GITHUB_OUTPUT"
+
+          ASSET_NAME="${NAME}_runtime-v${SPEC_VERSION}.compact.compressed.wasm"
+          cp "${WASM_PATH}" "${ASSET_NAME}"
+          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+
+          cat > RELEASE_NOTES.md <<EOF
+          # Runtime info
+          *This runtime was built with **${RUSTC_VERSION}***
+
+          To replicate the build:
+          \`\`\`sh
+          ./scripts/build_release_runtime.sh ${PACKAGE}
+          \`\`\`
+
+          ## ${SPEC_NAME}
+          ~~~
+          Runtime Size:           ${WASM_SIZE_HUMAN} (${WASM_SIZE} bytes)
+          Core Version:           ${SPEC_NAME}-${SPEC_VERSION} ${IMPL_NAME}-${IMPL_VERSION}.tx${TX_VERSION}.au${AUTH_VERSION}
+          Metadata version:       V${META_VERSION}
+          Keccak-256 hash:        ${KECCAK256}
+          ~~~
+
+          ## Governance
+
+          Use the **Keccak-256 hash** for \`system.authorizeUpgrade(codeHash)\`, then upload the WASM artifact via \`system.enactAuthorizedUpgrade(code)\`.
+          EOF
+
+          cat RELEASE_NOTES.md
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.determine-runtime.outputs.package }}-wasm
+          path: |
+            ${{ steps.info.outputs.asset_name }}
+            RELEASE_NOTES.md
+
+  publish-release:
+    needs: [determine-runtime, build-runtime]
+    runs-on: arc-runner-set
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.determine-runtime.outputs.package }}-wasm
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ inputs.ref || github.ref_name }}
+          name: "${{ needs.determine-runtime.outputs.name }} runtime v${{ needs.build-runtime.outputs.spec_version || 'latest' }}"
+          bodyFile: RELEASE_NOTES.md
+          artifacts: "${{ needs.determine-runtime.outputs.name }}_runtime-v*.compact.compressed.wasm"
+          allowUpdates: true
+          draft: false
+          prerelease: false

@@ -64,7 +64,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{  github.event.pull_request.head.sha }}
           token: ${{ secrets.GH_TOKEN }}
           submodules: recursive
 
@@ -121,7 +121,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GH_TOKEN }}
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Download artifacts

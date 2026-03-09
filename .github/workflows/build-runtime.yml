@@ -81,9 +81,8 @@ jobs:
 
       - name: Install subwasm
         run: |
-          curl -L https://github.com/chevdor/subwasm/releases/latest/download/subwasm_linux_amd64_v0.21.2 -o /usr/local/bin/subwasm || \
-          cargo install --locked subwasm
-          chmod +x /usr/local/bin/subwasm || true
+          curl -L -o subwasm.deb https://github.com/chevdor/subwasm/releases/download/v0.21.3/subwasm_linux_amd64_v0.21.3.deb
+          sudo dpkg -i subwasm.deb
 
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
@@ -113,7 +112,10 @@ jobs:
           TX_VERSION=$(jq -r '.core_version.transactionVersion // empty' runtime_info.json || echo "0")
           AUTH_VERSION=$(jq -r '.core_version.authoringVersion // empty' runtime_info.json || echo "0")
           META_VERSION=$(jq -r '.metadata_version // empty' runtime_info.json || echo "0")
-          BLAKE2_256=$(subwasm info "${WASM_PATH}" | grep -i blake2 | awk '{print $NF}' || echo "unknown")
+          BLAKE2_256=$(jq -r '.blake2_256 // empty' runtime_info.json || echo "unknown")
+          IPFS=$(jq -r '.ipfs_hash // empty' runtime_info.json || echo "unknown")
+          PROPOSAL_HASH=$(jq -r '.proposal_hash // empty' runtime_info.json || echo "unknown")
+          AUTHORIZE_UPGRADE_HASH=$(jq -r '.parachain_authorize_upgrade_hash // empty' runtime_info.json || echo "unknown")
 
           WASM_SIZE=$(stat --printf="%s" "${WASM_PATH}")
           WASM_SIZE_HUMAN=$(numfmt --to iec-i --format "%.2f" "${WASM_SIZE}")
@@ -158,9 +160,16 @@ jobs:
           Metadata version:       V${META_VERSION}
           Blake2-256 hash:        ${BLAKE2_256}
           Keccak-256 hash:        ${KECCAK256}
+          IPFS:                   ${IPFS}
           ~~~
 
-          ## Usage
+          ## Governance
+
+          | | Hash |
+          |---|---|
+          | \`system.setCode\` | \`${PROPOSAL_HASH}\` |
+          | \`system.authorizeUpgrade\` | \`${AUTHORIZE_UPGRADE_HASH}\` |
+          | **Keccak-256 code hash** | \`${KECCAK256}\` |
 
           Use the **Keccak-256 hash** for \`system.authorizeUpgrade(codeHash)\`, then upload the WASM artifact via \`system.enactAuthorizedUpgrade(code)\`.
           EOF

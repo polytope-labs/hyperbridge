@@ -41,7 +41,6 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             PACKAGE="${{ inputs.runtime }}"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
-            # Default to nexus-runtime for PR testing
             PACKAGE="nexus-runtime"
           else
             TAG="${GITHUB_REF_NAME}"
@@ -64,31 +63,61 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{  github.event.pull_request.head.sha }}
-          token: ${{ secrets.GH_TOKEN }}
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha || github.ref }}
           submodules: recursive
 
-      - name: Build ${{ needs.determine-runtime.outputs.name }} runtime with srtool
-        id: srtool_build
-        uses: paritytech/srtool-actions@v0.9.4
-        env:
-          BUILD_OPTS: "--features=metadata-hash"
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.7.0
         with:
-          chain: ${{ needs.determine-runtime.outputs.name }}
-          package: ${{ needs.determine-runtime.outputs.package }}
-          runtime_dir: ${{ needs.determine-runtime.outputs.path }}
+          ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: Store srtool digest
+      - name: Install dependencies
         run: |
-          echo '${{ steps.srtool_build.outputs.json }}' | jq > ${{ needs.determine-runtime.outputs.name }}_srtool_output.json
-
-      - name: Generate keccak256 code hash
-        id: hash
-        run: |
-          WASM_PATH="${{ steps.srtool_build.outputs.wasm_compressed }}"
-
+          sudo apt-get update
+          sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+          rustup target add wasm32-unknown-unknown
           pip3 install pycryptodome
 
+      - name: Install subwasm
+        run: |
+          curl -L https://github.com/chevdor/subwasm/releases/latest/download/subwasm_linux_amd64_v0.21.2 -o /usr/local/bin/subwasm || \
+          cargo install --locked subwasm
+          chmod +x /usr/local/bin/subwasm || true
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          key: runtime-build
+
+      - name: Build runtime
+        run: |
+          ./scripts/build_release_runtime.sh ${{ needs.determine-runtime.outputs.package }}
+
+      - name: Generate runtime info
+        id: info
+        env:
+          PACKAGE: ${{ needs.determine-runtime.outputs.package }}
+          NAME: ${{ needs.determine-runtime.outputs.name }}
+        run: |
+          WASM_NAME="${PACKAGE//-/_}"
+          WASM_PATH="target/release/wbuild/${PACKAGE}/${WASM_NAME}.compact.compressed.wasm"
+
+          # Get runtime info via subwasm
+          subwasm info "${WASM_PATH}" --json > runtime_info.json
+
+          SPEC_VERSION=$(jq -r '.core_version.specVersion // empty' runtime_info.json || echo "unknown")
+          SPEC_NAME=$(jq -r '.core_version.specName // empty' runtime_info.json || echo "${NAME}")
+          IMPL_NAME=$(jq -r '.core_version.implName // empty' runtime_info.json || echo "${NAME}")
+          IMPL_VERSION=$(jq -r '.core_version.implVersion // empty' runtime_info.json || echo "0")
+          TX_VERSION=$(jq -r '.core_version.transactionVersion // empty' runtime_info.json || echo "0")
+          AUTH_VERSION=$(jq -r '.core_version.authoringVersion // empty' runtime_info.json || echo "0")
+          META_VERSION=$(jq -r '.metadata_version // empty' runtime_info.json || echo "0")
+          BLAKE2_256=$(subwasm info "${WASM_PATH}" | grep -i blake2 | awk '{print $NF}' || echo "unknown")
+
+          WASM_SIZE=$(stat --printf="%s" "${WASM_PATH}")
+          WASM_SIZE_HUMAN=$(numfmt --to iec-i --format "%.2f" "${WASM_SIZE}")
+
+          # Compute keccak256
           KECCAK256=$(python3 -c "
           from Crypto.Hash import keccak
           with open('${WASM_PATH}', 'rb') as f:
@@ -98,95 +127,36 @@ jobs:
           print('0x' + k.hexdigest())
           ")
 
-          echo "keccak256=${KECCAK256}" >> "$GITHUB_OUTPUT"
+          RUSTC_VERSION=$(rustc --version)
+
           echo "wasm_path=${WASM_PATH}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload WASM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ needs.determine-runtime.outputs.package }}-wasm
-          path: ${{ steps.hash.outputs.wasm_path }}
-
-      - name: Upload srtool json
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ needs.determine-runtime.outputs.name }}-srtool-json
-          path: ${{ needs.determine-runtime.outputs.name }}_srtool_output.json
-
-  publish-release:
-    if: github.event_name != 'pull_request'
-    needs: [determine-runtime, build-runtime]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Prepare release notes
-        id: notes
-        env:
-          NAME: ${{ needs.determine-runtime.outputs.name }}
-          PACKAGE: ${{ needs.determine-runtime.outputs.package }}
-        run: |
-          JSON="${NAME}-srtool-json/${NAME}_srtool_output.json"
-          WASM=$(find ${PACKAGE}-wasm -name '*.compact.compressed.wasm')
-
-          SRTOOL() { <${JSON} jq -r ".$1"; }
-          SUBWASM() { <${JSON} jq -r ".runtimes.compressed.subwasm.$1"; }
-
-          SPEC_VERSION=$(SUBWASM 'core_version.specVersion')
-          SPEC_NAME=$(SUBWASM 'core_version.specName')
-          IMPL_NAME=$(SUBWASM 'core_version.implName')
-          IMPL_VERSION=$(SUBWASM 'core_version.implVersion')
-          TX_VERSION=$(SUBWASM 'core_version.transactionVersion')
-          AUTH_VERSION=$(SUBWASM 'core_version.authoringVersion')
-          BLAKE2_256=$(SUBWASM 'blake2_256')
-          IPFS=$(SUBWASM 'ipfs_hash')
-          SIZE=$(SUBWASM 'size')
-          COMPRESSED=$(SUBWASM 'compression | if .compressed then "Yes: \(1 - .size_compressed / .size_decompressed | . * 10000 | round / 100)%" else "No" end')
-          META_VERSION=$(SUBWASM 'metadata_version')
-          RUSTC=$(SRTOOL 'rustc')
-          SRTOOL_VERSION=$(SRTOOL 'gen')
-
-          pip3 install pycryptodome
-
-          KECCAK256=$(python3 -c "
-          from Crypto.Hash import keccak
-          with open('${WASM}', 'rb') as f:
-              data = f.read()
-          k = keccak.new(digest_bits=256)
-          k.update(data)
-          print('0x' + k.hexdigest())
-          ")
+          echo "wasm_name=${WASM_NAME}" >> "$GITHUB_OUTPUT"
+          echo "keccak256=${KECCAK256}" >> "$GITHUB_OUTPUT"
+          echo "blake2_256=${BLAKE2_256}" >> "$GITHUB_OUTPUT"
+          echo "spec_version=${SPEC_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "wasm_size=${WASM_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "wasm_size_human=${WASM_SIZE_HUMAN}" >> "$GITHUB_OUTPUT"
 
           ASSET_NAME="${NAME}_runtime-v${SPEC_VERSION}.compact.compressed.wasm"
-          cp "${WASM}" "${ASSET_NAME}"
+          cp "${WASM_PATH}" "${ASSET_NAME}"
+          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
 
-          cat > RELEASE_NOTES.md <<-EOF
+          cat > RELEASE_NOTES.md <<EOF
           # Runtime info
-          *This runtime was built with **${RUSTC}** using **[${SRTOOL_VERSION}](https://github.com/paritytech/srtool)***
+          *This runtime was built with **${RUSTC_VERSION}***
 
-          To replicate the build, use the following command:
+          To replicate the build:
           \`\`\`sh
-          srtool build \\
-                 --root --profile production \\
-                 --package ${PACKAGE} --runtime-dir parachain/runtimes/${NAME} \\
-                 --build-opts="--features=metadata-hash"
+          ./scripts/build_release_runtime.sh ${PACKAGE}
           \`\`\`
 
           ## ${SPEC_NAME}
           ~~~
-          Runtime Size:           $(numfmt --to iec-i --format "%.2f" ${SIZE}) (${SIZE} bytes)
-          Compressed:             ${COMPRESSED}
+          Runtime Size:           ${WASM_SIZE_HUMAN} (${WASM_SIZE} bytes)
           Core Version:           ${SPEC_NAME}-${SPEC_VERSION} ${IMPL_NAME}-${IMPL_VERSION}.tx${TX_VERSION}.au${AUTH_VERSION}
           Metadata version:       V${META_VERSION}
           Blake2-256 hash:        ${BLAKE2_256}
           Keccak-256 hash:        ${KECCAK256}
-          IPFS:                   ${IPFS}
           ~~~
 
           ## Usage
@@ -194,17 +164,33 @@ jobs:
           Use the **Keccak-256 hash** for \`system.authorizeUpgrade(codeHash)\`, then upload the WASM artifact via \`system.enactAuthorizedUpgrade(code)\`.
           EOF
 
-          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
-          echo "spec_version=${SPEC_VERSION}" >> "$GITHUB_OUTPUT"
-
           cat RELEASE_NOTES.md
+
+      - name: Upload WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.determine-runtime.outputs.package }}-wasm
+          path: |
+            ${{ steps.info.outputs.asset_name }}
+            RELEASE_NOTES.md
+
+  publish-release:
+    if: github.event_name != 'pull_request'
+    needs: [determine-runtime, build-runtime]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.determine-runtime.outputs.package }}-wasm
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ inputs.ref || github.ref_name }}
-          name: "${{ needs.determine-runtime.outputs.name }} runtime v${{ steps.notes.outputs.spec_version }}"
+          name: "${{ needs.determine-runtime.outputs.name }} runtime v${{ needs.build-runtime.outputs.spec_version || 'latest' }}"
           bodyFile: RELEASE_NOTES.md
-          artifacts: "${{ steps.notes.outputs.asset_name }}"
+          artifacts: "${{ needs.determine-runtime.outputs.name }}_runtime-v*.compact.compressed.wasm"
+          allowUpdates: true
           draft: false
           prerelease: false

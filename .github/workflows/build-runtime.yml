@@ -76,6 +76,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
           rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
           pip3 install pycryptodome
 
       - name: Install subwasm

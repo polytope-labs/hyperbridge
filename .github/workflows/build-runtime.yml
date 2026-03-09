@@ -40,6 +40,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             PACKAGE="${{ inputs.runtime }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            PACKAGE="nexus-runtime"
           else
             TAG="${GITHUB_REF_NAME}"
             if [[ "$TAG" == nexus-* ]]; then

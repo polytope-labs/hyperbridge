@@ -107,8 +107,6 @@ jobs:
           TX_VERSION=$(jq -r '.core_version.transactionVersion // empty' runtime_info.json || echo "0")
           AUTH_VERSION=$(jq -r '.core_version.authoringVersion // empty' runtime_info.json || echo "0")
           META_VERSION=$(jq -r '.metadata_version // empty' runtime_info.json || echo "0")
-          PROPOSAL_HASH=$(jq -r '.proposal_hash // empty' runtime_info.json || echo "unknown")
-          AUTHORIZE_UPGRADE_HASH=$(jq -r '.parachain_authorize_upgrade_hash // empty' runtime_info.json || echo "unknown")
 
           WASM_SIZE=$(stat --printf="%s" "${WASM_PATH}")
           WASM_SIZE_HUMAN=$(numfmt --to iec-i --format "%.2f" "${WASM_SIZE}")
@@ -154,12 +152,6 @@ jobs:
           ~~~
 
           ## Governance
-
-          | | Hash |
-          |---|---|
-          | \`system.setCode\` | \`${PROPOSAL_HASH}\` |
-          | \`system.authorizeUpgrade\` | \`${AUTHORIZE_UPGRADE_HASH}\` |
-          | **Keccak-256 code hash** | \`${KECCAK256}\` |
 
           Use the **Keccak-256 hash** for \`system.authorizeUpgrade(codeHash)\`, then upload the WASM artifact via \`system.enactAuthorizedUpgrade(code)\`.
           EOF

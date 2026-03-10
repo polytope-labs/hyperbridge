@@ -417,9 +417,14 @@ impl pallet_token_gateway::Config for Runtime {
 	type WeightInfo = crate::weights::pallet_token_gateway::WeightInfo<Runtime>;
 }
 
+parameter_types! {
+	pub const IntentsStorageDepositFee: Balance = EXISTENTIAL_DEPOSIT * 10;
+}
+
 impl pallet_intents_coprocessor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
+	type StorageDepositFee = IntentsStorageDepositFee;
 	type GovernanceOrigin = EitherOfDiverse<
 		WhitelistedCaller,
 		pallet_collective::EnsureMembers<

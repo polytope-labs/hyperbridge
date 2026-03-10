@@ -1,0 +1,249 @@
+---
+title: Cancelling Orders
+description: How to cancel same-chain and cross-chain intent orders using the @hyperbridge/sdk IntentsV2 class.
+---
+
+# Cancelling Orders
+
+When a user wants to reclaim their escrowed tokens — because no solver filled the order, or the order expired — they call `cancelOrder` on the `IntentGatewayV2` contract. The contract computes the commitment, checks that it has not already been filled or cancelled (`_filled[commitment] == address(0)`), then routes to one of three internal handlers depending on where the call is made relative to the order's source and destination chains.
+
+The `IntentsV2.cancelOrder()` SDK method abstracts over all three paths. You pass the order, an `IndexerClient` for proof fetching, and a `"source"` or `"dest"` hint, and the SDK handles everything from proof retrieval to Hyperbridge submission. See the [SDK overview](/developers/sdk/overview) for full `IndexerClient` documentation.
+
+<Callout type="warn">
+`_filled[commitment]` is set to a non-zero address for both successfully filled orders **and** orders cancelled from the destination chain. `isOrderFilled` returns `true` in both cases — always check it before attempting cancellation to avoid a `Filled()` revert.
+</Callout>
+
+## Setup
+
+```typescript lineNumbers title="setup.ts" icon="typescript"
+import { EvmChain, IntentsCoprocessor, IntentsV2, IndexerClient, createQueryClient } from "@hyperbridge/sdk"
+import { createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+
+const sourceChain = new EvmChain({ chainId: 1,     rpcUrl: "SOURCE_RPC", host: "0xSourceHost" })
+const destChain   = new EvmChain({ chainId: 42161, rpcUrl: "DEST_RPC",   host: "0xDestHost"   })
+
+const coprocessor = await IntentsCoprocessor.connect("wss://nexus.ibp.network")
+const intentsV2   = await IntentsV2.create(sourceChain, destChain, coprocessor)
+
+const queryClient   = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
+const indexerClient = new IndexerClient({ queryClient, source: sourceChain, dest: destChain })
+
+const account      = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
+const sourceWallet = createWalletClient({ account, transport: http("SOURCE_RPC") })
+const destWallet   = createWalletClient({ account, transport: http("DEST_RPC") })
+```
+
+---
+
+## Same-Chain Orders
+
+For same-chain orders (`source == destination`), `_cancelSameChain` verifies that the caller is the original order creator and that the commitment's escrow balance is non-zero, then refunds all remaining escrowed tokens directly via `_withdraw`. No cross-chain messaging is required and there is no deadline restriction — the order creator can cancel at any time before the order is filled.
+
+If the order has been partially filled, the escrow balance will already be reduced proportionally. The refund covers only the remaining balance, not the full original amount.
+
+```typescript lineNumbers title="cancel-same-chain.ts" icon="typescript"
+async function cancelSameChain(order: OrderV2) {
+  if (await intentsV2.isOrderFilled(order)) {
+    throw new Error("Order already filled or cancelled")
+  }
+
+  const gen = intentsV2.cancelOrder(order, indexerClient, "source")
+
+  for await (const event of gen) {
+    if (event.status === "AWAITING_CANCEL_TRANSACTION") {
+      const { calldata, to } = event.data
+
+      const signedTx = await sourceWallet.signTransaction({
+        to: to as `0x${string}`,
+        data: calldata,
+        type: "eip1559",
+      })
+
+      // SDK broadcasts the tx; EscrowRefunded is emitted on-chain
+      await gen.next(signedTx)
+    }
+
+    if (event.status === "CANCELLATION_COMPLETE") {
+      console.log("Refunded at block:", event.data.metadata.blockNumber)
+      return
+    }
+  }
+}
+```
+
+---
+
+## Cross-Chain Orders
+
+Cross-chain cancellations require Hyperbridge to either prove the order was never filled (source-side cancel) or deliver a refund message (dest-side cancel). Both paths involve a Hyperbridge dispatch fee — quote it with `quoteCancelNative` before signing. The SDK handles proof fetching, finality monitoring, and Hyperbridge submission automatically.
+
+### Cancel from the Source Chain
+
+Cancelling from the source chain works by cryptographically proving to the source chain that the order was never filled on the destination. The contract dispatches a Hyperbridge `GET` request targeting the `_filled[commitment]` storage slot on the destination gateway. When the response arrives, `onGetResponse` inspects the slot: an empty value triggers `_withdraw` and emits `EscrowRefunded`; a non-empty value means the order was already filled and reverts with `Filled()`.
+
+Because the proof height must be taken from a block **after** the order deadline (`options.height > order.deadline`), this path is only available once the order has expired — it guarantees that no fill could legitimately have occurred at or after that height. The SDK automatically selects the proof height.
+
+The `GET` request encodes the `_filled` storage slot as the key and the `WithdrawalRequest` as context, so `onGetResponse` knows which commitment and tokens to refund when the response arrives. You only need to sign and submit the `cancelOrder` transaction on the source chain — the SDK fetches the destination storage proof, monitors finality on both sides, and submits the proof to Hyperbridge automatically.
+
+```typescript lineNumbers title="cancel-from-source.ts" icon="typescript"
+import { encodeFunctionData } from "viem"
+import { IntentGatewayV2ABI } from "@hyperbridge/sdk"
+
+async function cancelFromSource(order: OrderV2) {
+  if (await intentsV2.isOrderFilled(order)) {
+    throw new Error("Order already filled")
+  }
+
+  // Quote the native fee for the GET request dispatch
+  const nativeFee = await intentsV2.quoteCancelNative(order, "source")
+
+  const gen = intentsV2.cancelOrder(order, indexerClient, "source")
+
+  // Capture the finalized proof height — used as options.height in the cancelOrder tx.
+  // Hyperbridge queries the destination chain at exactly this height, so it must match the proof.
+  let proofHeight = 0n
+
+  for await (const event of gen) {
+    switch (event.status) {
+      case "DESTINATION_FINALIZED":
+        // SDK fetched a storage proof from the destination at a height > order.deadline
+        proofHeight = event.data.proof.height
+        console.log("Destination proof at height:", proofHeight)
+        break
+
+      case "AWAITING_GET_REQUEST": {
+        // Submit the cancelOrder tx on the source chain, then pass the tx hash back.
+        // The gateway dispatches a GET request to Hyperbridge targeting the _filled[commitment]
+        // storage slot on the destination chain at proofHeight.
+        const calldata = encodeFunctionData({
+          abi: IntentGatewayV2ABI,
+          functionName: "cancelOrder",
+          args: [order as any, { relayerFee: 0n, height: proofHeight }],
+        })
+
+        const txHash = await sourceWallet.sendTransaction({
+          to: "0xSourceGatewayAddress" as `0x${string}`,
+          data: calldata,
+          value: nativeFee,
+        })
+
+        // SDK parses the GetRequestEvent from the receipt and tracks Hyperbridge submission
+        await gen.next(txHash)
+        break
+      }
+
+      case "SOURCE_FINALIZED":
+        console.log("GET request finalised on source at block:", event.data.metadata.blockNumber)
+        break
+
+      case "HYPERBRIDGE_DELIVERED":
+        console.log("GET request delivered to Hyperbridge")
+        break
+
+      case "HYPERBRIDGE_FINALIZED":
+        // Hyperbridge has verified the storage proof and will dispatch the GET response.
+        // A relayer delivers it to onGetResponse on the source chain, which refunds escrow
+        // and emits EscrowRefunded. The SDK does not wait for this final on-chain step.
+        console.log("Cancellation proved on Hyperbridge — awaiting relayer delivery")
+        return
+    }
+  }
+}
+```
+
+The SDK polls the destination chain indexer until a committed state height exceeds `order.deadline`, then fetches the `_filled[commitment]` storage proof at that height and yields `DESTINATION_FINALIZED` with the proof height. You submit the `cancelOrder` transaction on the source gateway passing that same height as `options.height` — the gateway dispatches a GET request to Hyperbridge targeting the `_filled` storage slot on the destination chain at exactly that height. The SDK parses the `GetRequestEvent` from your receipt, waits for the source chain to finalise on Hyperbridge, then submits the proof. Once Hyperbridge verifies the proof (`HYPERBRIDGE_FINALIZED`), it dispatches the GET response — a relayer then delivers it to `onGetResponse` on the source gateway, which checks the slot value and calls `_withdraw` to refund the escrow and emit `EscrowRefunded`.
+
+---
+
+### Cancel from the Destination Chain
+
+Cancelling from the destination chain is simpler and does not require a storage proof. The destination gateway immediately sets `_filled[commitment] = address(order.user)` — blocking any future fill attempts — and dispatches a `RefundEscrow` POST message to the source chain via Hyperbridge. When the message arrives, `onAccept` on the source chain authenticates it against the registered destination gateway address, decodes the `WithdrawalRequest`, and calls `_withdraw(isRefund=true)` to return the escrowed tokens to `order.user`.
+
+Before the order deadline only the order creator can trigger this path. After the deadline anyone may call — this lets relayers act on behalf of users whose orders have expired without being filled, providing a recovery mechanism that doesn't require the user to be online.
+
+<Callout type="info">
+The native `value` passed to the cancel transaction covers the Hyperbridge dispatch fee for the `RefundEscrow` POST message. Use `quoteCancelNative(order, "dest")` to obtain the required amount before signing.
+</Callout>
+
+```typescript lineNumbers title="cancel-from-dest.ts" icon="typescript"
+async function cancelFromDest(order: OrderV2) {
+  if (await intentsV2.isOrderFilled(order)) {
+    throw new Error("Order already filled or cancelled from dest")
+  }
+
+  const nativeFee = await intentsV2.quoteCancelNative(order, "dest")
+
+  const gen = intentsV2.cancelOrder(order, indexerClient, "dest")
+
+  for await (const event of gen) {
+    switch (event.status) {
+      case "AWAITING_CANCEL_TRANSACTION": {
+        const { calldata, to } = event.data
+
+        const signedTx = await destWallet.signTransaction({
+          to: to as `0x${string}`,
+          data: calldata,
+          value: nativeFee,
+          type: "eip1559",
+        })
+
+        // SDK broadcasts the tx and parses the PostRequestEvent
+        await gen.next(signedTx)
+        break
+      }
+
+      case "SOURCE_FINALIZED":
+        console.log("RefundEscrow message finalised on source chain")
+        break
+
+      case "HYPERBRIDGE_DELIVERED":
+        console.log("RefundEscrow message delivered to Hyperbridge")
+        break
+
+      case "HYPERBRIDGE_FINALIZED":
+        console.log("RefundEscrow message finalised on Hyperbridge")
+        break
+
+      case "CANCELLATION_COMPLETE":
+        console.log("Escrowed tokens refunded at block:", event.data.metadata.blockNumber)
+        return
+    }
+  }
+}
+```
+
+The SDK encodes the `cancelOrder` calldata for the destination gateway and yields `AWAITING_CANCEL_TRANSACTION`. You sign the transaction with sufficient `value` to cover the Hyperbridge dispatch fee and pass back the raw signed transaction. The SDK broadcasts it: the gateway sets `_filled[commitment] = order.user` and emits a `PostRequestEvent` carrying the `RefundEscrow` message. A relayer delivers this message to the source chain via Hyperbridge, where `onAccept` authenticates the sender as the registered destination gateway, decodes the withdrawal request, and issues the refund.
+
+---
+
+## Quoting the Cancellation Fee
+
+Cross-chain cancellations require a Hyperbridge dispatch fee. The fee varies by message type — `GET` requests (source-side cancel) and `POST` requests (dest-side cancel) are priced differently, and the amount depends on the specific chain pair. Use `quoteCancelNative` to obtain the current native token fee before signing the cancel transaction.
+
+```typescript lineNumbers title="quote-cancel.ts" icon="typescript"
+// GET request fee for source-side cancel
+const sourceFee = await intentsV2.quoteCancelNative(order, "source")
+console.log("Source cancel fee (wei):", sourceFee)
+
+// POST request fee for dest-side cancel
+const destFee = await intentsV2.quoteCancelNative(order, "dest")
+console.log("Dest cancel fee (wei):", destFee)
+```
+
+---
+
+## Checking Order Status
+
+```typescript lineNumbers title="check-status.ts" icon="typescript"
+// Returns true if _filled[commitment] != address(0).
+// This is true for both solver-filled orders AND dest-cancelled orders.
+const filled = await intentsV2.isOrderFilled(order)
+
+// Returns true if the order was cancelled and escrow was returned (EscrowRefunded event exists).
+const refunded = await intentsV2.isOrderRefunded(order)
+```
+
+`isOrderFilled` and `isOrderRefunded` can both be true simultaneously — a dest-cancelled order sets `_filled` (so `isOrderFilled` returns `true`) and also triggers a refund (so `isOrderRefunded` returns `true` once the source chain processes `onAccept`). Use `isOrderRefunded` when you specifically need to confirm the user received their tokens back.
+
+---

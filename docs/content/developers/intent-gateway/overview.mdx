@@ -21,40 +21,6 @@ Each order is **auctioned** to competing solvers. Solvers bid by signing `UserOp
 | **Relayer** | Submits cross-chain proofs for settlement messages and storage queries. |
 
 
-### Order
-
-```solidity
-struct Order {
-    bytes32 user;           // Set by placeOrder to msg.sender
-    bytes source;           // Set by placeOrder to current chain ID
-    bytes destination;      // Target chain state machine ID
-    uint256 deadline;       // Block number deadline for fills
-    uint256 nonce;          // Set by placeOrder (auto-incrementing)
-    uint256 fees;           // Dispatch fees in fee token
-    address session;        // Session key for solver selection (address(0) to disable)
-    DispatchInfo predispatch; // Pre-order execution (swap before escrow)
-    TokenInfo[] inputs;     // Tokens escrowed from user
-    PaymentInfo output;     // What the solver must provide
-}
-
-struct TokenInfo {
-    bytes32 token;   // Token address as bytes32; bytes32(0) = native token
-    uint256 amount;
-}
-
-struct PaymentInfo {
-    bytes32 beneficiary;  // Recipient of output tokens
-    TokenInfo[] assets;   // Output tokens solver must provide
-    bytes call;           // Optional calldata executed after fill (via CallDispatcher)
-}
-
-struct DispatchInfo {
-    TokenInfo[] assets;   // Assets sent to CallDispatcher before order
-    bytes call;           // Calldata for pre-order execution
-}
-
-```
-
 
 ## Same-Chain Swaps
 

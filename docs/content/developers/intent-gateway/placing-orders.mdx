@@ -1,0 +1,491 @@
+---
+title: Placing Orders
+description: How to place same-chain and cross-chain intent orders using the @hyperbridge/sdk IntentsV2 class, with detailed fee mechanics and calldata execution.
+---
+
+# Placing Orders
+
+Intent orders let users express what they want — "swap 1000 USDC on Ethereum for 990 USDC on Arbitrum" — and leave the execution to a competitive market of solvers. Users escrow input tokens upfront; solvers compete to fill the output; the best bid wins.
+
+The `IntentGatewayV2` contract handles escrow, fee accounting, and cross-chain settlement. The `@hyperbridge/sdk` `IntentsV2` class wraps the full lifecycle — from encoding and broadcasting the `placeOrder` transaction to polling for solver bids, submitting the winning `UserOperation`, and streaming real-time status updates — into a single async generator.
+
+## Installation
+
+<Tabs items={['npm', 'yarn', 'pnpm']}>
+<Tab value="npm">
+```bash lineNumbers
+npm install @hyperbridge/sdk
+```
+</Tab>
+<Tab value="yarn">
+```bash lineNumbers
+yarn add @hyperbridge/sdk
+```
+</Tab>
+<Tab value="pnpm">
+```bash lineNumbers
+pnpm add @hyperbridge/sdk
+```
+</Tab>
+</Tabs>
+
+## Setup
+
+```typescript lineNumbers title="setup.ts" icon="typescript"
+import { EvmChain, IntentsCoprocessor, IntentsV2 } from "@hyperbridge/sdk"
+import { createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+
+// Source chain — where the user places the order and tokens are escrowed
+const sourceChain = new EvmChain({
+  chainId: 1,
+  rpcUrl: "YOUR_SOURCE_RPC_URL",
+  host: "0xSourceIsmpHostAddress",
+})
+
+// Destination chain — where the solver fills the order
+const destChain = new EvmChain({
+  chainId: 42161,
+  rpcUrl: "YOUR_DEST_RPC_URL",
+  host: "0xDestIsmpHostAddress",
+})
+
+// Hyperbridge coprocessor — hosts the order auction and manages solver bids
+const coprocessor = await IntentsCoprocessor.connect("wss://nexus.ibp.network")
+
+// ERC-4337 bundler URL — required for solver UserOperation submission
+const bundlerUrl = "https://your-bundler-url"
+
+const intentsV2 = await IntentsV2.create(sourceChain, destChain, coprocessor, bundlerUrl)
+
+const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
+const walletClient = createWalletClient({
+  account,
+  transport: http("YOUR_SOURCE_RPC_URL"),
+})
+```
+
+For IsmpHost contract addresses, see the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) contract addresses pages.
+
+---
+
+## How `placeOrder` Works
+
+Understanding what happens on-chain helps you construct orders correctly.
+
+### Data structures
+
+```solidity
+struct Order {
+    bytes32 user;           // Set by placeOrder to msg.sender
+    bytes source;           // Set by placeOrder to current chain ID
+    bytes destination;      // Target chain state machine ID
+    uint256 deadline;       // Block number deadline for fills
+    uint256 nonce;          // Set by placeOrder (auto-incrementing)
+    uint256 fees;           // Dispatch fees in fee token
+    address session;        // Session key for solver selection (address(0) to disable)
+    DispatchInfo predispatch; // Pre-order execution (swap before escrow)
+    TokenInfo[] inputs;     // Tokens escrowed from user
+    PaymentInfo output;     // What the solver must provide
+}
+
+struct TokenInfo {
+    bytes32 token;   // Token address as bytes32; bytes32(0) = native token
+    uint256 amount;
+}
+
+struct PaymentInfo {
+    bytes32 beneficiary;  // Recipient of output tokens
+    TokenInfo[] assets;   // Output tokens solver must provide
+    bytes call;           // Optional calldata executed after fill (via CallDispatcher)
+}
+
+struct DispatchInfo {
+    TokenInfo[] assets;   // Assets sent to CallDispatcher before order
+    bytes call;           // Calldata for pre-order execution
+}
+
+```
+
+### Protocol fees
+
+Before escrowing, the contract deducts a protocol fee from each input amount:
+
+```
+protocolFee = input.amount × protocolFeeBps / 10_000
+reducedAmount = input.amount − protocolFee
+```
+
+The fee is retained in the gateway as dust (emitting `DustCollected`). Per-destination fee overrides (`_destinationProtocolFees`) take precedence over the global `_params.protocolFeeBps` when set.
+
+**The commitment hash is computed over the fee-reduced inputs.** Solvers read `reducedAmount` from the `OrderPlaced` event and only need to match those amounts.
+
+### Dispatch fees
+
+`order.fees` is a tip paid to the solver who fills the order. For same-chain orders it compensates the filler for gas; for cross-chain orders it covers the Hyperbridge relayer fees required to deliver the `RedeemEscrow` message back to the source chain. Setting it too low makes the order unattractive to solvers — leave it as `0n` and the SDK will estimate an appropriate amount automatically.
+
+The contract accepts the fee in the ERC-20 fee token (pre-approve and leave `msg.value = 0`) or in native ETH (`msg.value > 0`), in which case the gateway swaps it to the fee token via Uniswap V2 on your behalf. The fee is held against the commitment and released to the solver on a successful fill, or refunded to the user if the order is cancelled.
+
+### Session key
+
+The SDK generates a one-time session keypair per order and sets `order.session` to its public address. The session key authorizes exactly one solver to fill the order via an EIP-712 `SelectSolver` signature. This is handled automatically when you use `IntentsV2.execute()` or `IntentsV2.placeOrder()`.
+
+### Commitment
+
+After fee deduction and field stamping, the order commitment is:
+
+```
+commitment = keccak256(abi.encode(order))  // with reduced inputs, filled user/source/nonce
+```
+
+The SDK populates `order.id` with this commitment after the `OrderPlaced` event is parsed.
+
+---
+
+## The `execute()` Generator
+
+`execute()` is the recommended entry point. It auto-estimates fees, encodes and broadcasts the `placeOrder` transaction, polls the auction for solver bids, submits the winning `UserOperation`, and streams real-time status updates. For same-chain orders it loops back after each partial fill, retrying until the order is fully filled or the attempt limit is reached.
+
+### Generator protocol
+
+The generator is bidirectional — it pauses at two points to hand control back to the caller:
+
+**First yield** — before broadcasting. The generator yields `{ calldata, feesInWei }`. You sign the transaction and pass the raw signed bytes back via `gen.next(signedTx)`. The SDK then broadcasts it and waits for confirmation.
+
+**Subsequent yields** — status updates. After the order is confirmed on-chain, the generator yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `FAILED`, `PARTIAL_FILL_EXHAUSTED`). Call `gen.next()` with no arguments to advance after each update.
+
+```typescript lineNumbers title="execute.ts" icon="typescript"
+import { IntentOrderStatus } from "@hyperbridge/sdk"
+import type { IntentOrderStatusUpdate, OrderV2 } from "@hyperbridge/sdk"
+
+const GATEWAY_ADDRESS = "0xYourGatewayAddress" as `0x${string}`
+
+async function runOrder(order: OrderV2) {
+  const gen = intentsV2.execute(order, {
+    minBids: 1,           // wait for at least N bids before selecting (default: 1)
+    bidTimeoutMs: 60_000, // max time to wait for bids in ms (default: 60 000)
+    pollIntervalMs: 5_000, // how often to poll for bids (default: SDK-defined)
+  })
+
+  // First yield: get placeOrder calldata + estimated native fee
+  const { value: first } = await gen.next()
+  const { calldata, feesInWei } = first as {
+    calldata: `0x${string}`
+    feesInWei?: bigint
+  }
+
+  // Sign the placeOrder transaction. feesInWei covers the fee token swap if paying in native.
+  const signedTx = await walletClient.signTransaction({
+    to: GATEWAY_ADDRESS,
+    data: calldata,
+    value: feesInWei ?? 0n,
+    type: "eip1559",
+  })
+
+  // Broadcast the placeOrder tx, then stream status updates
+  for await (const update of (await gen.next(signedTx), gen)) {
+    switch (update.status) {
+      case IntentOrderStatus.AWAITING_BIDS:
+        // SDK is polling the Hyperbridge coprocessor for solver bids
+        console.log("Waiting for solver bids on Hyperbridge…")
+        break
+      case IntentOrderStatus.BIDS_RECEIVED:
+        // At least minBids bids collected or bidTimeoutMs elapsed
+        console.log(`${update.metadata.bidCount} bids received`)
+        break
+      case IntentOrderStatus.BID_SELECTED:
+        // Best bid chosen; SDK is encoding the SelectSolver UserOperation
+        console.log("Best bid selected, solver:", update.metadata.selectedSolver)
+        break
+      case IntentOrderStatus.USEROP_SUBMITTED:
+        // UserOp submitted to the ERC-4337 bundler
+        // Cross-chain: execute() exits here — Hyperbridge finalisation is async
+        // Same-chain: SDK waits for the fill tx, then moves to FILLED or PARTIAL_FILL
+        console.log("UserOp submitted to bundler:", update.metadata.userOpHash)
+        break
+      case IntentOrderStatus.PARTIAL_FILL: {
+        // Same-chain only: a solver partially filled the output
+        // SDK automatically loops back to AWAITING_BIDS for the remaining amount
+        const { filledAmount, totalFilledAmount, remainingAmount, partialAttempts } = update.metadata
+        console.log(`Partial fill #${partialAttempts}: +${filledAmount}, total ${totalFilledAmount}, remaining ${remainingAmount}`)
+        break
+      }
+      case IntentOrderStatus.PARTIAL_FILL_EXHAUSTED:
+        // MAX_PARTIAL_ATTEMPTS (5) reached, or no new bids arrived for the remaining amount
+        // The order is still live on-chain — cancel it or wait for a solver to fill the rest manually
+        console.warn("Could not fully fill order after max attempts. Remaining:", update.metadata.remainingAmount)
+        return
+      case IntentOrderStatus.FILLED:
+        // Order fully filled; escrow released to the solver
+        console.log("Order fully filled! tx:", update.metadata.transactionHash)
+        return
+      case IntentOrderStatus.FAILED:
+        // Unrecoverable error (e.g. bundler rejection, RPC failure)
+        console.error("Order failed:", update.metadata.error)
+        return
+    }
+  }
+}
+```
+
+<Callout type="info">
+Leave `order.fees` as `0n` and the SDK will estimate the fee automatically. If you're paying in native ETH rather than the fee token, pass the returned `feesInWei` as `value` — the contract swaps it to the fee token on your behalf via Uniswap V2.
+</Callout>
+
+### Status reference
+
+| Status | Trigger | Key metadata fields |
+|--------|---------|---------------------|
+| `AWAITING_BIDS` | Polling coprocessor for bids | — |
+| `BIDS_RECEIVED` | `minBids` collected or `bidTimeoutMs` elapsed | `bidCount` |
+| `BID_SELECTED` | Best bid chosen | `selectedSolver` |
+| `USEROP_SUBMITTED` | UserOp sent to bundler | `userOpHash` |
+| `PARTIAL_FILL` | Same-chain partial fill confirmed; loop restarts | `filledAmount`, `totalFilledAmount`, `remainingAmount`, `partialAttempts` |
+| `PARTIAL_FILL_EXHAUSTED` | 5 partial attempts or no new bids for remainder | `remainingAmount`, `partialAttempts` |
+| `FILLED` | Order fully filled | `transactionHash` |
+| `FAILED` | Unrecoverable error | `error` |
+
+### `execute()` options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `minBids` | `number` | `1` | Minimum bids to collect before selecting the best one |
+| `bidTimeoutMs` | `number` | `60000` | Max time (ms) to wait for bids before proceeding with whatever has arrived |
+| `pollIntervalMs` | `number` | SDK default | How frequently (ms) to poll the coprocessor for new bids |
+
+### Handling `PARTIAL_FILL_EXHAUSTED`
+
+When the SDK exhausts its retry budget, the order remains live on-chain — solvers can still fill it directly by calling `fillOrder` on the gateway, or the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+
+---
+
+## Same-Chain Orders
+
+Set `destination` to the source chain's state machine ID. The contract verifies `keccak256(source) == keccak256(destination)` and settles atomically on-chain with no cross-chain messaging.
+
+```typescript lineNumbers title="same-chain-order.ts" icon="typescript"
+import { toHex, parseUnits } from "viem"
+
+const USDC = "0xYourUsdcAddress" as `0x${string}`
+
+const order: OrderV2 = {
+  user: "0x",                                                   // set by contract (msg.sender)
+  source: "0x",                                                 // set by contract (host().host())
+  destination: toHex(sourceChain.config.stateMachineId),           // same as source → same-chain
+  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n, // ~40 min on Ethereum
+  nonce: 0n,                                                    // set by contract (_nonce++)
+  fees: 0n,                                                     // auto-estimated by SDK
+  session: "0x",                                                // set by SDK (generated keypair)
+  predispatch: { assets: [], call: "0x" },
+  inputs: [{ token: USDC, amount: parseUnits("1000", 6) }],
+  output: {
+    beneficiary: account.address,
+    assets: [{ token: USDC, amount: parseUnits("990", 6) }],
+    call: "0x",
+  },
+}
+
+await runOrder(order)
+```
+
+<Callout type="info">
+`TokenInfoV2.token` is a standard 20-byte EVM address (`0x…`). The SDK converts it to `bytes32` when encoding the contract call — you do not need to pad it yourself.
+</Callout>
+
+### Partial Fills
+
+Same-chain orders support partial fills. Multiple solvers can each fill a portion of the output independently; the contract releases escrowed input tokens proportionally per fill:
+
+```
+releasedEscrow[i] = inputs[i].amount × fillAmount / totalRequired
+```
+
+The contract emits `PartialFill` for each partial fill and `OrderFilled` only when every output reaches its target. Postdispatch calldata (`output.call`) executes only on full fill, never on partials.
+
+
+---
+
+## Cross-Chain Orders
+
+Set `destination` to the target chain's state machine ID. The contract verifies `keccak256(source) != keccak256(destination)` and routes to cross-chain logic.
+
+Cross-chain fills are **all-or-nothing** — the solver must provide the full required amount for every output asset in a single transaction. Partial fills are not supported for cross-chain orders. On fill, the contract dispatches a `RedeemEscrow` POST request via Hyperbridge back to the source chain, which releases escrowed tokens to the solver on receipt.
+
+`execute()` exits after `USEROP_SUBMITTED` for cross-chain orders — it does not wait for Hyperbridge finalisation. To track cross-chain settlement, monitor the `EscrowReleased` event on the source chain or use the indexer.
+
+```typescript lineNumbers title="cross-chain-order.ts" icon="typescript"
+import { toHex, parseUnits } from "viem"
+
+const USDC_SOURCE = "0xUsdcOnEthereum" as `0x${string}`
+const USDC_DEST   = "0xUsdcOnArbitrum" as `0x${string}`
+
+const order: OrderV2 = {
+  user: "0x",
+  source: "0x",
+  destination: toHex("EVM-42161"),                     // Arbitrum
+  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n,
+  nonce: 0n,
+  fees: 0n,
+  session: "0x",
+  predispatch: { assets: [], call: "0x" },
+  inputs:  [{ token: USDC_SOURCE, amount: parseUnits("1000", 6) }],
+  output: {
+    beneficiary: account.address,                               // recipient on Arbitrum
+    assets: [{ token: USDC_DEST, amount: parseUnits("990", 6) }],
+    call: "0x",
+  },
+}
+
+await runOrder(order)
+```
+
+### Surplus sharing
+
+When a solver overpays on a cross-chain fill, the excess is split:
+
+```
+protocolShare    = surplus × surplusShareBps / 10_000
+beneficiaryShare = surplus − protocolShare
+```
+
+If the order has postdispatch calldata, **100% of surplus goes to the protocol** to prevent manipulation of calldata side effects.
+
+---
+
+## Predispatch Calldata
+
+Predispatch runs arbitrary calls *before* tokens are escrowed. Assets listed in `predispatch.assets` are transferred from the caller to the `CallDispatcher`, the encoded `Call[]` in `predispatch.call` execute against it, and then the contract measures the `CallDispatcher`'s resulting balance for each input token — escrowing exactly `inputs[i].amount` and sweeping any excess as dust.
+
+The canonical use case is **swap-then-escrow**: the user sends WETH, the predispatch call swaps it to USDC via a DEX, and the USDC balance that lands in the `CallDispatcher` becomes the escrowed order input. The user never needs to hold the input token before placing the order.
+
+```solidity
+struct Call {
+    address to;
+    uint256 value;
+    bytes data;
+}
+```
+
+```typescript lineNumbers title="predispatch-order.ts" icon="typescript"
+import { toHex, parseEther, parseUnits, encodeAbiParameters, encodeFunctionData } from "viem"
+import { IntentGatewayV2ABI } from "@hyperbridge/sdk"
+
+const WETH        = "0xWethAddress" as `0x${string}`
+const USDC        = "0xUsdcAddress" as `0x${string}`
+const ROUTER      = "0xUniswapV2Router" as `0x${string}`
+
+// Fetch the CallDispatcher address from the gateway params
+const { dispatcher } = await sourceChain.client.readContract({ address: "0xGatewayAddress", abi: IntentGatewayV2ABI, functionName: "params" })
+
+const wethIn      = parseEther("1")
+const usdcMin     = parseUnits("2000", 6)
+const swapDeadline = BigInt(Math.floor(Date.now() / 1000) + 600)
+
+function encodeCalls(calls: { to: `0x${string}`; value: bigint; data: `0x${string}` }[]) {
+  return encodeAbiParameters(
+    [{ type: "tuple[]", components: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }] }],
+    [calls],
+  ) as `0x${string}`
+}
+
+const erc20Abi  = parseAbi(["function approve(address,uint256) returns (bool)"])
+const routerAbi = parseAbi(["function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])"])
+
+// 1. Approve the router to spend WETH from inside the CallDispatcher
+const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [ROUTER, wethIn] })
+// 2. Swap WETH → USDC; output lands in the CallDispatcher
+const swapData    = encodeFunctionData({ abi: routerAbi, functionName: "swapExactTokensForTokens", args: [wethIn, usdcMin, [WETH, USDC], dispatcher, swapDeadline] })
+
+const order: OrderV2 = {
+  user: "0x",
+  source: "0x",
+  destination: toHex("EVM-42161"),
+  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n,
+  nonce: 0n,
+  fees: 0n,
+  session: "0x",
+  predispatch: {
+    assets: [{ token: WETH, amount: wethIn }],               // transferred to CallDispatcher first
+    call: encodeCalls([
+      { to: WETH, value: 0n, data: approveData },
+      { to: ROUTER, value: 0n, data: swapData },
+    ]),
+  },
+  inputs: [{ token: USDC, amount: usdcMin }],                 // escrowed after the swap
+  output: {
+    beneficiary: account.address,
+    assets: [{ token: USDC, amount: usdcMin }],
+    call: "0x",
+  },
+}
+
+await runOrder(order)
+```
+
+<Callout type="warn">
+The gateway escrows exactly `inputs[i].amount`. Any USDC left in the `CallDispatcher` above that amount is swept into the gateway as dust and emits `DustCollected`. Size `usdcMin` conservatively to avoid over-escrowing.
+</Callout>
+
+---
+
+## Postdispatch Calldata
+
+Postdispatch runs calls *after* the solver delivers output tokens. Set `output.beneficiary` to the `CallDispatcher` so it receives the tokens, then encode `output.call` with what should happen next.
+
+**Timing differences by order mode:**
+
+| Mode | When postdispatch executes |
+|------|---------------------------|
+| Same-chain | Only after the order is **fully** filled — partial fills do not trigger it |
+| Cross-chain | Immediately after the solver transfers tokens, **before** the `RedeemEscrow` message is dispatched |
+
+After execution, any tokens remaining on the `CallDispatcher` are swept back to the gateway as dust. When `output.call` is non-empty, **100% of any surplus goes to the protocol** — `surplusShareBps` is not applied.
+
+```typescript lineNumbers title="postdispatch-order.ts" icon="typescript"
+import { toHex, parseUnits, encodeAbiParameters, encodeFunctionData } from "viem"
+import { IntentGatewayV2ABI } from "@hyperbridge/sdk"
+
+const USDC      = "0xUsdcAddress" as `0x${string}`
+const AAVE_POOL = "0xAavePoolAddress" as `0x${string}`
+const { dispatcher } = await sourceChain.client.readContract({ address: "0xGatewayAddress", abi: IntentGatewayV2ABI, functionName: "params" })
+
+const outputAmount = parseUnits("990", 6)
+
+function encodeCalls(calls: { to: `0x${string}`; value: bigint; data: `0x${string}` }[]) {
+  return encodeAbiParameters(
+    [{ type: "tuple[]", components: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }] }],
+    [calls],
+  ) as `0x${string}`
+}
+
+const erc20Abi = parseAbi(["function approve(address,uint256) returns (bool)"])
+const aaveAbi  = parseAbi(["function supply(address,uint256,address,uint16)"])
+
+// Approve Aave to pull USDC from the CallDispatcher, then deposit on behalf of the user
+const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [AAVE_POOL, outputAmount] })
+const supplyData  = encodeFunctionData({ abi: aaveAbi,  functionName: "supply",  args: [USDC, outputAmount, account.address, 0] })
+
+const order: OrderV2 = {
+  user: "0x",
+  source: "0x",
+  destination: toHex("EVM-42161"),
+  deadline: BigInt(await sourceChain.client.getBlockNumber()) + 200n,
+  nonce: 0n,
+  fees: 0n,
+  session: "0x",
+  predispatch: { assets: [], call: "0x" },
+  inputs: [{ token: USDC, amount: parseUnits("1000", 6) }],
+  output: {
+    beneficiary: dispatcher,                                   // CallDispatcher receives output tokens
+    assets: [{ token: USDC, amount: outputAmount }],
+    call: encodeCalls([
+      { to: USDC, value: 0n, data: approveData },
+      { to: AAVE_POOL, value: 0n, data: supplyData },
+    ]),
+  },
+}
+
+await runOrder(order)
+```
+
+---

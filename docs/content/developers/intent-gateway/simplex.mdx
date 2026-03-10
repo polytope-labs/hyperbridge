@@ -1,0 +1,246 @@
+---
+title: Simplex
+description: Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably, earning fees by providing liquidity and execution services.
+---
+
+# Simplex
+
+Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, evaluates profitability across all configured strategies, and executes the best fill. Fillers earn the difference between order inputs and outputs.
+
+## Quick Start
+
+### Docker (Recommended)
+
+```bash lineNumbers
+docker pull polytopelabs/simplex:latest
+
+docker run -d \
+  --name simplex \
+  --restart unless-stopped \
+  -v $(pwd):/app:ro \
+  polytopelabs/simplex:latest \
+  --config /app/config.toml \
+  --data-dir /app
+```
+
+## Strategies
+
+Simplex ships with two built-in strategies configured as `[[strategies]]` entries in your TOML config. For every order, Simplex evaluates all configured strategies and executes whichever returns the highest profit.
+
+### Basic
+
+Basic strategy fills cross-chain orders where the input and output token are the same — USDC→USDC or USDT→USDT across chains. It checks your balance on the destination chain, estimates `order fees - (gas + protocol fees + relayer fees)`, and fills directly if profitable.
+
+The `bpsCurve` sets the minimum basis-point margin required at each order size. Points are interpolated, so you can model tighter spreads for larger orders:
+
+```toml lineNumbers
+[[strategies]]
+type = "basic"
+bpsCurve = [
+    { amount = "100",    value = 100 },   # $100 orders: 1% minimum margin
+    { amount = "1000",   value = 50  },   # $1000 orders: 0.5%
+    { amount = "10000",  value = 25  },   # $10k orders: 0.25%
+    { amount = "100000", value = 10  },   # $100k orders: 0.1%
+]
+```
+
+BasicFiller requires pre-positioned stablecoins on each destination chain.
+
+---
+
+### HyperFX
+
+HyperFX fills same-chain swaps between USD-pegged stablecoins (USDC/USDT) and a single configurable exotic token — for example, cNGN (a Nigerian naira stablecoin). It only processes orders where `source == destination`.
+
+Profit comes from two sources: the **bid/ask spread** on the exotic token, and **order fees** minus gas. The filler holds both stablecoins and the exotic token. When a user swaps stable→exotic the filler sells exotic at the ask price; when the user swaps exotic→stable the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
+
+Both curves are expressed in **exotic tokens per USD**. A higher bid means the filler acknowledges fewer stables are owed per exotic received (the filler profits more on the exotic→stable leg). A lower ask means the filler sends fewer exotic tokens per stable received (the filler profits more on the stable→exotic leg).
+
+`maxOrderUsd` caps the filler's exposure per order. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
+
+HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, and a `bundlerUrl` on each `[[chains]]` entry where HyperFX will operate. Each solver account also needs a native token deposit on the ERC-4337 EntryPoint contract to cover UserOperation gas — configure this with `[simplex.entryPointDeposit]`.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = "5000"
+
+# Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg).
+bidPriceCurve = [
+    { amount = "100",  price = "1580" },
+    { amount = "1000", price = "1575" },
+    { amount = "5000", price = "1570" },
+]
+
+# Ask price curve: exotic per USD when *selling* exotic to a user (stable→exotic leg).
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
+
+[strategies.exoticTokenAddresses]
+"EVM-56"  = "0xExoticTokenAddressOnBsc"
+"EVM-137" = "0xExoticTokenAddressOnPolygon"
+```
+
+#### Example profit calculation
+
+For a \$1000 USDC → cNGN order, the curve interpolates to bid 1575, ask 1555 at the $1000 size:
+
+```
+User sends:       $1000 USDC
+Filler delivers:  1,555,000 cNGN      (1000 × ask 1555)
+Filler's cost:    1,555,000 / 1575    = $987.30  (valued at bid)
+Spread profit:    $1000 − $987.30     = $12.70
+Fee profit:       $2.80 − $1.30 costs = $1.50
+Total profit:     ~$14.20
+```
+
+## Configuration
+
+### `[simplex]`
+
+```toml lineNumbers
+[simplex]
+privateKey          = "0x..."  # EVM private key
+maxConcurrentOrders = 5
+
+# Required for HyperFX / solver selection
+substratePrivateKey = "0x.."       # Hex seed or mnemonic for Hyperbridge extrinsics
+hyperbridgeWsUrl    = "wss://nexus.ibp.network"       # Hyperbridge WebSocket endpoint
+
+[simplex.logging]
+level = "info"                 # trace | debug | info | warn | error
+
+[simplex.pendingQueue]
+maxRechecks    = 10
+recheckDelayMs = 30000
+
+# Required for HyperFX: prefunds the ERC-4337 EntryPoint for UserOperation gas.
+# Deposits trigger when the balance falls below thresholdFraction × target.
+[simplex.entryPointDeposit]
+thresholdFraction = 0.3
+
+[simplex.entryPointDeposit.targetBalances]
+"8453" = "0.01"    # Base: 0.01 ETH
+"56"   = "0.5"     # BSC: 0.5 BNB
+"137"  = "50"      # Polygon: 50 POL
+```
+
+Each chain where HyperFX operates needs a `bundlerUrl` in its `[[chains]]` entry:
+
+```toml lineNumbers
+[[chains]]
+chainId   = 8453
+rpcUrl    = "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY"
+bundlerUrl = "https://api.pimlico.io/v2/8453/rpc?apikey=YOUR_KEY"
+
+[[chains]]
+chainId   = 56
+rpcUrl    = "https://bsc-dataseed.binance.org/"
+bundlerUrl = "https://api.pimlico.io/v2/56/rpc?apikey=YOUR_KEY"
+```
+
+### Confirmation Policy
+
+<Callout type="info">
+Confirmation policies only apply to BasicFiller. HyperFX submits bids via the coprocessor and does not use this setting.
+</Callout>
+
+Before processing an order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer:
+
+```toml lineNumbers
+[confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
+points = [
+    { amount = "5",    value = 3  },   # $5 → 3 blocks (~36s)
+    { amount = "500",  value = 6  },   # $500 → 6 blocks (~72s)
+    { amount = "5000", value = 12 },   # $5000 → 12 blocks (~2.5m)
+]
+
+[confirmationPolicies."56"]    # BSC (~1s blocks)
+points = [
+    { amount = "1",    value = 3  },
+    { amount = "500",  value = 6  },
+    { amount = "5000", value = 15 },
+]
+
+[confirmationPolicies."42161"] # Arbitrum (~0.25s blocks)
+points = [
+    { amount = "2",    value = 2  },
+    { amount = "1000", value = 5  },
+    { amount = "8000", value = 10 },
+]
+```
+
+### Auto-Rebalancing
+
+<Callout type="info">
+Auto-rebalancing only applies to BasicFiller. HyperFX manages its own exotic token inventory separately.
+</Callout>
+
+When a chain's stablecoin balance drops below a threshold, the rebalancer bridges tokens from another chain to restore it. `triggerPercentage = 0.5` means rebalancing triggers when the balance falls to 50% of the configured base:
+
+```toml lineNumbers
+[rebalancing]
+triggerPercentage = 0.5
+
+[rebalancing.baseBalances."USDC"]
+"1"     = "10000"
+"56"    = "10000"
+"42161" = "10000"
+"8453"  = "10000"
+
+[rebalancing.baseBalances."USDT"]
+"1"     = "10000"
+"56"    = "10000"
+"42161" = "10000"
+"8453"  = "10000"
+```
+
+
+
+## Docker
+
+```yaml lineNumbers
+version: "3.8"
+
+services:
+    simplex:
+        image: polytopelabs/simplex:latest
+        container_name: simplex
+        restart: unless-stopped
+        volumes:
+            - ./config.toml:/app/config.toml:ro
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+```
+
+## Requirements
+
+You need an EVM private key funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees.
+
+RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably.
+
+## Troubleshooting
+
+**No profitable strategy found**
+--
+Gas prices may be too high relative to the order fee, or your `bpsCurve` thresholds are set too conservatively. Check balances on the destination chain and review current gas prices.
+
+**Insufficient token balances**
+--
+Deposit more stablecoins (and exotic tokens for HyperFX) on the destination chains.
+
+**RPC rate limiting (429 errors)**
+--
+Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
+
+**HyperFX bid submission fails**
+--
+Confirm `substratePrivateKey` and `hyperbridgeWsUrl` are set in `[simplex]`, that each relevant chain has a `bundlerUrl`, and that your Substrate account has BRIDGE tokens. Also verify `[simplex.entryPointDeposit.targetBalances]` is configured so the solver account has gas on the EntryPoint.
+
+For verbose output, set `level = "debug"` in `[simplex.logging]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).

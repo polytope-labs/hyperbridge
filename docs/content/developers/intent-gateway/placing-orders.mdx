@@ -255,7 +255,7 @@ Leave `order.fees` as `0n` and the SDK will estimate the fee automatically. If y
 
 ### Handling `PARTIAL_FILL_EXHAUSTED`
 
-When the SDK exhausts its retry budget, the order remains live on-chain — solvers can still fill it directly by calling `fillOrder` on the gateway, or the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+When the SDK exhausts its retry budget — the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
 
 ---
 

@@ -37,7 +37,6 @@ use ismp::{
 };
 use polkadot_sdk::*;
 use primitive_types::{H160, H256};
-use sp_core::Get;
 use sp_io::offchain_index;
 use sp_runtime::traits::{ConstU32, Zero};
 pub use weights::WeightInfo;
@@ -79,10 +78,6 @@ pub mod pallet {
 		/// A currency implementation for handling storage deposits
 		type Currency: ReservableCurrency<Self::AccountId>;
 
-		/// The storage deposit fee per bid
-		#[pallet::constant]
-		type StorageDepositFee: Get<BalanceOf<Self>>;
-
 		/// Origin that can perform governance actions
 		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
@@ -109,6 +104,10 @@ pub mod pallet {
 		BalanceOf<T>, // deposit amount, actual bid data in offchain storage
 		OptionQuery,
 	>;
+
+	/// The storage deposit fee per bid, updatable via governance
+	#[pallet::storage]
+	pub type StorageDepositFee<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
 	/// Storage for Intent Gateway deployments per state machine
 	#[pallet::storage]
@@ -141,6 +140,8 @@ pub mod pallet {
 			state_machine: StateMachine,
 			updates: Vec<TokenDecimalsUpdate>,
 		},
+		/// Storage deposit fee was updated
+		StorageDepositFeeUpdated { fee: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -190,8 +191,8 @@ pub mod pallet {
 				<T as Config>::Currency::unreserve(&filler, old_deposit);
 			}
 
-			// Get storage deposit fee
-			let deposit = T::StorageDepositFee::get();
+			// Get storage deposit fee from storage
+			let deposit = StorageDepositFee::<T>::get();
 
 			// Reserve the new deposit
 			<T as Config>::Currency::reserve(&filler, deposit)
@@ -419,6 +420,25 @@ pub mod pallet {
 			Self::dispatch(state_machine, oracle, body)?;
 
 			Self::deposit_event(Event::TokenDecimalsUpdateInitiated { state_machine, updates });
+
+			Ok(())
+		}
+
+		/// Set the storage deposit fee for bids
+		///
+		/// # Parameters
+		/// - `fee`: The new storage deposit fee
+		#[pallet::call_index(6)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn set_storage_deposit_fee(
+			origin: OriginFor<T>,
+			fee: BalanceOf<T>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			StorageDepositFee::<T>::put(fee);
+
+			Self::deposit_event(Event::StorageDepositFeeUpdated { fee });
 
 			Ok(())
 		}

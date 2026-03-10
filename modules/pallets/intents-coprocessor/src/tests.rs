@@ -133,17 +133,14 @@ impl pallet_ismp::Config for Test {
 	type FeeHandler = ();
 }
 
-parameter_types! {
-	pub const StorageDepositFee: Balance = 100;
-}
-
 impl pallet_intents::Config for Test {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
-	type StorageDepositFee = StorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = ();
 }
+
+const TEST_STORAGE_DEPOSIT: Balance = 100;
 
 // Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
@@ -160,7 +157,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	.assimilate_storage(&mut t)
 	.unwrap();
 
-	t.into()
+	let mut ext: sp_io::TestExternalities = t.into();
+	ext.execute_with(|| {
+		pallet_intents::StorageDepositFee::<Test>::put(TEST_STORAGE_DEPOSIT);
+	});
+	ext
 }
 
 #[test]
@@ -179,10 +180,10 @@ fn place_bid_works() {
 
 		// Verify bid was stored (deposit amount for discoverability and refunds)
 		assert!(Bids::<Test>::contains_key(&commitment, &filler));
-		assert_eq!(Bids::<Test>::get(&commitment, &filler), Some(StorageDepositFee::get()));
+		assert_eq!(Bids::<Test>::get(&commitment, &filler), Some(TEST_STORAGE_DEPOSIT));
 
 		// Verify deposit was reserved
-		assert_eq!(Balances::reserved_balance(&filler), StorageDepositFee::get());
+		assert_eq!(Balances::reserved_balance(&filler), TEST_STORAGE_DEPOSIT);
 	});
 }
 
@@ -217,7 +218,7 @@ fn filler_can_update_own_bid() {
 
 		// Verify bid exists
 		assert!(Bids::<Test>::contains_key(&commitment, &filler));
-		assert_eq!(Balances::reserved_balance(&filler), StorageDepositFee::get());
+		assert_eq!(Balances::reserved_balance(&filler), TEST_STORAGE_DEPOSIT);
 
 		// Update the bid with new user_op
 		assert_ok!(Intents::place_bid(
@@ -228,7 +229,7 @@ fn filler_can_update_own_bid() {
 
 		// Verify bid still exists and deposit is still reserved (only once)
 		assert!(Bids::<Test>::contains_key(&commitment, &filler));
-		assert_eq!(Balances::reserved_balance(&filler), StorageDepositFee::get());
+		assert_eq!(Balances::reserved_balance(&filler), TEST_STORAGE_DEPOSIT);
 	});
 }
 

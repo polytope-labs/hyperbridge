@@ -82,14 +82,9 @@ impl pallet_state_coprocessor::Config for Runtime {
 	type Mmr = Mmr;
 }
 
-parameter_types! {
-	pub const IntentStorageDepositFee: Balance = 100 * EXISTENTIAL_DEPOSIT;
-}
-
 impl pallet_intents_coprocessor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
-	type StorageDepositFee = IntentStorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }

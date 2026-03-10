@@ -44,7 +44,7 @@ mod benchmarks {
 			vec![1u8; 100].try_into().expect("user_op fits in bounds");
 
 		// Fund the caller
-		let deposit = T::StorageDepositFee::get();
+		let deposit = StorageDepositFee::<T>::get();
 		let balance = deposit * 10u32.into();
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 
@@ -63,7 +63,7 @@ mod benchmarks {
 			vec![1u8; 100].try_into().expect("user_op fits in bounds");
 
 		// Fund the caller
-		let deposit = T::StorageDepositFee::get();
+		let deposit = StorageDepositFee::<T>::get();
 		let balance = deposit * 10u32.into();
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 

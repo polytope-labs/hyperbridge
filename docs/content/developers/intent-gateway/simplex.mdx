@@ -58,7 +58,7 @@ Both curves are expressed in **exotic tokens per USD**. A higher bid means the f
 
 `maxOrderUsd` caps the filler's exposure per order. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
 
-HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, and a `bundlerUrl` on each `[[chains]]` entry where HyperFX will operate. Each solver account also needs a native token deposit on the ERC-4337 EntryPoint contract to cover UserOperation gas — configure this with `[simplex.entryPointDeposit]`.
+HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, and a `bundlerUrl` on each `[[chains]]` entry where HyperFX will operate. Simplex automatically monitors and tops up the ERC-4337 EntryPoint deposit as a background task — depositing 10% of the solver account's native balance when it falls low.
 
 ```toml lineNumbers
 [[strategies]]
@@ -116,16 +116,6 @@ level = "info"                 # trace | debug | info | warn | error
 [simplex.pendingQueue]
 maxRechecks    = 10
 recheckDelayMs = 30000
-
-# Required for HyperFX: prefunds the ERC-4337 EntryPoint for UserOperation gas.
-# Deposits trigger when the balance falls below thresholdFraction × target.
-[simplex.entryPointDeposit]
-thresholdFraction = 0.3
-
-[simplex.entryPointDeposit.targetBalances]
-"8453" = "0.01"    # Base: 0.01 ETH
-"56"   = "0.5"     # BSC: 0.5 BNB
-"137"  = "50"      # Polygon: 50 POL
 ```
 
 Each chain where HyperFX operates needs a `bundlerUrl` in its `[[chains]]` entry:
@@ -221,7 +211,7 @@ services:
 
 ## Requirements
 
-You need an EVM private key funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees.
+You need an EVM private key funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
 
 RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably.
 
@@ -241,6 +231,6 @@ Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
 
 **HyperFX bid submission fails**
 --
-Confirm `substratePrivateKey` and `hyperbridgeWsUrl` are set in `[simplex]`, that each relevant chain has a `bundlerUrl`, and that your Substrate account has BRIDGE tokens. Also verify `[simplex.entryPointDeposit.targetBalances]` is configured so the solver account has gas on the EntryPoint.
+Confirm `substratePrivateKey` and `hyperbridgeWsUrl` are set in `[simplex]`, that each relevant chain has a `bundlerUrl`, and that your Substrate account has BRIDGE tokens. Ensure the solver account has sufficient native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit as a background task (10% of native balance per top-up).
 
 For verbose output, set `level = "debug"` in `[simplex.logging]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).

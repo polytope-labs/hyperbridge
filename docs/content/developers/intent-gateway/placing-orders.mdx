@@ -284,7 +284,7 @@ async function runOrder(order: OrderV2) {
 
 ### `PARTIAL_FILL_EXHAUSTED`
 
-When `PARTIAL_FILL_EXHAUSTED` fires, the order remains live on-chain — solvers can still fill it directly by calling `fillOrder` on the gateway, or the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+When `PARTIAL_FILL_EXHAUSTED` fires, the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
 
 ---
 

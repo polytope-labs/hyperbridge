@@ -65,6 +65,7 @@ pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8>
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::vec;
 	use crate::alloc::string::ToString;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;

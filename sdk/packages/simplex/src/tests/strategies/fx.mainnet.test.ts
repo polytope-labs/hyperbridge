@@ -18,7 +18,7 @@ import {
 	type TokenInfoV2,
 	bytes20ToBytes32,
 	EvmChain,
-	IntentsV2,
+	IntentGateway,
 	IntentsCoprocessor,
 	DEFAULT_GRAFFITI,
 } from "@hyperbridge/sdk"
@@ -99,23 +99,23 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
+		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonMainnetId)
 		const polygonEvmChain = new EvmChain({
 			chainId: 137,
 			host: chainConfigService.getHostAddress(polygonMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonMainnetId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(polygonMainnetId)
 		await approveTokens(polygonWalletClient, polygonPublicClient, feeToken.address, polygonIntentGatewayV2.address)
 		await approveTokens(polygonWalletClient, polygonPublicClient, sourceUsdc, polygonIntentGatewayV2.address)
 
-		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonMainnetId)
 		// Same-chain: source and destination EvmChain are both Polygon
-		const userSdkHelper = await IntentsV2.create(
+		const userSdkHelper = await IntentGateway.create(
 			polygonEvmChain,
 			polygonEvmChain,
 			intentsCoprocessor,
-			destBundlerUrl,
 		)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
@@ -233,18 +233,19 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
+		const destBundlerUrl = chainConfigService.getBundlerUrl(baseMainnetId)
 		const baseEvmChain = new EvmChain({
 			chainId: 8453,
 			host: chainConfigService.getHostAddress(baseMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(baseMainnetId)
 		await approveTokens(baseWalletClient, basePublicClient, feeToken.address, baseIntentGatewayV2.address)
 		await approveTokens(baseWalletClient, basePublicClient, sourceUsdc, baseIntentGatewayV2.address)
 
-		const destBundlerUrl = chainConfigService.getBundlerUrl(baseMainnetId)
-		const userSdkHelper = await IntentsV2.create(baseEvmChain, baseEvmChain, intentsCoprocessor, destBundlerUrl)
+		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
 			bidTimeoutMs: 600_000_00,
@@ -363,10 +364,12 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
+		const destBundlerUrl = chainConfigService.getBundlerUrl(arbitrumMainnetId)
 		const arbitrumEvmChain = new EvmChain({
 			chainId: 42161,
 			host: chainConfigService.getHostAddress(arbitrumMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(arbitrumMainnetId)
@@ -378,12 +381,10 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		)
 		await approveTokens(arbitrumWalletClient, arbitrumPublicClient, sourceExt, arbitrumIntentGatewayV2.address)
 
-		const destBundlerUrl = chainConfigService.getBundlerUrl(arbitrumMainnetId)
-		const userSdkHelper = await IntentsV2.create(
+		const userSdkHelper = await IntentGateway.create(
 			arbitrumEvmChain,
 			arbitrumEvmChain,
 			intentsCoprocessor,
-			destBundlerUrl,
 		)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {

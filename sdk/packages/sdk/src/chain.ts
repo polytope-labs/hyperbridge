@@ -201,11 +201,13 @@ export interface IChain {
 export interface IEvmChain extends IChain {
 	readonly configService: ChainConfigService
 	readonly client: PublicClient
+	readonly bundlerUrl?: string
 	getHostNonce(): Promise<bigint>
 	quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint>
 	getFeeTokenWithDecimals(): Promise<{ address: HexString; decimals: number }>
 	getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString>
 	broadcastTransaction(signedTransaction: HexString): Promise<TransactionReceipt>
+	getTransactionReceipt(hash: HexString): Promise<TransactionReceipt>
 }
 
 /**
@@ -256,10 +258,5 @@ export function getEvmChain(chainConfig: IEvmConfig): IChain {
 }
 
 export async function getSubstrateChain(chainConfig: ISubstrateConfig) {
-	const config = chainConfig as ISubstrateConfig
-	const substrateChain = new SubstrateChain(config)
-
-	await substrateChain.connect()
-
-	return substrateChain
+	return SubstrateChain.connect(chainConfig)
 }

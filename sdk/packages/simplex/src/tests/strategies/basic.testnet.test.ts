@@ -16,7 +16,7 @@ import {
 	type TokenInfoV2,
 	bytes20ToBytes32,
 	EvmChain,
-	IntentsV2,
+	IntentGateway,
 	IntentsCoprocessor,
 	TronChain,
 	PLACE_ORDER_SELECTOR,
@@ -108,22 +108,22 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 			rpcUrl: chainConfigService.getRpcUrl(bscChapelId),
 		})
 
+		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
 		const polygonAmoyEvmChain = new EvmChain({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(bscChapelId)
 		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
 		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
 
-		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
-		const userSdkHelper = await IntentsV2.create(
+		const userSdkHelper = await IntentGateway.create(
 			bscEvmChain,
 			polygonAmoyEvmChain,
 			intentsCoprocessor,
-			destBundlerUrl,
 		)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { bidTimeoutMs: 120_000, pollIntervalMs: 5_000 })
@@ -230,22 +230,22 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 			rpcUrl: chainConfigService.getRpcUrl(bscChapelId),
 		})
 
+		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
 		const polygonAmoyEvmChain = new EvmChain({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(bscChapelId)
 		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
 		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
 
-		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
-		const userSdkHelper = await IntentsV2.create(
+		const userSdkHelper = await IntentGateway.create(
 			bscEvmChain,
 			polygonAmoyEvmChain,
 			intentsCoprocessor,
-			destBundlerUrl,
 		)
 
 		console.log("Preparing to place order...")
@@ -343,17 +343,17 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 			rpcUrl: chainConfigService.getRpcUrl(tronNileId),
 		})
 
+		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
 		const polygonAmoyEvmChain = new EvmChain({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		await approveTronTokens(tronWeb, sourceUsdt, tronIntentGatewayAddress)
 
-		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
-
-		const userSdkHelper = await IntentsV2.create(tronChain, polygonAmoyEvmChain, intentsCoprocessor, destBundlerUrl)
+		const userSdkHelper = await IntentGateway.create(tronChain, polygonAmoyEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { bidTimeoutMs: 240_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()

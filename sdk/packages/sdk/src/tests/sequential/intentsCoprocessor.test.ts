@@ -27,13 +27,12 @@ describe.sequential("IntentsCoprocessor", () => {
 	const encodedUserOp = encodeUserOp(testUserOp)
 
 	beforeAll(async () => {
-		hyperbridge = new SubstrateChain({
+		hyperbridge = await SubstrateChain.connect({
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			hasher: "Keccak",
 			stateMachineId: "KUSAMA-4009",
 			consensusStateId: "PAS0",
 		})
-		await hyperbridge.connect()
 		console.log("Connected to Hyperbridge")
 
 		const privateKey = process.env.SECRET_PHRASE!

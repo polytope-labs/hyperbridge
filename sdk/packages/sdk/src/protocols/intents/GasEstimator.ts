@@ -25,7 +25,7 @@ import type {
 	DispatchPost,
 } from "@/types"
 import type { HexString } from "@/types"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 import type { BundlerGasEstimate, PimlicoGasPriceEstimate } from "./types"
 import { getFeeToken, transformOrderForContract, convertGasToFeeToken } from "./utils"
@@ -50,7 +50,7 @@ export class GasEstimator {
 	 *   gas packing, and bundler calls.
 	 */
 	constructor(
-		private readonly ctx: IntentsV2Context,
+		private readonly ctx: IntentGatewayContext,
 		private readonly crypto: CryptoUtils,
 	) {}
 

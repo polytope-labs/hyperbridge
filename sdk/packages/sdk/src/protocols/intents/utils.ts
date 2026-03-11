@@ -7,7 +7,7 @@ import type { HexString } from "@/types"
 import { retryPromise, fetchPrice, bytes20ToBytes32 } from "@/utils"
 import ERC7821ABI from "@/abis/erc7281"
 import { ERC7821_BATCH_MODE } from "./types"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import { requestCommitmentKey } from "@/chain"
 import type { IEvmChain } from "@/chain"
 import type { IProof } from "@/chain"
@@ -28,7 +28,7 @@ const FEE_TOKEN_CACHE_TTL_MS = 5 * 60 * 1000
  * @returns Resolves with the fee token address and its ERC-20 decimal count.
  */
 export async function getFeeToken(
-	ctx: IntentsV2Context,
+	ctx: IntentGatewayContext,
 	chainId: string,
 	chain: IEvmChain,
 ): Promise<{ address: HexString; decimals: number }> {
@@ -155,7 +155,7 @@ export function transformOrderForContract(order: OrderV2): Omit<OrderV2, "id" | 
  *   the fee token's decimal precision.
  */
 export async function convertGasToFeeToken(
-	ctx: IntentsV2Context,
+	ctx: IntentGatewayContext,
 	gasEstimate: bigint,
 	gasEstimateIn: "source" | "dest",
 	evmChainID: string,

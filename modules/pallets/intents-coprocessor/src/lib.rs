@@ -79,7 +79,7 @@ pub mod pallet {
 		/// A currency implementation for handling storage deposits
 		type Currency: ReservableCurrency<Self::AccountId>;
 
-		/// The storage deposit fee per bid
+		/// The default storage deposit fee per bid (used as fallback)
 		#[pallet::constant]
 		type StorageDepositFee: Get<BalanceOf<Self>>;
 
@@ -109,6 +109,10 @@ pub mod pallet {
 		BalanceOf<T>, // deposit amount, actual bid data in offchain storage
 		OptionQuery,
 	>;
+
+	/// The storage deposit fee per bid, updatable via governance
+	#[pallet::storage]
+	pub type StorageDepositFee<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
 	/// Storage for Intent Gateway deployments per state machine
 	#[pallet::storage]
@@ -141,6 +145,8 @@ pub mod pallet {
 			state_machine: StateMachine,
 			updates: Vec<TokenDecimalsUpdate>,
 		},
+		/// Storage deposit fee was updated
+		StorageDepositFeeUpdated { fee: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -190,8 +196,7 @@ pub mod pallet {
 				<T as Config>::Currency::unreserve(&filler, old_deposit);
 			}
 
-			// Get storage deposit fee
-			let deposit = T::StorageDepositFee::get();
+			let deposit = Self::storage_deposit_fee();
 
 			// Reserve the new deposit
 			<T as Config>::Currency::reserve(&filler, deposit)
@@ -422,12 +427,40 @@ pub mod pallet {
 
 			Ok(())
 		}
+
+		/// Set the storage deposit fee for bids
+		///
+		/// # Parameters
+		/// - `fee`: The new storage deposit fee
+		#[pallet::call_index(6)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn set_storage_deposit_fee(origin: OriginFor<T>, fee: BalanceOf<T>) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			StorageDepositFee::<T>::put(fee);
+
+			Self::deposit_event(Event::StorageDepositFeeUpdated { fee });
+
+			Ok(())
+		}
 	}
 
 	impl<T: Config> Pallet<T>
 	where
 		T::AccountId: From<[u8; 32]>,
 	{
+		/// Returns the current storage deposit fee.
+		/// Uses the storage value if non-zero, otherwise falls back to the Config
+		/// constant.
+		pub fn storage_deposit_fee() -> BalanceOf<T> {
+			let fee = StorageDepositFee::<T>::get();
+			if fee.is_zero() {
+				T::StorageDepositFee::get()
+			} else {
+				fee
+			}
+		}
+
 		/// Generate offchain storage key for a bid
 		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
 			offchain_bid_key_raw(commitment, &filler.encode())

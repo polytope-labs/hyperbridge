@@ -37,7 +37,7 @@
 		"type": "git",
 		"url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
 	},
-	"license": "ISC",
+	"license": "Apache-2.0",
 	"author": "Polytope Labs",
 	"scripts": {
 		"build": "pnpm run build:browser && pnpm run build:node",

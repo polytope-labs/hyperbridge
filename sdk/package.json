@@ -12,13 +12,10 @@
 		"lint": "pnpm --filter=\"*\" lint",
 		"format": "pnpm --filter=\"*\" format",
 		"clean": "rm -rf node_modules packages/*/node_modules packages/*/dist",
-		"changeset": "changeset",
-		"version-packages": "changeset version",
-		"release": "pnpm build && pnpm changeset publish"
+		"release": "pnpm build && pnpm --filter=\"*\" publish --no-git-checks"
 	},
 	"devDependencies": {
-		"@changesets/cli": "^2.28.1",
-		"@typescript-eslint/eslint-plugin": "^8.25.0",
+"@typescript-eslint/eslint-plugin": "^8.25.0",
 		"@typescript-eslint/parser": "^8.25.0",
 		"eslint": "^9.21.0",
 		"eslint-config-prettier": "^10.0.2",

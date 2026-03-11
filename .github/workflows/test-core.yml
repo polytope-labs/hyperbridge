@@ -5,13 +5,13 @@ on:
         branches:
             - main
         paths:
-            - "packages/core/**"
+            - "sdk/packages/core/**"
             - ".github/workflows/test-core.yml"
     pull_request:
         branches:
             - main
         paths:
-            - "packages/core/**"
+            - "sdk/packages/core/**"
             - ".github/workflows/test-core.yml"
 
 concurrency:
@@ -25,6 +25,9 @@ jobs:
     compile:
         name: Compile
         runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
         steps:
             - uses: actions/checkout@v3
 
@@ -62,7 +65,7 @@ jobs:
               run: pnpm install
 
             - name: Compile SDK
-              working-directory: packages/core
+              working-directory: sdk/packages/core
               run: |
                   echo "Compiling Solidity SDK with Forge..."
                   forge build --contracts contracts/ --skip test --skip script --sizes

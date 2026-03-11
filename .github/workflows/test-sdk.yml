@@ -1,6 +1,5 @@
 name: "@hyperbridge/sdk"
 
-# Cancel running workflows from the same PR
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -9,22 +8,25 @@ on:
     push:
         branches: [main]
         paths:
-            - "packages/sdk/**"
-            - "packages/indexer/**"
-            - "packages/simplex/**"
+            - "sdk/packages/sdk/**"
+            - "sdk/packages/indexer/**"
+            - "sdk/packages/simplex/**"
             - ".github/workflows/test-sdk.yml"
     pull_request:
         branches: [main]
         paths:
-            - "packages/sdk/**"
-            - "packages/indexer/**"
-            - "packages/simplex/**"
+            - "sdk/packages/sdk/**"
+            - "sdk/packages/indexer/**"
+            - "sdk/packages/simplex/**"
             - ".github/workflows/test-sdk.yml"
     workflow_dispatch:
 
 jobs:
     test:
         runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
@@ -44,7 +46,6 @@ jobs:
 
             - name: Set up environment variables
               run: |
-                  # Set up environment variables from secrets
                   cat > .env.local << EOF
                   BSC_CHAPEL=${{ secrets.BSC_CHAPEL }}
                   GNOSIS_CHIADO=${{ secrets.GNOSIS_CHIADO }}
@@ -97,7 +98,7 @@ jobs:
             - name: Wait for GraphQL server to be available
               run: |
                   echo "Waiting for GraphQL server to be available on port 3100..."
-                  timeout=300  # 5 minutes timeout
+                  timeout=300
                   elapsed=0
                   interval=5
                   while ! nc -z localhost 3100; do
@@ -111,7 +112,7 @@ jobs:
                     elapsed=$((elapsed + interval))
                   done
                   echo "GraphQL server is available!"
-                  sleep 10  # Give it a few more seconds to fully initialize
+                  sleep 10
 
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
@@ -131,18 +132,10 @@ jobs:
             - name: Run SDK test - intent-gateway
               run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
 
-            # - name: Run filler test - cctp
-            #   run: cd packages/filler && pnpm vitest --watch=false --maxConcurrency=1 src/tests/rebalancers/cctp.test.ts
-
-            # - name: Run Intent Filler tests
-            #   run: pnpm --filter="simplex" test
-
             - name: Clean up
               if: always()
               run: |
-                  # Stop any containers started by the indexer
                   docker compose -f packages/indexer/docker/docker-compose.local.yml down || true
-                  # Show logs in case of failure
                   if [ -f packages/indexer/indexer_output.log ]; then
                     echo "Indexer logs:"
                     cat packages/indexer/indexer_output.log

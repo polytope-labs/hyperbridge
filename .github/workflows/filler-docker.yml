@@ -12,6 +12,9 @@ concurrency:
 jobs:
     build_and_publish:
         runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
         steps:
             - name: Checkout sources
               uses: actions/checkout@v3
@@ -52,8 +55,8 @@ jobs:
             - name: Build and push Docker image
               uses: docker/build-push-action@v4
               with:
-                  context: .
-                  file: ./packages/simplex/scripts/Dockerfile
+                  context: sdk
+                  file: sdk/packages/simplex/scripts/Dockerfile
                   push: true
                   tags: |
                       polytopelabs/hyperbridge-simplex:v${{ env.VERSION }}

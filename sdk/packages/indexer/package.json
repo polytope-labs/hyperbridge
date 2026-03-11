@@ -17,7 +17,7 @@
 		"src/configs/subquery-multichain.yaml"
 	],
 	"author": "Polytope Labs",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"keywords": [
 		"hyperbridge",
 		"subquery",

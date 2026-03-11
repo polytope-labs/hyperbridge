@@ -33,16 +33,20 @@ use frame_support::{
 };
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-	host::StateMachine,
+	host::{IsmpHost, StateMachine},
+	messaging::Proof,
 };
 use polkadot_sdk::*;
-use primitive_types::{H160, H256};
+use primitive_types::{H160, H256, U256};
 use sp_core::Get;
 use sp_io::offchain_index;
 use sp_runtime::traits::{ConstU32, Zero};
 pub use weights::WeightInfo;
 
-use types::{Bid, GatewayInfo, IntentGatewayParams, RequestKind, TokenDecimalsUpdate, TokenInfo};
+use types::{
+	Bid, GatewayInfo, IntentGatewayParams, PriceAccumulator, RequestKind, TokenDecimalsUpdate,
+	TokenInfo, TokenPair,
+};
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
@@ -119,6 +123,73 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
+	/// Recognized token pairs for price tracking
+	#[pallet::storage]
+	pub type RecognizedPairs<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, TokenPair, OptionQuery>;
+
+	/// Current average price for each recognized token pair
+	#[pallet::storage]
+	pub type AveragePrice<T: Config> = StorageMap<_, Blake2_128Concat, H256, U256, ValueQuery>;
+
+	/// Running price accumulator for each token pair in the current window
+	#[pallet::storage]
+	pub type PriceAccumulators<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, PriceAccumulator, ValueQuery>;
+
+	/// Commitments that have already been used for price submissions
+	#[pallet::storage]
+	pub type UsedCommitments<T: Config> = StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
+
+	/// Start timestamp (in seconds) of the current price window
+	#[pallet::storage]
+	pub type PriceWindowStart<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	/// Price window duration in milliseconds
+	#[pallet::storage]
+	pub type PriceWindowDurationValue<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	/// Proof freshness threshold in seconds
+	#[pallet::storage]
+	pub type ProofFreshnessThresholdValue<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
+	where
+		T::AccountId: From<[u8; 32]>,
+	{
+		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+			let now = T::Dispatcher::default().timestamp().as_secs();
+			let window_duration_secs = PriceWindowDurationValue::<T>::get().saturating_div(1000);
+
+			// Nothing to do if duration is not configured
+			if window_duration_secs == 0 {
+				return T::DbWeight::get().reads(2);
+			}
+
+			let window_start = PriceWindowStart::<T>::get();
+
+			if window_start == 0 || now.saturating_sub(window_start) >= window_duration_secs {
+				// New day, clear accumulators so today's average is computed fresh.
+				// AveragePrice is kept so yesterday's price remains readable until
+				// overwritten by the first submission of the new day.
+				// UsedCommitments are also cleared since the freshness threshold
+				// prevents old proofs from being replayed.
+				let acc_result = PriceAccumulators::<T>::clear(u32::MAX, None);
+				let used_result = UsedCommitments::<T>::clear(u32::MAX, None);
+				PriceWindowStart::<T>::put(now);
+
+				let cleared =
+					acc_result.unique.saturating_add(used_result.unique).saturating_add(1);
+				T::DbWeight::get()
+					.reads(3)
+					.saturating_add(T::DbWeight::get().writes(cleared.into()))
+			} else {
+				T::DbWeight::get().reads(3)
+			}
+		}
+	}
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -147,6 +218,16 @@ pub mod pallet {
 		},
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
+		/// A recognized token pair was added
+		RecognizedPairAdded { pair_id: H256, pair: TokenPair },
+		/// A recognized token pair was removed
+		RecognizedPairRemoved { pair_id: H256 },
+		/// A price was submitted and the average updated
+		PriceSubmitted { filler: T::AccountId, pair_id: H256, price: U256, new_average: U256 },
+		/// Price window duration was updated
+		PriceWindowDurationUpdated { duration_ms: u64 },
+		/// Proof freshness threshold was updated
+		ProofFreshnessThresholdUpdated { threshold_secs: u64 },
 	}
 
 	#[pallet::error]
@@ -163,6 +244,22 @@ pub mod pallet {
 		InvalidUserOp,
 		/// Failed to dispatch cross-chain request
 		DispatchFailed,
+		/// Token pair not recognized
+		PairNotRecognized,
+		/// Non-membership proof verification failed
+		NonMembershipProofFailed,
+		/// Membership proof verification failed
+		MembershipProofFailed,
+		/// The time gap between the two proofs exceeds the freshness threshold
+		ProofNotFresh,
+		/// State proof verification failed
+		ProofVerificationFailed,
+		/// Token pair already exists
+		PairAlreadyExists,
+		/// This commitment has already been used for a price submission
+		CommitmentAlreadyUsed,
+		/// The proof does not target the expected gateway contract
+		ProofContractMismatch,
 	}
 
 	#[pallet::call]
@@ -440,6 +537,186 @@ pub mod pallet {
 			StorageDepositFee::<T>::put(fee);
 
 			Self::deposit_event(Event::StorageDepositFeeUpdated { fee });
+
+			Ok(())
+		}
+
+		/// Submit a price for a recognized token pair, backed by proof of a filled order
+		///
+		/// # Parameters
+		/// - `state_machine`: The state machine where the order was filled
+		/// - `commitment`: The filled order commitment hash
+		/// - `pair_id`: The token pair identifier
+		/// - `price`: The price of the base token in terms of the quote token
+		/// - `membership_proof`: Proof that the order was filled at some height
+		/// - `non_membership_proof`: Proof that the order was not filled at an earlier height
+		#[pallet::call_index(7)]
+		#[pallet::weight(T::DbWeight::get().reads(4).saturating_add(T::DbWeight::get().writes(3)))]
+		pub fn submit_pair_price(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			commitment: H256,
+			pair_id: H256,
+			price: U256,
+			membership_proof: Proof,
+			non_membership_proof: Proof,
+		) -> DispatchResult {
+			let filler = ensure_signed(origin)?;
+
+			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
+
+			// Prevent the same commitment from being used twice
+			ensure!(!UsedCommitments::<T>::get(&commitment), Error::<T>::CommitmentAlreadyUsed);
+
+			let gateway_info =
+				Gateways::<T>::get(state_machine).ok_or(Error::<T>::GatewayNotFound)?;
+
+			// 52-byte key: gateway address (20) + storage slot (32)
+			// This binds the proof to the specific gateway contract
+			let storage_key = types::filled_storage_key(&gateway_info.gateway, &commitment);
+
+			// Get the ISMP host for proof verification
+			let host = T::Dispatcher::default();
+
+			// Get state commitments for both proof heights
+			let commitment_h1 = host
+				.state_machine_commitment(non_membership_proof.height)
+				.map_err(|_| Error::<T>::ProofVerificationFailed)?;
+			let commitment_h2 = host
+				.state_machine_commitment(membership_proof.height)
+				.map_err(|_| Error::<T>::ProofVerificationFailed)?;
+
+			// Validate state machine clients
+			let state_machine_client_h1 =
+				ismp::handlers::validate_state_machine(&host, non_membership_proof.height)
+					.map_err(|_| Error::<T>::ProofVerificationFailed)?;
+			let state_machine_client_h2 =
+				ismp::handlers::validate_state_machine(&host, membership_proof.height)
+					.map_err(|_| Error::<T>::ProofVerificationFailed)?;
+
+			// Verify non-membership proof: order was not filled at H1
+			let non_membership_result = state_machine_client_h1
+				.verify_state_proof(
+					&host,
+					vec![storage_key.clone()],
+					commitment_h1,
+					&non_membership_proof,
+				)
+				.map_err(|_| Error::<T>::NonMembershipProofFailed)?;
+
+			let value_at_h1 = non_membership_result
+				.get(&storage_key)
+				.ok_or(Error::<T>::NonMembershipProofFailed)?;
+			ensure!(value_at_h1.is_none(), Error::<T>::NonMembershipProofFailed);
+
+			// Verify membership proof: order was filled at H2
+			let membership_result = state_machine_client_h2
+				.verify_state_proof(
+					&host,
+					vec![storage_key.clone()],
+					commitment_h2,
+					&membership_proof,
+				)
+				.map_err(|_| Error::<T>::MembershipProofFailed)?;
+
+			let filler_bytes = membership_result
+				.get(&storage_key)
+				.ok_or(Error::<T>::MembershipProofFailed)?
+				.as_ref()
+				.ok_or(Error::<T>::MembershipProofFailed)?;
+
+			// Extract the filler address from the proof value
+			// EVM addresses are 20 bytes, left-padded to 32 bytes in storage
+			let filler_address = H160::from_slice(
+				filler_bytes.get(12..32).ok_or(Error::<T>::MembershipProofFailed)?,
+			);
+			ensure!(filler_address != H160::zero(), Error::<T>::MembershipProofFailed);
+
+			// Check proof freshness
+			let threshold = ProofFreshnessThresholdValue::<T>::get();
+			// The two proofs must bracket a narrow window around the fill
+			let proof_gap = commitment_h2.timestamp.saturating_sub(commitment_h1.timestamp);
+			ensure!(proof_gap <= threshold, Error::<T>::ProofNotFresh);
+			// The fill must be recent relative to now (prevents replay)
+			let now = host.timestamp().as_secs();
+			let age = now.saturating_sub(commitment_h2.timestamp);
+			ensure!(age <= threshold, Error::<T>::ProofNotFresh);
+
+			// Mark commitment as used
+			UsedCommitments::<T>::insert(&commitment, true);
+
+			// Update accumulator and compute new average (window reset happens in on_initialize)
+			let new_average = PriceAccumulators::<T>::mutate(&pair_id, |acc| {
+				acc.sum = acc.sum.saturating_add(price);
+				acc.count = acc.count.saturating_add(1);
+				// count is always >= 1 after the increment above, so division is safe
+				acc.sum / U256::from(acc.count)
+			});
+			AveragePrice::<T>::insert(&pair_id, new_average);
+
+			Self::deposit_event(Event::PriceSubmitted { filler, pair_id, price, new_average });
+
+			Ok(())
+		}
+
+		/// Add a recognized token pair for price tracking
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(1)))]
+		pub fn add_recognized_pair(origin: OriginFor<T>, pair: TokenPair) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let pair_id = pair.pair_id();
+			ensure!(!RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairAlreadyExists);
+
+			RecognizedPairs::<T>::insert(&pair_id, &pair);
+
+			Self::deposit_event(Event::RecognizedPairAdded { pair_id, pair });
+
+			Ok(())
+		}
+
+		/// Remove a recognized token pair
+		#[pallet::call_index(9)]
+		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(3)))]
+		pub fn remove_recognized_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
+
+			RecognizedPairs::<T>::remove(&pair_id);
+			AveragePrice::<T>::remove(&pair_id);
+			PriceAccumulators::<T>::remove(&pair_id);
+
+			Self::deposit_event(Event::RecognizedPairRemoved { pair_id });
+
+			Ok(())
+		}
+
+		/// Set the price window duration
+		#[pallet::call_index(10)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn set_price_window_duration(origin: OriginFor<T>, duration_ms: u64) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			PriceWindowDurationValue::<T>::put(duration_ms);
+
+			Self::deposit_event(Event::PriceWindowDurationUpdated { duration_ms });
+
+			Ok(())
+		}
+
+		/// Set the proof freshness threshold
+		#[pallet::call_index(11)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn set_proof_freshness_threshold(
+			origin: OriginFor<T>,
+			threshold_secs: u64,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			ProofFreshnessThresholdValue::<T>::put(threshold_secs);
+
+			Self::deposit_event(Event::ProofFreshnessThresholdUpdated { threshold_secs });
 
 			Ok(())
 		}

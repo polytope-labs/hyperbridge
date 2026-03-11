@@ -18,14 +18,23 @@
 #![cfg(test)]
 
 use crate::{self as pallet_intents, *};
-use alloc::vec;
+use alloc::{boxed::Box, collections::BTreeMap, vec};
 use frame_support::{
 	assert_noop, assert_ok, parameter_types,
-	traits::{ConstU32, Everything},
+	traits::{ConstU32, Everything, Hooks},
 	BoundedVec,
 };
 use frame_system::EnsureRoot;
-use ismp::host::StateMachine;
+use ismp::{
+	consensus::{
+		ConsensusClient, ConsensusClientId, ConsensusStateId, StateCommitment, StateMachineClient,
+		StateMachineHeight, StateMachineId, VerifiedCommitments,
+	},
+	error::Error as IsmpError,
+	host::{IsmpHost, StateMachine},
+	messaging::Proof,
+	router::RequestResponse,
+};
 use ismp_testsuite::mocks::MockRouter;
 
 use polkadot_sdk::*;
@@ -35,6 +44,100 @@ use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	AccountId32, BuildStorage,
 };
+
+/// Mock consensus client ID
+const MOCK_CONSENSUS_CLIENT_ID: ConsensusClientId = [1u8; 4];
+/// Mock consensus state ID
+const MOCK_CONSENSUS_STATE_ID: ConsensusStateId = *b"ETH0";
+
+/// Height used for the non-membership proof (order not yet filled)
+const H1_HEIGHT: u64 = 100;
+/// Height used for the membership proof (order was filled)
+const H2_HEIGHT: u64 = 200;
+
+/// A mock consensus client for testing `submit_pair_price`.
+///
+/// Returns `MockPriceStateMachineClient` which encodes test behavior:
+/// - At H1 (non-membership): returns `{key: None}` for storage queries
+/// - At H2 (membership): returns `{key: Some(filler_address)}` from proof bytes
+#[derive(Default)]
+pub struct MockPriceConsensusClient;
+
+impl ConsensusClient for MockPriceConsensusClient {
+	fn verify_consensus(
+		&self,
+		_host: &dyn IsmpHost,
+		_consensus_state_id: ConsensusStateId,
+		_trusted_consensus_state: Vec<u8>,
+		_proof: Vec<u8>,
+	) -> Result<(Vec<u8>, VerifiedCommitments), IsmpError> {
+		Ok(Default::default())
+	}
+
+	fn verify_fraud_proof(
+		&self,
+		_host: &dyn IsmpHost,
+		_trusted_consensus_state: Vec<u8>,
+		_proof_1: Vec<u8>,
+		_proof_2: Vec<u8>,
+	) -> Result<(), IsmpError> {
+		Ok(())
+	}
+
+	fn consensus_client_id(&self) -> ConsensusClientId {
+		MOCK_CONSENSUS_CLIENT_ID
+	}
+
+	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
+		Ok(Box::new(MockPriceStateMachineClient))
+	}
+}
+
+/// Mock state machine client that returns different results based on proof height.
+///
+/// - Height == H1_HEIGHT: returns `{key: None}` (non-membership)
+/// - Height == H2_HEIGHT: returns `{key: Some(proof_bytes)}` (membership, proof bytes = filler
+///   address)
+pub struct MockPriceStateMachineClient;
+
+impl StateMachineClient for MockPriceStateMachineClient {
+	fn verify_membership(
+		&self,
+		_host: &dyn IsmpHost,
+		_item: RequestResponse,
+		_root: StateCommitment,
+		_proof: &Proof,
+	) -> Result<(), IsmpError> {
+		Ok(())
+	}
+
+	fn receipts_state_trie_key(&self, _request: RequestResponse) -> Vec<Vec<u8>> {
+		Default::default()
+	}
+
+	fn verify_state_proof(
+		&self,
+		_host: &dyn IsmpHost,
+		keys: Vec<Vec<u8>>,
+		_root: StateCommitment,
+		proof: &Proof,
+	) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, IsmpError> {
+		let mut result = BTreeMap::new();
+		let is_non_membership = proof.height.height == H1_HEIGHT;
+
+		for key in keys {
+			if is_non_membership {
+				// Non-membership: value not present
+				result.insert(key, None);
+			} else {
+				// Membership: value is the proof bytes (filler address padded to 32 bytes)
+				result.insert(key, Some(proof.proof.clone()));
+			}
+		}
+
+		Ok(result)
+	}
+}
 
 type Block = frame_system::mocking::MockBlock<Test>;
 type Balance = u64;
@@ -128,7 +231,7 @@ impl pallet_ismp::Config for Test {
 	type Router = MockRouter;
 	type Balance = Balance;
 	type Currency = Balances;
-	type ConsensusClients = ();
+	type ConsensusClients = (MockPriceConsensusClient,);
 	type OffchainDB = ();
 	type FeeHandler = ();
 }
@@ -163,6 +266,10 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	let mut ext: sp_io::TestExternalities = t.into();
 	ext.execute_with(|| {
 		pallet_intents::StorageDepositFee::<Test>::put(200u64);
+		// 24 hours in milliseconds
+		pallet_intents::PriceWindowDurationValue::<Test>::put(86_400_000u64);
+		// 1 hour in seconds
+		pallet_intents::ProofFreshnessThresholdValue::<Test>::put(3600u64);
 	});
 	ext
 }
@@ -531,5 +638,217 @@ fn multiple_fillers_can_bid_on_same_order() {
 		// Verify both bids exist
 		assert!(Bids::<Test>::contains_key(&commitment, &filler1));
 		assert!(Bids::<Test>::contains_key(&commitment, &filler2));
+	});
+}
+
+#[test]
+fn remove_recognized_pair_works() {
+	new_test_ext().execute_with(|| {
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		PriceAccumulators::<Test>::insert(
+			&pair_id,
+			types::PriceAccumulator { sum: U256::from(1000), count: 5 },
+		);
+		AveragePrice::<Test>::insert(&pair_id, U256::from(200));
+
+		assert_ok!(Intents::remove_recognized_pair(RuntimeOrigin::root(), pair_id));
+
+		// Verify clean up
+		assert!(RecognizedPairs::<Test>::get(&pair_id).is_none());
+		assert_eq!(AveragePrice::<Test>::get(&pair_id), U256::zero());
+		assert_eq!(PriceAccumulators::<Test>::get(&pair_id).count, 0);
+	});
+}
+
+#[test]
+fn submit_pair_price() {
+	new_test_ext().execute_with(|| {
+		let filler = AccountId32::new([1; 32]);
+		let state_machine = StateMachine::Evm(1);
+		let commitment = H256::repeat_byte(0xaa);
+		let price = U256::from(2000);
+
+		//  Add a recognized token pair
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		//  Add a gateway deployment
+		let gateway = H160::from_low_u64_be(42);
+		let params = types::IntentGatewayParams {
+			host: H160::default(),
+			dispatcher: H160::default(),
+			solver_selection: true,
+			surplus_share_bps: U256::from(5000),
+			protocol_fee_bps: U256::from(100),
+			price_oracle: H160::default(),
+		};
+		assert_ok!(Intents::add_deployment(RuntimeOrigin::root(), state_machine, gateway, params,));
+
+		// Set up ISMP consensus state
+		let sm_id =
+			StateMachineId { state_id: state_machine, consensus_state_id: MOCK_CONSENSUS_STATE_ID };
+		let h1 = StateMachineHeight { id: sm_id, height: H1_HEIGHT };
+		let h2 = StateMachineHeight { id: sm_id, height: H2_HEIGHT };
+
+		// Map consensus_state_id -> consensus_client_id
+		pallet_ismp::ConsensusStateClient::<Test>::insert(
+			MOCK_CONSENSUS_STATE_ID,
+			MOCK_CONSENSUS_CLIENT_ID,
+		);
+
+		// Store consensus state
+		pallet_ismp::ConsensusStates::<Test>::insert(MOCK_CONSENSUS_CLIENT_ID, vec![0u8]);
+
+		// Store state commitments at both heights
+		// H1 timestamp=1000, H2 timestamp=1050
+		pallet_ismp::child_trie::StateCommitments::<Test>::insert(
+			h1,
+			StateCommitment {
+				timestamp: 1000,
+				overlay_root: None,
+				state_root: H256::repeat_byte(0x11).into(),
+			},
+		);
+		pallet_ismp::child_trie::StateCommitments::<Test>::insert(
+			h2,
+			StateCommitment {
+				timestamp: 1050,
+				overlay_root: None,
+				state_root: H256::repeat_byte(0x22).into(),
+			},
+		);
+
+		// Store challenge period
+		pallet_ismp::ChallengePeriod::<Test>::insert(sm_id, 0u64);
+
+		// Store state machine update times
+		pallet_ismp::StateMachineUpdateTime::<Test>::insert(h1, 1000u64);
+		pallet_ismp::StateMachineUpdateTime::<Test>::insert(h2, 1050u64);
+
+		// Set the pallet timestamp so host.timestamp()
+		pallet_timestamp::Now::<Test>::put(2_000_000u64); // 2000 seconds in ms
+
+		// Build proofs
+		// Non-membership proof: all zeros
+		let non_membership_proof = Proof { height: h1, proof: vec![0u8; 32] };
+
+		// Membership proof: proof bytes contain the filler address padded to 32 bytes
+		// The code reads filler_bytes[12..32] as an H160 address
+		let mut filler_bytes = vec![0u8; 32];
+		// Put a non-zero address in bytes 12..32
+		filler_bytes[12..32].copy_from_slice(&H160::from_low_u64_be(0xdeadbeef).0);
+		let membership_proof = Proof { height: h2, proof: filler_bytes };
+
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(filler.clone()),
+			state_machine,
+			commitment,
+			pair_id,
+			price,
+			membership_proof,
+			non_membership_proof,
+		));
+
+		// Verify the price accumulator was updated
+		let acc = PriceAccumulators::<Test>::get(&pair_id);
+		assert_eq!(acc.sum, price);
+		assert_eq!(acc.count, 1);
+
+		// Verify the average price was stored
+		let avg = AveragePrice::<Test>::get(&pair_id);
+		assert_eq!(avg, price); // With 1 submission, average = price
+
+		// Submit a second price and verify the average updates
+		let price2 = U256::from(4000);
+		let commitment2 = H256::repeat_byte(0xbb);
+
+		let non_membership_proof_2 = Proof { height: h1, proof: vec![0u8; 32] };
+		let mut filler_bytes_2 = vec![0u8; 32];
+		filler_bytes_2[12..32].copy_from_slice(&H160::from_low_u64_be(0xcafebabe).0);
+		let membership_proof_2 = Proof { height: h2, proof: filler_bytes_2 };
+
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(filler.clone()),
+			state_machine,
+			commitment2,
+			pair_id,
+			price2,
+			membership_proof_2,
+			non_membership_proof_2,
+		));
+
+		let acc2 = PriceAccumulators::<Test>::get(&pair_id);
+		assert_eq!(acc2.sum, price.saturating_add(price2));
+		assert_eq!(acc2.count, 2);
+
+		let avg2 = AveragePrice::<Test>::get(&pair_id);
+		assert_eq!(avg2, U256::from(3000));
+
+		// 9. Reusing the same commitment should fail
+		let non_membership_proof_dup = Proof { height: h1, proof: vec![0u8; 32] };
+		let mut filler_bytes_dup = vec![0u8; 32];
+		filler_bytes_dup[12..32].copy_from_slice(&H160::from_low_u64_be(0xdeadbeef).0);
+		let membership_proof_dup = Proof { height: h2, proof: filler_bytes_dup };
+
+		assert_noop!(
+			Intents::submit_pair_price(
+				RuntimeOrigin::signed(filler.clone()),
+				state_machine,
+				commitment, // same commitment as step 5
+				pair_id,
+				U256::from(9999),
+				membership_proof_dup,
+				non_membership_proof_dup,
+			),
+			Error::<Test>::CommitmentAlreadyUsed
+		);
+	});
+}
+
+#[test]
+fn on_initialize_resets_accumulators_on_new_day() {
+	new_test_ext().execute_with(|| {
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+
+		PriceAccumulators::<Test>::insert(
+			&pair_id,
+			types::PriceAccumulator { sum: U256::from(5000), count: 3 },
+		);
+		AveragePrice::<Test>::insert(&pair_id, U256::from(1666));
+
+		// Window started at second 1000, duration is 86_400_000 ms = 86_400 s
+		PriceWindowStart::<Test>::put(1000u64);
+
+		pallet_timestamp::Now::<Test>::put(50_000_000u64); // 50_000 seconds in ms
+		Intents::on_initialize(1u64);
+
+		// Window has NOT expired, accumulators and average should be untouched
+		let acc = PriceAccumulators::<Test>::get(&pair_id);
+		assert_eq!(acc.count, 3);
+		assert_eq!(acc.sum, U256::from(5000));
+		assert_eq!(AveragePrice::<Test>::get(&pair_id), U256::from(1666));
+
+		// Advance past the window (1000 + 86_400 = 87_400 seconds)
+		pallet_timestamp::Now::<Test>::put(90_000_000u64); // 90_000 seconds in ms
+		Intents::on_initialize(2u64);
+
+		// Window expired, accumulators should be cleared but average price
+		// from yesterday is preserved (readable until overwritten by new submissions)
+		let acc = PriceAccumulators::<Test>::get(&pair_id);
+		assert_eq!(acc.count, 0);
+		assert_eq!(acc.sum, U256::zero());
+		assert_eq!(AveragePrice::<Test>::get(&pair_id), U256::from(1666));
+
+		// Window start should be updated
+		assert_eq!(PriceWindowStart::<Test>::get(), 90_000);
 	});
 }

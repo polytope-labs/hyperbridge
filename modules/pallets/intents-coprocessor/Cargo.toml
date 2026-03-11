@@ -28,6 +28,7 @@ anyhow = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
+hex-literal = { workspace = true }
 
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }

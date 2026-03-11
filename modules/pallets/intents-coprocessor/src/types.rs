@@ -144,6 +144,57 @@ pub struct Bid<AccountId> {
 	pub user_op: Vec<u8>,
 }
 
+/// A recognized token pair for price tracking
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct TokenPair {
+	/// The base token address
+	pub base: H160,
+	/// The quote token address
+	pub quote: H160,
+}
+
+impl TokenPair {
+	/// Compute a unique identifier for this token pair
+	pub fn pair_id(&self) -> H256 {
+		let mut data = alloc::vec::Vec::with_capacity(40);
+		data.extend_from_slice(&self.base.0);
+		data.extend_from_slice(&self.quote.0);
+		sp_io::hashing::keccak_256(&data).into()
+	}
+}
+
+/// Running price accumulator for a token pair within the current time window
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq, Default)]
+pub struct PriceAccumulator {
+	/// Sum of all submitted prices in the current window
+	pub sum: U256,
+	/// Number of submissions in the current window
+	pub count: u32,
+}
+
+/// The storage slot index for the `_filled` mapping in IntentGateway.sol
+pub const FILLED_SLOT: [u8; 32] =
+	hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000005");
+
+/// Compute the EVM state proof key for `_filled[commitment]` on the given gateway contract.
+///
+/// Returns a 52-byte key: 20-byte contract address + 32-byte storage slot.
+/// The EVM state machine client uses the first 20 bytes to locate the contract
+/// and hashes the last 32 bytes to derive the storage trie key.
+pub fn filled_storage_key(gateway: &H160, commitment: &H256) -> Vec<u8> {
+	// Compute the raw storage slot: keccak256(commitment ++ FILLED_SLOT)
+	let mut slot_preimage = Vec::with_capacity(64);
+	slot_preimage.extend_from_slice(commitment.as_bytes());
+	slot_preimage.extend_from_slice(&FILLED_SLOT);
+	let slot = sp_io::hashing::keccak_256(&slot_preimage);
+
+	// 52-byte key: gateway address (20) + slot (32)
+	let mut key = Vec::with_capacity(52);
+	key.extend_from_slice(&gateway.0);
+	key.extend_from_slice(&slot);
+	key
+}
+
 impl IntentGatewayParams {
 	/// Apply an update to the current parameters, returning a new instance
 	pub fn update(&self, update: ParamsUpdate) -> Self {

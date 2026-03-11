@@ -15069,6 +15069,7 @@ dependencies = [
  "alloy-sol-macro 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
+ "hex-literal 0.4.1",
  "ismp",
  "ismp-testsuite",
  "log",

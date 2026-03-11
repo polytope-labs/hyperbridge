@@ -115,6 +115,35 @@ export const STORAGE_KEYS = Object.freeze({
 })
 
 /**
+ * Creates a simple string-based storage for tracking used user operations per commitment.
+ * Values are stored as raw strings under their provided keys.
+ */
+export function createUsedUserOpsStorage(options: SessionKeyStorageOptions = {}) {
+	const key = options.env ?? detectEnvironment()
+	const driver = loadDriver({ key, options }) ?? inMemoryDriver()
+	const baseStorage = createStorage({ driver })
+
+	const getItem = async (key: string): Promise<string | null> => {
+		const value = await baseStorage.getItem<string>(key)
+		return value ?? null
+	}
+
+	const setItem = async (key: string, value: string): Promise<void> => {
+		await baseStorage.setItem(key, value)
+	}
+
+	const removeItem = async (key: string): Promise<void> => {
+		await baseStorage.removeItem(key)
+	}
+
+	return Object.freeze({
+		getItem,
+		setItem,
+		removeItem,
+	})
+}
+
+/**
  * Session key data stored for each order
  */
 export interface SessionKeyData {

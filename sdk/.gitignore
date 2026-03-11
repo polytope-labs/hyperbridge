@@ -22,8 +22,11 @@ packages/indexer/docker/testnet/
 packages/indexer/docker/mainnet/
 .claude/
 
-packages/filler/src/config/chain.ts
-packages/filler/src/filler-config.toml
+packages/simplex/src/filler-config.toml
+packages/simplex/src/simplex-config.toml
+packages/simplex/.simplex-data
+
+
 # Compiled Java class files
 *.class
 

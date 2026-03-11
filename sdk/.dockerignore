@@ -1,3 +1,7 @@
+# These packages are not needed for the simplex build and have their own lockfiles
+packages/core/
+packages/indexer/
+
 # Version Control
 .git/
 .github/
@@ -16,8 +20,10 @@
 **/coverage/
 
 # We need node_modules and dist for building
-# Don't exclude: node_modules/, **/node_modules/, **/dist/
+# Don't exclude:  **/dist/
 
+node_modules/
+**/node_modules/
 # Environment
 .env
 .env.*
@@ -36,7 +42,6 @@
 .npm
 .yarn/
 .yarnrc.yml
-.npmrc
 
 # Docker
 **/Dockerfile

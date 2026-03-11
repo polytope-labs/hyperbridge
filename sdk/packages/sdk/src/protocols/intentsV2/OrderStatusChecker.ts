@@ -4,7 +4,17 @@ import { orderV2Commitment, bytes32ToBytes20 } from "@/utils"
 import type { OrderV2, HexString } from "@/types"
 import type { IntentsV2Context } from "./types"
 
+/**
+ * Checks the on-chain fill and refund status of IntentGatewayV2 orders.
+ *
+ * Reads contract storage directly rather than relying on events, so the
+ * results are accurate even if the caller misses the confirmation window.
+ */
 export class OrderStatusChecker {
+	/**
+	 * @param ctx - Shared IntentsV2 context providing the source and destination
+	 *   chain clients and config service.
+	 */
 	constructor(private readonly ctx: IntentsV2Context) {}
 
 	/**

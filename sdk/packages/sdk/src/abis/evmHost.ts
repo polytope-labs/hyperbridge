@@ -1,4 +1,4 @@
-const ABI = [
+export const ABI = [
 	{
 		inputs: [],
 		name: "CannotChangeFeeToken",

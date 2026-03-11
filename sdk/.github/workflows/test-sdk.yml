@@ -11,14 +11,14 @@ on:
         paths:
             - "packages/sdk/**"
             - "packages/indexer/**"
-            - "packages/filler/**"
+            - "packages/simplex/**"
             - ".github/workflows/test-sdk.yml"
     pull_request:
         branches: [main]
         paths:
             - "packages/sdk/**"
             - "packages/indexer/**"
-            - "packages/filler/**"
+            - "packages/simplex/**"
             - ".github/workflows/test-sdk.yml"
     workflow_dispatch:
 
@@ -116,8 +116,8 @@ jobs:
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
 
-            - name: Run filler-v2 test - filler
-              run: pnpm --filter="@hyperbridge/filler-v2" test:filler
+            - name: Run simplex test
+              run: pnpm --filter="@hyperbridge/simplex" test:filler
 
             - name: Run SDK test - concurrent (non-sequential tests)
               run: pnpm --filter="@hyperbridge/sdk" test:concurrent
@@ -131,11 +131,11 @@ jobs:
             - name: Run SDK test - intent-gateway
               run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
 
-            # - name: Run filler-v2 test - cctp
-            #   run: cd packages/filler-v2 && pnpm vitest --watch=false --maxConcurrency=1 src/tests/rebalancers/cctp.test.ts
+            # - name: Run filler test - cctp
+            #   run: cd packages/filler && pnpm vitest --watch=false --maxConcurrency=1 src/tests/rebalancers/cctp.test.ts
 
             # - name: Run Intent Filler tests
-            #   run: pnpm --filter="filler" test
+            #   run: pnpm --filter="simplex" test
 
             - name: Clean up
               if: always()

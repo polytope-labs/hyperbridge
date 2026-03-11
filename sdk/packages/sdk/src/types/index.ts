@@ -807,13 +807,6 @@ export enum RequestKind {
  */
 export interface FillerConfig {
 	/**
-	 * Policy for determining confirmation requirements
-	 */
-	confirmationPolicy: {
-		getConfirmationBlocks: (chainId: number, amountUsd: number) => number
-	}
-
-	/**
 	 * Maximum number of orders to process concurrently
 	 */
 	maxConcurrentOrders?: number
@@ -945,6 +938,12 @@ export interface ExecutionResult {
 	 * The time it took to fill the order
 	 */
 	processingTimeMs?: number
+
+	/**
+	 * The order commitment hash, returned when a bid is submitted via Hyperbridge.
+	 * Used for subsequent bid retraction after the order is filled on-chain.
+	 */
+	commitment?: string
 }
 
 /**
@@ -1396,7 +1395,8 @@ export interface SelectOptions {
 
 /** Status stages for the intent order execution flow */
 export const IntentOrderStatus = Object.freeze({
-	ORDER_SUBMITTED: "ORDER_SUBMITTED",
+	AWAITING_PLACE_ORDER: "AWAITING_PLACE_ORDER",
+	ORDER_PLACED: "ORDER_PLACED",
 	ORDER_CONFIRMED: "ORDER_CONFIRMED",
 	AWAITING_BIDS: "AWAITING_BIDS",
 	BIDS_RECEIVED: "BIDS_RECEIVED",
@@ -1404,31 +1404,25 @@ export const IntentOrderStatus = Object.freeze({
 	USEROP_SUBMITTED: "USEROP_SUBMITTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
+	PARTIAL_FILL_EXHAUSTED: "PARTIAL_FILL_EXHAUSTED",
 	FAILED: "FAILED",
 })
 
 export type IntentOrderStatus = typeof IntentOrderStatus
 export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 
-/** Metadata for intent order status updates */
-export interface IntentOrderStatusMetadata {
-	commitment?: HexString
-	transactionHash?: HexString
-	blockHash?: HexString
-	blockNumber?: number
-	bidCount?: number
-	bids?: FillerBid[]
-	selectedSolver?: HexString
-	userOpHash?: HexString
-	userOp?: PackedUserOperation
-	error?: string
-}
-
-/** Status update yielded by the intent order stream */
-export interface IntentOrderStatusUpdate {
-	status: IntentOrderStatusKey
-	metadata: IntentOrderStatusMetadata
-}
+/** Tagged union of all possible status updates yielded by the intent order execution stream */
+export type IntentOrderStatusUpdate =
+	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+	| { status: "ORDER_PLACED"; order: OrderV2; transactionHash: HexString }
+	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
+	| { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation }
+	| { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
+	| { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAmount?: bigint; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
+	| { status: "FAILED"; commitment?: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
 
 /** Result of selecting a bid and submitting to the bundler */
 export interface SelectBidResult {
@@ -1438,6 +1432,8 @@ export interface SelectBidResult {
 	commitment: HexString
 	txnHash?: HexString
 	fillStatus?: "full" | "partial"
+	/** Amount filled in this user operation (best-effort, based on on-chain logs) */
+	filledAmount?: bigint
 }
 
 /** Options for executing an intent order */

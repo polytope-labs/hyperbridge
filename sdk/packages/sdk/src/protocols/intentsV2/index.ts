@@ -9,7 +9,6 @@ export {
 	PLACE_ORDER_SELECTOR,
 	ORDER_V2_PARAM_TYPE,
 	type BundlerGasEstimate,
-	type CancelEventMap,
 	type CancelEvent,
 } from "./types"
 export type { IntentsV2Context } from "./types"

@@ -294,6 +294,8 @@ export function bytes32ToBytes20(bytes32Address: string): HexString {
 }
 
 export function bytes20ToBytes32(bytes20Address: string): HexString {
+	// Already a 32-byte value — return unchanged
+	if (bytes20Address.length === 66) return bytes20Address as HexString
 	return `0x${bytes20Address.slice(2).padStart(64, "0")}` as HexString
 }
 

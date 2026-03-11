@@ -75,6 +75,13 @@ export function decodeUserOpScale(hex: HexString): PackedUserOperation {
 	}
 }
 
+/** RPC response shape from intents_getBidsForOrder */
+interface RpcBidInfo {
+	commitment: HexString
+	filler: HexString
+	user_op: HexString
+}
+
 /**
  * Service for interacting with Hyperbridge's pallet-intents coprocessor.
  * Handles bid submission and retrieval for the IntentGatewayV2 protocol.
@@ -82,6 +89,9 @@ export function decodeUserOpScale(hex: HexString): PackedUserOperation {
  * Can be created from an existing SubstrateChain instance to share the connection.
  */
 export class IntentsCoprocessor {
+	/** Cached result of whether the node exposes intents_* RPC methods */
+	private hasIntentsRpc: boolean | null = null
+
 	/**
 	 * Creates and connects an IntentsCoprocessor to a Hyperbridge node.
 	 * This creates and manages its own API connection.
@@ -95,6 +105,7 @@ export class IntentsCoprocessor {
 			provider: new WsProvider(wsUrl),
 			typesBundle: {
 				spec: {
+					nexus: { hasher: keccakAsU8a },
 					gargantua: { hasher: keccakAsU8a },
 				},
 			},
@@ -156,8 +167,26 @@ export class IntentsCoprocessor {
 		if (this.substratePrivateKey.includes(" ")) {
 			return keyring.addFromMnemonic(this.substratePrivateKey)
 		}
-		const seedBytes = Buffer.from(this.substratePrivateKey, "hex")
+		const hex = this.substratePrivateKey.startsWith("0x")
+			? this.substratePrivateKey.slice(2)
+			: this.substratePrivateKey
+		const seedBytes = Buffer.from(hex, "hex")
 		return keyring.addFromSeed(seedBytes)
+	}
+
+	/**
+	 * Checks if the connected node exposes intents_* RPC methods.
+	 * Result is cached after the first check.
+	 */
+	private async checkIntentsRpc(): Promise<boolean> {
+		if (this.hasIntentsRpc !== null) return this.hasIntentsRpc
+		try {
+			const methods = await this.api.rpc.rpc.methods()
+			this.hasIntentsRpc = methods.methods.some((m: any) => m.toString().startsWith("intent"))
+		} catch {
+			this.hasIntentsRpc = false
+		}
+		return this.hasIntentsRpc
 	}
 
 	/**
@@ -323,47 +352,76 @@ export class IntentsCoprocessor {
 	/**
 	 * Fetches all bids for a given order commitment from Hyperbridge.
 	 *
+	 * Uses the custom intents_getBidsForOrder RPC if available on the node
+	 * for a single round-trip. Falls back to parallel storage + offchain
+	 * lookups otherwise.
+	 *
 	 * @param commitment - The order commitment hash (bytes32)
 	 * @returns Array of FillerBid objects containing filler address, userOp, and deposit
 	 */
 	async getBidsForOrder(commitment: HexString): Promise<FillerBid[]> {
-		const storageEntries = await this.getBidStorageEntries(commitment)
+		const hasRpc = await this.checkIntentsRpc()
 
-		if (storageEntries.length === 0) {
-			return []
+		if (hasRpc) {
+			try {
+				return await this.getBidsViaRpc(commitment)
+			} catch (err) {
+				console.warn("intents RPC failed, falling back to storage queries:", err)
+			}
 		}
 
-		const bids: FillerBid[] = []
+		return await this.getBidsViaStorage(commitment)
+	}
 
-		for (const entry of storageEntries) {
+	/**
+	 * Fetches bids using the custom intents_getBidsForOrder RPC.
+	 * Single round-trip but does not include deposit amounts.
+	 */
+	private async getBidsViaRpc(commitment: HexString): Promise<FillerBid[]> {
+		const result: RpcBidInfo[] = await (this.api as any)._rpcCore.provider.send("intents_getBidsForOrder", [
+			commitment,
+		])
+
+		return result.map((entry) => {
+			const userOp = decodeUserOpScale(entry.user_op as HexString)
+			const filler = new Keyring({ type: "sr25519" }).encodeAddress(hexToU8a(entry.filler))
+			return { filler, userOp, deposit: 0n }
+		})
+	}
+
+	/**
+	 * Fetches bids using on-chain storage entries + parallel offchain lookups.
+	 * Slower but works on all nodes and includes deposit amounts.
+	 */
+	private async getBidsViaStorage(commitment: HexString): Promise<FillerBid[]> {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const entries = await (this.api.query.intentsCoprocessor.bids as any).entries(commitment)
+
+		if (entries.length === 0) return []
+
+		const bidPromises = entries.map(async ([storageKey, depositValue]: [any, any]) => {
 			try {
-				const { filler, deposit } = entry
+				const filler = storageKey.args[1].toString()
+				const deposit = BigInt(depositValue.toString())
 
 				const offchainKey = this.buildOffchainBidKey(commitment, filler)
 				const offchainKeyHex = u8aToHex(offchainKey)
 
-				// Fetch from offchain storage using PERSISTENT kind
 				const offchainResult = await this.api.rpc.offchain.localStorageGet("PERSISTENT", offchainKeyHex)
 
-				if (!offchainResult || offchainResult.isNone) {
-					continue
-				}
+				if (!offchainResult || offchainResult.isNone) return null
 
 				const bidData = offchainResult.unwrap().toHex() as HexString
 				const decoded = this.decodeBid(bidData)
 
-				bids.push({
-					filler: decoded.filler,
-					userOp: decoded.userOp,
-					deposit,
-				})
+				return { filler: decoded.filler, userOp: decoded.userOp, deposit }
 			} catch {
-				// Skip bids that fail to decode
-				continue
+				return null
 			}
-		}
+		})
 
-		return bids
+		const results = await Promise.all(bidPromises)
+		return results.filter((b): b is FillerBid => b !== null)
 	}
 
 	/** Decodes SCALE-encoded Bid struct and SCALE-encoded PackedUserOperation */

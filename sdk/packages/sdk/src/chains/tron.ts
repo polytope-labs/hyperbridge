@@ -116,6 +116,7 @@ export class TronChain implements IChain {
 	 *
 	 * This mirrors the behavior used in IntentGatewayV2 for Tron chains.
 	 */
+	// biome-ignore lint/suspicious/noExplicitAny: Tron signed transaction has a different shape from EVM HexString
 	async broadcastTransaction(signedTransaction: any): Promise<TransactionReceipt> {
 		const tronReceipt = await this.tronWeb.trx.sendRawTransaction(signedTransaction)
 		if (!tronReceipt.result) {

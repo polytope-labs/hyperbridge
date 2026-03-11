@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "1.6.8",
+	"version": "1.7.0",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
@@ -48,7 +48,8 @@
 		"test:file": "vitest --watch=false --maxConcurrency=1",
 		"test:concurrent": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --exclude=./src/tests/sequential",
 		"test:requests": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/requests.test.ts",
-		"test:intent-gateway": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
+		"test:intents-v1": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/intentsV1.test.ts",
+		"test:intents-v2": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/intentsV2.test.ts",
 		"test:intents-coprocessor": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/intentsCoprocessor.test.ts",
 		"test:token-gateway": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/tokenGateway.test.ts",
 		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",

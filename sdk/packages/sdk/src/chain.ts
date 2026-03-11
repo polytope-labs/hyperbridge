@@ -205,7 +205,7 @@ export interface IEvmChain extends IChain {
 	quoteNative(request: IPostRequest | IGetRequest, fee: bigint): Promise<bigint>
 	getFeeTokenWithDecimals(): Promise<{ address: HexString; decimals: number }>
 	getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString>
-	broadcastTransaction(signedTransaction: any): Promise<TransactionReceipt>
+	broadcastTransaction(signedTransaction: HexString): Promise<TransactionReceipt>
 }
 
 /**

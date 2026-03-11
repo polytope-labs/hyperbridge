@@ -656,9 +656,9 @@ export class EvmChain implements IChain {
 		return nonce
 	}
 
-	async broadcastTransaction(signedTransaction: any): Promise<TransactionReceipt> {
+	async broadcastTransaction(signedTransaction: HexString): Promise<TransactionReceipt> {
 		const txHash = await this.client.sendRawTransaction({
-			serializedTransaction: signedTransaction as HexString,
+			serializedTransaction: signedTransaction,
 		})
 		const receipt = await this.client.waitForTransactionReceipt({
 			hash: txHash,

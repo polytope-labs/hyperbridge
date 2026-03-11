@@ -1014,7 +1014,7 @@ type IOrderV2 @entity {
 	"""
 	Total input value in USD
 	"""
-	inputUSD: String!
+	inputUSD: BigInt!
 
 	"""
 	Status of the order
@@ -1390,7 +1390,7 @@ type TokenGatewayAssetTeleportedV2 @entity {
 	"""
 	Amount of value in USD being teleported
 	"""
-	usdValue: String!
+	usdValue: BigInt!
 
 	"""
 	Asset ID being teleported

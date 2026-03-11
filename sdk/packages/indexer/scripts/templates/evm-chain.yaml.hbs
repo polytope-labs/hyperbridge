@@ -1,0 +1,164 @@
+{{> metadata}}
+{{> network-config}}
+dataSources:
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: ethereumHost
+      address: '{{config.contracts.ethereumHost}}'
+    assets:
+      ethereumHost:
+        file: ./abis/EthereumHost.abi.json
+      chainLinkAggregatorV3:
+        file: ./abis/ChainLinkAggregatorV3.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+      {{> handlers}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: erc6160ext20
+      address: '{{config.contracts.erc6160ext20}}'
+    assets:
+      erc6160ext20:
+        file: ./abis/ERC6160Ext20.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleTransferEvent
+          kind: ethereum/LogHandler
+          filter:
+            topics:
+              - 'Transfer(address indexed from, address indexed to, uint256 amount)'
+  {{#if config.contracts.intentGateway}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: intentGateway
+      address: '{{config.contracts.intentGateway}}'
+    assets:
+      intentGateway:
+        file: ./abis/IntentGateway.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleOrderPlacedEvent
+          filter:
+            topics:
+              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,(bytes32,uint256,bytes32)[],(bytes32,uint256)[],bytes)'
+        - kind: ethereum/LogHandler
+          handler: handleOrderFilledEvent
+          filter:
+            topics:
+              - 'OrderFilled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowReleasedEvent
+          filter:
+            topics:
+              - 'EscrowReleased(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowRefundedEvent
+          filter:
+            topics:
+              - 'EscrowRefunded(bytes32)'
+  {{/if}}
+  {{#if config.contracts.intentGatewayV2}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: intentGatewayV2
+      address: '{{config.contracts.intentGatewayV2}}'
+    assets:
+      intentGatewayV2:
+        file: ./abis/IntentGatewayV2.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleOrderPlacedEventV2
+          filter:
+            topics:
+              - 'OrderPlaced(bytes32,bytes,bytes,uint256,uint256,uint256,address,bytes32,(bytes32,uint256)[],(bytes32,uint256)[],(bytes32,uint256)[])'
+        - kind: ethereum/LogHandler
+          handler: handleOrderFilledEventV2
+          filter:
+            topics:
+              - 'OrderFilled(bytes32,address)'
+        - kind: ethereum/LogHandler
+          handler: handlePartialFilledEventV2
+          filter:
+            topics:
+              - 'PartialFill(bytes32,address,(bytes32,uint256)[],(bytes32,uint256)[])'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowReleasedEventV2
+          filter:
+            topics:
+              - 'EscrowReleased(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleEscrowRefundedEventV2
+          filter:
+            topics:
+              - 'EscrowRefunded(bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleDustCollectedEventV2
+          filter:
+            topics:
+              - 'DustCollected(address,uint256)'
+        - kind: ethereum/LogHandler
+          handler: handleDustSweptEventV2
+          filter:
+            topics:
+              - 'DustSwept(address,uint256,address)'
+  {{/if}}
+  {{#if config.contracts.tokenGateway}}
+  - kind: ethereum/Runtime
+    startBlock: {{blockNumber}}
+    options:
+      abi: tokenGateway
+      address: '{{config.contracts.tokenGateway}}'
+    assets:
+      tokenGateway:
+        file: ./abis/TokenGateway.abi.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - kind: ethereum/LogHandler
+          handler: handleAssetTeleportedEvent
+          filter:
+            topics:
+              - 'AssetTeleported(bytes32,string,uint256,bytes32,address,bytes32,bool)'
+        - kind: ethereum/LogHandler
+          handler: handleAssetReceivedEvent
+          filter:
+            topics:
+              - 'AssetReceived(uint256,bytes32,bytes32,address,bytes32)'
+        - kind: ethereum/LogHandler
+          handler: handleAssetRefundedEvent
+          filter:
+            topics:
+              - 'AssetRefunded(uint256,bytes32,address,bytes32)'
+  {{/if}}
+  # - kind: ethereum/Runtime
+  #   startBlock: {{blockNumber}}
+  #   options:
+  #     abi: handlerV1
+  #     address: '{{config.contracts.handlerV1}}'
+  #   assets:
+  #     handlerV1:
+  #       file: ./abis/HandlerV1.abi.json
+  #   mapping:
+  #     file: ./dist/index.js
+  #     handlers:
+  #       - handler: handlePostRequestTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostRequests(address,(((uint256,uint256),bytes32[],uint256),((bytes,bytes,uint64,bytes,bytes,uint64,bytes),uint256,uint256)[]))
+  #       - handler: handlePostResponseTransactionHandler
+  #         kind: ethereum/TransactionHandler
+  #         function: >-
+  #           handlePostResponses(address,(((uint256,uint256),bytes32[],uint256),(((bytes,bytes,uint64,bytes,bytes,uint64,bytes),bytes,uint64),uint256,uint256)[]))
+
+
+repository: 'https://github.com/polytope-labs/hyperbridge'

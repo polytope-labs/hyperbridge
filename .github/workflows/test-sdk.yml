@@ -1,0 +1,142 @@
+name: "@hyperbridge/sdk"
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - "sdk/packages/sdk/**"
+            - "sdk/packages/indexer/**"
+            - "sdk/packages/simplex/**"
+            - ".github/workflows/test-sdk.yml"
+    pull_request:
+        branches: [main]
+        paths:
+            - "sdk/packages/sdk/**"
+            - "sdk/packages/indexer/**"
+            - "sdk/packages/simplex/**"
+            - ".github/workflows/test-sdk.yml"
+    workflow_dispatch:
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: "7"
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Set up environment variables
+              run: |
+                  cat > .env.local << EOF
+                  BSC_CHAPEL=${{ secrets.BSC_CHAPEL }}
+                  GNOSIS_CHIADO=${{ secrets.GNOSIS_CHIADO }}
+                  HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
+                  PASEO_RPC_URL=${{ secrets.PASEO_RPC_URL }}
+                  BIFROST_PASEO=${{ secrets.BIFROST_PASEO }}
+                  CERE_LOCAL=${{ secrets.CERE_RPC_URL }}
+                  INDEXER_URL=${{ secrets.INDEXER_URL }}
+                  PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
+                  SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}
+                  ETH_MAINNET=${{ secrets.ETH_MAINNET }}
+                  BSC_MAINNET=${{ secrets.BSC_MAINNET }}
+                  BASE_MAINNET=${{ secrets.BASE_MAINNET }}
+                  POLYGON_MAINNET=${{ secrets.POLYGON_MAINNET }}
+                  ARBITRUM_MAINNET=${{ secrets.ARBITRUM_MAINNET }}
+                  ARBITRUM_SEPOLIA=${{ secrets.ARBITRUM_SEPOLIA }}
+                  POLYGON_AMOY=${{ secrets.POLYGON_AMOY }}
+                  SEPOLIA=${{ secrets.SEPOLIA }}
+                  BUNDLER_URL=${{ secrets.BUNDLER_URL }}
+                  COIN_GECKGO_API_KEY=${{secrets.COINGECKO}}
+                  PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
+                  TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
+                  EOF
+
+            - name: Build packages
+              run: pnpm build
+              env:
+                  ENV: local
+
+            - name: Install Docker Compose
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y docker-compose
+                  docker compose version
+
+            - name: Start local indexer (in background)
+              env:
+                  DB_USER: "postgres"
+                  DB_PASS: "postgres"
+                  DB_DATABASE: "postgres"
+                  DB_HOST: "postgres"
+                  DB_PORT: 5432
+                  DB_PATH: "./.indexer"
+                  LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
+              run: |
+                  cd packages/indexer
+                  nohup pnpm start:local > indexer_output.log 2>&1 &
+                  echo "Started indexer process in background"
+
+            - name: Wait for GraphQL server to be available
+              run: |
+                  echo "Waiting for GraphQL server to be available on port 3100..."
+                  timeout=300
+                  elapsed=0
+                  interval=5
+                  while ! nc -z localhost 3100; do
+                    if [ "$elapsed" -ge "$timeout" ]; then
+                      echo "Timed out waiting for GraphQL server on port 3100"
+                      cat packages/indexer/indexer_output.log
+                      exit 1
+                    fi
+                    echo "Waiting for GraphQL server (elapsed: ${elapsed}s)..."
+                    sleep $interval
+                    elapsed=$((elapsed + interval))
+                  done
+                  echo "GraphQL server is available!"
+                  sleep 10
+
+            - name: Run SDK test - intents-coprocessor
+              run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
+
+            - name: Run simplex test
+              run: pnpm --filter="@hyperbridge/simplex" test:filler
+
+            - name: Run SDK test - concurrent (non-sequential tests)
+              run: pnpm --filter="@hyperbridge/sdk" test:concurrent
+
+            - name: Run SDK test - requests
+              run: pnpm --filter="@hyperbridge/sdk" test:requests
+
+            - name: Run SDK test - hyperbridge
+              run: cd packages/sdk && pnpm vitest --watch=false --sequence.concurrent=false src/tests/sequential/hyperbridge.test.ts
+
+            - name: Run SDK test - intent-gateway
+              run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
+
+            - name: Clean up
+              if: always()
+              run: |
+                  docker compose -f packages/indexer/docker/docker-compose.local.yml down || true
+                  if [ -f packages/indexer/indexer_output.log ]; then
+                    echo "Indexer logs:"
+                    cat packages/indexer/indexer_output.log
+                  fi

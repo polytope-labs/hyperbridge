@@ -1,0 +1,19 @@
+subquery-{{chainName}}:
+  image: {{image}}
+  restart: unless-stopped
+  environment:
+    DB_USER: ${DB_USER}
+    DB_PASS: ${DB_PASS}
+    DB_DATABASE: ${DB_DATABASE}
+    DB_HOST: ${DB_HOST}
+    DB_PORT: ${DB_PORT}
+  volumes:
+    - {{volumesPath}}src/configs:/app
+    - {{volumesPath}}dist:/app/dist
+  command:
+    {{> docker-command}}
+  healthcheck:
+    test: ['CMD', 'curl', '-f', 'http://subquery-node-{{chainName}}:3000/ready']
+    interval: 3s
+    timeout: 5s
+    retries: 10

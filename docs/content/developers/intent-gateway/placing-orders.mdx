@@ -282,13 +282,9 @@ async function runOrder(order: OrderV2) {
 | `bidTimeoutMs` | `number` | `60000` | Max time (ms) to wait for bids before proceeding with whatever has arrived |
 | `pollIntervalMs` | `number` | SDK default | How frequently (ms) to poll the coprocessor for new bids |
 
-### Handling `PARTIAL_FILL_EXHAUSTED`
+### `PARTIAL_FILL_EXHAUSTED`
 
-<<<<<<< Updated upstream
-When the SDK exhausts its retry budget — the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
-=======
 When `PARTIAL_FILL_EXHAUSTED` fires, the order remains live on-chain — solvers can still fill it directly by calling `fillOrder` on the gateway, or the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
->>>>>>> Stashed changes
 
 ---
 

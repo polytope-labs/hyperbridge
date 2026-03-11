@@ -1,4 +1,4 @@
-import { GetRequest, GetRequestStatusMetadata, Status } from "@/configs/src/types"
+import { GetRequestV2, GetRequestStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
 import { solidityKeccak256 } from "ethers/lib/utils"
 import { timestampToDate } from "@/utils/date.helpers"
@@ -18,7 +18,6 @@ export interface IGetRequestArgs {
 	blockHash?: string
 	transactionHash?: string
 	blockTimestamp?: bigint
-	status?: Status
 	chain?: string
 	commitment?: string
 }
@@ -34,7 +33,7 @@ export interface IUpdateGetRequestStatusArgs {
 }
 
 export class GetRequestService {
-	static async createOrUpdate(args: IGetRequestArgs): Promise<GetRequest> {
+	static async createOrUpdate(args: IGetRequestArgs): Promise<GetRequestV2> {
 		const {
 			id,
 			source,
@@ -50,21 +49,19 @@ export class GetRequestService {
 			blockHash,
 			blockTimestamp,
 			transactionHash,
-			status,
 			chain,
 		} = args
-		let getRequest = await GetRequest.get(id)
+		let getRequest = await GetRequestV2.get(id)
 
 		logger.info(
-			`Processing Get Request: ${JSON.stringify({
+			`Processing Get RequestV2: ${JSON.stringify({
 				id,
 				transactionHash,
-				status,
 			})}`,
 		)
 
 		if (!getRequest) {
-			getRequest = GetRequest.create({
+			getRequest = GetRequestV2.create({
 				id,
 				chain: chain || "",
 				source: source || "",
@@ -79,15 +76,15 @@ export class GetRequestService {
 				blockNumber: blockNumber || "",
 				blockHash: blockHash || "",
 				transactionHash: transactionHash || "",
+				createdAt: timestampToDate(blockTimestamp || BigInt(Date.now())),
 				blockTimestamp: blockTimestamp || BigInt(0),
-				status: status || Status.SOURCE,
 				commitment: id,
 			})
 
 			await getRequest.save()
 
 			logger.info(
-				`Saved GetRequest Event: ${JSON.stringify({
+				`Saved GetRequestV2 Event: ${JSON.stringify({
 					id: getRequest.id,
 				})}`,
 			)
@@ -105,13 +102,12 @@ export class GetRequestService {
 			if (blockHash !== undefined) getRequest.blockHash = blockHash
 			if (transactionHash !== undefined) getRequest.transactionHash = transactionHash
 			if (blockTimestamp !== undefined) getRequest.blockTimestamp = blockTimestamp
-			if (status !== undefined) getRequest.status = status
 			if (chain !== undefined) getRequest.chain = chain
 
 			await getRequest.save()
 
 			logger.info(
-				`Updated GetRequest Event: ${JSON.stringify({
+				`Updated GetRequestV2 Event: ${JSON.stringify({
 					id: getRequest.id,
 				})}`,
 			)
@@ -128,7 +124,7 @@ export class GetRequestService {
 		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
 
 		logger.info(
-			`Updating Get Request Status: ${JSON.stringify({
+			`Updating Get RequestV2 Status: ${JSON.stringify({
 				commitment,
 				transactionHash,
 				status,
@@ -136,8 +132,7 @@ export class GetRequestService {
 		)
 
 		let getRequest = await this.createOrUpdate({
-			id: commitment,
-			status,
+			id: commitment
 		})
 
 		await getRequest.save()

@@ -1,5 +1,5 @@
 import { solidityKeccak256 } from "ethers/lib/utils"
-import { Request, Response, ResponseStatusMetadata, Status } from "@/configs/src/types"
+import { RequestV2, ResponseV2, ResponseStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
 import { timestampToDate } from "@/utils/date.helpers"
 
@@ -8,7 +8,7 @@ export interface ICreateResponseArgs {
 	commitment: string
 	response_message?: string | undefined
 	responseTimeoutTimestamp?: bigint | undefined
-	request?: Request | undefined
+	request?: RequestV2 | undefined
 	status: Status
 	blockNumber: string
 	blockHash: string
@@ -39,7 +39,7 @@ export class ResponseService {
 	/**
 	 * Finds a response enitity and creates a new one if it doesn't exist
 	 */
-	static async findOrCreate(args: ICreateResponseArgs): Promise<Response> {
+	static async findOrCreate(args: ICreateResponseArgs): Promise<ResponseV2> {
 		const {
 			chain,
 			commitment,
@@ -52,7 +52,7 @@ export class ResponseService {
 			blockTimestamp,
 			transactionHash,
 		} = args
-		let response = await Response.get(commitment)
+		let response = await ResponseV2.get(commitment)
 
 		logger.info(
 			`Creating PostResponse Event: ${JSON.stringify({
@@ -63,13 +63,12 @@ export class ResponseService {
 		)
 
 		if (typeof response === "undefined") {
-			response = Response.create({
+			response = ResponseV2.create({
 				id: commitment,
 				commitment,
 				chain,
 				response_message,
 				requestId: request?.id,
-				status,
 				responseTimeoutTimestamp,
 				createdAt: timestampToDate(blockTimestamp),
 			})
@@ -109,7 +108,7 @@ export class ResponseService {
 	static async updateStatus(args: IUpdateResponseStatusArgs): Promise<void> {
 		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
 
-		let response = await Response.get(commitment)
+		let response = await ResponseV2.get(commitment)
 
 		if (response) {
 			let responseStatusMetadata = ResponseStatusMetadata.create({
@@ -196,7 +195,7 @@ export class ResponseService {
 	 * Find responses by chain
 	 */
 	static async findByChain(chain: string) {
-		return Response.getByChain(chain, {
+		return ResponseV2.getByChain(chain, {
 			orderBy: "id",
 			limit: -1,
 		})
@@ -207,14 +206,14 @@ export class ResponseService {
 	 */
 	static async findByCommitment(commitment: string) {
 		// Since commitment is the ID, we can just use get()
-		return Response.get(commitment)
+		return ResponseV2.get(commitment)
 	}
 
 	/**
 	 * Find responses by request ID
 	 */
 	static async findByRequestId(requestId: string) {
-		return Response.getByRequestId(requestId, {
+		return ResponseV2.getByRequestId(requestId, {
 			orderBy: "id",
 			limit: -1,
 		})

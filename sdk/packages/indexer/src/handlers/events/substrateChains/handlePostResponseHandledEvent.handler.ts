@@ -1,7 +1,7 @@
 import { SubstrateEvent } from "@subql/types"
 import { ResponseService } from "@/services/response.service"
 import { Status } from "@/configs/src/types"
-import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
+import { getHostStateMachine, isHyperbridge, decodeRelayerAddress } from "@/utils/substrate.helpers"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
@@ -31,7 +31,7 @@ export const handleSubstratePostResponseHandledEvent = wrap(async (event: Substr
 	} = event
 
 	const eventData = event.event.data[0] as unknown as EventData
-	const relayer_id = eventData.relayer.toString()
+	const relayer_id = decodeRelayerAddress(eventData.relayer.toString())
 
 	logger.info(
 		`Handling ISMP PostRequestHandled Event: ${stringify({
@@ -51,9 +51,7 @@ export const handleSubstratePostResponseHandledEvent = wrap(async (event: Substr
 		status = Status.DESTINATION
 	}
 
-	logger.info(`Updating Hyperbridge chain stats for ${host}`)
-	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
-
+	// Critical: Update response status - must succeed for data integrity
 	logger.info(
 		`Handling ISMP PostRequestHandled Event: ${stringify({
 			commitment: response_commitment.toString(),
@@ -74,4 +72,12 @@ export const handleSubstratePostResponseHandledEvent = wrap(async (event: Substr
 		status,
 		transactionHash: extrinsic?.extrinsic.hash.toString() || "",
 	})
+
+	// Non-critical operations: Update hyperbridge stats
+	try {
+		logger.info(`Updating Hyperbridge chain stats for ${host}`)
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
+	} catch (error) {
+		logger.error(`Error in non-critical operations for PostResponseHandled: ${stringify(error)}`)
+	}
 })

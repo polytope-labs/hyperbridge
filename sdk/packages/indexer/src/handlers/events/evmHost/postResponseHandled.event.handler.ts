@@ -6,7 +6,7 @@ import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
-import { Transfer, Response, Request } from "@/configs/src/types"
+import { Transfer, ResponseV2, RequestV2 } from "@/configs/src/types"
 import { VolumeService } from "@/services/volume.service"
 import { getPriceDataFromEthereumLog, isERC20TransferEvent, extractAddressFromTopic } from "@/utils/transfer.helpers"
 import { TransferService } from "@/services/transfer.service"
@@ -34,21 +34,24 @@ export const handlePostResponseHandledEvent = wrap(async (event: PostResponseHan
 	const chain: string = getHostStateMachine(chainId)
 	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
+	// Critical: Update response status - must succeed for data integrity
+	await ResponseService.updateStatus({
+		commitment,
+		chain,
+		blockNumber: blockNumber.toString(),
+		blockTimestamp,
+		blockHash: block.hash,
+		status: Status.DESTINATION,
+		transactionHash,
+	})
+
+	// Non-critical operations: stats, parsing, transfers, and volumes
 	try {
-		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp)
+		// Update hyperbridge stats
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp, transaction)
 
-		await ResponseService.updateStatus({
-			commitment,
-			chain,
-			blockNumber: blockNumber.toString(),
-			blockTimestamp,
-			blockHash: block.hash,
-			status: Status.DESTINATION,
-			transactionHash,
-		})
-
+		// Parse transaction to extract addresses
 		let fromAddresses = [] as string[]
-
 		if (transaction?.input) {
 			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
 			if (name === "handlePostResponses" && args && args.length > 1) {
@@ -61,6 +64,7 @@ export const handlePostResponseHandledEvent = wrap(async (event: PostResponseHan
 			}
 		}
 
+		// Process transfers and update volumes
 		for (const [index, log] of safeArray(transaction?.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {
 				continue
@@ -105,6 +109,6 @@ export const handlePostResponseHandledEvent = wrap(async (event: PostResponseHan
 			}
 		}
 	} catch (error) {
-		logger.error(`Error updating handling post response: ${stringify(error)}`)
+		logger.error(`Error in non-critical operations for PostResponseHandled: ${stringify(error)}`)
 	}
 })

@@ -1,4 +1,4 @@
-import { Status, Transfer, Request } from "@/configs/src/types"
+import { Status, Transfer, RequestV2 } from "@/configs/src/types"
 import { PostRequestTimeoutHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { RequestService } from "@/services/request.service"
@@ -33,18 +33,18 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 	const chain: string = getHostStateMachine(chainId)
 	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
+	await RequestService.updateStatus({
+		commitment,
+		chain,
+		blockNumber: blockNumber.toString(),
+		blockHash: block.hash,
+		blockTimestamp,
+		status: Status.TIMED_OUT,
+		transactionHash,
+  })
+
 	try {
 		await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
-
-		await RequestService.updateStatus({
-			commitment,
-			chain,
-			blockNumber: blockNumber.toString(),
-			blockHash: block.hash,
-			blockTimestamp,
-			status: Status.TIMED_OUT,
-			transactionHash,
-		})
 
 		let fromAddresses = [] as string[]
 
@@ -104,6 +104,6 @@ export const handlePostRequestTimeoutHandledEvent = wrap(async (event: PostReque
 			}
 		}
 	} catch (error) {
-		logger.error(`Error updating handling post request timeout: ${stringify(error)}`)
+		logger.error(`Error indexing volume in post request timeout: ${stringify(error)}`)
 	}
 })

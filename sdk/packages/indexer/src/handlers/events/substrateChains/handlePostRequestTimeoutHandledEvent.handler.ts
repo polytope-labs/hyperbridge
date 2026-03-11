@@ -1,7 +1,7 @@
 import { SubstrateEvent } from "@subql/types"
 import { RequestService } from "@/services/request.service"
 import { Status } from "@/configs/src/types"
-import { Request } from "@/configs/src/types/models"
+import { RequestV2 } from "@/configs/src/types/models"
 import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { wrap } from "@/utils/event.utils"
@@ -34,9 +34,9 @@ export const handleSubstratePostRequestTimeoutHandledEvent = wrap(async (event: 
 		return
 	}
 
-	const request = await Request.get(timeoutData.commitment.toString())
+	const request = await RequestV2.get(timeoutData.commitment.toString())
 	if (!request) {
-		logger.error(`Request not found for commitment ${timeoutData.commitment.toString()}`)
+		logger.error(`RequestV2 not found for commitment ${timeoutData.commitment.toString()}`)
 		return
 	}
 

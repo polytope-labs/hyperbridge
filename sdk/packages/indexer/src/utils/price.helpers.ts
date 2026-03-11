@@ -1,6 +1,7 @@
 import Decimal from "decimal.js"
 import { safeFetch as fetch } from "@/utils/safeFetch"
 import type { Hex } from "viem"
+import { fetchWithRetry } from "./fetch-retry.helpers"
 
 import { CHAINLINK_PRICE_FEED_CONTRACT_ADDRESSES } from "@/addresses/chainlink-price-feeds.addresses"
 import { ENV_CONFIG, ITokenPriceFeedDetails } from "@/constants"
@@ -366,10 +367,13 @@ export default class PriceHelper {
 
 			const baseUrl = coingeckoApiKey ? "https://pro-api.coingecko.com" : "https://api.coingecko.com"
 
-			const response = await fetch(`${baseUrl}/api/v3/simple/price?symbols=${_symbols}&vs_currencies=usd`, {
-				method: "GET",
-				headers,
-			})
+			const response = await fetchWithRetry(
+				`${baseUrl}/api/v3/simple/price?symbols=${_symbols}&vs_currencies=usd`,
+				{
+					method: "GET",
+					headers,
+				}
+			)
 
 			if (!response.ok) {
 				throw new Error(`CoinGecko API error: ${response.status} ${response.statusText}`)

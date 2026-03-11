@@ -198,7 +198,7 @@ export enum TeleportStatus {
 }
 
 export interface TokenGatewayAssetTeleportedResponse {
-	tokenGatewayAssetTeleporteds: {
+	tokenGatewayAssetTeleportedV2s: {
 		nodes: Array<{
 			id: string
 			from: string
@@ -286,7 +286,7 @@ export interface StateMachineUpdate {
 }
 
 export interface RequestResponse {
-	requests: {
+	requestV2s: {
 		nodes: Array<{
 			source: string
 			dest: string
@@ -310,7 +310,7 @@ export interface RequestResponse {
 }
 
 export interface GetRequestResponse {
-	getRequests: {
+	getRequestV2s: {
 		nodes: Array<{
 			source: string
 			dest: string
@@ -465,7 +465,7 @@ export interface ResponseCommitmentWithValues {
 }
 
 export interface RequestCommitment {
-	requests: {
+	requestV2s: {
 		nodes: Array<{
 			id: string
 			commitment: string
@@ -500,7 +500,7 @@ export interface AssetTeleported {
 }
 
 export interface AssetTeleportedResponse {
-	assetTeleported: AssetTeleported
+	assetTeleportedV2: AssetTeleported
 }
 
 export interface StateMachineIdParams {
@@ -1192,29 +1192,9 @@ export interface TokenPricesResponse {
 	}
 }
 
-export interface TokenRegistry {
-	id: string
-	name: string
-	symbol: string
-	address?: string
-	updateFrequencySeconds: number
-	lastUpdatedAt: bigint
-	createdAt: Date
-}
 
-export interface TokenRegistryResponse {
-	tokenRegistries: {
-		nodes: Array<{
-			id: string
-			name: string
-			symbol: string
-			address: string
-			updateFrequencySeconds: number
-			lastUpdatedAt: bigint
-			createdAt: string
-		}>
-	}
-}
+
+
 
 /**
  * Represents a complete transaction structure for swap operations

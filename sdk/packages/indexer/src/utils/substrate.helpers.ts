@@ -1,6 +1,9 @@
 import { SubstrateEvent } from "@subql/types"
 import { CHAIN_IDS_BY_GENESIS, HYPERBRIDGE } from "@/constants"
 import { StateMachineId } from "@/types/network.types"
+import { hexToU8a, u8aToHex } from "@polkadot/util"
+import { encodeAddress } from "@polkadot/util-crypto"
+import { Bytes, Enum, Struct } from "scale-ts"
 
 /**
  * Get the StateMachineID parsing the stringified object which substrate provides
@@ -109,7 +112,7 @@ export function getHostStateMachine(chainId: string): StateMachineId {
 }
 
 export function isHyperbridge(host: StateMachineId): boolean {
-	return host === HYPERBRIDGE.mainnet || host === HYPERBRIDGE.testnet
+	return host === HYPERBRIDGE.mainnet || host === HYPERBRIDGE.testnet || host === HYPERBRIDGE.local
 }
 
 /**
@@ -206,4 +209,47 @@ export interface Get {
 		key: string
 		value: string
 	}[]
+}
+
+/**
+ * SCALE-encoded Signature enum definition using scale-ts
+ * Variants:
+ * - Evm { address: Vec<u8>, signature: Vec<u8> }
+ * - Sr25519 { public_key: Vec<u8>, signature: Vec<u8> }
+ * - Ed25519 { public_key: Vec<u8>, signature: Vec<u8> }
+ */
+const Signature = Enum({
+	Evm: Struct({ address: Bytes(), signature: Bytes() }),
+	Sr25519: Struct({ public_key: Bytes(), signature: Bytes() }),
+	Ed25519: Struct({ public_key: Bytes(), signature: Bytes() }),
+})
+
+/**
+ * Decodes a relayer address from potentially SCALE-encoded Signature bytes.
+ *
+ * The relayer field in Substrate events can be either:
+ * 1. A raw 32-byte public key/address (for direct submissions)
+ * 2. A SCALE-encoded Signature enum (signed by relayers)
+ *
+ * @param relayerHex The hex-encoded relayer bytes from the event
+ * @returns The decoded relayer address (SS58 for Substrate, hex for EVM)
+ */
+export function decodeRelayerAddress(relayerHex: string): string {
+	const bytes = hexToU8a(relayerHex)
+
+	if (bytes.length <= 32) {
+		// Raw address bytes - encode as SS58
+		return encodeAddress(relayerHex)
+	}
+
+	// Decode SCALE-encoded Signature enum
+	const decoded = Signature.dec(bytes)
+
+	if (decoded.tag === "Evm") {
+		// Evm variant - return as hex address
+		return u8aToHex(decoded.value.address)
+	} else {
+		// Sr25519 or Ed25519 - encode as SS58 address
+		return encodeAddress(decoded.value.public_key)
+	}
 }

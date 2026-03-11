@@ -6,14 +6,14 @@ import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 
 import { OrderStatus, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
-import { OrderV2 as OrderV2Placed } from "@/configs/src/types/models/OrderV2"
-import { OrderV2StatusMetadata } from "@/configs/src/types/models/OrderV2StatusMetadata"
-import { OrderV2PredispatchAsset } from "@/configs/src/types/models/OrderV2PredispatchAsset"
-import { OrderV2InputAsset } from "@/configs/src/types/models/OrderV2InputAsset"
-import { OrderV2OutputAsset } from "@/configs/src/types/models/OrderV2OutputAsset"
-import { OrderV2PartialFill } from "@/configs/src/types/models/OrderV2PartialFill"
-import { OrderV2PartialFillInputAsset } from "@/configs/src/types/models/OrderV2PartialFillInputAsset"
-import { OrderV2PartialFillOutputAsset } from "@/configs/src/types/models/OrderV2PartialFillOutputAsset"
+import { IOrderV2 as OrderV2Placed } from "@/configs/src/types/models/IOrderV2"
+import { IOrderV2StatusMetadata } from "@/configs/src/types/models/IOrderV2StatusMetadata"
+import { IOrderV2PredispatchAsset } from "@/configs/src/types/models/IOrderV2PredispatchAsset"
+import { IOrderV2InputAsset } from "@/configs/src/types/models/IOrderV2InputAsset"
+import { IOrderV2OutputAsset } from "@/configs/src/types/models/IOrderV2OutputAsset"
+import { IOrderV2PartialFill } from "@/configs/src/types/models/IOrderV2PartialFill"
+import { IOrderV2PartialFillInputAsset } from "@/configs/src/types/models/IOrderV2PartialFillInputAsset"
+import { IOrderV2PartialFillOutputAsset } from "@/configs/src/types/models/IOrderV2PartialFillOutputAsset"
 import { timestampToDate } from "@/utils/date.helpers"
 
 import { PointsService } from "./points.service"
@@ -57,10 +57,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			predispatch.assets.map(async (asset, index) => {
 				const assetId = `${orderId}-predispatch-${index}`
-				let assetEntity = await OrderV2PredispatchAsset.get(assetId)
+				let assetEntity = await IOrderV2PredispatchAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await OrderV2PredispatchAsset.create({
+					assetEntity = await IOrderV2PredispatchAsset.create({
 						id: assetId,
 						orderId,
 						token: asset.token,
@@ -84,10 +84,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			inputs.map(async (input, index) => {
 				const assetId = `${orderId}-input-${index}`
-				let assetEntity = await OrderV2InputAsset.get(assetId)
+				let assetEntity = await IOrderV2InputAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await OrderV2InputAsset.create({
+					assetEntity = await IOrderV2InputAsset.create({
 						id: assetId,
 						orderId,
 						token: input.token,
@@ -112,10 +112,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			outputs.assets.map(async (asset, index) => {
 				const assetId = `${orderId}-output-${index}`
-				let assetEntity = await OrderV2OutputAsset.get(assetId)
+				let assetEntity = await IOrderV2OutputAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await OrderV2OutputAsset.create({
+					assetEntity = await IOrderV2OutputAsset.create({
 						id: assetId,
 						orderId,
 						token: asset.token,
@@ -380,7 +380,7 @@ export class IntentGatewayV2Service {
 				const outputAssets: TokenInfo[] = []
 				for (let index = 0; index < 100; index++) {
 					const assetId = `${commitment}-output-${index}`
-					const asset = await OrderV2OutputAsset.get(assetId)
+					const asset = await IOrderV2OutputAsset.get(assetId)
 					if (!asset) break
 					outputAssets.push({
 						token: asset.token as Hex,
@@ -436,7 +436,7 @@ export class IntentGatewayV2Service {
 			}
 		}
 
-		const orderStatusMetadata = await OrderV2StatusMetadata.create({
+		const orderStatusMetadata = await IOrderV2StatusMetadata.create({
 			id: `${commitment}.${status}`,
 			orderId: orderPlaced?.id,
 			status,
@@ -477,9 +477,9 @@ export class IntentGatewayV2Service {
 
 		const partialFillId = `${transactionHash}.${logIndex}`
 
-		let partialFill = await OrderV2PartialFill.get(partialFillId)
+		let partialFill = await IOrderV2PartialFill.get(partialFillId)
 		if (!partialFill) {
-			partialFill = await OrderV2PartialFill.create({
+			partialFill = await IOrderV2PartialFill.create({
 				id: partialFillId,
 				orderId: commitment,
 				chain: chainId,
@@ -497,10 +497,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			inputs.map(async (input, index) => {
 				const assetId = `${partialFillId}-input-${index}`
-				let assetEntity = await OrderV2PartialFillInputAsset.get(assetId)
+				let assetEntity = await IOrderV2PartialFillInputAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await OrderV2PartialFillInputAsset.create({
+					assetEntity = await IOrderV2PartialFillInputAsset.create({
 						id: assetId,
 						partialFillId,
 						token: input.token,
@@ -517,15 +517,15 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			outputs.map(async (output, index) => {
 				const assetId = `${partialFillId}-output-${index}`
-				let assetEntity = await OrderV2PartialFillOutputAsset.get(assetId)
+				let assetEntity = await IOrderV2PartialFillOutputAsset.get(assetId)
 
 				// Try to reuse the beneficiary from the original order's output asset
 				const orderOutputAssetId = `${commitment}-output-${index}`
-				const orderOutputAsset = await OrderV2OutputAsset.get(orderOutputAssetId)
+				const orderOutputAsset = await IOrderV2OutputAsset.get(orderOutputAssetId)
 				const beneficiary = orderOutputAsset?.beneficiary ?? "0x0000000000000000000000000000000000000000"
 
 				if (!assetEntity) {
-					assetEntity = await OrderV2PartialFillOutputAsset.create({
+					assetEntity = await IOrderV2PartialFillOutputAsset.create({
 						id: assetId,
 						partialFillId,
 						token: output.token,

@@ -4,9 +4,10 @@ import { ERC6160Ext20Abi__factory, TokenGatewayAbi__factory } from "@/configs/sr
 import {
 	TeleportStatus,
 	TeleportStatusMetadata,
-	TokenGatewayAssetTeleported,
+	TokenGatewayAssetTeleportedV2,
 	ProtocolParticipantType,
 	PointsActivityType,
+	RequestV2,
 } from "@/configs/src/types"
 import { timestampToDate } from "@/utils/date.helpers"
 import { PointsService } from "./points.service"
@@ -61,10 +62,10 @@ export class TokenGatewayService {
 			blockNumber: number
 			timestamp: bigint
 		},
-	): Promise<TokenGatewayAssetTeleported> {
+	): Promise<TokenGatewayAssetTeleportedV2> {
 		const { transactionHash, blockNumber, timestamp } = logsData
 
-		let teleport = await TokenGatewayAssetTeleported.get(teleportParams.commitment)
+		let teleport = await TokenGatewayAssetTeleportedV2.get(teleportParams.commitment)
 
 		const tokenDetails = await this.getAssetDetails(teleportParams.assetId.toString())
 		const tokenAddress = tokenDetails.is_erc20 ? tokenDetails.erc20_address : tokenDetails.erc6160_address
@@ -77,7 +78,9 @@ export class TokenGatewayService {
 		const { amountValueInUSD } = PriceHelper.getAmountValueInUSD(teleportParams.amount, decimals, price)
 
 		if (!teleport) {
-			teleport = TokenGatewayAssetTeleported.create({
+			const request = await RequestV2.get(teleportParams.commitment)
+
+			teleport = TokenGatewayAssetTeleportedV2.create({
 				id: teleportParams.commitment,
 				from: teleportParams.from,
 				sourceChain: chainId,
@@ -93,6 +96,7 @@ export class TokenGatewayService {
 				blockNumber: BigInt(blockNumber),
 				blockTimestamp: timestamp,
 				transactionHash,
+				requestId: request?.id,
 			})
 			await teleport.save()
 
@@ -131,8 +135,8 @@ export class TokenGatewayService {
 	/**
 	 * Get teleport by commitment
 	 */
-	static async getByCommitment(commitment: string): Promise<TokenGatewayAssetTeleported | undefined> {
-		const teleport = await TokenGatewayAssetTeleported.get(commitment)
+	static async getByCommitment(commitment: string): Promise<TokenGatewayAssetTeleportedV2 | undefined> {
+		const teleport = await TokenGatewayAssetTeleportedV2.get(commitment)
 		return teleport
 	}
 
@@ -150,7 +154,7 @@ export class TokenGatewayService {
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp } = logsData
 
-		const teleport = await TokenGatewayAssetTeleported.get(commitment)
+		const teleport = await TokenGatewayAssetTeleportedV2.get(commitment)
 
 		if (teleport) {
 			teleport.status = status

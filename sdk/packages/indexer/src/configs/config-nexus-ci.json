@@ -2,7 +2,7 @@
   "hyperbridge-nexus": {
     "type": "substrate",
     "chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
-    "startBlock": 7179658,
+    "startBlock": 7259660,
     "stateMachineId": "POLKADOT-3367"
   },
   "gnosis-chiado": {

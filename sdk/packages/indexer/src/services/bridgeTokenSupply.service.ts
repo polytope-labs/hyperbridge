@@ -3,6 +3,7 @@ import { normalizeTimestamp, timestampToDate } from "@/utils/date.helpers"
 import { replaceWebsocketWithHttp } from "@/utils/rpc.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { safeFetch as fetch } from "@/utils/safeFetch"
+import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Codec, Vector, Struct, u128, u8, Tuple, u64, u32 } from "scale-ts"
 import { hexToBytes } from "viem"
@@ -134,16 +135,19 @@ export class BridgeTokenSupplyService {
 			// Storage key for balances.totalIssuance
 			const storageKey = "0xc2261276cc9d1f8598ea4b6a74b15c2f57c875e4cff74148e4628f264b974c80"
 
-			const response = await fetch(rpcUrl, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					jsonrpc: "2.0",
-					id: 1,
-					method: "state_getStorage",
-					params: [storageKey, null],
-				}),
-			})
+			const response = await fetchWithRetry(
+				rpcUrl,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "state_getStorage",
+						params: [storageKey, null],
+					}),
+				}
+			)
 
 			const result: SubstrateStorageResponse = await response.json()
 
@@ -222,16 +226,19 @@ export class BridgeTokenSupplyService {
 			// Storage key for balances.inactiveIssuance
 			const storageKey = "0xc2261276cc9d1f8598ea4b6a74b15c2f1ccde6872881f893a21de93dfe970cd5"
 
-			const response = await fetch(rpcUrl, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					jsonrpc: "2.0",
-					id: 1,
-					method: "state_getStorage",
-					params: [storageKey, null],
-				}),
-			})
+			const response = await fetchWithRetry(
+				rpcUrl,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "state_getStorage",
+						params: [storageKey, null],
+					}),
+				}
+			)
 
 			const result: SubstrateStorageResponse = await response.json()
 
@@ -270,16 +277,19 @@ export class BridgeTokenSupplyService {
 				"0x26aa394eea5630e07c48ae0c9558cef7b99d880ec681799c0cf30e8886371da9a6f084e8a3b94abf6e45b5ee4bcc89db5525104d00c439213dcbf428b867f0930754f100b75873382f2103ce5f846163"
 
 			// Query multiple storage keys at once
-			const response = await fetch(rpcUrl, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					jsonrpc: "2.0",
-					id: 1,
-					method: "state_queryStorageAt",
-					params: [[foundation_account_key, team_account_key], null],
-				}),
-			})
+			const response = await fetchWithRetry(
+				rpcUrl,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "state_queryStorageAt",
+						params: [[foundation_account_key, team_account_key], null],
+					}),
+				}
+			)
 
 			const result = await response.json()
 
@@ -336,16 +346,19 @@ export class BridgeTokenSupplyService {
 
 			// Keep fetching keys until we get all of them (pagination)
 			while (true) {
-				const keysResponse = await fetch(rpcUrl, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						jsonrpc: "2.0",
-						id: 1,
-						method: "state_getKeysPaged",
-						params: [storageKeyPrefix, pageSize, startKey, null],
-					}),
-				})
+				const keysResponse = await fetchWithRetry(
+					rpcUrl,
+					{
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: 1,
+							method: "state_getKeysPaged",
+							params: [storageKeyPrefix, pageSize, startKey, null],
+						}),
+					}
+				)
 
 				const keysResult: SubstrateKeysResponse = await keysResponse.json()
 
@@ -404,16 +417,19 @@ export class BridgeTokenSupplyService {
 	private static async processBatchLocks(rpcUrl: string, keys: string[]): Promise<bigint | Error> {
 		try {
 			// Query multiple storage keys at once
-			const response = await fetch(rpcUrl, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					jsonrpc: "2.0",
-					id: 1,
-					method: "state_queryStorageAt",
-					params: [keys, null],
-				}),
-			})
+			const response = await fetchWithRetry(
+				rpcUrl,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "state_queryStorageAt",
+						params: [keys, null],
+					}),
+				}
+			)
 
 			const result = await response.json()
 

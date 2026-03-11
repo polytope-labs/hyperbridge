@@ -1,6 +1,6 @@
 import { solidityKeccak256 } from "ethers/lib/utils"
 import { Status } from "@/configs/src/types/enums"
-import { Request, RequestStatusMetadata } from "@/configs/src/types/models"
+import { RequestV2, RequestStatusMetadata } from "@/configs/src/types/models"
 import { ethers } from "ethers"
 import { timestampToDate } from "@/utils/date.helpers"
 
@@ -15,7 +15,6 @@ export interface ICreateRequestArgs {
 	source?: string | undefined
 	timeoutTimestamp?: bigint | undefined
 	to?: string | undefined
-	status: Status
 	blockNumber: string
 	blockHash: string
 	transactionHash: string
@@ -47,7 +46,7 @@ export class RequestService {
 	 * Finds a request entity and creates a new one if it doesn't exist
 	 * If the request exists, it updates the request details
 	 */
-	static async createOrUpdate(args: ICreateRequestArgs): Promise<Request> {
+	static async createOrUpdate(args: ICreateRequestArgs): Promise<RequestV2> {
 		const {
 			chain,
 			commitment,
@@ -57,7 +56,6 @@ export class RequestService {
 			from,
 			nonce,
 			source,
-			status,
 			timeoutTimestamp,
 			to,
 			blockNumber,
@@ -65,19 +63,18 @@ export class RequestService {
 			transactionHash,
 			blockTimestamp,
 		} = args
-		let request = await Request.get(commitment)
+		let request = await RequestV2.get(commitment)
 
 		logger.info(
-			`Processing Request: ${JSON.stringify({
+			`Processing RequestV2: ${JSON.stringify({
 				commitment,
 				transactionHash,
-				status,
 			})}`,
 		)
 
 		if (typeof request === "undefined") {
 			// Create new request if it doesn't exist
-			request = Request.create({
+			request = RequestV2.create({
 				id: commitment,
 				chain,
 				body: body || "",
@@ -86,7 +83,6 @@ export class RequestService {
 				from: from || "",
 				nonce: nonce || BigInt(0),
 				source: source || "",
-				status,
 				timeoutTimestamp: timeoutTimestamp || BigInt(0),
 				to: to || "",
 				commitment,
@@ -99,7 +95,6 @@ export class RequestService {
 				`Created new request with details ${JSON.stringify({
 					commitment,
 					transactionHash,
-					status,
 				})}`,
 			)
 		} else {
@@ -119,7 +114,6 @@ export class RequestService {
 				`Updated existing request with details ${JSON.stringify({
 					commitment,
 					transactionHash,
-					status,
 				})}`,
 			)
 		}
@@ -135,14 +129,14 @@ export class RequestService {
 		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
 
 		logger.info(
-			`Updating Request Status: ${JSON.stringify({
+			`Updating RequestV2 Status: ${JSON.stringify({
 				commitment,
 				transactionHash,
 				status,
 			})}`,
 		)
 
-		let request = await Request.get(commitment)
+		let request = await RequestV2.get(commitment)
 
 		if (!request) {
 			// Create new request and request status metadata
@@ -161,9 +155,8 @@ export class RequestService {
 				blockNumber: "",
 				blockHash: "",
 				blockTimestamp: 0n,
-				status,
 				transactionHash: "",
-				createdAt: timestampToDate(0n),
+				createdAt: timestampToDate(Date.now()),
 			})
 
 			logger.info(

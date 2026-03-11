@@ -3,7 +3,7 @@ import { Hex } from "viem"
 /**
  * Read-only storage query description for a cross-chain GET request.
  */
-export interface GetRequest {
+export interface GetRequestV2 {
 	// The source state machine of this request.
 	source: string
 	// The destination state machine of this request.
@@ -40,13 +40,13 @@ export interface GetResponseStorageValues {
 }
 
 /**
- * Response payload to a prior {@link GetRequest}.
+ * ResponseV2 payload to a prior {@link GetRequestV2}.
  */
 export interface GetResponse {
 	/**
 	 * The request that triggered this response.
 	 */
-	get: GetRequest
+	get: GetRequestV2
 	/**
 	 * The response message.
 	 */
@@ -74,7 +74,7 @@ export interface PostRequest {
 }
 
 /**
- * Response payload to a prior {@link PostRequest}.
+ * ResponseV2 payload to a prior {@link PostRequest}.
  */
 export interface PostResponse {
 	// The request that triggered this response.
@@ -89,7 +89,7 @@ export interface PostResponse {
  * Batched GET request timeouts with proof for verification at a given height.
  */
 export interface GetTimeoutMessage {
-	timeouts: GetRequest[]
+	timeouts: GetRequestV2[]
 	height: StateMachineHeight
 	proof: Hex[]
 }

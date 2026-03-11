@@ -137,16 +137,16 @@ type HyperBridgeChainStats @entity {
 """
 Hyperbridge Stats for a specific Relayer on a specific chain
 """
-type RelayerStatsPerChain @entity @compositeIndexes(fields: [["relayer", "chain"], ["feesEarned", "chain"]]) {
+type RelayerStatsPerChainV2 @entity @compositeIndexes(fields: [["relayer", "chain"], ["feesEarned", "chain"]]) {
 	"""
-	Unique identifier of the RelayerChainMetrics entry.
+	Unique identifier of the RelayerStatsPerChainV2 entry.
 	"""
 	id: ID!
 
 	"""
 	The relayer the metrics are for
 	"""
-	relayer: Relayer!
+	relayer: RelayerV2!
 
 	"""
 	The chain the metrics are for
@@ -159,19 +159,9 @@ type RelayerStatsPerChain @entity @compositeIndexes(fields: [["relayer", "chain"
 	numberOfSuccessfulMessagesDelivered: BigInt!
 
 	"""
-	Total number of failed post requests handled by the Relayer
-	"""
-	numberOfFailedMessagesDelivered: BigInt!
-
-	"""
 	Amount of gas spent on successful messages (Gas Cost)
 	"""
 	gasUsedForSuccessfulMessages: BigInt!
-
-	"""
-	Amount of gas spent on failed messages (Gas Cost)
-	"""
-	gasUsedForFailedMessages: BigInt!
 
 	"""
 	Gas fee spent on successful post requests (Gas Cost * Gas Price)
@@ -179,30 +169,25 @@ type RelayerStatsPerChain @entity @compositeIndexes(fields: [["relayer", "chain"
 	gasFeeForSuccessfulMessages: BigInt!
 
 	"""
-	Gas fee spent on failed post requests (Gas Cost * Gas Price)
-	"""
-	gasFeeForFailedMessages: BigInt!
-
-	"""
 	The USD value of the gas fee spent on successful post requests
 	"""
 	usdGasFeeForSuccessfulMessages: BigInt!
 
 	"""
-	The USD value of the gas fee spent on failed post requests
-	"""
-	usdGasFeeForFailedMessages: BigInt!
-
-	"""
 	Total fees earned by the relayer
 	"""
 	feesEarned: BigInt! @index
+
+	"""
+	Cumulative amount withdrawn by the relayer on this chain
+	"""
+	cumulativeWithdrawnAmount: BigInt
 }
 
 """
 A Hyperbridge Relayer
 """
-type Relayer @entity {
+type RelayerV2 @entity {
 	"""
 	Unique identifier of the Relayer (also the relayer's address)
 	"""
@@ -211,7 +196,7 @@ type Relayer @entity {
 	"""
 	A list of important stats for the Relayer on every network that they support
 	"""
-	perChainStats: [RelayerStatsPerChain]! @derivedFrom(field: "relayer")
+	perChainStats: [RelayerStatsPerChainV2]! @derivedFrom(field: "relayer")
 
 	"""
 	Latest activity for this relayer
@@ -231,7 +216,7 @@ type RelayerActivity @entity {
 	"""
 	Relayer the activities are for
 	"""
-	relayer: Relayer!
+	relayer: RelayerV2!
 
 	"""
 	Last updated at
@@ -331,7 +316,7 @@ type StateMachineUpdateEvent
 """
 A Hyperbridge Request
 """
-type Request @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
+type RequestV2 @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	"""
 	Unique identifier of the Request (This is the request commitment)
 	"""
@@ -388,11 +373,6 @@ type Request @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	fee: BigInt!
 
 	"""
-	Status of the request
-	"""
-	status: Status!
-
-	"""
 	Metatdata about the request's progression through different statuses
 	"""
 	statusMetadata: [RequestStatusMetadata]! @derivedFrom(field: "request")
@@ -445,7 +425,7 @@ type RequestStatusMetadata @entity {
 	"""
 	The request that owns this status change
 	"""
-	request: Request!
+	request: RequestV2!
 
 	"""
 	The timestamp when this record was created
@@ -456,7 +436,7 @@ type RequestStatusMetadata @entity {
 """
 A Hyperbridge Response
 """
-type Response @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
+type ResponseV2 @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	"""
 	Unique identifier of the Response (This is the response commitment)
 	"""
@@ -483,14 +463,9 @@ type Response @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	responseTimeoutTimestamp: BigInt
 
 	"""
-	Status of the response
-	"""
-	status: Status!
-
-	"""
 	The request that triggered this response
 	"""
-	request: Request
+	request: RequestV2
 
 	"""
 	Metatdata about the response's progression through different statuses
@@ -545,7 +520,7 @@ type ResponseStatusMetadata @entity {
 	"""
 	The response that owns this status change
 	"""
-	response: Response!
+	response: ResponseV2!
 
 	"""
 	The timestamp when this record was created
@@ -581,7 +556,7 @@ type RewardsActivityLog
 """
 Record of assets teleported via the XCM Gateway
 """
-type AssetTeleported @entity {
+type AssetTeleportedV2 @entity {
 	"""
 	Unique identifier of the teleported asset
 	"""
@@ -626,13 +601,18 @@ type AssetTeleported @entity {
 	The block in which the event occurred
 	"""
 	blockNumber: Int!
+
+	"""
+	The associated request for this teleport (linked via commitment)
+	"""
+	request: RequestV2
 }
 
 """
 Represents a cross-chain get request event
 This entity stores information about requests to fetch data from a source chain to a destination chain
 """
-type GetRequest @entity {
+type GetRequestV2 @entity {
 	"""
 	Unique identifier for the get request, computed as keccak256 hash of the encoded request parameters
 	"""
@@ -690,10 +670,6 @@ type GetRequest @entity {
 	"""
 	blockTimestamp: BigInt!
 	"""
-	Status of the request
-	"""
-	status: Status!
-	"""
 	Metatdata about the request's progression through different statuses
 	"""
 	statusMetadata: [GetRequestStatusMetadata]! @derivedFrom(field: "request")
@@ -705,6 +681,11 @@ type GetRequest @entity {
 	commitment of the request
 	"""
 	commitment: String!
+
+	"""
+	Creation timestamp of this request
+	"""
+	createdAt: Date @index
 }
 
 """
@@ -749,7 +730,7 @@ type GetRequestStatusMetadata @entity {
 	"""
 	The request that owns this status change
 	"""
-	request: GetRequest!
+	request: GetRequestV2!
 
 	"""
 	The timestamp when this record was created
@@ -789,7 +770,7 @@ type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 	"""
 	The request that triggered this response
 	"""
-	request: GetRequest
+	request: GetRequestV2
 
 	"""
 	The timestamp when this record was created
@@ -984,7 +965,7 @@ type OrderStatusMetadata @entity {
 Represents an order placed through the IntentGatewayV2 contract.
 This entity tracks cross-chain orders for V2 of the IntentGateway.
 """
-type OrderV2 @entity {
+type IOrderV2 @entity {
 	"""
 	Unique identifier for the order (commitment)
 	"""
@@ -1043,17 +1024,17 @@ type OrderV2 @entity {
 	"""
 	Metatdata about the order's progression through different statuses
 	"""
-	statusMetadata: [OrderV2StatusMetadata]! @derivedFrom(field: "order")
+	statusMetadata: [IOrderV2StatusMetadata]! @derivedFrom(field: "order")
 
 	"""
 	Partial fill events for this order
 	"""
-	partialFills: [OrderV2PartialFill!]! @derivedFrom(field: "order")
+	partialFills: [IOrderV2PartialFill!]! @derivedFrom(field: "order")
 
 	"""
 	Predispatch assets for this order
 	"""
-	predispatchAssets: [OrderV2PredispatchAsset!]! @derivedFrom(field: "order")
+	predispatchAssets: [IOrderV2PredispatchAsset!]! @derivedFrom(field: "order")
 
 	"""
 	Pre dispatch calldata
@@ -1063,12 +1044,12 @@ type OrderV2 @entity {
 	"""
 	Input assets for this order
 	"""
-	inputAssets: [OrderV2InputAsset!]! @derivedFrom(field: "order")
+	inputAssets: [IOrderV2InputAsset!]! @derivedFrom(field: "order")
 
 	"""
 	Output assets for this order
 	"""
-	outputAssets: [OrderV2OutputAsset!]! @derivedFrom(field: "order")
+	outputAssets: [IOrderV2OutputAsset!]! @derivedFrom(field: "order")
 
 	"""
 	Post dispatch calldata
@@ -1102,9 +1083,9 @@ type OrderV2 @entity {
 }
 
 """
-Represents a predispatch asset in an OrderV2
+Represents a predispatch asset in an IOrderV2
 """
-type OrderV2PredispatchAsset @entity {
+type IOrderV2PredispatchAsset @entity {
 	"""
 	Unique identifier: {orderId}-predispatch-{index}
 	"""
@@ -1113,7 +1094,7 @@ type OrderV2PredispatchAsset @entity {
 	"""
 	The order this asset belongs to
 	"""
-	order: OrderV2!
+	order: IOrderV2!
 
 	"""
 	Token address (bytes32 format)
@@ -1132,9 +1113,9 @@ type OrderV2PredispatchAsset @entity {
 }
 
 """
-Represents an input asset in an OrderV2
+Represents an input asset in an IOrderV2
 """
-type OrderV2InputAsset @entity {
+type IOrderV2InputAsset @entity {
 	"""
 	Unique identifier: {orderId}-input-{index}
 	"""
@@ -1143,7 +1124,7 @@ type OrderV2InputAsset @entity {
 	"""
 	The order this asset belongs to
 	"""
-	order: OrderV2!
+	order: IOrderV2!
 
 	"""
 	Token address (bytes32 format)
@@ -1162,9 +1143,9 @@ type OrderV2InputAsset @entity {
 }
 
 """
-Represents an output asset in an OrderV2
+Represents an output asset in an IOrderV2
 """
-type OrderV2OutputAsset @entity {
+type IOrderV2OutputAsset @entity {
 	"""
 	Unique identifier: {orderId}-output-{index}
 	"""
@@ -1173,7 +1154,7 @@ type OrderV2OutputAsset @entity {
 	"""
 	The order this asset belongs to
 	"""
-	order: OrderV2!
+	order: IOrderV2!
 
 	"""
 	Token address (bytes32 format)
@@ -1197,11 +1178,11 @@ type OrderV2OutputAsset @entity {
 }
 
 """
-Metadata about the status of an OrderV2
+Metadata about the status of an IOrderV2
 """
-type OrderV2StatusMetadata @entity {
+type IOrderV2StatusMetadata @entity {
 	"""
-	The ID of the OrderV2StatusMetadata
+	The ID of the status metadata
 	"""
 	id: ID!
 
@@ -1233,7 +1214,7 @@ type OrderV2StatusMetadata @entity {
 	"""
 	The order that owns this status change
 	"""
-	order: OrderV2
+	order: IOrderV2
 
 	"""
 	The filler of the order if the order has been filled
@@ -1247,9 +1228,9 @@ type OrderV2StatusMetadata @entity {
 }
 
 """
-Represents a partial fill event for an OrderV2. Each record corresponds to a single on-chain PartialFill emission.
+Represents a partial fill event for an IOrderV2. Each record corresponds to a single on-chain PartialFill emission.
 """
-type OrderV2PartialFill @entity {
+type IOrderV2PartialFill @entity {
 	"""
 	Unique identifier for the partial fill event. Recommended format: {commitment}.{sequence} or {transactionHash}.{logIndex}
 	"""
@@ -1258,7 +1239,7 @@ type OrderV2PartialFill @entity {
 	"""
 	The order this partial fill belongs to
 	"""
-	order: OrderV2!
+	order: IOrderV2!
 
 	"""
 	The chain on which the partial fill occurred
@@ -1288,12 +1269,12 @@ type OrderV2PartialFill @entity {
 	"""
 	Input assets released from escrow for this partial fill
 	"""
-	inputAssets: [OrderV2PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
+	inputAssets: [IOrderV2PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
 
 	"""
 	Output assets delivered in this partial fill
 	"""
-	outputAssets: [OrderV2PartialFillOutputAsset!]! @derivedFrom(field: "partialFill")
+	outputAssets: [IOrderV2PartialFillOutputAsset!]! @derivedFrom(field: "partialFill")
 
 	"""
 	The timestamp when this record was created
@@ -1302,9 +1283,9 @@ type OrderV2PartialFill @entity {
 }
 
 """
-Represents an input asset released from escrow in an OrderV2 partial fill
+Represents an input asset released from escrow in an IOrderV2 partial fill
 """
-type OrderV2PartialFillInputAsset @entity {
+type IOrderV2PartialFillInputAsset @entity {
 	"""
 	Unique identifier: {partialFillId}-input-{index}
 	"""
@@ -1313,7 +1294,7 @@ type OrderV2PartialFillInputAsset @entity {
 	"""
 	The partial fill this input asset belongs to
 	"""
-	partialFill: OrderV2PartialFill!
+	partialFill: IOrderV2PartialFill!
 
 	"""
 	Token address (bytes32 format)
@@ -1332,9 +1313,9 @@ type OrderV2PartialFillInputAsset @entity {
 }
 
 """
-Represents an output asset delivered in an OrderV2 partial fill
+Represents an output asset delivered in an IOrderV2 partial fill
 """
-type OrderV2PartialFillOutputAsset @entity {
+type IOrderV2PartialFillOutputAsset @entity {
 	"""
 	Unique identifier: {partialFillId}-output-{index}
 	"""
@@ -1343,7 +1324,7 @@ type OrderV2PartialFillOutputAsset @entity {
 	"""
 	The partial fill this output asset belongs to
 	"""
-	partialFill: OrderV2PartialFill!
+	partialFill: IOrderV2PartialFill!
 
 	"""
 	Token address (bytes32 format)
@@ -1370,7 +1351,7 @@ type OrderV2PartialFillOutputAsset @entity {
 Represents a teleport of assets through the TokenGateway contract.
 This entity tracks cross-chain asset teleports.
 """
-type TokenGatewayAssetTeleported @entity {
+type TokenGatewayAssetTeleportedV2 @entity {
 	"""
 	Unique identifier for the teleport (commitment)
 	"""
@@ -1450,6 +1431,11 @@ type TokenGatewayAssetTeleported @entity {
 	Hash of the transaction that initiated the teleport
 	"""
 	transactionHash: String!
+
+	"""
+	The associated request for this teleport (linked via commitment)
+	"""
+	request: RequestV2
 }
 
 """
@@ -1489,7 +1475,7 @@ type TeleportStatusMetadata @entity {
 	"""
 	The teleport that owns this status change
 	"""
-	teleport: TokenGatewayAssetTeleported!
+	teleport: TokenGatewayAssetTeleportedV2!
 
 	"""
 	The timestamp when this record was created
@@ -1639,132 +1625,6 @@ type TokenPriceLog @entity @compositeIndexes(fields: [["symbol", "timestamp"], [
 	Timestamp when price was recorded
 	"""
 	timestamp: BigInt! @index
-
-	"""
-	Record creation timestamp
-	"""
-	createdAt: Date! @index
-}
-
-"""
-Token list from CoinGecko OnChain DEX API - stores tokens with their pair information
-"""
-type TokenList @entity @compositeIndexes(fields: [["chainId", "updatedAt"]]) {
-	"""
-	Unique identifier: tokenAddress-chainId (e.g., "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2-1")
-	"""
-	id: ID!
-
-	"""
-	Token contract address (zero address for native tokens)
-	"""
-	tokenAddress: String! @index
-
-	"""
-	Numeric EVM chain id (as string) the token belongs to
-	"""
-	chainId: String! @index
-
-	"""
-	Token name (e.g., "Wrapped Ether", "USD Coin")
-	"""
-	tokenName: String!
-
-	"""
-	Token symbol (e.g., "WETH", "USDC", "USDT")
-	"""
-	tokenSymbol: String!
-
-	"""
-	Token image URI from CoinGecko (nullable if not available)
-	"""
-	tokenURI: String
-
-	"""
-	Array of pair information strings in format: "pairAddress-TokenSymbol-protocolName-fee"
-	Example: "0xe0554a476a092703abdb3ef35c80e0d76d32939f-WETH-uniswap_v3-0.01"
-	"""
-	pairedWith: [String!]!
-
-	"""
-	When the token list was last synced
-	"""
-	updatedAt: Date! @index
-
-	"""
-	When this token entry was first created
-	"""
-	createdAt: Date! @index
-}
-
-"""
-Sync state for CoinGecko Token List pagination - tracks current page number per chain
-"""
-type TokenListSyncState @entity {
-	"""
-	Unique identifier: networkName (e.g., "eth", "polygon_pos", "arbitrum")
-	"""
-	id: ID!
-
-	"""
-	CoinGecko OnChain network name (e.g., "eth", "polygon_pos", "arbitrum")
-	"""
-	networkName: String! @index
-
-	"""
-	Numeric EVM chain id (as string) the sync state belongs to
-	"""
-	chainId: String! @index
-
-	"""
-	Current page number for pagination (starts at 1)
-	"""
-	currentPage: Int!
-
-	"""
-	Timestamp when this sync state was last updated
-	"""
-	lastUpdatedAt: Date! @index
-
-	"""
-	When this sync state entry was first created
-	"""
-	createdAt: Date! @index
-}
-
-"""
-Token Registry - Configuration and metadata for supported tokens
-"""
-type TokenRegistry @entity @compositeIndexes(fields: [["symbol", "lastUpdatedAt"], ["symbol", "createdAt"]]) {
-	"""
-	Unique identifier: symbol (e.g., ETH, DOT)
-	"""
-	id: ID!
-
-	"""
-	Token name (e.g., Ethereum, Polkadot, USD Coin)
-	"""
-	name: String!
-
-	"""
-	Token symbol (e.g., ETH, DOT, USDC)
-	"""
-	symbol: String! @index
-
-	"""
-	Token contract address (zero address for native tokens)
-	"""
-	address: String
-
-	"""
-	Update frequency in seconds for price feeds
-	"""
-	updateFrequencySeconds: Int!
-
-	"""
-	Timestamp when this token configuration was last updated
-	"""
-	lastUpdatedAt: BigInt! @index
 
 	"""
 	Record creation timestamp
@@ -1997,4 +1857,133 @@ type DustSwept @entity {
 	Timestamp when this record was last updated
 	"""
 	lastUpdated: Date! @index
+}
+
+"""
+Collator rewards indexed from treasury transfers to block authors
+"""
+type HyperbridgeCollatorReward @entity {
+	"""
+	Unique identifier for the collator reward entry (collator address)
+	"""
+	id: ID!
+
+	"""
+	The total amount of rewards this collator has ever received
+	"""
+	totalRewardAmount: BigInt
+
+	"""
+	Total number of blocks authored by this collator
+	"""
+	totalBlocksAuthored: BigInt
+
+	"""
+	Timestamp of the last reward received
+	"""
+	lastRewardedAt: Date
+}
+
+"""
+Record of daily collator rewards paid out by the treasury
+"""
+type DailyTreasuryCollatorReward @entity {
+	id: ID! # ID is: {YYYY-MM-DD}
+	date: Date!
+	dailyRewardAmount: BigInt!
+}
+
+"""
+Types of relayer rewards
+"""
+enum RelayerRewardType {
+	CONSENSUS_REWARD
+	MESSAGING_REWARD
+}
+
+"""
+Per-transaction record of relayer rewards
+Enables querying individual reward transactions for specific relayers
+"""
+type RelayerRewardTransaction @entity @compositeIndexes(fields: [["relayer", "chain"], ["rewardType", "chain"]]) {
+	"""
+	Unique identifier: {relayerAddress}-{blockNumber}-{extrinsicIndex}
+	"""
+	id: ID!
+
+	"""
+	The relayer address that received the reward
+	"""
+	relayer: String! @index
+
+	"""
+	The chain on which the reward was issued
+	"""
+	chain: String! @index
+
+	"""
+	The amount of the reward
+	"""
+	amount: BigInt! @index
+
+	"""
+	The type of reward (consensus, messaging, or fee)
+	"""
+	rewardType: RelayerRewardType! @index
+
+	"""
+	Block number where the reward was issued
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block
+	"""
+	blockTimestamp: BigInt!
+
+	"""
+	Hash of the extrinsic that triggered the reward
+	"""
+	extrinsicHash: String
+
+	"""
+	Timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Per-transaction record of collator rewards on Hyperbridge
+Enables querying individual reward transactions for specific collators
+"""
+type HyperbridgeCollatorRewardTransaction @entity {
+	"""
+	Unique identifier: {collatorAddress}-{blockNumber}
+	"""
+	id: ID!
+
+	"""
+	The collator address that received the reward
+	"""
+	collator: String! @index
+
+	"""
+	The amount of the reward
+	"""
+	amount: BigInt! @index
+
+	"""
+	Block number where the reward was issued (also the block authored by this collator)
+	"""
+	blockNumber: BigInt! @index
+
+	"""
+	Timestamp of the block
+	"""
+	blockTimestamp: BigInt!
+
+	"""
+	Timestamp when this record was created
+	"""
+	createdAt: Date! @index
 }

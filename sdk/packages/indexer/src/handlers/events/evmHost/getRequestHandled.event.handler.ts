@@ -34,21 +34,24 @@ export const handleGetRequestHandledEvent = wrap(async (event: GetRequestHandled
 	const chain = getHostStateMachine(chainId)
 	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
+	// Critical: Update request status - must succeed for data integrity
+	await GetRequestService.updateStatus({
+		commitment,
+		chain,
+		blockNumber: blockNumber.toString(),
+		blockHash: block.hash,
+		blockTimestamp,
+		status: Status.DESTINATION,
+		transactionHash,
+	})
+
+	// Non-critical operations: stats, parsing, transfers, and volumes
 	try {
-		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp)
+		// Update hyperbridge stats
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp, transaction)
 
-		await GetRequestService.updateStatus({
-			commitment,
-			chain,
-			blockNumber: blockNumber.toString(),
-			blockHash: block.hash,
-			blockTimestamp,
-			status: Status.DESTINATION,
-			transactionHash,
-		})
-
+		// Parse transaction to extract addresses
 		let fromAddresses = [] as string[]
-
 		if (transaction?.input) {
 			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
 
@@ -62,6 +65,7 @@ export const handleGetRequestHandledEvent = wrap(async (event: GetRequestHandled
 			}
 		}
 
+		// Process transfers and update volumes
 		for (const [index, log] of safeArray(transaction?.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {
 				continue
@@ -106,6 +110,6 @@ export const handleGetRequestHandledEvent = wrap(async (event: GetRequestHandled
 			}
 		}
 	} catch (error) {
-		logger.error(`Error handling GetRequestHandled Event: ${error}`)
+		logger.error(`Error in non-critical operations for GetRequestHandled: ${stringify(error)}`)
 	}
 })

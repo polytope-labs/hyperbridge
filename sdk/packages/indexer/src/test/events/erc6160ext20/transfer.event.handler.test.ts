@@ -1,8 +1,8 @@
 import { subqlTest } from "@subql/testing"
-import { Relayer, Transfer } from "@/configs/src/types"
+import { RelayerV2, Transfer } from "@/configs/src/types"
 
 const existingEntities = [
-	Relayer.create({
+	RelayerV2.create({
 		id: "0xbC50b90751bfCccbFa4c7220261909d0f528b00f",
 	}),
 ]

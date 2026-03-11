@@ -2,13 +2,13 @@ import http from "http"
 import https from "https"
 import { URL } from "url"
 
-interface SafeFetchOptions {
+export interface SafeFetchOptions {
 	method?: string
 	headers?: Record<string, string>
 	body?: string
 }
 
-interface SafeFetchResponse {
+export interface SafeFetchResponse {
 	ok: boolean
 	status: number
 	statusText: string
@@ -79,7 +79,7 @@ export function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<
 
 		req.on("timeout", () => {
 			req.destroy()
-			reject(new Error(`Request to ${url} timed out`))
+			reject(new Error(`RequestV2 to ${url} timed out`))
 		})
 
 		if (options.body) {

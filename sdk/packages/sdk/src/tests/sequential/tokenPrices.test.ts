@@ -68,29 +68,4 @@ describe.sequential("Token Price and Registry Integration Tests", () => {
 		},
 		15_000,
 	)
-
-	it.sequential(
-		"should validate indexer connectivity and basic functionality",
-		async () => {
-			const tokens = `
-			query TokenRegistries {
-				tokenRegistries(first: 1) {
-					totalCount
-				}
-			}
-		`
-
-			try {
-				const result = (await queryClient.request(tokens)) as { tokenRegistries: { totalCount: number } }
-
-				expect(result.tokenRegistries).toBeDefined()
-				expect(typeof result.tokenRegistries.totalCount).toBe("number")
-				expect(result.tokenRegistries.totalCount).toBeGreaterThan(0)
-			} catch (error) {
-				console.error(error)
-				expect(error).toBeUndefined()
-			}
-		},
-		10_000,
-	)
 })

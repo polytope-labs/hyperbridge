@@ -33,10 +33,6 @@ export { handleAssetTeleportedEvent } from "@/handlers/events/tokenGateway/asset
 export { handleAssetReceivedEvent } from "@/handlers/events/tokenGateway/assetReceived.event.handler"
 export { handleAssetRefundedEvent } from "@/handlers/events/tokenGateway/assetRefunded.event.handler"
 
-// HandlerV1 Handlers
-// export { handlePostRequestTransactionHandler } from "@/handlers/transactions/handlerV1/handlePostRequestTransactionHandler.handler"
-// export { handlePostResponseTransactionHandler } from "@/handlers/transactions/handlerV1/handlePostResponseTransactionHandler.handler"
-
 // Substrate Chains Handlers
 export { handleIsmpStateMachineUpdatedEvent } from "@/handlers/events/substrateChains/handleIsmpStateMachineUpdatedEvent.handler"
 export { handleSubstratePostRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handlePostRequestTimeoutHandledEvent.handler"
@@ -53,11 +49,10 @@ export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/
 export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"
 
-// Token Handlers
-export { handleTokenIndexing } from "@/handlers/events/token/handleTokenIndexing.event.handler"
-
 export { handleRelayerRewardedEvent } from "@/handlers/events/incentives/relayerRewarded.event.handler"
 export { handleFeeRewardedEvent } from "@/handlers/events/incentives/feeRewarded.event.handler"
 
 export { handleTreasuryTransferEvent } from "@/handlers/events/treasury/treasuryTransfer.event.handler"
 export { handleAccumulateFeesEvent } from "@/handlers/events/fees/accumulatedFees.event.handler"
+export { handleRelayerWithdrawEvent } from "@/handlers/events/relayer/relayerWithdraw.event.handler"
+export { handleCollatorRewardedEvent } from "@/handlers/events/collators/collatorRewarded.event.handler"

@@ -12,6 +12,7 @@ enum SupportedAssets {
 export const HYPERBRIDGE = {
 	testnet: "KUSAMA-4009",
 	mainnet: "POLKADOT-3367",
+	local: "KUSAMA-2000",
 } as const
 
 export const BIFROST = {

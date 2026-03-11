@@ -33,8 +33,7 @@ export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeo
 	const chain = getHostStateMachine(chainId)
 	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
-	await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
-
+	// Critical: Update request status - must succeed for data integrity
 	await GetRequestService.updateStatus({
 		commitment,
 		chain,
@@ -45,12 +44,16 @@ export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeo
 		transactionHash,
 	})
 
-	let fromAddresses = [] as string[]
+	// Non-critical operations: stats, parsing, transfers, and volumes
+	try {
+		// Update hyperbridge stats
+		await HyperBridgeService.incrementNumberOfTimedOutMessagesSent(chain)
 
-	if (transaction?.input) {
-		const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
+		// Parse transaction to extract addresses
+		let fromAddresses = [] as string[]
+		if (transaction?.input) {
+			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
 
-		try {
 			if (name === "handleGetRequestTimeouts" && args && args.length > 1) {
 				const { timeouts } = args[1] as GetTimeoutMessage
 				for (const getRequest of timeouts) {
@@ -58,52 +61,49 @@ export const handleGetRequestTimeoutHandled = wrap(async (event: GetRequestTimeo
 					fromAddresses.push(getRequestFrom)
 				}
 			}
-		} catch (e: any) {
-			logger.error(
-				`Error decoding Post Request Handled event: ${stringify({
-					error: e as unknown as Error,
-				})}`,
-			)
-		}
-	}
-
-	for (const [index, log] of safeArray(transaction.logs).entries()) {
-		if (!isERC20TransferEvent(log)) {
-			continue
 		}
 
-		const value = BigInt(log.data)
-		const transferId = `${log.transactionHash}-index-${index}`
-		const transfer = await Transfer.get(transferId)
-
-		if (!transfer) {
-			const [_, fromTopic, toTopic] = log.topics
-			const from = extractAddressFromTopic(fromTopic)
-			const to = extractAddressFromTopic(toTopic)
-
-			// Compute USD value first; skip zero-USD transfers
-			const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
-			if (amountValueInUSD === "0") {
+		// Process transfers and update volumes
+		for (const [index, log] of safeArray(transaction.logs).entries()) {
+			if (!isERC20TransferEvent(log)) {
 				continue
 			}
 
-			await TransferService.storeTransfer({
-				transactionHash: transferId,
-				chain,
-				value,
-				from,
-				to,
-			})
+			const value = BigInt(log.data)
+			const transferId = `${log.transactionHash}-index-${index}`
+			const transfer = await Transfer.get(transferId)
 
-			await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+			if (!transfer) {
+				const [_, fromTopic, toTopic] = log.topics
+				const from = extractAddressFromTopic(fromTopic)
+				const to = extractAddressFromTopic(toTopic)
 
-			const matchingContract = fromAddresses.find(
-				(addr) => addr.toLowerCase() === from.toLowerCase() || addr.toLowerCase() === to.toLowerCase(),
-			)
+				// Compute USD value first; skip zero-USD transfers
+				const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(log.address, value, blockTimestamp)
+				if (amountValueInUSD === "0") {
+					continue
+				}
 
-			if (matchingContract) {
-				await VolumeService.updateVolume(`Contract.${matchingContract}`, amountValueInUSD, blockTimestamp)
+				await TransferService.storeTransfer({
+					transactionHash: transferId,
+					chain,
+					value,
+					from,
+					to,
+				})
+
+				await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+
+				const matchingContract = fromAddresses.find(
+					(addr) => addr.toLowerCase() === from.toLowerCase() || addr.toLowerCase() === to.toLowerCase(),
+				)
+
+				if (matchingContract) {
+					await VolumeService.updateVolume(`Contract.${matchingContract}`, amountValueInUSD, blockTimestamp)
+				}
 			}
 		}
+	} catch (error) {
+		logger.error(`Error in non-critical operations for GetRequestTimeoutHandled: ${stringify(error)}`)
 	}
 })

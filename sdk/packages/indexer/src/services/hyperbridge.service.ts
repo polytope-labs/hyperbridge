@@ -1,5 +1,6 @@
 import { PostRequestEventLog, PostResponseEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
-import { DailyProtocolFeesStats, Relayer, Transfer } from "@/configs/src/types/models"
+import { EthereumTransaction } from "@subql/types-ethereum"
+import { DailyProtocolFeesStats, RelayerV2, Transfer } from "@/configs/src/types/models"
 import { HyperBridgeChainStatsService } from "@/services/hyperbridgeChainStats.service"
 import { isHexString } from "ethers/lib/utils"
 import { EthereumHostAbi__factory } from "@/configs/src/types/contracts"
@@ -8,10 +9,6 @@ import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
 import { getDateFormatFromTimestamp, isWithin24Hours, timestampToDate } from "@/utils/date.helpers"
 import { RelayerService } from "./relayer.service"
-// import {
-// 	HandlePostRequestsTransaction,
-// 	HandlePostResponsesTransaction,
-// } from "@/configs/src/types/abi-interfaces/HandlerV1Abi"
 
 export class HyperBridgeService {
 	/**
@@ -47,34 +44,17 @@ export class HyperBridgeService {
 
 	/**
 	 * Perform the necessary actions related to Hyperbridge stats when a PostRequestHandled/PostResponseHandled event is indexed
+	 * @param transaction Optional Ethereum transaction for EVM chains.
 	 */
 	static async handlePostRequestOrResponseHandledEvent(
 		relayer_id: string,
 		chain: string,
 		timestamp: bigint,
+		transaction?: EthereumTransaction,
 	): Promise<void> {
 		await this.incrementNumberOfDeliveredMessages(chain)
-		await RelayerService.updateMessageDelivered(relayer_id, chain, timestamp)
+		await RelayerService.updateMessageDelivered(relayer_id, chain, timestamp, transaction)
 	}
-
-	/**
-	 * Handle PostRequest or PostResponse transactions
-	 */
-	// static async handlePostRequestOrResponseTransaction(
-	// 	chain: string,
-	// 	transaction: HandlePostRequestsTransaction | HandlePostResponsesTransaction,
-	// ): Promise<void> {
-	// 	logger.info(
-	// 		`Creating PostRequest or PostResponse transaction update: ${JSON.stringify({
-	// 			transaction,
-	// 		})}`,
-	// 	)
-	// 	const { status } = await transaction.receipt()
-
-	// 	if (status === false) {
-	// 		await this.incrementNumberOfFailedDeliveries(chain)
-	// 	}
-	// }
 
 	/**
 	 * Increment the total number of messages sent on hyperbridge
@@ -137,7 +117,7 @@ export class HyperBridgeService {
 	 * Handle transfers out of the host account, incrementing the fees payed out to relayers
 	 */
 	static async handleTransferOutOfHostAccounts(transfer: Transfer, chain: string): Promise<void> {
-		let relayer = await Relayer.get(transfer.to)
+		let relayer = await RelayerV2.get(transfer.to)
 
 		if (typeof relayer !== "undefined") {
 			let chainStats = await HyperBridgeChainStatsService.findOrCreateChainStats(chain)

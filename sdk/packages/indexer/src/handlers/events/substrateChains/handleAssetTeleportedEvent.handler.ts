@@ -8,7 +8,7 @@ import stringify from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
 
 export const handleSubstrateAssetTeleportedEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
-	logger.info(`Saw XcmGateway.AssetTeleported Event on ${getHostStateMachine(chainId)}`)
+	logger.info(`Saw XcmGateway.AssetTeleportedV2 Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.event.data) return
 
@@ -30,7 +30,7 @@ export const handleSubstrateAssetTeleportedEvent = wrap(async (event: SubstrateE
 	}
 
 	logger.info(
-		`Handling AssetTeleported Event: ${stringify({
+		`Handling AssetTeleportedV2 Event: ${stringify({
 			from: fromHex,
 			to: to.toString(),
 			amount: amount.toString(),

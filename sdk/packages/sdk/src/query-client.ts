@@ -7,7 +7,6 @@ import {
 	POST_REQUEST_STATUS,
 	TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS,
 	TOKEN_PRICE,
-	TOKEN_REGISTRY,
 } from "./queries"
 import type {
 	AssetTeleported,
@@ -25,8 +24,6 @@ import type {
 	TokenGatewayAssetTeleportedWithStatus,
 	TokenPrice,
 	TokenPricesResponse,
-	TokenRegistry,
-	TokenRegistryResponse,
 } from "./types"
 import { DEFAULT_LOGGER, REQUEST_STATUS_WEIGHTS, retryPromise, sleep } from "./utils"
 
@@ -65,11 +62,11 @@ export async function queryAssetTeleported(params: {
 		async () => {
 			const response = await queryClient.request<AssetTeleportedResponse>(ASSET_TELEPORTED_BY_PARAMS, { id })
 
-			if (!response?.assetTeleported) {
+			if (!response?.assetTeleportedV2) {
 				throw new Error(`AssetTeleportedEvent not found for ${id}`)
 			}
 
-			return response.assetTeleported
+			return response.assetTeleportedV2
 		},
 		{
 			logMessage: "queryingAssetTeleported",
@@ -136,7 +133,7 @@ export async function _queryTokenGatewayAssetTeleportedInternal(
 		},
 	)
 
-	const first_record = response.tokenGatewayAssetTeleporteds.nodes[0]
+	const first_record = response.tokenGatewayAssetTeleportedV2s.nodes[0]
 	if (!first_record) return
 
 	logger.trace("`TokenGatewayAssetTeleported` found")
@@ -198,7 +195,7 @@ export async function _queryRequestInternal(params: InternalQueryParams): Promis
 		},
 	)
 
-	const first_record = response.requests.nodes[0]
+	const first_record = response.requestV2s.nodes[0]
 	if (!first_record) return
 
 	logger.trace("`Request` found")
@@ -254,11 +251,11 @@ export async function _queryGetRequestInternal(params: InternalQueryParams): Pro
 		},
 	)
 
-	if (!response.getRequests.nodes[0]) return
+	if (!response.getRequestV2s.nodes[0]) return
 
 	logger.trace("`Request` found")
 
-	const statuses = response.getRequests.nodes[0].statusMetadata.nodes.map((item) => ({
+	const statuses = response.getRequestV2s.nodes[0].statusMetadata.nodes.map((item) => ({
 		status: item.status as any,
 		metadata: {
 			blockHash: item.blockHash,
@@ -275,7 +272,7 @@ export async function _queryGetRequestInternal(params: InternalQueryParams): Pro
 		)
 	})
 
-	const { statusMetadata, ...rest } = response.getRequests.nodes[0]
+	const { statusMetadata, ...rest } = response.getRequestV2s.nodes[0]
 
 	return {
 		...rest,
@@ -377,41 +374,4 @@ export async function _queryTokenPriceInternal(params: TokenPriceQueryParams): P
 	return item
 }
 
-type TokenRegistryQueryParams = {
-	symbol: string
-	queryClient: IndexerQueryClient
-	logger?: ConsolaInstance
-}
 
-export async function _queryTokenRegistryInternal(
-	params: TokenRegistryQueryParams,
-): Promise<TokenRegistry | undefined> {
-	const { symbol, queryClient: client, logger = DEFAULT_LOGGER } = params
-
-	const response = await retryPromise(
-		() => {
-			return client.request<TokenRegistryResponse>(TOKEN_REGISTRY, { symbol })
-		},
-		{
-			maxRetries: 3,
-			backoffMs: 1000,
-			logger,
-			logMessage: `querying 'TokenRegistry' by Symbol(${symbol})`,
-		},
-	)
-
-	const item = response.tokenRegistries.nodes?.[0]
-	if (!item) return
-
-	logger.trace("`TokenRegistry` found")
-
-	return {
-		id: item.id,
-		name: item.name,
-		symbol: item.symbol,
-		address: item.address,
-		updateFrequencySeconds: item.updateFrequencySeconds,
-		lastUpdatedAt: item.lastUpdatedAt,
-		createdAt: new Date(item.createdAt),
-	}
-}

@@ -1,5 +1,6 @@
 import { SubstrateEvent } from "@subql/types"
 import { safeFetch as fetch } from "@/utils/safeFetch"
+import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
 import { bytesToHex, hexToBytes, toHex } from "viem"
 
 import { RequestService } from "@/services/request.service"
@@ -13,7 +14,7 @@ import stringify from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
 
 export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
-	logger.info(`Saw Ismp.Request Event on ${getHostStateMachine(chainId)}`)
+	logger.info(`Saw Ismp.RequestV2 Event on ${getHostStateMachine(chainId)}`)
 
 	if (!event.event.data) return
 
@@ -24,7 +25,7 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 	const hostId = getHostStateMachine(chainId)
 
 	logger.info(
-		`Handling ISMP Request Event: ${stringify({
+		`Handling ISMP RequestV2 Event: ${stringify({
 			sourceId,
 			destId,
 			request_nonce,
@@ -49,14 +50,17 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 		params: [[{ commitment: commitment.toString() }]],
 	}
 
-	const response = await fetch(replaceWebsocketWithHttp(ENV_CONFIG[sourceId]), {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"content-type": "application/json",
-		},
-		body: stringify(method),
-	})
+	const response = await fetchWithRetry(
+		replaceWebsocketWithHttp(ENV_CONFIG[sourceId]),
+		{
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+			},
+			body: stringify(method),
+		}
+	)
 	const data = await response.json()
 
 	if (data.result.length === 0) {
@@ -68,7 +72,7 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 	const postRequest = data.result[0].Post
 
 	if (!postRequest) {
-		logger.error(`Request not found for commitment ${commitment.toString()}`)
+		logger.error(`RequestV2 not found for commitment ${commitment.toString()}`)
 		return
 	}
 
@@ -81,19 +85,22 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 		]),
 	)
 
-	const metadataResponse = await fetch(replaceWebsocketWithHttp(ENV_CONFIG[sourceId]), {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"content-type": "application/json",
-		},
-		body: stringify({
-			id: 1,
-			jsonrpc: "2.0",
-			method: "childstate_getStorage",
-			params: [prefix, key],
-		}),
-	})
+	const metadataResponse = await fetchWithRetry(
+		replaceWebsocketWithHttp(ENV_CONFIG[sourceId]),
+		{
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+			},
+			body: stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "childstate_getStorage",
+				params: [prefix, key],
+			}),
+		}
+	)
 	const storageValue = (await metadataResponse.json()).result as `0x${string}` | undefined
 
 	let fee = BigInt(0)
@@ -116,7 +123,6 @@ export const handleSubstrateRequestEvent = wrap(async (event: SubstrateEvent): P
 		source: sourceId,
 		timeoutTimestamp: BigInt(Number(timeoutTimestamp)),
 		to,
-		status: Status.SOURCE,
 		blockNumber: event.block.block.header.number.toString(),
 		blockHash: event.block.block.header.hash.toString(),
 		transactionHash: event.extrinsic?.extrinsic.hash.toString() || "",

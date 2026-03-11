@@ -1,6 +1,6 @@
 import { SubstrateEvent } from "@subql/types"
 import { Status } from "@/configs/src/types"
-import { GetRequest } from "@/configs/src/types/models"
+import { GetRequestV2 } from "@/configs/src/types/models"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { GetRequestService } from "@/services/getRequest.service"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
@@ -33,9 +33,9 @@ export const handleSubstrateGetRequestTimeoutHandledEvent = wrap(async (event: S
 		return
 	}
 
-	const request = await GetRequest.get(timeoutData.commitment.toString())
+	const request = await GetRequestV2.get(timeoutData.commitment.toString())
 	if (!request) {
-		logger.error(`Get Request not found for commitment ${timeoutData.commitment.toString()}`)
+		logger.error(`Get RequestV2 not found for commitment ${timeoutData.commitment.toString()}`)
 		return
 	}
 

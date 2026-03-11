@@ -1,9 +1,9 @@
 import { SubstrateEvent } from "@subql/types"
 import { RequestService } from "@/services/request.service"
 import { Status } from "@/configs/src/types"
-import { getHostStateMachine, isHyperbridge } from "@/utils/substrate.helpers"
+import { getHostStateMachine, isHyperbridge, decodeRelayerAddress } from "@/utils/substrate.helpers"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
-import { Request } from "@/configs/src/types/models"
+import { RequestV2 } from "@/configs/src/types/models"
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import { stringify } from "safe-stable-stringify"
 import { wrap } from "@/utils/event.utils"
@@ -27,17 +27,17 @@ export const handleSubstratePostRequestHandledEvent = wrap(async (event: Substra
 	} = event
 
 	const eventData = event.event.data[0] as unknown as EventData
-	const relayer_id = eventData.relayer.toString()
+	const relayer_id = decodeRelayerAddress(eventData.relayer.toString())
 
 	logger.info(`Handling ISMP PostRequestHandled Event Data: ${stringify({ eventData })}`)
 
 	const host = getHostStateMachine(chainId)
 	const blockTimestamp = await getBlockTimestamp(blockHash.toString(), host)
 
-	const request = await Request.get(eventData.commitment.toString())
+	const request = await RequestV2.get(eventData.commitment.toString())
 
 	if (!request) {
-		logger.error(`Request not found for commitment ${eventData.commitment.toString()}`)
+		logger.error(`RequestV2 not found for commitment ${eventData.commitment.toString()}`)
 		return
 	}
 
@@ -48,9 +48,7 @@ export const handleSubstratePostRequestHandledEvent = wrap(async (event: Substra
 		status = Status.HYPERBRIDGE_DELIVERED
 	}
 
-	logger.info(`Updating Hyperbridge chain stats for ${host}`)
-	await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
-
+	// Critical: Update request status - must succeed for data integrity
 	logger.info(
 		`Handling ISMP PostRequestHandled Event: ${stringify({
 			commitment: eventData.commitment.toString(),
@@ -72,4 +70,12 @@ export const handleSubstratePostRequestHandledEvent = wrap(async (event: Substra
 		status,
 		transactionHash: extrinsic?.extrinsic.hash.toString() || "",
 	})
+
+	// Non-critical operations: Update hyperbridge stats
+	try {
+		logger.info(`Updating Hyperbridge chain stats for ${host}`)
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, host, blockTimestamp)
+	} catch (error) {
+		logger.error(`Error in non-critical operations for PostRequestHandled: ${stringify(error)}`)
+	}
 })

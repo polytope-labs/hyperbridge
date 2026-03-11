@@ -1,4 +1,4 @@
-import { Status, Request, Transfer } from "@/configs/src/types"
+import { Status, RequestV2, Transfer } from "@/configs/src/types"
 import { PostResponseEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { HyperBridgeService } from "@/services/hyperbridge.service"
 import { ResponseService } from "@/services/response.service"
@@ -43,7 +43,7 @@ export const handlePostResponseEvent = wrap(async (event: PostResponseEventLog):
 	await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event)
 
 	logger.info(
-		`Computing Response Commitment Event: ${stringify({
+		`Computing ResponseV2 Commitment Event: ${stringify({
 			dest,
 			fee,
 			eventFrom,
@@ -69,7 +69,7 @@ export const handlePostResponseEvent = wrap(async (event: PostResponseEventLog):
 	)
 
 	logger.info(
-		`Response Commitment: ${stringify({
+		`ResponseV2 Commitment: ${stringify({
 			commitment: response_commitment,
 		})}`,
 	)
@@ -85,7 +85,7 @@ export const handlePostResponseEvent = wrap(async (event: PostResponseEventLog):
 		body,
 	)
 
-	let request = await Request.get(request_commitment)
+	let request = await RequestV2.get(request_commitment)
 
 	if (typeof request === "undefined") {
 		logger.error(

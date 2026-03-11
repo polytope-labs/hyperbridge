@@ -44,7 +44,8 @@
 		"down": "./scripts/down.sh ./docker/$ENV",
 		"start:local": "ENV=local npm run build && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.local.yml --env-file ../../.env.local rm -fsv",
 		"start:nexus-ci": "ENV=nexus-ci npm run build && docker-compose -f docker/docker-compose.nexus-ci.yml --env-file ../../.env.nexus-ci up --force-recreate --remove-orphans && docker-compose -f docker/docker-compose.nexus-ci.yml --env-file ../../.env.nexus-ci rm -fsv",
-		"build": "npm run codegen:yamls && npm run codegen:l2-chains && npm run codegen:subql && ./node_modules/.bin/subql build"
+		"build": "npm run codegen:yamls && npm run codegen:l2-chains && npm run codegen:subql && ./node_modules/.bin/subql build",
+		"migrate": "tsx scripts/migrate-entity-data.ts RequestV2 ResponseV2 GetRequestV2 AssetTeleportedV2 TokenGatewayAssetTeleportedV2 RelayerV2 RelayerStatsPerChainV2 --drop-source"
 	},
 	"dependencies": {
 		"@ethersproject/abi": "^5.7.0",
@@ -67,6 +68,7 @@
 		"fast-text-encoding": "^1.0.6",
 		"handlebars": "^4.7.8",
 		"node-fetch": "2.7.0",
+		"pg": "^8.20.0",
 		"safe-stable-stringify": "^2.5.0",
 		"scale-ts": "^1.6.1",
 		"viem": "^2.23.5",

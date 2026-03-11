@@ -1,5 +1,6 @@
 import { SubstrateEvent } from "@subql/types"
 import { safeFetch as fetch } from "@/utils/safeFetch"
+import { fetchWithRetry } from "@/utils/fetch-retry.helpers"
 import { formatChain, getHostStateMachine } from "@/utils/substrate.helpers"
 import { ENV_CONFIG } from "@/constants"
 import { Get } from "@/utils/substrate.helpers"
@@ -11,7 +12,7 @@ import { wrap } from "@/utils/event.utils"
 
 export const handleSubstrateResponseEvent = wrap(async (event: SubstrateEvent): Promise<void> => {
 	const host = getHostStateMachine(chainId)
-	logger.info(`Saw Ismp.Response Event on ${host}`)
+	logger.info(`Saw Ismp.ResponseV2 Event on ${host}`)
 
 	if (!event.event.data) return
 
@@ -23,7 +24,7 @@ export const handleSubstrateResponseEvent = wrap(async (event: SubstrateEvent): 
 	const blockTimestamp = await getBlockTimestamp(event.block.block.header.hash.toString(), host)
 
 	logger.info(
-		`Handling ISMP Response Event: ${stringify({
+		`Handling ISMP ResponseV2 Event: ${stringify({
 			sourceId,
 			destId,
 			request_nonce,
@@ -39,17 +40,20 @@ export const handleSubstrateResponseEvent = wrap(async (event: SubstrateEvent): 
 		params: [[{ commitment: commitment.toString() }]],
 	}
 
-	const response = await fetch(replaceWebsocketWithHttp(ENV_CONFIG[host]), {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"content-type": "application/json",
-		},
-		body: stringify(method),
-	})
+	const response = await fetchWithRetry(
+		replaceWebsocketWithHttp(ENV_CONFIG[host]),
+		{
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+			},
+			body: stringify(method),
+		}
+	)
 	const data = await response.json()
 
-	logger.info(`Response from calling ismp_queryResponses: ${stringify(data)}`)
+	logger.info(`ResponseV2 from calling ismp_queryResponses: ${stringify(data)}`)
 
 	if (data.result.length === 0) {
 		logger.error(`No responses found for commitment ${commitment.toString()}`)

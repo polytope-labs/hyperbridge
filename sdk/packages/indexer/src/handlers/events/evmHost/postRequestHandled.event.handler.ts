@@ -1,5 +1,5 @@
 import { HyperBridgeService } from "@/services/hyperbridge.service"
-import { Status, Transfer, Request } from "@/configs/src/types"
+import { Status, Transfer, RequestV2 } from "@/configs/src/types"
 import { PostRequestHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
 import { RequestService } from "@/services/request.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
@@ -33,41 +33,37 @@ export const handlePostRequestHandledEvent = wrap(async (event: PostRequestHandl
 	const chain = getHostStateMachine(chainId)
 	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
 
+	// We want the indexer to crash and restart if updating the request status failed so it can be retried
+	await RequestService.updateStatus({
+		commitment,
+		chain,
+		blockNumber: blockNumber.toString(),
+		blockHash: block.hash,
+		blockTimestamp,
+		status: Status.DESTINATION,
+		transactionHash,
+  })
+
+	// Non-critical operations: stats, parsing, transfers, and volumes
 	try {
-		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp)
+		// Update hyperbridge stats
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp, transaction)
 
-		await RequestService.updateStatus({
-			commitment,
-			chain,
-			blockNumber: blockNumber.toString(),
-			blockHash: block.hash,
-			blockTimestamp,
-			status: Status.DESTINATION,
-			transactionHash,
-		})
-
+		// Parse transaction to extract addresses
 		let toAddresses = [] as string[]
-
 		if (transaction?.input) {
 			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
 
-			try {
-				if (name === "handlePostRequests" && args && args.length > 1) {
-					const postRequests = args[1] as PostRequestMessage
-					for (const postRequest of postRequests.requests) {
-						const { to: postRequestTo } = postRequest.request
-						toAddresses.push(postRequestTo)
-					}
+			if (name === "handlePostRequests" && args && args.length > 1) {
+				const postRequests = args[1] as PostRequestMessage
+				for (const postRequest of postRequests.requests) {
+					const { to: postRequestTo } = postRequest.request
+					toAddresses.push(postRequestTo)
 				}
-			} catch (e: any) {
-				logger.error(
-					`Error decoding Post Request Handled event: ${stringify({
-						error: e as unknown as Error,
-					})}`,
-				)
 			}
 		}
 
+		// Process transfers and update volumes
 		for (const [index, log] of safeArray(transaction.logs).entries()) {
 			if (!isERC20TransferEvent(log)) {
 				continue
@@ -112,6 +108,6 @@ export const handlePostRequestHandledEvent = wrap(async (event: PostRequestHandl
 			}
 		}
 	} catch (error) {
-		console.error(`Error handling PostRequestHandled event: ${stringify(error)}`)
+		logger.error(`Error in non-critical operations for PostRequestHandled: ${stringify(error)}`)
 	}
 })

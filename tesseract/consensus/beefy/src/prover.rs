@@ -192,18 +192,17 @@ where
 			Prover::Naive(ref naive, _) => {
 				let message: BeefyConsensusProof =
 					naive.consensus_proof(signed_commitment).await?.into();
-				[&[PROOF_TYPE_NAIVE], message.abi_encode().as_slice()].concat()
+				[&[PROOF_TYPE_NAIVE], message.abi_encode_params().as_slice()].concat()
 			},
 			Prover::ZK(ref zk) => {
 				let message = zk.consensus_proof(signed_commitment, consensus_state).await?;
-				[&[PROOF_TYPE_ZK], message.abi_encode().as_slice()].concat()
+				[&[PROOF_TYPE_ZK], message.abi_encode_params().as_slice()].concat()
 			},
 			Prover::FiatShamir(ref fs, _) => {
 				let (consensus_message, bitmap) =
 					fs.consensus_proof_fiat_shamir(signed_commitment, &consensus_state).await?;
 				let message: BeefyConsensusProof = consensus_message.into();
-				// The FiatShamir verifier expects abi.encode(RelayChainProof, ParachainProof,
-				// uint256[4])
+				// FiatShamir expects abi.encode(RelayChainProof, ParachainProof,uint256[4])
 				let bitmap_words: [alloy_primitives::U256; 4] = bitmap
 					.words
 					.iter()
@@ -314,18 +313,23 @@ where
 			.state_query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash().into()))
 			.await?;
 
-		let mut block_hash_and_set_id = changes
-			.into_iter()
-			.filter_map(|change| {
-				change.changes[0]
-					.clone()
-					.1
-					.and_then(|data| u64::decode(&mut &*data.0).ok())
-					.map(|id| (change.block, id))
-			})
-			.filter(|(_, set_id)| *set_id >= self.consensus_state.inner.next_authorities.id);
+		let changes_iter = changes.into_iter().filter_map(|change| {
+			change.changes[0]
+				.clone()
+				.1
+				.and_then(|data| u64::decode(&mut &*data.0).ok())
+				.map(|id| (change.block, id))
+		});
 
-		Ok((block_hash_and_set_id.next(), header))
+		tracing::trace!("Latest set ID: {:#?}", changes_iter.clone().next_back());
+
+		let block_hash_and_set_id = changes_iter
+			.filter(|(_, set_id)| *set_id >= self.consensus_state.inner.next_authorities.id)
+			.next();
+
+		tracing::trace!("Block hash and set id: {:#?}", block_hash_and_set_id);
+
+		Ok((block_hash_and_set_id, header))
 	}
 
 	/// Performs a linear search for the BEEFY justification which finalizes the given epoch
@@ -384,219 +388,187 @@ where
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
 
 		loop {
-			let future = async {
-				loop {
-					// tick the interval
-					tokio::time::sleep(Duration::from_secs(10)).await;
+			tokio::time::sleep(Duration::from_secs(10)).await;
 
-					let (update, mut latest_beefy_header) =
-						self.query_next_finalized_epoch().await?;
+			let result: Result<_, anyhow::Error> = async {
+				let (update, latest_beefy_header) =
+					self.query_next_finalized_epoch().await?;
 
-					if let Some((epoch_change_block_hash, next_set_id)) = update {
+				match update {
+					Some((epoch_change_block_hash, next_set_id)) => {
 						// invariant, update should always be for the next set
-						assert_eq!(next_set_id, self.consensus_state.inner.next_authorities.id);
 						tracing::info!("Next authority set: {next_set_id}");
+						assert_eq!(next_set_id, self.consensus_state.inner.next_authorities.id);
 
 						let epoch_change_header = relay_rpc
 							.chain_get_header(Some(epoch_change_block_hash))
 							.await?
 							.expect("Epoch change header exists");
-						if let Some(commitment) = self
+
+						let Some(commitment) = self
 							.epoch_justification_for(epoch_change_header.number().into())
 							.await?
-						{
-							tracing::info!(
-								"Fetched next authority set justification: {:?}",
-								commitment.commitment
-							);
-							let consensus_proof = self
-								.consensus_proof(
-									commitment.clone(),
-									self.consensus_state.inner.clone(),
-								)
-								.await?;
+						else {
+							// justification not yet available, retry next tick
+							return Ok(());
+						};
 
-							let message = ConsensusProof {
-								finalized_height: commitment.commitment.block_number,
-								set_id: next_set_id,
-								message: ConsensusMessage {
-									consensus_proof,
-									consensus_state_id: self.config.consensus_state_id,
-									signer: H256::random().encode(),
-								},
-							};
-
-							for state_machine in self.config.state_machines.iter() {
-								tracing::info!(
-									"Sending mandatory consensus proof to {state_machine}"
-								);
-
-								self.backend
-									.send_mandatory_proof(state_machine, message.clone())
-									.await?;
-							}
-
-							// update consesnsus state
-							self.consensus_state.finalized_parachain_height = {
-								let finalized_hash = relay_rpc
-									.chain_get_block_hash(Some(
-										commitment.commitment.block_number.into(),
-									))
-									.await?
-									.expect("Epoch change header exists");
-								let para_header = query_parachain_header(
-									&self.prover.inner().relay_rpc,
-									finalized_hash,
-									para_id,
-								)
-								.await?;
-								para_header.number.into()
-							};
-							self.consensus_state.inner.latest_beefy_height =
-								commitment.commitment.block_number;
-							self.rotate_authorities(epoch_change_block_hash).await?;
-							self.backend.save_state(&self.consensus_state).await?;
-						}
-					}
-
-					let (latest_parachain_height, messages) = self
-						.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
-						.await?;
-
-					if messages.is_empty() {
-						self.consensus_state.finalized_parachain_height = latest_parachain_height;
-						self.backend.save_state(&self.consensus_state).await?;
-						continue;
-					}
-
-					let lowest_message_height = messages
-						.iter()
-						.min_by(|a, b| a.meta.block_number.cmp(&b.meta.block_number))
-						.expect("Messages is not empty; qed")
-						.meta
-						.block_number;
-
-					let minimum_height =
-						lowest_message_height + self.config.minimum_finalization_height;
-					if minimum_height > latest_parachain_height {
 						tracing::info!(
-							"Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
-							minimum_height - latest_parachain_height
+							"Fetched next authority set justification: {:?}",
+							commitment.commitment
 						);
 
-						loop {
-							tokio::time::sleep(Duration::from_secs(10)).await;
-							let header = {
-								let hash = self
-									.prover
-									.inner()
-									.relay_rpc_client
-									.request::<HashFor<R>>("beefy_getFinalizedHead", rpc_params![])
-									.await?;
-								let h = relay_rpc
-									.chain_get_header(Some(hash))
-									.await?
-									.ok_or_else(|| anyhow!("Block hash should exist"))?;
-
-								generic::Header::<u32, BlakeTwo256>::decode(&mut &h.encode()[..])?
-							};
-
-							let para_header = query_parachain_header(
-								&self.prover.inner().relay_rpc,
-								header.parent_hash.into(),
-								para_id,
-							)
+						let consensus_proof = self
+							.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
 							.await?;
 
-							if para_header.number as u64 >= minimum_height {
-								latest_beefy_header = header;
-								break;
-							}
+						let message = ConsensusProof {
+							finalized_height: commitment.commitment.block_number,
+							set_id: next_set_id,
+							message: ConsensusMessage {
+								consensus_proof,
+								consensus_state_id: self.config.consensus_state_id,
+								signer: H256::random().encode(),
+							},
+						};
+
+						for state_machine in self.config.state_machines.iter() {
+							tracing::info!(
+								"Sending mandatory consensus proof to {state_machine}"
+							);
+							self.backend
+								.send_mandatory_proof(state_machine, message.clone())
+								.await?;
 						}
-					}
 
-					let (latest_parachain_height, messages) = self
-						.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
-						.await?;
-
-					let state_machines = messages
-						.iter()
-						.filter_map(|e| {
-							let event = match &e.event {
-								Event::PostRequest(req) => req.dest,
-								Event::PostResponse(res) => res.dest_chain(),
-								Event::GetResponse(res) => res.get.source,
-								Event::PostRequestTimeoutHandled(req)
-									if req.source != hyperbridge =>
-									req.source,
-								Event::PostResponseTimeoutHandled(res)
-									if res.source != hyperbridge =>
-									res.source,
-								_ => None?,
-							};
-							Some(event)
-						})
-						.collect::<HashSet<_>>();
-
-					tracing::trace!("State machines: {state_machines:?}");
-
-					if state_machines.len() == 0 {
-						tracing::trace!("No new messages in the range: {lowest_message_height}..{latest_parachain_height}");
-
-						continue;
-					}
-
-					tracing::info!("Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}");
-
-					let latest_beefy_header_hash = latest_beefy_header.hash().into();
-					let (commitment, _) = fetch_latest_beefy_justification(
-						&self.prover.inner().relay_rpc,
-						latest_beefy_header_hash,
-					)
-					.await?;
-					let consensus_proof = self
-						.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
-						.await?;
-
-					let set_id = relay_rpc
-						.state_get_storage(
-							BEEFY_VALIDATOR_SET_ID.as_slice(),
-							Some(latest_beefy_header_hash),
+						let finalized_hash = relay_rpc
+							.chain_get_block_hash(Some(commitment.commitment.block_number.into()))
+							.await?
+							.expect("Epoch change header exists");
+						let para_header = query_parachain_header(
+							&self.prover.inner().relay_rpc,
+							finalized_hash,
+							para_id,
 						)
-						.await?
-						.map(|data| u64::decode(&mut data.as_ref()))
-						.transpose()?
-						.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
+						.await?;
 
-					let message = ConsensusProof {
-						finalized_height: commitment.commitment.block_number,
-						set_id,
-						message: ConsensusMessage {
-							consensus_proof,
-							consensus_state_id: self.config.consensus_state_id,
-							signer: H256::random().encode(),
-						},
-					};
-
-					// notify all relevant state machines
-					for state_machine in state_machines {
-						tracing::info!("Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}");
-						self.backend.send_messages_proof(&state_machine, message.clone()).await?; // fatal
-					}
-
-					self.consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
-					self.consensus_state.finalized_parachain_height = latest_parachain_height;
-					self.backend.save_state(&self.consensus_state).await?;
+						self.consensus_state.finalized_parachain_height =
+							para_header.number.into();
+						self.consensus_state.inner.latest_beefy_height =
+							commitment.commitment.block_number;
+						self.rotate_authorities(epoch_change_block_hash).await?;
+						self.backend.save_state(&self.consensus_state).await?;
+						return Ok(()); // check for next updates
+					},
+					None => {},
 				}
 
-				#[allow(unreachable_code)]
-				Ok::<_, anyhow::Error>(())
-			};
+				let (latest_parachain_height, messages) = self
+					.latest_ismp_message_events(latest_beefy_header.parent_hash.into())
+					.await?;
 
-			if let Err(err) = future.await {
+				if messages.is_empty() {
+					self.consensus_state.finalized_parachain_height = latest_parachain_height;
+					self.backend.save_state(&self.consensus_state).await?;
+					return Ok(());
+				}
+
+				let lowest_message_height = messages
+					.iter()
+					.min_by(|a, b| a.meta.block_number.cmp(&b.meta.block_number))
+					.expect("Messages is not empty; qed")
+					.meta
+					.block_number;
+
+				let minimum_height =
+					lowest_message_height + self.config.minimum_finalization_height;
+				if minimum_height > latest_parachain_height {
+					tracing::info!(
+						"Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
+						minimum_height - latest_parachain_height
+					);
+					return Ok(());
+				}
+
+				let state_machines = messages
+					.iter()
+					.filter_map(|e| {
+						let event = match &e.event {
+							Event::PostRequest(req) => req.dest,
+							Event::PostResponse(res) => res.dest_chain(),
+							Event::GetResponse(res) => res.get.source,
+							Event::PostRequestTimeoutHandled(req)
+								if req.source != hyperbridge =>
+								req.source,
+							Event::PostResponseTimeoutHandled(res)
+								if res.source != hyperbridge =>
+								res.source,
+							_ => None?,
+						};
+						Some(event)
+					})
+					.collect::<HashSet<_>>();
+
+				tracing::trace!("State machines: {state_machines:?}");
+
+				if state_machines.is_empty() {
+					tracing::trace!(
+						"No new messages in the range: {lowest_message_height}..{latest_parachain_height}"
+					);
+					return Ok(());
+				}
+
+				tracing::info!(
+					"Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}"
+				);
+
+				let latest_beefy_header_hash = latest_beefy_header.hash().into();
+				let (commitment, _) = fetch_latest_beefy_justification(
+					&self.prover.inner().relay_rpc,
+					latest_beefy_header_hash,
+				)
+				.await?;
+				let consensus_proof = self
+					.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
+					.await?;
+
+				let set_id = relay_rpc
+					.state_get_storage(
+						BEEFY_VALIDATOR_SET_ID.as_slice(),
+						Some(latest_beefy_header_hash),
+					)
+					.await?
+					.map(|data| u64::decode(&mut data.as_ref()))
+					.transpose()?
+					.ok_or_else(|| anyhow!("Couldn't fetch latest beefy authority set"))?;
+
+				let message = ConsensusProof {
+					finalized_height: commitment.commitment.block_number,
+					set_id,
+					message: ConsensusMessage {
+						consensus_proof,
+						consensus_state_id: self.config.consensus_state_id,
+						signer: H256::random().encode(),
+					},
+				};
+
+				for state_machine in state_machines {
+					tracing::info!(
+						"Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}"
+					);
+					self.backend.send_messages_proof(&state_machine, message.clone()).await?;
+				}
+
+				self.consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
+				self.consensus_state.finalized_parachain_height = latest_parachain_height;
+				self.backend.save_state(&self.consensus_state).await?;
+
+				Ok(())
+			}
+			.await;
+
+			if let Err(err) = result {
 				tracing::error!("Prover error: {err:?}");
-				// The queue and state storage implementations should handle reconnection internally
-				// or the error will propagate and the loop will retry
 			}
 		}
 	}

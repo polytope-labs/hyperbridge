@@ -1,0 +1,114 @@
+import { HyperBridgeService } from "@/services/hyperbridge.service"
+import { Status } from "@/configs/src/types"
+import { PostResponseHandledLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
+import { ResponseService } from "@/services/response.service"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
+import { Transfer, ResponseV2, RequestV2 } from "@/configs/src/types"
+import { VolumeService } from "@/services/volume.service"
+import { getPriceDataFromEthereumLog, isERC20TransferEvent, extractAddressFromTopic } from "@/utils/transfer.helpers"
+import { TransferService } from "@/services/transfer.service"
+import { safeArray } from "@/utils/data.helper"
+import HandlerV1Abi from "@/configs/abis/HandlerV1.abi.json"
+import { PostResponseMessage } from "@/types/ismp"
+import { Interface } from "@ethersproject/abi"
+
+/**
+ * Handles the PostResponseHandled event from Hyperbridge
+ */
+export const handlePostResponseHandledEvent = wrap(async (event: PostResponseHandledLog): Promise<void> => {
+	if (!event.args) return
+
+	const { args, block, transaction, transactionHash, transactionIndex, blockHash, blockNumber, data } = event
+	const { relayer: relayer_id, commitment } = args
+
+	logger.info(
+		`Handling PostResponseHandled Event: ${stringify({
+			blockNumber,
+			transactionHash,
+		})}`,
+	)
+
+	const chain: string = getHostStateMachine(chainId)
+	const blockTimestamp = await getBlockTimestamp(blockHash, chain)
+
+	// Critical: Update response status - must succeed for data integrity
+	await ResponseService.updateStatus({
+		commitment,
+		chain,
+		blockNumber: blockNumber.toString(),
+		blockTimestamp,
+		blockHash: block.hash,
+		status: Status.DESTINATION,
+		transactionHash,
+	})
+
+	// Non-critical operations: stats, parsing, transfers, and volumes
+	try {
+		// Update hyperbridge stats
+		await HyperBridgeService.handlePostRequestOrResponseHandledEvent(relayer_id, chain, blockTimestamp, transaction)
+
+		// Parse transaction to extract addresses
+		let fromAddresses = [] as string[]
+		if (transaction?.input) {
+			const { name, args } = new Interface(HandlerV1Abi).parseTransaction({ data: transaction.input })
+			if (name === "handlePostResponses" && args && args.length > 1) {
+				const postResponses = args[1] as PostResponseMessage
+				for (const postResponse of postResponses.responses) {
+					const { post } = postResponse.response
+					const { from: postRequestFrom } = post
+					fromAddresses.push(postRequestFrom)
+				}
+			}
+		}
+
+		// Process transfers and update volumes
+		for (const [index, log] of safeArray(transaction?.logs).entries()) {
+			if (!isERC20TransferEvent(log)) {
+				continue
+			}
+
+			const value = BigInt(log.data)
+			const transferId = `${log.transactionHash}-index-${index}`
+			const transfer = await Transfer.get(transferId)
+
+			if (!transfer) {
+				const [_, fromTopic, toTopic] = log.topics
+				const from = extractAddressFromTopic(fromTopic)
+				const to = extractAddressFromTopic(toTopic)
+
+				// Compute USD value first; skip zero-USD transfers
+				const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(
+					log.address,
+					value,
+					blockTimestamp,
+				)
+				if (amountValueInUSD === "0") {
+					continue
+				}
+
+				await TransferService.storeTransfer({
+					transactionHash: transferId,
+					chain,
+					value,
+					from,
+					to,
+				})
+
+				await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+
+				const matchingContract = fromAddresses.find(
+					(addr) => addr.toLowerCase() === from.toLowerCase() || addr.toLowerCase() === to.toLowerCase(),
+				)
+
+				if (matchingContract) {
+					await VolumeService.updateVolume(`Contract.${matchingContract}`, amountValueInUSD, blockTimestamp)
+				}
+			}
+		}
+	} catch (error) {
+		logger.error(`Error in non-critical operations for PostResponseHandled: ${stringify(error)}`)
+	}
+})

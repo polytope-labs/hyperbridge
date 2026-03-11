@@ -1,0 +1,231 @@
+services:
+    subquery-node-hyperbridge-gargantua-local:
+        image: subquerynetwork/subql-node-substrate:v5.9.1
+        restart: always
+        network_mode: host
+        environment:
+            DB_USER: ${DB_USER}
+            DB_PASS: ${DB_PASS}
+            DB_DATABASE: ${DB_DATABASE}
+            DB_HOST: 0.0.0.0
+            DB_PORT: ${DB_PORT}
+
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+        volumes:
+            - ../src/configs:/app
+            - ../dist:/app/dist
+        command:
+            - ${SUB_COMMAND:-}
+            - -f=/app/hyperbridge-gargantua.yaml
+            - --db-schema=app
+            - --workers=${SUBQL_WORKERS:-6}
+            - --batch-size=${SUBQL_BATCH_SIZE:-10}
+            - --multi-chain
+            - --unsafe
+            - --log-level=${LOG_LEVEL:-info}
+            - --store-cache-async=false
+            - --store-cache-threshold=1
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://subquery-node-hyperbridge-gargantua-local:3000/ready"]
+            interval: 3s
+            timeout: 5s
+            retries: 10
+
+    # subquery-node-cere-local:
+    #     image: subquerynetwork/subql-node-substrate:v5.9.1
+    #     restart: always
+    #     network_mode: host
+    #     environment:
+    #         DB_USER: ${DB_USER}
+    #         DB_PASS: ${DB_PASS}
+    #         DB_DATABASE: ${DB_DATABASE}
+    #         DB_HOST: 0.0.0.0
+    #         DB_PORT: ${DB_PORT}
+
+    #     depends_on:
+    #         postgres:
+    #             condition: service_healthy
+
+    #     volumes:
+    #         - ../src/configs:/app
+    #         - ../dist:/app/dist
+    #     command:
+    #         - ${SUB_COMMAND:-}
+    #         - -f=/app/cere-local.yaml
+    #         - --db-schema=app
+    #         - --workers=${SUBQL_WORKERS:-6}
+    #         - --batch-size=${SUBQL_BATCH_SIZE:-10}
+    #         - --multi-chain
+    #         - --unsafe
+    #         - --log-level=${LOG_LEVEL:-info}
+    #         - --block-confirmations=0
+    #         - --store-cache-async=false
+    #         - --store-cache-threshold=1
+    #     healthcheck:
+    #         test: ["CMD", "curl", "-f", "http://subquery-node-cere-local:3000/ready"]
+    #         interval: 3s
+    #         timeout: 5s
+    #         retries: 10
+
+    subquery-node-bsc-chapel-local:
+        image: polytopelabs/subql-node-ethereum:v6.3.1
+        restart: always
+        environment:
+            DB_USER: ${DB_USER}
+            DB_PASS: ${DB_PASS}
+            DB_DATABASE: ${DB_DATABASE}
+            DB_HOST: ${DB_HOST}
+            DB_PORT: ${DB_PORT}
+
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+        volumes:
+            - ../src/configs:/app
+            - ../dist:/app/dist
+        command:
+            - ${SUB_COMMAND:-}
+            - -f=/app/bsc-chapel.yaml
+            - --db-schema=app
+            - --workers=${SUBQL_WORKERS:-6}
+            - --batch-size=${SUBQL_BATCH_SIZE:-10}
+            - --multi-chain
+            - --unsafe
+            - --log-level=${LOG_LEVEL:-info}
+            - --historical=timestamp
+            - --unfinalized-blocks
+            - --block-confirmations=0
+            - --store-cache-async=false
+            - --store-cache-threshold=1
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://subquery-node-bsc-chapel-local:3000/ready"]
+            interval: 3s
+            timeout: 5s
+            retries: 10
+
+    subquery-node-arbitrum-sepolia-local:
+        image: polytopelabs/subql-node-ethereum:v6.3.1
+        restart: always
+        environment:
+            DB_USER: ${DB_USER}
+            DB_PASS: ${DB_PASS}
+            DB_DATABASE: ${DB_DATABASE}
+            DB_HOST: ${DB_HOST}
+            DB_PORT: ${DB_PORT}
+
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+        volumes:
+            - ../src/configs:/app
+            - ../dist:/app/dist
+        command:
+            - ${SUB_COMMAND:-}
+            - -f=/app/arbitrum-sepolia.yaml
+            - --db-schema=app
+            - --workers=${SUBQL_WORKERS:-6}
+            - --batch-size=${SUBQL_BATCH_SIZE:-10}
+            - --multi-chain
+            - --unsafe
+            - --log-level=${LOG_LEVEL:-info}
+            - --historical=timestamp
+            - --unfinalized-blocks
+            - --block-confirmations=0
+            - --store-cache-async=false
+            - --store-cache-threshold=1
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://subquery-node-arbitrum-sepolia-local:3000/ready"]
+            interval: 3s
+            timeout: 5s
+            retries: 10
+
+    subquery-node-polygon-amoy-local:
+        image: polytopelabs/subql-node-ethereum:v6.3.1
+        restart: always
+        environment:
+            DB_USER: ${DB_USER}
+            DB_PASS: ${DB_PASS}
+            DB_DATABASE: ${DB_DATABASE}
+            DB_HOST: ${DB_HOST}
+            DB_PORT: ${DB_PORT}
+
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+        volumes:
+            - ../src/configs:/app
+            - ../dist:/app/dist
+        command:
+            - ${SUB_COMMAND:-}
+            - -f=/app/polygon-amoy.yaml
+            - --db-schema=app
+            - --workers=${SUBQL_WORKERS:-6}
+            - --batch-size=${SUBQL_BATCH_SIZE:-10}
+            - --multi-chain
+            - --unsafe
+            - --log-level=${LOG_LEVEL:-info}
+            - --store-cache-async=false
+            - --store-cache-threshold=1
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://subquery-node-polygon-amoy-local:3000/ready"]
+            interval: 3s
+            timeout: 5s
+            retries: 10
+
+    graphql-engine:
+        image: subquerynetwork/subql-query:v2.21.0
+        restart: always
+        ports:
+            - 3100:3000
+        environment:
+            DB_USER: ${DB_USER}
+            DB_PASS: ${DB_PASS}
+            DB_DATABASE: ${DB_DATABASE}
+            DB_HOST: ${DB_HOST}
+            DB_PORT: ${DB_PORT}
+        command:
+            - --name=app
+            - --playground
+            - --query-timeout=0
+
+    postgres:
+        image: postgres:14-alpine
+        ports:
+            - 5432:5432
+        volumes:
+            - ${DB_PATH}:/var/lib/postgresql/data
+        environment:
+            POSTGRES_PASSWORD: ${DB_PASS}
+            POSTGRES_USER: ${DB_USER}
+            POSTGRES_DB: ${DB_DATABASE}
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_DATABASE}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        command: |
+            bash -c '
+               # Start PostgreSQL in the background
+              docker-entrypoint.sh postgres &
+
+              sleep 5
+
+              # Wait for PostgreSQL to become available
+              until pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB; do
+                echo "Waiting for PostgreSQL to start..."
+                sleep 1
+              done
+
+              # Run our extension creation command - note we use localhost here
+              echo "Creating btree_gist extension..."
+              psql -v ON_ERROR_STOP=1 -U $$POSTGRES_USER -d $$POSTGRES_DB -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
+
+              # Keep container running by waiting for the PostgreSQL process
+              wait
+            '

@@ -1,0 +1,121 @@
+name: "Publish @hyperbridge/sdk"
+
+on:
+    push:
+        tags:
+            - "sdk-v*"
+
+jobs:
+    build-and-publish:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+            packages: write
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+                  registry-url: "https://registry.npmjs.org"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: "7"
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Build dependencies
+              run: pnpm --filter="@hyperbridge/sdk^..." build
+
+            - name: Build SDK
+              run: pnpm --filter="@hyperbridge/sdk" build
+
+            - name: Publish to npm
+              run: |
+                  echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+                  pnpm --filter="@hyperbridge/sdk" publish --no-git-checks
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    generate-changelog:
+        runs-on: ubuntu-latest
+        needs: build-and-publish
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Get previous tag
+              id: previous-tag
+              run: |
+                  CURRENT_TAG=${GITHUB_REF#refs/tags/}
+                  PREVIOUS_TAG=$(git tag -l "sdk-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
+                  # Remove 'sdk-' prefix for clean tag name
+                  CLEAN_TAG=${CURRENT_TAG#sdk-}
+                  echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
+                  echo "current_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
+                  echo "clean_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  CURRENT_TAG=${{ steps.previous-tag.outputs.current_tag }}
+                  PREVIOUS_TAG=${{ steps.previous-tag.outputs.previous_tag }}
+                  CLEAN_TAG=${{ steps.previous-tag.outputs.clean_tag }}
+
+                  echo "Generating changelog for ${CLEAN_TAG}"
+                  echo "Previous tag: ${PREVIOUS_TAG}"
+
+                  # If no previous tag exists, get all commits
+                  if [ -z "$PREVIOUS_TAG" ]; then
+                    COMMIT_RANGE="HEAD"
+                  else
+                    COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
+                  fi
+
+                  # Generate changelog from commit messages
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse)
+
+                  # Create a more structured changelog
+                  echo "# Changelog for ${CLEAN_TAG}" > CHANGELOG.md
+                  echo "" >> CHANGELOG.md
+                  echo "## Changes" >> CHANGELOG.md
+                  echo "" >> CHANGELOG.md
+                  echo "$CHANGELOG" >> CHANGELOG.md
+                  echo "" >> CHANGELOG.md
+
+                  # Also create a release body
+                  echo "changelog<<EOF" >> $GITHUB_OUTPUT
+                  echo "## What's Changed" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "$CHANGELOG" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+            - name: Create GitHub Release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.POLYTOPE_GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ steps.previous-tag.outputs.clean_tag }}
+                  release_name: SDK Release ${{ steps.previous-tag.outputs.clean_tag }}
+                  body: ${{ steps.changelog.outputs.changelog }}
+                  draft: true
+                  prerelease: false
+
+            - name: Commit and push changelog
+              run: |
+                  git config --local user.email "action@github.com"
+                  git config --local user.name "GitHub Action"
+                  git add CHANGELOG.md
+                  git commit -m "docs: update changelog for ${{ steps.previous-tag.outputs.current_tag }}" || exit 0
+                  git push origin HEAD:main || true

@@ -1,0 +1,142 @@
+import { HyperBridgeService } from "@/services/hyperbridge.service"
+import { RequestService } from "@/services/request.service"
+import { RequestStatusMetadata, Status, Transfer } from "@/configs/src/types"
+import { PostRequestEventLog } from "@/configs/src/types/abi-interfaces/EthereumHostAbi"
+import { getHostStateMachine } from "@/utils/substrate.helpers"
+import { timestampToDate } from "@/utils/date.helpers"
+import { getBlockTimestamp } from "@/utils/rpc.helpers"
+import stringify from "safe-stable-stringify"
+import { wrap } from "@/utils/event.utils"
+import { extractAddressFromTopic, getPriceDataFromEthereumLog, isERC20TransferEvent } from "@/utils/transfer.helpers"
+import { TransferService } from "@/services/transfer.service"
+import { safeArray } from "@/utils/data.helper"
+import { VolumeService } from "@/services/volume.service"
+
+/**
+ * Handles the PostRequest event from Evm Hosts
+ */
+export const handlePostRequestEvent = wrap(async (event: PostRequestEventLog): Promise<void> => {
+	logger.info(
+		`Handling PostRequest Event: ${stringify({
+			event,
+		})}`,
+	)
+	if (!event.args) return
+
+	const { transaction, blockNumber, transactionHash, args, block } = event
+	let { dest, fee, from, nonce, source, timeoutTimestamp, to, body } = args
+
+	const chain: string = getHostStateMachine(chainId)
+	const timestamp = await getBlockTimestamp(block.hash, chain)
+
+	logger.info(
+		`Computing RequestV2 Commitment Event: ${stringify({
+			dest,
+			fee,
+			from,
+			nonce,
+			source,
+			timeoutTimestamp,
+			to,
+			body,
+		})}`,
+	)
+
+	// Compute the request commitment
+	let request_commitment = RequestService.computeRequestCommitment(
+		source,
+		dest,
+		BigInt(nonce.toString()),
+		BigInt(timeoutTimestamp.toString()),
+		from,
+		to,
+		body,
+	)
+
+	logger.info(
+		`RequestV2 Commitment: ${stringify({
+			commitment: request_commitment,
+		})}`,
+	)
+
+	const blockTimestamp = timestamp
+
+	// Create the request entity
+	await RequestService.createOrUpdate({
+		chain,
+		commitment: request_commitment,
+		body,
+		dest,
+		fee: BigInt(fee.toString()),
+		from,
+		nonce: BigInt(nonce.toString()),
+		source,
+		timeoutTimestamp: BigInt(timeoutTimestamp.toString()),
+		to,
+		blockNumber: blockNumber.toString(),
+		blockHash: block.hash,
+		transactionHash,
+		blockTimestamp,
+		createdAt: timestampToDate(timestamp),
+	})
+
+	// Always create a new status metadata entry
+	let requestStatusMetadata = RequestStatusMetadata.create({
+		id: `${request_commitment}.${Status.SOURCE}`,
+		requestId: request_commitment,
+		status: Status.SOURCE,
+		chain,
+		timestamp: blockTimestamp,
+		blockNumber: blockNumber.toString(),
+		blockHash: block.hash,
+		transactionHash,
+		createdAt: timestampToDate(timestamp),
+	})
+
+	await requestStatusMetadata.save()
+
+	// Non critical features should be inside a try catch, in case it errors it should not lead to inconsistent data for core indexing functionality
+	try {
+		await HyperBridgeService.handlePostRequestOrResponseEvent(chain, event)
+		for (const [index, log] of safeArray(transaction?.logs).entries()) {
+			if (!isERC20TransferEvent(log)) {
+				continue
+			}
+
+			const value = BigInt(log.data)
+			const transferId = `${log.transactionHash}-index-${index}`
+			const transfer = await Transfer.get(transferId)
+
+			if (!transfer) {
+				const [_, fromTopic, toTopic] = log.topics
+				const logFrom = extractAddressFromTopic(fromTopic)
+				const logTo = extractAddressFromTopic(toTopic)
+
+				// Compute USD value first; skip zero-USD transfers
+				const { symbol, amountValueInUSD } = await getPriceDataFromEthereumLog(
+					log.address,
+					value,
+					blockTimestamp,
+				)
+				if (amountValueInUSD === "0") {
+					continue
+				}
+
+				await TransferService.storeTransfer({
+					transactionHash: transferId,
+					chain,
+					value,
+					from: logFrom,
+					to: logTo,
+				})
+
+				await VolumeService.updateVolume(`Transfer.${symbol}`, amountValueInUSD, blockTimestamp)
+
+				// Only update contract volume for transfers associated with the request's from address
+				if (logFrom.toLowerCase() === from.toLowerCase() || logTo.toLowerCase() === from.toLowerCase()) {
+					await VolumeService.updateVolume(`Contract.${from}`, amountValueInUSD, blockTimestamp)
+				}
+			}
+		}
+	} catch (err) {}
+})

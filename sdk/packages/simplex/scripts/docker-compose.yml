@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+    simplex:
+        image: polytopelabs/hyperbridge-simplex:latest
+        build:
+            context: ../../..
+            dockerfile: packages/simplex/scripts/Dockerfile
+        container_name: hyperbridge-simplex
+        restart: unless-stopped
+        command: ["run", "-c", "/app/config/config.toml"]
+        volumes:
+            - ${CONFIG_PATH:-../config.toml}:/app/config/config.toml:ro
+        environment:
+            - NODE_ENV=production
+        networks:
+            - simplex-network
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+        healthcheck:
+            test: ["CMD", "/app/healthcheck.sh"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 5s
+
+networks:
+    simplex-network:
+        driver: bridge

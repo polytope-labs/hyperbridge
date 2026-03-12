@@ -1,0 +1,1453 @@
+import type { ConsolaInstance } from "consola"
+import type { GraphQLClient } from "graphql-request"
+import type { ContractFunctionArgs, Hex, Log, PublicClient } from "viem"
+import type HandlerV1 from "@/abis/handler"
+import type { IChain } from "@/chain"
+import { Struct, Vector, Bytes, u8 } from "scale-ts"
+
+export type EstimateGasCallData = ContractFunctionArgs<
+	typeof HandlerV1.ABI,
+	"nonpayable" | "payable",
+	"handlePostRequests"
+>
+
+export type HexString = `0x${string}`
+
+export interface IConfig {
+	// confuration object for the source chain
+	source: IEvmConfig | ISubstrateConfig
+	// confuration object for the destination chain
+	dest: IEvmConfig | ISubstrateConfig
+	// confuration object for hyperbridge
+	hyperbridge: IHyperbridgeConfig
+	// Flag to enable tracing console logs
+	tracing?: boolean
+}
+
+export interface IEvmConfig {
+	// rpc url of the chain
+	rpcUrl: string
+	// state machine identifier as a string
+	stateMachineId: string
+	// contract address of the `IsmpHost` on this chain
+	host: HexString
+	// consensus state identifier of this chain on hyperbridge
+	consensusStateId: string
+}
+
+export interface ISubstrateConfig {
+	// rpc url of the chain
+	wsUrl: string
+	// consensus state identifier of this chain on hyperbridge
+	consensusStateId: string
+	// consensus state identifier of this chain on hyperbridge
+	hasher: "Keccak" | "Blake2"
+	// state machine identifier as a string
+	stateMachineId: string
+}
+
+export interface IHyperbridgeConfig {
+	// websocket rpc endpoint for hyperbridge
+	wsUrl: string
+	// state machine identifier as a string
+	stateMachineId: string
+	// consensus state identifier of hyperbridge on the destination chain
+	consensusStateId: string
+}
+
+export interface IPostRequest {
+	// The source state machine of this request.
+	source: string
+	// The destination state machine of this request.
+	dest: string
+	// Module Id of the sending module
+	from: HexString
+	// Module ID of the receiving module
+	to: HexString
+	// The nonce of this request on the source chain
+	nonce: bigint
+	// Encoded request body.
+	body: HexString
+	// Timestamp which this request expires in seconds.
+	timeoutTimestamp: bigint
+}
+
+export interface IGetRequest {
+	// The source state machine of this request.
+	source: string
+	// The destination state machine of this request.
+	dest: string
+	// Module Id of the sending module
+	from: HexString
+	// The nonce of this request on the source chain
+	nonce: bigint
+	// Height at which to read the state machine.
+	height: bigint
+	/// Raw Storage keys that would be used to fetch the values from the counterparty
+	/// For deriving storage keys for ink contract fields follow the guide in the link below
+	/// `<https://use.ink/datastructures/storage-in-metadata#a-full-example>`
+	/// The algorithms for calculating raw storage keys for different substrate pallet storage
+	/// types are described in the following links
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/map.rs#L34-L42>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/double_map.rs#L34-L44>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/nmap.rs#L39-L48>`
+	/// `<https://github.com/paritytech/substrate/blob/master/frame/support/src/storage/types/value.rs#L37>`
+	/// For fetching keys from EVM contracts each key should be 52 bytes
+	/// This should be a concatenation of contract address and slot hash
+	keys: HexString[]
+	// Timestamp which this request expires in seconds.
+	timeoutTimestamp: bigint
+	context: HexString
+}
+
+export interface GetResponseStorageValues {
+	key: HexString
+	value: HexString
+}
+
+export interface IPostResponse {
+	// The request that triggered this response.
+	post: IPostRequest
+	// The response message.
+	response: string
+	// Timestamp at which this response expires in seconds.
+	timeoutTimestamp: bigint
+}
+
+export type IMessage = { Requests: HexString[] } | { Responses: HexString[] }
+
+export type IndexerQueryClient = GraphQLClient
+
+export interface ClientConfig {
+	pollInterval: number
+	queryClient: IndexerQueryClient
+	tracing?: boolean
+	source: IChain
+	dest: IChain
+	hyperbridge: IChain
+}
+
+export interface RetryConfig {
+	maxRetries: number
+	/**
+	 * @description The initial backoff time in milliseconds before the first retry attempt.
+	 */
+	backoffMs: number
+	logMessage?: string
+	logger?: ConsolaInstance
+}
+
+export interface IsmpRequest {
+	source: string
+	dest: string
+	from: string
+	to: string
+	nonce: bigint
+	body: string
+	timeoutTimestamp: bigint
+	storage_key?: string
+}
+
+export const RequestStatus = Object.freeze({
+	SOURCE: "SOURCE",
+	SOURCE_FINALIZED: "SOURCE_FINALIZED",
+	HYPERBRIDGE_DELIVERED: "HYPERBRIDGE_DELIVERED",
+	HYPERBRIDGE_FINALIZED: "HYPERBRIDGE_FINALIZED",
+	DESTINATION: "DESTINATION",
+	TIMED_OUT: "TIMED_OUT",
+	HYPERBRIDGE_TIMED_OUT: "HYPERBRIDGE_TIMED_OUT",
+})
+export type RequestStatus = typeof RequestStatus
+export type RequestStatusKey = keyof typeof RequestStatus
+
+export const TimeoutStatus = Object.freeze({
+	PENDING_TIMEOUT: "PENDING_TIMEOUT",
+	DESTINATION_FINALIZED_TIMEOUT: "DESTINATION_FINALIZED_TIMEOUT",
+	HYPERBRIDGE_TIMED_OUT: "HYPERBRIDGE_TIMED_OUT",
+	HYPERBRIDGE_FINALIZED_TIMEOUT: "HYPERBRIDGE_FINALIZED_TIMEOUT",
+	TIMED_OUT: "TIMED_OUT",
+})
+
+export type TimeoutStatus = typeof TimeoutStatus
+export type TimeoutStatusKey = keyof typeof TimeoutStatus
+
+export type AllStatusKey = RequestStatusKey | TimeoutStatusKey
+
+export enum HyperClientStatus {
+	PENDING = "PENDING",
+	SOURCE_FINALIZED = "SOURCE_FINALIZED",
+	HYPERBRIDGE_FINALIZED = "HYPERBRIDGE_FINALIZED",
+	HYPERBRIDGE_VERIFIED = "HYPERBRIDGE_VERIFIED",
+	DESTINATION = "DESTINATION",
+	TIMED_OUT = "TIMED_OUT",
+	HYPERBRIDGE_TIMED_OUT = "HYPERBRIDGE_TIMED_OUT",
+	ERROR = "ERROR",
+}
+
+export enum OrderStatus {
+	PLACED = "PLACED",
+	FILLED = "FILLED",
+	REDEEMED = "REDEEMED",
+	REFUNDED = "REFUNDED",
+}
+
+export enum TeleportStatus {
+	TELEPORTED = "TELEPORTED",
+	RECEIVED = "RECEIVED",
+	REFUNDED = "REFUNDED",
+}
+
+export interface TokenGatewayAssetTeleportedResponse {
+	tokenGatewayAssetTeleportedV2s: {
+		nodes: Array<{
+			id: string
+			from: string
+			to: string
+			sourceChain: string
+			destChain: string
+			commitment: string
+			amount: string
+			usdValue: string
+			assetId: string
+			redeem: boolean
+			status: TeleportStatus
+			createdAt: string
+			blockNumber: string
+			blockTimestamp: string
+			transactionHash: string
+			statusMetadata: {
+				nodes: Array<{
+					status: TeleportStatus
+					chain: string
+					timestamp: string
+					blockNumber: string
+					blockHash: string
+					transactionHash: string
+				}>
+			}
+		}>
+	}
+}
+
+export interface TokenGatewayAssetTeleportedWithStatus {
+	id: string
+	from: string
+	to: string
+	sourceChain: string
+	destChain: string
+	commitment: string
+	amount: bigint
+	usdValue: string
+	assetId: string
+	redeem: boolean
+	status: TeleportStatus
+	createdAt: Date
+	blockNumber: bigint
+	blockTimestamp: bigint
+	transactionHash: string
+	statuses: Array<{
+		status: TeleportStatus
+		metadata: {
+			blockHash: string
+			blockNumber: number
+			transactionHash: string
+			timestamp: bigint
+		}
+	}>
+}
+
+export interface BlockMetadata {
+	blockHash: string
+	blockNumber: number
+	transactionHash: string
+	calldata?: string
+	timestamp?: number
+}
+
+export interface PostRequestStatus {
+	status: RequestStatusKey
+	metadata: Partial<BlockMetadata>
+}
+
+export interface PostRequestTimeoutStatus {
+	status: TimeoutStatusKey
+	metadata?: Partial<BlockMetadata>
+}
+
+export interface StateMachineUpdate {
+	height: number
+	chain: string
+	blockHash: string
+	blockNumber: number
+	transactionHash: string
+	transactionIndex: number
+	stateMachineId: string
+	timestamp: number
+}
+
+export interface RequestResponse {
+	requestV2s: {
+		nodes: Array<{
+			source: string
+			dest: string
+			to: HexString
+			from: HexString
+			nonce: bigint
+			body: HexString
+			timeoutTimestamp: bigint
+			statusMetadata: {
+				nodes: Array<{
+					blockHash: string
+					blockNumber: string
+					timestamp: string
+					chain: string
+					status: string
+					transactionHash: string
+				}>
+			}
+		}>
+	}
+}
+
+export interface GetRequestResponse {
+	getRequestV2s: {
+		nodes: Array<{
+			source: string
+			dest: string
+			to: HexString
+			from: HexString
+			nonce: bigint
+			height: bigint
+			keys: HexString[]
+			context: HexString
+			timeoutTimestamp: bigint
+			statusMetadata: {
+				nodes: Array<{
+					blockHash: string
+					blockNumber: string
+					timestamp: string
+					chain: string
+					status: string
+					transactionHash: string
+				}>
+			}
+		}>
+	}
+}
+
+export type RequestStatusWithMetadata =
+	| {
+			status: RequestStatus["SOURCE"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: RequestStatus["SOURCE_FINALIZED"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: RequestStatus["HYPERBRIDGE_DELIVERED"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: RequestStatus["HYPERBRIDGE_FINALIZED"]
+			metadata: {
+				calldata: Hex
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: RequestStatus["DESTINATION"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: TimeoutStatus["PENDING_TIMEOUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+			}
+	  }
+	| {
+			status: TimeoutStatus["DESTINATION_FINALIZED_TIMEOUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: TimeoutStatus["HYPERBRIDGE_TIMED_OUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: TimeoutStatus["HYPERBRIDGE_FINALIZED_TIMEOUT"]
+			metadata: {
+				calldata: Hex
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+	| {
+			status: TimeoutStatus["TIMED_OUT"]
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp?: number
+			}
+	  }
+
+interface GenericRequestWithStatuses {
+	source: string
+	dest: string
+	from: HexString
+	nonce: bigint
+	timeoutTimestamp: bigint
+	statuses: Array<RequestStatusWithMetadata>
+}
+
+export interface PostRequestWithStatus extends GenericRequestWithStatuses {
+	to: HexString
+	body: HexString
+}
+
+export interface GetRequestWithStatus extends GenericRequestWithStatuses {
+	height: bigint
+	keys: HexString[]
+	context: HexString
+	commitment: HexString
+}
+
+export interface GetResponseByRequestIdResponse {
+	getResponses: {
+		nodes: Array<{
+			id: string
+			commitment: string
+			responseMessage: string[]
+		}>
+	}
+}
+
+export interface ResponseCommitmentWithValues {
+	commitment: string
+	values: string[]
+}
+
+export interface RequestCommitment {
+	requestV2s: {
+		nodes: Array<{
+			id: string
+			commitment: string
+		}>
+	}
+}
+
+export interface StateMachineResponse {
+	stateMachineUpdateEvents: {
+		nodes: {
+			height: number
+			chain: string
+			blockHash: string
+			blockNumber: number
+			transactionHash: string
+			transactionIndex: number
+			stateMachineId: string
+			createdAt: string
+		}[]
+	}
+}
+
+export interface AssetTeleported {
+	id: string
+	from: string
+	to: string
+	amount: bigint
+	dest: string
+	commitment: HexString
+	createdAt: Date
+	blockNumber: number
+}
+
+export interface AssetTeleportedResponse {
+	assetTeleportedV2: AssetTeleported
+}
+
+export interface StateMachineIdParams {
+	stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number }
+	consensusStateId: string
+}
+
+/**
+ * Configuration for a blockchain chain
+ */
+export interface ChainConfig {
+	/**
+	 * The unique identifier for the chain
+	 */
+	chainId: number
+
+	/**
+	 * The RPC URL to connect to the chain
+	 */
+	rpcUrl: string
+
+	/**
+	 * The address of the IntentGateway contract on this chain
+	 */
+	intentGatewayAddress: string
+}
+
+/**
+ * Represents token information for an order
+ */
+export interface TokenInfo {
+	/**
+	 * The address of the ERC20 token
+	 * address(0) is used as a sentinel for the native token
+	 */
+	token: HexString
+
+	/**
+	 * The amount of the token
+	 */
+	amount: bigint
+}
+
+/**
+ * Represents payment information for an order
+ */
+export interface PaymentInfo extends TokenInfo {
+	/**
+	 * The address to receive the output tokens
+	 */
+	beneficiary: HexString
+}
+
+/**
+ * Represents an order in the IntentGateway
+ */
+export interface Order {
+	/**
+	 * The unique identifier for the order
+	 */
+	id?: string
+
+	/**
+	 * The address of the user who is initiating the transfer
+	 */
+	user: HexString
+
+	/**
+	 * The state machine identifier of the origin chain
+	 */
+	sourceChain: string
+
+	/**
+	 * The state machine identifier of the destination chain
+	 */
+	destChain: string
+
+	/**
+	 * The block number by which the order must be filled on the destination chain
+	 */
+	deadline: bigint
+
+	/**
+	 * The nonce of the order
+	 */
+	nonce: bigint
+
+	/**
+	 * Represents the dispatch fees associated with the IntentGateway
+	 */
+	fees: bigint
+
+	/**
+	 * The tokens that the filler will provide
+	 */
+	outputs: PaymentInfo[]
+
+	/**
+	 * The tokens that are escrowed for the filler
+	 */
+	inputs: TokenInfo[]
+
+	/**
+	 * A bytes array to store the calls if any
+	 */
+	callData: HexString
+
+	// Additional Data
+	/**
+	 * The transaction hash of the order
+	 */
+	transactionHash?: HexString
+}
+
+export interface DecodedOrderPlacedLog extends Log {
+	eventName: string
+	args: {
+		user: HexString
+		sourceChain: Hex
+		destChain: Hex
+		deadline: bigint
+		nonce: bigint
+		fees: bigint
+		outputs: Array<{
+			token: HexString
+			amount: bigint
+			beneficiary: HexString
+		}>
+		inputs: Array<{
+			token: HexString
+			amount: bigint
+		}>
+		callData: HexString
+	}
+	transactionHash: HexString
+}
+
+export interface DecodedOrderV2PlacedLog extends Log {
+	eventName: string
+	args: {
+		user: HexString
+		source: Hex
+		destination: Hex
+		deadline: bigint
+		nonce: bigint
+		fees: bigint
+		session: HexString
+		beneficiary: HexString
+		predispatch: Array<{
+			token: HexString
+			amount: bigint
+		}>
+		inputs: Array<{
+			token: HexString
+			amount: bigint
+		}>
+		outputs: Array<{
+			token: HexString
+			amount: bigint
+		}>
+	}
+	transactionHash: HexString
+}
+
+export interface DecodedPostRequestEvent extends Log {
+	eventName: string
+	args: {
+		source: string
+		dest: string
+		from: HexString
+		to: HexString
+		nonce: bigint
+		timeoutTimestamp: bigint
+		body: HexString
+		fee: bigint
+	}
+	transactionHash: HexString
+}
+
+export interface DecodedPostResponseEvent extends Log {
+	eventName: string
+	args: {
+		source: string
+		dest: string
+		from: HexString
+		to: HexString
+		nonce: bigint
+		timeoutTimestamp: bigint
+		body: HexString
+		response: HexString
+		responseTimeoutTimestamp: bigint
+		fee: bigint
+	}
+	transactionHash: HexString
+}
+
+/**
+ * Options for filling an order
+ */
+export interface FillOptions {
+	/**
+	 * The fee paid to the relayer for processing transactions
+	 */
+	relayerFee: bigint
+}
+
+/**
+ * Options for canceling an order
+ */
+export interface CancelOptions {
+	/**
+	 * The fee paid to the relayer for processing transactions
+	 */
+	relayerFee: string
+
+	/**
+	 * Stores the height value
+	 */
+	height: string
+}
+
+/**
+ * Represents a new deployment of IntentGateway
+ */
+export interface NewDeployment {
+	/**
+	 * Identifier for the state machine
+	 */
+	stateMachineId: HexString
+
+	/**
+	 * The gateway identifier
+	 */
+	gateway: HexString
+}
+
+/**
+ * Represents the body of a request
+ */
+export interface RequestBody {
+	/**
+	 * Represents the commitment of an order
+	 */
+	commitment: HexString
+
+	/**
+	 * Stores the identifier for the beneficiary
+	 */
+	beneficiary: HexString
+
+	/**
+	 * An array of token identifiers
+	 */
+	tokens: TokenInfo[]
+}
+
+/**
+ * Represents the parameters for the IntentGateway module
+ */
+export interface IntentGatewayParams {
+	/**
+	 * The address of the host contract
+	 */
+	host: string
+
+	/**
+	 * Address of the dispatcher contract responsible for handling intents
+	 */
+	dispatcher: string
+}
+
+/**
+ * Enum representing the different kinds of incoming requests
+ */
+export enum RequestKind {
+	/**
+	 * Identifies a request for redeeming an escrow
+	 */
+	RedeemEscrow = 0,
+
+	/**
+	 * Identifies a request for recording new contract deployments
+	 */
+	NewDeployment = 1,
+
+	/**
+	 * Identifies a request for updating parameters
+	 */
+	UpdateParams = 2,
+
+	/**
+	 * Identifies a request for sweeping accumulated protocol dust
+	 */
+	SweepDust = 3,
+
+	/**
+	 * Identifies a request for refunding escrowed tokens after cancellation
+	 */
+	RefundEscrow = 4,
+}
+
+/**
+ * Configuration for the IntentFiller
+ */
+export interface FillerConfig {
+	/**
+	 * Maximum number of orders to process concurrently
+	 */
+	maxConcurrentOrders?: number
+
+	/**
+	 * Minimum profitability threshold to consider filling an order
+	 * Expressed as a percentage (e.g., 0.5 = 0.5%)
+	 */
+	minProfitabilityThreshold?: number
+
+	/**
+	 * Gas price strategy for each chain
+	 * Maps chainId to a gas price strategy function
+	 */
+	gasPriceStrategy?: Record<string, () => Promise<string>>
+
+	/**
+	 * Maximum gas price willing to pay for each chain
+	 * Maps chainId to maximum gas price in wei
+	 */
+	maxGasPrice?: Record<string, string>
+
+	/**
+	 * Retry configuration for failed transactions
+	 */
+	retryConfig?: {
+		/**
+		 * Maximum number of retry attempts
+		 */
+		maxAttempts: number
+
+		/**
+		 * Initial delay between retries in ms
+		 */
+		initialDelayMs: number
+	}
+
+	/**
+	 * Configuration for the pending queue
+	 */
+	pendingQueueConfig?: {
+		/**
+		 * Delay in milliseconds before rechecking an order for confirmations
+		 * Default: 30000 (30 seconds)
+		 */
+		recheckDelayMs?: number
+
+		/**
+		 * Maximum number of times to recheck an order before giving up
+		 * Default: 10
+		 */
+		maxRechecks?: number
+	}
+
+	/**
+	 * Watch-only mode: per-chain configuration to monitor and log orders without executing fills
+	 * Maps chainId to boolean. If a chain is not in this map, defaults to false (normal execution)
+	 * Example: { 1: true, 56: false } - watch-only on Ethereum, normal execution on BSC
+	 */
+	watchOnly?: Record<number, boolean>
+}
+
+/**
+ * Result of an order execution attempt
+ */
+export interface ExecutionResult {
+	/**
+	 * Whether the execution was successful
+	 */
+	success: boolean
+
+	/**
+	 * The transaction hash if successful
+	 */
+	txHash?: string
+
+	/**
+	 * Error message if unsuccessful
+	 */
+	error?: string
+
+	/**
+	 * Gas used by the transaction
+	 */
+	gasUsed?: string
+
+	/**
+	 * Gas price used for the transaction
+	 */
+	gasPrice?: string
+
+	/**
+	 * Total transaction cost in wei
+	 */
+	txCost?: string
+
+	/**
+	 * Block number when the transaction was confirmed
+	 */
+	confirmedAtBlock?: number
+
+	/**
+	 * Timestamp when the transaction was confirmed
+	 */
+	confirmedAt?: Date
+
+	/**
+	 * Actual profitability achieved
+	 */
+	actualProfitability?: number
+
+	/**
+	 * Strategy used to fill the order
+	 */
+	strategyUsed?: string
+
+	/**
+	 * Any tokens exchanged during the fill process
+	 */
+	exchanges?: Array<{
+		fromToken: HexString
+		toToken: HexString
+		fromAmount: string
+		toAmount: string
+		exchangeRate: string
+	}>
+
+	/**
+	 * The time it took to fill the order
+	 */
+	processingTimeMs?: number
+
+	/**
+	 * The order commitment hash, returned when a bid is submitted via Hyperbridge.
+	 * Used for subsequent bid retraction after the order is filled on-chain.
+	 */
+	commitment?: string
+}
+
+/**
+ * Represents a dispatch post for cross-chain communication
+ */
+export interface DispatchPost {
+	/**
+	 * Bytes representation of the destination state machine
+	 */
+	dest: HexString
+
+	/**
+	 * The destination module
+	 */
+	to: HexString
+
+	/**
+	 * The request body
+	 */
+	body: HexString
+
+	/**
+	 * Timeout for this request in seconds
+	 */
+	timeout: bigint
+
+	/**
+	 * The amount put up to be paid to the relayer,
+	 * this is charged in `IIsmpHost.feeToken` to `msg.sender`
+	 */
+	fee: bigint
+
+	/**
+	 * Who pays for this request?
+	 */
+	payer: HexString
+}
+
+export interface DispatchGet {
+	/**
+	 * Bytes representation of the destination state machine
+	 */
+	dest: HexString
+
+	/**
+	 * Height at which to read the state machine
+	 */
+	height: bigint
+
+	/**
+	 * Raw storage keys to fetch values from the counterparty
+	 */
+	keys: HexString[]
+
+	/**
+	 * Timeout for this request in seconds
+	 */
+	timeout: bigint
+
+	/**
+	 * The amount put up to be paid to the relayer
+	 */
+	fee: bigint
+
+	/**
+	 * Context for the request
+	 */
+	context: HexString
+}
+
+export interface StateMachineHeight {
+	id: {
+		stateId: { Evm?: number; Substrate?: HexString; Polkadot?: number; Kusama?: number }
+		consensusStateId: string
+	}
+	height: bigint
+}
+
+/**
+ * The EvmHost protocol parameters
+ */
+export interface HostParams {
+	/**
+	 * The default timeout in seconds for messages. If messages are dispatched
+	 * with a timeout value lower than this this value will be used instead
+	 */
+	defaultTimeout: bigint
+	/**
+	 * The default per byte fee
+	 */
+	perByteFee: bigint
+	/**
+	 * The cost for applications to access the hyperbridge state commitment.
+	 * They might do so because the hyperbridge state contains the verified state commitments
+	 * for all chains and they want to directly read the state of these chains state bypassing
+	 * the ISMP protocol entirely.
+	 */
+	stateCommitmentFee: bigint
+	/**
+	 * The fee token contract address. This will typically be DAI.
+	 * but we allow it to be configurable to prevent future regrets.
+	 */
+	feeToken: HexString
+	/**
+	 * The admin account, this only has the rights to freeze, or unfreeze the bridge
+	 */
+	admin: HexString
+	/**
+	 * Ismp message handler contract. This performs all verification logic
+	 * needed to validate cross-chain messages before they are dispatched to local modules
+	 */
+	handler: HexString
+	/**
+	 * The authorized host manager contract, is itself an `IIsmpModule`
+	 * which receives governance requests from the Hyperbridge chain to either
+	 * withdraw revenue from the host or update its protocol parameters
+	 */
+	hostManager: HexString
+	/**
+	 * The local UniswapV2Router02 contract, used for swapping the native token to the feeToken.
+	 */
+	uniswapV2: HexString
+	/**
+	 * The unstaking period of Polkadot's validators. In order to prevent long-range attacks
+	 */
+	unStakingPeriod: bigint
+	/**
+	 * Minimum challenge period for state commitments in seconds
+	 */
+	challengePeriod: bigint
+	/**
+	 * The consensus client contract which handles consensus proof verification
+	 */
+	consensusClient: HexString
+	/**
+	 * State machines whose state commitments are accepted
+	 */
+	readonly stateMachines: readonly bigint[]
+	/**
+	 * The state machine identifier for hyperbridge
+	 */
+	hyperbridge: HexString
+}
+
+export interface OrderStatusMetadata {
+	status: OrderStatus
+	chain: string
+	timestamp: bigint
+	blockNumber: string
+	transactionHash: string
+	filler?: string
+}
+
+export interface OrderWithStatus {
+	id: string
+	user: string
+	sourceChain: string
+	destChain: string
+	commitment: string
+	deadline: bigint
+	nonce: bigint
+	fees: bigint
+	inputTokens: string[]
+	inputAmounts: bigint[]
+	inputValuesUSD: string[]
+	inputUSD: string
+	outputTokens: string[]
+	outputAmounts: bigint[]
+	outputBeneficiaries: string[]
+	calldata: string
+	status: OrderStatus
+	createdAt: Date
+	blockNumber: bigint
+	blockTimestamp: bigint
+	transactionHash: string
+	statuses: Array<{
+		status: OrderStatus
+		metadata: {
+			blockHash: string
+			blockNumber: number
+			transactionHash: string
+			timestamp: bigint
+			filler?: string
+		}
+	}>
+}
+
+export interface OrderResponse {
+	orderPlaceds: {
+		nodes: Array<{
+			id: string
+			user: string
+			sourceChain: string
+			destChain: string
+			commitment: string
+			deadline: string
+			nonce: string
+			fees: string
+			inputTokens: string[]
+			inputAmounts: string[]
+			inputValuesUSD: string[]
+			inputUSD: string
+			outputTokens: string[]
+			outputAmounts: string[]
+			outputBeneficiaries: string[]
+			calldata: string
+			status: OrderStatus
+			createdAt: string
+			blockNumber: string
+			blockTimestamp: string
+			transactionHash: string
+			statusMetadata: {
+				nodes: Array<{
+					status: OrderStatus
+					chain: string
+					timestamp: string
+					blockNumber: string
+					blockHash: string
+					transactionHash: string
+					filler?: string
+				}>
+			}
+		}>
+	}
+}
+
+export interface TokenPrice {
+	symbol: string
+	address?: string
+	currency: string
+	price: string
+	lastUpdatedAt: bigint
+}
+
+export interface TokenPricesResponse {
+	tokenPrices: {
+		nodes: Array<{
+			id: string
+			symbol: string
+			address: string
+			currency: string
+			price: string
+			lastUpdatedAt: bigint
+		}>
+	}
+}
+
+
+
+
+
+/**
+ * Represents a complete transaction structure for swap operations
+ */
+export interface Transaction {
+	/**
+	 * The address to send the transaction to (typically the Universal Router address)
+	 */
+	to: HexString
+
+	/**
+	 * The value to send with the transaction (in wei)
+	 */
+	value: bigint
+
+	/**
+	 * The calldata for the transaction
+	 */
+	data: HexString
+}
+
+export interface StorageFacade {
+	get<T>(key: string): Promise<T | undefined>
+	set<T>(key: string, value: T): Promise<void>
+	delete(key: string): Promise<void>
+}
+
+// =============================================================================
+// IntentGatewayV2 Types
+// =============================================================================
+
+export interface TokenInfoV2 {
+	token: HexString
+	amount: bigint
+}
+
+export interface PaymentInfoV2 {
+	beneficiary: HexString
+	assets: TokenInfoV2[]
+	call: HexString
+}
+
+export interface DispatchInfoV2 {
+	assets: TokenInfoV2[]
+	call: HexString
+}
+
+export interface OrderV2 {
+	id?: string
+	user: HexString
+	source: HexString
+	destination: HexString
+	deadline: bigint
+	nonce: bigint
+	fees: bigint
+	session: HexString
+	predispatch: DispatchInfoV2
+	inputs: TokenInfoV2[]
+	output: PaymentInfoV2
+	transactionHash?: HexString
+}
+
+export interface FillOptionsV2 {
+	relayerFee: bigint
+	nativeDispatchFee: bigint
+	outputs: TokenInfoV2[]
+}
+
+// =============================================================================
+// ERC-4337 Types (v0.7 PackedUserOperation)
+// =============================================================================
+
+export interface PackedUserOperation {
+	sender: HexString
+	nonce: bigint
+	initCode: HexString
+	callData: HexString
+	accountGasLimits: HexString
+	preVerificationGas: bigint
+	gasFees: HexString
+	paymasterAndData: HexString
+	signature: HexString
+}
+
+export interface SubmitBidOptions {
+	order: OrderV2
+	fillOptions: FillOptionsV2
+	solverAccount: HexString
+	solverPrivateKey: HexString
+	nonce: bigint
+	entryPointAddress: HexString
+	// Estimated gas for executing fillOrder calldata
+	callGasLimit: bigint
+	// Estimated gas for validateUserOp
+	verificationGasLimit: bigint
+	// Overhead gas for bundler
+	preVerificationGas: bigint
+	// Max gas price willing to pay
+	maxFeePerGas: bigint
+	// Priority fee (tip)
+	maxPriorityFeePerGas: bigint
+	/** Pre-built ERC-7821 calldata encoding the UserOp execution (approvals + fillOrder). */
+	callData: HexString
+}
+
+export interface EstimateFillOrderV2Params {
+	order: OrderV2
+	/**
+	 * Optional percentage to bump maxPriorityFeePerGas.
+	 * This is added on top of the base gasPrice.
+	 * Default: 8 (8%)
+	 */
+	maxPriorityFeePerGasBumpPercent?: number
+	/**
+	 * Optional percentage to bump maxFeePerGas.
+	 * This is added on top of the base gasPrice.
+	 * Default: 10 (10%)
+	 */
+	maxFeePerGasBumpPercent?: number
+}
+
+export interface FillOrderEstimateV2 {
+	fillOptions: FillOptionsV2
+	callGasLimit: bigint
+	verificationGasLimit: bigint
+	preVerificationGas: bigint
+	maxFeePerGas: bigint
+	maxPriorityFeePerGas: bigint
+	totalGasCostWei: bigint
+	totalGasInFeeToken: bigint
+}
+
+/**
+ * Result of submitting a bid to Hyperbridge
+ */
+export interface BidSubmissionResult {
+	/**
+	 * Whether the bid submission was successful
+	 */
+	success: boolean
+
+	/**
+	 * Block hash where the bid was included
+	 */
+	blockHash?: HexString
+
+	/**
+	 * Extrinsic hash of the bid transaction
+	 */
+	extrinsicHash?: HexString
+
+	/**
+	 * Error message if submission failed
+	 */
+	error?: string
+}
+
+/**
+ * Represents a storage entry from pallet-intents Bids storage
+ * StorageDoubleMap<_, Blake2_128Concat, H256, Blake2_128Concat, AccountId, Balance>
+ */
+export interface BidStorageEntry {
+	/** The order commitment hash (H256) */
+	commitment: HexString
+	/** The filler's Substrate account ID (SS58 encoded) */
+	filler: string
+	/** The deposit amount stored on-chain (BalanceOf<T> = u128) */
+	deposit: bigint
+}
+
+/**
+ * Represents a bid placed by a filler for an order
+ * Matches the Rust struct: Bid<AccountId> { filler: AccountId, user_op: Vec<u8> }
+ */
+export interface FillerBid {
+	/** The filler's Substrate account ID (SS58 encoded) */
+	filler: string
+	/** The decoded PackedUserOperation */
+	userOp: PackedUserOperation
+	/** The deposit amount stored on-chain (in plancks) */
+	deposit: bigint
+}
+
+/**
+ * Options for selecting a solver in IntentGatewayV2
+ */
+export interface SelectOptions {
+	/** The order commitment hash (bytes32) */
+	commitment: HexString
+	/** The solver address to select */
+	solver: HexString
+	/** The EIP-712 signature from the session key */
+	signature: HexString
+}
+
+// =============================================================================
+// Intent Order Flow Types
+// =============================================================================
+
+/** Status stages for the intent order execution flow */
+export const IntentOrderStatus = Object.freeze({
+	AWAITING_PLACE_ORDER: "AWAITING_PLACE_ORDER",
+	ORDER_PLACED: "ORDER_PLACED",
+	ORDER_CONFIRMED: "ORDER_CONFIRMED",
+	AWAITING_BIDS: "AWAITING_BIDS",
+	BIDS_RECEIVED: "BIDS_RECEIVED",
+	BID_SELECTED: "BID_SELECTED",
+	USEROP_SUBMITTED: "USEROP_SUBMITTED",
+	FILLED: "FILLED",
+	PARTIAL_FILL: "PARTIAL_FILL",
+	PARTIAL_FILL_EXHAUSTED: "PARTIAL_FILL_EXHAUSTED",
+	FAILED: "FAILED",
+})
+
+export type IntentOrderStatus = typeof IntentOrderStatus
+export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
+
+/** Tagged union of all possible status updates yielded by the intent order execution stream */
+export type IntentOrderStatusUpdate =
+	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+	| { status: "ORDER_PLACED"; order: OrderV2; transactionHash: HexString }
+	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
+	| { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation }
+	| { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
+	| { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAmount?: bigint; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
+	| { status: "FAILED"; commitment?: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
+
+/** Result of selecting a bid and submitting to the bundler */
+export interface SelectBidResult {
+	userOp: PackedUserOperation
+	userOpHash: HexString
+	solverAddress: HexString
+	commitment: HexString
+	txnHash?: HexString
+	fillStatus?: "full" | "partial"
+	/** Amount filled in this user operation (best-effort, based on on-chain logs) */
+	filledAmount?: bigint
+}
+
+/** Options for executing an intent order */
+export interface ExecuteIntentOrderOptions {
+	order: OrderV2
+	sessionPrivateKey?: HexString
+	minBids?: number
+	bidTimeoutMs?: number
+	pollIntervalMs?: number
+}
+
+/** Type for ERC-7821 Call struct */
+export type ERC7821Call = {
+	target: `0x${string}`
+	value: bigint
+	data: `0x${string}`
+}

@@ -1,0 +1,68 @@
+{
+	"name": "hyperbridge-sdk",
+	"private": true,
+	"version": "0.1.0",
+	"description": "Hyperbridge SDK workspace",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "pnpm --filter=\"@hyperbridge/sdk\" build && pnpm --filter=\"@hyperbridge/indexer\" build && pnpm --filter=\"@hyperbridge/simplex\" build",
+		"test": "pnpm --filter=\"*\" test",
+		"lint": "pnpm --filter=\"*\" lint",
+		"format": "pnpm --filter=\"*\" format",
+		"clean": "rm -rf node_modules packages/*/node_modules packages/*/dist",
+		"release": "pnpm build && pnpm --filter=\"*\" publish --no-git-checks"
+	},
+	"devDependencies": {
+"@typescript-eslint/eslint-plugin": "^8.25.0",
+		"@typescript-eslint/parser": "^8.25.0",
+		"eslint": "^9.21.0",
+		"eslint-config-prettier": "^10.0.2",
+		"husky": "9.1.7",
+		"lint-staged": "15.4.3",
+		"prettier": "3.5.2",
+		"typescript": "5.7.3"
+	},
+	"prettier": {
+		"arrowParens": "always",
+		"bracketSameLine": false,
+		"objectWrap": "preserve",
+		"bracketSpacing": true,
+		"semi": false,
+		"experimentalOperatorPosition": "end",
+		"experimentalTernaries": false,
+		"singleQuote": false,
+		"jsxSingleQuote": false,
+		"quoteProps": "as-needed",
+		"trailingComma": "all",
+		"singleAttributePerLine": false,
+		"htmlWhitespaceSensitivity": "css",
+		"vueIndentScriptAndStyle": false,
+		"proseWrap": "preserve",
+		"insertPragma": false,
+		"printWidth": 120,
+		"requirePragma": false,
+		"tabWidth": 4,
+		"useTabs": true,
+		"embeddedLanguageFormatting": "auto"
+	},
+	"lint-staged": {
+		"*.{js,ts,tsx}": [
+			"prettier --write",
+			"eslint --fix"
+		]
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": ["better-sqlite3", "bufferutil", "utf-8-validate", "esbuild"]
+	},
+	"engines": {
+		"node": ">=22",
+		"pnpm": ">=7"
+	},
+	"packageManager": "pnpm@10.30.3",
+	"dependencies": {
+		"jest": "^29.7.0",
+		"ts-node": "^10.9.2"
+	}
+}

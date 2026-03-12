@@ -1,0 +1,377 @@
+import type { ConsolaInstance } from "consola"
+import { GraphQLClient } from "graphql-request"
+import {
+	ASSET_TELEPORTED_BY_PARAMS,
+	GET_REQUEST_STATUS,
+	ORDER_STATUS,
+	POST_REQUEST_STATUS,
+	TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS,
+	TOKEN_PRICE,
+} from "./queries"
+import type {
+	AssetTeleported,
+	AssetTeleportedResponse,
+	GetRequestResponse,
+	GetRequestWithStatus,
+	HexString,
+	IndexerQueryClient,
+	OrderResponse,
+	OrderWithStatus,
+	PostRequestWithStatus,
+	RequestResponse,
+	RequestStatusKey,
+	TokenGatewayAssetTeleportedResponse,
+	TokenGatewayAssetTeleportedWithStatus,
+	TokenPrice,
+	TokenPricesResponse,
+} from "./types"
+import { DEFAULT_LOGGER, REQUEST_STATUS_WEIGHTS, retryPromise, sleep } from "./utils"
+
+export function createQueryClient(config: { url: string }) {
+	return new GraphQLClient(config.url)
+}
+
+/**
+ * Queries a request by CommitmentHash
+ *
+ * @example
+ * import { createQueryClient, queryRequest } from "@hyperbridge/sdk"
+ *
+ * const queryClient = createQueryClient({
+ *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API
+ * })
+ * const commitmentHash = "0x...."
+ * const request = await queryPostRequest({ commitmentHash, queryClient })
+ */
+export function queryPostRequest(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
+	return _queryRequestInternal(params)
+}
+
+/**
+ * Query for asset teleported events by sender, recipient, and destination chain
+ * @param id - Encoded Message Id
+ * @returns The asset teleported event if found, undefined otherwise
+ */
+export async function queryAssetTeleported(params: {
+	id: HexString
+	queryClient: IndexerQueryClient
+}): Promise<AssetTeleported | undefined> {
+	const { id, queryClient } = params
+
+	return await retryPromise(
+		async () => {
+			const response = await queryClient.request<AssetTeleportedResponse>(ASSET_TELEPORTED_BY_PARAMS, { id })
+
+			if (!response?.assetTeleportedV2) {
+				throw new Error(`AssetTeleportedEvent not found for ${id}`)
+			}
+
+			return response.assetTeleportedV2
+		},
+		{
+			logMessage: "queryingAssetTeleported",
+			backoffMs: 15000,
+			maxRetries: 15,
+		},
+	)
+}
+
+/**
+ * Queries a GET Request by CommitmentHash
+ *
+ * @example
+ * import { createQueryClient, queryRequest } from "@hyperbridge/sdk"
+ *
+ * const queryClient = createQueryClient({
+ *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API
+ * })
+ * const commitmentHash = "0x...."
+ * const request = await queryGetRequest({ commitmentHash, queryClient })
+ */
+export function queryGetRequest(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
+	return _queryGetRequestInternal(params)
+}
+
+/**
+ * Queries an order by CommitmentHash
+ *
+ * @example
+ * import { createQueryClient, queryOrder } from "@hyperbridge/sdk"
+ *
+ * const queryClient = createQueryClient({
+ *   url: "http://localhost:3000", // URL of the Hyperbridge indexer API
+ * })
+ * const commitmentHash = "0x...."
+ * const order = await queryOrder({ commitmentHash, queryClient })
+ */
+export function queryOrder(params: { commitmentHash: string; queryClient: IndexerQueryClient }) {
+	return _queryOrderInternal(params)
+}
+
+/**
+ * Internal function to query a token gateway asset teleported by CommitmentHash
+ *
+ * @param params - Parameters for querying the token gateway asset teleported
+ * @returns Latest status and block metadata of the token gateway asset teleported
+ */
+export async function _queryTokenGatewayAssetTeleportedInternal(
+	params: InternalQueryParams,
+): Promise<TokenGatewayAssetTeleportedWithStatus | undefined> {
+	const { commitmentHash, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<TokenGatewayAssetTeleportedResponse>(TOKEN_GATEWAY_ASSET_TELEPORTED_STATUS, {
+				commitment: commitmentHash,
+			})
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'TokenGatewayAssetTeleported' with Statuses by CommitmentHash(${commitmentHash})`,
+		},
+	)
+
+	const first_record = response.tokenGatewayAssetTeleportedV2s.nodes[0]
+	if (!first_record) return
+
+	logger.trace("`TokenGatewayAssetTeleported` found")
+	const { statusMetadata, ...first_node } = first_record
+
+	const statuses = structuredClone(statusMetadata.nodes).map((item) => ({
+		status: item.status,
+		metadata: {
+			blockHash: item.blockHash,
+			blockNumber: Number.parseInt(item.blockNumber),
+			transactionHash: item.transactionHash,
+			timestamp: BigInt(item.timestamp),
+		},
+	}))
+
+	// sort by ascending order
+	const sorted = statuses.sort((a, b) => {
+		return Number(a.metadata.timestamp) - Number(b.metadata.timestamp)
+	})
+
+	return {
+		...first_node,
+		amount: BigInt(first_node.amount),
+		blockNumber: BigInt(first_node.blockNumber),
+		blockTimestamp: BigInt(first_node.blockTimestamp),
+		createdAt: new Date(first_node.createdAt),
+		statuses: sorted,
+	}
+}
+
+type InternalQueryParams = {
+	commitmentHash: string
+	queryClient: IndexerQueryClient
+	logger?: ConsolaInstance
+}
+
+/**
+  * Queries a request by CommitmentHash
+
+  * @param hash - Can be commitment
+  * @returns Latest status and block metadata of the request
+  */
+export async function _queryRequestInternal(params: InternalQueryParams): Promise<PostRequestWithStatus | undefined> {
+	const { commitmentHash: hash, queryClient: client, logger: logger_ = DEFAULT_LOGGER } = params
+
+	const logger = logger_.withTag("[queryRequest]")
+
+	const response = await retryPromise(
+		() => {
+			return client.request<RequestResponse>(POST_REQUEST_STATUS, {
+				hash,
+			})
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'Request' with Statuses by CommitmentHash(${hash})`,
+		},
+	)
+
+	const first_record = response.requestV2s.nodes[0]
+	if (!first_record) return
+
+	logger.trace("`Request` found")
+	const { statusMetadata, ...first_node } = first_record
+
+	const statuses = structuredClone(statusMetadata.nodes).map((item) => ({
+		status: item.status as any,
+		metadata: {
+			blockHash: item.blockHash,
+			blockNumber: Number.parseInt(item.blockNumber),
+			transactionHash: item.transactionHash,
+			timestamp: item?.timestamp,
+		},
+	}))
+
+	// sort by ascending order
+	const sorted = statuses.sort(
+		(a, b) =>
+			REQUEST_STATUS_WEIGHTS[a.status as RequestStatusKey] - REQUEST_STATUS_WEIGHTS[b.status as RequestStatusKey],
+	)
+	logger.trace("Statuses found", statuses)
+
+	const request: PostRequestWithStatus = {
+		...first_node,
+		timeoutTimestamp: BigInt(first_node.timeoutTimestamp),
+		statuses: sorted,
+	}
+
+	return request
+}
+
+/**
+ * Queries a request by any of its associated hashes and returns it alongside its statuses
+ * Statuses will be one of SOURCE, HYPERBRIDGE_DELIVERED and DESTINATION
+ *
+ * @param hash - Can be commitment, hyperbridge tx hash, source tx hash, destination tx hash, or timeout tx hash
+ * @returns Latest status and block metadata of the request
+ */
+export async function _queryGetRequestInternal(params: InternalQueryParams): Promise<GetRequestWithStatus | undefined> {
+	const { commitmentHash, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<GetRequestResponse>(GET_REQUEST_STATUS, {
+				commitment: commitmentHash,
+			})
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `query \`IGetRequest\` with commitment hash ${commitmentHash}`,
+		},
+	)
+
+	if (!response.getRequestV2s.nodes[0]) return
+
+	logger.trace("`Request` found")
+
+	const statuses = response.getRequestV2s.nodes[0].statusMetadata.nodes.map((item) => ({
+		status: item.status as any,
+		metadata: {
+			blockHash: item.blockHash,
+			blockNumber: Number.parseInt(item.blockNumber),
+			transactionHash: item.transactionHash,
+			timestamp: item?.timestamp,
+		},
+	}))
+
+	// sort by ascending order
+	const sorted = statuses.sort((a, b) => {
+		return (
+			REQUEST_STATUS_WEIGHTS[a.status as RequestStatusKey] - REQUEST_STATUS_WEIGHTS[b.status as RequestStatusKey]
+		)
+	})
+
+	const { statusMetadata, ...rest } = response.getRequestV2s.nodes[0]
+
+	return {
+		...rest,
+		commitment: commitmentHash as HexString,
+		timeoutTimestamp: BigInt(rest.timeoutTimestamp),
+		nonce: BigInt(rest.nonce),
+		height: BigInt(rest.height),
+		statuses: sorted,
+	}
+}
+
+/**
+ * Internal function to query an order by CommitmentHash
+ *
+ * @param params - Parameters for querying the order
+ * @returns Latest status and block metadata of the order
+ */
+export async function _queryOrderInternal(params: InternalQueryParams): Promise<OrderWithStatus | undefined> {
+	const { commitmentHash, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<OrderResponse>(ORDER_STATUS, {
+				commitment: commitmentHash,
+			})
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'Order' with Statuses by CommitmentHash(${commitmentHash})`,
+		},
+	)
+
+	const first_record = response.orderPlaceds.nodes[0]
+	if (!first_record) return
+
+	logger.trace("`Order` found")
+	const { statusMetadata, ...first_node } = first_record
+
+	const statuses = structuredClone(statusMetadata.nodes).map((item) => ({
+		status: item.status,
+		metadata: {
+			blockHash: item.blockHash,
+			blockNumber: Number.parseInt(item.blockNumber),
+			transactionHash: item.transactionHash,
+			timestamp: BigInt(item.timestamp),
+			filler: item.filler,
+		},
+	}))
+
+	// sort by ascending order
+	const sorted = statuses.sort((a, b) => {
+		// Since OrderStatus and RequestStatus are different enums, we'll just sort by timestamp
+		return Number(a.metadata.timestamp) - Number(b.metadata.timestamp)
+	})
+
+	const order: OrderWithStatus = {
+		...first_node,
+		deadline: BigInt(first_node.deadline),
+		nonce: BigInt(first_node.nonce),
+		fees: BigInt(first_node.fees),
+		inputAmounts: first_node.inputAmounts.map(BigInt),
+		outputAmounts: first_node.outputAmounts.map(BigInt),
+		blockNumber: BigInt(first_node.blockNumber),
+		blockTimestamp: BigInt(first_node.blockTimestamp),
+		createdAt: new Date(first_node.createdAt),
+		statuses: sorted,
+	}
+
+	return order
+}
+
+type TokenPriceQueryParams = {
+	symbol: string
+	queryClient: IndexerQueryClient
+	logger?: ConsolaInstance
+}
+
+export async function _queryTokenPriceInternal(params: TokenPriceQueryParams): Promise<TokenPrice | undefined> {
+	const { symbol, queryClient: client, logger = DEFAULT_LOGGER } = params
+
+	const response = await retryPromise(
+		() => {
+			return client.request<TokenPricesResponse>(TOKEN_PRICE, { symbol })
+		},
+		{
+			maxRetries: 3,
+			backoffMs: 1000,
+			logger,
+			logMessage: `querying 'TokenPrice' by Symbol(${symbol})`,
+		},
+	)
+
+	const item = response.tokenPrices.nodes?.[0]
+	if (!item) return
+
+	logger.trace("`TokenPrice` found")
+	return item
+}
+
+

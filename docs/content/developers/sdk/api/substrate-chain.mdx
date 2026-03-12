@@ -11,11 +11,47 @@ The `SubstrateChain` class provides methods for interacting with Substrate-based
 class SubstrateChain implements IChain
 ```
 
+## Static Methods
+
+### SubstrateChain.connect(params)
+
+Creates a new `SubstrateChain` instance and immediately establishes the WebSocket connection, returning a fully initialised chain client. This is the preferred way to create a `SubstrateChain`.
+
+```typescript lineNumbers
+static async connect(params: ISubstrateConfig): Promise<SubstrateChain>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.stateMachineId` | `string` | State machine identifier (e.g., "POLKADOT-3367") |
+| `params.wsUrl` | `string` | WebSocket URL for the Substrate node (must be an archive node) |
+| `params.consensusStateId` | `string` | Consensus state identifier on Hyperbridge |
+| `params.hasher` | `"Blake2" \| "Keccak"` | Hashing algorithm used by the chain |
+
+**Returns:** `Promise<SubstrateChain>` — a connected chain instance, ready to use.
+
+**Example:**
+
+```typescript lineNumbers
+import { SubstrateChain } from "@hyperbridge/sdk"
+
+const hyperbridge = await SubstrateChain.connect({
+  stateMachineId: "POLKADOT-3367",
+  wsUrl: "wss://hyperbridge-rpc.polkadot.io",
+  consensusStateId: "DOT0",
+  hasher: "Keccak"
+})
+```
+
+---
+
 ## Constructor
 
 ### new SubstrateChain(params)
 
-Creates a new SubstrateChain instance for a Substrate-based blockchain.
+Creates an unconnected `SubstrateChain` instance. You must call `connect()` before using any methods that require the WebSocket API. Prefer `SubstrateChain.connect(params)` for most use cases.
 
 **Parameters:**
 
@@ -28,22 +64,6 @@ Creates a new SubstrateChain instance for a Substrate-based blockchain.
 
 **Returns:** `SubstrateChain`
 
-**Example:**
-
-```typescript lineNumbers
-import { SubstrateChain } from "@hyperbridge/sdk"
-
-const hyperbridgeChain = new SubstrateChain({
-  stateMachineId: "POLKADOT-3367",
-  wsUrl: "wss://hyperbridge-rpc.polkadot.io",
-  consensusStateId: "DOT0",
-  hasher: "Keccak"
-})
-
-// Must connect before using
-await hyperbridgeChain.connect()
-```
-
 ---
 
 ## Properties
@@ -54,13 +74,13 @@ The Polkadot.js API instance for interacting with the Substrate chain.
 
 **Type:** `ApiPromise | undefined`
 
-**Note:** Only available after calling `connect()`
+**Note:** Only available after connecting (via `SubstrateChain.connect(params)` or `instance.connect()`)
 
 **Example:**
 
 ```typescript lineNumbers
-await substrateChain.connect()
-const blockHash = await substrateChain.api?.rpc.chain.getBlockHash()
+const chain = await SubstrateChain.connect({ /* ... */ })
+const blockHash = await chain.api?.rpc.chain.getBlockHash()
 ```
 
 ---
@@ -88,7 +108,7 @@ Returns the chain configuration object.
 
 ### connect()
 
-Connects to the Substrate chain using the WebSocket URL. Must be called before using other methods.
+Establishes the WebSocket connection on an existing instance. Prefer the `SubstrateChain.connect(params)` static factory which combines construction and connection into a single call.
 
 ```typescript lineNumbers
 async connect(): Promise<void>
@@ -99,14 +119,13 @@ async connect(): Promise<void>
 **Example:**
 
 ```typescript lineNumbers
-const chain = new SubstrateChain({
+// Preferred — static factory
+const chain = await SubstrateChain.connect({
   stateMachineId: "POLKADOT-3367",
   wsUrl: "wss://rpc-url",
   consensusStateId: "DOT0",
   hasher: "Keccak"
 })
-
-await chain.connect()
 // Now ready to use
 ```
 
@@ -374,11 +393,10 @@ console.log(`Latest Ethereum height: ${height}`)
 
 ### Connection Management
 
-**Critical:** Always call `connect()` before using any query methods. The Polkadot.js API must be initialized first.
+Use `SubstrateChain.connect(params)` to create and connect in one step. The Polkadot.js API must be initialised before calling any query methods.
 
 ```typescript lineNumbers
-const chain = new SubstrateChain(config)
-await chain.connect()  // Required!
+const chain = await SubstrateChain.connect(config)
 
 // Now you can use the chain
 const timestamp = await chain.timestamp()
@@ -425,14 +443,12 @@ Using the wrong hasher will cause proof verification failures.
 import { SubstrateChain } from "@hyperbridge/sdk"
 
 // Create and connect to Hyperbridge
-const hyperbridge = new SubstrateChain({
+const hyperbridge = await SubstrateChain.connect({
   stateMachineId: "POLKADOT-3367",
   wsUrl: "wss://hyperbridge-rpc.polkadot.io",
   consensusStateId: "DOT0",
   hasher: "Keccak"
 })
-
-await hyperbridge.connect()
 
 try {
   // Query current timestamp

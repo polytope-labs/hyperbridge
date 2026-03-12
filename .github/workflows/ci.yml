@@ -9,6 +9,7 @@ on:
             - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
+            - "!sdk/**"
 
     pull_request_target:
         types: [opened, synchronize]
@@ -17,6 +18,7 @@ on:
             - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
+            - "!sdk/**"
 
     # pull_request:
     #     branches:

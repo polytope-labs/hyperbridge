@@ -2,7 +2,7 @@ import { isHex, hexToString } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { orderV2Commitment, bytes32ToBytes20 } from "@/utils"
 import type { OrderV2, HexString } from "@/types"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 
 /**
  * Checks the on-chain fill and refund status of IntentGatewayV2 orders.
@@ -15,7 +15,7 @@ export class OrderStatusChecker {
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
 	 *   chain clients and config service.
 	 */
-	constructor(private readonly ctx: IntentsV2Context) {}
+	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
 	 * Checks if a V2 order has been filled by reading the commitment storage slot on the destination chain.

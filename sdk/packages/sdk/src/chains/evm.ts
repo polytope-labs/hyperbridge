@@ -30,7 +30,7 @@ import {
 	soneium,
 	tron,
 } from "viem/chains"
-import { tronNile } from "@/configs/chain"
+import { chainConfigs, polkadotAssetHubPaseo, tronNile } from "@/configs/chain"
 
 import { flatten, zip } from "lodash-es"
 import { match } from "ts-pattern"
@@ -81,6 +81,7 @@ const chains = {
 	[unichain.id]: unichain,
 	[tron.id]: tron,
 	[tronNile.id]: tronNile,
+	[polkadotAssetHubPaseo.id]: polkadotAssetHubPaseo,
 }
 
 /**
@@ -109,6 +110,10 @@ export interface EvmChainParams {
 	 * Consensus state identifier of this chain on hyperbridge
 	 */
 	consensusStateId?: string
+	/**
+	 * Optional ERC-4337 bundler URL for account abstraction support
+	 */
+	bundlerUrl?: string
 }
 
 /**
@@ -129,12 +134,15 @@ export class EvmChain implements IChain {
 			11155420: "ETH0", // Optimism Sepolia
 			8453: "ETH0", // Base
 			84532: "ETH0", // Base Sepolia
+			130: "ETH0", // Unichain
+			1868: "ETH0", // Soneium
 			137: "POLY", // Polygon Mainnet
 			80002: "POLY", // Polygon Amoy
 			56: "BSC0", // BSC
 			97: "BSC0", // BSC Testnet
 			100: "GNO0", // Gnosis
 			10200: "GNO0", // Gnosis Chiado
+			420420417: "PAS0", // Polkadot Asset Hub (Paseo)
 		}
 
 		// Set default consensusStateId if not provided
@@ -151,6 +159,34 @@ export class EvmChain implements IChain {
 		this.chainConfigService = new ChainConfigService()
 	}
 
+	/**
+	 * Creates an `EvmChain` instance by auto-detecting the chain ID from the RPC endpoint
+	 * and resolving the correct `IsmpHost` contract address for that chain.
+	 *
+	 * @param rpcUrl - HTTP(S) RPC URL of the EVM node
+	 * @param bundlerUrl - Optional ERC-4337 bundler URL for account abstraction support
+	 * @returns A fully initialised `EvmChain` ready for use
+	 * @throws If the chain ID returned by the RPC is not a known Hyperbridge deployment
+	 *
+	 * @example
+	 * ```typescript
+	 * const chain = await EvmChain.create("https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY")
+	 * const chain = await EvmChain.create("https://mainnet.base.org", "https://bundler.example.com")
+	 * ```
+	 */
+	static async create(rpcUrl: string, bundlerUrl?: string): Promise<EvmChain> {
+		// Use a chainless transport to fetch the chain ID before we know which chain we're on
+		const tempClient = createPublicClient({ transport: http(rpcUrl) })
+		const chainId = await tempClient.getChainId()
+
+		const host = chainConfigs[chainId]?.addresses?.Host
+		if (!host) {
+			throw new Error(`No known IsmpHost address for chain ID ${chainId}. Provide the host address explicitly.`)
+		}
+
+		return new EvmChain({ chainId, rpcUrl, host, bundlerUrl })
+	}
+
 	// Expose minimal getters for external helpers/classes
 	get client(): PublicClient {
 		return this.publicClient
@@ -158,6 +194,10 @@ export class EvmChain implements IChain {
 
 	get host(): HexString {
 		return this.params.host
+	}
+
+	get bundlerUrl(): string | undefined {
+		return this.params.bundlerUrl
 	}
 
 	get config(): IEvmConfig {
@@ -662,6 +702,18 @@ export class EvmChain implements IChain {
 		})
 		const receipt = await this.client.waitForTransactionReceipt({
 			hash: txHash,
+			confirmations: 1,
+		})
+
+		if (!receipt) {
+			throw new Error("Transaction receipt not found")
+		}
+		return receipt
+	}
+
+	async getTransactionReceipt(hash: HexString): Promise<TransactionReceipt> {
+		const receipt = await this.client.waitForTransactionReceipt({
+			hash,
 			confirmations: 1,
 		})
 

@@ -15,7 +15,7 @@ import { privateKeyToAccount } from "viem/accounts"
 import type { HexString, PackedUserOperation } from "@/types"
 import type { ERC7821Call } from "@/types"
 import ERC7821ABI from "@/abis/erc7281"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { BundlerMethod } from "./types"
 
@@ -58,7 +58,7 @@ export const DOMAIN_TYPEHASH = keccak256(
  * Provides helpers for EIP-712 domain separation, UserOperation hashing,
  * gas-limit packing/unpacking, bundler JSON-RPC calls, and ERC-7821
  * batch-execute encoding and decoding. All methods are stateless with respect
- * to the protocol but require the shared {@link IntentsV2Context} for the
+ * to the protocol but require the shared {@link IntentGatewayContext} for the
  * bundler URL.
  */
 export class CryptoUtils {
@@ -66,7 +66,7 @@ export class CryptoUtils {
 	 * @param ctx - Shared IntentsV2 context; used to access the bundler URL for
 	 *   JSON-RPC calls.
 	 */
-	constructor(private readonly ctx: IntentsV2Context) {}
+	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
 	 * Computes an EIP-712 domain separator for a given contract.

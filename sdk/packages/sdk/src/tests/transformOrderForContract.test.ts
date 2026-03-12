@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { transformOrderForContract } from "@/protocols/intentsV2/utils"
+import { transformOrderForContract } from "@/protocols/intents/utils"
 import type { OrderV2, HexString } from "@/types"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString

@@ -14,7 +14,7 @@ import type {
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IndexerClient } from "@/client"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
 import { OrderPlacer } from "./OrderPlacer"
@@ -29,7 +29,7 @@ import { DEFAULT_GRAFFITI } from "@/utils"
 /**
  * High-level facade for the IntentGatewayV2 protocol.
  *
- * `IntentsV2` orchestrates the complete lifecycle of an intent-based
+ * `IntentGateway` orchestrates the complete lifecycle of an intent-based
  * cross-chain swap:
  * - **Order placement** — encodes and yields `placeOrder` calldata; caller
  *   signs and submits the transaction.
@@ -45,9 +45,9 @@ import { DEFAULT_GRAFFITI } from "@/utils"
  * {@link OrderExecutor}, {@link OrderCanceller}, {@link BidManager},
  * {@link GasEstimator}, {@link OrderStatusChecker}, and {@link CryptoUtils}.
  *
- * Use `IntentsV2.create()` to obtain an initialised instance.
+ * Use `IntentGateway.create()` to obtain an initialised instance.
  */
-export class IntentsV2 {
+export class IntentGateway {
 	/** EVM chain on which orders are placed and escrowed. */
 	readonly source: IEvmChain
 	/** EVM chain on which solvers fill orders and deliver outputs. */
@@ -58,7 +58,7 @@ export class IntentsV2 {
 	readonly bundlerUrl?: string
 
 	/** Shared context object passed to all sub-modules. */
-	private readonly ctx: IntentsV2Context
+	private readonly ctx: IntentGatewayContext
 	/** Crypto and encoding utilities (EIP-712, gas packing, bundler calls). */
 	private readonly _crypto: CryptoUtils
 	/** Handles `placeOrder` calldata generation and session-key management. */
@@ -75,7 +75,7 @@ export class IntentsV2 {
 	private readonly gasEstimator: GasEstimator
 
 	/**
-	 * Private constructor — use {@link IntentsV2.create} instead.
+	 * Private constructor — use {@link IntentGateway.create} instead.
 	 *
 	 * Initialises all sub-modules and the shared context, including storage
 	 * adapters, fee-token and solver-code caches, and the DEX-quote utility.
@@ -83,18 +83,16 @@ export class IntentsV2 {
 	 * @param source - Source chain client.
 	 * @param dest - Destination chain client.
 	 * @param intentsCoprocessor - Optional coprocessor for bid fetching.
-	 * @param bundlerUrl - Optional ERC-4337 bundler endpoint URL.
 	 */
 	private constructor(
 		source: IEvmChain,
 		dest: IEvmChain,
 		intentsCoprocessor?: IntentsCoprocessor,
-		bundlerUrl?: string,
 	) {
 		this.source = source
 		this.dest = dest
 		this.intentsCoprocessor = intentsCoprocessor
-		this.bundlerUrl = bundlerUrl
+		this.bundlerUrl = dest.bundlerUrl
 
 		const sessionKeyStorage = createSessionKeyStorage()
 		const cancellationStorage = createCancellationStorage()
@@ -107,7 +105,7 @@ export class IntentsV2 {
 			source,
 			dest,
 			intentsCoprocessor,
-			bundlerUrl,
+			bundlerUrl: this.bundlerUrl,
 			feeTokenCache,
 			solverCodeCache,
 			sessionKeyStorage,
@@ -130,25 +128,26 @@ export class IntentsV2 {
 	}
 
 	/**
-	 * Creates an initialized IntentsV2 instance.
+	 * Creates an initialized IntentGateway instance.
 	 *
 	 * Fetches the fee tokens for both chains and optionally caches the solver
 	 * account bytecode before returning, so the instance is ready for use
 	 * without additional warm-up calls.
 	 *
+	 * The ERC-4337 bundler URL is read from `dest.bundlerUrl`, set when constructing
+	 * the destination chain via {@link EvmChain.create} or {@link EvmChainParams.bundlerUrl}.
+	 *
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment
 	 * @param intentsCoprocessor - Optional coprocessor for bid fetching and order execution
-	 * @param bundlerUrl - Optional ERC-4337 bundler URL for gas estimation and UserOp submission
-	 * @returns Initialized IntentsV2 instance
+	 * @returns Initialized IntentGateway instance
 	 */
 	static async create(
 		source: IEvmChain,
 		dest: IEvmChain,
 		intentsCoprocessor?: IntentsCoprocessor,
-		bundlerUrl?: string,
-	): Promise<IntentsV2> {
-		const instance = new IntentsV2(source, dest, intentsCoprocessor, bundlerUrl)
+	): Promise<IntentGateway> {
+		const instance = new IntentGateway(source, dest, intentsCoprocessor)
 		await instance.init()
 		return instance
 	}
@@ -157,7 +156,7 @@ export class IntentsV2 {
 	 * Pre-warms the fee-token cache for both chains and attempts to load the
 	 * solver account bytecode into the solver-code cache.
 	 *
-	 * Called automatically by {@link IntentsV2.create}; not intended for direct use.
+	 * Called automatically by {@link IntentGateway.create}; not intended for direct use.
 	 */
 	private async init(): Promise<void> {
 		const now = Date.now()
@@ -275,12 +274,12 @@ export class IntentsV2 {
 	 * Delegates to {@link OrderCanceller.quoteCancelNative}.
 	 *
 	 * @param order - The order to quote cancellation for.
-	 * @param from - Chain side that initiates the cancel (`"source"` or `"dest"`).
-	 *   Defaults to `"source"`.
+	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
+	 *   Defaults to `false` (source-side cancellation).
 	 * @returns The native token amount required to submit the cancel transaction.
 	 */
-	async quoteCancelNative(order: OrderV2, from: "source" | "dest" = "source"): Promise<bigint> {
-		return this.orderCanceller.quoteCancelNative(order, from)
+	async quoteCancelNative(order: OrderV2, fromDest: boolean = false): Promise<bigint> {
+		return this.orderCanceller.quoteCancelNative(order, fromDest)
 	}
 
 	/**
@@ -291,15 +290,16 @@ export class IntentsV2 {
 	 *
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used for ISMP request status streaming.
-	 * @param from - Chain side that initiates the cancel. Defaults to `"source"`.
+	 * @param fromDest - If `true`, initiates cancellation from the destination chain.
+	 *   Defaults to `false` (source-side cancellation).
 	 * @yields {@link CancelEvent} objects describing each cancellation stage.
 	 */
 	async *cancelOrder(
 		order: OrderV2,
 		indexerClient: IndexerClient,
-		from: "source" | "dest" = "source",
+		fromDest: boolean = false,
 	): AsyncGenerator<CancelEvent> {
-		yield* this.orderCanceller.cancelOrder(order, indexerClient, from)
+		yield* this.orderCanceller.cancelOrder(order, indexerClient, fromDest)
 	}
 
 	/**

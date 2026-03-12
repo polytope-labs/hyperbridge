@@ -83,6 +83,19 @@ export class SubstrateChain implements IChain {
 		this.rpcClient = new HttpRpcClient(httpUrl)
 	}
 
+	/**
+	 * Creates a `SubstrateChain` instance and immediately connects to the
+	 * WebSocket endpoint, returning a fully initialised chain client.
+	 *
+	 * @param params - Substrate chain configuration (wsUrl, stateMachineId, etc.).
+	 * @returns A connected `SubstrateChain` instance.
+	 */
+	static async connect(params: ISubstrateConfig): Promise<SubstrateChain> {
+		const instance = new SubstrateChain(params)
+		await instance.connect()
+		return instance
+	}
+
 	get config(): ISubstrateConfig {
 		return {
 			wsUrl: this.params.wsUrl,

@@ -20,7 +20,7 @@ import type { IProof } from "@/chain"
 import type { IndexerClient } from "@/client"
 import type { SubstrateChain } from "@/chain"
 import { RequestStatus } from "@/types"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
 import { transformOrderForContract, fetchSourceProof, getFeeToken, convertGasToFeeToken } from "./utils"
 
@@ -48,7 +48,7 @@ export class OrderCanceller {
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
 	 *   chain clients, config service, and cancellation storage.
 	 */
-	constructor(private readonly ctx: IntentsV2Context) {}
+	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
 	 * Quotes the native token cost of cancelling an order from the given chain.
@@ -57,12 +57,12 @@ export class OrderCanceller {
 	 * quote covers the ISMP GET/POST dispatch fee.
 	 *
 	 * @param order - The order to quote a cancellation for.
-	 * @param from - Which chain side initiates the cancellation (`"source"` or
-	 *   `"dest"`). Defaults to `"source"`.
+	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
+	 *   Defaults to `false` (source-side cancellation).
 	 * @returns The native token amount required to submit the cancel transaction.
 	 */
-	async quoteCancelNative(order: OrderV2, from: "source" | "dest" = "source"): Promise<bigint> {
-		if (from === "dest") {
+	async quoteCancelNative(order: OrderV2, fromDest: boolean = false): Promise<bigint> {
+		if (fromDest) {
 			return this.quoteCancelNativeFromDest(order)
 		}
 		return this.quoteCancelNativeFromSource(order)
@@ -122,17 +122,17 @@ export class OrderCanceller {
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used to stream ISMP request status
 	 *   updates and query state-machine heights.
-	 * @param from - Which chain side initiates the cancellation. Defaults to
-	 *   `"source"`.
+	 * @param fromDest - If `true`, initiates cancellation from the destination chain.
+	 *   Defaults to `false` (source-side cancellation).
 	 * @yields {@link CancelEvent} objects describing each stage of the
 	 *   cancellation lifecycle.
 	 */
 	async *cancelOrder(
 		order: OrderV2,
 		indexerClient: IndexerClient,
-		from: "source" | "dest" = "source",
+		fromDest: boolean = false,
 	): AsyncGenerator<CancelEvent> {
-		if (from === "dest") {
+		if (fromDest) {
 			yield* this.cancelOrderFromDest(order, indexerClient)
 			return
 		}
@@ -183,7 +183,10 @@ export class OrderCanceller {
 				value: 0n,
 			}
 
-			const receipt = await this.ctx.source.broadcastTransaction(signedTransaction)
+			const receipt =
+				signedTransaction.length === 66
+					? await this.ctx.source.getTransactionReceipt(signedTransaction)
+					: await this.ctx.source.broadcastTransaction(signedTransaction)
 			const refundEvents = parseEventLogs({
 				abi: IntentGatewayV2ABI,
 				logs: receipt.logs,
@@ -231,7 +234,10 @@ export class OrderCanceller {
 				value,
 			}
 
-			const receipt = await this.ctx.source.broadcastTransaction(signedTransaction)
+			const receipt =
+				signedTransaction.length === 66
+					? await this.ctx.source.getTransactionReceipt(signedTransaction)
+					: await this.ctx.source.broadcastTransaction(signedTransaction)
 
 			const events = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })
 			const request = events.find((e) => e.eventName === "GetRequestEvent")
@@ -239,6 +245,11 @@ export class OrderCanceller {
 			getRequest = request.args as unknown as IGetRequest
 
 			await this.ctx.cancellationStorage.setItem(STORAGE_KEYS.getRequest(orderId), getRequest)
+
+			yield {
+				status: "CANCEL_STARTED" as const,
+				receipt,
+			}
 		}
 
 		const commitment = getRequestCommitment({
@@ -402,7 +413,15 @@ export class OrderCanceller {
 				value,
 			}
 
-			const receipt = await this.ctx.dest.broadcastTransaction(signedTransaction)
+			const receipt =
+				signedTransaction.length === 66
+					? await this.ctx.dest.getTransactionReceipt(signedTransaction)
+					: await this.ctx.dest.broadcastTransaction(signedTransaction)
+
+			yield {
+				status: "CANCEL_STARTED" as const,
+				receipt,
+			}
 
 			const events = parseEventLogs({ abi: EVM_HOST.ABI, logs: receipt.logs })
 			const postEvent = events.find((e) => e.eventName === "PostRequestEvent")

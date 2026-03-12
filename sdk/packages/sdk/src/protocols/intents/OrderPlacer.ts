@@ -5,7 +5,7 @@ import { hexToString, orderV2Commitment } from "@/utils"
 import type { OrderV2, DecodedOrderV2PlacedLog } from "@/types"
 import type { HexString } from "@/types"
 import type { SessionKeyData } from "@/storage"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import { DEFAULT_GRAFFITI } from "./types"
 import { transformOrderForContract } from "./utils"
 
@@ -23,7 +23,7 @@ export class OrderPlacer {
 	 * @param ctx - Shared IntentsV2 context providing the source chain client,
 	 *   config service, and session-key storage.
 	 */
-	constructor(private readonly ctx: IntentsV2Context) {}
+	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
 	 * Bidirectional async generator that orchestrates order placement.
@@ -89,7 +89,10 @@ export class OrderPlacer {
 			sessionPrivateKey: privateKey as HexString,
 		}
 
-		const receipt = await this.ctx.source.broadcastTransaction(signedTransaction)
+		const receipt =
+			signedTransaction.length === 66
+				? await this.ctx.source.getTransactionReceipt(signedTransaction)
+				: await this.ctx.source.broadcastTransaction(signedTransaction)
 
 		const events = parseEventLogs({
 			abi: IntentGatewayV2ABI,

@@ -1,7 +1,7 @@
 import type { HexString } from "@/types"
 import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, SelectBidResult } from "@/types"
 import { sleep, DEFAULT_POLL_INTERVAL, hexToString } from "@/utils"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import { BidManager } from "./BidManager"
 
 /**
@@ -34,7 +34,7 @@ export class OrderExecutor {
 	 *   deduplication.
 	 */
 	constructor(
-		private readonly ctx: IntentsV2Context,
+		private readonly ctx: IntentGatewayContext,
 		private readonly bidManager: BidManager,
 		private readonly crypto: import("./CryptoUtils").CryptoUtils,
 	) {}

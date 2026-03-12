@@ -83,7 +83,6 @@ describe.sequential("Get and Post Requests", () => {
 			pollInterval: 1_000,
 		})
 
-		await hyperbridge.connect()
 		hyperbridgeInstance = hyperbridge
 	})
 
@@ -609,7 +608,7 @@ async function setUp() {
 		client: { public: bscTestnetClient, wallet: bscWalletClient },
 	})
 
-	const hyperbridge = new SubstrateChain({
+	const hyperbridge = await SubstrateChain.connect({
 		wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 		hasher: "Keccak",
 		stateMachineId: "KUSAMA-4009",

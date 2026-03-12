@@ -136,6 +136,18 @@ export class TronChain implements IChain {
 		return receipt
 	}
 
+	async getTransactionReceipt(hash: HexString): Promise<TransactionReceipt> {
+		const receipt = await this.client.waitForTransactionReceipt({
+			hash,
+			confirmations: 1,
+		})
+
+		if (!receipt) {
+			throw new Error("Transaction receipt not found")
+		}
+		return receipt
+	}
+
 	// -------------------------------------------------------------------------
 	// Helpers mirrored from EvmChain for protocol integrations
 	// -------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import type {
 	TokenInfoV2,
 	ERC7821Call,
 } from "@/types"
-import type { IntentsV2Context } from "./types"
+import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
 import Decimal from "decimal.js"
@@ -38,7 +38,7 @@ export class BidManager {
 	 *   EIP-712 signing, and bundler calls.
 	 */
 	constructor(
-		private readonly ctx: IntentsV2Context,
+		private readonly ctx: IntentGatewayContext,
 		private readonly crypto: CryptoUtils,
 	) {}
 
@@ -750,7 +750,7 @@ export class BidManager {
 		wethAddr: HexString,
 		usdcAddr: HexString,
 		chainId: string,
-		client: IntentsV2Context["dest"]["client"],
+		client: IntentGatewayContext["dest"]["client"],
 	): Promise<bigint> {
 		const isWethOrNative = tokenAddr.toLowerCase() === wethAddr.toLowerCase() || tokenAddr === ADDRESS_ZERO
 

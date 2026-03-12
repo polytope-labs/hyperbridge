@@ -1,3 +1,4 @@
+import type { TransactionReceipt } from "viem"
 import type { HexString } from "@/types"
 import type { IProof } from "@/chain"
 import type { RequestStatusWithMetadata } from "@/types"
@@ -120,6 +121,7 @@ export interface PimlicoGasPriceEstimate {
 export type CancelEvent =
 	| { status: "DESTINATION_FINALIZED"; proof: IProof }
 	| { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
+	| { status: "CANCEL_STARTED"; receipt: TransactionReceipt }
 	| { status: "SOURCE_FINALIZED"; metadata: Extract<RequestStatusWithMetadata, { status: "SOURCE_FINALIZED" }>["metadata"] }
 	| { status: "HYPERBRIDGE_DELIVERED"; metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_DELIVERED" }>["metadata"] }
 	| { status: "HYPERBRIDGE_FINALIZED"; metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_FINALIZED" }>["metadata"] }
@@ -138,7 +140,7 @@ import type { createSessionKeyStorage, createCancellationStorage, createUsedUser
  * reference to this object so they can share fee-token caches, storage
  * adapters, and chain clients without duplicating initialisation logic.
  */
-export interface IntentsV2Context {
+export interface IntentGatewayContext {
 	/** EVM chain on which orders are placed and escrowed. */
 	source: IEvmChain
 	/** EVM chain on which solvers fill orders and receive outputs. */

@@ -1,8 +1,14 @@
 import {
 	Chain,
+	arbitrumSepolia,
+	baseSepolia,
 	bscTestnet,
+	gnosis,
 	gnosisChiado,
+	optimism,
+	optimismSepolia,
 	sepolia,
+	soneium,
 	mainnet,
 	bsc,
 	base,
@@ -29,13 +35,33 @@ export enum Chains {
 	MAINNET = "EVM-1",
 	BSC_MAINNET = "EVM-56",
 	ARBITRUM_MAINNET = "EVM-42161",
+	ARBITRUM_SEPOLIA = "EVM-421614",
 	BASE_MAINNET = "EVM-8453",
+	BASE_SEPOLIA = "EVM-84532",
+	OPTIMISM_MAINNET = "EVM-10",
+	OPTIMISM_SEPOLIA = "EVM-11155420",
+	GNOSIS_MAINNET = "EVM-100",
+	SONEIUM_MAINNET = "EVM-1868",
 	POLYGON_MAINNET = "EVM-137",
 	UNICHAIN_MAINNET = "EVM-130",
 	POLYGON_AMOY = "EVM-80002",
+	POLKADOT_ASSET_HUB_PASEO = "EVM-420420417",
 	TRON_MAINNET = "EVM-728126428",
 	TRON_NILE = "EVM-3448148188",
 }
+
+/** Polkadot Asset Hub Paseo testnet (chain ID 420420417) — not in viem/chains */
+export const polkadotAssetHubPaseo = defineChain({
+	id: 420420417,
+	name: "Polkadot Asset Hub (Paseo)",
+	nativeCurrency: { name: "PAS", symbol: "PAS", decimals: 10 },
+	rpcUrls: {
+		default: { http: ["https://testnet-asset-hub-eth-rpc.polkadot.io"] },
+	},
+	blockExplorers: {
+		default: { name: "Routescan", url: "https://polkadot.testnet.routescan.io" },
+	},
+})
 
 /** Tron Nile Testnet (chain ID 3448148188) — not in viem/chains */
 export const tronNile = defineChain({
@@ -595,6 +621,187 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",
 		consensusStateId: "POLY",
 		coingeckoId: "polygon-pos",
+	},
+	10: {
+		chainId: 10,
+		stateMachineId: Chains.OPTIMISM_MAINNET,
+		viemChain: optimism,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x4200000000000000000000000000000000000006",
+			DAI: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+			USDC: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+			USDT: "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
+		addresses: {
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
+			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
+			Host: "0x78c8A5F27C06757EA0e30bEa682f1FD5C8d7645d",
+			UniswapRouter02: "0x4A7b5Da61326A6379179b40d00F57E5bbDC962c2",
+			UniswapV2Factory: "0x0c3c1c532F1e39EdF36BE9Fe0bE1410313E074Bf",
+			UniswapV3Factory: "0x1F98431c8aD98523631AE4a59f267346ea31F984",
+			Calldispatcher: "0xC71251c8b3e7B02697A84363Eef6DcE8DfBdF333",
+			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://mainnet.optimism.io",
+		consensusStateId: "ETH0",
+		coingeckoId: "optimistic-ethereum",
+	},
+	100: {
+		chainId: 100,
+		stateMachineId: Chains.GNOSIS_MAINNET,
+		viemChain: gnosis,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x6A023CCd1ff6F2045C3309768eAd9E68F978f6e1",
+			DAI: "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d", // WXDAI
+			USDC: "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83",
+			USDT: "0x4ECaBa5870353805a9F068101A40E0f32ed605C6",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
+		addresses: {
+			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
+			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
+			Host: "0x50c236247447B9d4Ee0561054ee596fbDa7791b1",
+			UniswapRouter02: "0xB2e26652e4BAd1e56055A051f922E06760cA0BFE", // Mocked
+			UniswapV2Factory: "0x0000000000000000000000000000000000000000",
+			Calldispatcher: "0xC71251c8b3e7B02697A84363Eef6DcE8DfBdF333",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://rpc.gnosischain.com",
+		consensusStateId: "GNO0",
+		coingeckoId: "gnosis",
+	},
+	1868: {
+		chainId: 1868,
+		stateMachineId: Chains.SONEIUM_MAINNET,
+		viemChain: soneium,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x4200000000000000000000000000000000000006",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0xbA9986D2381edf1DA03B0B9c1f8b00dc4AacC369", // USDC.e
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
+		addresses: {
+			TokenGateway: "0xCe304770236f39F9911BfCC51afBdfF3b8635718",
+			Host: "0x7F0165140D0f3251c8f6465e94E9d12C7FD40711",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://rpc.soneium.org",
+		consensusStateId: "ETH0",
+		coingeckoId: "ethereum",
+	},
+	421614: {
+		chainId: 421614,
+		stateMachineId: Chains.ARBITRUM_SEPOLIA,
+		viemChain: arbitrumSepolia,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x0000000000000000000000000000000000000000",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0x0000000000000000000000000000000000000000",
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
+		addresses: {
+			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			Host: "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+		consensusStateId: "ETH0",
+		coingeckoId: "arbitrum-one",
+	},
+	11155420: {
+		chainId: 11155420,
+		stateMachineId: Chains.OPTIMISM_SEPOLIA,
+		viemChain: optimismSepolia,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x0000000000000000000000000000000000000000",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0x0000000000000000000000000000000000000000",
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
+		addresses: {
+			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			Host: "0x6d51b678836d8060d980605d2999eF211809f3C2",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://sepolia.optimism.io",
+		consensusStateId: "ETH0",
+		coingeckoId: "optimistic-ethereum",
+	},
+	84532: {
+		chainId: 84532,
+		stateMachineId: Chains.BASE_SEPOLIA,
+		viemChain: baseSepolia,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x0000000000000000000000000000000000000000",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0x0000000000000000000000000000000000000000",
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		tokenDecimals: {
+			USDC: 6,
+			USDT: 6,
+		},
+		addresses: {
+			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
+			Host: "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://sepolia.base.org",
+		consensusStateId: "ETH0",
+		coingeckoId: "base",
+	},
+	420420417: {
+		chainId: 420420417,
+		stateMachineId: Chains.POLKADOT_ASSET_HUB_PASEO,
+		viemChain: polkadotAssetHubPaseo,
+		wrappedNativeDecimals: 18,
+		assets: {
+			WETH: "0x0000000000000000000000000000000000000000",
+			DAI: "0x0000000000000000000000000000000000000000",
+			USDC: "0x0dc440cf87830f0af564eb8b62b454b7e0c68a4b", // USD.h
+			USDT: "0x0000000000000000000000000000000000000000",
+		},
+		tokenDecimals: {
+			USDC: 18,
+			USDT: 18,
+		},
+		addresses: {
+			IntentGateway: "0x606ba811aa6cb424ce2108e8977c5284686f0d1f",
+			TokenGateway: "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c",
+			Host: "0xbb26e04a71e7c12093e82b83ba310163eac186fa",
+			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+		},
+		defaultRpcUrl: "https://testnet-asset-hub-eth-rpc.polkadot.io",
+		consensusStateId: "PAS0",
+		coingeckoId: "polkadot",
 	},
 }
 

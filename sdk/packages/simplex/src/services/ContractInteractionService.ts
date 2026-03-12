@@ -6,7 +6,7 @@ import {
 	bytes32ToBytes20,
 	retryPromise,
 	OrderV2,
-	IntentsV2,
+	IntentGateway,
 	EvmChain,
 	getChainId,
 	orderV2Commitment,
@@ -37,7 +37,7 @@ export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
 	private logger = getLogger("contract-service")
-	private sdkHelperCache: Map<string, IntentsV2> = new Map()
+	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
 	private account: ReturnType<typeof privateKeyToAccount>
 
@@ -58,7 +58,7 @@ export class ContractInteractionService {
 	 * Gets the SDK helper for a given source and destination chain.
 	 * Instances are cached and reused to avoid redundant RPC calls.
 	 */
-	async getIntentsV2(source: string, destination: string): Promise<IntentsV2> {
+	async getIntentGateway(source: string, destination: string): Promise<IntentGateway> {
 		const cacheKey = `${source}:${destination}`
 
 		const cached = this.sdkHelperCache.get(cacheKey)
@@ -73,14 +73,16 @@ export class ContractInteractionService {
 			host: this.configService.getHostAddress(source),
 			rpcUrl: sourceClient.transport.url,
 		})
+		const bundlerUrl = this.configService.getBundlerUrl(destination)
 		const destinationEvmChain = new EvmChain({
 			chainId: getChainId(destination)!,
 			host: this.configService.getHostAddress(destination),
 			rpcUrl: destinationClient.transport.url,
+			bundlerUrl,
 		})
 
 		const bundlerUrl = this.configService.getBundlerUrl(destination)
-		const helper = await IntentsV2.create(sourceEvmChain, destinationEvmChain, undefined, bundlerUrl)
+		const helper = await IntentGateway.create(sourceEvmChain, destinationEvmChain)
 		this.sdkHelperCache.set(cacheKey, helper)
 
 		this.logger.debug(
@@ -196,7 +198,7 @@ export class ContractInteractionService {
 				}
 			}
 
-			const sdkHelper = await this.getIntentsV2(order.source, order.destination)
+			const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
 			const estimate = await sdkHelper.estimateFillOrderV2({
 				order,
@@ -550,7 +552,7 @@ export class ContractInteractionService {
 			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
 		}
 
-		const sdkHelper = await this.getIntentsV2(order.source, order.destination)
+		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 
 		const fillOptions: FillOptionsV2 = {
 			relayerFee: cachedEstimate.dispatchFee,

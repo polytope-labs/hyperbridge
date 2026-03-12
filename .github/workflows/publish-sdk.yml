@@ -108,7 +108,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POLYTOPE_GITHUB_TOKEN }}
               with:
                   tag_name: ${{ steps.previous-tag.outputs.clean_tag }}
-                  release_name: SDK Release ${{ steps.previous-tag.outputs.clean_tag }}
+                  release_name: "@hyperbridge/sdk ${{ steps.previous-tag.outputs.clean_tag }}"
                   body: ${{ steps.changelog.outputs.changelog }}
                   draft: true
                   prerelease: false

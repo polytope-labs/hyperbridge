@@ -14,7 +14,6 @@ Before you begin, make sure you have:
 - Node.js 22+ installed
 - Basic knowledge of TypeScript/JavaScript
 - RPC endpoints for your source and destination chains
-- IsmpHost contract addresses for your chains
 
 
 ## Installation
@@ -50,12 +49,8 @@ pnpm add @hyperbridge/sdk
 ```typescript lineNumbers title="client.ts" icon=typescript
 import { EvmChain } from "@hyperbridge/sdk"
 
-const sourceChain = new EvmChain({
-  chainId: 97, // BSC Testnet
-  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-  host: "0xYourIsmpHostAddress",
-  consensusStateId: "BSC0"
-})
+// EvmChain.create() auto-detects the chain ID and resolves the IsmpHost address
+const sourceChain = await EvmChain.create("https://data-seed-prebsc-1-s1.binance.org:8545")
 ```
 
 **Substrate Chain:**
@@ -63,15 +58,12 @@ const sourceChain = new EvmChain({
 ```typescript lineNumbers title="client.ts" icon=typescript
 import { SubstrateChain } from "@hyperbridge/sdk"
 
-const hyperbridge = new SubstrateChain({
+const hyperbridge = await SubstrateChain.connect({
   stateMachineId: "KUSAMA-4009",
   wsUrl: "wss://gargantua.polytope.technology",
   hasher: "Keccak",
   consensusStateId: "PAS0"
 })
-
-// Must connect before using
-await hyperbridge.connect()
 ```
 
 For detailed configuration options and supported chains, see:
@@ -143,30 +135,16 @@ async function main() {
     url: "https://gargantua.indexer.polytope.technology"
   })
 
-  // 2. Create chain instances
-  const sourceChain = new EvmChain({
-    chainId: 97,
-    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-    host: "0xSourceHostAddress",
-    consensusStateId: "BSC0"
-  })
+  // 2. Create chain instances — auto-detects chain ID and IsmpHost address
+  const sourceChain = await EvmChain.create("https://data-seed-prebsc-1-s1.binance.org:8545")
+  const destChain   = await EvmChain.create("https://rpc.chiadochain.net")
 
-  const destChain = new EvmChain({
-    chainId: 10200,
-    rpcUrl: "https://rpc.chiadochain.net",
-    host: "0xDestHostAddress",
-    consensusStateId: "GNO0"
-  })
-
-  const hyperbridgeChain = new SubstrateChain({
+  const hyperbridgeChain = await SubstrateChain.connect({
     stateMachineId: "KUSAMA-4009",
     wsUrl: "wss://gargantua.polytope.technology",
     hasher: "Keccak",
     consensusStateId: "PAS0"
   })
-
-  // Connect to Substrate chain
-  await hyperbridgeChain.connect()
 
   // 3. Initialize IndexerClient
   const indexer = new IndexerClient({

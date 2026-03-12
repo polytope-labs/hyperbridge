@@ -143,13 +143,12 @@ export async function createIndexerClient(config: {
  *   host: "0x87ea42345..",
  *   consensusStateId: "ARB0"
  * })
- * const hyperbridgeChain = new SubstrateChain({
+ * const hyperbridgeChain = await SubstrateChain.connect({
  *   stateMachineId: "POLKADOT-3367",
  *   wsUrl: "ws://localhost:9944",
  *   hasher: "Keccak",
  *   consensusStateId: "DOT0"
  * })
- * await hyperbridgeChain.connect()
  *
  * const client = new IndexerClient({
  *   queryClient: queryClient,

@@ -1,13 +1,13 @@
 ---
 title: Placing Orders
-description: How to place same-chain and cross-chain intent orders using the @hyperbridge/sdk IntentsV2 class, with detailed fee mechanics and calldata execution.
+description: How to place same-chain and cross-chain intent orders using the @hyperbridge/sdk IntentGateway class, with detailed fee mechanics and calldata execution.
 ---
 
 # Placing Orders
 
 Intent orders let users express what they want — "swap 1000 USDC on Ethereum for 990 USDC on Arbitrum" — and leave the execution to a competitive market of solvers. Users escrow input tokens upfront; solvers compete to fill the output; the best bid wins.
 
-The `IntentGatewayV2` contract handles escrow, fee accounting, and cross-chain settlement. The `@hyperbridge/sdk` `IntentsV2` class wraps the full lifecycle — from encoding and broadcasting the `placeOrder` transaction to polling for solver bids, submitting the winning `UserOperation`, and streaming real-time status updates — into a single async generator.
+The `IntentGatewayV2` contract handles escrow, fee accounting, and cross-chain settlement. The `@hyperbridge/sdk` `IntentGateway` class wraps the full lifecycle — from encoding and broadcasting the `placeOrder` transaction to polling for solver bids, submitting the winning `UserOperation`, and streaming real-time status updates — into a single async generator.
 
 ## Installation
 
@@ -31,32 +31,38 @@ pnpm add @hyperbridge/sdk
 
 ## Setup
 
-```typescript lineNumbers title="setup.ts" icon="typescript"
-import { EvmChain, IntentsCoprocessor, IntentsV2 } from "@hyperbridge/sdk"
+The setup differs slightly depending on whether you are placing a same-chain or cross-chain order.
+
+### Bundler Services
+
+A bundler URL is required for the destination chain. Any ERC-4337-compatible bundler works. Popular options:
+
+| Provider | URL format |
+|----------|-----------|
+| [Pimlico](https://pimlico.io) | `https://api.pimlico.io/v2/{chain}/rpc?apikey=YOUR_KEY` |
+| [Alchemy](https://alchemy.com/account-abstraction) | `https://{chain}.g.alchemy.com/v2/YOUR_KEY` (with AA enabled) |
+
+### Cross-Chain Orders
+
+```typescript lineNumbers title="setup-cross-chain.ts" icon="typescript"
+import { EvmChain, IntentsCoprocessor, IntentGateway } from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 
 // Source chain — where the user places the order and tokens are escrowed
-const sourceChain = new EvmChain({
-  chainId: 1,
-  rpcUrl: "YOUR_SOURCE_RPC_URL",
-  host: "0xSourceIsmpHostAddress",
-})
+const sourceChain = await EvmChain.create("YOUR_SOURCE_RPC_URL")
 
-// Destination chain — where the solver fills the order
-const destChain = new EvmChain({
-  chainId: 42161,
-  rpcUrl: "YOUR_DEST_RPC_URL",
-  host: "0xDestIsmpHostAddress",
-})
+// Destination chain — bundlerUrl is REQUIRED; solvers submit UserOperations via this bundler
+// Example using Pimlico on Arbitrum:
+const destChain = await EvmChain.create(
+  "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  "https://api.pimlico.io/v2/arbitrum/rpc?apikey=YOUR_PIMLICO_KEY",
+)
 
 // Hyperbridge coprocessor — hosts the order auction and manages solver bids
 const coprocessor = await IntentsCoprocessor.connect("wss://nexus.ibp.network")
 
-// ERC-4337 bundler URL — required for solver UserOperation submission
-const bundlerUrl = "https://your-bundler-url"
-
-const intentsV2 = await IntentsV2.create(sourceChain, destChain, coprocessor, bundlerUrl)
+const intentGateway = await IntentGateway.create(sourceChain, destChain, coprocessor)
 
 const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
 const walletClient = createWalletClient({
@@ -65,7 +71,41 @@ const walletClient = createWalletClient({
 })
 ```
 
-For IsmpHost contract addresses, see the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) contract addresses pages.
+<Callout type="warn">
+The `bundlerUrl` on the destination chain is **required** for cross-chain orders. `IntentGateway` uses it to submit the solver's `UserOperation` to the ERC-4337 bundler on the destination chain. Without it, solver selection will fail at the `BID_SELECTED` stage.
+</Callout>
+
+### Same-Chain Orders
+
+For same-chain swaps, source and destination are the same chain. The `bundlerUrl` is still required — the solver fills the order on the same chain via an ERC-4337 `UserOperation`.
+
+```typescript lineNumbers title="setup-same-chain.ts" icon="typescript"
+import { EvmChain, IntentsCoprocessor, IntentGateway } from "@hyperbridge/sdk"
+import { createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+
+const RPC_URL     = "https://mainnet.base.org"
+const BUNDLER_URL = "https://api.pimlico.io/v2/base/rpc?apikey=YOUR_PIMLICO_KEY"
+
+// Source and destination are the same chain for same-chain swaps
+const chain = await EvmChain.create(RPC_URL, BUNDLER_URL)
+
+// Hyperbridge coprocessor — hosts the auction even for same-chain orders
+const coprocessor = await IntentsCoprocessor.connect("wss://nexus.ibp.network")
+
+// Pass the same chain instance for both source and dest
+const intentGateway = await IntentGateway.create(chain, chain, coprocessor)
+
+const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
+const walletClient = createWalletClient({
+  account,
+  transport: http(RPC_URL),
+})
+```
+
+<Callout type="info">
+The ERC-4337 bundler URL is attached to the `EvmChain` instance — via the second argument to `EvmChain.create()` or the `bundlerUrl` field in `EvmChainParams`. `IntentGateway` reads it automatically from `dest.bundlerUrl`.
+</Callout>
 
 ---
 
@@ -132,7 +172,7 @@ The contract accepts the fee in the ERC-20 fee token (pre-approve and leave `msg
 
 ### Session key
 
-The SDK generates a one-time session keypair per order and sets `order.session` to its public address. The session key authorizes exactly one solver to fill the order via an EIP-712 `SelectSolver` signature. This is handled automatically when you use `IntentsV2.execute()` or `IntentsV2.placeOrder()`.
+The SDK generates a one-time session keypair per order and sets `order.session` to its public address. The session key authorizes exactly one solver to fill the order via an EIP-712 `SelectSolver` signature. This is handled automatically when you use `IntentGateway.execute()` or `IntentGateway.placeOrder()`.
 
 ### Commitment
 
@@ -158,13 +198,13 @@ import { stringToHex, padHex } from "viem"
 // Encode your integrator identifier as a right-padded bytes32
 const MY_GRAFFITI = padHex(stringToHex("my-app"), { size: 32 })
 
-const gen = intentsV2.execute(order, MY_GRAFFITI, {
+const gen = intentGateway.execute(order, MY_GRAFFITI, {
   minBids: 1,
   bidTimeoutMs: 60_000,
 })
 
 // Use DEFAULT_GRAFFITI to opt out of attribution
-const gen = intentsV2.execute(order, DEFAULT_GRAFFITI, { minBids: 1 })
+const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, { minBids: 1 })
 ```
 
 ---
@@ -177,7 +217,9 @@ const gen = intentsV2.execute(order, DEFAULT_GRAFFITI, { minBids: 1 })
 
 The generator is bidirectional — it pauses at two points to hand control back to the caller:
 
-**First yield** — `AWAITING_PLACE_ORDER`. The generator yields `{ status: "AWAITING_PLACE_ORDER", to, data, value, sessionPrivateKey }`. You sign the transaction and pass the raw signed bytes back via `gen.next(signedTx)`. The SDK broadcasts it and waits for confirmation.
+**First yield** — `AWAITING_PLACE_ORDER`. The generator yields `{ status: "AWAITING_PLACE_ORDER", to, data, value, sessionPrivateKey }`. You sign and submit the transaction, then pass the result back via `gen.next(result)`. The result can be either:
+- A **serialized signed transaction** (raw RLP-encoded bytes) — the SDK will broadcast it and wait for confirmation.
+- A **transaction hash** (exactly 66 characters: `0x` + 64 hex chars) — the SDK will wait for the receipt of an already-submitted transaction.
 
 **Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, transactionHash }` where `order` is the finalized `OrderV2` (with `nonce`, `id`, and `inputs` populated from the `OrderPlaced` event).
 
@@ -189,7 +231,7 @@ import type { IntentOrderStatusUpdate, OrderV2 } from "@hyperbridge/sdk"
 
 
 async function runOrder(order: OrderV2) {
-  const gen = intentsV2.execute(order, DEFAULT_GRAFFITI, {
+  const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, {
     minBids: 1,           // wait for at least N bids before selecting (default: 1)
     bidTimeoutMs: 60_000, // max time to wait for bids in ms (default: 60 000)
     pollIntervalMs: 5_000, // how often to poll for bids (default: SDK-defined)

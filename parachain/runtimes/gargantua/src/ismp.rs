@@ -16,7 +16,8 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, XcmGateway,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryAccount, TreasuryPalletId,
+	XcmGateway,
 	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
@@ -91,6 +92,7 @@ impl pallet_intents_coprocessor::Config for Runtime {
 	type Currency = Balances;
 	type StorageDepositFee = IntentStorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
+	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
 

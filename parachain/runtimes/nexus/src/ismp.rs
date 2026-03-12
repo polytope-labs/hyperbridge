@@ -18,7 +18,7 @@ use crate::{
 	governance::WhitelistedCaller,
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
 	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp, TokenGateway,
-	TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
+	TokenGatewayInspector, TreasuryAccount, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
 	MIN_TECH_COLLECTIVE_APPROVAL,
 };
 use anyhow::anyhow;
@@ -433,6 +433,7 @@ impl pallet_intents_coprocessor::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
 impl IsmpModule for ProxyModule {

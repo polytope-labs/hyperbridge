@@ -79,8 +79,7 @@ export class ContractInteractionService {
 			rpcUrl: destinationClient.transport.url,
 		})
 
-		// Pass bundlerUrl to IntentGatewayV2 for accurate gas estimation via eth_estimateUserOperationGas
-		const bundlerUrl = this.configService.getBundlerUrl(source)
+		const bundlerUrl = this.configService.getBundlerUrl(destination)
 		const helper = await IntentsV2.create(sourceEvmChain, destinationEvmChain, undefined, bundlerUrl)
 		this.sdkHelperCache.set(cacheKey, helper)
 

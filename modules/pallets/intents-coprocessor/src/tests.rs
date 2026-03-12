@@ -19,8 +19,12 @@
 
 use crate::{self as pallet_intents, *};
 use alloc::{boxed::Box, collections::BTreeMap, vec};
+use codec::Decode;
+use crypto_utils::verification::Signature;
 use frame_support::{
-	assert_noop, assert_ok, parameter_types,
+	assert_noop, assert_ok,
+	crypto::ecdsa::ECDSAExt,
+	parameter_types,
 	traits::{ConstU32, Everything, Hooks},
 	BoundedVec,
 };
@@ -39,7 +43,7 @@ use ismp_testsuite::mocks::MockRouter;
 
 use polkadot_sdk::*;
 use primitive_types::{H160, H256, U256};
-use sp_core::H256 as SpH256;
+use sp_core::{Pair, H256 as SpH256};
 use sp_runtime::{
 	traits::{BlakeTwo256, IdentityLookup},
 	AccountId32, BuildStorage,
@@ -238,6 +242,7 @@ impl pallet_ismp::Config for Test {
 
 parameter_types! {
 	pub const StorageDepositFee: Balance = 100;
+	pub TreasuryAccount: AccountId = AccountId32::new([10; 32]);
 }
 
 impl pallet_intents::Config for Test {
@@ -245,6 +250,7 @@ impl pallet_intents::Config for Test {
 	type Currency = Balances;
 	type StorageDepositFee = StorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
+	type TreasuryAccount = TreasuryAccount;
 	type WeightInfo = ();
 }
 
@@ -257,6 +263,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(AccountId32::new([1; 32]), 10000),
 			(AccountId32::new([2; 32]), 10000),
 			(AccountId32::new([3; 32]), 10000),
+			(AccountId32::new([10; 32]), 1), // treasury (needs existential deposit)
 		],
 		..Default::default()
 	}
@@ -270,6 +277,10 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		pallet_intents::PriceWindowDurationValue::<Test>::put(86_400_000u64);
 		// 1 hour in seconds
 		pallet_intents::ProofFreshnessThresholdValue::<Test>::put(3600u64);
+		// Max 5 unverified submissions per pair
+		pallet_intents::MaxUnverifiedSubmissions::<Test>::put(5u32);
+		// Fee of 50 for unverified submissions
+		pallet_intents::UnverifiedSubmissionFee::<Test>::put(50u64);
 	});
 	ext
 }
@@ -650,36 +661,47 @@ fn remove_recognized_pair_works() {
 
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
-		PriceAccumulators::<Test>::insert(
+		VerifiedPrices::<Test>::insert(
 			&pair_id,
-			types::PriceAccumulator { sum: U256::from(1000), count: 5 },
+			vec![types::PriceEntry {
+				submitter: AccountId32::new([1; 32]),
+				price: U256::from(1000),
+				timestamp: 1000,
+			}],
 		);
-		AveragePrice::<Test>::insert(&pair_id, U256::from(200));
+		UnverifiedPrices::<Test>::insert(
+			&pair_id,
+			vec![types::PriceEntry {
+				submitter: AccountId32::new([2; 32]),
+				price: U256::from(500),
+				timestamp: 1000,
+			}],
+		);
 
 		assert_ok!(Intents::remove_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		// Verify clean up
 		assert!(RecognizedPairs::<Test>::get(&pair_id).is_none());
-		assert_eq!(AveragePrice::<Test>::get(&pair_id), U256::zero());
-		assert_eq!(PriceAccumulators::<Test>::get(&pair_id).count, 0);
+		assert!(VerifiedPrices::<Test>::get(&pair_id).is_empty());
+		assert!(UnverifiedPrices::<Test>::get(&pair_id).is_empty());
 	});
 }
 
 #[test]
-fn submit_pair_price() {
+fn submit_pair_price_verified() {
 	new_test_ext().execute_with(|| {
 		let filler = AccountId32::new([1; 32]);
 		let state_machine = StateMachine::Evm(1);
 		let commitment = H256::repeat_byte(0xaa);
 		let price = U256::from(2000);
 
-		//  Add a recognized token pair
+		// Add a recognized token pair
 		let pair =
 			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
-		//  Add a gateway deployment
+		// Add a gateway deployment
 		let gateway = H160::from_low_u64_be(42);
 		let params = types::IntentGatewayParams {
 			host: H160::default(),
@@ -697,17 +719,12 @@ fn submit_pair_price() {
 		let h1 = StateMachineHeight { id: sm_id, height: H1_HEIGHT };
 		let h2 = StateMachineHeight { id: sm_id, height: H2_HEIGHT };
 
-		// Map consensus_state_id -> consensus_client_id
 		pallet_ismp::ConsensusStateClient::<Test>::insert(
 			MOCK_CONSENSUS_STATE_ID,
 			MOCK_CONSENSUS_CLIENT_ID,
 		);
-
-		// Store consensus state
 		pallet_ismp::ConsensusStates::<Test>::insert(MOCK_CONSENSUS_CLIENT_ID, vec![0u8]);
 
-		// Store state commitments at both heights
-		// H1 timestamp=1000, H2 timestamp=1050
 		pallet_ismp::child_trie::StateCommitments::<Test>::insert(
 			h1,
 			StateCommitment {
@@ -725,87 +742,112 @@ fn submit_pair_price() {
 			},
 		);
 
-		// Store challenge period
 		pallet_ismp::ChallengePeriod::<Test>::insert(sm_id, 0u64);
-
-		// Store state machine update times
 		pallet_ismp::StateMachineUpdateTime::<Test>::insert(h1, 1000u64);
 		pallet_ismp::StateMachineUpdateTime::<Test>::insert(h2, 1050u64);
-
-		// Set the pallet timestamp so host.timestamp()
 		pallet_timestamp::Now::<Test>::put(2_000_000u64); // 2000 seconds in ms
 
-		// Build proofs
-		// Non-membership proof: all zeros
-		let non_membership_proof = Proof { height: h1, proof: vec![0u8; 32] };
+		// Create an EVM keypair for signing
+		let evm_pair =
+			sp_core::ecdsa::Pair::from_seed_slice(H256::repeat_byte(0x42).as_bytes()).unwrap();
+		let evm_address = evm_pair.public().to_eth_address().unwrap().to_vec();
 
-		// Membership proof: proof bytes contain the filler address padded to 32 bytes
-		// The code reads filler_bytes[12..32] as an H160 address
+		// The filler address in the proof must match the EVM signer
+		let filler_h160 = H160::from_slice(&evm_address);
+
+		// Build proofs
+		let non_membership_proof = Proof { height: h1, proof: vec![0u8; 32] };
 		let mut filler_bytes = vec![0u8; 32];
-		// Put a non-zero address in bytes 12..32
-		filler_bytes[12..32].copy_from_slice(&H160::from_low_u64_be(0xdeadbeef).0);
+		filler_bytes[12..32].copy_from_slice(&filler_h160.0);
 		let membership_proof = Proof { height: h2, proof: filler_bytes };
+
+		// Sign the price message: keccak256(encode(nonce=0, pair_id, price))
+		let nonce = 0u64;
+		let msg = types::price_signature_message(nonce, &pair_id, &price);
+		let signature = evm_pair.sign_prehashed(&msg).0.to_vec();
+
+		let verification = types::PriceVerificationData {
+			state_machine,
+			commitment,
+			membership_proof,
+			non_membership_proof,
+			evm_signature: Signature::Evm { address: evm_address.clone(), signature },
+		};
 
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(filler.clone()),
-			state_machine,
-			commitment,
 			pair_id,
 			price,
-			membership_proof,
-			non_membership_proof,
+			Some(verification),
 		));
 
-		// Verify the price accumulator was updated
-		let acc = PriceAccumulators::<Test>::get(&pair_id);
-		assert_eq!(acc.sum, price);
-		assert_eq!(acc.count, 1);
+		// Verify the verified price entry was stored
+		let verified = VerifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(verified.len(), 1);
+		assert_eq!(verified[0].price, price);
 
-		// Verify the average price was stored
-		let avg = AveragePrice::<Test>::get(&pair_id);
-		assert_eq!(avg, price); // With 1 submission, average = price
+		// Verify the EVM nonce was incremented
+		assert_eq!(EvmNonces::<Test>::get(filler_h160), 1);
 
-		// Submit a second price and verify the average updates
+		// Submit a second price with nonce=1
 		let price2 = U256::from(4000);
 		let commitment2 = H256::repeat_byte(0xbb);
 
 		let non_membership_proof_2 = Proof { height: h1, proof: vec![0u8; 32] };
 		let mut filler_bytes_2 = vec![0u8; 32];
-		filler_bytes_2[12..32].copy_from_slice(&H160::from_low_u64_be(0xcafebabe).0);
+		filler_bytes_2[12..32].copy_from_slice(&filler_h160.0);
 		let membership_proof_2 = Proof { height: h2, proof: filler_bytes_2 };
+
+		let msg2 = types::price_signature_message(1u64, &pair_id, &price2);
+		let signature2 = evm_pair.sign_prehashed(&msg2).0.to_vec();
+
+		let verification2 = types::PriceVerificationData {
+			state_machine,
+			commitment: commitment2,
+			membership_proof: membership_proof_2,
+			non_membership_proof: non_membership_proof_2,
+			evm_signature: Signature::Evm { address: evm_address.clone(), signature: signature2 },
+		};
 
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(filler.clone()),
-			state_machine,
-			commitment2,
 			pair_id,
 			price2,
-			membership_proof_2,
-			non_membership_proof_2,
+			Some(verification2),
 		));
 
-		let acc2 = PriceAccumulators::<Test>::get(&pair_id);
-		assert_eq!(acc2.sum, price.saturating_add(price2));
-		assert_eq!(acc2.count, 2);
+		// Verify two entries now stored
+		let verified2 = VerifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(verified2.len(), 2);
+		assert_eq!(verified2[0].price, price);
+		assert_eq!(verified2[1].price, price2);
 
-		let avg2 = AveragePrice::<Test>::get(&pair_id);
-		assert_eq!(avg2, U256::from(3000));
-
-		// 9. Reusing the same commitment should fail
+		// Reusing the same commitment should fail
 		let non_membership_proof_dup = Proof { height: h1, proof: vec![0u8; 32] };
 		let mut filler_bytes_dup = vec![0u8; 32];
-		filler_bytes_dup[12..32].copy_from_slice(&H160::from_low_u64_be(0xdeadbeef).0);
+		filler_bytes_dup[12..32].copy_from_slice(&filler_h160.0);
 		let membership_proof_dup = Proof { height: h2, proof: filler_bytes_dup };
+
+		let msg_dup = types::price_signature_message(2u64, &pair_id, &U256::from(9999));
+		let signature_dup = evm_pair.sign_prehashed(&msg_dup).0.to_vec();
+
+		let verification_dup = types::PriceVerificationData {
+			state_machine,
+			commitment, // same commitment
+			membership_proof: membership_proof_dup,
+			non_membership_proof: non_membership_proof_dup,
+			evm_signature: Signature::Evm {
+				address: evm_address.clone(),
+				signature: signature_dup,
+			},
+		};
 
 		assert_noop!(
 			Intents::submit_pair_price(
 				RuntimeOrigin::signed(filler.clone()),
-				state_machine,
-				commitment, // same commitment as step 5
 				pair_id,
 				U256::from(9999),
-				membership_proof_dup,
-				non_membership_proof_dup,
+				Some(verification_dup),
 			),
 			Error::<Test>::CommitmentAlreadyUsed
 		);
@@ -813,42 +855,246 @@ fn submit_pair_price() {
 }
 
 #[test]
-fn on_initialize_resets_accumulators_on_new_day() {
+fn submit_pair_price_unverified() {
 	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+		let price = U256::from(1500);
+
+		// Add a recognized token pair
 		let pair =
 			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
-		PriceAccumulators::<Test>::insert(
+		// Set timestamp
+		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		let balance_before = Balances::free_balance(&submitter);
+
+		// Submit unverified price (no verification data)
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+			price,
+			None,
+		));
+
+		// Verify fee was charged
+		let fee = UnverifiedSubmissionFee::<Test>::get();
+		assert_eq!(Balances::free_balance(&submitter), balance_before - fee);
+
+		// Verify unverified price entry was stored
+		let unverified = UnverifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(unverified.len(), 1);
+		assert_eq!(unverified[0].price, price);
+
+		// Verified prices should be empty
+		assert!(VerifiedPrices::<Test>::get(&pair_id).is_empty());
+	});
+}
+
+#[test]
+fn unverified_prices_fifo_replacement() {
+	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		// Set max to 3 for easier testing
+		MaxUnverifiedSubmissions::<Test>::put(3u32);
+
+		// Submit 3 unverified prices (fills the cap)
+		for i in 1..=3u64 {
+			assert_ok!(Intents::submit_pair_price(
+				RuntimeOrigin::signed(submitter.clone()),
+				pair_id,
+				U256::from(i * 1000),
+				None,
+			));
+		}
+
+		let entries = UnverifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(entries.len(), 3);
+		assert_eq!(entries[0].price, U256::from(1000)); // oldest
+
+		// Submit 4th — should pop the oldest (1000) and add new
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+			U256::from(4000),
+			None,
+		));
+
+		let entries = UnverifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(entries.len(), 3);
+		assert_eq!(entries[0].price, U256::from(2000)); // 1000 was popped
+		assert_eq!(entries[2].price, U256::from(4000)); // new entry at end
+	});
+}
+
+#[test]
+fn prices_persist_across_window_and_clear_on_first_submission() {
+	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		// Simulate day 1: store some prices with timestamps in the current window
+		VerifiedPrices::<Test>::insert(
 			&pair_id,
-			types::PriceAccumulator { sum: U256::from(5000), count: 3 },
+			vec![types::PriceEntry {
+				submitter: AccountId32::new([1; 32]),
+				price: U256::from(1666),
+				timestamp: 1000,
+			}],
 		);
-		AveragePrice::<Test>::insert(&pair_id, U256::from(1666));
+		UnverifiedPrices::<Test>::insert(
+			&pair_id,
+			vec![types::PriceEntry {
+				submitter: AccountId32::new([2; 32]),
+				price: U256::from(1500),
+				timestamp: 1000,
+			}],
+		);
 
 		// Window started at second 1000, duration is 86_400_000 ms = 86_400 s
 		PriceWindowStart::<Test>::put(1000u64);
 
+		// Before window expires: on_initialize does nothing to prices
 		pallet_timestamp::Now::<Test>::put(50_000_000u64); // 50_000 seconds in ms
 		Intents::on_initialize(1u64);
 
-		// Window has NOT expired, accumulators and average should be untouched
-		let acc = PriceAccumulators::<Test>::get(&pair_id);
-		assert_eq!(acc.count, 3);
-		assert_eq!(acc.sum, U256::from(5000));
-		assert_eq!(AveragePrice::<Test>::get(&pair_id), U256::from(1666));
+		// Prices should be untouched
+		assert_eq!(VerifiedPrices::<Test>::get(&pair_id).len(), 1);
+		assert_eq!(UnverifiedPrices::<Test>::get(&pair_id).len(), 1);
 
 		// Advance past the window (1000 + 86_400 = 87_400 seconds)
 		pallet_timestamp::Now::<Test>::put(90_000_000u64); // 90_000 seconds in ms
 		Intents::on_initialize(2u64);
 
-		// Window expired, accumulators should be cleared but average price
-		// from yesterday is preserved (readable until overwritten by new submissions)
-		let acc = PriceAccumulators::<Test>::get(&pair_id);
-		assert_eq!(acc.count, 0);
-		assert_eq!(acc.sum, U256::zero());
-		assert_eq!(AveragePrice::<Test>::get(&pair_id), U256::from(1666));
-
-		// Window start should be updated
+		// on_initialize only clears UsedCommitments and updates PriceWindowStart.
+		// Prices still persist! (yesterday's data readable until first new submission)
+		assert_eq!(VerifiedPrices::<Test>::get(&pair_id).len(), 1);
+		assert_eq!(UnverifiedPrices::<Test>::get(&pair_id).len(), 1);
 		assert_eq!(PriceWindowStart::<Test>::get(), 90_000);
+
+		// Now submit an unverified price, this is the first submission in the new window.
+		// It should clear stale entries for this pair before adding the new one.
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+			U256::from(2000),
+			None,
+		));
+
+		// Old entries are gone, only the new unverified entry remains
+		assert!(VerifiedPrices::<Test>::get(&pair_id).is_empty());
+		let unverified = UnverifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(unverified.len(), 1);
+		assert_eq!(unverified[0].price, U256::from(2000));
+	});
+}
+
+#[test]
+fn price_entry_encoding_matches_rpc_tuple_decoding() {
+	// The RPC decodes PriceEntry as Vec<(AccountId32, U256, u64)>.
+	// Verify that PriceEntry's SCALE encoding is identical to the tuple encoding.
+	use codec::Encode;
+
+	let submitter = AccountId32::new([1; 32]);
+	let price = U256::from(42_000);
+	let timestamp = 1_700_000_000u64;
+
+	let entry =
+		types::PriceEntry { submitter: submitter.clone(), price, timestamp };
+
+	let entry_bytes = entry.encode();
+	let tuple_bytes = (submitter.clone(), price, timestamp).encode();
+	assert_eq!(entry_bytes, tuple_bytes, "PriceEntry SCALE encoding must match tuple encoding");
+
+	// Also verify round-trip: encode as PriceEntry, decode as tuple
+	type RpcTuple = (AccountId32, U256, u64);
+	let entries = vec![entry];
+	let encoded = entries.encode();
+	let decoded: Vec<RpcTuple> = Decode::decode(&mut &encoded[..]).unwrap();
+	assert_eq!(decoded.len(), 1);
+	assert_eq!(decoded[0].0, submitter);
+	assert_eq!(decoded[0].1, price);
+	assert_eq!(decoded[0].2, timestamp);
+}
+
+#[test]
+fn price_entry_storage_roundtrip_via_raw_key() {
+	// End-to-end test: write prices via pallet storage, read raw bytes, decode as the RPC would.
+	new_test_ext().execute_with(|| {
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+
+		let entry1 = types::PriceEntry {
+			submitter: AccountId32::new([1; 32]),
+			price: U256::from(2000),
+			timestamp: 1000,
+		};
+		let entry2 = types::PriceEntry {
+			submitter: AccountId32::new([2; 32]),
+			price: U256::from(3000),
+			timestamp: 2000,
+		};
+
+		VerifiedPrices::<Test>::insert(&pair_id, vec![entry1.clone(), entry2.clone()]);
+		UnverifiedPrices::<Test>::insert(
+			&pair_id,
+			vec![types::PriceEntry {
+				submitter: AccountId32::new([3; 32]),
+				price: U256::from(1500),
+				timestamp: 500,
+			}],
+		);
+
+		// Build the storage key the same way the RPC does.
+		let pallet_prefix = b"Intents";
+
+		let mut key = Vec::new();
+		key.extend_from_slice(&sp_io::hashing::twox_128(pallet_prefix));
+		key.extend_from_slice(&sp_io::hashing::twox_128(b"VerifiedPrices"));
+		let pair_id_bytes = pair_id.as_bytes();
+		key.extend_from_slice(&sp_io::hashing::blake2_128(pair_id_bytes));
+		key.extend_from_slice(pair_id_bytes);
+
+		// Read raw storage
+		let raw = sp_io::storage::get(&key).expect("VerifiedPrices storage should exist");
+
+		// Decode as the RPC would
+		type RpcTuple = (AccountId32, U256, u64);
+		let decoded: Vec<RpcTuple> = Decode::decode(&mut &raw[..]).unwrap();
+		assert_eq!(decoded.len(), 2);
+		assert_eq!(decoded[0].0, AccountId32::new([1; 32]));
+		assert_eq!(decoded[0].1, U256::from(2000));
+		assert_eq!(decoded[0].2, 1000u64);
+		assert_eq!(decoded[1].0, AccountId32::new([2; 32]));
+		assert_eq!(decoded[1].1, U256::from(3000));
+		assert_eq!(decoded[1].2, 2000u64);
+
+		// Do the same for UnverifiedPrices
+		let mut ukey = Vec::new();
+		ukey.extend_from_slice(&sp_io::hashing::twox_128(pallet_prefix));
+		ukey.extend_from_slice(&sp_io::hashing::twox_128(b"UnverifiedPrices"));
+		ukey.extend_from_slice(&sp_io::hashing::blake2_128(pair_id_bytes));
+		ukey.extend_from_slice(pair_id_bytes);
+
+		let uraw = sp_io::storage::get(&ukey).expect("UnverifiedPrices storage should exist");
+		let udecoded: Vec<RpcTuple> = Decode::decode(&mut &uraw[..]).unwrap();
+		assert_eq!(udecoded.len(), 1);
+		assert_eq!(udecoded[0].0, AccountId32::new([3; 32]));
+		assert_eq!(udecoded[0].1, U256::from(1500));
+		assert_eq!(udecoded[0].2, 500u64);
 	});
 }

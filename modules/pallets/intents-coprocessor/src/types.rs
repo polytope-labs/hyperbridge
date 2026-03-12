@@ -18,7 +18,8 @@
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-
+use crypto_utils::verification::Signature;
+use ismp::{host::StateMachine, messaging::Proof};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
 
@@ -163,13 +164,42 @@ impl TokenPair {
 	}
 }
 
-/// Running price accumulator for a token pair within the current time window
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq, Default)]
-pub struct PriceAccumulator {
-	/// Sum of all submitted prices in the current window
-	pub sum: U256,
-	/// Number of submissions in the current window
-	pub count: u32,
+/// An individual price submission stored on-chain
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PriceEntry<AccountId> {
+	/// The submitter's substrate account
+	pub submitter: AccountId,
+	/// The submitted price
+	pub price: U256,
+	/// Timestamp of submission (seconds)
+	pub timestamp: u64,
+}
+
+/// Verification data for proven price submissions (high confidence)
+///
+/// When provided, the submission is treated as a verified filler price.
+/// The EVM signature proves the substrate account owner also controls the
+/// EVM account that filled the order.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PriceVerificationData {
+	/// The state machine where the order was filled
+	pub state_machine: StateMachine,
+	/// The filled order commitment hash
+	pub commitment: H256,
+	/// Proof that the order was filled at some height
+	pub membership_proof: Proof,
+	/// Proof that the order was not filled at an earlier height
+	pub non_membership_proof: Proof,
+	/// EVM signature proving ownership of the filler's EVM account.
+	/// The signer must sign `keccak256(encode(nonce, pair_id, price))`.
+	pub evm_signature: Signature,
+}
+
+/// Compute the message hash that the filler must sign with their EVM key.
+///
+/// Message = keccak256(SCALE_encode(nonce, pair_id, price))
+pub fn price_signature_message(nonce: u64, pair_id: &H256, price: &U256) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(nonce, pair_id, price).encode())
 }
 
 /// The storage slot index for the `_filled` mapping in IntentGateway.sol

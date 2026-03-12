@@ -30,6 +30,7 @@ alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 hex-literal = { workspace = true }
 
+crypto-utils = { workspace = true }
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 
@@ -50,6 +51,7 @@ std = [
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",
+    "crypto-utils/std",
     "sp-io/std",
     "pallet-ismp/std",
 ]

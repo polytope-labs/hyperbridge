@@ -81,7 +81,6 @@ export class ContractInteractionService {
 			bundlerUrl,
 		})
 
-		const bundlerUrl = this.configService.getBundlerUrl(destination)
 		const helper = await IntentGateway.create(sourceEvmChain, destinationEvmChain)
 		this.sdkHelperCache.set(cacheKey, helper)
 

@@ -65,8 +65,8 @@ pub fn offchain_bid_key_raw(commitment: &H256, filler_encoded: &[u8]) -> Vec<u8>
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::vec;
 	use crate::alloc::string::ToString;
+	use alloc::vec;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 
@@ -161,8 +161,7 @@ pub mod pallet {
 	/// Nonces for EVM addresses to prevent signature replay.
 	/// Keyed by the 20-byte EVM address.
 	#[pallet::storage]
-	pub type EvmNonces<T: Config> =
-		StorageMap<_, Blake2_128Concat, H160, u64, ValueQuery>;
+	pub type EvmNonces<T: Config> = StorageMap<_, Blake2_128Concat, H160, u64, ValueQuery>;
 
 	/// Maximum number of unverified price submissions per pair
 	#[pallet::storage]
@@ -676,10 +675,7 @@ pub mod pallet {
 		/// Set the maximum number of unverified price submissions per pair
 		#[pallet::call_index(12)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn set_max_unverified_submissions(
-			origin: OriginFor<T>,
-			max: u32,
-		) -> DispatchResult {
+		pub fn set_max_unverified_submissions(origin: OriginFor<T>, max: u32) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
 			MaxUnverifiedSubmissions::<T>::put(max);
@@ -736,16 +732,12 @@ pub mod pallet {
 			v: types::PriceVerificationData,
 			now: u64,
 		) -> DispatchResult {
-			ensure!(
-				!UsedCommitments::<T>::get(&v.commitment),
-				Error::<T>::CommitmentAlreadyUsed
-			);
+			ensure!(!UsedCommitments::<T>::get(&v.commitment), Error::<T>::CommitmentAlreadyUsed);
 
 			let gateway_info =
 				Gateways::<T>::get(v.state_machine).ok_or(Error::<T>::GatewayNotFound)?;
 
-			let filler_address =
-				Self::verify_fill_proofs(&v, &gateway_info, now)?;
+			let filler_address = Self::verify_fill_proofs(&v, &gateway_info, now)?;
 
 			Self::verify_evm_signature(&v, &pair_id, &price, filler_address)?;
 
@@ -754,11 +746,7 @@ pub mod pallet {
 			Self::maybe_clear_stale_prices();
 
 			VerifiedPrices::<T>::mutate(&pair_id, |entries| {
-				entries.push(PriceEntry {
-					submitter: submitter.clone(),
-					price,
-					timestamp: now,
-				});
+				entries.push(PriceEntry { submitter: submitter.clone(), price, timestamp: now });
 			});
 
 			Self::deposit_event(Event::PriceSubmitted { filler: submitter, pair_id, price });
@@ -776,10 +764,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			let max = MaxUnverifiedSubmissions::<T>::get();
 			let fee = UnverifiedSubmissionFee::<T>::get();
-			ensure!(
-				max > 0 && !fee.is_zero(),
-				Error::<T>::UnverifiedSubmissionsNotConfigured
-			);
+			ensure!(max > 0 && !fee.is_zero(), Error::<T>::UnverifiedSubmissionsNotConfigured);
 
 			<T as Config>::Currency::transfer(
 				&submitter,
@@ -795,11 +780,7 @@ pub mod pallet {
 				if entries.len() >= max as usize {
 					entries.remove(0);
 				}
-				entries.push(PriceEntry {
-					submitter: submitter.clone(),
-					price,
-					timestamp: now,
-				});
+				entries.push(PriceEntry { submitter: submitter.clone(), price, timestamp: now });
 			});
 
 			Self::deposit_event(Event::UnverifiedPriceSubmitted { submitter, pair_id, price });
@@ -818,8 +799,7 @@ pub mod pallet {
 			let host = T::Dispatcher::default();
 
 			// 52-byte key: gateway address (20) + storage slot (32)
-			let storage_key =
-				types::filled_storage_key(&gateway_info.gateway, &v.commitment);
+			let storage_key = types::filled_storage_key(&gateway_info.gateway, &v.commitment);
 
 			// Get state commitments for both proof heights
 			let commitment_h1 = host
@@ -877,8 +857,7 @@ pub mod pallet {
 
 			// Check proof freshness
 			let threshold = ProofFreshnessThresholdValue::<T>::get();
-			let proof_gap =
-				commitment_h2.timestamp.saturating_sub(commitment_h1.timestamp);
+			let proof_gap = commitment_h2.timestamp.saturating_sub(commitment_h1.timestamp);
 			ensure!(proof_gap <= threshold, Error::<T>::ProofNotFresh);
 			let age = now.saturating_sub(commitment_h2.timestamp);
 			ensure!(age <= threshold, Error::<T>::ProofNotFresh);
@@ -896,8 +875,7 @@ pub mod pallet {
 			filler_address: H160,
 		) -> DispatchResult {
 			let evm_address_bytes = match &v.evm_signature {
-				crypto_utils::verification::Signature::Evm { address, .. } =>
-					address.clone(),
+				crypto_utils::verification::Signature::Evm { address, .. } => address.clone(),
 				_ => return Err(Error::<T>::InvalidSignature.into()),
 			};
 
@@ -907,10 +885,8 @@ pub mod pallet {
 			let nonce = EvmNonces::<T>::get(evm_address);
 			let msg = types::price_signature_message(nonce, pair_id, price);
 
-			let recovered = v
-				.evm_signature
-				.verify(&msg, None)
-				.map_err(|_| Error::<T>::InvalidSignature)?;
+			let recovered =
+				v.evm_signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
 			ensure!(recovered == evm_address_bytes, Error::<T>::SignerMismatch);
 
 			ensure!(

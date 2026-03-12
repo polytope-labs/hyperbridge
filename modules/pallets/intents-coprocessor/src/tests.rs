@@ -1012,8 +1012,7 @@ fn price_entry_encoding_matches_rpc_tuple_decoding() {
 	let price = U256::from(42_000);
 	let timestamp = 1_700_000_000u64;
 
-	let entry =
-		types::PriceEntry { submitter: submitter.clone(), price, timestamp };
+	let entry = types::PriceEntry { submitter: submitter.clone(), price, timestamp };
 
 	let entry_bytes = entry.encode();
 	let tuple_bytes = (submitter.clone(), price, timestamp).encode();

@@ -159,7 +159,8 @@ async function copyTableData(
   logger: MigrationOptions['logger'],
   batchSize: number = 1000,
   limit?: number,
-  whereClause?: string
+  whereClause?: string,
+  columnTransforms?: Record<string, (value: any) => any>
 ): Promise<{ copiedRows: number; skippedColumns: string[] }> {
   const client = await pool.connect();
   
@@ -232,7 +233,10 @@ async function copyTableData(
       // Insert each row, using WHERE NOT EXISTS to skip duplicates (no unique constraint needed)
       for (const row of batchResult.rows) {
         const values = commonColumns.map(col => {
-          const v = row[col];
+          let v = row[col];
+          if (columnTransforms?.[col]) {
+            v = columnTransforms[col](v);
+          }
           // pg deserializes jsonb into JS objects/arrays, but re-serializes JS arrays
           // as PostgreSQL array literals instead of JSON. Stringify them so they're
           // sent as valid JSON for jsonb columns.
@@ -287,7 +291,8 @@ async function migrateEntity(
   versionedEntity: string,
   logger: MigrationOptions['logger'],
   limit?: number,
-  whereClause?: string
+  whereClause?: string,
+  columnTransforms?: Record<string, (value: any) => any>
 ): Promise<MigrationResult> {
   const suffix = extractVersionSuffix(versionedEntity);
   
@@ -345,7 +350,7 @@ async function migrateEntity(
   }
   
   try {
-    const result = await copyTableData(pool, schema, sourceTable, destTable, logger, 1000, limit, whereClause);
+    const result = await copyTableData(pool, schema, sourceTable, destTable, logger, 1000, limit, whereClause, columnTransforms);
     logger?.log(`  ✅ Migration completed for ${versionedEntity}`);
     logger?.log(`     Copied: ${result.copiedRows} rows`);
     if (result.skippedColumns.length > 0) {
@@ -407,10 +412,25 @@ export async function migrateEntities(options: MigrationOptions): Promise<Migrat
       'RelayerStatsPerChainV2': "chain LIKE 'EVM-%'",
     };
 
+    const stringToNumeric = (value: any): any => {
+      if (value === null || value === undefined) return null;
+      const str = String(value).trim();
+      if (str === '' || isNaN(Number(str))) return '0';
+      return String(Math.round(Number(str)));
+    };
+
+    // Column-level type transforms applied during migration
+    const entityColumnTransforms: Record<string, Record<string, (value: any) => any>> = {
+      'TokenGatewayAssetTeleportedV2': {
+        'usd_value': stringToNumeric,
+      },
+    };
+
     // Process each entity
     for (const entity of entities) {
       const whereClause = entityWhereClause[entity];
-      const result = await migrateEntity(pool, schema, entity, logger, limit, whereClause);
+      const columnTransforms = entityColumnTransforms[entity];
+      const result = await migrateEntity(pool, schema, entity, logger, limit, whereClause, columnTransforms);
       results.push(result);
     }
     

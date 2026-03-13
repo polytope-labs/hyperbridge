@@ -406,17 +406,17 @@ let call = RuntimeCall::TokenGovernor(
 
 #### Step 2: Submit the preimage
 
-Before submitting a referendum, the call must be registered as a preimage. This can be done through the Polkadot.js Apps UI:
+Before submitting a referendum, the call must be registered as a preimage on the [Hyperbridge governance portal](https://hyperbridge.subsquare.io):
 
-1. Navigate to **Governance > Preimages** on the [Hyperbridge portal](https://polkadot.js.org/apps/?rpc=wss://nexus.hyperbridge.network)
-2. Click **Submit Preimage**
+1. Navigate to **Referenda > New proposal**
+2. Click **New Preimage**
 3. For native substrate tokens: select `utility` > `batchAll`, then add both `tokenGovernor.createAssetMapping` and `tokenGovernor.registerStandaloneChainNativeAssets` as batch items
 4. For non-native tokens: select `tokenGovernor` > `createAssetMapping` directly
 5. Fill in the parameters and submit. Note the resulting **preimage hash**
 
 #### Step 3: Submit the referendum
 
-Submit the proposal directly on the `whitelisted_caller` track:
+Submit the proposal directly on the `whitelisted_caller` track via the [Hyperbridge governance portal](https://hyperbridge.subsquare.io):
 
 1. Navigate to **Governance > Referenda**
 2. Click **Submit proposal**

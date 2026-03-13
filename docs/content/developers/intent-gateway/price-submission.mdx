@@ -1,0 +1,103 @@
+---
+title: Price Submission Protocol
+description: Three-path price submission system for the intents coprocessor pallet
+---
+
+# Price Submission Protocol
+
+## Overview
+
+The intents system needs on-chain price data for token pairs to function correctly. The challenge is sourcing reliable prices without depending on external oracles, while still ensuring data availability when verified sources are temporarily scarce.
+
+## Protocol Overview
+
+The `submit_pair_price` extrinsic on the intents coprocessor pallet accepts price submissions for governance-approved token pairs. It supports three submission modes through a single entry point via the `mode` parameter. All prices and amount ranges are assumed to have 18 decimal places.
+
+Submissions are batched: each call accepts a `BoundedVec<PriceInput, MaxPriceEntries>` where each entry specifies a base token amount range and the corresponding price. This allows fillers to quote different rates for different order sizes in a single transaction (for example, USDC/CNGN: 0 to 999 at 1414, 1000 to 5000 at 1420). The maximum number of entries per submission is a compile-time constant configurable per runtime via the `MaxPriceEntries` associated type.
+
+### Price Entries
+
+Each `PriceInput` contains three fields:
+
+- `range_start`: the lower bound of the base token amount range (inclusive), with 18 decimal places.
+- `range_end`: the upper bound of the base token amount range (inclusive), with 18 decimal places.
+- `price`: the price of the base token in terms of the quote token, with 18 decimal places.
+
+The pallet validates that `range_start <= range_end` for every entry and rejects submissions where this invariant is violated. It also rejects empty submissions.
+
+When stored on-chain, each entry becomes a `PriceEntry` which adds the filler's EVM address (set to zero for unverified submissions) and the submission timestamp.
+
+### Submission Modes
+
+The `mode` parameter is an enum with three variants:
+
+- `StateProof`: full verification with ISMP state proofs and an EVM signature.
+- `CrossChain`: lightweight verification for fillers already recognized through cross-chain message inspection, requiring only an EVM signature.
+- `Unverified`: no verification; anyone can submit by paying a fee.
+
+Both `StateProof` and `CrossChain` submissions are stored as verified (high confidence) prices. `Unverified` submissions are stored separately as low confidence prices.
+
+### State Proof Verification (High Confidence)
+
+Fillers who have actually filled orders on the IntentGateway contract submit prices along with cryptographic proof of their fill. This path exists because fillers are the most trustworthy source of price data. They have real skin in the game and their prices reflect actual market activity.
+
+A state proof submission requires three things:
+
+1. **Two ISMP state proofs** against the IntentGateway contract's `_filled` mapping. A non-membership proof at height H1 shows the order was not yet filled, and a membership proof at height H2 shows it was filled. Together these bracket when the fill occurred and extract the filler's EVM address from storage.
+
+2. **Proof freshness.** The gap between H1 and H2, the age of H2 relative to the current time, and the difference between H2's timestamp and the current on-chain time must all fall within a governance-configured threshold. This check ensures we are getting verified price data from fillers that are actually active and have filled orders very recently, allowing us to offer high confidence rates to users.
+
+3. **An EVM signature** over `keccak256(SCALE_encode(nonce, pair_id, price))`, where `price` is taken from the first entry in the batch. This proves the substrate account submitting the prices actually controls the EVM account that performed the fill. The nonce is tracked on-chain per EVM address to prevent signature replay. This pattern follows the existing approach in `pallet-ismp-relayer`.
+
+The 52-byte proof key binds verification to a specific gateway contract. The first 20 bytes are the gateway address (used by the EVM state machine client to locate the contract in the world state trie) and the last 32 bytes are the hashed storage slot for `_filled[commitment]`.
+
+### Cross-Chain Verification (High Confidence)
+
+When a filler completes a cross-chain order, the destination chain's IntentGateway dispatches a `RedeemEscrow` message back to the source chain via Hyperbridge. Because Hyperbridge routes all cross-chain messages through its `ProxyModule`, the intents coprocessor pallet can passively inspect these messages as they flow through.
+
+The `inspect_request` method is called in the `ProxyModule::on_accept` hook for every relayed request. It checks whether the sender is a known IntentGateway (by comparing the `from` address against the `Gateways` storage map), and if so, decodes the request body. When the first byte is `0x00` (the `RedeemEscrow` discriminator), the body is ABI-decoded as a `WithdrawalRequest` and the filler's EVM address is extracted from the `beneficiary` field (a `bytes32` containing the 20-byte address right-aligned).
+
+The extracted filler address is stored in a `VerifiedFillers` map along with the current timestamp. This serves as a lightweight, passive proof that the filler is genuinely active. When the filler later wants to submit prices, they use the `CrossChain` submission mode, which only requires an EVM signature (no state proofs). The pallet checks that the filler exists in `VerifiedFillers` and that their verification timestamp is within the freshness threshold.
+
+This path is particularly useful for cross-chain fills where the filler's activity is already visible to Hyperbridge without requiring any additional proof submission.
+
+### Unverified Prices (Low Confidence)
+
+Anyone can submit prices without proofs by paying a fee in bridge tokens. This path exists to maintain price data availability even when verified submissions are sparse. The fee, which is transferred to the treasury, discourages spam while keeping the door open for market participants who have price information but have not filled orders themselves.
+
+Unverified prices are stored separately in `UnverifiedPrices` and capped per pair at `MaxUnverifiedSubmissions`. When a batch submission would exceed the cap, the oldest entries are drained in bulk to make room, following a first-in, first-out policy. Both the fee and the cap must be configured via governance for unverified submissions to be accepted. The filler field is set to `H160::zero()` for unverified entries since no EVM address verification is performed.
+
+### Why Separate Confidence Levels
+
+Keeping verified and unverified prices separate lets consumers make informed decisions. A DEX might only trust verified prices for settlement, while a UI might display both to give users a fuller picture. Mixing them into a single pool would dilute the signal from proven fills.
+
+## Price Window and Data Lifecycle
+
+Prices are organized into daily windows, which are governance-configurable via `PriceWindowDurationValue`.
+
+The `on_initialize` hook runs every block and checks whether the current window has expired. When it has, it clears `UsedCommitments` (which is safe because the freshness threshold independently rejects stale proofs) and resets a `PricesClearedThisWindow` flag to false.
+
+Prices from the previous window are not cleared immediately. They persist so that consumers can still read the previous window's data. On the first new submission in the new window (verified or unverified), all price entries across all pairs are cleared before the new entries are stored. This lazy clearing approach avoids the cost of iterating all pairs in `on_initialize` while ensuring stale data is replaced as soon as fresh data arrives.
+
+### Why Lazy Clearing
+
+Clearing all price maps in `on_initialize` would cost weight proportional to the number of pairs with data, which is unbounded and paid by the block producer. Instead, the cost is deferred to the first submitter of the new window, who is already paying for a storage write. The global boolean flag (`PricesClearedThisWindow`) makes this a single check per submission after the first.
+
+## Recognized Pairs
+
+Only governance-approved token pairs can receive price submissions. This prevents spam for arbitrary token combinations and keeps storage growth under control. Governance manages pairs through `add_recognized_pair` and `remove_recognized_pair` extrinsics. Removing a pair also cleans up its associated price data.
+
+## RPC
+
+The `intents_getPairPrices(pair_id)` RPC endpoint returns verified and unverified prices separately, allowing consumers to apply their own weighting or filtering based on confidence level. Each returned entry includes the filler's EVM address, the amount range (`range_start`, `range_end`), the price, and the submission timestamp.
+
+## Governance Parameters
+
+All key parameters are stored on-chain and updatable via governance extrinsics:
+
+- `PriceWindowDurationValue` is the length of the price window in milliseconds.
+- `ProofFreshnessThresholdValue` is the maximum allowed age and gap for state proofs and cross-chain filler verification, in seconds.
+- `MaxUnverifiedSubmissions` is the cap on unverified entries per pair.
+- `UnverifiedSubmissionFee` is the fee charged for unverified submissions.
+- `MaxPriceEntries` is the compile-time maximum number of price entries per submission, configurable per runtime.
+- Recognized token pairs determine which pairs accept submissions.

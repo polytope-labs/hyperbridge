@@ -16,10 +16,10 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	governance::WhitelistedCaller,
-	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp, TokenGateway,
-	TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
-	MIN_TECH_COLLECTIVE_APPROVAL,
+	weights, AccountId, Assets, Balance, Balances, IntentsCoprocessor, Ismp, IsmpParachain, Mmr,
+	ParachainInfo, ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp,
+	TokenGateway, TokenGatewayInspector, TreasuryAccount, TreasuryPalletId, XcmGateway,
+	EXISTENTIAL_DEPOSIT, MIN_TECH_COLLECTIVE_APPROVAL,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -433,12 +433,15 @@ impl pallet_intents_coprocessor::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+	type TreasuryAccount = TreasuryAccount;
+	type MaxPriceEntries = ConstU32<10>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
+			IntentsCoprocessor::inspect_request(&request)?;
 
 			Ismp::dispatch_request(
 				Request::Post(request),

@@ -18,7 +18,8 @@
 use alloc::{vec, vec::Vec};
 use alloy_sol_types::SolValue;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-
+use crypto_utils::verification::Signature;
+use ismp::{host::StateMachine, messaging::Proof};
 use primitive_types::{H160, H256, U256};
 use scale_info::TypeInfo;
 
@@ -144,6 +145,130 @@ pub struct Bid<AccountId> {
 	pub user_op: Vec<u8>,
 }
 
+/// A recognized token pair for price tracking
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct TokenPair {
+	/// The base token address
+	pub base: H160,
+	/// The quote token address
+	pub quote: H160,
+}
+
+impl TokenPair {
+	/// Compute a unique identifier for this token pair
+	pub fn pair_id(&self) -> H256 {
+		let mut data = alloc::vec::Vec::with_capacity(40);
+		data.extend_from_slice(&self.base.0);
+		data.extend_from_slice(&self.quote.0);
+		sp_io::hashing::keccak_256(&data).into()
+	}
+}
+
+/// Caller-provided price data for a specific range of base token amounts.
+/// The pallet fills in the filler address and timestamp when storing.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PriceInput {
+	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_start: U256,
+	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_end: U256,
+	/// The price of the base token in the quote token, with 18 decimal places
+	pub price: U256,
+}
+
+/// An individual price submission stored on-chain. The price applies to a specific
+/// range of base token amounts, allowing fillers to quote different rates for
+/// different order sizes (e.g. USDC/CNGN: 0-999 -> 1414, 1000-5000 -> 1420).
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PriceEntry {
+	/// The filler's EVM address. Set to `H160::zero()` for unverified submissions.
+	pub filler: H160,
+	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_start: U256,
+	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_end: U256,
+	/// The price of the base token in the quote token, with 18 decimal places
+	pub price: U256,
+	/// Timestamp of submission (seconds)
+	pub timestamp: u64,
+}
+
+/// Verification data for proven price submissions (high confidence)
+///
+/// When provided, the submission is treated as a verified filler price.
+/// The EVM signature proves the substrate account owner also controls the
+/// EVM account that filled the order.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PriceVerificationData {
+	/// The state machine where the order was filled
+	pub state_machine: StateMachine,
+	/// The filled order commitment hash
+	pub commitment: H256,
+	/// Proof that the order was filled at some height
+	pub membership_proof: Proof,
+	/// Proof that the order was not filled at an earlier height
+	pub non_membership_proof: Proof,
+	/// EVM signature proving ownership of the filler's EVM account.
+	/// The signer must sign `keccak256(encode(nonce, pair_id, price))`.
+	pub evm_signature: Signature,
+}
+
+/// Determines how a price submission is verified.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub enum PriceSubmissionMode {
+	/// Full verification with ISMP state proofs and EVM signature.
+	StateProof(PriceVerificationData),
+	/// Cross-chain verification: the filler was passively verified by the
+	/// IntentGateway inspector when their RedeemEscrow message flowed through
+	/// Hyperbridge. Only an EVM signature is required.
+	CrossChain(CrossChainVerificationData),
+	/// No verification. Anyone can submit by paying a fee.
+	Unverified,
+}
+
+/// Verification data for cross-chain verified price submissions.
+///
+/// Fillers who have been passively verified through the IntentGateway inspector
+/// (their RedeemEscrow message was seen flowing through Hyperbridge) only need
+/// to provide an EVM signature to prove they own the verified address.
+/// No ISMP state proofs are required.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct CrossChainVerificationData {
+	/// EVM signature proving ownership of the filler's EVM account.
+	/// The signer must sign `keccak256(encode(nonce, pair_id, price))`.
+	pub evm_signature: Signature,
+}
+
+/// Compute the message hash that the filler must sign with their EVM key.
+///
+/// Message = keccak256(SCALE_encode(nonce, pair_id, price))
+pub fn price_signature_message(nonce: u64, pair_id: &H256, price: &U256) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(nonce, pair_id, price).encode())
+}
+
+/// The storage slot index for the `_filled` mapping in IntentGateway.sol
+pub const FILLED_SLOT: [u8; 32] =
+	hex_literal::hex!("0000000000000000000000000000000000000000000000000000000000000005");
+
+/// Compute the EVM state proof key for `_filled[commitment]` on the given gateway contract.
+///
+/// Returns a 52-byte key: 20-byte contract address + 32-byte storage slot.
+/// The EVM state machine client uses the first 20 bytes to locate the contract
+/// and hashes the last 32 bytes to derive the storage trie key.
+pub fn filled_storage_key(gateway: &H160, commitment: &H256) -> Vec<u8> {
+	// Compute the raw storage slot: keccak256(commitment ++ FILLED_SLOT)
+	let mut slot_preimage = Vec::with_capacity(64);
+	slot_preimage.extend_from_slice(commitment.as_bytes());
+	slot_preimage.extend_from_slice(&FILLED_SLOT);
+	let slot = sp_io::hashing::keccak_256(&slot_preimage);
+
+	// 52-byte key: gateway address (20) + slot (32)
+	let mut key = Vec::with_capacity(52);
+	key.extend_from_slice(&gateway.0);
+	key.extend_from_slice(&slot);
+	key
+}
+
 impl IntentGatewayParams {
 	/// Apply an update to the current parameters, returning a new instance
 	pub fn update(&self, update: ParamsUpdate) -> Self {
@@ -241,7 +366,45 @@ mod sol_types {
 			bytes sourceChain;
 			TokenDecimal[] tokens;
 		}
+
+		/// Solidity representation of WithdrawalRequest (used by RedeemEscrow/RefundEscrow)
+		struct WithdrawalRequest {
+			bytes32 commitment;
+			bytes32 beneficiary;
+			TokenInfo[] tokens;
+		}
 	}
+}
+
+/// Extract the filler's EVM address from a RedeemEscrow intent gateway request body.
+///
+/// The body format is: `[1-byte discriminator] + abi.encode(WithdrawalRequest)`.
+/// Returns `Some(filler_address)` if the discriminator is `RedeemEscrow` (0x00)
+/// and the body decodes successfully. The beneficiary field is a bytes32 containing
+/// the filler's 20-byte EVM address left-padded to 32 bytes.
+pub fn extract_filler_from_redeem(body: &[u8]) -> Option<H160> {
+	use alloy_sol_types::SolType;
+
+	if body.is_empty() {
+		return None;
+	}
+
+	if body[0] != IntentGatewayRequestKind::RedeemEscrow as u8 {
+		return None;
+	}
+
+	let withdrawal = <sol_types::WithdrawalRequest as SolType>::abi_decode(&body[1..]).ok()?;
+
+	// The beneficiary is bytes32(uint256(uint160(msg.sender))) — the 20-byte address
+	// is stored in the low 20 bytes (right-aligned, big-endian).
+	let beneficiary_bytes: [u8; 32] = withdrawal.beneficiary.into();
+	let filler = H160::from_slice(&beneficiary_bytes[12..32]);
+
+	if filler == H160::zero() {
+		return None;
+	}
+
+	Some(filler)
 }
 
 impl From<IntentGatewayParams> for sol_types::Params {

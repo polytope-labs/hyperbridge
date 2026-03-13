@@ -175,6 +175,12 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type UnverifiedSubmissionFee<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
+	/// Fillers verified through cross-chain message inspection.
+	/// Maps filler EVM address to the timestamp (seconds) when they were last seen
+	/// filling an order via a RedeemEscrow message routed through Hyperbridge.
+	#[pallet::storage]
+	pub type VerifiedFillers<T: Config> = StorageMap<_, Blake2_128Concat, H160, u64, OptionQuery>;
+
 	/// Whether prices have been cleared in the current window.
 	/// Reset to false by `on_initialize` when a new window starts.
 	/// Set to true on the first price submission in the new window.
@@ -301,6 +307,10 @@ pub mod pallet {
 		InvalidPriceRange,
 		/// No price entries were provided
 		EmptyPriceEntries,
+		/// The filler is not in the VerifiedFillers map
+		FillerNotVerified,
+		/// The filler's cross-chain verification has expired
+		FillerVerificationExpired,
 	}
 
 	#[pallet::call]
@@ -584,12 +594,16 @@ pub mod pallet {
 
 		/// Submit prices for a recognized token pair across one or more amount ranges.
 		///
-		/// This extrinsic supports two submission modes. When `verification` is provided,
-		/// the submission is treated as high confidence: the filler supplies ISMP state
-		/// proofs and an EVM signature to prove they filled the order and own the
-		/// submitting account (bound by an on-chain nonce). When `verification` is
-		/// `None`, anyone may submit a low confidence price by paying bridge tokens.
-		/// Unverified entries are capped per pair with FIFO replacement.
+		/// This extrinsic supports three submission modes via the `mode` parameter:
+		///
+		/// - `StateProof`: High confidence. The filler supplies ISMP state proofs and an EVM
+		///   signature to prove they filled the order and own the submitting account (bound by an
+		///   on-chain nonce).
+		/// - `CrossChain`: High confidence. The filler was passively verified by the IntentGateway
+		///   inspector when their RedeemEscrow message flowed through Hyperbridge. Only an EVM
+		///   signature is required (no state proofs).
+		/// - `Unverified`: Low confidence. Anyone may submit by paying bridge tokens. Unverified
+		///   entries are capped per pair with FIFO replacement.
 		///
 		/// Each entry in `entries` specifies a base token amount range and the
 		/// corresponding price of the base token in terms of the quote token.
@@ -601,7 +615,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			pair_id: H256,
 			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
-			verification: Option<types::PriceVerificationData>,
+			mode: types::PriceSubmissionMode,
 		) -> DispatchResult {
 			let submitter = ensure_signed(origin)?;
 
@@ -614,10 +628,13 @@ pub mod pallet {
 
 			let now = T::Dispatcher::default().timestamp().as_secs();
 
-			if let Some(v) = verification {
-				Self::submit_verified_price(submitter, pair_id, entries, v, now)?;
-			} else {
-				Self::submit_unverified_price(submitter, pair_id, entries, now)?;
+			match mode {
+				types::PriceSubmissionMode::StateProof(v) =>
+					Self::submit_verified_price(submitter, pair_id, entries, v, now)?,
+				types::PriceSubmissionMode::CrossChain(v) =>
+					Self::submit_cross_chain_verified_price(submitter, pair_id, entries, v, now)?,
+				types::PriceSubmissionMode::Unverified =>
+					Self::submit_unverified_price(submitter, pair_id, entries, now)?,
 			}
 
 			Ok(())
@@ -944,6 +961,93 @@ pub mod pallet {
 				let _ = UnverifiedPrices::<T>::clear(u32::MAX, None);
 				PricesClearedThisWindow::<T>::put(true);
 			}
+		}
+
+		/// Inspect a cross-chain request flowing through Hyperbridge.
+		///
+		/// If the request is a RedeemEscrow from a known IntentGateway, extract the
+		/// filler's EVM address and store it in `VerifiedFillers` with the current
+		/// timestamp. This allows the filler to later submit prices without full
+		/// ISMP state proofs.
+		pub fn inspect_request(post: &ismp::router::PostRequest) -> Result<(), ismp::Error> {
+			// The `from` field must be at least 20 bytes (an EVM address)
+			if post.from.len() < 20 {
+				return Ok(());
+			}
+
+			let sender = H160::from_slice(&post.from[..20]);
+			let _gateway_info = match Gateways::<T>::get(post.source) {
+				Some(info) if info.gateway == sender => info,
+				_ => return Ok(()),
+			};
+
+			if let Some(filler) = types::extract_filler_from_redeem(&post.body) {
+				let now = T::Dispatcher::default().timestamp().as_secs();
+				VerifiedFillers::<T>::insert(filler, now);
+
+				log::info!(
+					target: "pallet-intents",
+					"Cross-chain verified filler {:?} from {:?}",
+					filler,
+					post.source,
+				);
+			}
+
+			Ok(())
+		}
+
+		/// Process a cross-chain verified price submission.
+		///
+		/// The filler must be in the `VerifiedFillers` map with a timestamp within
+		/// the freshness threshold. An EVM signature is still required to prove
+		/// ownership of the filler address.
+		fn submit_cross_chain_verified_price(
+			submitter: T::AccountId,
+			pair_id: H256,
+			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
+			v: types::CrossChainVerificationData,
+			now: u64,
+		) -> DispatchResult {
+			let evm_address_bytes = match &v.evm_signature {
+				crypto_utils::verification::Signature::Evm { address, .. } => address.clone(),
+				_ => return Err(Error::<T>::InvalidSignature.into()),
+			};
+
+			ensure!(evm_address_bytes.len() == 20, Error::<T>::InvalidSignature);
+			let filler_address = H160::from_slice(&evm_address_bytes);
+
+			let verified_at =
+				VerifiedFillers::<T>::get(filler_address).ok_or(Error::<T>::FillerNotVerified)?;
+
+			// Check freshness of the verification
+			let threshold = ProofFreshnessThresholdValue::<T>::get();
+			let age = now.saturating_sub(verified_at);
+			ensure!(age <= threshold, Error::<T>::FillerVerificationExpired);
+
+			let nonce = EvmNonces::<T>::get(filler_address);
+			let msg = types::price_signature_message(nonce, &pair_id, &entries[0].price);
+
+			let recovered =
+				v.evm_signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
+			ensure!(recovered == evm_address_bytes, Error::<T>::SignerMismatch);
+
+			EvmNonces::<T>::insert(filler_address, nonce.saturating_add(1));
+
+			Self::maybe_clear_stale_prices();
+
+			VerifiedPrices::<T>::mutate(&pair_id, |stored| {
+				stored.extend(entries.iter().map(|input| PriceEntry {
+					filler: filler_address,
+					range_start: input.range_start,
+					range_end: input.range_end,
+					price: input.price,
+					timestamp: now,
+				}));
+			});
+
+			Self::deposit_event(Event::PriceSubmitted { filler: submitter, pair_id });
+
+			Ok(())
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

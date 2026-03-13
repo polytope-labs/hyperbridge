@@ -790,7 +790,7 @@ fn submit_pair_price_verified() {
 			RuntimeOrigin::signed(filler.clone()),
 			pair_id,
 			entries,
-			Some(verification),
+			types::PriceSubmissionMode::StateProof(verification),
 		));
 
 		// Verify the verified price entry was stored
@@ -835,7 +835,7 @@ fn submit_pair_price_verified() {
 			RuntimeOrigin::signed(filler.clone()),
 			pair_id,
 			entries2,
-			Some(verification2),
+			types::PriceSubmissionMode::StateProof(verification2),
 		));
 
 		// Verify two entries now stored
@@ -876,7 +876,7 @@ fn submit_pair_price_verified() {
 				RuntimeOrigin::signed(filler.clone()),
 				pair_id,
 				entries_dup,
-				Some(verification_dup),
+				types::PriceSubmissionMode::StateProof(verification_dup),
 			),
 			Error::<Test>::CommitmentAlreadyUsed
 		);
@@ -912,7 +912,7 @@ fn submit_pair_price_unverified() {
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
 			entries,
-			None,
+			types::PriceSubmissionMode::Unverified,
 		));
 
 		// Verify fee was charged
@@ -956,7 +956,7 @@ fn unverified_prices_fifo_replacement() {
 				RuntimeOrigin::signed(submitter.clone()),
 				pair_id,
 				input,
-				None,
+				types::PriceSubmissionMode::Unverified,
 			));
 		}
 
@@ -975,7 +975,7 @@ fn unverified_prices_fifo_replacement() {
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
 			input4,
-			None,
+			types::PriceSubmissionMode::Unverified,
 		));
 
 		let stored = UnverifiedPrices::<Test>::get(&pair_id);
@@ -1049,7 +1049,7 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
 			new_entries,
-			None,
+			types::PriceSubmissionMode::Unverified,
 		));
 
 		// Old entries are gone, only the new unverified entry remains
@@ -1169,5 +1169,295 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 		assert_eq!(udecoded[0].2, U256::from(999));
 		assert_eq!(udecoded[0].3, U256::from(1500));
 		assert_eq!(udecoded[0].4, 500u64);
+	});
+}
+
+#[test]
+fn extract_filler_from_redeem_decodes_correctly() {
+	use alloy_sol_types::SolValue;
+
+	let filler_address = H160::from_low_u64_be(0xdeadbeef);
+
+	// Build a RedeemEscrow body: [0x00] + abi.encode(WithdrawalRequest)
+	let commitment = alloy_primitives::FixedBytes::<32>::from([0xaa; 32]);
+	// beneficiary = bytes32(uint256(uint160(filler)))
+	let mut beneficiary_bytes = [0u8; 32];
+	beneficiary_bytes[12..32].copy_from_slice(&filler_address.0);
+	let beneficiary = alloy_primitives::FixedBytes::<32>::from(beneficiary_bytes);
+
+	let withdrawal = (
+		commitment,
+		beneficiary,
+		Vec::<(alloy_primitives::FixedBytes<32>, alloy_primitives::U256)>::new(),
+	);
+	let mut body = vec![0x00u8]; // RedeemEscrow discriminator
+	body.extend_from_slice(&withdrawal.abi_encode());
+
+	let extracted = types::extract_filler_from_redeem(&body);
+	assert_eq!(extracted, Some(filler_address));
+}
+
+#[test]
+fn extract_filler_from_redeem_rejects_non_redeem() {
+	use alloy_sol_types::SolValue;
+
+	let commitment = alloy_primitives::FixedBytes::<32>::from([0xaa; 32]);
+	let beneficiary = alloy_primitives::FixedBytes::<32>::from([0xbb; 32]);
+	let withdrawal = (
+		commitment,
+		beneficiary,
+		Vec::<(alloy_primitives::FixedBytes<32>, alloy_primitives::U256)>::new(),
+	);
+
+	// Use discriminator 0x01 (NewDeployment), not RedeemEscrow
+	let mut body = vec![0x01u8];
+	body.extend_from_slice(&withdrawal.abi_encode());
+
+	assert_eq!(types::extract_filler_from_redeem(&body), None);
+}
+
+#[test]
+fn inspect_request_adds_verified_filler() {
+	new_test_ext().execute_with(|| {
+		use alloy_sol_types::SolValue;
+
+		let state_machine = StateMachine::Evm(1);
+		let gateway = H160::from_low_u64_be(42);
+		let params = types::IntentGatewayParams {
+			host: H160::default(),
+			dispatcher: H160::default(),
+			solver_selection: true,
+			surplus_share_bps: U256::from(5000),
+			protocol_fee_bps: U256::from(100),
+			price_oracle: H160::default(),
+		};
+		assert_ok!(Intents::add_deployment(RuntimeOrigin::root(), state_machine, gateway, params));
+
+		let filler_address = H160::from_low_u64_be(0xdeadbeef);
+		let mut beneficiary_bytes = [0u8; 32];
+		beneficiary_bytes[12..32].copy_from_slice(&filler_address.0);
+
+		let commitment = alloy_primitives::FixedBytes::<32>::from([0xaa; 32]);
+		let beneficiary = alloy_primitives::FixedBytes::<32>::from(beneficiary_bytes);
+		let withdrawal = (
+			commitment,
+			beneficiary,
+			Vec::<(alloy_primitives::FixedBytes<32>, alloy_primitives::U256)>::new(),
+		);
+
+		let mut body = vec![0x00u8];
+		body.extend_from_slice(&withdrawal.abi_encode());
+
+		// Set timestamp
+		pallet_timestamp::Now::<Test>::put(2_000_000u64); // 2000 seconds
+
+		let post = ismp::router::PostRequest {
+			source: state_machine,
+			dest: StateMachine::Evm(2),
+			nonce: 0,
+			from: gateway.0.to_vec(),
+			to: vec![0u8; 20],
+			timeout_timestamp: 0,
+			body,
+		};
+
+		assert_ok!(Intents::inspect_request(&post));
+
+		// Verify filler was added
+		let verified_at = VerifiedFillers::<Test>::get(filler_address);
+		assert!(verified_at.is_some());
+		assert_eq!(verified_at.unwrap(), 2000); // 2_000_000ms / 1000
+	});
+}
+
+#[test]
+fn inspect_request_ignores_unknown_gateway() {
+	new_test_ext().execute_with(|| {
+		use alloy_sol_types::SolValue;
+
+		let filler_address = H160::from_low_u64_be(0xdeadbeef);
+		let mut beneficiary_bytes = [0u8; 32];
+		beneficiary_bytes[12..32].copy_from_slice(&filler_address.0);
+
+		let commitment = alloy_primitives::FixedBytes::<32>::from([0xaa; 32]);
+		let beneficiary = alloy_primitives::FixedBytes::<32>::from(beneficiary_bytes);
+		let withdrawal = (
+			commitment,
+			beneficiary,
+			Vec::<(alloy_primitives::FixedBytes<32>, alloy_primitives::U256)>::new(),
+		);
+
+		let mut body = vec![0x00u8];
+		body.extend_from_slice(&withdrawal.abi_encode());
+
+		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		// No gateway registered — sender is unknown
+		let unknown_gateway = H160::from_low_u64_be(999);
+		let post = ismp::router::PostRequest {
+			source: StateMachine::Evm(1),
+			dest: StateMachine::Evm(2),
+			nonce: 0,
+			from: unknown_gateway.0.to_vec(),
+			to: vec![0u8; 20],
+			timeout_timestamp: 0,
+			body,
+		};
+
+		assert_ok!(Intents::inspect_request(&post));
+
+		// Filler should NOT be added
+		assert!(VerifiedFillers::<Test>::get(filler_address).is_none());
+	});
+}
+
+#[test]
+fn submit_cross_chain_verified_price() {
+	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+		let price = U256::from(2000);
+
+		// Add a recognized token pair
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		// Create an EVM keypair
+		let evm_pair =
+			sp_core::ecdsa::Pair::from_seed_slice(H256::repeat_byte(0x42).as_bytes()).unwrap();
+		let evm_address = evm_pair.public().to_eth_address().unwrap().to_vec();
+		let filler_h160 = H160::from_slice(&evm_address);
+
+		// Simulate the filler being verified via cross-chain inspection
+		// (timestamp 2000 seconds)
+		VerifiedFillers::<Test>::insert(filler_h160, 2000u64);
+
+		// Set current time to 2500 seconds (within 3600s threshold)
+		pallet_timestamp::Now::<Test>::put(2_500_000u64);
+
+		// Sign the price message
+		let nonce = 0u64;
+		let msg = types::price_signature_message(nonce, &pair_id, &price);
+		let signature = evm_pair.sign_prehashed(&msg).0.to_vec();
+
+		let cross_chain_data = types::CrossChainVerificationData {
+			evm_signature: Signature::Evm { address: evm_address.clone(), signature },
+		};
+
+		let entries = BoundedVec::try_from(vec![types::PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price,
+		}])
+		.unwrap();
+
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+			entries,
+			types::PriceSubmissionMode::CrossChain(cross_chain_data),
+		));
+
+		// Verify stored as verified price
+		let verified = VerifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(verified.len(), 1);
+		assert_eq!(verified[0].filler, filler_h160);
+		assert_eq!(verified[0].price, price);
+
+		// Verify nonce incremented
+		assert_eq!(EvmNonces::<Test>::get(filler_h160), 1);
+	});
+}
+
+#[test]
+fn cross_chain_verified_fails_when_filler_not_verified() {
+	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+		let price = U256::from(2000);
+
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		let evm_pair =
+			sp_core::ecdsa::Pair::from_seed_slice(H256::repeat_byte(0x42).as_bytes()).unwrap();
+		let evm_address = evm_pair.public().to_eth_address().unwrap().to_vec();
+
+		pallet_timestamp::Now::<Test>::put(2_500_000u64);
+
+		let msg = types::price_signature_message(0u64, &pair_id, &price);
+		let signature = evm_pair.sign_prehashed(&msg).0.to_vec();
+
+		let cross_chain_data = types::CrossChainVerificationData {
+			evm_signature: Signature::Evm { address: evm_address, signature },
+		};
+
+		let entries = BoundedVec::try_from(vec![types::PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price,
+		}])
+		.unwrap();
+
+		// Filler not in VerifiedFillers — should fail
+		assert_noop!(
+			Intents::submit_pair_price(
+				RuntimeOrigin::signed(submitter),
+				pair_id,
+				entries,
+				types::PriceSubmissionMode::CrossChain(cross_chain_data),
+			),
+			Error::<Test>::FillerNotVerified
+		);
+	});
+}
+
+#[test]
+fn cross_chain_verified_fails_when_expired() {
+	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+		let price = U256::from(2000);
+
+		let pair =
+			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+		let pair_id = pair.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+
+		let evm_pair =
+			sp_core::ecdsa::Pair::from_seed_slice(H256::repeat_byte(0x42).as_bytes()).unwrap();
+		let evm_address = evm_pair.public().to_eth_address().unwrap().to_vec();
+		let filler_h160 = H160::from_slice(&evm_address);
+
+		// Verified at timestamp 1000
+		VerifiedFillers::<Test>::insert(filler_h160, 1000u64);
+
+		// Current time is 5000 seconds — threshold is 3600, so age = 4000 > 3600
+		pallet_timestamp::Now::<Test>::put(5_000_000u64);
+
+		let msg = types::price_signature_message(0u64, &pair_id, &price);
+		let signature = evm_pair.sign_prehashed(&msg).0.to_vec();
+
+		let cross_chain_data = types::CrossChainVerificationData {
+			evm_signature: Signature::Evm { address: evm_address, signature },
+		};
+
+		let entries = BoundedVec::try_from(vec![types::PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price,
+		}])
+		.unwrap();
+
+		assert_noop!(
+			Intents::submit_pair_price(
+				RuntimeOrigin::signed(submitter),
+				pair_id,
+				entries,
+				types::PriceSubmissionMode::CrossChain(cross_chain_data),
+			),
+			Error::<Test>::FillerVerificationExpired
+		);
 	});
 }

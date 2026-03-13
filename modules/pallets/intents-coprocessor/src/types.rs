@@ -213,6 +213,32 @@ pub struct PriceVerificationData {
 	pub evm_signature: Signature,
 }
 
+/// Determines how a price submission is verified.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub enum PriceSubmissionMode {
+	/// Full verification with ISMP state proofs and EVM signature.
+	StateProof(PriceVerificationData),
+	/// Cross-chain verification: the filler was passively verified by the
+	/// IntentGateway inspector when their RedeemEscrow message flowed through
+	/// Hyperbridge. Only an EVM signature is required.
+	CrossChain(CrossChainVerificationData),
+	/// No verification. Anyone can submit by paying a fee.
+	Unverified,
+}
+
+/// Verification data for cross-chain verified price submissions.
+///
+/// Fillers who have been passively verified through the IntentGateway inspector
+/// (their RedeemEscrow message was seen flowing through Hyperbridge) only need
+/// to provide an EVM signature to prove they own the verified address.
+/// No ISMP state proofs are required.
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct CrossChainVerificationData {
+	/// EVM signature proving ownership of the filler's EVM account.
+	/// The signer must sign `keccak256(encode(nonce, pair_id, price))`.
+	pub evm_signature: Signature,
+}
+
 /// Compute the message hash that the filler must sign with their EVM key.
 ///
 /// Message = keccak256(SCALE_encode(nonce, pair_id, price))
@@ -340,7 +366,45 @@ mod sol_types {
 			bytes sourceChain;
 			TokenDecimal[] tokens;
 		}
+
+		/// Solidity representation of WithdrawalRequest (used by RedeemEscrow/RefundEscrow)
+		struct WithdrawalRequest {
+			bytes32 commitment;
+			bytes32 beneficiary;
+			TokenInfo[] tokens;
+		}
 	}
+}
+
+/// Extract the filler's EVM address from a RedeemEscrow intent gateway request body.
+///
+/// The body format is: `[1-byte discriminator] + abi.encode(WithdrawalRequest)`.
+/// Returns `Some(filler_address)` if the discriminator is `RedeemEscrow` (0x00)
+/// and the body decodes successfully. The beneficiary field is a bytes32 containing
+/// the filler's 20-byte EVM address left-padded to 32 bytes.
+pub fn extract_filler_from_redeem(body: &[u8]) -> Option<H160> {
+	use alloy_sol_types::SolType;
+
+	if body.is_empty() {
+		return None;
+	}
+
+	if body[0] != IntentGatewayRequestKind::RedeemEscrow as u8 {
+		return None;
+	}
+
+	let withdrawal = <sol_types::WithdrawalRequest as SolType>::abi_decode(&body[1..]).ok()?;
+
+	// The beneficiary is bytes32(uint256(uint160(msg.sender))) — the 20-byte address
+	// is stored in the low 20 bytes (right-aligned, big-endian).
+	let beneficiary_bytes: [u8; 32] = withdrawal.beneficiary.into();
+	let filler = H160::from_slice(&beneficiary_bytes[12..32]);
+
+	if filler == H160::zero() {
+		return None;
+	}
+
+	Some(filler)
 }
 
 impl From<IntentGatewayParams> for sol_types::Params {

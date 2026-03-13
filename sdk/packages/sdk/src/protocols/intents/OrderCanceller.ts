@@ -458,14 +458,25 @@ export class OrderCanceller {
 					}
 					break
 
-				case RequestStatus.DESTINATION:
+				case RequestStatus.DESTINATION: {
+					const deliveryTxHash = statusUpdate.metadata.transactionHash as HexString
+					const deliveryReceipt = await this.ctx.source.getTransactionReceipt(deliveryTxHash)
+					const refundEvents = parseEventLogs({
+						abi: IntentGatewayV2ABI,
+						logs: deliveryReceipt.logs,
+						eventName: "EscrowRefunded",
+					})
+					if (refundEvents.length === 0) {
+						throw new Error("EscrowRefunded event not found in source-chain delivery receipt")
+					}
 					await this.ctx.cancellationStorage.removeItem(STORAGE_KEYS.postCommitment(orderId))
 					yield {
 						status: "CANCELLATION_COMPLETE" as const,
 						blockNumber: statusUpdate.metadata.blockNumber,
-						transactionHash: statusUpdate.metadata.transactionHash as HexString,
+						transactionHash: deliveryTxHash,
 					}
 					return
+				}
 			}
 		}
 	}

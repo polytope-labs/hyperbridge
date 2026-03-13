@@ -110,27 +110,33 @@ export class OrderExecutor {
 		const userOpHashKey = (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]): string =>
 			this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
 
-		// For partial fill tracking, take the total desired output amount as the sum of all output asset amounts
-		const targetAmount = order.output.assets.reduce((acc, asset) => acc + asset.amount, 0n)
+		// For partial fill tracking, initialise per-token accumulators from order.output.assets
+		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 
-		let totalFilledAmount = 0n
-		let remainingAmount = targetAmount
+		let totalFilledAssets = order.output.assets.map((a) => ({ token: a.token, amount: 0n }))
+		let remainingAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 
 		try {
 			while (true) {
 				const currentBlock = await this.ctx.dest.client.getBlockNumber()
 				if (currentBlock >= order.deadline) {
-					const isPartiallyFilled = totalFilledAmount > 0n
+					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
 					const deadlineError = `Order deadline reached (block ${currentBlock} >= ${order.deadline})`
 					if (isPartiallyFilled) {
-						yield { status: "PARTIAL_FILL_EXHAUSTED", commitment, totalFilledAmount, remainingAmount, error: deadlineError }
+						yield {
+							status: "PARTIAL_FILL_EXHAUSTED",
+							commitment,
+							totalFilledAssets,
+							remainingAssets,
+							error: deadlineError,
+						}
 					} else {
 						yield { status: "FAILED", commitment, error: deadlineError }
 					}
 					return
 				}
 
-				yield { status: "AWAITING_BIDS", commitment, totalFilledAmount, remainingAmount }
+				yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
 				const startTime = Date.now()
 				let bids: FillerBid[] = []
@@ -155,12 +161,18 @@ export class OrderExecutor {
 				})
 
 				if (freshBids.length === 0) {
-					const isPartiallyFilled = totalFilledAmount > 0n
+					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
 					const noBidsError = isPartiallyFilled
-						? `No new bids after partial fill (${totalFilledAmount.toString()} filled, ${remainingAmount.toString()} remaining)`
+						? "No new bids after partial fill"
 						: `No new bids available within ${bidTimeoutMs}ms timeout`
 					if (isPartiallyFilled) {
-						yield { status: "PARTIAL_FILL_EXHAUSTED", commitment, totalFilledAmount, remainingAmount, error: noBidsError }
+						yield {
+							status: "PARTIAL_FILL_EXHAUSTED",
+							commitment,
+							totalFilledAssets,
+							remainingAssets,
+							error: noBidsError,
+						}
 					} else {
 						yield { status: "FAILED", commitment, error: noBidsError }
 					}
@@ -176,8 +188,8 @@ export class OrderExecutor {
 					yield {
 						status: "FAILED",
 						commitment,
-						totalFilledAmount,
-						remainingAmount,
+						totalFilledAssets,
+						remainingAssets,
 						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
 					}
 					return
@@ -209,8 +221,8 @@ export class OrderExecutor {
 
 				if (result.fillStatus === "full") {
 					// On a full fill, treat the order as completely satisfied
-					totalFilledAmount = targetAmount
-					remainingAmount = 0n
+					totalFilledAssets = targetAssets.map((a) => ({ token: a.token, amount: a.amount }))
+					remainingAssets = targetAssets.map((a) => ({ token: a.token, amount: 0n }))
 
 					yield {
 						status: "FILLED",
@@ -218,33 +230,38 @@ export class OrderExecutor {
 						userOpHash: result.userOpHash,
 						selectedSolver: result.solverAddress,
 						transactionHash: result.txnHash,
-						totalFilledAmount,
-						remainingAmount,
+						totalFilledAssets,
+						remainingAssets,
 					}
 					return
 				}
 
 				if (result.fillStatus === "partial") {
-					if (result.filledAmount !== undefined) {
-						totalFilledAmount += result.filledAmount
+					const filledAssets = result.filledAssets ?? []
 
-						if (totalFilledAmount >= targetAmount) {
-							totalFilledAmount = targetAmount
-							remainingAmount = 0n
-						} else {
-							remainingAmount = targetAmount - totalFilledAmount
-						}
+					// Accumulate per-token filled amounts
+					for (const filled of filledAssets) {
+						const entry = totalFilledAssets.find((a) => a.token === filled.token)
+						if (entry) entry.amount += filled.amount
 					}
 
-					if (remainingAmount === 0n) {
+					// Recompute remaining per-token
+					remainingAssets = targetAssets.map((target) => {
+						const filled = totalFilledAssets.find((a) => a.token === target.token)
+						const filledAmt = filled?.amount ?? 0n
+						return { token: target.token, amount: filledAmt >= target.amount ? 0n : target.amount - filledAmt }
+					})
+
+					const fullyFilled = remainingAssets.every((a) => a.amount === 0n)
+					if (fullyFilled) {
 						yield {
 							status: "FILLED",
 							commitment,
 							userOpHash: result.userOpHash,
 							selectedSolver: result.solverAddress,
 							transactionHash: result.txnHash,
-							totalFilledAmount,
-							remainingAmount,
+							totalFilledAssets,
+							remainingAssets,
 						}
 						return
 					}
@@ -255,9 +272,9 @@ export class OrderExecutor {
 						userOpHash: result.userOpHash,
 						selectedSolver: result.solverAddress,
 						transactionHash: result.txnHash,
-						filledAmount: result.filledAmount,
-						totalFilledAmount,
-						remainingAmount,
+						filledAssets,
+						totalFilledAssets,
+						remainingAssets,
 					}
 				}
 			}

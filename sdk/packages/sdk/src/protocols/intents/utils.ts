@@ -1,7 +1,8 @@
-import { encodeFunctionData, encodeAbiParameters, formatUnits, parseUnits } from "viem"
+import { encodeFunctionData, encodeAbiParameters, formatUnits, parseUnits, keccak256 } from "viem"
 import { toHex } from "viem"
+import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import Decimal from "decimal.js"
-import type { OrderV2 } from "@/types"
+import type { Order } from "@/types"
 import type { ERC7821Call } from "@/types"
 import type { HexString } from "@/types"
 import { retryPromise, fetchPrice, bytes20ToBytes32 } from "@/utils"
@@ -103,10 +104,10 @@ export async function fetchSourceProof(
 }
 
 /**
- * Strips SDK-only fields from an {@link OrderV2} and normalises all fields to
+ * Strips SDK-only fields from an {@link Order} and normalises all fields to
  * the encoding the IntentGatewayV2 contract ABI expects:
  *
- * - `id` and `transactionHash` are removed (not part of the on-chain struct).
+ * - `id` is removed (not part of the on-chain struct).
  * - `source` and `destination` are hex-encoded if currently plain string
  *   state-machine IDs.
  * - `inputs[i].token`, `output.beneficiary`, `output.assets[i].token`, and
@@ -116,10 +117,10 @@ export async function fetchSourceProof(
  *   these fields back to `address`. Values already at 32 bytes are unchanged.
  *
  * @param order - The SDK-level order to transform.
- * @returns A contract-compatible order struct without `id` or `transactionHash`.
+ * @returns A contract-compatible order struct without `id`.
  */
-export function transformOrderForContract(order: OrderV2): Omit<OrderV2, "id" | "transactionHash"> {
-	const { id: _id, transactionHash: _txHash, ...contractOrder } = order
+export function transformOrderForContract(order: Order): Omit<Order, "id"> {
+	const { id: _id, ...contractOrder } = order
 	return {
 		...contractOrder,
 		source: order.source.startsWith("0x") ? order.source : toHex(order.source),
@@ -135,6 +136,27 @@ export function transformOrderForContract(order: OrderV2): Omit<OrderV2, "id" | 
 			assets: order.output.assets.map((t) => ({ ...t, token: bytes20ToBytes32(t.token) })),
 		},
 	}
+}
+
+/**
+ * Calculates the commitment hash for an order by ABI-encoding the
+ * contract-normalised form of the order and hashing it.
+ *
+ * Calls `transformOrderForContract` before encoding to ensure all address
+ * fields are padded to 32 bytes and SDK-only fields are stripped.
+ *
+ * @param order - The SDK-level order to hash.
+ * @returns The keccak256 commitment hash.
+ */
+export function orderCommitment(order: Order): HexString {
+	const placeOrderAbi = IntentGatewayV2.ABI.find(
+		(item) => item.type === "function" && "name" in item && item.name === "placeOrder",
+	)
+	const orderType = placeOrderAbi?.inputs?.[0]
+	if (!orderType) throw new Error("Could not find Order type in ABI")
+
+	const encoded = encodeAbiParameters([orderType], [transformOrderForContract(order) as any])
+	return keccak256(encoded)
 }
 
 /**

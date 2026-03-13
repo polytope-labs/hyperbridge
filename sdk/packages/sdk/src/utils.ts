@@ -7,7 +7,7 @@ import {
 	type StateMachineHeight,
 	TimeoutStatus,
 } from "@/types"
-import type { EstimateGasCallData, Order, OrderV2, RequestStatusKey, RetryConfig, TimeoutStatusKey } from "@/types"
+import type { EstimateGasCallData, Order, RequestStatusKey, RetryConfig, TimeoutStatusKey } from "@/types"
 import { LogLevels, createConsola } from "consola"
 import {
 	type CallParameters,
@@ -26,7 +26,6 @@ import { type IChain, getStateCommitmentFieldSlot } from "./chain"
 import { _queryRequestInternal } from "./query-client"
 import { generateRootWithProof } from "./utils"
 import { ChainConfigService } from "./configs/ChainConfigService"
-import IntentGatewayV2 from "./abis/IntentGatewayV2"
 
 export * from "./utils/mmr"
 export * from "./utils/substrate"
@@ -202,81 +201,6 @@ export function postRequestCommitment(post: IPostRequest): { commitment: HexStri
 		commitment: keccak256(data),
 		encodePacked: data,
 	}
-}
-
-export function orderCommitment(order: Order): HexString {
-	const encodedOrder = encodeAbiParameters(
-		[
-			{
-				name: "order",
-				type: "tuple",
-				components: [
-					{ name: "user", type: "bytes32" },
-					{ name: "sourceChain", type: "bytes" },
-					{ name: "destChain", type: "bytes" },
-					{ name: "deadline", type: "uint256" },
-					{ name: "nonce", type: "uint256" },
-					{ name: "fees", type: "uint256" },
-					{
-						name: "outputs",
-						type: "tuple[]",
-						components: [
-							{ name: "token", type: "bytes32" },
-							{ name: "amount", type: "uint256" },
-							{ name: "beneficiary", type: "bytes32" },
-						],
-					},
-					{
-						name: "inputs",
-						type: "tuple[]",
-						components: [
-							{ name: "token", type: "bytes32" },
-							{ name: "amount", type: "uint256" },
-						],
-					},
-					{ name: "callData", type: "bytes" },
-				],
-			},
-		],
-		[
-			{
-				user: order.user,
-				sourceChain: order.sourceChain.startsWith("0x")
-					? (order.sourceChain as `0x${string}`)
-					: toHex(order.sourceChain),
-				destChain: order.destChain.startsWith("0x")
-					? (order.destChain as `0x${string}`)
-					: toHex(order.destChain),
-				deadline: order.deadline,
-				nonce: order.nonce,
-				fees: order.fees,
-				outputs: order.outputs,
-				inputs: order.inputs,
-				callData: order.callData,
-			},
-		],
-	)
-
-	return keccak256(encodedOrder)
-}
-
-/** Calculates the order commitment hash */
-export function orderV2Commitment(order: OrderV2): HexString {
-	order = {
-		...order,
-		source: order.source.startsWith("0x") ? (order.source as `0x${string}`) : toHex(order.source),
-		destination: order.destination.startsWith("0x")
-			? (order.destination as `0x${string}`)
-			: toHex(order.destination),
-	}
-	const placeOrderAbi = IntentGatewayV2.ABI.find(
-		(item) => item.type === "function" && "name" in item && item.name === "placeOrder",
-	)
-	const orderType = placeOrderAbi?.inputs?.[0]
-	if (!orderType) throw new Error("Could not find Order type in ABI")
-
-	const encoded = encodeAbiParameters([orderType], [order as any])
-	return keccak256(encoded)
 }
 
 /**
@@ -496,7 +420,7 @@ export async function estimateGasForPost(params: {
  * Used as the GET-request context for cancel-from-source, and as the inner
  * payload (after the RequestKind prefix) for POST-based escrow operations.
  */
-export function encodeWithdrawalRequest(order: Order | OrderV2, beneficiary: HexString): HexString {
+export function encodeWithdrawalRequest(order: Order | Order, beneficiary: HexString): HexString {
 	return encodeAbiParameters(
 		[
 			{
@@ -526,7 +450,7 @@ export function encodeWithdrawalRequest(order: Order | OrderV2, beneficiary: Hex
 	) as HexString
 }
 
-function constructEscrowRequestBody(kind: RequestKind, order: Order | OrderV2, beneficiary: HexString): HexString {
+function constructEscrowRequestBody(kind: RequestKind, order: Order | Order, beneficiary: HexString): HexString {
 	const requestKind = encodePacked(["uint8"], [kind])
 	return concatHex([requestKind, encodeWithdrawalRequest(order, beneficiary)]) as HexString
 }
@@ -536,7 +460,7 @@ function constructEscrowRequestBody(kind: RequestKind, order: Order | OrderV2, b
  * This function encodes the order commitment, beneficiary address, and token inputs
  * to match the format expected by the IntentGateway contract.
  */
-export function constructRedeemEscrowRequestBody(order: Order | OrderV2, beneficiary: HexString): HexString {
+export function constructRedeemEscrowRequestBody(order: Order | Order, beneficiary: HexString): HexString {
 	return constructEscrowRequestBody(RequestKind.RedeemEscrow, order, beneficiary)
 }
 
@@ -544,7 +468,7 @@ export function constructRedeemEscrowRequestBody(order: Order | OrderV2, benefic
  * Constructs the request body for a refund escrow operation (cancel from destination).
  * Uses RequestKind.RefundEscrow to match the IntentGatewayV2 contract's _cancelFromDest.
  */
-export function constructRefundEscrowRequestBody(order: Order | OrderV2, beneficiary: HexString): HexString {
+export function constructRefundEscrowRequestBody(order: Order | Order, beneficiary: HexString): HexString {
 	return constructEscrowRequestBody(RequestKind.RefundEscrow, order, beneficiary)
 }
 

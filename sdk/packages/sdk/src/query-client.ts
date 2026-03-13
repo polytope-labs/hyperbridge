@@ -373,5 +373,3 @@ export async function _queryTokenPriceInternal(params: TokenPriceQueryParams): P
 	logger.trace("`TokenPrice` found")
 	return item
 }
-
-

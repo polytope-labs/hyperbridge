@@ -12,8 +12,8 @@ import {
 	type ChainConfig,
 	type FillerConfig,
 	type HexString,
-	type OrderV2,
-	type TokenInfoV2,
+	type Order,
+	type TokenInfo,
 	bytes20ToBytes32,
 	EvmChain,
 	IntentGateway,
@@ -38,7 +38,7 @@ import {
 } from "viem"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { privateKeyToAccount } from "viem/accounts"
-import "./setup"
+import "../setup"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { TronWeb } from "tronweb"
 
@@ -46,7 +46,7 @@ import { TronWeb } from "tronweb"
 // Test Suites
 // ============================================================================
 
-describe.skip("Filler V2 - Solver Selection ON", () => {
+describe("Filler V2 - Solver Selection ON", () => {
 	it.skip("Should place order, filler submits bid, user selects bid, order filled", async () => {
 		const {
 			bscIntentGatewayV2,
@@ -72,8 +72,8 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
-		const outputs: TokenInfoV2[] = [
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
+		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destUsdc),
 				amount: amount - parseUnits("0.094", destUsdcDecimals),
@@ -84,7 +84,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -102,14 +102,14 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
-		const bscEvmChain = new EvmChain({
+		const bscEvmChain = EvmChain.fromParams({
 			chainId: 97,
 			host: chainConfigService.getHostAddress(bscChapelId),
 			rpcUrl: chainConfigService.getRpcUrl(bscChapelId),
 		})
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
-		const polygonAmoyEvmChain = new EvmChain({
+		const polygonAmoyEvmChain = EvmChain.fromParams({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
@@ -120,11 +120,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
 		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
 
-		const userSdkHelper = await IntentGateway.create(
-			bscEvmChain,
-			polygonAmoyEvmChain,
-			intentsCoprocessor,
-		)
+		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { bidTimeoutMs: 120_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()
@@ -194,8 +190,8 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
-		const outputs: TokenInfoV2[] = [
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
+		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destUsdc),
 				amount: amount - parseUnits("0.094", destUsdcDecimals),
@@ -206,7 +202,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -224,14 +220,14 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
-		const bscEvmChain = new EvmChain({
+		const bscEvmChain = EvmChain.fromParams({
 			chainId: 97,
 			host: chainConfigService.getHostAddress(bscChapelId),
 			rpcUrl: chainConfigService.getRpcUrl(bscChapelId),
 		})
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
-		const polygonAmoyEvmChain = new EvmChain({
+		const polygonAmoyEvmChain = EvmChain.fromParams({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
@@ -242,33 +238,29 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
 		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
 
-		const userSdkHelper = await IntentGateway.create(
-			bscEvmChain,
-			polygonAmoyEvmChain,
-			intentsCoprocessor,
-		)
+		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
 		console.log("Preparing to place order...")
-		const generator = userSdkHelper.placeOrder(order)
-		const firstResult = await generator.next()
-		const { calldata, sessionPrivateKey } = firstResult.value as {
-			calldata: HexString
-			sessionPrivateKey: HexString
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI)
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data, value } = result.value
+
+			console.log("Signing place order transaction...")
+			const preparedTx = await bscPublicClient.prepareTransactionRequest({
+				to,
+				data,
+				value: 0n,
+				account: bscWalletClient.account!,
+				chain: bscWalletClient.chain,
+			})
+			const signedTx = (await bscWalletClient.signTransaction(preparedTx as any)) as HexString
+			result = await gen.next(signedTx)
 		}
 
-		console.log("Signing place order transaction...")
-		const preparedTx = await bscPublicClient.prepareTransactionRequest({
-			to: bscIntentGatewayV2.address,
-			data: calldata,
-			account: bscWalletClient.account!,
-			chain: bscWalletClient.chain,
-		})
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const signedTransaction = await bscWalletClient.signTransaction(preparedTx as any)
-
-		console.log("Broadcasting signed transaction...")
-		const secondResult = await generator.next(signedTransaction as HexString)
-		order = secondResult.value as OrderV2
+		if (result.value && "status" in result.value && result.value.status === "ORDER_PLACED") {
+			order = result.value.order as Order
+		}
 
 		console.log(`Order placed successfully with ID: ${order.id}`)
 
@@ -307,8 +299,8 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 		const destUsdtDecimals = await contractService.getTokenDecimals(destUsdt, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdtDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdt), amount }]
-		const outputs: TokenInfoV2[] = [
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdt), amount }]
+		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destUsdt),
 				amount: parseUnits("0.094", destUsdtDecimals),
@@ -319,7 +311,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(tronNileId),
 			destination: toHex(polygonAmoyId),
@@ -337,14 +329,14 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
-		const tronChain = new TronChain({
+		const tronChain = await TronChain.fromParams({
 			chainId: 3448148188,
 			host: chainConfigService.getHostAddress(tronNileId),
 			rpcUrl: chainConfigService.getRpcUrl(tronNileId),
 		})
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
-		const polygonAmoyEvmChain = new EvmChain({
+		const polygonAmoyEvmChain = EvmChain.fromParams({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonAmoyId),
@@ -501,10 +493,6 @@ async function setUp() {
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
-		entryPointDeposit: {
-			targetBalances: { "97": "0.001", "80002": "0.1" },
-			thresholdFraction: 0.2,
-		},
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -571,10 +559,6 @@ async function setUpTron() {
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
-		entryPointDeposit: {
-			targetBalances: { "80002": "0.1" },
-			thresholdFraction: 0.2,
-		},
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -705,7 +689,7 @@ async function signTronTransaction(
 		throw new Error("Failed to decode placeOrder calldata")
 	}
 
-	const [order, graffiti] = decoded.args as [OrderV2, HexString]
+	const [order, graffiti] = decoded.args as [Order, HexString]
 
 	const orderTuple = [
 		order.user,

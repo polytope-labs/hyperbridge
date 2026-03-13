@@ -14,8 +14,8 @@ import {
 	type ChainConfig,
 	type FillerConfig,
 	type HexString,
-	type OrderV2,
-	type TokenInfoV2,
+	type Order,
+	type TokenInfo,
 	bytes20ToBytes32,
 	EvmChain,
 	IntentGateway,
@@ -71,17 +71,17 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const destExtDecimals = await contractService.getTokenDecimals(destExt, polygonMainnetId)
 		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 
 		// For the test, request slightly less than notional amount after a simple fee/spread
 		const requestedExtOut = parseUnits("0.006", destExtDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(polygonMainnetId),
 			destination: toHex(polygonMainnetId),
@@ -100,7 +100,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		)
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonMainnetId)
-		const polygonEvmChain = new EvmChain({
+		const polygonEvmChain = EvmChain.fromParams({
 			chainId: 137,
 			host: chainConfigService.getHostAddress(polygonMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonMainnetId),
@@ -112,11 +112,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		await approveTokens(polygonWalletClient, polygonPublicClient, sourceUsdc, polygonIntentGatewayV2.address)
 
 		// Same-chain: source and destination EvmChain are both Polygon
-		const userSdkHelper = await IntentGateway.create(
-			polygonEvmChain,
-			polygonEvmChain,
-			intentsCoprocessor,
-		)
+		const userSdkHelper = await IntentGateway.create(polygonEvmChain, polygonEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
 			bidTimeoutMs: 600_000,
@@ -206,16 +202,16 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
 		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 
 		const requestedExtOut = parseUnits("0.006", destExtDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -234,7 +230,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		)
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(baseMainnetId)
-		const baseEvmChain = new EvmChain({
+		const baseEvmChain = EvmChain.fromParams({
 			chainId: 8453,
 			host: chainConfigService.getHostAddress(baseMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
@@ -337,16 +333,16 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, arbitrumMainnetId)
 		const amountIn = parseUnits("100", sourceExtDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceExt), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceExt), amount: amountIn }]
 
 		const requestedUsdcOut = parseUnits("0.01", destUsdcDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destUsdc), amount: requestedUsdcOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destUsdc), amount: requestedUsdcOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(arbitrumMainnetId),
 			destination: toHex(arbitrumMainnetId),
@@ -365,7 +361,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		)
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(arbitrumMainnetId)
-		const arbitrumEvmChain = new EvmChain({
+		const arbitrumEvmChain = EvmChain.fromParams({
 			chainId: 42161,
 			host: chainConfigService.getHostAddress(arbitrumMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
@@ -381,11 +377,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		)
 		await approveTokens(arbitrumWalletClient, arbitrumPublicClient, sourceExt, arbitrumIntentGatewayV2.address)
 
-		const userSdkHelper = await IntentGateway.create(
-			arbitrumEvmChain,
-			arbitrumEvmChain,
-			intentsCoprocessor,
-		)
+		const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, arbitrumEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
 			bidTimeoutMs: 600_000,

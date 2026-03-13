@@ -14,9 +14,6 @@ import type {
 	GetRequestWithStatus,
 	GetResponseByRequestIdResponse,
 	HexString,
-	IEvmConfig,
-	IHyperbridgeConfig,
-	ISubstrateConfig,
 	OrderWithStatus,
 	PostRequestStatus,
 	PostRequestTimeoutStatus,
@@ -31,7 +28,7 @@ import type {
 	TokenGatewayAssetTeleportedWithStatus,
 } from "@/types"
 
-import { type IChain, type SubstrateChain, getChain } from "@/chain"
+import { type IChain, type SubstrateChain } from "@/chain"
 import {
 	GET_RESPONSE_BY_REQUEST_ID,
 	LATEST_STATE_MACHINE_UPDATE,
@@ -64,51 +61,6 @@ import type { IndexerQueryClient } from "@/types"
 import { AbortSignalInternal, ExpectedError } from "./utils/exceptions"
 
 /**
- * Helper function to create chain configuration from legacy config format
- * This helps migrate from the old config format to the new IChain-based format
- *
- * @param config - Legacy configuration object (IEvmConfig, ISubstrateConfig, or IHyperbridgeConfig)
- * @returns Promise resolving to chain configuration with IChain instance
- */
-export async function createChain(config: IEvmConfig | ISubstrateConfig | IHyperbridgeConfig): Promise<IChain> {
-	// For hyperbridge config, we need to add the hasher
-	const chainConfig = "wsUrl" in config && !("hasher" in config) ? { ...config, hasher: "Keccak" as const } : config
-
-	return await getChain(chainConfig as IEvmConfig | ISubstrateConfig)
-}
-
-/**
- * Helper function to create IndexerClient with legacy config format
- * @deprecated Use the constructor with IChain instances directly for better performance
- *
- * @param config - Legacy configuration with IEvmConfig/ISubstrateConfig/IHyperbridgeConfig
- * @returns Promise resolving to IndexerClient instance
- */
-export async function createIndexerClient(config: {
-	pollInterval?: number
-	queryClient: IndexerQueryClient
-	tracing?: boolean
-	source: IEvmConfig | ISubstrateConfig
-	dest: IEvmConfig | ISubstrateConfig
-	hyperbridge: IHyperbridgeConfig
-}): Promise<IndexerClient> {
-	const [source, dest, hyperbridge] = await Promise.all([
-		createChain(config.source),
-		createChain(config.dest),
-		createChain(config.hyperbridge),
-	])
-
-	return new IndexerClient({
-		pollInterval: config.pollInterval,
-		queryClient: config.queryClient,
-		tracing: config.tracing,
-		source,
-		dest,
-		hyperbridge,
-	})
-}
-
-/**
  * IndexerClient provides methods for interacting with the Hyperbridge indexer.
  *
  * This client facilitates querying and tracking cross-chain requests and their status
@@ -130,14 +82,13 @@ export async function createIndexerClient(config: {
  *
  * @example
  * ```typescript
- * // New approach: Create IChain instances directly
- * const sourceChain = new EvmChain({
+ * const sourceChain = EvmChain.fromParams({
  *   chainId: 1,
  *   rpcUrl: "https://eth-rpc.com",
  *   host: "0x87ea45..",
  *   consensusStateId: "ETH0"
  * })
- * const destChain = new EvmChain({
+ * const destChain = EvmChain.fromParams({
  *   chainId: 42161,
  *   rpcUrl: "https://arb-rpc.com",
  *   host: "0x87ea42345..",
@@ -156,29 +107,6 @@ export async function createIndexerClient(config: {
  *   source: sourceChain,
  *   dest: destChain,
  *   hyperbridge: hyperbridgeChain
- * });
- *
- * // Legacy approach: Use the helper function (deprecated)
- * const client = await createIndexerClient({
- *   queryClient: queryClient,
- *   pollInterval: 2000,
- *   source: {
- *     stateMachineId: "EVM-1",
- *     consensusStateId: "ETH0",
- *     rpcUrl: "https://eth-rpc.com",
- *     host: "0x87ea45.."
- *   },
- *   dest: {
- *     stateMachineId: "EVM-42161",
- *     consensusStateId: "ETH0",
- *     rpcUrl: "https://arb-rpc.com",
- *     host: "0x87ea42345.."
- *   },
- *   hyperbridge: {
- *     stateMachineId: "POLKADOT-3367",
- *     consensusStateId: "DOT0",
- *     wsUrl: "ws://localhost:9944"
- *   }
  * });
  *
  * // Query a request status

@@ -20,7 +20,7 @@ import type { Signer, SignerResult } from "@polkadot/api/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { hexToU8a, u8aToHex } from "@polkadot/util"
 import type { KeyringPair } from "@polkadot/keyring/types"
-import { encodeISMPMessage, getChain } from "@/chain"
+import { encodeISMPMessage, EvmChain, SubstrateChain } from "@/chain"
 import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
 import { createQueryClient } from "@/query-client"
 import { IndexerClient } from "@/client"
@@ -200,21 +200,21 @@ describe("teleport function", () => {
 		})
 
 		// Create chain instances
-		const sourceChain = await getChain({
-			consensusStateId: "BSC0",
+		const sourceChain = EvmChain.fromParams({
+			chainId: 97,
 			rpcUrl: process.env.BSC_CHAPEL!,
-			stateMachineId: "EVM-97",
 			host: bscIsmpHostAddress,
+			consensusStateId: "BSC0",
 		})
 
-		const destChain = await getChain({
-			consensusStateId: "ETH0",
+		const destChain = EvmChain.fromParams({
+			chainId: 421614,
 			rpcUrl: process.env.ARBITRUM_SEPOLIA!,
-			stateMachineId: "EVM-421614",
 			host: arbitrumSepoliaIsmpHostAddress,
+			consensusStateId: "ETH0",
 		})
 
-		const hyperbridgeChain = await getChain({
+		const hyperbridgeChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,

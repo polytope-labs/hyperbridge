@@ -1,7 +1,7 @@
 import { EventMonitor } from "./event-monitor"
 import { FillerStrategy } from "@/strategies/base"
 import {
-	OrderV2,
+	Order,
 	FillerConfig,
 	ChainConfig,
 	getChainId,
@@ -84,8 +84,8 @@ export class IntentFiller {
 		}
 
 		// Set up event handlers
-		this.monitor.on("newOrder", ({ order }) => {
-			this.handleNewOrder(order)
+		this.monitor.on("newOrder", ({ order, transactionHash }) => {
+			this.handleNewOrder(order, transactionHash)
 		})
 
 		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId }) => {
@@ -259,7 +259,7 @@ export class IntentFiller {
 
 	// Operations
 
-	private handleNewOrder(order: OrderV2): void {
+	private handleNewOrder(order: Order, transactionHash: string): void {
 		// Use the global queue for the initial analysis
 		// This can happen in parallel for PublicClient orders
 		this.globalQueue.add(async () => {
@@ -337,7 +337,7 @@ export class IntentFiller {
 					let currentConfirmations = await retryPromise(
 						() =>
 							sourceClient.getTransactionConfirmations({
-								hash: order.transactionHash!,
+								hash: transactionHash as HexString,
 							}),
 						{
 							maxRetries: 3,
@@ -358,7 +358,7 @@ export class IntentFiller {
 						currentConfirmations = await retryPromise(
 							() =>
 								sourceClient.getTransactionConfirmations({
-									hash: order.transactionHash!,
+									hash: transactionHash as HexString,
 								}),
 							{
 								maxRetries: 3,
@@ -392,7 +392,7 @@ export class IntentFiller {
 	}
 
 	private async evaluateOrder(
-		order: OrderV2,
+		order: Order,
 		canFillCache: Map<FillerStrategy, boolean>,
 	): Promise<{ strategy: FillerStrategy; profitability: number } | null> {
 		// Check if watch-only mode is enabled for the destination chain
@@ -452,7 +452,7 @@ export class IntentFiller {
 		return validStrategies[0]
 	}
 
-	private executeOrder(order: OrderV2, bestStrategy: FillerStrategy, solverSelectionActive: boolean): void {
+	private executeOrder(order: Order, bestStrategy: FillerStrategy, solverSelectionActive: boolean): void {
 		// Get the chain-specific queue
 		const chainQueue = this.chainQueues.get(getChainId(order.destination)!)
 		if (!chainQueue) {

@@ -14,7 +14,7 @@ import {
 	sleep,
 } from "@/utils"
 import { STORAGE_KEYS } from "@/storage"
-import type { OrderV2, HexString, IGetRequest, IPostRequest } from "@/types"
+import type { Order, HexString, IGetRequest, IPostRequest } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
 import type { IProof } from "@/chain"
 import type { IndexerClient } from "@/client"
@@ -61,7 +61,7 @@ export class OrderCanceller {
 	 *   Defaults to `false` (source-side cancellation).
 	 * @returns The native token amount required to submit the cancel transaction.
 	 */
-	async quoteCancelNative(order: OrderV2, fromDest: boolean = false): Promise<bigint> {
+	async quoteCancelNative(order: Order, fromDest: boolean = false): Promise<bigint> {
 		if (fromDest) {
 			return this.quoteCancelNativeFromDest(order)
 		}
@@ -78,7 +78,7 @@ export class OrderCanceller {
 	 * @param order - The order to quote.
 	 * @returns The native token dispatch fee in wei.
 	 */
-	private async quoteCancelNativeFromSource(order: OrderV2): Promise<bigint> {
+	private async quoteCancelNativeFromSource(order: Order): Promise<bigint> {
 		if (order.source === order.destination) return 0n
 
 		const height = order.deadline + 1n
@@ -128,7 +128,7 @@ export class OrderCanceller {
 	 *   cancellation lifecycle.
 	 */
 	async *cancelOrder(
-		order: OrderV2,
+		order: Order,
 		indexerClient: IndexerClient,
 		fromDest: boolean = false,
 	): AsyncGenerator<CancelEvent> {
@@ -162,7 +162,7 @@ export class OrderCanceller {
 	 * @yields {@link CancelEvent} at each lifecycle stage.
 	 * @throws If the cancel transaction does not contain the expected on-chain event.
 	 */
-	private async *cancelOrderFromSource(order: OrderV2, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
+	private async *cancelOrderFromSource(order: Order, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
 		const orderId = order.id!
 		const isSameChain = order.source === order.destination
 		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayV2Address(
@@ -332,7 +332,7 @@ export class OrderCanceller {
 	 * @param order - The order to quote.
 	 * @returns The native token dispatch fee in wei.
 	 */
-	private async quoteCancelNativeFromDest(order: OrderV2): Promise<bigint> {
+	private async quoteCancelNativeFromDest(order: Order): Promise<bigint> {
 		if (order.source === order.destination) return 0n
 
 		const destStateMachine = order.destination.startsWith("0x")
@@ -382,7 +382,7 @@ export class OrderCanceller {
 	 * @throws If the order is same-chain, or if the cancel transaction does not
 	 *   contain a `PostRequestEvent`.
 	 */
-	private async *cancelOrderFromDest(order: OrderV2, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
+	private async *cancelOrderFromDest(order: Order, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
 		const orderId = order.id!
 
 		if (order.source === order.destination) {
@@ -485,7 +485,7 @@ export class OrderCanceller {
 	 * @returns The fetched {@link IProof} (also yielded).
 	 */
 	private async *fetchDestinationProof(
-		order: OrderV2,
+		order: Order,
 		indexerClient: IndexerClient,
 	): AsyncGenerator<CancelEvent, IProof, void> {
 		let latestHeight = 0n

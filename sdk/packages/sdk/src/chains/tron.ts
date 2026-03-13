@@ -16,8 +16,24 @@ export class TronChain implements IChain {
 	private readonly evm: EvmChain
 	private readonly tronWebInstance: InstanceType<typeof TronWeb>
 
-	constructor(private readonly params: TronChainParams) {
-		this.evm = new EvmChain(params)
+	/**
+	 * Creates a `TronChain` instance from a fully-specified config object.
+	 *
+	 * This is the only public way to construct a `TronChain` — the constructor is private.
+	 *
+	 * @param params - Tron chain configuration
+	 * @returns A `TronChain` instance
+	 */
+	static async fromParams(params: TronChainParams): Promise<TronChain> {
+		const evm = await EvmChain.create(params.rpcUrl, params.bundlerUrl)
+		return new TronChain(params, evm)
+	}
+
+	private constructor(
+		private readonly params: TronChainParams,
+		evm: EvmChain,
+	) {
+		this.evm = evm
 		this.tronWebInstance = new TronWeb({ fullHost: params.rpcUrl })
 	}
 

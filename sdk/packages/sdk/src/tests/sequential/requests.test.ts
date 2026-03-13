@@ -22,7 +22,7 @@ import ERC6160 from "@/abis/erc6160"
 import PING_MODULE from "@/abis/pingModule"
 import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
-import { EvmChain, SubstrateChain, getChain } from "@/chain"
+import { EvmChain, SubstrateChain } from "@/chain"
 import { createQueryClient } from "@/query-client"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
@@ -39,28 +39,28 @@ describe.sequential("Get and Post Requests", () => {
 		})
 
 		// Create chain instances
-		const sourceChain = await getChain({
-			consensusStateId: "BSC0",
+		const sourceChain = EvmChain.fromParams({
+			chainId: 97,
 			rpcUrl: process.env.BSC_CHAPEL!,
-			stateMachineId: "EVM-97",
 			host: bscIsmpHost.address,
+			consensusStateId: "BSC0",
 		})
 
-		const destChain = await getChain({
-			consensusStateId: "ETH0",
+		const destChain = EvmChain.fromParams({
+			chainId: 421614,
 			rpcUrl: process.env.ARBITRUM_SEPOLIA!,
-			stateMachineId: "EVM-421614",
 			host: arbitrumSepoliaHost.address,
+			consensusStateId: "ETH0",
 		})
 
-		const polygonChain = await getChain({
-			consensusStateId: "POLY",
+		const polygonChain = EvmChain.fromParams({
+			chainId: 80002,
 			rpcUrl: process.env.POLYGON_AMOY!,
-			stateMachineId: "EVM-80002",
 			host: polygonAmoyHost.address,
+			consensusStateId: "POLY",
 		})
 
-		const hyperbridgeChain = await getChain({
+		const hyperbridgeChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,

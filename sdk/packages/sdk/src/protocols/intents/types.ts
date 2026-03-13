@@ -122,9 +122,18 @@ export type CancelEvent =
 	| { status: "DESTINATION_FINALIZED"; proof: IProof }
 	| { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
 	| { status: "CANCEL_STARTED"; receipt: TransactionReceipt }
-	| { status: "SOURCE_FINALIZED"; metadata: Extract<RequestStatusWithMetadata, { status: "SOURCE_FINALIZED" }>["metadata"] }
-	| { status: "HYPERBRIDGE_DELIVERED"; metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_DELIVERED" }>["metadata"] }
-	| { status: "HYPERBRIDGE_FINALIZED"; metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_FINALIZED" }>["metadata"] }
+	| {
+			status: "SOURCE_FINALIZED"
+			metadata: Extract<RequestStatusWithMetadata, { status: "SOURCE_FINALIZED" }>["metadata"]
+	  }
+	| {
+			status: "HYPERBRIDGE_DELIVERED"
+			metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_DELIVERED" }>["metadata"]
+	  }
+	| {
+			status: "HYPERBRIDGE_FINALIZED"
+			metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_FINALIZED" }>["metadata"]
+	  }
 	| { status: "SOURCE_PROOF_RECEIVED"; proof: IProof }
 	| { status: "CANCELLATION_COMPLETE"; blockNumber: number; transactionHash: HexString }
 

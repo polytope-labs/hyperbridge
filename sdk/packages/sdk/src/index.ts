@@ -1,10 +1,9 @@
-export { IndexerClient, createChain, createIndexerClient } from "@/client"
+export { IndexerClient } from "@/client"
 export { createQueryClient, queryGetRequest, queryPostRequest, queryAssetTeleported } from "@/query-client"
 export {
 	__test,
 	postRequestCommitment,
 	getRequestCommitment,
-	orderCommitment,
 	DUMMY_PRIVATE_KEY,
 	ADDRESS_ZERO,
 	generateRootWithProof,
@@ -27,7 +26,6 @@ export {
 	TESTNET_CHAINS,
 	parseStateMachineId,
 	retryPromise,
-	orderV2Commitment,
 	getContractCallInput,
 	calculateBalanceMappingLocation,
 	calculateAllowanceMappingLocation,

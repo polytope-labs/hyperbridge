@@ -1,7 +1,8 @@
 import { isHex, hexToString } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { orderV2Commitment, bytes32ToBytes20 } from "@/utils"
-import type { OrderV2, HexString } from "@/types"
+import { bytes32ToBytes20 } from "@/utils"
+import { orderCommitment } from "./utils"
+import type { Order, HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 
 /**
@@ -27,8 +28,8 @@ export class OrderStatusChecker {
 	 * @param order - The V2 order to check. `order.id` is used as the commitment; if not set it is computed.
 	 * @returns True if the order has been filled on the destination chain, false otherwise.
 	 */
-	async isOrderFilled(order: OrderV2): Promise<boolean> {
-		const commitment = (order.id ?? orderV2Commitment(order)) as HexString
+	async isOrderFilled(order: Order): Promise<boolean> {
+		const commitment = (order.id ?? orderCommitment(order)) as HexString
 		const destStateMachineId = isHex(order.destination)
 			? hexToString(order.destination as HexString)
 			: order.destination
@@ -60,13 +61,11 @@ export class OrderStatusChecker {
 	 * @param order - The V2 order to check. `order.id` is used as the commitment; if not set it is computed.
 	 * @returns True if all escrowed inputs have been returned to the user on the source chain, false otherwise.
 	 */
-	async isOrderRefunded(order: OrderV2): Promise<boolean> {
+	async isOrderRefunded(order: Order): Promise<boolean> {
 		if (!order.inputs || order.inputs.length === 0) return false
 
-		const commitment = (order.id ?? orderV2Commitment(order)) as HexString
-		const sourceStateMachineId = isHex(order.source)
-			? hexToString(order.source as HexString)
-			: order.source
+		const commitment = (order.id ?? orderCommitment(order)) as HexString
+		const sourceStateMachineId = isHex(order.source) ? hexToString(order.source as HexString) : order.source
 
 		const intentGatewayV2Address = this.ctx.source.configService.getIntentGatewayV2Address(sourceStateMachineId)
 

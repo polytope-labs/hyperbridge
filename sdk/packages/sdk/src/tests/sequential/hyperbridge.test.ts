@@ -21,7 +21,7 @@ import TOKEN_GATEWAY from "@/abis/tokenGateway"
 import { WsProvider, ApiPromise, Keyring } from "@polkadot/api"
 import type { Signer, SignerResult } from "@polkadot/api/types"
 import { IndexerClient } from "@/client"
-import { getChain } from "@/chain"
+import { EvmChain, SubstrateChain } from "@/chain"
 import { teleportDot } from "@/utils/xcmGateway"
 import type { KeyringPair } from "@polkadot/keyring/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
@@ -56,21 +56,21 @@ describe("Hyperbridge Requests", () => {
 		const { bscIsmpHost } = await bscSetup()
 
 		// Create chain instances
-		const destChain = await getChain({
-			consensusStateId: "BSC0",
+		const destChain = EvmChain.fromParams({
+			chainId: 97,
 			rpcUrl: process.env.BSC_CHAPEL!,
-			stateMachineId: "EVM-97",
 			host: bscIsmpHost.address,
+			consensusStateId: "BSC0",
 		})
 
-		const sourceChain = await getChain({
+		const sourceChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			stateMachineId: "KUSAMA-4009",
 			hasher: "Keccak" as const,
 		})
 
-		const hyperbridgeChain = await getChain({
+		const hyperbridgeChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
@@ -360,21 +360,21 @@ describe("Hyperbridge Requests", () => {
 		const { bscTestnetClient, bscTokenGateway, bscIsmpHost } = await bscSetup()
 
 		// Create chain instances
-		const sourceChain = await getChain({
-			consensusStateId: "BSC0",
+		const sourceChain = EvmChain.fromParams({
+			chainId: 97,
 			rpcUrl: process.env.BSC_CHAPEL!,
-			stateMachineId: "EVM-97",
 			host: bscIsmpHost.address,
+			consensusStateId: "BSC0",
 		})
 
-		const destChain = await getChain({
+		const destChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			stateMachineId: "KUSAMA-4009",
 			hasher: "Keccak" as const,
 		})
 
-		const hyperbridgeChain = await getChain({
+		const hyperbridgeChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
@@ -453,21 +453,21 @@ describe("Hyperbridge Requests", () => {
 		const { bscTestnetClient, bscTokenGateway, bscHandler, bscIsmpHost } = await bscSetup()
 
 		// Create chain instances
-		const sourceChain = await getChain({
-			consensusStateId: "BSC0",
+		const sourceChain = EvmChain.fromParams({
+			chainId: 97,
 			rpcUrl: process.env.BSC_CHAPEL!,
-			stateMachineId: "EVM-97",
 			host: bscIsmpHost.address,
+			consensusStateId: "BSC0",
 		})
 
-		const destChain = await getChain({
+		const destChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			stateMachineId: "KUSAMA-4009",
 			hasher: "Keccak" as const,
 		})
 
-		const hyperbridgeChain = await getChain({
+		const hyperbridgeChain = await SubstrateChain.connect({
 			consensusStateId: "PAS0",
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,

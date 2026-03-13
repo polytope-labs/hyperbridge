@@ -76,7 +76,7 @@ export class SubstrateChain implements IChain {
 	api?: ApiPromise
 	private rpcClient: HttpRpcClient
 
-	constructor(private readonly params: ISubstrateConfig) {
+	private constructor(private readonly params: ISubstrateConfig) {
 		const url = this.params.wsUrl
 
 		const httpUrl = replaceWebsocketWithHttp(url)
@@ -86,6 +86,8 @@ export class SubstrateChain implements IChain {
 	/**
 	 * Creates a `SubstrateChain` instance and immediately connects to the
 	 * WebSocket endpoint, returning a fully initialised chain client.
+	 *
+	 * This is the only public way to construct a `SubstrateChain` — the constructor is private.
 	 *
 	 * @param params - Substrate chain configuration (wsUrl, stateMachineId, etc.).
 	 * @returns A connected `SubstrateChain` instance.

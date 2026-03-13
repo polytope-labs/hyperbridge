@@ -1,8 +1,9 @@
-import { encodeFunctionData, parseEventLogs } from "viem"
+import { encodeFunctionData, parseEventLogs, type TransactionReceipt } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { hexToString, orderV2Commitment } from "@/utils"
-import type { OrderV2, DecodedOrderV2PlacedLog } from "@/types"
+import { hexToString } from "@/utils"
+import { orderCommitment } from "./utils"
+import type { Order, DecodedOrderPlacedLog } from "@/types"
 import type { HexString } from "@/types"
 import type { SessionKeyData } from "@/storage"
 import type { IntentGatewayContext } from "./types"
@@ -53,11 +54,11 @@ export class OrderPlacer {
 	 *   `OrderPlaced` event.
 	 */
 	async *placeOrder(
-		order: OrderV2,
+		order: Order,
 		graffiti: HexString = DEFAULT_GRAFFITI,
 	): AsyncGenerator<
 		{ to: HexString; data: HexString; sessionPrivateKey: HexString },
-		{ order: OrderV2; transactionHash: HexString },
+		{ order: Order; receipt: TransactionReceipt },
 		HexString
 	> {
 		const privateKey = generatePrivateKey()
@@ -100,7 +101,7 @@ export class OrderPlacer {
 			eventName: "OrderPlaced",
 		})
 
-		const orderPlacedEvent = events[0] as DecodedOrderV2PlacedLog | undefined
+		const orderPlacedEvent = events[0] as DecodedOrderPlacedLog | undefined
 		if (!orderPlacedEvent) {
 			throw new Error("OrderPlaced event not found in transaction receipt")
 		}
@@ -111,7 +112,7 @@ export class OrderPlacer {
 			amount: input.amount,
 		}))
 
-		order.id = orderV2Commitment(order)
+		order.id = orderCommitment(order)
 
 		const sessionKeyData: SessionKeyData = {
 			privateKey: privateKey as HexString,
@@ -122,6 +123,6 @@ export class OrderPlacer {
 
 		await this.ctx.sessionKeyStorage.setSessionKeyByAddress(sessionKeyAddress, sessionKeyData)
 
-		return { order, transactionHash: receipt.transactionHash as HexString }
+		return { order, receipt }
 	}
 }

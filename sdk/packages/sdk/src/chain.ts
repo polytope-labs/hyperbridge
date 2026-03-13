@@ -1,6 +1,3 @@
-import { EvmChain } from "@/chains/evm"
-import { TronChain } from "@/chains/tron"
-import { SubstrateChain } from "@/chains/substrate"
 import type { PublicClient, TransactionReceipt } from "viem"
 import type {
 	GetResponseStorageValues,
@@ -14,9 +11,6 @@ import type {
 	StateMachineIdParams,
 } from "@/types"
 import type { ChainConfigService } from "@/configs/ChainConfigService"
-import { isEvmChain, isSubstrateChain } from "@/utils"
-import { ExpectedError } from "./utils/exceptions"
-import { tronChainIds } from "./configs/chain"
 
 export * from "@/chains/evm"
 export * from "@/chains/substrate"
@@ -208,55 +202,4 @@ export interface IEvmChain extends IChain {
 	getPlaceOrderCalldata(txHash: string, intentGatewayAddress: string): Promise<HexString>
 	broadcastTransaction(signedTransaction: HexString): Promise<TransactionReceipt>
 	getTransactionReceipt(hash: HexString): Promise<TransactionReceipt>
-}
-
-/**
- * Returns the chain interface for a given state machine identifier.
- *
- * - For standard EVM chains, returns an `EvmChain`.
- * - For Substrate chains, returns a connected `SubstrateChain`.
- * - For Tron chains (identified by chain ID), constructs a `TronChain`
- *   that delegates EVM behavior to an internal `EvmChain` and manages
- *   its own TronWeb instance using the provided RPC URL.
- *
- * @param chainConfig - Chain configuration
- * @returns Chain interface
- */
-export async function getChain(chainConfig: IEvmConfig | ISubstrateConfig): Promise<IChain> {
-	if (isEvmChain(chainConfig.stateMachineId)) {
-		return getEvmChain(chainConfig as IEvmConfig)
-	}
-
-	if (isSubstrateChain(chainConfig.stateMachineId)) {
-		return getSubstrateChain(chainConfig as ISubstrateConfig)
-	}
-
-	throw new ExpectedError(`Unsupported chain: ${chainConfig.stateMachineId}`)
-}
-
-export function getEvmChain(chainConfig: IEvmConfig): IChain {
-	const config = chainConfig as IEvmConfig
-	const chainId = Number.parseInt(config.stateMachineId.split("-")[1])
-
-	if (tronChainIds.has(chainId)) {
-		return new TronChain({
-			chainId,
-			rpcUrl: config.rpcUrl,
-			host: config.host,
-			consensusStateId: config.consensusStateId,
-		})
-	}
-
-	const evmChain = new EvmChain({
-		chainId,
-		rpcUrl: config.rpcUrl,
-		host: config.host,
-		consensusStateId: config.consensusStateId,
-	})
-
-	return evmChain
-}
-
-export async function getSubstrateChain(chainConfig: ISubstrateConfig) {
-	return SubstrateChain.connect(chainConfig)
 }

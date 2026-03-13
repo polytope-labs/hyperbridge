@@ -123,7 +123,13 @@ export class OrderExecutor {
 					const isPartiallyFilled = totalFilledAmount > 0n
 					const deadlineError = `Order deadline reached (block ${currentBlock} >= ${order.deadline})`
 					if (isPartiallyFilled) {
-						yield { status: "PARTIAL_FILL_EXHAUSTED", commitment, totalFilledAmount, remainingAmount, error: deadlineError }
+						yield {
+							status: "PARTIAL_FILL_EXHAUSTED",
+							commitment,
+							totalFilledAmount,
+							remainingAmount,
+							error: deadlineError,
+						}
 					} else {
 						yield { status: "FAILED", commitment, error: deadlineError }
 					}
@@ -160,7 +166,13 @@ export class OrderExecutor {
 						? `No new bids after partial fill (${totalFilledAmount.toString()} filled, ${remainingAmount.toString()} remaining)`
 						: `No new bids available within ${bidTimeoutMs}ms timeout`
 					if (isPartiallyFilled) {
-						yield { status: "PARTIAL_FILL_EXHAUSTED", commitment, totalFilledAmount, remainingAmount, error: noBidsError }
+						yield {
+							status: "PARTIAL_FILL_EXHAUSTED",
+							commitment,
+							totalFilledAmount,
+							remainingAmount,
+							error: noBidsError,
+						}
 					} else {
 						yield { status: "FAILED", commitment, error: noBidsError }
 					}

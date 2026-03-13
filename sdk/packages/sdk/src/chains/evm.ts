@@ -123,7 +123,7 @@ export class EvmChain implements IChain {
 	private publicClient: PublicClient
 	private chainConfigService: ChainConfigService
 
-	constructor(private readonly params: EvmChainParams) {
+	private constructor(private readonly params: EvmChainParams) {
 		// Default consensus state IDs for known chains
 		const defaultConsensusStateIds: Record<number, string> = {
 			1: "ETH0", // Ethereum Mainnet
@@ -160,8 +160,23 @@ export class EvmChain implements IChain {
 	}
 
 	/**
+	 * Creates an `EvmChain` instance directly from a fully-specified config object.
+	 * Use this when you already know the chain ID, host address, and other parameters.
+	 *
+	 * This is the only public way to construct an `EvmChain` with explicit params — the constructor is private.
+	 *
+	 * @param params - Full EVM chain configuration
+	 * @returns An `EvmChain` instance
+	 */
+	static fromParams(params: EvmChainParams): EvmChain {
+		return new EvmChain(params)
+	}
+
+	/**
 	 * Creates an `EvmChain` instance by auto-detecting the chain ID from the RPC endpoint
 	 * and resolving the correct `IsmpHost` contract address for that chain.
+	 *
+	 * This is the only public way to construct an `EvmChain` — the constructor is private.
 	 *
 	 * @param rpcUrl - HTTP(S) RPC URL of the EVM node
 	 * @param bundlerUrl - Optional ERC-4337 bundler URL for account abstraction support
@@ -754,7 +769,7 @@ export function createEvmChain(
 		consensusStateId?: string
 	},
 ): EvmChain {
-	return new EvmChain({
+	return EvmChain.fromParams({
 		chainId,
 		host,
 		rpcUrl: options.rpcUrl,

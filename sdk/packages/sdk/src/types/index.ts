@@ -1,6 +1,6 @@
 import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
-import type { ContractFunctionArgs, Hex, Log, PublicClient } from "viem"
+import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type HandlerV1 from "@/abis/handler"
 import type { IChain } from "@/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
@@ -544,101 +544,7 @@ export interface TokenInfo {
 	amount: bigint
 }
 
-/**
- * Represents payment information for an order
- */
-export interface PaymentInfo extends TokenInfo {
-	/**
-	 * The address to receive the output tokens
-	 */
-	beneficiary: HexString
-}
-
-/**
- * Represents an order in the IntentGateway
- */
-export interface Order {
-	/**
-	 * The unique identifier for the order
-	 */
-	id?: string
-
-	/**
-	 * The address of the user who is initiating the transfer
-	 */
-	user: HexString
-
-	/**
-	 * The state machine identifier of the origin chain
-	 */
-	sourceChain: string
-
-	/**
-	 * The state machine identifier of the destination chain
-	 */
-	destChain: string
-
-	/**
-	 * The block number by which the order must be filled on the destination chain
-	 */
-	deadline: bigint
-
-	/**
-	 * The nonce of the order
-	 */
-	nonce: bigint
-
-	/**
-	 * Represents the dispatch fees associated with the IntentGateway
-	 */
-	fees: bigint
-
-	/**
-	 * The tokens that the filler will provide
-	 */
-	outputs: PaymentInfo[]
-
-	/**
-	 * The tokens that are escrowed for the filler
-	 */
-	inputs: TokenInfo[]
-
-	/**
-	 * A bytes array to store the calls if any
-	 */
-	callData: HexString
-
-	// Additional Data
-	/**
-	 * The transaction hash of the order
-	 */
-	transactionHash?: HexString
-}
-
 export interface DecodedOrderPlacedLog extends Log {
-	eventName: string
-	args: {
-		user: HexString
-		sourceChain: Hex
-		destChain: Hex
-		deadline: bigint
-		nonce: bigint
-		fees: bigint
-		outputs: Array<{
-			token: HexString
-			amount: bigint
-			beneficiary: HexString
-		}>
-		inputs: Array<{
-			token: HexString
-			amount: bigint
-		}>
-		callData: HexString
-	}
-	transactionHash: HexString
-}
-
-export interface DecodedOrderV2PlacedLog extends Log {
 	eventName: string
 	args: {
 		user: HexString
@@ -695,16 +601,6 @@ export interface DecodedPostResponseEvent extends Log {
 		fee: bigint
 	}
 	transactionHash: HexString
-}
-
-/**
- * Options for filling an order
- */
-export interface FillOptions {
-	/**
-	 * The fee paid to the relayer for processing transactions
-	 */
-	relayerFee: bigint
 }
 
 /**
@@ -1191,10 +1087,6 @@ export interface TokenPricesResponse {
 	}
 }
 
-
-
-
-
 /**
  * Represents a complete transaction structure for swap operations
  */
@@ -1225,23 +1117,18 @@ export interface StorageFacade {
 // IntentGatewayV2 Types
 // =============================================================================
 
-export interface TokenInfoV2 {
-	token: HexString
-	amount: bigint
-}
-
-export interface PaymentInfoV2 {
+export interface PaymentInfo {
 	beneficiary: HexString
-	assets: TokenInfoV2[]
+	assets: TokenInfo[]
 	call: HexString
 }
 
-export interface DispatchInfoV2 {
-	assets: TokenInfoV2[]
+export interface DispatchInfo {
+	assets: TokenInfo[]
 	call: HexString
 }
 
-export interface OrderV2 {
+export interface Order {
 	id?: string
 	user: HexString
 	source: HexString
@@ -1250,16 +1137,15 @@ export interface OrderV2 {
 	nonce: bigint
 	fees: bigint
 	session: HexString
-	predispatch: DispatchInfoV2
-	inputs: TokenInfoV2[]
-	output: PaymentInfoV2
-	transactionHash?: HexString
+	predispatch: DispatchInfo
+	inputs: TokenInfo[]
+	output: PaymentInfo
 }
 
-export interface FillOptionsV2 {
+export interface FillOptions {
 	relayerFee: bigint
 	nativeDispatchFee: bigint
-	outputs: TokenInfoV2[]
+	outputs: TokenInfo[]
 }
 
 // =============================================================================
@@ -1279,8 +1165,8 @@ export interface PackedUserOperation {
 }
 
 export interface SubmitBidOptions {
-	order: OrderV2
-	fillOptions: FillOptionsV2
+	order: Order
+	fillOptions: FillOptions
 	solverAccount: HexString
 	solverPrivateKey: HexString
 	nonce: bigint
@@ -1299,8 +1185,8 @@ export interface SubmitBidOptions {
 	callData: HexString
 }
 
-export interface EstimateFillOrderV2Params {
-	order: OrderV2
+export interface EstimateFillOrderParams {
+	order: Order
 	/**
 	 * Optional percentage to bump maxPriorityFeePerGas.
 	 * This is added on top of the base gasPrice.
@@ -1315,8 +1201,8 @@ export interface EstimateFillOrderV2Params {
 	maxFeePerGasBumpPercent?: number
 }
 
-export interface FillOrderEstimateV2 {
-	fillOptions: FillOptionsV2
+export interface FillOrderEstimate {
+	fillOptions: FillOptions
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
@@ -1414,14 +1300,49 @@ export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 /** Tagged union of all possible status updates yielded by the intent order execution stream */
 export type IntentOrderStatusUpdate =
 	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
-	| { status: "ORDER_PLACED"; order: OrderV2; transactionHash: HexString }
+	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
 	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
-	| { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation }
-	| { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
-	| { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
-	| { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAmount?: bigint; totalFilledAmount: bigint; remainingAmount: bigint }
-	| { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
+	| {
+			status: "BID_SELECTED"
+			commitment: HexString
+			selectedSolver: HexString
+			userOpHash: HexString
+			userOp: PackedUserOperation
+	  }
+	| {
+			status: "USEROP_SUBMITTED"
+			commitment: HexString
+			userOpHash: HexString
+			selectedSolver: HexString
+			transactionHash?: HexString
+	  }
+	| {
+			status: "FILLED"
+			commitment: HexString
+			userOpHash: HexString
+			selectedSolver: HexString
+			transactionHash?: HexString
+			totalFilledAmount: bigint
+			remainingAmount: bigint
+	  }
+	| {
+			status: "PARTIAL_FILL"
+			commitment: HexString
+			userOpHash: HexString
+			selectedSolver: HexString
+			transactionHash?: HexString
+			filledAmount?: bigint
+			totalFilledAmount: bigint
+			remainingAmount: bigint
+	  }
+	| {
+			status: "PARTIAL_FILL_EXHAUSTED"
+			commitment: HexString
+			totalFilledAmount?: bigint
+			remainingAmount?: bigint
+			error: string
+	  }
 	| { status: "FAILED"; commitment?: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
 
 /** Result of selecting a bid and submitting to the bundler */
@@ -1438,7 +1359,7 @@ export interface SelectBidResult {
 
 /** Options for executing an intent order */
 export interface ExecuteIntentOrderOptions {
-	order: OrderV2
+	order: Order
 	sessionPrivateKey?: HexString
 	minBids?: number
 	bidTimeoutMs?: number

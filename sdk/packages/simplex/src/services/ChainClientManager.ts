@@ -1,6 +1,6 @@
 import { PublicClient, WalletClient, createPublicClient, createWalletClient, http, type Chain } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
-import { Order, HexString, ChainConfig, getViemChain, OrderV2 } from "@hyperbridge/sdk"
+import { Order, HexString, ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import { FillerConfigService } from "./FillerConfigService"
 
 /**
@@ -78,7 +78,7 @@ export class ChainClientManager {
 		return this.clientFactory.getWalletClient(config, this.privateKey)
 	}
 
-	getClientsForOrder(order: OrderV2): {
+	getClientsForOrder(order: Order): {
 		destClient: PublicClient
 		sourceClient: PublicClient
 		walletClient: WalletClient

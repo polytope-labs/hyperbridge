@@ -221,16 +221,16 @@ The generator is bidirectional — it pauses at two points to hand control back 
 - A **serialized signed transaction** (raw RLP-encoded bytes) — the SDK will broadcast it and wait for confirmation.
 - A **transaction hash** (exactly 66 characters: `0x` + 64 hex chars) — the SDK will wait for the receipt of an already-submitted transaction.
 
-**Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, transactionHash }` where `order` is the finalized `OrderV2` (with `nonce`, `id`, and `inputs` populated from the `OrderPlaced` event).
+**Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, receipt }` where `order` is the finalized `Order` (with `nonce`, `id`, and `inputs` populated from the `OrderPlaced` event) and `receipt` is the full viem `TransactionReceipt` of the placement transaction.
 
 **Subsequent yields** — status updates. The generator then yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `FAILED`, `PARTIAL_FILL_EXHAUSTED`). Call `gen.next()` with no arguments to advance after each update.
 
 ```typescript lineNumbers title="execute.ts" icon="typescript"
 import { IntentOrderStatus, DEFAULT_GRAFFITI } from "@hyperbridge/sdk"
-import type { IntentOrderStatusUpdate, OrderV2 } from "@hyperbridge/sdk"
+import type { IntentOrderStatusUpdate, Order } from "@hyperbridge/sdk"
 
 
-async function runOrder(order: OrderV2) {
+async function runOrder(order: Order) {
   const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, {
     minBids: 1,           // wait for at least N bids before selecting (default: 1)
     bidTimeoutMs: 60_000, // max time to wait for bids in ms (default: 60 000)
@@ -249,8 +249,8 @@ async function runOrder(order: OrderV2) {
   })
 
   // Second yield: ORDER_PLACED — finalized order (nonce, id, inputs set from OrderPlaced event)
-  const { value: { order, transactionHash } } = await gen.next(signedTx)
-  console.log("placeOrder tx:", transactionHash)
+  const { value: { order, receipt } } = await gen.next(signedTx)
+  console.log("placeOrder tx:", receipt.transactionHash)
   // store the full order incase you need to cancel it later
   console.log("Order commitment:", order.id)
 
@@ -306,7 +306,7 @@ async function runOrder(order: OrderV2) {
 | Status | Trigger | Key fields |
 |--------|---------|-----------|
 | `AWAITING_PLACE_ORDER` | Before broadcasting — SDK yields calldata for signing | `to`, `data`, `value`, `sessionPrivateKey` |
-| `ORDER_PLACED` | `placeOrder` tx confirmed on-chain | `order` (finalized `OrderV2`), `transactionHash` |
+| `ORDER_PLACED` | `placeOrder` tx confirmed on-chain | `order` (finalized `Order`), `receipt` |
 | `AWAITING_BIDS` | Polling coprocessor for bids | `commitment`, `totalFilledAmount`, `remainingAmount` |
 | `BIDS_RECEIVED` | `minBids` collected or `bidTimeoutMs` elapsed | `commitment`, `bidCount`, `bids` |
 | `BID_SELECTED` | Best bid chosen | `commitment`, `selectedSolver`, `userOpHash` |
@@ -339,7 +339,7 @@ import { toHex, parseUnits } from "viem"
 
 const USDC = "0xYourUsdcAddress" as `0x${string}`
 
-const order: OrderV2 = {
+const order: Order = {
   user: "0x",                                                   // set by contract (msg.sender)
   source: "0x",                                                 // set by contract (host().host())
   destination: toHex(sourceChain.config.stateMachineId),           // same as source → same-chain
@@ -360,7 +360,7 @@ await runOrder(order)
 ```
 
 <Callout type="info">
-`TokenInfoV2.token` and `output.beneficiary` are standard 20-byte EVM addresses (`0x…`). The SDK left-pads them to `bytes32` when encoding the contract call — you do not need to pad them yourself.
+`TokenInfo.token` and `output.beneficiary` are standard 20-byte EVM addresses (`0x…`). The SDK left-pads them to `bytes32` when encoding the contract call — you do not need to pad them yourself.
 </Callout>
 
 ### Partial Fills
@@ -390,7 +390,7 @@ import { toHex, parseUnits } from "viem"
 const USDC_SOURCE = "0xUsdcOnEthereum" as `0x${string}`
 const USDC_DEST   = "0xUsdcOnArbitrum" as `0x${string}`
 
-const order: OrderV2 = {
+const order: Order = {
   user: "0x",
   source: "0x",
   destination: toHex("EVM-42161"),                     // Arbitrum
@@ -467,7 +467,7 @@ const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve",
 // 2. Swap WETH → USDC; output lands in the CallDispatcher
 const swapData    = encodeFunctionData({ abi: routerAbi, functionName: "swapExactTokensForTokens", args: [wethIn, usdcMin, [WETH, USDC], dispatcher, swapDeadline] })
 
-const order: OrderV2 = {
+const order: Order = {
   user: "0x",
   source: "0x",
   destination: toHex("EVM-42161"),
@@ -536,7 +536,7 @@ const aaveAbi  = parseAbi(["function supply(address,uint256,address,uint16)"])
 const approveData = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [AAVE_POOL, outputAmount] })
 const supplyData  = encodeFunctionData({ abi: aaveAbi,  functionName: "supply",  args: [USDC, outputAmount, account.address, 0] })
 
-const order: OrderV2 = {
+const order: Order = {
   user: "0x",
   source: "0x",
   destination: toHex("EVM-42161"),

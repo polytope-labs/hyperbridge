@@ -14,8 +14,8 @@ import {
 	type ChainConfig,
 	type FillerConfig,
 	type HexString,
-	type OrderV2,
-	type TokenInfoV2,
+	type Order,
+	type TokenInfo,
 	bytes20ToBytes32,
 	EvmChain,
 	IntentGateway,
@@ -71,17 +71,17 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const destExtDecimals = await contractService.getTokenDecimals(destExt, polygonMainnetId)
 		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 
 		// For the test, request slightly less than notional amount after a simple fee/spread
 		const requestedExtOut = parseUnits("0.006", destExtDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(polygonMainnetId),
 			destination: toHex(polygonMainnetId),
@@ -206,16 +206,16 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
 		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 
 		const requestedExtOut = parseUnits("0.006", destExtDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
@@ -337,16 +337,16 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, arbitrumMainnetId)
 		const amountIn = parseUnits("100", sourceExtDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceExt), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceExt), amount: amountIn }]
 
 		const requestedUsdcOut = parseUnits("0.01", destUsdcDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destUsdc), amount: requestedUsdcOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destUsdc), amount: requestedUsdcOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(arbitrumMainnetId),
 			destination: toHex(arbitrumMainnetId),

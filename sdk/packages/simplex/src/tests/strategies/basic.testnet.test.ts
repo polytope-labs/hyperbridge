@@ -12,8 +12,8 @@ import {
 	type ChainConfig,
 	type FillerConfig,
 	type HexString,
-	type OrderV2,
-	type TokenInfoV2,
+	type Order,
+	type TokenInfo,
 	bytes20ToBytes32,
 	EvmChain,
 	IntentGateway,
@@ -72,8 +72,8 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
-		const outputs: TokenInfoV2[] = [
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
+		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destUsdc),
 				amount: amount - parseUnits("0.094", destUsdcDecimals),
@@ -84,7 +84,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -194,8 +194,8 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const destUsdcDecimals = await contractService.getTokenDecimals(destUsdc, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
-		const outputs: TokenInfoV2[] = [
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount }]
+		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destUsdc),
 				amount: amount - parseUnits("0.094", destUsdcDecimals),
@@ -206,7 +206,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(bscChapelId),
 			destination: toHex(polygonAmoyId),
@@ -268,7 +268,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 
 		console.log("Broadcasting signed transaction...")
 		const secondResult = await generator.next(signedTransaction as HexString)
-		order = secondResult.value as OrderV2
+		order = secondResult.value as Order
 
 		console.log(`Order placed successfully with ID: ${order.id}`)
 
@@ -307,8 +307,8 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 		const destUsdtDecimals = await contractService.getTokenDecimals(destUsdt, polygonAmoyId)
 		const amount = parseUnits("0.1", sourceUsdtDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdt), amount }]
-		const outputs: TokenInfoV2[] = [
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdt), amount }]
+		const outputs: TokenInfo[] = [
 			{
 				token: bytes20ToBytes32(destUsdt),
 				amount: parseUnits("0.094", destUsdtDecimals),
@@ -319,7 +319,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 		const beneficiaryAddress = privateKeyToAccount(privateKey).address
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(beneficiaryAddress),
 			source: toHex(tronNileId),
 			destination: toHex(polygonAmoyId),
@@ -705,7 +705,7 @@ async function signTronTransaction(
 		throw new Error("Failed to decode placeOrder calldata")
 	}
 
-	const [order, graffiti] = decoded.args as [OrderV2, HexString]
+	const [order, graffiti] = decoded.args as [Order, HexString]
 
 	const orderTuple = [
 		order.user,

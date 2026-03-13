@@ -45,7 +45,7 @@ For same-chain orders (`source == destination`), `_cancelSameChain` verifies tha
 If the order has been partially filled, the escrow balance will already be reduced proportionally. The refund covers only the remaining balance, not the full original amount.
 
 ```typescript lineNumbers title="cancel-same-chain.ts" icon="typescript"
-async function cancelSameChain(order: OrderV2) {
+async function cancelSameChain(order: Order) {
   if (await intentGateway.isOrderFilled(order)) {
     throw new Error("Order already filled or cancelled")
   }
@@ -81,10 +81,7 @@ Because the proof height must be taken from a block **after** the order deadline
 The `GET` request encodes the `_filled` storage slot as the key and the `WithdrawalRequest` as context, so `onGetResponse` knows which commitment and tokens to refund when the response arrives. You only need to sign and submit the `cancelOrder` transaction on the source chain — the SDK fetches the destination storage proof, monitors finality on both sides, and submits the proof to Hyperbridge automatically.
 
 ```typescript lineNumbers title="cancel-from-source.ts" icon="typescript"
-import { EvmHostABI, IntentGatewayV2ABI } from "@hyperbridge/sdk"
-import { parseEventLogs } from "viem"
-
-async function cancelFromSource(order: OrderV2) {
+async function cancelFromSource(order: Order) {
   if (await intentGateway.isOrderFilled(order)) {
     throw new Error("Order already filled")
   }
@@ -109,60 +106,38 @@ async function cancelFromSource(order: OrderV2) {
           type: "eip1559",
         })
 
-        // Pass the signed tx (or tx hash if already submitted) back.
-        // The generator yields CANCEL_STARTED once the tx is confirmed, then
-        // continues with SOURCE_FINALIZED as the next for-await value.
-        const { value: next } = await gen.next(signedTx)
-        if (next?.status === "CANCEL_STARTED") {
-          console.log("cancelOrder tx confirmed:", next.receipt.transactionHash)
+        // Pass the signed tx back. The generator broadcasts the tx, then yields CANCEL_STARTED.
+        // gen.next() here consumes CANCEL_STARTED so the for-await resumes at SOURCE_FINALIZED.
+        const { value: cancelStarted } = await gen.next(signedTx)
+        if (cancelStarted?.status === "CANCEL_STARTED") {
+          console.log("Cancel tx confirmed:", cancelStarted.receipt.transactionHash)
         }
         break
       }
 
-      case "CANCEL_STARTED":
-        // The cancelOrder transaction was confirmed on the source chain.
-        // The GET request has been dispatched — Hyperbridge will now relay it.
-        console.log("Cancel tx confirmed at block:", event.receipt.blockNumber, event.receipt.transactionHash)
+      case "SOURCE_FINALIZED":
+        // The GET request has been finalised on the source chain.
+        // The SDK fetches a source proof, waits for the challenge period, and
+        // submits the GET request to Hyperbridge automatically — no action needed.
+        console.log("GET request finalised on source:", event.metadata.transactionHash)
         break
 
       case "HYPERBRIDGE_DELIVERED":
-        console.log("GET request delivered to Hyperbridge")
+        console.log("GET request delivered to Hyperbridge:", event.metadata.transactionHash)
         break
 
-      case "HYPERBRIDGE_FINALIZED": {
-        // metadata.calldata is the encoded handleGetResponses call to submit to the
-        // ISMP handler on the source chain. This triggers onGetResponse, which
-        // verifies the _filled slot and refunds the escrowed assets.
-        const { calldata: handleCalldata } = event.metadata
-
-        // Fetch the handler address from the source ISMP host
-        const { handler: handlerAddress } = await sourceChain.client.readContract({
-          address: sourceChain.config.host,
-          abi: EvmHostABI,
-          functionName: "hostParams",
-        })
-
-        const receipt = await sourceWallet.sendTransaction({
-          to: handlerAddress,
-          data: handleCalldata,
-        })
-
-        // Confirm the escrow was actually refunded
-        const [refundLog] = parseEventLogs({
-          abi: IntentGatewayV2ABI,
-          eventName: "EscrowRefunded",
-          logs: receipt.logs,
-        })
-        if (!refundLog) throw new Error("EscrowRefunded log not found — refund may have failed")
-        console.log("Escrow refunded at block:", receipt.blockNumber)
-        return
-      }
+      case "HYPERBRIDGE_FINALIZED":
+        // GET request finalised on Hyperbridge. A relayer will deliver the response
+        // to the source chain, which triggers onGetResponse to check the _filled slot
+        // and refund the escrowed tokens. No action required from the caller.
+        console.log("GET request finalised on Hyperbridge:", event.metadata.transactionHash)
+        break
     }
   }
 }
 ```
 
-The SDK polls the destination chain indexer until a committed state height exceeds `order.deadline`, then fetches the `_filled[commitment]` storage proof at that height and yields `DESTINATION_FINALIZED`. It then encodes the `cancelOrder` calldata (with the proof height embedded) and yields `AWAITING_CANCEL_TRANSACTION`. You sign the transaction and pass the raw signed bytes back via `gen.next(signedTx)` — this resumes the generator, which broadcasts the transaction and immediately yields `SOURCE_FINALIZED` as the return value of that call. The SDK then fetches a source chain proof, waits for the challenge period, and submits the GET request to Hyperbridge autonomously. The `for await` loop continues with `HYPERBRIDGE_DELIVERED` and `HYPERBRIDGE_FINALIZED`. At `HYPERBRIDGE_FINALIZED`, `metadata.calldata` contains the encoded `handleGetResponses` call — you can submit it to the ISMP handler on the source chain to trigger `onGetResponse`, which checks the `_filled` slot and calls `_withdraw` to refund the escrow, or wait for a relayer to deliver it on your behalf.
+The SDK polls the destination chain indexer until a committed state height exceeds `order.deadline`, then fetches the `_filled[commitment]` storage proof at that height and yields `DESTINATION_FINALIZED`. It then encodes the `cancelOrder` calldata (with the proof height embedded) and yields `AWAITING_CANCEL_TRANSACTION`. You sign the transaction and pass it back via `gen.next(signedTx)` — the generator broadcasts the transaction and yields `CANCEL_STARTED`. The `for await` loop then resumes at `SOURCE_FINALIZED`, at which point the SDK internally fetches a source-chain proof, waits for the challenge period, and submits the GET request to Hyperbridge — no action required. The loop continues with `HYPERBRIDGE_DELIVERED` and `HYPERBRIDGE_FINALIZED`. After finalization, a relayer delivers the `handleGetResponses` call to the source chain, which triggers `onGetResponse` to verify the `_filled` slot and refund the escrow.
 
 ---
 
@@ -177,7 +152,7 @@ The native `value` in the `AWAITING_CANCEL_TRANSACTION` event already includes t
 </Callout>
 
 ```typescript lineNumbers title="cancel-from-dest.ts" icon="typescript"
-async function cancelFromDest(order: OrderV2) {
+async function cancelFromDest(order: Order) {
   if (await intentGateway.isOrderFilled(order)) {
     throw new Error("Order already filled or cancelled from dest")
   }
@@ -194,7 +169,7 @@ async function cancelFromDest(order: OrderV2) {
     type: "eip1559",
   })
 
-  // Pass signed tx (or tx hash) back. SDK confirms the tx and yields CANCEL_STARTED.
+  // Pass signed tx back. SDK confirms the tx and yields CANCEL_STARTED.
   const { value: cancelStarted } = await gen.next(signedTx)
   if (cancelStarted?.status === "CANCEL_STARTED") {
     console.log("cancelOrder tx confirmed:", cancelStarted.receipt.transactionHash)
@@ -203,12 +178,18 @@ async function cancelFromDest(order: OrderV2) {
   // Continue with the remaining status stream
   for await (const event of gen) {
     switch (event.status) {
+      case "SOURCE_FINALIZED":
+        // The RefundEscrow POST request has been finalised on the destination chain
+        // (the "source" of this ISMP message in protocol terms).
+        console.log("RefundEscrow POST finalised:", event.metadata.transactionHash)
+        break
+
       case "HYPERBRIDGE_DELIVERED":
-        console.log("RefundEscrow message delivered to Hyperbridge")
+        console.log("RefundEscrow message delivered to Hyperbridge:", event.metadata.transactionHash)
         break
 
       case "HYPERBRIDGE_FINALIZED":
-        console.log("RefundEscrow message finalised on Hyperbridge")
+        console.log("RefundEscrow message finalised on Hyperbridge:", event.metadata.transactionHash)
         break
 
       case "CANCELLATION_COMPLETE":

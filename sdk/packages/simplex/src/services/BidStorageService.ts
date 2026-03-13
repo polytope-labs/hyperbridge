@@ -76,6 +76,21 @@ export class BidStorageService {
 			CREATE INDEX IF NOT EXISTS idx_bids_success ON bids(success);
 			CREATE INDEX IF NOT EXISTS idx_bids_retracted ON bids(retracted);
 			CREATE INDEX IF NOT EXISTS idx_bids_created_at ON bids(created_at);
+
+			CREATE TABLE IF NOT EXISTS dashboard_stats (
+				key TEXT PRIMARY KEY,
+				value INTEGER NOT NULL DEFAULT 0
+			);
+
+			CREATE TABLE IF NOT EXISTS balance_history (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				timestamp INTEGER NOT NULL,
+				usdc REAL NOT NULL DEFAULT 0,
+				usdt REAL NOT NULL DEFAULT 0,
+				exotics TEXT NOT NULL DEFAULT '{}'
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_balance_history_ts ON balance_history(timestamp);
 		`)
 
 		this.logger.debug("Bid storage schema initialized")
@@ -319,6 +334,83 @@ export class BidStorageService {
 			...row,
 			success: Boolean(row.success),
 			retracted: Boolean(row.retracted),
+		}))
+	}
+
+	// ─── Dashboard Stats ─────────────────────────────────────────────────────────
+
+	incrementDashboardStat(key: string, by = 1): void {
+		this.db
+			.prepare(
+				`INSERT INTO dashboard_stats (key, value) VALUES (?, ?)
+				 ON CONFLICT(key) DO UPDATE SET value = value + excluded.value`,
+			)
+			.run(key, by)
+	}
+
+	getDashboardStats(): Record<string, number> {
+		const rows = this.db.prepare("SELECT key, value FROM dashboard_stats").all() as {
+			key: string
+			value: number
+		}[]
+		const result: Record<string, number> = {}
+		for (const row of rows) result[row.key] = row.value
+		return result
+	}
+
+	// ─── Balance History ──────────────────────────────────────────────────────────
+
+	insertBalancePoint(point: { timestamp: number; usdc: number; usdt: number; exotics: Record<string, number> }): void {
+		this.db
+			.prepare(`INSERT INTO balance_history (timestamp, usdc, usdt, exotics) VALUES (?, ?, ?, ?)`)
+			.run(point.timestamp, point.usdc, point.usdt, JSON.stringify(point.exotics))
+
+		// Trim to last 50 000 rows (~35 days at 1-min intervals)
+		this.db
+			.prepare(
+				`DELETE FROM balance_history WHERE id NOT IN
+				 (SELECT id FROM balance_history ORDER BY timestamp DESC LIMIT 50000)`,
+			)
+			.run()
+	}
+
+	getBalanceHistorySince(
+		since: number,
+	): Array<{ timestamp: number; usdc: number; usdt: number; exotics: Record<string, number> }> {
+		const rows = this.db
+			.prepare(
+				`SELECT timestamp, usdc, usdt, exotics
+				 FROM balance_history
+				 WHERE timestamp >= ?
+				 ORDER BY timestamp ASC`,
+			)
+			.all(since) as { timestamp: number; usdc: number; usdt: number; exotics: string }[]
+
+		return rows.map((row) => ({
+			timestamp: row.timestamp,
+			usdc: row.usdc,
+			usdt: row.usdt,
+			exotics: JSON.parse(row.exotics) as Record<string, number>,
+		}))
+	}
+
+	getRecentBalanceHistory(
+		limit = 200,
+	): Array<{ timestamp: number; usdc: number; usdt: number; exotics: Record<string, number> }> {
+		const rows = this.db
+			.prepare(
+				`SELECT timestamp, usdc, usdt, exotics
+				 FROM balance_history
+				 ORDER BY timestamp DESC
+				 LIMIT ?`,
+			)
+			.all(limit) as { timestamp: number; usdc: number; usdt: number; exotics: string }[]
+
+		return rows.reverse().map((row) => ({
+			timestamp: row.timestamp,
+			usdc: row.usdc,
+			usdt: row.usdt,
+			exotics: JSON.parse(row.exotics) as Record<string, number>,
 		}))
 	}
 

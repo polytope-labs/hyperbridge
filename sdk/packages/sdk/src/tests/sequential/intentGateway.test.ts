@@ -58,7 +58,7 @@ function bundlerUrl(chainId: number): string | undefined {
 }
 
 function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundlerUrl?: string): EvmChain {
-	return new EvmChain({
+	return EvmChain.fromParams({
 		chainId: chain.numericId,
 		host: configService.getHostAddress(chain.id),
 		rpcUrl: process.env[chain.rpcEnvVar]!,

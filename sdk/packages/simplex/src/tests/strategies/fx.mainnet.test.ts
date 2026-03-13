@@ -9,7 +9,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { FXFiller } from "@/strategies/fx"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
 	type ChainConfig,
 	type FillerConfig,
@@ -172,7 +172,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe.only("Filler V2 FX - Base mainnet same-chain swap", () => {
+describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 	it("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
@@ -502,12 +502,14 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			chainId: 42161,
 			host: chainConfigService.getHostAddress(arbitrumMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
+			bundlerUrl: chainConfigService.getBundlerUrl(arbitrumMainnetId),
 		})
 
 		const baseEvmChain = new EvmChain({
 			chainId: 8453,
 			host: chainConfigService.getHostAddress(baseMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+			bundlerUrl: chainConfigService.getBundlerUrl(baseMainnetId),
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(arbitrumMainnetId)
@@ -849,6 +851,21 @@ function createCrossChainFxIntentFiller(
 		}
 	}
 
+	const confirmationPolicy = new ConfirmationPolicy({
+		"42161": {
+			points: [
+				{ amount: "0", value: 5 },
+				{ amount: "10000", value: 10 },
+			],
+		},
+		"8453": {
+			points: [
+				{ amount: "0", value: 5 },
+				{ amount: "10000", value: 10 },
+			],
+		},
+	})
+
 	const fxStrategy = new FXFiller(
 		privateKey,
 		chainConfigService,
@@ -858,6 +875,7 @@ function createCrossChainFxIntentFiller(
 		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
+		confirmationPolicy,
 	)
 
 	const strategies = [fxStrategy]

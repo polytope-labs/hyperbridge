@@ -104,6 +104,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 			chainId: 137,
 			host: chainConfigService.getHostAddress(polygonMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(polygonMainnetId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(polygonMainnetId)
@@ -171,7 +172,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
+describe.only("Filler V2 FX - Base mainnet same-chain swap", () => {
 	it("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
@@ -233,6 +234,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 			chainId: 8453,
 			host: chainConfigService.getHostAddress(baseMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(baseMainnetId)
@@ -363,6 +365,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 			chainId: 42161,
 			host: chainConfigService.getHostAddress(arbitrumMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
+			bundlerUrl: destBundlerUrl,
 		})
 
 		const feeToken = await contractService.getFeeTokenWithDecimals(arbitrumMainnetId)

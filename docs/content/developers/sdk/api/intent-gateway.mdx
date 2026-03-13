@@ -339,28 +339,28 @@ Tagged union of all status updates yielded by the `execute` generator. Use the `
 type IntentOrderStatusUpdate =
   | { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
   | { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
-  | { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
+  | { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
   | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation }
   | { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
-  | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
-  | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAmount?: bigint; totalFilledAmount: bigint; remainingAmount: bigint }
-  | { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
-  | { status: "FAILED"; commitment?: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
+  | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
+  | { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
 ```
 
 | Status | Fields | Description |
 |--------|--------|-------------|
 | `AWAITING_PLACE_ORDER` | `to`, `data`, `value?`, `sessionPrivateKey` | Caller must sign and broadcast the placement transaction, then send back the tx hash |
 | `ORDER_PLACED` | `order`, `receipt` | Order confirmed on-chain; `receipt` is the full viem `TransactionReceipt` of the placement transaction |
-| `AWAITING_BIDS` | `commitment`, `totalFilledAmount`, `remainingAmount` | Polling the coprocessor for solver bids |
+| `AWAITING_BIDS` | `commitment`, `totalFilledAssets`, `remainingAssets` | Polling the coprocessor for solver bids |
 | `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | One or more bids collected |
 | `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp` | Best bid selected and UserOperation submitted to the bundler |
 | `USEROP_SUBMITTED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?` | UserOperation sent to the bundler |
-| `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAmount`, `remainingAmount` | Order fully filled on the destination chain |
-| `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAmount?`, `totalFilledAmount`, `remainingAmount` | Order partially filled; more fills may follow |
-| `PARTIAL_FILL_EXHAUSTED` | `commitment`, `totalFilledAmount?`, `remainingAmount?`, `error` | No further fills expected for a partially filled order |
-| `FAILED` | `commitment?`, `totalFilledAmount?`, `remainingAmount?`, `error` | Order execution failed unrecoverably |
+| `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
+| `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
+| `PARTIAL_FILL_EXHAUSTED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | No further fills expected for a partially filled order |
+| `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order execution failed unrecoverably |
 
 ---
 

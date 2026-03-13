@@ -1301,7 +1301,7 @@ export type IntentOrderStatusKey = keyof typeof IntentOrderStatus
 export type IntentOrderStatusUpdate =
 	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
-	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAmount: bigint; remainingAmount: bigint }
+	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
 	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
 	| {
 			status: "BID_SELECTED"
@@ -1323,8 +1323,8 @@ export type IntentOrderStatusUpdate =
 			userOpHash: HexString
 			selectedSolver: HexString
 			transactionHash?: HexString
-			totalFilledAmount: bigint
-			remainingAmount: bigint
+			totalFilledAssets: TokenInfo[]
+			remainingAssets: TokenInfo[]
 	  }
 	| {
 			status: "PARTIAL_FILL"
@@ -1332,18 +1332,18 @@ export type IntentOrderStatusUpdate =
 			userOpHash: HexString
 			selectedSolver: HexString
 			transactionHash?: HexString
-			filledAmount?: bigint
-			totalFilledAmount: bigint
-			remainingAmount: bigint
+			filledAssets: TokenInfo[]
+			totalFilledAssets: TokenInfo[]
+			remainingAssets: TokenInfo[]
 	  }
 	| {
 			status: "PARTIAL_FILL_EXHAUSTED"
 			commitment: HexString
-			totalFilledAmount?: bigint
-			remainingAmount?: bigint
+			totalFilledAssets?: TokenInfo[]
+			remainingAssets?: TokenInfo[]
 			error: string
 	  }
-	| { status: "FAILED"; commitment?: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
+	| { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
 
 /** Result of selecting a bid and submitting to the bundler */
 export interface SelectBidResult {
@@ -1353,8 +1353,8 @@ export interface SelectBidResult {
 	commitment: HexString
 	txnHash?: HexString
 	fillStatus?: "full" | "partial"
-	/** Amount filled in this user operation (best-effort, based on on-chain logs) */
-	filledAmount?: bigint
+	/** Assets filled in this user operation (best-effort, based on on-chain PartialFill logs) */
+	filledAssets?: TokenInfo[]
 }
 
 /** Options for executing an intent order */

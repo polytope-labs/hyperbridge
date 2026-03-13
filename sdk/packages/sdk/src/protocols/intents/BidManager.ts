@@ -192,7 +192,7 @@ export class BidManager {
 			}
 
 			try {
-				await this.simulate(bidWithOptions.bid, selectOptions, intentGatewayV2Address)
+				await this.simulate(bidWithOptions.bid, bidWithOptions.options, selectOptions, intentGatewayV2Address)
 				console.log(`[BidManager] Bid ${idx + 1} from solver=${solverAddress}: simulation PASSED`)
 				selectedBid = bidWithOptions
 				sessionSignature = signature
@@ -239,7 +239,7 @@ export class BidManager {
 
 		let txnHash: HexString | undefined
 		let fillStatus: "full" | "partial" | undefined
-		let filledAmount: bigint | undefined
+		let filledAssets: TokenInfo[] | undefined
 		try {
 			const receipt = await retryPromise(
 				async () => {
@@ -279,10 +279,7 @@ export class BidManager {
 						fillStatus = "full"
 					} else if (matched?.eventName === "PartialFill") {
 						fillStatus = "partial"
-
-						// Sum all output amounts from the PartialFill event as the filled amount for this attempt
-						const outputs = (matched.args.outputs ?? []) as readonly { amount: bigint }[]
-						filledAmount = outputs.reduce((acc, o) => acc + o.amount, 0n)
+						filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
 					}
 				} catch {
 					throw new Error("Failed to determine fill status from logs")
@@ -300,7 +297,7 @@ export class BidManager {
 			commitment,
 			txnHash,
 			fillStatus,
-			filledAmount,
+			filledAssets,
 		}
 	}
 
@@ -404,17 +401,30 @@ export class BidManager {
 	 * via `eth_call` from the solver's account, using the IntentGatewayV2
 	 * ERC-7821 batch-execute pattern.
 	 *
+	 * The native value forwarded to the simulation is computed from the fill options:
+	 * sum of any native-token (address(0)) output amounts plus the dispatch fee.
+	 *
 	 * @param bid - The filler bid to simulate.
+	 * @param fillOptions - Decoded fill options from the bid's calldata.
 	 * @param selectOptions - The signed solver-selection parameters.
 	 * @param intentGatewayV2Address - Address of the IntentGatewayV2 contract on the destination chain.
 	 * @throws If the `eth_call` simulation reverts or errors.
 	 */
 	private async simulate(
 		bid: FillerBid,
+		fillOptions: FillOptions,
 		selectOptions: SelectOptions,
 		intentGatewayV2Address: HexString,
 	): Promise<void> {
 		const solverAddress = bid.userOp.sender
+
+		// Compute the native ETH the fillOrder call requires:
+		// native token outputs (address(0)) + Hyperbridge dispatch fee
+		const nativeOutputs = fillOptions.outputs.reduce(
+			(acc, o) => (bytes32ToBytes20(o.token) === ADDRESS_ZERO ? acc + o.amount : acc),
+			0n,
+		)
+		const simulationValue = nativeOutputs + fillOptions.nativeDispatchFee
 
 		const selectCalldata = encodeFunctionData({
 			abi: IntentGatewayV2ABI,
@@ -424,7 +434,7 @@ export class BidManager {
 
 		const calls: ERC7821Call[] = [
 			{ target: intentGatewayV2Address, value: 0n, data: selectCalldata },
-			{ target: solverAddress, value: 0n, data: bid.userOp.callData },
+			{ target: solverAddress, value: simulationValue, data: bid.userOp.callData },
 		]
 		const batchedCalldata = this.crypto.encodeERC7821Execute(calls)
 
@@ -433,7 +443,7 @@ export class BidManager {
 				account: solverAddress,
 				to: solverAddress,
 				data: batchedCalldata,
-				value: 0n,
+				value: simulationValue,
 			})
 		} catch (e: unknown) {
 			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`)

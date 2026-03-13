@@ -278,14 +278,14 @@ async function runOrder(order: Order) {
       case IntentOrderStatus.PARTIAL_FILL: {
         // Same-chain only: a solver partially filled the output
         // SDK automatically loops back to AWAITING_BIDS for the remaining amount
-        const { filledAmount, totalFilledAmount, remainingAmount } = update
-        console.log(`Partial fill: +${filledAmount}, total ${totalFilledAmount}, remaining ${remainingAmount}`)
+        const { filledAssets, totalFilledAssets, remainingAssets } = update
+        console.log("Partial fill:", filledAssets, "| total filled:", totalFilledAssets, "| remaining:", remainingAssets)
         break
       }
       case IntentOrderStatus.PARTIAL_FILL_EXHAUSTED:
         // Order deadline reached, or no new bids arrived for the remaining amount
         // The order is still live on-chain — cancel it or wait for a solver to fill the rest manually
-        console.warn("Could not fully fill order after max attempts. Remaining:", update.remainingAmount)
+        console.warn("Could not fully fill order after max attempts. Remaining:", update.remainingAssets)
         return
       case IntentOrderStatus.FILLED:
         // Order fully filled; escrow released to the solver
@@ -307,12 +307,12 @@ async function runOrder(order: Order) {
 |--------|---------|-----------|
 | `AWAITING_PLACE_ORDER` | Before broadcasting — SDK yields calldata for signing | `to`, `data`, `value`, `sessionPrivateKey` |
 | `ORDER_PLACED` | `placeOrder` tx confirmed on-chain | `order` (finalized `Order`), `receipt` |
-| `AWAITING_BIDS` | Polling coprocessor for bids | `commitment`, `totalFilledAmount`, `remainingAmount` |
+| `AWAITING_BIDS` | Polling coprocessor for bids | `commitment`, `totalFilledAssets`, `remainingAssets` |
 | `BIDS_RECEIVED` | `minBids` collected or `bidTimeoutMs` elapsed | `commitment`, `bidCount`, `bids` |
 | `BID_SELECTED` | Best bid chosen | `commitment`, `selectedSolver`, `userOpHash` |
 | `USEROP_SUBMITTED` | UserOp sent to bundler | `commitment`, `userOpHash`, `transactionHash` |
-| `PARTIAL_FILL` | Same-chain partial fill confirmed; loop restarts | `commitment`, `filledAmount`, `totalFilledAmount`, `remainingAmount` |
-| `PARTIAL_FILL_EXHAUSTED` | Deadline reached or no new bids for remainder | `commitment`, `totalFilledAmount`, `remainingAmount`, `error` |
+| `PARTIAL_FILL` | Same-chain partial fill confirmed; loop restarts | `commitment`, `filledAssets`, `totalFilledAssets`, `remainingAssets` |
+| `PARTIAL_FILL_EXHAUSTED` | Deadline reached or no new bids for remainder | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
 | `FILLED` | Order fully filled | `commitment`, `userOpHash`, `transactionHash` |
 | `FAILED` | Unrecoverable error | `error` |
 

@@ -120,11 +120,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
 		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
 
-		const userSdkHelper = await IntentGateway.create(
-			bscEvmChain,
-			polygonAmoyEvmChain,
-			intentsCoprocessor,
-		)
+		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, { bidTimeoutMs: 120_000, pollIntervalMs: 5_000 })
 		let result = await gen.next()
@@ -231,6 +227,7 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		})
 
 		const destBundlerUrl = chainConfigService.getBundlerUrl(polygonAmoyId)
+
 		const polygonAmoyEvmChain = new EvmChain({
 			chainId: 80002,
 			host: chainConfigService.getHostAddress(polygonAmoyId),
@@ -242,37 +239,53 @@ describe.skip("Filler V2 - Solver Selection ON", () => {
 		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
 		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
 
-		const userSdkHelper = await IntentGateway.create(
-			bscEvmChain,
-			polygonAmoyEvmChain,
-			intentsCoprocessor,
-		)
+		const userSdkHelper = await IntentGateway.create(bscEvmChain, polygonAmoyEvmChain, intentsCoprocessor)
 
 		console.log("Preparing to place order...")
-		const generator = userSdkHelper.placeOrder(order)
-		const firstResult = await generator.next()
-		const { calldata, sessionPrivateKey } = firstResult.value as {
-			calldata: HexString
-			sessionPrivateKey: HexString
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+			bidTimeoutMs: 600_000,
+			pollIntervalMs: 5_000,
+		})
+
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data, value } = result.value
+
+			const signedTx = (await bscWalletClient.signTransaction(
+				(await bscPublicClient.prepareTransactionRequest({
+					to,
+					data,
+					value: value ?? 0n,
+					account: bscWalletClient.account!,
+					chain: bscWalletClient.chain,
+				})) as any,
+			)) as HexString
+			result = await gen.next(signedTx)
 		}
 
-		console.log("Signing place order transaction...")
-		const preparedTx = await bscPublicClient.prepareTransactionRequest({
-			to: bscIntentGatewayV2.address,
-			data: calldata,
-			account: bscWalletClient.account!,
-			chain: bscWalletClient.chain,
-		})
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const signedTransaction = await bscWalletClient.signTransaction(preparedTx as any)
+		let userOpHash: HexString | undefined
+		let selectedSolver: HexString | undefined
 
-		console.log("Broadcasting signed transaction...")
-		const secondResult = await generator.next(signedTransaction as HexString)
-		order = secondResult.value as OrderV2
+		while (!result.done) {
+			if (result.value && "status" in result.value) {
+				const status = result.value
+				console.log("status", status)
 
-		console.log(`Order placed successfully with ID: ${order.id}`)
+				if (status.status === "ORDER_PLACED") {
+					order = status.order as OrderV2
+					console.log(`Order placed successfully with ID: ${order.id}`)
+				}
+				if (status.status === "BID_SELECTED") {
+					selectedSolver = status.selectedSolver as HexString
+					userOpHash = status.userOpHash as HexString
+				}
+				if (status.status === "FAILED") {
+					throw new Error(`Order execution failed: ${status.error}`)
+				}
+			}
+			result = await gen.next()
+		}
 
-		// Verify the order was placed
 		expect(order.id).toBeDefined()
 		expect(order.user).toBe(bytes20ToBytes32(beneficiaryAddress))
 		expect(order.source).toBe(toHex(bscChapelId))
@@ -501,10 +514,6 @@ async function setUp() {
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
-		entryPointDeposit: {
-			targetBalances: { "97": "0.001", "80002": "0.1" },
-			thresholdFraction: 0.2,
-		},
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -571,10 +580,6 @@ async function setUpTron() {
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
-		entryPointDeposit: {
-			targetBalances: { "80002": "0.1" },
-			thresholdFraction: 0.2,
-		},
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)

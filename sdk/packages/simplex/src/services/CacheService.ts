@@ -37,10 +37,22 @@ interface FillerOutputsCache {
 	timestamp: number
 }
 
+export interface CachedPairClassification {
+	inputIsStable: boolean
+	stableToken: string
+	exoticToken: string
+}
+
+interface PairClassificationsCache {
+	pairs: CachedPairClassification[]
+	timestamp: number
+}
+
 interface CacheData {
 	gasEstimates: Record<string, GasEstimateCache>
 	swapOperations: Record<string, SwapOperationsCache>
 	fillerOutputs: Record<string, FillerOutputsCache>
+	pairClassifications: Record<string, PairClassificationsCache>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
 	perByteFees: Record<string, Record<string, bigint>>
 	tokenDecimals: Record<string, Record<HexString, number>>
@@ -57,6 +69,7 @@ export class CacheService {
 			gasEstimates: {},
 			swapOperations: {},
 			fillerOutputs: {},
+			pairClassifications: {},
 			feeTokens: {},
 			perByteFees: {},
 			tokenDecimals: {},
@@ -94,6 +107,15 @@ export class CacheService {
 
 		staleFillerOutputIds.forEach((orderId) => {
 			delete this.cacheData.fillerOutputs[orderId]
+		})
+
+		// Clean up pair classifications
+		const stalePairIds = Object.entries(this.cacheData.pairClassifications)
+			.filter(([_, data]) => !this.isCacheValid(data.timestamp))
+			.map(([orderId]) => orderId)
+
+		stalePairIds.forEach((orderId) => {
+			delete this.cacheData.pairClassifications[orderId]
 		})
 	}
 
@@ -227,6 +249,31 @@ export class CacheService {
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting filler outputs")
+			throw error
+		}
+	}
+
+	getPairClassifications(orderId: string): CachedPairClassification[] | null {
+		try {
+			const cache = this.cacheData.pairClassifications[orderId]
+			if (cache && this.isCacheValid(cache.timestamp)) {
+				return cache.pairs
+			}
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting pair classifications")
+			return null
+		}
+	}
+
+	setPairClassifications(orderId: string, pairs: CachedPairClassification[]): void {
+		try {
+			this.cacheData.pairClassifications[orderId] = {
+				pairs,
+				timestamp: Date.now(),
+			}
+		} catch (error) {
+			this.logger.error({ err: error }, "Error setting pair classifications")
 			throw error
 		}
 	}

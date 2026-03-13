@@ -283,26 +283,22 @@ export class IntentFiller {
 				// Base layer: stable-only USD value from ContractInteractionService
 				const baseInputUsd = await this.contractService.getInputUsdValue(order)
 
-				// Strategy layer: first strategy that can price the order wins
-				let inputUsdValue = baseInputUsd
 				const canFillCache = new Map<FillerStrategy, boolean>()
 				for (const strategy of this.strategies) {
-					// Skip strategies that cannot price inputs
-					if (typeof strategy.getOrderUsdValue !== "function") continue
-
-					let canFill = false
 					try {
-						canFill = await strategy.canFill(order)
+						canFillCache.set(strategy, await strategy.canFill(order))
 					} catch (err) {
-						this.logger.error(
-							{ orderId: order.id, strategy: strategy.name, err },
-							"Error checking canFill during inputUsdValue computation",
-						)
+						this.logger.error({ orderId: order.id, strategy: strategy.name, err }, "Error checking canFill")
+						canFillCache.set(strategy, false)
 					}
-					canFillCache.set(strategy, canFill)
-					if (!canFill) continue
+				}
+
+				let inputUsdValue = baseInputUsd
+				for (const [strategy, canFill] of canFillCache) {
+					if (!canFill || typeof strategy.getOrderUsdValue !== "function") continue
 					try {
 						const stratValue = await strategy.getOrderUsdValue(order)
+
 						if (stratValue != null) {
 							inputUsdValue = Decimal.max(baseInputUsd, stratValue.inputUsd)
 							break
@@ -315,17 +311,19 @@ export class IntentFiller {
 					}
 				}
 
-				// Derive required confirmations from whichever matched strategy has a policy
+				const isCrossChain = order.source !== order.destination
 				let requiredConfirmations = 0
-				for (const [strategy, canFill] of canFillCache) {
-					if (!canFill || !strategy.confirmationPolicy) continue
-					requiredConfirmations = Math.max(
-						requiredConfirmations,
-						strategy.confirmationPolicy.getConfirmationBlocks(
-							getChainId(order.source)!,
-							inputUsdValue.toNumber(),
-						),
-					)
+				if (isCrossChain) {
+					for (const [strategy, canFill] of canFillCache) {
+						if (!canFill || !strategy.confirmationPolicy) continue
+						requiredConfirmations = Math.max(
+							requiredConfirmations,
+							strategy.confirmationPolicy.getConfirmationBlocks(
+								getChainId(order.source)!,
+								inputUsdValue.toNumber(),
+							),
+						)
+					}
 				}
 
 				// Run confirmation waiting and evaluation in parallel.
@@ -423,8 +421,7 @@ export class IntentFiller {
 
 		const eligibleStrategies = await Promise.all(
 			this.strategies.map(async (strategy) => {
-				const canFill = canFillCache.has(strategy) ? canFillCache.get(strategy)! : await strategy.canFill(order)
-				if (!canFill) return null
+				if (!canFillCache.get(strategy)) return null
 
 				const profitability = await strategy.calculateProfitability(order)
 				return { strategy, profitability }
@@ -471,10 +468,7 @@ export class IntentFiller {
 			try {
 				if (solverSelectionActive) {
 					this.contractService.ensureEntryPointDeposit(order).catch((err) => {
-						this.logger.error(
-							{ orderId: order.id, err },
-							"Background EntryPoint deposit top-up failed",
-						)
+						this.logger.error({ orderId: order.id, err }, "Background EntryPoint deposit top-up failed")
 					})
 				}
 

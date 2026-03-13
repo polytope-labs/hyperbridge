@@ -125,6 +125,17 @@ export class IntentFiller {
 		}
 	}
 
+	/**
+	 * Immediately enqueues retraction for all stale bids (older than maxAgeMs).
+	 * Returns the number of bids queued for retraction.
+	 */
+	public async retractStaleBids(maxAgeMs = 60 * 60 * 1000): Promise<number> {
+		if (!this.bidStorage || !this.hyperbridge) return 0
+		const expired = this.bidStorage.getExpiredUnretractedBids(maxAgeMs)
+		await this.sweepExpiredBids(maxAgeMs)
+		return expired.length
+	}
+
 	public start(): void {
 		this.monitor.startListening()
 
@@ -437,6 +448,7 @@ export class IntentFiller {
 
 		if (validStrategies.length === 0) {
 			this.logger.warn({ orderId: order.id }, "No profitable strategy found for order")
+			this.monitor.emit("orderSkipped", { orderId: order.id, reason: "No profitable strategy" })
 			return null
 		}
 
@@ -484,6 +496,14 @@ export class IntentFiller {
 				if (result.success) {
 					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash })
 				}
+				this.monitor.emit("orderExecuted", {
+					orderId: order.id,
+					success: result.success,
+					txHash: result.txHash,
+					strategy: bestStrategy.name,
+					commitment: result.commitment,
+					error: result.error,
+				})
 
 				if (result.commitment) {
 					const commitment = result.commitment as HexString

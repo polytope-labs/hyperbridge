@@ -164,12 +164,30 @@ impl TokenPair {
 	}
 }
 
-/// An individual price submission stored on-chain
+/// Caller-provided price data for a specific range of base token amounts.
+/// The pallet fills in the filler address and timestamp when storing.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct PriceEntry<AccountId> {
-	/// The submitter's substrate account
-	pub submitter: AccountId,
-	/// The submitted price
+pub struct PriceInput {
+	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_start: U256,
+	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_end: U256,
+	/// The price of the base token in the quote token, with 18 decimal places
+	pub price: U256,
+}
+
+/// An individual price submission stored on-chain. The price applies to a specific
+/// range of base token amounts, allowing fillers to quote different rates for
+/// different order sizes (e.g. USDC/CNGN: 0-999 -> 1414, 1000-5000 -> 1420).
+#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+pub struct PriceEntry {
+	/// The filler's EVM address. Set to `H160::zero()` for unverified submissions.
+	pub filler: H160,
+	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_start: U256,
+	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_end: U256,
+	/// The price of the base token in the quote token, with 18 decimal places
 	pub price: U256,
 	/// Timestamp of submission (seconds)
 	pub timestamp: u64,

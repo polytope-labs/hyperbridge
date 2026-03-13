@@ -251,6 +251,7 @@ impl pallet_intents::Config for Test {
 	type StorageDepositFee = StorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type TreasuryAccount = TreasuryAccount;
+	type MaxPriceEntries = ConstU32<100>;
 	type WeightInfo = ();
 }
 
@@ -664,7 +665,9 @@ fn remove_recognized_pair_works() {
 		VerifiedPrices::<Test>::insert(
 			&pair_id,
 			vec![types::PriceEntry {
-				submitter: AccountId32::new([1; 32]),
+				filler: H160::from_low_u64_be(1),
+				range_start: U256::zero(),
+				range_end: U256::from(999),
 				price: U256::from(1000),
 				timestamp: 1000,
 			}],
@@ -672,7 +675,9 @@ fn remove_recognized_pair_works() {
 		UnverifiedPrices::<Test>::insert(
 			&pair_id,
 			vec![types::PriceEntry {
-				submitter: AccountId32::new([2; 32]),
+				filler: H160::zero(),
+				range_start: U256::zero(),
+				range_end: U256::from(999),
 				price: U256::from(500),
 				timestamp: 1000,
 			}],
@@ -774,22 +779,32 @@ fn submit_pair_price_verified() {
 			evm_signature: Signature::Evm { address: evm_address.clone(), signature },
 		};
 
+		let entries = BoundedVec::try_from(vec![types::PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price,
+		}])
+		.unwrap();
+
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(filler.clone()),
 			pair_id,
-			price,
+			entries,
 			Some(verification),
 		));
 
 		// Verify the verified price entry was stored
 		let verified = VerifiedPrices::<Test>::get(&pair_id);
 		assert_eq!(verified.len(), 1);
+		assert_eq!(verified[0].filler, filler_h160);
+		assert_eq!(verified[0].range_start, U256::zero());
+		assert_eq!(verified[0].range_end, U256::from(999));
 		assert_eq!(verified[0].price, price);
 
 		// Verify the EVM nonce was incremented
 		assert_eq!(EvmNonces::<Test>::get(filler_h160), 1);
 
-		// Submit a second price with nonce=1
+		// Submit a second price with nonce=1 for a different range
 		let price2 = U256::from(4000);
 		let commitment2 = H256::repeat_byte(0xbb);
 
@@ -809,10 +824,17 @@ fn submit_pair_price_verified() {
 			evm_signature: Signature::Evm { address: evm_address.clone(), signature: signature2 },
 		};
 
+		let entries2 = BoundedVec::try_from(vec![types::PriceInput {
+			range_start: U256::from(1000),
+			range_end: U256::from(5000),
+			price: price2,
+		}])
+		.unwrap();
+
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(filler.clone()),
 			pair_id,
-			price2,
+			entries2,
 			Some(verification2),
 		));
 
@@ -842,11 +864,18 @@ fn submit_pair_price_verified() {
 			},
 		};
 
+		let entries_dup = BoundedVec::try_from(vec![types::PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price: U256::from(9999),
+		}])
+		.unwrap();
+
 		assert_noop!(
 			Intents::submit_pair_price(
 				RuntimeOrigin::signed(filler.clone()),
 				pair_id,
-				U256::from(9999),
+				entries_dup,
 				Some(verification_dup),
 			),
 			Error::<Test>::CommitmentAlreadyUsed
@@ -872,10 +901,17 @@ fn submit_pair_price_unverified() {
 		let balance_before = Balances::free_balance(&submitter);
 
 		// Submit unverified price (no verification data)
+		let entries = BoundedVec::try_from(vec![PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price,
+		}])
+		.unwrap();
+
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
-			price,
+			entries,
 			None,
 		));
 
@@ -910,30 +946,42 @@ fn unverified_prices_fifo_replacement() {
 
 		// Submit 3 unverified prices (fills the cap)
 		for i in 1..=3u64 {
+			let input = BoundedVec::try_from(vec![PriceInput {
+				range_start: U256::zero(),
+				range_end: U256::from(999),
+				price: U256::from(i * 1000),
+			}])
+			.unwrap();
 			assert_ok!(Intents::submit_pair_price(
 				RuntimeOrigin::signed(submitter.clone()),
 				pair_id,
-				U256::from(i * 1000),
+				input,
 				None,
 			));
 		}
 
-		let entries = UnverifiedPrices::<Test>::get(&pair_id);
-		assert_eq!(entries.len(), 3);
-		assert_eq!(entries[0].price, U256::from(1000)); // oldest
+		let stored = UnverifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(stored.len(), 3);
+		assert_eq!(stored[0].price, U256::from(1000)); // oldest
 
 		// Submit 4th — should pop the oldest (1000) and add new
+		let input4 = BoundedVec::try_from(vec![PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price: U256::from(4000),
+		}])
+		.unwrap();
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
-			U256::from(4000),
+			input4,
 			None,
 		));
 
-		let entries = UnverifiedPrices::<Test>::get(&pair_id);
-		assert_eq!(entries.len(), 3);
-		assert_eq!(entries[0].price, U256::from(2000)); // 1000 was popped
-		assert_eq!(entries[2].price, U256::from(4000)); // new entry at end
+		let stored = UnverifiedPrices::<Test>::get(&pair_id);
+		assert_eq!(stored.len(), 3);
+		assert_eq!(stored[0].price, U256::from(2000)); // 1000 was popped
+		assert_eq!(stored[2].price, U256::from(4000)); // new entry at end
 	});
 }
 
@@ -950,7 +998,9 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		VerifiedPrices::<Test>::insert(
 			&pair_id,
 			vec![types::PriceEntry {
-				submitter: AccountId32::new([1; 32]),
+				filler: H160::from_low_u64_be(1),
+				range_start: U256::zero(),
+				range_end: U256::from(999),
 				price: U256::from(1666),
 				timestamp: 1000,
 			}],
@@ -958,7 +1008,9 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		UnverifiedPrices::<Test>::insert(
 			&pair_id,
 			vec![types::PriceEntry {
-				submitter: AccountId32::new([2; 32]),
+				filler: H160::zero(),
+				range_start: U256::zero(),
+				range_end: U256::from(999),
 				price: U256::from(1500),
 				timestamp: 1000,
 			}],
@@ -987,10 +1039,16 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 
 		// Now submit an unverified price, this is the first submission in the new window.
 		// It should clear stale entries for this pair before adding the new one.
+		let new_entries = BoundedVec::try_from(vec![PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(999),
+			price: U256::from(2000),
+		}])
+		.unwrap();
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
-			U256::from(2000),
+			new_entries,
 			None,
 		));
 
@@ -1004,29 +1062,33 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 
 #[test]
 fn price_entry_encoding_matches_rpc_tuple_decoding() {
-	// The RPC decodes PriceEntry as Vec<(AccountId32, U256, u64)>.
+	// The RPC decodes PriceEntry as Vec<(H160, U256, U256, U256, u64)>.
 	// Verify that PriceEntry's SCALE encoding is identical to the tuple encoding.
 	use codec::Encode;
 
-	let submitter = AccountId32::new([1; 32]);
+	let filler = H160::from_low_u64_be(42);
+	let range_start = U256::zero();
+	let range_end = U256::from(999);
 	let price = U256::from(42_000);
 	let timestamp = 1_700_000_000u64;
 
-	let entry = types::PriceEntry { submitter: submitter.clone(), price, timestamp };
+	let entry = PriceEntry { filler, range_start, range_end, price, timestamp };
 
 	let entry_bytes = entry.encode();
-	let tuple_bytes = (submitter.clone(), price, timestamp).encode();
+	let tuple_bytes = (filler, range_start, range_end, price, timestamp).encode();
 	assert_eq!(entry_bytes, tuple_bytes, "PriceEntry SCALE encoding must match tuple encoding");
 
 	// Also verify round-trip: encode as PriceEntry, decode as tuple
-	type RpcTuple = (AccountId32, U256, u64);
+	type RpcTuple = (H160, U256, U256, U256, u64);
 	let entries = vec![entry];
 	let encoded = entries.encode();
 	let decoded: Vec<RpcTuple> = Decode::decode(&mut &encoded[..]).unwrap();
 	assert_eq!(decoded.len(), 1);
-	assert_eq!(decoded[0].0, submitter);
-	assert_eq!(decoded[0].1, price);
-	assert_eq!(decoded[0].2, timestamp);
+	assert_eq!(decoded[0].0, filler);
+	assert_eq!(decoded[0].1, range_start);
+	assert_eq!(decoded[0].2, range_end);
+	assert_eq!(decoded[0].3, price);
+	assert_eq!(decoded[0].4, timestamp);
 }
 
 #[test]
@@ -1038,12 +1100,16 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 		let pair_id = pair.pair_id();
 
 		let entry1 = types::PriceEntry {
-			submitter: AccountId32::new([1; 32]),
+			filler: H160::from_low_u64_be(1),
+			range_start: U256::zero(),
+			range_end: U256::from(999),
 			price: U256::from(2000),
 			timestamp: 1000,
 		};
 		let entry2 = types::PriceEntry {
-			submitter: AccountId32::new([2; 32]),
+			filler: H160::from_low_u64_be(2),
+			range_start: U256::from(1000),
+			range_end: U256::from(5000),
 			price: U256::from(3000),
 			timestamp: 2000,
 		};
@@ -1052,7 +1118,9 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 		UnverifiedPrices::<Test>::insert(
 			&pair_id,
 			vec![types::PriceEntry {
-				submitter: AccountId32::new([3; 32]),
+				filler: H160::zero(),
+				range_start: U256::zero(),
+				range_end: U256::from(999),
 				price: U256::from(1500),
 				timestamp: 500,
 			}],
@@ -1072,15 +1140,19 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 		let raw = sp_io::storage::get(&key).expect("VerifiedPrices storage should exist");
 
 		// Decode as the RPC would
-		type RpcTuple = (AccountId32, U256, u64);
+		type RpcTuple = (H160, U256, U256, U256, u64);
 		let decoded: Vec<RpcTuple> = Decode::decode(&mut &raw[..]).unwrap();
 		assert_eq!(decoded.len(), 2);
-		assert_eq!(decoded[0].0, AccountId32::new([1; 32]));
-		assert_eq!(decoded[0].1, U256::from(2000));
-		assert_eq!(decoded[0].2, 1000u64);
-		assert_eq!(decoded[1].0, AccountId32::new([2; 32]));
-		assert_eq!(decoded[1].1, U256::from(3000));
-		assert_eq!(decoded[1].2, 2000u64);
+		assert_eq!(decoded[0].0, H160::from_low_u64_be(1));
+		assert_eq!(decoded[0].1, U256::zero());
+		assert_eq!(decoded[0].2, U256::from(999));
+		assert_eq!(decoded[0].3, U256::from(2000));
+		assert_eq!(decoded[0].4, 1000u64);
+		assert_eq!(decoded[1].0, H160::from_low_u64_be(2));
+		assert_eq!(decoded[1].1, U256::from(1000));
+		assert_eq!(decoded[1].2, U256::from(5000));
+		assert_eq!(decoded[1].3, U256::from(3000));
+		assert_eq!(decoded[1].4, 2000u64);
 
 		// Do the same for UnverifiedPrices
 		let mut ukey = Vec::new();
@@ -1092,8 +1164,10 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 		let uraw = sp_io::storage::get(&ukey).expect("UnverifiedPrices storage should exist");
 		let udecoded: Vec<RpcTuple> = Decode::decode(&mut &uraw[..]).unwrap();
 		assert_eq!(udecoded.len(), 1);
-		assert_eq!(udecoded[0].0, AccountId32::new([3; 32]));
-		assert_eq!(udecoded[0].1, U256::from(1500));
-		assert_eq!(udecoded[0].2, 500u64);
+		assert_eq!(udecoded[0].0, H160::zero());
+		assert_eq!(udecoded[0].1, U256::zero());
+		assert_eq!(udecoded[0].2, U256::from(999));
+		assert_eq!(udecoded[0].3, U256::from(1500));
+		assert_eq!(udecoded[0].4, 500u64);
 	});
 }

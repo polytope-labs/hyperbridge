@@ -56,10 +56,14 @@ pub struct RpcBidInfo {
 /// A single price entry returned by the RPC
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RpcPriceEntry {
-	/// The submitter's encoded account
+	/// The filler's EVM address (zero address for unverified submissions)
 	#[serde(with = "hex_bytes")]
-	pub submitter: Vec<u8>,
-	/// The submitted price as a hex-encoded U256
+	pub filler: Vec<u8>,
+	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_start: String,
+	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
+	pub range_end: String,
+	/// The price of the base token in the quote token, with 18 decimal places
 	pub price: String,
 	/// Timestamp of submission (seconds)
 	pub timestamp: u64,
@@ -307,15 +311,23 @@ where
 				_ => return Vec::new(),
 			};
 
-			// Decode Vec<PriceEntry<AccountId32>>
-			// PriceEntry SCALE-encodes as (AccountId32(32 bytes), U256(32 bytes), u64(8 bytes))
-			type Entry = (sp_runtime::AccountId32, primitive_types::U256, u64);
+			// Decode Vec<PriceEntry>
+			// PriceEntry SCALE-encodes as (H160, U256, U256, U256, u64)
+			type Entry = (
+				primitive_types::H160,
+				primitive_types::U256,
+				primitive_types::U256,
+				primitive_types::U256,
+				u64,
+			);
 			match Vec::<Entry>::decode(&mut &data[..]) {
 				Ok(entries) => entries
 					.into_iter()
-					.map(|(submitter, price, timestamp)| RpcPriceEntry {
-						submitter: submitter.encode(),
-						price: format!("0x{price:x}"),
+					.map(|(filler, range_start, range_end, price, timestamp)| RpcPriceEntry {
+						filler: filler.as_bytes().to_vec(),
+						range_start: range_start.to_string(),
+						range_end: range_end.to_string(),
+						price: price.to_string(),
 						timestamp,
 					})
 					.collect(),

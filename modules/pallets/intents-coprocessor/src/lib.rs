@@ -44,8 +44,8 @@ use sp_runtime::traits::{ConstU32, Zero};
 pub use weights::WeightInfo;
 
 use types::{
-	Bid, GatewayInfo, IntentGatewayParams, PriceEntry, RequestKind, TokenDecimalsUpdate, TokenInfo,
-	TokenPair,
+	Bid, GatewayInfo, IntentGatewayParams, PriceEntry, PriceInput, RequestKind,
+	TokenDecimalsUpdate, TokenInfo, TokenPair,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -93,6 +93,10 @@ pub mod pallet {
 
 		/// The treasury account that receives unverified submission fees
 		type TreasuryAccount: Get<Self::AccountId>;
+
+		/// Maximum number of price entries per submission
+		#[pallet::constant]
+		type MaxPriceEntries: Get<u32>;
 
 		/// Weight information for extrinsics in this pallet
 		type WeightInfo: WeightInfo;
@@ -151,12 +155,12 @@ pub mod pallet {
 	/// Verified (high confidence) price entries per pair, from fillers with proofs
 	#[pallet::storage]
 	pub type VerifiedPrices<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry<T::AccountId>>, ValueQuery>;
+		StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
 
 	/// Unverified (low confidence) price entries per pair, from anyone without proofs
 	#[pallet::storage]
 	pub type UnverifiedPrices<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry<T::AccountId>>, ValueQuery>;
+		StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
 
 	/// Nonces for EVM addresses to prevent signature replay.
 	/// Keyed by the 20-byte EVM address.
@@ -245,14 +249,14 @@ pub mod pallet {
 		RecognizedPairAdded { pair_id: H256, pair: TokenPair },
 		/// A recognized token pair was removed
 		RecognizedPairRemoved { pair_id: H256 },
-		/// A verified price was submitted (high confidence)
-		PriceSubmitted { filler: T::AccountId, pair_id: H256, price: U256 },
+		/// Verified prices were submitted (high confidence)
+		PriceSubmitted { filler: T::AccountId, pair_id: H256 },
 		/// Price window duration was updated
 		PriceWindowDurationUpdated { duration_ms: u64 },
 		/// Proof freshness threshold was updated
 		ProofFreshnessThresholdUpdated { threshold_secs: u64 },
-		/// An unverified price was submitted (low confidence)
-		UnverifiedPriceSubmitted { submitter: T::AccountId, pair_id: H256, price: U256 },
+		/// Unverified prices were submitted (low confidence)
+		UnverifiedPriceSubmitted { submitter: T::AccountId, pair_id: H256 },
 		/// Max unverified submissions per pair was updated
 		MaxUnverifiedSubmissionsUpdated { max: u32 },
 		/// Unverified submission fee was updated
@@ -293,6 +297,10 @@ pub mod pallet {
 		SignerMismatch,
 		/// Unverified submissions are not configured (max or fee is zero)
 		UnverifiedSubmissionsNotConfigured,
+		/// The price range is invalid (range_start > range_end)
+		InvalidPriceRange,
+		/// No price entries were provided
+		EmptyPriceEntries,
 	}
 
 	#[pallet::call]
@@ -574,7 +582,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Submit a price for a recognized token pair.
+		/// Submit prices for a recognized token pair across one or more amount ranges.
 		///
 		/// This extrinsic supports two submission modes. When `verification` is provided,
 		/// the submission is treated as high confidence: the filler supplies ISMP state
@@ -583,8 +591,8 @@ pub mod pallet {
 		/// `None`, anyone may submit a low confidence price by paying bridge tokens.
 		/// Unverified entries are capped per pair with FIFO replacement.
 		///
-		/// The `pair_id` identifies the token pair, and `price` is the price of the base
-		/// token in terms of the quote token.
+		/// Each entry in `entries` specifies a base token amount range and the
+		/// corresponding price of the base token in terms of the quote token.
 		#[pallet::call_index(7)]
 		#[pallet::weight({
 			T::DbWeight::get().reads(12).saturating_add(T::DbWeight::get().writes(4))
@@ -592,19 +600,24 @@ pub mod pallet {
 		pub fn submit_pair_price(
 			origin: OriginFor<T>,
 			pair_id: H256,
-			price: U256,
+			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
 			verification: Option<types::PriceVerificationData>,
 		) -> DispatchResult {
 			let submitter = ensure_signed(origin)?;
 
+			ensure!(!entries.is_empty(), Error::<T>::EmptyPriceEntries);
+			ensure!(
+				entries.iter().all(|e| e.range_start <= e.range_end),
+				Error::<T>::InvalidPriceRange
+			);
 			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
 
 			let now = T::Dispatcher::default().timestamp().as_secs();
 
 			if let Some(v) = verification {
-				Self::submit_verified_price(submitter, pair_id, price, v, now)?;
+				Self::submit_verified_price(submitter, pair_id, entries, v, now)?;
 			} else {
-				Self::submit_unverified_price(submitter, pair_id, price, now)?;
+				Self::submit_unverified_price(submitter, pair_id, entries, now)?;
 			}
 
 			Ok(())
@@ -728,7 +741,7 @@ pub mod pallet {
 		fn submit_verified_price(
 			submitter: T::AccountId,
 			pair_id: H256,
-			price: U256,
+			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
 			v: types::PriceVerificationData,
 			now: u64,
 		) -> DispatchResult {
@@ -739,17 +752,23 @@ pub mod pallet {
 
 			let filler_address = Self::verify_fill_proofs(&v, &gateway_info, now)?;
 
-			Self::verify_evm_signature(&v, &pair_id, &price, filler_address)?;
+			Self::verify_evm_signature(&v, &pair_id, &entries[0].price, filler_address)?;
 
 			UsedCommitments::<T>::insert(&v.commitment, true);
 
 			Self::maybe_clear_stale_prices();
 
-			VerifiedPrices::<T>::mutate(&pair_id, |entries| {
-				entries.push(PriceEntry { submitter: submitter.clone(), price, timestamp: now });
+			VerifiedPrices::<T>::mutate(&pair_id, |stored| {
+				stored.extend(entries.iter().map(|input| PriceEntry {
+					filler: filler_address,
+					range_start: input.range_start,
+					range_end: input.range_end,
+					price: input.price,
+					timestamp: now,
+				}));
 			});
 
-			Self::deposit_event(Event::PriceSubmitted { filler: submitter, pair_id, price });
+			Self::deposit_event(Event::PriceSubmitted { filler: submitter, pair_id });
 
 			Ok(())
 		}
@@ -759,7 +778,7 @@ pub mod pallet {
 		fn submit_unverified_price(
 			submitter: T::AccountId,
 			pair_id: H256,
-			price: U256,
+			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
 			now: u64,
 		) -> DispatchResult {
 			let max = MaxUnverifiedSubmissions::<T>::get();
@@ -776,14 +795,25 @@ pub mod pallet {
 
 			Self::maybe_clear_stale_prices();
 
-			UnverifiedPrices::<T>::mutate(&pair_id, |entries| {
-				if entries.len() >= max as usize {
-					entries.remove(0);
+			UnverifiedPrices::<T>::mutate(&pair_id, |stored| {
+				let new_entries = entries.iter().map(|input| PriceEntry {
+					filler: H160::zero(),
+					range_start: input.range_start,
+					range_end: input.range_end,
+					price: input.price,
+					timestamp: now,
+				});
+
+				let total = stored.len() + entries.len();
+				if total > max as usize {
+					let drain_count = total - max as usize;
+					stored.drain(..drain_count.min(stored.len()));
 				}
-				entries.push(PriceEntry { submitter: submitter.clone(), price, timestamp: now });
+
+				stored.extend(new_entries);
 			});
 
-			Self::deposit_event(Event::UnverifiedPriceSubmitted { submitter, pair_id, price });
+			Self::deposit_event(Event::UnverifiedPriceSubmitted { submitter, pair_id });
 
 			Ok(())
 		}
@@ -861,6 +891,10 @@ pub mod pallet {
 			ensure!(proof_gap <= threshold, Error::<T>::ProofNotFresh);
 			let age = now.saturating_sub(commitment_h2.timestamp);
 			ensure!(age <= threshold, Error::<T>::ProofNotFresh);
+			ensure!(
+				commitment_h2.timestamp.saturating_sub(now) <= threshold,
+				Error::<T>::ProofNotFresh
+			);
 
 			Ok(filler_address)
 		}

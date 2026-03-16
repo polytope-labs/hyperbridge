@@ -50,7 +50,9 @@ BasicFiller requires pre-positioned stablecoins on each destination chain.
 
 ### HyperFX
 
-HyperFX fills same-chain swaps between USD-pegged stablecoins (USDC/USDT) and a single configurable exotic token — for example, cNGN (a Nigerian naira stablecoin). It only processes orders where `source == destination`.
+HyperFX fills swaps between USD-pegged stablecoins (USDC/USDT) and a single configurable exotic token — for example, cNGN (a Nigerian naira stablecoin). It supports both **same-chain** and **cross-chain** orders.
+
+Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders use the configured **confirmation policy** for HyperFX to determine how many confirmations to wait for before bidding.
 
 Profit comes from two sources: the **bid/ask spread** on the exotic token, and **order fees** minus gas. The filler holds both stablecoins and the exotic token. When a user swaps stable→exotic the filler sells exotic at the ask price; when the user swaps exotic→stable the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
 
@@ -135,10 +137,10 @@ bundlerUrl = "https://api.pimlico.io/v2/56/rpc?apikey=YOUR_KEY"
 ### Confirmation Policy
 
 <Callout type="info">
-Confirmation policies only apply to BasicFiller. HyperFX submits bids via the coprocessor and does not use this setting.
+Confirmation policies are configured per strategy. Both BasicFiller and HyperFX can use confirmation policies for cross-chain orders.
 </Callout>
 
-Before processing an order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer:
+Before processing a cross-chain order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer. Same-chain orders always proceed without additional confirmation delay.
 
 ```toml lineNumbers
 [confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
@@ -162,6 +164,38 @@ points = [
     { amount = "8000", value = 10 },
 ]
 ```
+
+For HyperFX, you can configure confirmation policies in the same way. For example:
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = "5000"
+
+[strategies.exoticTokenAddresses]
+"EVM-56"  = "0xExoticTokenAddressOnBsc"
+"EVM-137" = "0xExoticTokenAddressOnPolygon"
+
+[strategies.confirmationPolicies]
+# Chain IDs for HyperFX confirmation policy (same schema as BasicFiller)
+[strategies.confirmationPolicies."56"]    # BSC (~1s blocks)
+points = [
+    { amount = "1",   value = 3  },
+    { amount = "500", value = 6  },
+    { amount = "5000", value = 15 },
+]
+
+[strategies.confirmationPolicies."42161"] # Arbitrum (~0.25s blocks)
+points = [
+    { amount = "2",    value = 2  },
+    { amount = "1000", value = 5  },
+    { amount = "8000", value = 10 },
+]
+```
+
+<Callout type="warning">
+If HyperFX is configured without <code>[strategies.confirmationPolicies]</code>, Simplex logs a warning at startup and skips cross-chain orders for that strategy. Only same-chain HyperFX orders will be processed in that case.
+</Callout>
 
 ### Auto-Rebalancing
 

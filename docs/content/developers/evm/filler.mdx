@@ -316,7 +316,7 @@ class MyArbitrageStrategy implements FillerStrategy {
 
 ### Confirmation Policy - Security vs Speed
 
-The confirmation policy is a **critical security feature** that determines how many blockchain confirmations to wait for before processing an order. This prevents attacks from blockchain reorganizations (reorgs) where transactions can be reversed.
+The confirmation policy is a **critical security feature** that determines how many blockchain confirmations to wait for before processing a cross-chain order. This prevents attacks from blockchain reorganizations (reorgs) where transactions can be reversed.
 
 #### How It Works
 
@@ -344,6 +344,8 @@ maxAmount = "10000"    # 10000 USD
 minConfirmations = 1                   # 1 block for small orders (~3 seconds)
 maxConfirmations = 5                   # 5 blocks for large orders (~15 seconds)
 ```
+
+Confirmation policies are configured **per strategy**. BasicFiller uses the global `[confirmationPolicies]` section directly. Advanced strategies like HyperFX can also define their own confirmation policies; cross-chain orders without an applicable policy are skipped rather than being processed with zero confirmations.
 
 #### Example Calculation
 

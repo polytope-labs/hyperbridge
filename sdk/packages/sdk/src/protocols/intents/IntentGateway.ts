@@ -211,8 +211,7 @@ export class IntentGateway {
 			minBids?: number
 			bidTimeoutMs?: number
 			pollIntervalMs?: number
-			solver?: HexString
-			solverTimeoutMs?: number
+			solver?: { address: HexString; timeoutMs: number }
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString> {
 		let value: bigint | undefined
@@ -260,7 +259,6 @@ export class IntentGateway {
 			bidTimeoutMs: options?.bidTimeoutMs,
 			pollIntervalMs: options?.pollIntervalMs,
 			solver: options?.solver,
-			solverTimeoutMs: options?.solverTimeoutMs,
 		})) {
 			yield status
 		}

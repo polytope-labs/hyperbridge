@@ -314,6 +314,16 @@ export class IntentFiller {
 				const isCrossChain = order.source !== order.destination
 				let requiredConfirmations = 0
 				if (isCrossChain) {
+					const hasConfirmationPolicy = [...canFillCache].some(
+						([strategy, canFill]) => canFill && strategy.confirmationPolicy,
+					)
+					if (!hasConfirmationPolicy) {
+						this.logger.warn(
+							{ orderId: order.id, source: order.source, destination: order.destination },
+							"Skipping cross-chain order: no strategy has a confirmation policy configured",
+						)
+						return
+					}
 					for (const [strategy, canFill] of canFillCache) {
 						if (!canFill || !strategy.confirmationPolicy) continue
 						requiredConfirmations = Math.max(

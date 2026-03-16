@@ -389,24 +389,27 @@ program
 							confirmationPolicy,
 						)
 					}
-				case "hyperfx": {
-					const bidPricePolicy = new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
-					const askPricePolicy = new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
+					case "hyperfx": {
+						const bidPricePolicy = new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
+						const askPricePolicy = new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
 					const fxConfirmationPolicy = strategyConfig.confirmationPolicies
 						? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
 						: undefined
-					return new FXFiller(
-						privateKey,
-						configService,
-						chainClientManager,
-						contractService,
-						bidPricePolicy,
-						askPricePolicy,
-						strategyConfig.maxOrderUsd,
-						strategyConfig.exoticTokenAddresses,
-						fxConfirmationPolicy,
-					)
-				}
+					if (!fxConfirmationPolicy) {
+						logger.warn("No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped")
+					}
+						return new FXFiller(
+							privateKey,
+							configService,
+							chainClientManager,
+							contractService,
+							bidPricePolicy,
+							askPricePolicy,
+							strategyConfig.maxOrderUsd,
+							strategyConfig.exoticTokenAddresses,
+							fxConfirmationPolicy,
+						)
+					}
 					default:
 						throw new Error(`Unknown strategy type: ${(strategyConfig as StrategyConfig).type}`)
 				}

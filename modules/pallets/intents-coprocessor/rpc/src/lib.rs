@@ -53,14 +53,15 @@ pub struct RpcBidInfo {
 	pub user_op: Vec<u8>,
 }
 
-/// A single price entry returned by the RPC
+/// A single price entry returned by the RPC.
+/// Amounts and prices are human-readable (divided by 10^18 from on-chain storage).
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RpcPriceEntry {
-	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
+	/// Lower bound of the base token amount range (inclusive)
 	pub range_start: String,
-	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
+	/// Upper bound of the base token amount range (inclusive)
 	pub range_end: String,
-	/// The price of the base token in the quote token, with 18 decimal places
+	/// The price of the base token in the quote token
 	pub price: String,
 	/// Timestamp of submission (seconds)
 	pub timestamp: u64,
@@ -165,6 +166,24 @@ impl BidCache {
 		bids.retain(|_commitment, order| now.duration_since(order.first_seen) < self.ttl);
 		Ok(())
 	}
+}
+
+/// Format a U256 value with the given number of decimal places into a human-readable
+/// decimal string, preserving fractional digits and trimming trailing zeros.
+/// e.g. format_u256_decimals(U256::from(1_414_500_000_000_000_000_000u128), 18) => "1414.5"
+fn format_u256_decimals(value: primitive_types::U256, decimals: u32) -> String {
+	let divisor = primitive_types::U256::from(10u64).pow(primitive_types::U256::from(decimals));
+	let integer_part = value / divisor;
+	let remainder = value % divisor;
+
+	if remainder.is_zero() {
+		return integer_part.to_string();
+	}
+
+	// Pad remainder to full `decimals` width, then trim trailing zeros
+	let frac = format!("{:0>width$}", remainder, width = decimals as usize);
+	let frac = frac.trim_end_matches('0');
+	format!("{integer_part}.{frac}")
 }
 
 fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
@@ -305,9 +324,9 @@ where
 			Ok(entries) => Ok(entries
 				.into_iter()
 				.map(|(range_start, range_end, price, timestamp)| RpcPriceEntry {
-					range_start: range_start.to_string(),
-					range_end: range_end.to_string(),
-					price: price.to_string(),
+					range_start: format_u256_decimals(range_start, 18),
+					range_end: format_u256_decimals(range_end, 18),
+					price: format_u256_decimals(price, 18),
 					timestamp,
 				})
 				.collect()),

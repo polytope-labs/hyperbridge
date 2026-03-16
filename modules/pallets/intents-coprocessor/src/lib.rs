@@ -39,7 +39,10 @@ use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
 use sp_io::offchain_index;
-use sp_runtime::traits::{ConstU32, Zero};
+use sp_runtime::{
+	traits::{ConstU32, Zero},
+	Saturating,
+};
 pub use weights::WeightInfo;
 
 use types::{
@@ -145,16 +148,18 @@ pub mod pallet {
 	pub type Prices<T: Config> = StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
 
 	/// Deposits reserved by price submitters. Maps (account, pair_id) to
-	/// (deposit_amount, deposit_timestamp_secs). The deposit is locked for
-	/// `PriceDepositLockDuration` seconds, after which it can be withdrawn.
+	/// (deposit_amount, unlock_block). When `unlock_block` is `None`, the withdrawal
+	/// has not been initiated. The first call to `withdraw_price_deposit` sets
+	/// `unlock_block` to `current_block + PriceDepositLockDuration`. The second
+	/// call (after that block) unreserves the tokens.
 	#[pallet::storage]
 	pub type PriceDeposits<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
 		T::AccountId,
 		Blake2_128Concat,
-		H256,                // pair_id
-		(BalanceOf<T>, u64), // (deposit_amount, deposit_timestamp)
+		H256,                                      // pair_id
+		(BalanceOf<T>, Option<BlockNumberFor<T>>), // (deposit_amount, unlock_block)
 		OptionQuery,
 	>;
 
@@ -162,9 +167,11 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PriceDepositAmount<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
-	/// How long (in seconds) the price deposit is locked before it can be withdrawn
+	/// How many blocks the price deposit is locked before it can be withdrawn.
+	/// When a filler initiates a withdrawal, the unlock block is set to
+	/// `current_block + PriceDepositLockDuration`.
 	#[pallet::storage]
-	pub type PriceDepositLockDuration<T: Config> = StorageValue<_, u64, ValueQuery>;
+	pub type PriceDepositLockDuration<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
 	/// Whether prices have been cleared in the current window.
 	/// Reset to false by `on_initialize` when a new window starts.
@@ -237,11 +244,17 @@ pub mod pallet {
 		PriceWindowDurationUpdated { duration_ms: u64 },
 		/// Price deposit amount was updated
 		PriceDepositAmountUpdated { amount: BalanceOf<T> },
-		/// Price deposit lock duration was updated
-		PriceDepositLockDurationUpdated { duration_secs: u64 },
+		/// Price deposit lock duration was updated (in blocks)
+		PriceDepositLockDurationUpdated { duration_blocks: BlockNumberFor<T> },
 		/// Price deposit was reserved on first submission
 		PriceDepositReserved { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
-		/// Price deposit was withdrawn
+		/// Price deposit withdrawal was initiated (unlock block noted)
+		PriceDepositWithdrawalInitiated {
+			submitter: T::AccountId,
+			pair_id: H256,
+			unlock_block: BlockNumberFor<T>,
+		},
+		/// Price deposit was withdrawn (tokens unreserved)
 		PriceDepositWithdrawn { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
 	}
 
@@ -271,8 +284,10 @@ pub mod pallet {
 		PriceDepositsNotConfigured,
 		/// No deposit found for this account and pair
 		DepositNotFound,
-		/// The deposit is still within the lock duration
+		/// The deposit is still within the lock duration (unlock block not yet reached)
 		DepositStillLocked,
+		/// Withdrawal has already been initiated
+		WithdrawalAlreadyInitiated,
 	}
 
 	#[pallet::call]
@@ -591,7 +606,11 @@ pub mod pallet {
 				<T as Config>::Currency::reserve(&submitter, deposit_amount)
 					.map_err(|_| Error::<T>::InsufficientBalance)?;
 
-				PriceDeposits::<T>::insert(&submitter, &pair_id, (deposit_amount, now));
+				PriceDeposits::<T>::insert(
+					&submitter,
+					&pair_id,
+					(deposit_amount, None::<BlockNumberFor<T>>),
+				);
 
 				Self::deposit_event(Event::PriceDepositReserved {
 					submitter: submitter.clone(),
@@ -677,54 +696,75 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Set the lock duration for price deposits
+		/// Set the lock duration (in blocks) for price deposits
 		#[pallet::call_index(12)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn set_price_deposit_lock_duration(
 			origin: OriginFor<T>,
-			duration_secs: u64,
+			duration_blocks: BlockNumberFor<T>,
 		) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			PriceDepositLockDuration::<T>::put(duration_secs);
+			PriceDepositLockDuration::<T>::put(duration_blocks);
 
-			Self::deposit_event(Event::PriceDepositLockDurationUpdated { duration_secs });
+			Self::deposit_event(Event::PriceDepositLockDurationUpdated { duration_blocks });
 
 			Ok(())
 		}
 
-		/// Withdraw a price deposit after the lock duration has elapsed
+		/// Withdraw a price deposit using a two-phase process.
+		///
+		/// **First call**: Initiates the withdrawal by recording the unlock block
+		/// (current block + `PriceDepositLockDuration`). No tokens are moved.
+		///
+		/// **Second call** (after the unlock block has been reached): Unreserves
+		/// the deposited tokens and removes the deposit record.
 		///
 		/// # Parameters
 		/// - `pair_id`: The token pair the deposit was made for
 		///
 		/// # Errors
 		/// - `DepositNotFound`: No deposit exists for this account and pair
-		/// - `DepositStillLocked`: The lock duration has not yet elapsed
+		/// - `WithdrawalAlreadyInitiated`: First call was already made (waiting for unlock)
+		/// - `DepositStillLocked`: The unlock block has not yet been reached
 		#[pallet::call_index(13)]
 		#[pallet::weight(T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(1)))]
 		pub fn withdraw_price_deposit(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
-			let (deposit_amount, deposit_timestamp) =
+			let (deposit_amount, unlock_block) =
 				PriceDeposits::<T>::get(&who, &pair_id).ok_or(Error::<T>::DepositNotFound)?;
 
-			let now = T::Dispatcher::default().timestamp().as_secs();
-			let lock_duration = PriceDepositLockDuration::<T>::get();
+			match unlock_block {
+				None => {
+					// Phase 1: Initiate withdrawal — note the unlock block
+					let current_block = <frame_system::Pallet<T>>::block_number();
+					let lock_duration = PriceDepositLockDuration::<T>::get();
+					let unlock_at = current_block.saturating_add(lock_duration);
 
-			ensure!(
-				now.saturating_sub(deposit_timestamp) >= lock_duration,
-				Error::<T>::DepositStillLocked
-			);
+					PriceDeposits::<T>::insert(&who, &pair_id, (deposit_amount, Some(unlock_at)));
 
-			<T as Config>::Currency::unreserve(&who, deposit_amount);
-			PriceDeposits::<T>::remove(&who, &pair_id);
+					Self::deposit_event(Event::PriceDepositWithdrawalInitiated {
+						submitter: who,
+						pair_id,
+						unlock_block: unlock_at,
+					});
+				},
+				Some(unlock_at) => {
+					// Phase 2: Complete withdrawal — unreserve if unlock block reached
+					let current_block = <frame_system::Pallet<T>>::block_number();
+					ensure!(current_block >= unlock_at, Error::<T>::DepositStillLocked);
 
-			Self::deposit_event(Event::PriceDepositWithdrawn {
-				submitter: who,
-				pair_id,
-				amount: deposit_amount,
-			});
+					<T as Config>::Currency::unreserve(&who, deposit_amount);
+					PriceDeposits::<T>::remove(&who, &pair_id);
+
+					Self::deposit_event(Event::PriceDepositWithdrawn {
+						submitter: who,
+						pair_id,
+						amount: deposit_amount,
+					});
+				},
+			}
 
 			Ok(())
 		}

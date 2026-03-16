@@ -169,8 +169,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		pallet_intents::PriceWindowDurationValue::<Test>::put(86_400_000u64);
 		// Price deposit: 500 tokens
 		pallet_intents::PriceDepositAmount::<Test>::put(500u64);
-		// Lock duration: 1 hour
-		pallet_intents::PriceDepositLockDuration::<Test>::put(3600u64);
+		// Lock duration: 10 blocks
+		pallet_intents::PriceDepositLockDuration::<Test>::put(10u64);
 	});
 	ext
 }
@@ -600,11 +600,11 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 		assert_eq!(Balances::free_balance(&submitter), balance_before - deposit_amount);
 		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
 
-		// Deposit record stored
-		let (stored_amount, stored_timestamp) =
+		// Deposit record stored (no unlock block yet)
+		let (stored_amount, unlock_block) =
 			PriceDeposits::<Test>::get(&submitter, &pair_id).unwrap();
 		assert_eq!(stored_amount, deposit_amount);
-		assert_eq!(stored_timestamp, 2000);
+		assert_eq!(unlock_block, None);
 
 		// Price entry stored
 		let prices = Prices::<Test>::get(&pair_id);
@@ -693,7 +693,7 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 }
 
 #[test]
-fn withdraw_price_deposit_works_after_lock_duration() {
+fn withdraw_price_deposit_two_phase() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
@@ -702,7 +702,6 @@ fn withdraw_price_deposit_works_after_lock_duration() {
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
-		// Submit at timestamp 2000s
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
@@ -721,9 +720,30 @@ fn withdraw_price_deposit_works_after_lock_duration() {
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 		let balance_after_submit = Balances::free_balance(&submitter);
 
-		// Advance past lock duration (2000 + 3600 = 5600 seconds)
-		pallet_timestamp::Now::<Test>::put(6_000_000u64); // 6000 seconds
+		// Phase 1: Initiate withdrawal at block 1
+		System::set_block_number(1);
+		assert_ok!(Intents::withdraw_price_deposit(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+		));
 
+		// Deposit is NOT yet unreserved
+		assert_eq!(Balances::free_balance(&submitter), balance_after_submit);
+		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
+
+		// Unlock block is set (1 + 10 = 11)
+		let (_, unlock_block) = PriceDeposits::<Test>::get(&submitter, &pair_id).unwrap();
+		assert_eq!(unlock_block, Some(11u64));
+
+		// Phase 2 too early: still locked at block 5
+		System::set_block_number(5);
+		assert_noop!(
+			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter.clone()), pair_id,),
+			Error::<Test>::DepositStillLocked
+		);
+
+		// Phase 2: Complete withdrawal at block 11
+		System::set_block_number(11);
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
@@ -739,7 +759,7 @@ fn withdraw_price_deposit_works_after_lock_duration() {
 }
 
 #[test]
-fn withdraw_price_deposit_fails_when_still_locked() {
+fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
@@ -748,7 +768,6 @@ fn withdraw_price_deposit_fails_when_still_locked() {
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
-		// Submit at timestamp 2000s
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
@@ -764,9 +783,15 @@ fn withdraw_price_deposit_fails_when_still_locked() {
 			entries,
 		));
 
-		// Still within lock duration (2000 + 1000 < 2000 + 3600)
-		pallet_timestamp::Now::<Test>::put(3_000_000u64); // 3000 seconds
+		// Phase 1: Initiate withdrawal at block 1
+		System::set_block_number(1);
+		assert_ok!(Intents::withdraw_price_deposit(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+		));
 
+		// Phase 2: Try to complete at block 5 (unlock is at 11)
+		System::set_block_number(5);
 		assert_noop!(
 			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter), pair_id,),
 			Error::<Test>::DepositStillLocked
@@ -798,8 +823,8 @@ fn set_price_deposit_amount_works() {
 #[test]
 fn set_price_deposit_lock_duration_works() {
 	new_test_ext().execute_with(|| {
-		assert_ok!(Intents::set_price_deposit_lock_duration(RuntimeOrigin::root(), 7200u64));
-		assert_eq!(PriceDepositLockDuration::<Test>::get(), 7200u64);
+		assert_ok!(Intents::set_price_deposit_lock_duration(RuntimeOrigin::root(), 100u64));
+		assert_eq!(PriceDepositLockDuration::<Test>::get(), 100u64);
 	});
 }
 
@@ -1020,9 +1045,19 @@ fn separate_deposits_per_pair() {
 		// Two deposits reserved (one per pair)
 		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount * 2);
 
-		// Can withdraw each independently
-		pallet_timestamp::Now::<Test>::put(6_000_000u64);
+		// Phase 1: Initiate both withdrawals at block 1
+		System::set_block_number(1);
+		assert_ok!(Intents::withdraw_price_deposit(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id1,
+		));
+		assert_ok!(Intents::withdraw_price_deposit(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id2,
+		));
 
+		// Phase 2: Complete both after lock duration (block 11)
+		System::set_block_number(11);
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id1,

@@ -33,7 +33,12 @@ On the first price submission per (account, token pair), a deposit is reserved f
 
 After the initial deposit, the submitter can update prices for the same token pair as many times as they want without paying anything further.
 
-The deposit can be withdrawn after a configurable lock duration has elapsed by calling the `withdraw_price_deposit` extrinsic. The lock duration is set by governance through the `set_price_deposit_lock_duration` extrinsic. Until the lock duration has passed, the deposit remains reserved and cannot be withdrawn.
+Withdrawing a deposit uses a two-phase process via the `withdraw_price_deposit` extrinsic:
+
+1. **Phase 1 — Initiate**: The first call records the unlock block (`current_block + PriceDepositLockDuration`). No tokens are moved.
+2. **Phase 2 — Complete**: After the unlock block has been reached, a second call unreserves the tokens and removes the deposit record.
+
+The lock duration (in blocks) is set by governance through `set_price_deposit_lock_duration`. This two-phase model prevents instant withdrawals while keeping the deposit locked for a predictable number of blocks.
 
 This model discourages spam (each new pair requires locking funds) while keeping ongoing price updates free.
 
@@ -89,7 +94,7 @@ Amounts are specified in human-readable form (e.g. `"1000"` for 1000 tokens) and
 
 Multiple pairs can be configured by repeating `[[priceUpdates.pairs]]` blocks. Each pair can have multiple entries for tiered pricing at different order sizes.
 
-The first submission for each pair will reserve a deposit from the substrate account. Subsequent updates to the same pair are free. The deposit can be reclaimed after the governance-configured lock duration by calling `withdrawPriceDeposit`.
+The first submission for each pair will reserve a deposit from the substrate account. Subsequent updates to the same pair are free. The deposit can be reclaimed via a two-phase withdrawal: call `withdrawPriceDeposit` once to initiate (records the unlock block), then call it again after the governance-configured lock duration (in blocks) has elapsed to unreserve the tokens.
 
 ### SDK Usage
 
@@ -107,7 +112,10 @@ await coprocessor.submitPairPrice("0x...", [
   { rangeStart: parseUnits("1000", 18), rangeEnd: parseUnits("5000", 18), price: parseUnits("1420", 18) },
 ])
 
-// Withdraw deposit after lock period
+// Withdraw deposit (two-phase):
+// Phase 1 — initiate withdrawal (records unlock block)
+await coprocessor.withdrawPriceDeposit("0x...")
+// Phase 2 — complete withdrawal after unlock block is reached
 await coprocessor.withdrawPriceDeposit("0x...")
 ```
 
@@ -142,6 +150,6 @@ All key parameters are stored on-chain and updatable via governance extrinsics:
 
 - `PriceWindowDurationValue` is the length of the price window in milliseconds.
 - `PriceDepositAmount` is the amount reserved from submitters on their first price submission per pair.
-- `PriceDepositLockDuration` is how long (in seconds) the deposit is locked before it can be withdrawn.
+- `PriceDepositLockDuration` is how many blocks the deposit is locked before it can be withdrawn (used in the two-phase withdrawal process).
 - `MaxPriceEntries` is the compile-time maximum number of price entries per submission, configurable per runtime.
 - Recognized token pairs determine which pairs accept submissions.

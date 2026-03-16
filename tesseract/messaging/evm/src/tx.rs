@@ -358,7 +358,7 @@ pub async fn submit_messages(
 	for (idx, tx) in tx_requests.into_iter().enumerate() {
 		// Fetch the pending nonce upfront so we can reuse it if the tx gets stuck.
 		let nonce = client.signer.get_transaction_count(from).await?;
-		let tx = tx.nonce(nonce);
+		let tx = tx.nonce(nonce).transaction_type(0);
 
 		// Retry the send on rate limits.
 		let pending = loop {

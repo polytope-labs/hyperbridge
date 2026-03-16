@@ -529,7 +529,7 @@ export class FXFiller implements FillerStrategy {
 	 * Classifies all (input, output) legs of an order in one pass.
 	 * Returns null if any leg has an unsupported pair.
 	 */
-	private classifyAllPairs(order: OrderV2): CachedPairClassification[] | null {
+	private classifyAllPairs(order: Order): CachedPairClassification[] | null {
 		if (order.id) {
 			const cached = this.contractService.cacheService.getPairClassifications(order.id)
 			if (cached) return cached
@@ -586,7 +586,7 @@ export class FXFiller implements FillerStrategy {
 	 * via the bid price policy at the minimum price point.
 	 * Returns `null` only when pair classification fails (genuine "can't price").
 	 */
-	async getOrderUsdValue(order: OrderV2): Promise<{ inputUsd: Decimal } | null> {
+	async getOrderUsdValue(order: Order): Promise<{ inputUsd: Decimal } | null> {
 		const pairs = this.classifyAllPairs(order)
 		if (!pairs) return null
 

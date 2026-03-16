@@ -471,16 +471,16 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 		const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
 		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
 
-		const inputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 
 		const requestedExtOut = parseUnits("0.006", destExtDecimals)
-		const outputs: TokenInfoV2[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: OrderV2 = {
+		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(arbitrumMainnetId),
 			destination: toHex(baseMainnetId),
@@ -498,14 +498,14 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			process.env.SECRET_PHRASE!,
 		)
 
-		const arbitrumEvmChain = new EvmChain({
+		const arbitrumEvmChain = EvmChain.fromParams({
 			chainId: 42161,
 			host: chainConfigService.getHostAddress(arbitrumMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
 			bundlerUrl: chainConfigService.getBundlerUrl(arbitrumMainnetId),
 		})
 
-		const baseEvmChain = new EvmChain({
+		const baseEvmChain = EvmChain.fromParams({
 			chainId: 8453,
 			host: chainConfigService.getHostAddress(baseMainnetId),
 			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
@@ -838,8 +838,8 @@ function createCrossChainFxIntentFiller(
 	})
 	const askPricePolicy = new FillerPricePolicy({
 		points: [
-			{ amount: "1", price: "10000" },
-			{ amount: "10000", price: "10000" },
+			{ amount: "1", price: "9500" },
+			{ amount: "10000", price: "9500" },
 		],
 	})
 

@@ -34,10 +34,9 @@ use frame_support::{
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::{IsmpHost, StateMachine},
-	messaging::Proof,
 };
 use polkadot_sdk::*;
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H160, H256};
 use sp_core::Get;
 use sp_io::offchain_index;
 use sp_runtime::traits::{ConstU32, Zero};
@@ -91,9 +90,6 @@ pub mod pallet {
 		/// Origin that can perform governance actions
 		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
-		/// The treasury account that receives unverified submission fees
-		type TreasuryAccount: Get<Self::AccountId>;
-
 		/// Maximum number of price entries per submission
 		#[pallet::constant]
 		type MaxPriceEntries: Get<u32>;
@@ -136,10 +132,6 @@ pub mod pallet {
 	pub type RecognizedPairs<T: Config> =
 		StorageMap<_, Blake2_128Concat, H256, TokenPair, OptionQuery>;
 
-	/// Commitments that have already been used for price submissions
-	#[pallet::storage]
-	pub type UsedCommitments<T: Config> = StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
-
 	/// Start timestamp (in seconds) of the current price window
 	#[pallet::storage]
 	pub type PriceWindowStart<T: Config> = StorageValue<_, u64, ValueQuery>;
@@ -148,38 +140,31 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PriceWindowDurationValue<T: Config> = StorageValue<_, u64, ValueQuery>;
 
-	/// Proof freshness threshold in seconds
+	/// Price entries per pair
 	#[pallet::storage]
-	pub type ProofFreshnessThresholdValue<T: Config> = StorageValue<_, u64, ValueQuery>;
+	pub type Prices<T: Config> = StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
 
-	/// Verified (high confidence) price entries per pair, from fillers with proofs
+	/// Deposits reserved by price submitters. Maps (account, pair_id) to
+	/// (deposit_amount, deposit_timestamp_secs). The deposit is locked for
+	/// `PriceDepositLockDuration` seconds, after which it can be withdrawn.
 	#[pallet::storage]
-	pub type VerifiedPrices<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
+	pub type PriceDeposits<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		Blake2_128Concat,
+		H256,                // pair_id
+		(BalanceOf<T>, u64), // (deposit_amount, deposit_timestamp)
+		OptionQuery,
+	>;
 
-	/// Unverified (low confidence) price entries per pair, from anyone without proofs
+	/// The amount reserved from submitters on their first price submission per pair
 	#[pallet::storage]
-	pub type UnverifiedPrices<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
+	pub type PriceDepositAmount<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
-	/// Nonces for EVM addresses to prevent signature replay.
-	/// Keyed by the 20-byte EVM address.
+	/// How long (in seconds) the price deposit is locked before it can be withdrawn
 	#[pallet::storage]
-	pub type EvmNonces<T: Config> = StorageMap<_, Blake2_128Concat, H160, u64, ValueQuery>;
-
-	/// Maximum number of unverified price submissions per pair
-	#[pallet::storage]
-	pub type MaxUnverifiedSubmissions<T: Config> = StorageValue<_, u32, ValueQuery>;
-
-	/// Fee charged for unverified price submissions (in native/bridge tokens)
-	#[pallet::storage]
-	pub type UnverifiedSubmissionFee<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
-
-	/// Fillers verified through cross-chain message inspection.
-	/// Maps filler EVM address to the timestamp (seconds) when they were last seen
-	/// filling an order via a RedeemEscrow message routed through Hyperbridge.
-	#[pallet::storage]
-	pub type VerifiedFillers<T: Config> = StorageMap<_, Blake2_128Concat, H160, u64, OptionQuery>;
+	pub type PriceDepositLockDuration<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	/// Whether prices have been cleared in the current window.
 	/// Reset to false by `on_initialize` when a new window starts.
@@ -204,19 +189,10 @@ pub mod pallet {
 			let window_start = PriceWindowStart::<T>::get();
 
 			if window_start == 0 || now.saturating_sub(window_start) >= window_duration_secs {
-				// New window: clear UsedCommitments (safe because freshness threshold
-				// prevents old proofs from being replayed) and update the window start.
-				// Price entries (VerifiedPrices, UnverifiedPrices) are NOT cleared here —
-				// they persist so yesterday's prices remain readable. They are cleared
-				// lazily on the first submission per pair in the new window.
-				let used_result = UsedCommitments::<T>::clear(u32::MAX, None);
 				PriceWindowStart::<T>::put(now);
 				PricesClearedThisWindow::<T>::put(false);
 
-				let cleared = used_result.unique.saturating_add(1);
-				T::DbWeight::get()
-					.reads(3)
-					.saturating_add(T::DbWeight::get().writes(cleared.into()))
+				T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(2))
 			} else {
 				T::DbWeight::get().reads(3)
 			}
@@ -255,18 +231,18 @@ pub mod pallet {
 		RecognizedPairAdded { pair_id: H256, pair: TokenPair },
 		/// A recognized token pair was removed
 		RecognizedPairRemoved { pair_id: H256 },
-		/// Verified prices were submitted (high confidence)
-		PriceSubmitted { filler: T::AccountId, pair_id: H256 },
+		/// Prices were submitted for a token pair
+		PriceSubmitted { submitter: T::AccountId, pair_id: H256 },
 		/// Price window duration was updated
 		PriceWindowDurationUpdated { duration_ms: u64 },
-		/// Proof freshness threshold was updated
-		ProofFreshnessThresholdUpdated { threshold_secs: u64 },
-		/// Unverified prices were submitted (low confidence)
-		UnverifiedPriceSubmitted { submitter: T::AccountId, pair_id: H256 },
-		/// Max unverified submissions per pair was updated
-		MaxUnverifiedSubmissionsUpdated { max: u32 },
-		/// Unverified submission fee was updated
-		UnverifiedSubmissionFeeUpdated { fee: BalanceOf<T> },
+		/// Price deposit amount was updated
+		PriceDepositAmountUpdated { amount: BalanceOf<T> },
+		/// Price deposit lock duration was updated
+		PriceDepositLockDurationUpdated { duration_secs: u64 },
+		/// Price deposit was reserved on first submission
+		PriceDepositReserved { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
+		/// Price deposit was withdrawn
+		PriceDepositWithdrawn { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -285,32 +261,18 @@ pub mod pallet {
 		DispatchFailed,
 		/// Token pair not recognized
 		PairNotRecognized,
-		/// Non-membership proof verification failed
-		NonMembershipProofFailed,
-		/// Membership proof verification failed
-		MembershipProofFailed,
-		/// The time gap between the two proofs exceeds the freshness threshold
-		ProofNotFresh,
-		/// State proof verification failed
-		ProofVerificationFailed,
 		/// Token pair already exists
 		PairAlreadyExists,
-		/// This commitment has already been used for a price submission
-		CommitmentAlreadyUsed,
-		/// EVM signature verification failed
-		InvalidSignature,
-		/// The recovered EVM address does not match the filler from the proof
-		SignerMismatch,
-		/// Unverified submissions are not configured (max or fee is zero)
-		UnverifiedSubmissionsNotConfigured,
 		/// The price range is invalid (range_start > range_end)
 		InvalidPriceRange,
 		/// No price entries were provided
 		EmptyPriceEntries,
-		/// The filler is not in the VerifiedFillers map
-		FillerNotVerified,
-		/// The filler's cross-chain verification has expired
-		FillerVerificationExpired,
+		/// Price deposits are not configured (amount is zero)
+		PriceDepositsNotConfigured,
+		/// No deposit found for this account and pair
+		DepositNotFound,
+		/// The deposit is still within the lock duration
+		DepositStillLocked,
 	}
 
 	#[pallet::call]
@@ -594,16 +556,10 @@ pub mod pallet {
 
 		/// Submit prices for a recognized token pair across one or more amount ranges.
 		///
-		/// This extrinsic supports three submission modes via the `mode` parameter:
-		///
-		/// - `StateProof`: High confidence. The filler supplies ISMP state proofs and an EVM
-		///   signature to prove they filled the order and own the submitting account (bound by an
-		///   on-chain nonce).
-		/// - `CrossChain`: High confidence. The filler was passively verified by the IntentGateway
-		///   inspector when their RedeemEscrow message flowed through Hyperbridge. Only an EVM
-		///   signature is required (no state proofs).
-		/// - `Unverified`: Low confidence. Anyone may submit by paying bridge tokens. Unverified
-		///   entries are capped per pair with FIFO replacement.
+		/// On the first submission per (account, pair), a deposit is reserved from the
+		/// submitter's balance. Subsequent submissions for the same pair are free.
+		/// The deposit can be withdrawn after the configured lock duration via
+		/// `withdraw_price_deposit`.
 		///
 		/// Each entry in `entries` specifies a base token amount range and the
 		/// corresponding price of the base token in terms of the quote token.
@@ -615,7 +571,6 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			pair_id: H256,
 			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
-			mode: types::PriceSubmissionMode,
 		) -> DispatchResult {
 			let submitter = ensure_signed(origin)?;
 
@@ -626,16 +581,37 @@ pub mod pallet {
 			);
 			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
 
+			let deposit_amount = PriceDepositAmount::<T>::get();
+			ensure!(!deposit_amount.is_zero(), Error::<T>::PriceDepositsNotConfigured);
+
 			let now = T::Dispatcher::default().timestamp().as_secs();
 
-			match mode {
-				types::PriceSubmissionMode::StateProof(v) =>
-					Self::submit_verified_price(submitter, pair_id, entries, v, now)?,
-				types::PriceSubmissionMode::CrossChain(v) =>
-					Self::submit_cross_chain_verified_price(submitter, pair_id, entries, v, now)?,
-				types::PriceSubmissionMode::Unverified =>
-					Self::submit_unverified_price(submitter, pair_id, entries, now)?,
+			// Reserve deposit on first submission per (account, pair)
+			if !PriceDeposits::<T>::contains_key(&submitter, &pair_id) {
+				<T as Config>::Currency::reserve(&submitter, deposit_amount)
+					.map_err(|_| Error::<T>::InsufficientBalance)?;
+
+				PriceDeposits::<T>::insert(&submitter, &pair_id, (deposit_amount, now));
+
+				Self::deposit_event(Event::PriceDepositReserved {
+					submitter: submitter.clone(),
+					pair_id,
+					amount: deposit_amount,
+				});
 			}
+
+			Self::maybe_clear_stale_prices();
+
+			Prices::<T>::mutate(&pair_id, |stored| {
+				stored.extend(entries.iter().map(|input| PriceEntry {
+					range_start: input.range_start,
+					range_end: input.range_end,
+					price: input.price,
+					timestamp: now,
+				}));
+			});
+
+			Self::deposit_event(Event::PriceSubmitted { submitter, pair_id });
 
 			Ok(())
 		}
@@ -658,15 +634,14 @@ pub mod pallet {
 
 		/// Remove a recognized token pair
 		#[pallet::call_index(9)]
-		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(3)))]
+		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(2)))]
 		pub fn remove_recognized_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
 			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
 
 			RecognizedPairs::<T>::remove(&pair_id);
-			VerifiedPrices::<T>::remove(&pair_id);
-			UnverifiedPrices::<T>::remove(&pair_id);
+			Prices::<T>::remove(&pair_id);
 
 			Self::deposit_event(Event::RecognizedPairRemoved { pair_id });
 
@@ -686,47 +661,70 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Set the proof freshness threshold
+		/// Set the deposit amount required for price submissions
 		#[pallet::call_index(11)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn set_proof_freshness_threshold(
+		pub fn set_price_deposit_amount(
 			origin: OriginFor<T>,
-			threshold_secs: u64,
+			amount: BalanceOf<T>,
 		) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			ProofFreshnessThresholdValue::<T>::put(threshold_secs);
+			PriceDepositAmount::<T>::put(amount);
 
-			Self::deposit_event(Event::ProofFreshnessThresholdUpdated { threshold_secs });
+			Self::deposit_event(Event::PriceDepositAmountUpdated { amount });
 
 			Ok(())
 		}
 
-		/// Set the maximum number of unverified price submissions per pair
+		/// Set the lock duration for price deposits
 		#[pallet::call_index(12)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn set_max_unverified_submissions(origin: OriginFor<T>, max: u32) -> DispatchResult {
+		pub fn set_price_deposit_lock_duration(
+			origin: OriginFor<T>,
+			duration_secs: u64,
+		) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			MaxUnverifiedSubmissions::<T>::put(max);
+			PriceDepositLockDuration::<T>::put(duration_secs);
 
-			Self::deposit_event(Event::MaxUnverifiedSubmissionsUpdated { max });
+			Self::deposit_event(Event::PriceDepositLockDurationUpdated { duration_secs });
 
 			Ok(())
 		}
 
-		/// Set the fee charged for unverified price submissions
+		/// Withdraw a price deposit after the lock duration has elapsed
+		///
+		/// # Parameters
+		/// - `pair_id`: The token pair the deposit was made for
+		///
+		/// # Errors
+		/// - `DepositNotFound`: No deposit exists for this account and pair
+		/// - `DepositStillLocked`: The lock duration has not yet elapsed
 		#[pallet::call_index(13)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn set_unverified_submission_fee(
-			origin: OriginFor<T>,
-			fee: BalanceOf<T>,
-		) -> DispatchResult {
-			T::GovernanceOrigin::ensure_origin(origin)?;
+		#[pallet::weight(T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(1)))]
+		pub fn withdraw_price_deposit(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
+			let who = ensure_signed(origin)?;
 
-			UnverifiedSubmissionFee::<T>::put(fee);
+			let (deposit_amount, deposit_timestamp) =
+				PriceDeposits::<T>::get(&who, &pair_id).ok_or(Error::<T>::DepositNotFound)?;
 
-			Self::deposit_event(Event::UnverifiedSubmissionFeeUpdated { fee });
+			let now = T::Dispatcher::default().timestamp().as_secs();
+			let lock_duration = PriceDepositLockDuration::<T>::get();
+
+			ensure!(
+				now.saturating_sub(deposit_timestamp) >= lock_duration,
+				Error::<T>::DepositStillLocked
+			);
+
+			<T as Config>::Currency::unreserve(&who, deposit_amount);
+			PriceDeposits::<T>::remove(&who, &pair_id);
+
+			Self::deposit_event(Event::PriceDepositWithdrawn {
+				submitter: who,
+				pair_id,
+				amount: deposit_amount,
+			});
 
 			Ok(())
 		}
@@ -753,301 +751,15 @@ pub mod pallet {
 			offchain_bid_key_raw(commitment, &filler.encode())
 		}
 
-		/// Process a verified (high confidence) price submission with ISMP proofs and
-		/// EVM signature verification.
-		fn submit_verified_price(
-			submitter: T::AccountId,
-			pair_id: H256,
-			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
-			v: types::PriceVerificationData,
-			now: u64,
-		) -> DispatchResult {
-			ensure!(!UsedCommitments::<T>::get(&v.commitment), Error::<T>::CommitmentAlreadyUsed);
-
-			let gateway_info =
-				Gateways::<T>::get(v.state_machine).ok_or(Error::<T>::GatewayNotFound)?;
-
-			let filler_address = Self::verify_fill_proofs(&v, &gateway_info, now)?;
-
-			Self::verify_evm_signature(&v, &pair_id, &entries[0].price, filler_address)?;
-
-			UsedCommitments::<T>::insert(&v.commitment, true);
-
-			Self::maybe_clear_stale_prices();
-
-			VerifiedPrices::<T>::mutate(&pair_id, |stored| {
-				stored.extend(entries.iter().map(|input| PriceEntry {
-					filler: filler_address,
-					range_start: input.range_start,
-					range_end: input.range_end,
-					price: input.price,
-					timestamp: now,
-				}));
-			});
-
-			Self::deposit_event(Event::PriceSubmitted { filler: submitter, pair_id });
-
-			Ok(())
-		}
-
-		/// Process an unverified (low confidence) price submission. Charges a fee
-		/// and stores with FIFO replacement if the cap is reached.
-		fn submit_unverified_price(
-			submitter: T::AccountId,
-			pair_id: H256,
-			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
-			now: u64,
-		) -> DispatchResult {
-			let max = MaxUnverifiedSubmissions::<T>::get();
-			let fee = UnverifiedSubmissionFee::<T>::get();
-			ensure!(max > 0 && !fee.is_zero(), Error::<T>::UnverifiedSubmissionsNotConfigured);
-
-			<T as Config>::Currency::transfer(
-				&submitter,
-				&T::TreasuryAccount::get(),
-				fee,
-				frame_support::traits::ExistenceRequirement::KeepAlive,
-			)
-			.map_err(|_| Error::<T>::InsufficientBalance)?;
-
-			Self::maybe_clear_stale_prices();
-
-			UnverifiedPrices::<T>::mutate(&pair_id, |stored| {
-				let new_entries = entries.iter().map(|input| PriceEntry {
-					filler: H160::zero(),
-					range_start: input.range_start,
-					range_end: input.range_end,
-					price: input.price,
-					timestamp: now,
-				});
-
-				let total = stored.len() + entries.len();
-				if total > max as usize {
-					let drain_count = total - max as usize;
-					stored.drain(..drain_count.min(stored.len()));
-				}
-
-				stored.extend(new_entries);
-			});
-
-			Self::deposit_event(Event::UnverifiedPriceSubmitted { submitter, pair_id });
-
-			Ok(())
-		}
-
-		/// Verify ISMP state proofs for a fill order and return the filler's EVM address.
-		/// Confirms non-membership at H1, membership at H2, and that both proofs fall
-		/// within the freshness threshold.
-		fn verify_fill_proofs(
-			v: &types::PriceVerificationData,
-			gateway_info: &GatewayInfo,
-			now: u64,
-		) -> Result<H160, DispatchError> {
-			let host = T::Dispatcher::default();
-
-			// 52-byte key: gateway address (20) + storage slot (32)
-			let storage_key = types::filled_storage_key(&gateway_info.gateway, &v.commitment);
-
-			// Get state commitments for both proof heights
-			let commitment_h1 = host
-				.state_machine_commitment(v.non_membership_proof.height)
-				.map_err(|_| Error::<T>::ProofVerificationFailed)?;
-			let commitment_h2 = host
-				.state_machine_commitment(v.membership_proof.height)
-				.map_err(|_| Error::<T>::ProofVerificationFailed)?;
-
-			// Validate state machine clients
-			let state_machine_client_h1 =
-				ismp::handlers::validate_state_machine(&host, v.non_membership_proof.height)
-					.map_err(|_| Error::<T>::ProofVerificationFailed)?;
-			let state_machine_client_h2 =
-				ismp::handlers::validate_state_machine(&host, v.membership_proof.height)
-					.map_err(|_| Error::<T>::ProofVerificationFailed)?;
-
-			// Verify non-membership proof: order was not filled at H1
-			let non_membership_result = state_machine_client_h1
-				.verify_state_proof(
-					&host,
-					vec![storage_key.clone()],
-					commitment_h1,
-					&v.non_membership_proof,
-				)
-				.map_err(|_| Error::<T>::NonMembershipProofFailed)?;
-
-			let value_at_h1 = non_membership_result
-				.get(&storage_key)
-				.ok_or(Error::<T>::NonMembershipProofFailed)?;
-			ensure!(value_at_h1.is_none(), Error::<T>::NonMembershipProofFailed);
-
-			// Verify membership proof: order was filled at H2
-			let membership_result = state_machine_client_h2
-				.verify_state_proof(
-					&host,
-					vec![storage_key.clone()],
-					commitment_h2,
-					&v.membership_proof,
-				)
-				.map_err(|_| Error::<T>::MembershipProofFailed)?;
-
-			let filler_bytes = membership_result
-				.get(&storage_key)
-				.ok_or(Error::<T>::MembershipProofFailed)?
-				.as_ref()
-				.ok_or(Error::<T>::MembershipProofFailed)?;
-
-			// Extract the filler address from the proof value
-			// EVM addresses are 20 bytes, left-padded to 32 bytes in storage
-			let filler_address = H160::from_slice(
-				filler_bytes.get(12..32).ok_or(Error::<T>::MembershipProofFailed)?,
-			);
-			ensure!(filler_address != H160::zero(), Error::<T>::MembershipProofFailed);
-
-			// Check proof freshness
-			let threshold = ProofFreshnessThresholdValue::<T>::get();
-			let proof_gap = commitment_h2.timestamp.saturating_sub(commitment_h1.timestamp);
-			ensure!(proof_gap <= threshold, Error::<T>::ProofNotFresh);
-			let age = now.saturating_sub(commitment_h2.timestamp);
-			ensure!(age <= threshold, Error::<T>::ProofNotFresh);
-			ensure!(
-				commitment_h2.timestamp.saturating_sub(now) <= threshold,
-				Error::<T>::ProofNotFresh
-			);
-
-			Ok(filler_address)
-		}
-
-		/// Verify the EVM signature proving the filler owns the submitting account.
-		/// Recovers the signer from the signature over `(nonce, pair_id, price)`,
-		/// checks that it matches the filler from the proof, and increments the nonce.
-		fn verify_evm_signature(
-			v: &types::PriceVerificationData,
-			pair_id: &H256,
-			price: &U256,
-			filler_address: H160,
-		) -> DispatchResult {
-			let evm_address_bytes = match &v.evm_signature {
-				crypto_utils::verification::Signature::Evm { address, .. } => address.clone(),
-				_ => return Err(Error::<T>::InvalidSignature.into()),
-			};
-
-			ensure!(evm_address_bytes.len() == 20, Error::<T>::InvalidSignature);
-			let evm_address = H160::from_slice(&evm_address_bytes);
-
-			let nonce = EvmNonces::<T>::get(evm_address);
-			let msg = types::price_signature_message(nonce, pair_id, price);
-
-			let recovered =
-				v.evm_signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
-			ensure!(recovered == evm_address_bytes, Error::<T>::SignerMismatch);
-
-			ensure!(
-				recovered.len() == 20 && H160::from_slice(&recovered) == filler_address,
-				Error::<T>::SignerMismatch
-			);
-
-			EvmNonces::<T>::insert(evm_address, nonce.saturating_add(1));
-
-			Ok(())
-		}
-
 		/// Clear all prices if this is the first submission in a new window.
 		///
 		/// Prices from the previous window persist until the first new submission
-		/// in the new window, at which point all verified and unverified entries
-		/// across all pairs are cleared.
+		/// in the new window, at which point all entries across all pairs are cleared.
 		fn maybe_clear_stale_prices() {
 			if !PricesClearedThisWindow::<T>::get() {
-				let _ = VerifiedPrices::<T>::clear(u32::MAX, None);
-				let _ = UnverifiedPrices::<T>::clear(u32::MAX, None);
+				let _ = Prices::<T>::clear(u32::MAX, None);
 				PricesClearedThisWindow::<T>::put(true);
 			}
-		}
-
-		/// Inspect a cross-chain request flowing through Hyperbridge.
-		///
-		/// If the request is a RedeemEscrow from a known IntentGateway, extract the
-		/// filler's EVM address and store it in `VerifiedFillers` with the current
-		/// timestamp. This allows the filler to later submit prices without full
-		/// ISMP state proofs.
-		pub fn inspect_request(post: &ismp::router::PostRequest) -> Result<(), ismp::Error> {
-			// The `from` field must be at least 20 bytes (an EVM address)
-			if post.from.len() < 20 {
-				return Ok(());
-			}
-
-			let sender = H160::from_slice(&post.from[..20]);
-			let _gateway_info = match Gateways::<T>::get(post.source) {
-				Some(info) if info.gateway == sender => info,
-				_ => return Ok(()),
-			};
-
-			if let Some(filler) = types::extract_filler_from_redeem(&post.body) {
-				let now = T::Dispatcher::default().timestamp().as_secs();
-				VerifiedFillers::<T>::insert(filler, now);
-
-				log::info!(
-					target: "pallet-intents",
-					"Cross-chain verified filler {:?} from {:?}",
-					filler,
-					post.source,
-				);
-			}
-
-			Ok(())
-		}
-
-		/// Process a cross-chain verified price submission.
-		///
-		/// The filler must be in the `VerifiedFillers` map with a timestamp within
-		/// the freshness threshold. An EVM signature is still required to prove
-		/// ownership of the filler address.
-		fn submit_cross_chain_verified_price(
-			submitter: T::AccountId,
-			pair_id: H256,
-			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
-			v: types::CrossChainVerificationData,
-			now: u64,
-		) -> DispatchResult {
-			let evm_address_bytes = match &v.evm_signature {
-				crypto_utils::verification::Signature::Evm { address, .. } => address.clone(),
-				_ => return Err(Error::<T>::InvalidSignature.into()),
-			};
-
-			ensure!(evm_address_bytes.len() == 20, Error::<T>::InvalidSignature);
-			let filler_address = H160::from_slice(&evm_address_bytes);
-
-			let verified_at =
-				VerifiedFillers::<T>::get(filler_address).ok_or(Error::<T>::FillerNotVerified)?;
-
-			// Check freshness of the verification
-			let threshold = ProofFreshnessThresholdValue::<T>::get();
-			let age = now.saturating_sub(verified_at);
-			ensure!(age <= threshold, Error::<T>::FillerVerificationExpired);
-
-			let nonce = EvmNonces::<T>::get(filler_address);
-			let msg = types::price_signature_message(nonce, &pair_id, &entries[0].price);
-
-			let recovered =
-				v.evm_signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
-			ensure!(recovered == evm_address_bytes, Error::<T>::SignerMismatch);
-
-			EvmNonces::<T>::insert(filler_address, nonce.saturating_add(1));
-
-			Self::maybe_clear_stale_prices();
-
-			VerifiedPrices::<T>::mutate(&pair_id, |stored| {
-				stored.extend(entries.iter().map(|input| PriceEntry {
-					filler: filler_address,
-					range_start: input.range_start,
-					range_end: input.range_end,
-					price: input.price,
-					timestamp: now,
-				}));
-			});
-
-			Self::deposit_event(Event::PriceSubmitted { filler: submitter, pair_id });
-
-			Ok(())
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

@@ -56,9 +56,6 @@ pub struct RpcBidInfo {
 /// A single price entry returned by the RPC
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RpcPriceEntry {
-	/// The filler's EVM address (zero address for unverified submissions)
-	#[serde(with = "hex_bytes")]
-	pub filler: Vec<u8>,
 	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
 	pub range_start: String,
 	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
@@ -67,15 +64,6 @@ pub struct RpcPriceEntry {
 	pub price: String,
 	/// Timestamp of submission (seconds)
 	pub timestamp: u64,
-}
-
-/// Response for the `intents_getPairPrices` RPC method
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
-pub struct RpcPairPrices {
-	/// High confidence prices (from verified fillers with proofs)
-	pub verified: Vec<RpcPriceEntry>,
-	/// Low confidence prices (from unverified submitters)
-	pub unverified: Vec<RpcPriceEntry>,
 }
 
 impl Ord for RpcBidInfo {
@@ -212,9 +200,9 @@ pub trait IntentsApi {
 	#[method(name = "intents_getBidsForOrder")]
 	fn get_bids_for_order(&self, commitment: H256) -> RpcResult<Vec<RpcBidInfo>>;
 
-	/// Get all prices for a token pair, separated by confidence level
+	/// Get all prices for a token pair
 	#[method(name = "intents_getPairPrices")]
-	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<RpcPairPrices>;
+	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<Vec<RpcPriceEntry>>;
 
 	#[subscription(name = "intents_subscribeBids" => "intents_bidNotification", unsubscribe = "intents_unsubscribeBids", item = RpcBidInfo)]
 	async fn subscribe_bids(&self, commitment: Option<H256>) -> SubscriptionResult;
@@ -299,46 +287,32 @@ where
 		Ok(bids.into_iter().collect())
 	}
 
-	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<RpcPairPrices> {
+	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<Vec<RpcPriceEntry>> {
 		let best_hash = self.client.info().best_hash;
 
-		let decode_entries = |storage_name: &[u8]| -> Vec<RpcPriceEntry> {
-			let key = storage_map_key(b"IntentsCoprocessor", storage_name, &pair_id);
-			let storage_key = sp_core::storage::StorageKey(key);
+		let key = storage_map_key(b"IntentsCoprocessor", b"Prices", &pair_id);
+		let storage_key = sp_core::storage::StorageKey(key);
 
-			let data = match self.client.storage(best_hash, &storage_key) {
-				Ok(Some(data)) => data.0,
-				_ => return Vec::new(),
-			};
-
-			// Decode Vec<PriceEntry>
-			// PriceEntry SCALE-encodes as (H160, U256, U256, U256, u64)
-			type Entry = (
-				primitive_types::H160,
-				primitive_types::U256,
-				primitive_types::U256,
-				primitive_types::U256,
-				u64,
-			);
-			match Vec::<Entry>::decode(&mut &data[..]) {
-				Ok(entries) => entries
-					.into_iter()
-					.map(|(filler, range_start, range_end, price, timestamp)| RpcPriceEntry {
-						filler: filler.as_bytes().to_vec(),
-						range_start: range_start.to_string(),
-						range_end: range_end.to_string(),
-						price: price.to_string(),
-						timestamp,
-					})
-					.collect(),
-				Err(_) => Vec::new(),
-			}
+		let data = match self.client.storage(best_hash, &storage_key) {
+			Ok(Some(data)) => data.0,
+			_ => return Ok(Vec::new()),
 		};
 
-		Ok(RpcPairPrices {
-			verified: decode_entries(b"VerifiedPrices"),
-			unverified: decode_entries(b"UnverifiedPrices"),
-		})
+		// Decode Vec<PriceEntry>
+		// PriceEntry SCALE-encodes as (U256, U256, U256, u64)
+		type Entry = (primitive_types::U256, primitive_types::U256, primitive_types::U256, u64);
+		match Vec::<Entry>::decode(&mut &data[..]) {
+			Ok(entries) => Ok(entries
+				.into_iter()
+				.map(|(range_start, range_end, price, timestamp)| RpcPriceEntry {
+					range_start: range_start.to_string(),
+					range_end: range_end.to_string(),
+					price: price.to_string(),
+					timestamp,
+				})
+				.collect()),
+			Err(_) => Ok(Vec::new()),
+		}
 	}
 
 	async fn subscribe_bids(

@@ -15,9 +15,9 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, Balance, Balances, IntentsCoprocessor, Ismp, IsmpParachain, Mmr,
-	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryAccount,
-	TreasuryPalletId, XcmGateway,
+	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr,
+	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId,
+	XcmGateway,
 	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
@@ -92,7 +92,6 @@ impl pallet_intents_coprocessor::Config for Runtime {
 	type Currency = Balances;
 	type StorageDepositFee = IntentStorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
-	type TreasuryAccount = TreasuryAccount;
 	type MaxPriceEntries = ConstU32<10>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
@@ -289,7 +288,6 @@ impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
-			IntentsCoprocessor::inspect_request(&request)?;
 
 			Ismp::dispatch_request(
 				Request::Post(request),

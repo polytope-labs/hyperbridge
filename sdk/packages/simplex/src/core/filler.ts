@@ -16,8 +16,10 @@ import {
 	ChainClientManager,
 	ContractInteractionService,
 	DelegationService,
+	PriceUpdateService,
 	RebalancingService,
 } from "@/services"
+import type { PriceUpdateConfig } from "@/services/PriceUpdateService"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import { Decimal } from "decimal.js"
@@ -31,6 +33,7 @@ export class IntentFiller {
 	private contractService: ContractInteractionService
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
+	private priceUpdateService?: PriceUpdateService
 	private bidStorage?: BidStorageService
 	private retractionQueue: pQueue
 	private pendingRetractions = new Set<string>()
@@ -52,6 +55,7 @@ export class IntentFiller {
 		privateKey: HexString,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
+		priceUpdateConfig?: PriceUpdateConfig,
 	) {
 		this.configService = configService
 		this.privateKey = privateKey
@@ -81,6 +85,11 @@ export class IntentFiller {
 
 		if (hyperbridgeWsUrl && substrateKey) {
 			this.hyperbridge = IntentsCoprocessor.connect(hyperbridgeWsUrl, substrateKey)
+		}
+
+		// Set up price update service if configured and hyperbridge is available
+		if (priceUpdateConfig && priceUpdateConfig.pairs.length > 0 && this.hyperbridge) {
+			this.priceUpdateService = new PriceUpdateService(this.hyperbridge, priceUpdateConfig)
 		}
 
 		// Set up event handlers
@@ -135,6 +144,11 @@ export class IntentFiller {
 
 		if (this.bidStorage && this.hyperbridge) {
 			this.startRetractionSweep()
+		}
+
+		// Start periodic price updates if configured
+		if (this.priceUpdateService) {
+			this.priceUpdateService.start()
 		}
 	}
 
@@ -233,6 +247,11 @@ export class IntentFiller {
 			clearInterval(this.retractionSweepInterval)
 			this.retractionSweepInterval = undefined
 			this.logger.info("Periodic retraction sweep stopped")
+		}
+
+		// Stop price update service
+		if (this.priceUpdateService) {
+			this.priceUpdateService.stop()
 		}
 
 		// Wait for all queues to complete

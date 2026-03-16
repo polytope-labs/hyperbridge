@@ -5,7 +5,7 @@ import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
-import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid } from "@/types"
+import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, PriceInput } from "@/types"
 import type { SubstrateChain } from "./substrate"
 
 /** Offchain storage key prefix for bids */
@@ -322,6 +322,56 @@ export class IntentsCoprocessor {
 	async retractBid(commitment: HexString): Promise<BidSubmissionResult> {
 		try {
 			const extrinsic = this.api.tx.intentsCoprocessor.retractBid(commitment)
+			return await this.signAndSendExtrinsic(extrinsic)
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
+			}
+		}
+	}
+
+	/**
+	 * Submits price entries for a recognized token pair on Hyperbridge.
+	 *
+	 * The first submission per pair requires a deposit (reserved from the caller's balance).
+	 * Subsequent updates to the same pair are free.
+	 *
+	 * @param pairId - The token pair identifier (H256 / bytes32)
+	 * @param entries - Array of price entries with range and price data
+	 * @returns BidSubmissionResult with success status and block/extrinsic hash
+	 */
+	async submitPairPrice(pairId: HexString, entries: PriceInput[]): Promise<BidSubmissionResult> {
+		try {
+			// Encode entries as a Vec of (U256, U256, U256) tuples for the pallet
+			const encodedEntries = entries.map((e) => ({
+				range_start: e.rangeStart.toString(),
+				range_end: e.rangeEnd.toString(),
+				price: e.price.toString(),
+			}))
+
+			const extrinsic = this.api.tx.intentsCoprocessor.submitPairPrice(pairId, encodedEntries)
+			return await this.signAndSendExtrinsic(extrinsic)
+		} catch (error) {
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown error",
+			}
+		}
+	}
+
+	/**
+	 * Withdraws a previously reserved price deposit for a token pair.
+	 *
+	 * Funds can only be withdrawn after the configured lock duration has elapsed
+	 * since the first price submission for that pair.
+	 *
+	 * @param pairId - The token pair identifier (H256 / bytes32)
+	 * @returns BidSubmissionResult with success status and block/extrinsic hash
+	 */
+	async withdrawPriceDeposit(pairId: HexString): Promise<BidSubmissionResult> {
+		try {
+			const extrinsic = this.api.tx.intentsCoprocessor.withdrawPriceDeposit(pairId)
 			return await this.signAndSendExtrinsic(extrinsic)
 		} catch (error) {
 			return {

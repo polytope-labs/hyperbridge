@@ -1424,6 +1424,16 @@ export type IntentOrderStatusUpdate =
 	| { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
 	| { status: "FAILED"; commitment?: HexString; totalFilledAmount?: bigint; remainingAmount?: bigint; error: string }
 
+/**
+ * Price input for submitting pair prices to the intents coprocessor.
+ * All values are raw 18-decimal bigints as expected by the pallet.
+ */
+export interface PriceInput {
+	rangeStart: bigint
+	rangeEnd: bigint
+	price: bigint
+}
+
 /** Result of selecting a bid and submitting to the bundler */
 export interface SelectBidResult {
 	userOp: PackedUserOperation

@@ -57,6 +57,85 @@ Only governance-approved token pairs can receive price submissions. This prevent
 
 The `intents_getPairPrices(pair_id)` RPC endpoint returns all prices for a given token pair. Each returned entry includes the amount range (`range_start`, `range_end`), the price, and the submission timestamp.
 
+## Simplex Filler Integration
+
+The simplex filler supports periodic price submission out of the box via a `[priceUpdates]` section in the filler configuration file. This requires `substratePrivateKey` and `hyperbridgeWsUrl` to be configured.
+
+### Configuration
+
+Add the following to your `filler-config.toml`:
+
+```toml
+[priceUpdates]
+intervalSeconds = 300  # How often to submit prices (default: 300 = 5 minutes)
+
+[[priceUpdates.pairs]]
+pairId = "0x..."  # The token pair ID (keccak256 of base_address ++ quote_address)
+label = "USDC/CNGN"
+decimals = 18     # Decimal places for amounts/prices (default: 18)
+
+[[priceUpdates.pairs.entries]]
+rangeStart = "0"       # Min base amount in human-readable form
+rangeEnd = "999"       # Max base amount in human-readable form
+price = "1414"         # Price in human-readable form
+
+[[priceUpdates.pairs.entries]]
+rangeStart = "1000"
+rangeEnd = "5000"
+price = "1420"
+```
+
+Amounts are specified in human-readable form (e.g. `"1000"` for 1000 tokens) and automatically converted to 18-decimal format when submitted to the chain. The optional `decimals` field (default: 18) controls this conversion.
+
+Multiple pairs can be configured by repeating `[[priceUpdates.pairs]]` blocks. Each pair can have multiple entries for tiered pricing at different order sizes.
+
+The first submission for each pair will reserve a deposit from the substrate account. Subsequent updates to the same pair are free. The deposit can be reclaimed after the governance-configured lock duration by calling `withdrawPriceDeposit`.
+
+### SDK Usage
+
+The `IntentsCoprocessor` class in `@hyperbridge/sdk` exposes two methods for direct use. Note that the SDK accepts raw 18-decimal bigint values — the human-readable conversion is a simplex filler convenience.
+
+```typescript
+import { IntentsCoprocessor } from "@hyperbridge/sdk"
+import { parseUnits } from "viem"
+
+const coprocessor = await IntentsCoprocessor.connect(wsUrl, substratePrivateKey)
+
+// Submit prices for a token pair (values in 18-decimal format)
+await coprocessor.submitPairPrice("0x...", [
+  { rangeStart: parseUnits("0", 18), rangeEnd: parseUnits("999", 18), price: parseUnits("1414", 18) },
+  { rangeStart: parseUnits("1000", 18), rangeEnd: parseUnits("5000", 18), price: parseUnits("1420", 18) },
+])
+
+// Withdraw deposit after lock period
+await coprocessor.withdrawPriceDeposit("0x...")
+```
+
+The `PriceUpdateService` from `@hyperbridge/simplex` can also be used standalone for periodic submissions without running the full filler:
+
+```typescript
+import { PriceUpdateService } from "@hyperbridge/simplex"
+import { IntentsCoprocessor } from "@hyperbridge/sdk"
+import { parseUnits } from "viem"
+
+const coprocessor = IntentsCoprocessor.connect(wsUrl, substratePrivateKey)
+
+const service = new PriceUpdateService(coprocessor, {
+  intervalSeconds: 300,
+  pairs: [
+    {
+      pairId: "0x...",
+      label: "USDC/CNGN",
+      entries: [
+        { rangeStart: parseUnits("0", 18), rangeEnd: parseUnits("999", 18), price: parseUnits("1414", 18) },
+      ],
+    },
+  ],
+})
+
+service.start()
+```
+
 ## Governance Parameters
 
 All key parameters are stored on-chain and updatable via governance extrinsics:

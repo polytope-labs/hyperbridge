@@ -73,6 +73,29 @@ triggerPercentage = 0.5
 "137" = "10000"    # Polygon: $10k USDT base
 "130" = "10000"    # Unichain: $10k USDT base
 
+# Price update configuration
+# Periodically submits token pair prices to Hyperbridge's intents coprocessor.
+# Requires substratePrivateKey and hyperbridgeWsUrl to be configured above.
+# The first submission per pair reserves a deposit; subsequent updates are free.
+# Amounts are specified in human-readable form and converted to 18-decimal format automatically.
+# [priceUpdates]
+# intervalSeconds = 300  # How often to submit prices (default: 300 = 5 minutes)
+#
+# [[priceUpdates.pairs]]
+# pairId = "0x..."  # The token pair ID (keccak256 of base_address ++ quote_address)
+# label = "USDC/CNGN"
+# decimals = 18     # Decimal places for amounts/prices (default: 18)
+#
+# [[priceUpdates.pairs.entries]]
+# rangeStart = "0"       # Min base amount in human-readable form
+# rangeEnd = "999"       # Max base amount in human-readable form
+# price = "1414"         # Price in human-readable form
+#
+# [[priceUpdates.pairs.entries]]
+# rangeStart = "1000"
+# rangeEnd = "5000"
+# price = "1420"
+
 # Strategy configuration
 # You can configure multiple strategies
 # All strategies use the simplex.privateKey from above

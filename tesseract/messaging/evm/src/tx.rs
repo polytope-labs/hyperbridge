@@ -13,7 +13,7 @@ use alloy::{
 	rpc::types::{TransactionReceipt, TransactionRequest},
 	transports::TransportError,
 };
-use alloy_sol_types::{SolCall, SolEvent};
+use alloy_sol_types::SolEvent;
 use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
@@ -24,7 +24,7 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		handleConsensusCall, HandlerInstance, PostRequestLeaf, PostRequestMessage,
+		HandlerInstance, PostRequestLeaf, PostRequestMessage,
 		PostResponseLeaf, PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
@@ -375,46 +375,9 @@ pub async fn submit_messages(
 		};
 
 		let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
-		let is_consensus = tx
-			.input
-			.input()
-			.map_or(false, |data| data.starts_with(handleConsensusCall::SELECTOR.as_slice()));
 
 		let evs = match wait_for_success(client, tx_hash).await? {
 			Some(evs) => evs,
-			None if is_consensus => {
-				let new_gas: U256 = get_current_gas_cost_in_usd(
-					client.state_machine,
-					client.config.ismp_host.0.into(),
-					client.client.clone(),
-				)
-				.await?
-				.gas_price * 2;
-
-				tracing::info!(
-					chain = ?client.state_machine,
-					"Retrying consensus tx at {:.4} gwei",
-					new_gas.low_u128() as f64 / 1e9,
-				);
-
-				// Reuse the original calldata and gas limit; only bump the gas price.
-				let retry_tx = tx.clone().gas_price(new_gas.low_u128()).transaction_type(0);
-
-				let pending = client.signer.send_transaction(retry_tx).await?;
-				let retry_hash = H256::from_slice(pending.tx_hash().as_slice());
-
-				match wait_for_success(client, retry_hash).await? {
-					Some(evs) => evs,
-					None => {
-						cancel_transaction(client, from, nonce, gas_price, retry_hash).await;
-						return Err(anyhow!(
-							"Consensus tx on {:?} timed out after retry",
-							client.state_machine
-						));
-					},
-				}
-			},
-
 			None => {
 				cancel_transaction(client, from, nonce, gas_price, tx_hash).await;
 				return Err(anyhow!("Transaction to {:?} was cancelled", client.state_machine));

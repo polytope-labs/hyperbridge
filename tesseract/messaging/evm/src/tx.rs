@@ -523,6 +523,7 @@ pub async fn handle_message_submission(
 mod tests {
 	use super::*;
 	use crate::AlloyProvider;
+	use std::sync::Arc;
 
 	#[tokio::test]
 	#[ignore] // Requires local RPC node

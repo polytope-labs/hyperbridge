@@ -1365,7 +1365,9 @@ export interface ExecuteIntentOrderOptions {
 	bidTimeoutMs?: number
 	pollIntervalMs?: number
 	/** If set, only bids from this solver (matched against userOp.sender) will be considered */
-	specificSolver?: HexString
+	solver?: HexString
+	/** If set alongside `solver`, the solver preference expires after this many ms and any solver is accepted */
+	solverTimeoutMs?: number
 }
 
 /** Type for ERC-7821 Call struct */

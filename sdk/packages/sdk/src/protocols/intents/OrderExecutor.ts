@@ -67,7 +67,8 @@ export class OrderExecutor {
 			minBids = 1,
 			bidTimeoutMs = 60_000,
 			pollIntervalMs = DEFAULT_POLL_INTERVAL,
-			specificSolver,
+			solver,
+			solverTimeoutMs,
 		} = options
 
 		const commitment = order.id as HexString
@@ -139,18 +140,22 @@ export class OrderExecutor {
 
 				yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
-				const requestedSolver = specificSolver?.toLowerCase()
+				const solverAddress = solver?.toLowerCase()
 				const startTime = Date.now()
 				let bids: FillerBid[] = []
+				let solverLockExpired = false
 
 				while (Date.now() - startTime < bidTimeoutMs) {
 					try {
 						const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
-						const solverFilteredBids = requestedSolver
-							? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === requestedSolver)
+						const elapsed = Date.now() - startTime
+						const solverLockActive = solverAddress && (solverTimeoutMs === undefined || elapsed < solverTimeoutMs)
+						if (solverAddress && !solverLockActive) solverLockExpired = true
+
+						bids = solverLockActive
+							? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === solverAddress)
 							: fetchedBids
 
-						bids = solverFilteredBids
 						if (bids.length >= minBids) {
 							break
 						}
@@ -168,12 +173,12 @@ export class OrderExecutor {
 
 				if (freshBids.length === 0) {
 					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
-					const solverClause = requestedSolver ? ` for requested solver ${specificSolver}` : ""
+					const solverClause = solverAddress && !solverLockExpired ? ` for requested solver ${solver}` : ""
 					const noBidsError = isPartiallyFilled
 						? `No new bids${solverClause} after partial fill`
 						: `No new bids${solverClause} available within ${bidTimeoutMs}ms timeout`
 
-          if (isPartiallyFilled) {
+					if (isPartiallyFilled) {
 						yield {
 							status: "PARTIAL_FILL_EXHAUSTED",
 							commitment,

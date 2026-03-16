@@ -32,7 +32,12 @@ describe.sequential("IntentGateway same-chain estimate tests", () => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const CROSS_CHAIN_CASES: [string, string][] = [["bsc", "eth"]]
+const CROSS_CHAIN_CASES: [string, string][] = [
+	["bsc", "eth"],
+	["bsc", "arbitrum"],
+	["base", "bsc"],
+	["bsc", "polygon"],
+]
 
 const SAME_CHAIN_CASES = ["polygon", "bsc", "base", "arbitrum"]
 

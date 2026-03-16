@@ -22,6 +22,7 @@ import type {
 	FillOptions,
 	IPostRequest,
 	DispatchPost,
+	Order,
 } from "@/types"
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
@@ -91,68 +92,50 @@ export class GasEstimator {
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
 			.reduce((sum, output) => sum + output.amount, 0n)
 
-		const sourceFeeToken = await getFeeToken(this.ctx, this.ctx.source.config.stateMachineId, this.ctx.source)
-		const destFeeToken = await getFeeToken(this.ctx, this.ctx.dest.config.stateMachineId, this.ctx.dest)
+		const [sourceFeeToken, destFeeToken, gasPrice] = await Promise.all([
+			getFeeToken(this.ctx, this.ctx.source.config.stateMachineId, this.ctx.source),
+			getFeeToken(this.ctx, this.ctx.dest.config.stateMachineId, this.ctx.dest),
+			this.ctx.dest.client.getGasPrice(),
+		])
+
 		const feeTokenAsBytes32 = bytes20ToBytes32(destFeeToken.address)
 		const assetsForOverrides = [...order.output.assets]
 		if (!assetsForOverrides.some((asset) => asset.token.toLowerCase() === feeTokenAsBytes32.toLowerCase())) {
 			assetsForOverrides.push({ token: feeTokenAsBytes32, amount: 0n })
 		}
 
-		const { viem: stateOverrides, bundler: bundlerStateOverrides } = await this.buildStateOverride({
-			accountAddress: solverAccountAddress,
-			chain: destStateMachineId,
-			outputAssets: assetsForOverrides,
-			spenderAddress: intentGatewayV2Address,
-			intentGatewayV2Address,
-			entryPointAddress,
-		})
-
 		const isSameChain = souceStateMachineId === destStateMachineId
-		let postRequestFeeInDestFeeToken = 0n
-		let protocolFeeInNativeToken = 0n
 
-		if (!isSameChain) {
-			const postRequestGas = 400_000n
-			const postRequestFeeInSourceFeeToken = await convertGasToFeeToken(
-				this.ctx,
-				postRequestGas,
-				"source",
-				souceStateMachineId,
-			)
-			postRequestFeeInDestFeeToken = adjustDecimals(
-				postRequestFeeInSourceFeeToken,
-				sourceFeeToken.decimals,
-				destFeeToken.decimals,
-			)
+		const [stateOverridesResult, crossChainFees] = await Promise.all([
+			this.buildStateOverride({
+				accountAddress: solverAccountAddress,
+				chain: destStateMachineId,
+				outputAssets: assetsForOverrides,
+				spenderAddress: intentGatewayV2Address,
+				intentGatewayV2Address,
+				entryPointAddress,
+			}),
+			isSameChain
+				? Promise.resolve({ postRequestFee: 0n, protocolFee: 0n })
+				: this.estimateCrossChainFees(
+						sourceFeeToken,
+						destFeeToken,
+						souceStateMachineId,
+						destStateMachineId,
+						order,
+					),
+		])
 
-			const postRequest: IPostRequest = {
-				source: destStateMachineId,
-				dest: souceStateMachineId,
-				body: constructRedeemEscrowRequestBody({ ...order, id: orderCommitment(order) }, MOCK_ADDRESS),
-				timeoutTimestamp: 0n,
-				nonce: await this.ctx.dest.getHostNonce(),
-				from: this.ctx.source.configService.getIntentGatewayV2Address(destStateMachineId),
-				to: this.ctx.source.configService.getIntentGatewayV2Address(souceStateMachineId),
-			}
-
-			protocolFeeInNativeToken = await this.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() =>
-				this.ctx.dest.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() => 0n),
-			)
-
-			protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
-			postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
-		}
+		const { viem: stateOverrides, bundler: bundlerStateOverrides } = stateOverridesResult
 
 		const fillOptions: FillOptions = {
-			relayerFee: postRequestFeeInDestFeeToken,
-			nativeDispatchFee: protocolFeeInNativeToken,
+			relayerFee: crossChainFees.postRequestFee,
+			nativeDispatchFee: crossChainFees.protocolFee,
 			outputs: order.output.assets,
 		}
 
 		const totalNativeValue = totalEthValue + fillOptions.nativeDispatchFee
 
-		const gasPrice = await this.ctx.dest.client.getGasPrice()
 		const priorityFeeBumpPercent = params.maxPriorityFeePerGasBumpPercent ?? 8
 		const maxFeeBumpPercent = params.maxFeePerGasBumpPercent ?? 10
 		let maxPriorityFeePerGas = gasPrice + (gasPrice * BigInt(priorityFeeBumpPercent)) / 100n
@@ -222,38 +205,53 @@ export class GasEstimator {
 				]) as HexString
 
 				const bundlerUserOp = this.crypto.prepareBundlerCall(preliminaryUserOp)
-				const gasEstimate = await this.crypto.sendBundler<BundlerGasEstimate>(
-					BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
-					[bundlerUserOp, entryPointAddress, bundlerStateOverrides],
-				)
+				const isPimlico = this.ctx.bundlerUrl.toLowerCase().includes("pimlico.io")
+
+				const bundlerRequests: { method: BundlerMethod; params: unknown[] }[] = [
+					{
+						method: BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+						params: [bundlerUserOp, entryPointAddress, bundlerStateOverrides],
+					},
+				]
+				if (isPimlico) {
+					bundlerRequests.push({
+						method: BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE,
+						params: [],
+					})
+				}
+
+				let gasEstimate: BundlerGasEstimate
+				let pimlicoGasPrices: PimlicoGasPriceEstimate | null = null
+
+				try {
+					const batchResults = await this.crypto.sendBundlerBatch<unknown[]>(bundlerRequests)
+					gasEstimate = batchResults[0] as BundlerGasEstimate
+					if (isPimlico && batchResults.length > 1) {
+						pimlicoGasPrices = batchResults[1] as PimlicoGasPriceEstimate
+					}
+				} catch {
+					gasEstimate = await this.crypto.sendBundler<BundlerGasEstimate>(
+						BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+						[bundlerUserOp, entryPointAddress, bundlerStateOverrides],
+					)
+				}
 
 				callGasLimit = (BigInt(gasEstimate.callGasLimit) * 160n) / 100n
 				verificationGasLimit = (BigInt(gasEstimate.verificationGasLimit) * 105n) / 100n
 				preVerificationGas = (BigInt(gasEstimate.preVerificationGas) * 105n) / 100n
 
-				// If using a Pimlico bundler, refine gas price using pimlico_getUserOperationGasPrice
-				if (this.ctx.bundlerUrl?.toLowerCase().includes("pimlico.io")) {
-					try {
-						const pimlicoGasPrices = await this.crypto.sendBundler<PimlicoGasPriceEstimate>(
-							BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE,
-							[],
-						)
+				if (pimlicoGasPrices) {
+					const level =
+						pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
 
-						// Prefer fast quotes, then standard, then slow
-						const level =
-							pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
+					if (level) {
+						const pimMaxFeePerGas = BigInt(level.maxFeePerGas)
+						const pimMaxPriorityFeePerGas = BigInt(level.maxPriorityFeePerGas)
 
-						if (level) {
-							const pimMaxFeePerGas = BigInt(level.maxFeePerGas)
-							const pimMaxPriorityFeePerGas = BigInt(level.maxPriorityFeePerGas)
-
-							maxFeePerGas = pimMaxFeePerGas + (pimMaxFeePerGas * BigInt(maxFeeBumpPercent)) / 100n
-							maxPriorityFeePerGas =
-								pimMaxPriorityFeePerGas +
-								(pimMaxPriorityFeePerGas * BigInt(priorityFeeBumpPercent)) / 100n
-						}
-					} catch (e) {
-						console.warn("Pimlico gas price fetch failed, using default gas price:", e)
+						maxFeePerGas = pimMaxFeePerGas + (pimMaxFeePerGas * BigInt(maxFeeBumpPercent)) / 100n
+						maxPriorityFeePerGas =
+							pimMaxPriorityFeePerGas +
+							(pimMaxPriorityFeePerGas * BigInt(priorityFeeBumpPercent)) / 100n
 					}
 				}
 			} catch (e) {
@@ -301,6 +299,50 @@ export class GasEstimator {
 			totalGasInFeeToken: totalGasInSourceFeeToken,
 			fillOptions,
 		}
+	}
+
+	/**
+	 * Estimates cross-chain ISMP POST request fees by running the gas-to-fee-token
+	 * conversion and host nonce fetch in parallel, then quoting the native dispatch cost.
+	 */
+	private async estimateCrossChainFees(
+		sourceFeeToken: { address: HexString; decimals: number },
+		destFeeToken: { address: HexString; decimals: number },
+		sourceChainId: string,
+		destChainId: string,
+		order: Order,
+	): Promise<{ postRequestFee: bigint; protocolFee: bigint }> {
+		const postRequestGas = 400_000n
+
+		const [postRequestFeeInSourceFeeToken, nonce] = await Promise.all([
+			convertGasToFeeToken(this.ctx, postRequestGas, "source", sourceChainId),
+			this.ctx.dest.getHostNonce(),
+		])
+
+		let postRequestFeeInDestFeeToken = adjustDecimals(
+			postRequestFeeInSourceFeeToken,
+			sourceFeeToken.decimals,
+			destFeeToken.decimals,
+		)
+
+		const postRequest: IPostRequest = {
+			source: destChainId,
+			dest: sourceChainId,
+			body: constructRedeemEscrowRequestBody({ ...order, id: orderCommitment(order) }, MOCK_ADDRESS),
+			timeoutTimestamp: 0n,
+			nonce,
+			from: this.ctx.source.configService.getIntentGatewayV2Address(destChainId),
+			to: this.ctx.source.configService.getIntentGatewayV2Address(sourceChainId),
+		}
+
+		let protocolFeeInNativeToken = await this.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() =>
+			this.ctx.dest.quoteNative(postRequest, postRequestFeeInDestFeeToken).catch(() => 0n),
+		)
+
+		protocolFeeInNativeToken = (protocolFeeInNativeToken * 1005n) / 1000n
+		postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
+
+		return { postRequestFee: postRequestFeeInDestFeeToken, protocolFee: protocolFeeInNativeToken }
 	}
 
 	/**
@@ -388,50 +430,15 @@ export class GasEstimator {
 			balance: testValue,
 		}
 
-		for (const output of outputAssets) {
-			const tokenAddress = bytes32ToBytes20(output.token)
-
-			if (tokenAddress === ADDRESS_ZERO) {
-				continue
-			}
-
-			try {
-				const viemStateDiffs: { slot: HexString; value: HexString }[] = []
-				const bundlerStateDiffs: Record<string, string> = {}
-
-				const balanceData = (ERC20Method.BALANCE_OF + bytes20ToBytes32(accountAddress).slice(2)) as HexString
-				const balanceSlot = await getOrFetchStorageSlot(this.ctx.dest.client, chain, tokenAddress, balanceData)
-				if (balanceSlot) {
-					viemStateDiffs.push({ slot: balanceSlot, value: testValue })
-					bundlerStateDiffs[balanceSlot] = testValue
-				}
-
-				try {
-					const allowanceData = (ERC20Method.ALLOWANCE +
-						bytes20ToBytes32(accountAddress).slice(2) +
-						bytes20ToBytes32(spenderAddress).slice(2)) as HexString
-					const allowanceSlot = await getOrFetchStorageSlot(
-						this.ctx.dest.client,
-						chain,
-						tokenAddress,
-						allowanceData,
-					)
-					if (allowanceSlot) {
-						viemStateDiffs.push({ slot: allowanceSlot, value: testValue })
-						bundlerStateDiffs[allowanceSlot] = testValue
-					}
-				} catch {
-					// Allowance slot not found
-				}
-
-				if (viemStateDiffs.length > 0) {
-					viemOverrides.push({ address: tokenAddress, stateDiff: viemStateDiffs })
-				}
-				if (Object.keys(bundlerStateDiffs).length > 0) {
-					bundlerOverrides[tokenAddress] = { stateDiff: bundlerStateDiffs }
-				}
-			} catch {
-				// Balance slot not found
+		const tokenResults = await Promise.all(
+			outputAssets.map((output) =>
+				this.buildTokenOverrides(output.token, accountAddress, spenderAddress, chain, testValue),
+			),
+		)
+		for (const result of tokenResults) {
+			if (result) {
+				viemOverrides.push({ address: result.address, stateDiff: result.viemStateDiffs })
+				bundlerOverrides[result.address] = { stateDiff: result.bundlerStateDiffs }
 			}
 		}
 
@@ -460,6 +467,56 @@ export class GasEstimator {
 		}
 
 		return { viem: viemOverrides, bundler: bundlerOverrides }
+	}
+
+	/**
+	 * Resolves the balance and allowance storage slot overrides for a single
+	 * ERC-20 token in parallel.  Returns `null` for native-ETH tokens or when
+	 * no slots could be discovered.
+	 */
+	private async buildTokenOverrides(
+		tokenHex: HexString,
+		accountAddress: HexString,
+		spenderAddress: HexString,
+		chain: string,
+		testValue: HexString,
+	): Promise<{
+		address: HexString
+		viemStateDiffs: { slot: HexString; value: HexString }[]
+		bundlerStateDiffs: Record<string, string>
+	} | null> {
+		const tokenAddress = bytes32ToBytes20(tokenHex)
+		if (tokenAddress === ADDRESS_ZERO) return null
+
+		try {
+			const viemStateDiffs: { slot: HexString; value: HexString }[] = []
+			const bundlerStateDiffs: Record<string, string> = {}
+
+			const balanceData = (ERC20Method.BALANCE_OF + bytes20ToBytes32(accountAddress).slice(2)) as HexString
+			const allowanceData = (ERC20Method.ALLOWANCE +
+				bytes20ToBytes32(accountAddress).slice(2) +
+				bytes20ToBytes32(spenderAddress).slice(2)) as HexString
+
+			const [balanceSlot, allowanceSlot] = await Promise.all([
+				getOrFetchStorageSlot(this.ctx.dest.client, chain, tokenAddress, balanceData),
+				getOrFetchStorageSlot(this.ctx.dest.client, chain, tokenAddress, allowanceData).catch(() => undefined),
+			])
+
+			if (balanceSlot) {
+				viemStateDiffs.push({ slot: balanceSlot, value: testValue })
+				bundlerStateDiffs[balanceSlot] = testValue
+			}
+			if (allowanceSlot) {
+				viemStateDiffs.push({ slot: allowanceSlot, value: testValue })
+				bundlerStateDiffs[allowanceSlot] = testValue
+			}
+
+			if (viemStateDiffs.length === 0) return null
+
+			return { address: tokenAddress, viemStateDiffs, bundlerStateDiffs }
+		} catch {
+			return null
+		}
 	}
 
 	/**

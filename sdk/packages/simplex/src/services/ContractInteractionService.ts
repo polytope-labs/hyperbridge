@@ -5,18 +5,18 @@ import {
 	HexString,
 	bytes32ToBytes20,
 	retryPromise,
-	OrderV2,
+	Order,
 	IntentGateway,
 	EvmChain,
 	getChainId,
-	orderV2Commitment,
+	orderCommitment,
 	encodeUserOpScale,
 	type PackedUserOperation,
-	type FillOptionsV2,
+	type FillOptions,
 	encodeERC7821ExecuteBatch,
 	type ERC7821Call,
 	transformOrderForContract,
-	TokenInfoV2,
+	TokenInfo,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -68,13 +68,13 @@ export class ContractInteractionService {
 
 		const sourceClient = this.clientManager.getPublicClient(source)
 		const destinationClient = this.clientManager.getPublicClient(destination)
-		const sourceEvmChain = new EvmChain({
+		const sourceEvmChain = EvmChain.fromParams({
 			chainId: getChainId(source)!,
 			host: this.configService.getHostAddress(source),
 			rpcUrl: sourceClient.transport.url,
 		})
 		const bundlerUrl = this.configService.getBundlerUrl(destination)
-		const destinationEvmChain = new EvmChain({
+		const destinationEvmChain = EvmChain.fromParams({
 			chainId: getChainId(destination)!,
 			host: this.configService.getHostAddress(destination),
 			rpcUrl: destinationClient.transport.url,
@@ -107,7 +107,7 @@ export class ContractInteractionService {
 			await this.getTokenDecimals(usdt, destChain)
 			for (const sourceChain of chainNames) {
 				// Same-chain intents don't dispatch cross-chain messages, so perByteFee is not needed.
-				// The SDK's estimateFillOrderV2 skips quoteNative for same-chain orders.
+				// The SDK's estimateFillOrder skips quoteNative for same-chain orders.
 				if (sourceChain === destChain) continue
 				// Check cache before making RPC call to avoid duplicate requests when cache is shared
 				const cachedPerByteFee = this.cacheService.getPerByteFee(destChain, sourceChain)
@@ -179,7 +179,7 @@ export class ContractInteractionService {
 	/**
 	 * Estimates gas for filling an order and caches the full estimate for bid preparation
 	 */
-	async estimateGasFillPost(order: OrderV2): Promise<{
+	async estimateGasFillPost(order: Order): Promise<{
 		totalCostInSourceFeeToken: bigint
 		dispatchFee: bigint
 		nativeDispatchFee: bigint
@@ -199,7 +199,7 @@ export class ContractInteractionService {
 
 			const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
-			const estimate = await sdkHelper.estimateFillOrderV2({
+			const estimate = await sdkHelper.estimateFillOrder({
 				order,
 				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
@@ -209,7 +209,7 @@ export class ContractInteractionService {
 				address: this.configService.getEntryPointAddress(order.destination)!,
 				abi: ENTRYPOINT_ABI,
 				functionName: "getNonce",
-				args: [this.solverAccountAddress, BigInt(orderV2Commitment(order)) & ((1n << 192n) - 1n)],
+				args: [this.solverAccountAddress, BigInt(orderCommitment(order)) & ((1n << 192n) - 1n)],
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
@@ -289,7 +289,7 @@ export class ContractInteractionService {
 	 * deposit is insufficient, tops up by depositing 10% of the solver's EOA
 	 * native balance on the destination chain.
 	 */
-	async ensureEntryPointDeposit(order: OrderV2): Promise<void> {
+	async ensureEntryPointDeposit(order: Order): Promise<void> {
 		if (!order.id) {
 			this.logger.warn({ destination: order.destination }, "Order has no ID, skipping EntryPoint deposit check")
 			return
@@ -360,7 +360,7 @@ export class ContractInteractionService {
 	 * @param order - The order to calculate input value for
 	 * @returns The total USD value of inputs (sum of normalized stable amounts, or 0 if none)
 	 */
-	async getInputUsdValue(order: OrderV2): Promise<Decimal> {
+	async getInputUsdValue(order: Order): Promise<Decimal> {
 		let inputUsdValue = new Decimal(0)
 		const inputs = order.inputs
 		const sourceUsdc = this.configService.getUsdcAsset(order.source).toLowerCase()
@@ -534,7 +534,7 @@ export class ContractInteractionService {
 	 * @returns Object containing the commitment and encoded UserOp
 	 */
 	async prepareBidUserOp(
-		order: OrderV2,
+		order: Order,
 		entryPointAddress: HexString,
 		solverAccountAddress: HexString,
 	): Promise<{ commitment: HexString; userOp: HexString }> {
@@ -553,7 +553,7 @@ export class ContractInteractionService {
 
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 
-		const fillOptions: FillOptionsV2 = {
+		const fillOptions: FillOptions = {
 			relayerFee: cachedEstimate.dispatchFee,
 			nativeDispatchFee: cachedEstimate.nativeDispatchFee,
 			outputs: cachedFillerOutputs,
@@ -566,7 +566,7 @@ export class ContractInteractionService {
 			cachedEstimate.totalCostInSourceFeeToken,
 		)
 
-		const commitment = orderV2Commitment(order)
+		const commitment = orderCommitment(order)
 
 		const userOp = await sdkHelper.prepareSubmitBid({
 			order,
@@ -604,9 +604,9 @@ export class ContractInteractionService {
 	 * before the fillOrder call, all within a single UserOp payload.
 	 */
 	public async buildApprovalAndFillCalldata(
-		order: OrderV2,
-		fillerOutputs: TokenInfoV2[],
-		fillOptions: FillOptionsV2,
+		order: Order,
+		fillerOutputs: TokenInfo[],
+		fillOptions: FillOptions,
 		requiredFeeTokenAmount: bigint,
 	): Promise<HexString> {
 		const chain = order.destination

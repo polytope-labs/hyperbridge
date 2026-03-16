@@ -175,21 +175,6 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Checks if the connected node exposes intents_* RPC methods.
-	 * Result is cached after the first check.
-	 */
-	private async checkIntentsRpc(): Promise<boolean> {
-		if (this.hasIntentsRpc !== null) return this.hasIntentsRpc
-		try {
-			const methods = await this.api.rpc.rpc.methods()
-			this.hasIntentsRpc = methods.methods.some((m: any) => m.toString().startsWith("intent"))
-		} catch {
-			this.hasIntentsRpc = false
-		}
-		return this.hasIntentsRpc
-	}
-
-	/**
 	 * Signs and sends an extrinsic, handling status updates and errors
 	 * Implements retry logic with progressive tip increases for stuck transactions
 	 */
@@ -360,14 +345,10 @@ export class IntentsCoprocessor {
 	 * @returns Array of FillerBid objects containing filler address, userOp, and deposit
 	 */
 	async getBidsForOrder(commitment: HexString): Promise<FillerBid[]> {
-		const hasRpc = await this.checkIntentsRpc()
-
-		if (hasRpc) {
-			try {
-				return await this.getBidsViaRpc(commitment)
-			} catch (err) {
-				console.warn("intents RPC failed, falling back to storage queries:", err)
-			}
+		try {
+			return await this.getBidsViaRpc(commitment)
+		} catch (err) {
+			console.warn("intents RPC failed, falling back to storage queries:", err)
 		}
 
 		return await this.getBidsViaStorage(commitment)

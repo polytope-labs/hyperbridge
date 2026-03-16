@@ -112,20 +112,28 @@ export interface PimlicoGasPriceEstimate {
  *
  * - `DESTINATION_FINALIZED` – a state proof from the destination chain is ready.
  * - `AWAITING_CANCEL_TRANSACTION` – the caller must sign and submit the cancel tx.
+ * - `CANCEL_STARTED` – the cancel transaction was confirmed on-chain.
  * - `SOURCE_FINALIZED` – the cancel request has been finalised on the source chain.
  * - `HYPERBRIDGE_DELIVERED` – the cancel message has been delivered to Hyperbridge.
  * - `HYPERBRIDGE_FINALIZED` – the cancel message has been finalised on Hyperbridge.
- * - `SOURCE_PROOF_RECEIVED` – a proof of the source-chain state has been received.
  * - `CANCELLATION_COMPLETE` – the escrow has been refunded; cancellation is done.
  */
 export type CancelEvent =
 	| { status: "DESTINATION_FINALIZED"; proof: IProof }
 	| { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
 	| { status: "CANCEL_STARTED"; receipt: TransactionReceipt }
-	| { status: "SOURCE_FINALIZED"; metadata: Extract<RequestStatusWithMetadata, { status: "SOURCE_FINALIZED" }>["metadata"] }
-	| { status: "HYPERBRIDGE_DELIVERED"; metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_DELIVERED" }>["metadata"] }
-	| { status: "HYPERBRIDGE_FINALIZED"; metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_FINALIZED" }>["metadata"] }
-	| { status: "SOURCE_PROOF_RECEIVED"; proof: IProof }
+	| {
+			status: "SOURCE_FINALIZED"
+			metadata: Extract<RequestStatusWithMetadata, { status: "SOURCE_FINALIZED" }>["metadata"]
+	  }
+	| {
+			status: "HYPERBRIDGE_DELIVERED"
+			metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_DELIVERED" }>["metadata"]
+	  }
+	| {
+			status: "HYPERBRIDGE_FINALIZED"
+			metadata: Extract<RequestStatusWithMetadata, { status: "HYPERBRIDGE_FINALIZED" }>["metadata"]
+	  }
 	| { status: "CANCELLATION_COMPLETE"; blockNumber: number; transactionHash: HexString }
 
 import type { IEvmChain } from "@/chain"

@@ -13,14 +13,13 @@ import {
 	getOrFetchStorageSlot,
 	EvmLanguage,
 } from "@/utils"
-import { orderV2Commitment } from "@/utils"
+import { orderCommitment } from "./utils"
 import { calculateBalanceMappingLocation } from "@/utils"
 import type {
-	OrderV2,
 	PackedUserOperation,
-	EstimateFillOrderV2Params,
-	FillOrderEstimateV2,
-	FillOptionsV2,
+	EstimateFillOrderParams,
+	FillOrderEstimate,
+	FillOptions,
 	IPostRequest,
 	DispatchPost,
 } from "@/types"
@@ -74,11 +73,11 @@ export class GasEstimator {
 	 *
 	 * @param params - Parameters including the order to estimate and optional
 	 *   percentage bumps for `maxPriorityFeePerGas` and `maxFeePerGas`.
-	 * @returns A {@link FillOrderEstimateV2} containing all gas components,
+	 * @returns A {@link FillOrderEstimate} containing all gas components,
 	 *   EIP-1559 fee values, total cost in wei, and total cost in the source
 	 *   chain's fee token.
 	 */
-	async estimateFillOrderV2(params: EstimateFillOrderV2Params): Promise<FillOrderEstimateV2> {
+	async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate> {
 		const { order } = params
 		const solverPrivateKey = generatePrivateKey()
 		const solverAccountAddress = privateKeyToAddress(solverPrivateKey)
@@ -130,7 +129,7 @@ export class GasEstimator {
 			const postRequest: IPostRequest = {
 				source: destStateMachineId,
 				dest: souceStateMachineId,
-				body: constructRedeemEscrowRequestBody({ ...order, id: orderV2Commitment(order) }, MOCK_ADDRESS),
+				body: constructRedeemEscrowRequestBody({ ...order, id: orderCommitment(order) }, MOCK_ADDRESS),
 				timeoutTimestamp: 0n,
 				nonce: await this.ctx.dest.getHostNonce(),
 				from: this.ctx.source.configService.getIntentGatewayV2Address(destStateMachineId),
@@ -145,7 +144,7 @@ export class GasEstimator {
 			postRequestFeeInDestFeeToken = (postRequestFeeInDestFeeToken * 1005n) / 1000n
 		}
 
-		const fillOptions: FillOptionsV2 = {
+		const fillOptions: FillOptions = {
 			relayerFee: postRequestFeeInDestFeeToken,
 			nativeDispatchFee: protocolFeeInNativeToken,
 			outputs: order.output.assets,
@@ -160,7 +159,7 @@ export class GasEstimator {
 		let maxFeePerGas = gasPrice + (gasPrice * BigInt(maxFeeBumpPercent)) / 100n
 
 		const orderForEstimation = { ...order, session: solverAccountAddress }
-		const commitment = orderV2Commitment(orderForEstimation)
+		const commitment = orderCommitment(orderForEstimation)
 
 		const fillOrderCalldata = encodeFunctionData({
 			abi: IntentGatewayV2ABI,

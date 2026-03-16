@@ -53,6 +53,7 @@ evm/subgraph/generated
 .vscode/*
 .env
 .uuid
+.claude
 
 **/proofs/*
 /fees/prisma/dev.db

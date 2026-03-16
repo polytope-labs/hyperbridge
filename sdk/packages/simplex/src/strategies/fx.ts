@@ -1,11 +1,11 @@
 import { FillerStrategy } from "@/strategies/base"
 import {
-	OrderV2,
+	Order,
 	ExecutionResult,
 	HexString,
 	bytes32ToBytes20,
-	FillOptionsV2,
-	TokenInfoV2,
+	FillOptions,
+	TokenInfo,
 	IntentsCoprocessor,
 	adjustDecimals,
 	ADDRESS_ZERO,
@@ -116,7 +116,7 @@ export class FXFiller implements FillerStrategy {
 		}
 	}
 
-	async canFill(order: OrderV2): Promise<boolean> {
+	async canFill(order: Order): Promise<boolean> {
 		try {
 			if (order.inputs.length !== order.output.assets.length) {
 				this.logger.debug(
@@ -156,7 +156,7 @@ export class FXFiller implements FillerStrategy {
 	 * Note: we may intentionally overfill relative to the user's requested
 	 * outputs if the price policy makes that attractive. This is how we stay competitive.
 	 */
-	async calculateProfitability(order: OrderV2): Promise<number> {
+	async calculateProfitability(order: Order): Promise<number> {
 		try {
 			const sourceChain = order.source
 			const destChain = order.destination
@@ -199,7 +199,7 @@ export class FXFiller implements FillerStrategy {
 			// - bidPrice: used when filler buys exotic (exotic->stable). Higher rate = fewer USD paid out.
 			const bidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
 			const askPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
-			const fillerOutputs: TokenInfoV2[] = []
+			const fillerOutputs: TokenInfo[] = []
 			let remainingUsd = cappedOrderUsd
 
 			for (let i = 0; i < order.inputs.length; i++) {
@@ -367,7 +367,7 @@ export class FXFiller implements FillerStrategy {
 	 * This method only orchestrates the bid construction and submission; the
 	 * actual token movements are handled on-chain by the IntentGateway.
 	 */
-	async executeOrder(order: OrderV2, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
+	async executeOrder(order: Order, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
 		const startTime = Date.now()
 
 		try {
@@ -400,7 +400,7 @@ export class FXFiller implements FillerStrategy {
 	 * `ContractInteractionService.prepareBidUserOp`.
 	 */
 	private async submitBid(
-		order: OrderV2,
+		order: Order,
 		startTime: number,
 		intentsCoprocessor: IntentsCoprocessor,
 	): Promise<ExecutionResult> {

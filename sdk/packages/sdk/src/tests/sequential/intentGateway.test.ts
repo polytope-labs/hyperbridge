@@ -2,7 +2,7 @@ import "log-timestamp"
 
 import { toHex } from "viem"
 import { strict as assert } from "assert"
-import { type HexString, OrderV2, TokenInfoV2 } from "@/types"
+import { type HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { ChainConfigService } from "@/configs/ChainConfigService"
@@ -58,7 +58,7 @@ function bundlerUrl(chainId: number): string | undefined {
 }
 
 function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundlerUrl?: string): EvmChain {
-	return new EvmChain({
+	return EvmChain.fromParams({
 		chainId: chain.numericId,
 		host: configService.getHostAddress(chain.id),
 		rpcUrl: process.env[chain.rpcEnvVar]!,
@@ -66,15 +66,15 @@ function makeEvmChain(chain: ChainDef, configService: ChainConfigService, bundle
 	})
 }
 
-function buildOrderV2(
+function buildOrder(
 	sourceChainId: string,
 	destChainId: string,
 	inputToken: HexString,
 	outputToken: HexString,
 	amount: bigint,
-): OrderV2 {
-	const inputs: TokenInfoV2[] = [{ token: inputToken, amount }]
-	const outputAssets: TokenInfoV2[] = [{ token: outputToken, amount }]
+): Order {
+	const inputs: TokenInfo[] = [{ token: inputToken, amount }]
+	const outputAssets: TokenInfo[] = [{ token: outputToken, amount }]
 
 	return {
 		user: BENEFICIARY,
@@ -100,7 +100,7 @@ async function runCrossChainEstimate(srcKey: string, destKey: string) {
 
 	const intentGateway = await IntentGateway.create(srcChain, destChain)
 
-	const order = buildOrderV2(
+	const order = buildOrder(
 		src.id,
 		dest.id,
 		bytes20ToBytes32(configService.getUsdcAsset(src.id)),
@@ -108,7 +108,7 @@ async function runCrossChainEstimate(srcKey: string, destKey: string) {
 		100n,
 	)
 
-	const estimate = await intentGateway.estimateFillOrderV2({ order })
+	const estimate = await intentGateway.estimateFillOrder({ order })
 
 	console.log(`${srcKey} => ${destKey}`)
 	console.log("Estimated fee (totalGasInFeeToken):", estimate.totalGasInFeeToken)
@@ -123,7 +123,7 @@ async function runSameChainEstimate(chainKey: string) {
 
 	const intentGateway = await IntentGateway.create(evmChain, evmChain)
 
-	const order = buildOrderV2(
+	const order = buildOrder(
 		chain.id,
 		chain.id,
 		bytes20ToBytes32(configService.getUsdcAsset(chain.id)),
@@ -131,7 +131,7 @@ async function runSameChainEstimate(chainKey: string) {
 		100n,
 	)
 
-	const estimate = await intentGateway.estimateFillOrderV2({ order })
+	const estimate = await intentGateway.estimateFillOrder({ order })
 
 	console.log(`${chainKey} same-chain USDC => EXT, estimated fee:`, estimate.totalGasInFeeToken)
 	assert(estimate.totalGasInFeeToken > 0n)

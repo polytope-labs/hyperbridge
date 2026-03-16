@@ -159,7 +159,7 @@ export class IntentGatewayV2Service {
 				nonce: order.nonce,
 				fees: order.fees,
 				session: order.session,
-				inputUSD: inputUSD,
+				inputUSD: BigInt(new Decimal(inputUSD).truncated().toString()),
 				predispatchCalldata: order.predispatch.call as string,
 				postDispatchCalldata: order.outputs.call as string,
 				status: OrderStatus.PLACED,
@@ -227,7 +227,7 @@ export class IntentGatewayV2Service {
 			orderPlaced.nonce = order.nonce
 			orderPlaced.fees = order.fees
 			orderPlaced.session = order.session
-			orderPlaced.inputUSD = inputUSD
+			orderPlaced.inputUSD = BigInt(new Decimal(inputUSD).truncated().toString())
 			orderPlaced.predispatchCalldata = order.predispatch.call as string
 			orderPlaced.postDispatchCalldata = order.outputs.call as string
 			orderPlaced.referrer = referrer
@@ -354,7 +354,7 @@ export class IntentGatewayV2Service {
 				nonce: BigInt(0),
 				fees: BigInt(0),
 				session: "0x0000000000000000000000000000000000000000" as Hex,
-				inputUSD: "0",
+				inputUSD: BigInt(0),
 				status: OrderStatus.FILLED,
 				referrer: DEFAULT_REFERRER,
 				predispatchCalldata: "",
@@ -394,7 +394,7 @@ export class IntentGatewayV2Service {
 
 					await VolumeService.updateVolume(`IntentGatewayV2.FILLER.${filler}`, outputUSD.total, timestamp)
 
-					const orderValue = new Decimal(orderPlaced.inputUSD)
+					const orderValue = new Decimal(orderPlaced.inputUSD.toString())
 					const pointsToAward = orderValue.floor().toNumber()
 
 					// Rewards
@@ -413,7 +413,7 @@ export class IntentGatewayV2Service {
 					const userAddress20 = bytes32ToBytes20(orderPlaced.user)
 					let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
 					user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
-						.plus(new Decimal(orderPlaced.inputUSD))
+						.plus(new Decimal(orderPlaced.inputUSD.toString()))
 						.toString()
 					user.totalFilledOrders = user.totalFilledOrders + BigInt(1)
 					await user.save()

@@ -1,13 +1,13 @@
 import { createSessionKeyStorage, createCancellationStorage, createUsedUserOpsStorage } from "@/storage"
 import { Swap } from "@/utils/swap"
-import type { OrderV2, HexString } from "@/types"
+import type { TransactionReceipt } from "viem"
+import type { Order, HexString } from "@/types"
 import type {
 	PackedUserOperation,
 	SubmitBidOptions,
-	EstimateFillOrderV2Params,
-	FillOrderEstimateV2,
+	EstimateFillOrderParams,
+	FillOrderEstimate,
 	IntentOrderStatusUpdate,
-	ExecuteIntentOrderOptions,
 	SelectBidResult,
 	FillerBid,
 } from "@/types"
@@ -84,11 +84,7 @@ export class IntentGateway {
 	 * @param dest - Destination chain client.
 	 * @param intentsCoprocessor - Optional coprocessor for bid fetching.
 	 */
-	private constructor(
-		source: IEvmChain,
-		dest: IEvmChain,
-		intentsCoprocessor?: IntentsCoprocessor,
-	) {
+	private constructor(source: IEvmChain, dest: IEvmChain, intentsCoprocessor?: IntentsCoprocessor) {
 		this.source = source
 		this.dest = dest
 		this.intentsCoprocessor = intentsCoprocessor
@@ -207,7 +203,7 @@ export class IntentGateway {
 	 *   estimation returns zero.
 	 */
 	async *execute(
-		order: OrderV2,
+		order: Order,
 		graffiti: HexString = DEFAULT_GRAFFITI,
 		options?: {
 			maxPriorityFeePerGasBumpPercent?: number
@@ -220,7 +216,7 @@ export class IntentGateway {
 		let value: bigint | undefined
 
 		if (!order.fees || order.fees === 0n) {
-			const estimate = await this.gasEstimator.estimateFillOrderV2({
+			const estimate = await this.gasEstimator.estimateFillOrder({
 				order,
 				maxPriorityFeePerGasBumpPercent: options?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: options?.maxFeePerGasBumpPercent,
@@ -248,12 +244,12 @@ export class IntentGateway {
 		if (placeOrderSecond.done === false) {
 			throw new Error("placeOrder generator yielded unexpectedly after signing")
 		}
-		const { order: finalizedOrder, transactionHash } = placeOrderSecond.value as {
-			order: OrderV2
-			transactionHash: HexString
+		const { order: finalizedOrder, receipt: placementReceipt } = placeOrderSecond.value as {
+			order: Order
+			receipt: TransactionReceipt
 		}
 
-		yield { status: "ORDER_PLACED", order: finalizedOrder, transactionHash }
+		yield { status: "ORDER_PLACED", order: finalizedOrder, receipt: placementReceipt }
 
 		for await (const status of this.orderExecutor.executeIntentOrder({
 			order: finalizedOrder,
@@ -278,7 +274,7 @@ export class IntentGateway {
 	 *   Defaults to `false` (source-side cancellation).
 	 * @returns The native token amount required to submit the cancel transaction.
 	 */
-	async quoteCancelNative(order: OrderV2, fromDest: boolean = false): Promise<bigint> {
+	async quoteCancelNative(order: Order, fromDest: boolean = false): Promise<bigint> {
 		return this.orderCanceller.quoteCancelNative(order, fromDest)
 	}
 
@@ -295,7 +291,7 @@ export class IntentGateway {
 	 * @yields {@link CancelEvent} objects describing each cancellation stage.
 	 */
 	async *cancelOrder(
-		order: OrderV2,
+		order: Order,
 		indexerClient: IndexerClient,
 		fromDest: boolean = false,
 	): AsyncGenerator<CancelEvent> {
@@ -328,7 +324,7 @@ export class IntentGateway {
 	 * @returns A {@link SelectBidResult} with the submitted UserOperation, hashes,
 	 *   and fill status.
 	 */
-	async selectBid(order: OrderV2, bids: FillerBid[], sessionPrivateKey?: HexString): Promise<SelectBidResult> {
+	async selectBid(order: Order, bids: FillerBid[], sessionPrivateKey?: HexString): Promise<SelectBidResult> {
 		return this.bidManager.selectBid(order, bids, sessionPrivateKey)
 	}
 
@@ -336,14 +332,14 @@ export class IntentGateway {
 	 * Estimates the gas cost for filling the given order, returning individual
 	 * gas components and fee-token-denominated totals.
 	 *
-	 * Delegates to {@link GasEstimator.estimateFillOrderV2}.
+	 * Delegates to {@link GasEstimator.estimateFillOrder}.
 	 *
 	 * @param params - Estimation parameters including the order and optional
 	 *   gas-price bump percentages.
-	 * @returns A {@link FillOrderEstimateV2} with all gas components.
+	 * @returns A {@link FillOrderEstimate} with all gas components.
 	 */
-	async estimateFillOrderV2(params: EstimateFillOrderV2Params): Promise<FillOrderEstimateV2> {
-		return this.gasEstimator.estimateFillOrderV2(params)
+	async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate> {
+		return this.gasEstimator.estimateFillOrder(params)
 	}
 
 	/**
@@ -380,7 +376,7 @@ export class IntentGateway {
 	 * @returns `true` if the order's commitment slot on the destination chain is
 	 *   non-zero (i.e. `fillOrder` has been called successfully).
 	 */
-	async isOrderFilled(order: OrderV2): Promise<boolean> {
+	async isOrderFilled(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderFilled(order)
 	}
 
@@ -394,7 +390,7 @@ export class IntentGateway {
 	 * @returns `true` if every input token's escrowed amount has been zeroed out
 	 *   in the `_orders` mapping on the source chain.
 	 */
-	async isOrderRefunded(order: OrderV2): Promise<boolean> {
+	async isOrderRefunded(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderRefunded(order)
 	}
 }

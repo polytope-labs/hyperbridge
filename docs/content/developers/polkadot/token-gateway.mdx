@@ -1,43 +1,55 @@
 ---
 title: Token Gateway
-description: This is an ISMP module that allows standalone chains or parachains send and receive cross chain asset transfers.
+description: An ISMP module that allows standalone chains or parachains to send and receive cross-chain asset transfers.
 ---
 
 # Pallet Token Gateway
 
-This is an ISMP module that allows standalone chains or parachains send and receive cross chain asset transfers.
+This is an ISMP module that allows standalone chains or parachains to send and receive cross-chain asset transfers. It handles locking/burning assets on the source chain, dispatching cross-chain requests via ISMP, and minting/unlocking assets on the destination chain.
 
 ## Config
 
-Let's look at the pallet specific components of the configuration trait: <br/><br/>
-
+The pallet configuration trait requires these associated types:
 
 | Component | Description |
 |-----------|-------------|
-| `Dispatcher` | The should be an implementation of the [`IsmpDispatcher`](/protocol/ismp/dispatcher), it will be used by this pallet dispatch cross-chain requests. |
-| `Assets` | This type should be configured with a component that implements the following interfaces, typically this will be `pallet-assets`: [`fungibles::Mutate`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/trait.Mutate.html), [`fungibles::metadata::Mutate`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/metadata/trait.Mutate.html) |
-| `Currency` | This type should be configured with a component that implements [`Currency`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/currency/trait.Currency.html) interface, typically `pallet-balances`. |
-| `AssetAdmin` | This pallet has some functionality for creating new assets. The account configured for this type would be the asset admin and also be responsible for paying the asset registration fees, therefore it should be funded before attempting to create any assets. |
-| `NativeAssetId` | A constant value that represents the identifier of the native asset. |
-| `Decimals` | A constant that represents the precision of the native currency. |
-| `EvmToSubstrate` | A type that allows conversion of an EVM account to a substrate account. |
+| `Dispatcher` | An implementation of the [`IsmpDispatcher`](/protocol/ismp/dispatcher) used to dispatch cross-chain requests. |
+| `Assets` | A fungible assets implementation, typically `pallet-assets`. Must implement [`fungibles::Mutate`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/trait.Mutate.html) and [`fungibles::metadata::Inspect`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/metadata/trait.Inspect.html). The `AssetId` type used throughout the pallet is derived from this implementation. |
+| `NativeCurrency` | A currency implementation for the native asset, typically `pallet-balances`. Must implement [`Currency`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/currency/trait.Currency.html). |
+| `AssetAdmin` | A funded account used as the asset admin and for paying asset creation fees. Must be funded before creating any assets. |
+| `CreateOrigin` | The origin authorized to create and update assets. Privileged calls must be dispatched from this origin. |
+| `NativeAssetId` | A constant value representing the identifier of the native asset. This must be the same `AssetId` type used by the `Assets` implementation (e.g. `u32`, `u128`, `H256`, etc.). |
+| `Decimals` | A constant representing the precision (number of decimal places) of the native currency. |
+| `EvmToSubstrate` | A type that converts an EVM address to a substrate account, used for authenticating incoming cross-chain runtime calls. |
+| `WeightInfo` | Weight information for the pallet's extrinsics. |
 
 ## Calls
 
 | Call | Origin | Description |
 |------|--------|-------------|
-| `teleport` | Signed | This call is used to initialize a cross-chain asset transfer. Any provided assets are custodied by the pallet and a cross-chain request is dispatched to the destination chain. |
-| `set_token_gateway_addresses` | CreateOrigin | This priviledged call is used to set the token gateway address for EVM chains. |
-| `create_erc6160_asset` | CreateOrigin | This call dispatches a request to Hyperbridge to create multi chain native assets on token gateway deployments. |
-| `update_erc6160_asset` | CreateOrigin | This call dispatches a request to Hyperbridge to update multi chain native assets on token gateway deployments. |
-| `update_asset_precision` | CreateOrigin | This priviledged call is used to set or update the precision of an asset deployed on some remote chains. |
+| `teleport` | Signed | Initializes a cross-chain asset transfer. Native assets are locked in the pallet account, non-native assets are burned. A cross-chain ISMP request is then dispatched to the destination chain's token gateway. |
+| `set_token_gateway_addresses` | CreateOrigin | Sets the token gateway contract addresses for EVM chains so the pallet can validate the source of incoming messages. |
+| `create_erc6160_asset` | CreateOrigin | Registers an asset locally in the pallet's storage without dispatching any cross-chain request. This maps a local asset ID to a token gateway asset ID and records its precision on remote chains. Use this for assets that already exist on external chains. |
+| `update_asset_precision` | CreateOrigin | Updates the decimal precision recorded for an asset on specific remote chains. |
 
-Priviledged calls must be dispatched by [`CreateOrigin`](https://docs.rs/pallet-token-gateway/latest/pallet_token_gateway/pallet/trait.Config.html#associatedtype.CreateOrigin).
+Privileged calls must be dispatched by [`CreateOrigin`](https://docs.rs/pallet-token-gateway/latest/pallet_token_gateway/pallet/trait.Config.html#associatedtype.CreateOrigin).
 
+---
 
-## Integrating the pallet into the Runtime
+## Integrating the Pallet into the Runtime
 
-The first step is to implement the pallet config for the runtime.
+### Step 1: Add the dependency
+
+Add `pallet-token-gateway` to your runtime's `Cargo.toml`:
+
+```toml
+[dependencies]
+pallet-token-gateway = { version = "2512.0.0", default-features = false }
+```
+
+### Step 2: Configure the pallet
+
+Implement the pallet configuration for your runtime. The `AssetId` type is derived from your `Assets` implementation — it can be `u32`, `u128`, `H256`, or any other type depending on how you've configured `pallet-assets`:
 
 ```rust lineNumbers
 use frame_support::parameter_types;
@@ -45,44 +57,50 @@ use ismp::module::IsmpModule;
 use ismp::router::IsmpRouter;
 
 parameter_types! {
-    // Set the correct decimals for the native currency
+    // Set the correct decimals for your native currency
     pub const Decimals: u8 = 12;
 }
 
-/// A constant value that represents the native asset
+// A constant value that represents the native asset.
+// The type must match your Assets pallet's AssetId type.
+// For example, if your Assets pallet uses u32 as AssetId:
 pub const NativeAssetId: u32 = 0;
 
-/// Should provide an account that is funded and can be used to pay for asset creation
+// Should provide a funded account for asset creation
 pub struct AssetAdmin;
-
 impl Get<AccountId> for AssetAdmin {
-	fn get() -> AccountId {
-		Treasury::account_id()
-	}
+    fn get() -> AccountId {
+        Treasury::account_id()
+    }
 }
 
 impl pallet_token_gateway::Config for Runtime {
-    // configure the runtime event
-    type RuntimeEvent = RuntimeEvent;
-    // Configured as Pallet Ismp 
+    // Configured as Pallet ISMP
     type Dispatcher = Ismp;
     // Configured as Pallet Assets
-	type Assets = Assets;
-    // Configured as Pallet balances
-	type Currency = Balances;
-    // AssetAdmin account
-    type AssetAdmin = AssetAdmin;
+    type Assets = Assets;
+    // Configured as Pallet Balances
+    type NativeCurrency = Balances;
+    // The native asset id — must be the same type as your Assets pallet's AssetId
+    type NativeAssetId = NativeAssetId;
     // Origin allowed to create and update assets
-    type CreateOrigin = frame_system::EnsureSigned<AccountId>
-    // The Native asset Id
-	type NativeAssetId = NativeAssetId;
+    type CreateOrigin = frame_system::EnsureSigned<AccountId>;
     // The precision of the native asset
     type Decimals = Decimals;
-    // An implementation that converts an evm account to a substrate account
+    // AssetAdmin account
+    type AssetAdmin = AssetAdmin;
+    // EVM to substrate account conversion
     type EvmToSubstrate = ();
+    // Pallet weights
+    type WeightInfo = pallet_token_gateway::weights::WeightInfo<Runtime>;
 }
+```
 
-// Add the token gateway pallet to your ISMP router
+### Step 3: Add to the ISMP router
+
+Register the token gateway module in your ISMP router so it can receive incoming cross-chain messages:
+
+```rust lineNumbers
 #[derive(Default)]
 struct Router;
 impl IsmpRouter for Router {
@@ -94,113 +112,318 @@ impl IsmpRouter for Router {
         Ok(module)
     }
 }
-``` 
+```
+
+---
 
 ## Setting up Token Gateway
 
-Setting up token gateway for use involves a few simple steps.
+### Registering Token Gateway Addresses on EVM chains
 
-1. **Registering token gateway addresses on EVM chains**<br/>
-   The pallet needs to know the addresses of the token gateway contracts on EVM chains, so it can validate the source of incoming messages.<br/><br/>
-   This requires dispatching the `set_token_gateway_addresses` extrinsic from `AdminOrigin` configured in `pallet-ismp`.<br/>
-   This call accepts a map of `StateMachine` to `Vec<u8>`, this is only neccessary for validating messages coming from EVM chains, all substrate chains use a static token gateway address.
-   Find the required addresses [here](https://docs.hyperbridge.network/developers/evm/contract-addresses)<br/><br/>
+The pallet needs to know the addresses of the token gateway contracts on EVM chains so it can validate the source of incoming messages.
 
-2. **Registering assets on token gateway deployments**<br/>
-   For transfer of the native currency and other assets issued on your chain through token gateway, those assets need to be registered on the token gateway asset registry on hyperbridge
-   The process of registering assets involves dispatching a request to create the asset on hyperbridge after which hyperbridge dispatches requests to deploy the asset on all chains specified in the initial request.<br/><br/>
+Dispatch the `set_token_gateway_addresses` extrinsic from the `CreateOrigin` configured in the pallet. This call accepts a map of `StateMachine` to `Vec<u8>` (the contract address bytes). This is only necessary for validating messages coming from EVM chains — all substrate chains use a static token gateway address.
 
-   The types involved in asset creation are described below:
+Find the required contract addresses [here](/developers/evm/contract-addresses/mainnet/).
+
+### Registering a Token Locally
+
+Before an asset can be teleported through token gateway, it must be registered locally in the pallet's storage. The `create_erc6160_asset` extrinsic handles this — it does **not** dispatch any cross-chain request. Instead, it:
+
+1. Derives the token gateway asset ID from `keccak256(symbol)`
+2. Maps the local asset ID to the token gateway asset ID (and vice versa) in storage
+3. Records whether the asset is native to this chain
+4. Stores the asset's decimal precision on each remote chain
+
+This extrinsic should be used when you want to enable token gateway transfers for an asset that already exists on an external chain (i.e. the asset has already been registered on the token gateway contracts on other chains via governance).
+
+The types involved in local asset registration:
+
 ```rust lineNumbers
 pub struct GatewayAssetRegistration {
-	/// The asset name
-	pub name: BoundedVec<u8, ConstU32<20>>,
-	/// The asset symbol
-	pub symbol: BoundedVec<u8, ConstU32<20>>,
-	/// The list of chains to create the asset on
-	pub chains: Vec<StateMachine>,
-	/// Minimum balance for the asset, for substrate chains,
-	pub minimum_balance: Option<u128>,
+    /// The asset name
+    pub name: BoundedVec<u8, ConstU32<50>>,
+    /// The asset symbol
+    pub symbol: BoundedVec<u8, ConstU32<20>>,
+    /// The list of chains to create the asset on
+    pub chains: Vec<StateMachine>,
+    /// Minimum balance for the asset (only needed for substrate chains)
+    pub minimum_balance: Option<u128>,
 }
 
 pub struct AssetRegistration<AssetId> {
-	/// The asset must exist locally
-	pub local_id: AssetId,
-	/// Asset metadata
-	pub reg: GatewayAssetRegistration,
-    /// A Flag that asserts if this asset is custodied locally
-    /// This should be false for all imported assets
-	pub native: bool,
-	/// Precision of asset on supported chains
-	pub precision: BTreeMap<StateMachine, u8>,
+    /// The local asset id — must already exist in pallet-assets
+    pub local_id: AssetId,
+    /// Asset metadata
+    pub reg: GatewayAssetRegistration,
+    /// Flag that asserts if this asset is custodied locally.
+    /// Set to true for assets originally minted on your chain,
+    /// false for imported assets.
+    pub native: bool,
+    /// Precision of asset on supported chains
+    pub precision: BTreeMap<StateMachine, u8>,
 }
 ```
 
-To register assets on token gateway you need to dispatch the `create_erc6160_asset` extrinsic with an `AssetRegistration<AssetId>` object.<br/>
-The former contains the local asset id and the asset metadata. <br/>
-
-### `GatewayAssetRegistration`
-This is the core struct that holds the metadata of the asset you need to register.
+#### `GatewayAssetRegistration` Fields
 
 | Field | Description |
 |-------|-------------|
-| `name` | This should be the full name of the asset, it's limited to 20 characters. |
-| `symbol` | This is the ticker for the asset, also limited to 20 characters. The asset Id will be derived from the `keccak256` hash of this value. |
-| `chains` | This is a vector of the chains you want this asset deployed. It should be only chains supported by hyperbridge network. |
-| `minimum_balance` | This value is only necessary when you intend to deploy this asset on a substrate chain. It represents the minimum amount of the asset that an account can hold on susbtrate based chains. |
+| `name` | The full name of the asset. Limited to 50 characters. |
+| `symbol` | The ticker symbol for the asset, limited to 20 characters. The token gateway asset ID is derived from the `keccak256` hash of this value. |
+| `chains` | A vector of destination chains where this asset is deployed. Must be chains supported by the Hyperbridge network. |
+| `minimum_balance` | Only necessary when the asset exists on a substrate chain. Represents the minimum amount an account can hold on substrate-based chains. |
 
-A local asset id must be provided for the asset so it ca be mapped to the token gateway asset id.<br/>
+#### `AssetRegistration` Fields
 
-To register the native currency(pallet-balances) on token gateway you need to set the `local_id` field in the `AssetRegistration<AssetId>` to the same constant that was specified as the `NativeAssetId` in the pallet config along with the required metadata.<br/>
-Assets can also be updated in the same way by dispatching `update_erc6160_asset`.<br/>
+| Field | Description |
+|-------|-------------|
+| `local_id` | The local asset ID. The type depends on your runtime's `Assets` pallet configuration (e.g. `u32`, `H256`). For the native currency, set this to the same value as `NativeAssetId` in the pallet config. |
+| `reg` | The `GatewayAssetRegistration` metadata for the asset. |
+| `native` | Controls the custody model for this asset. See below. |
+| `precision` | A map of `StateMachine` to `u8` specifying the decimal precision for the asset on each remote chain. ERC6160 assets on EVM chains should always use `18`. |
 
-## Asset Ids
- Token gateway protocol represents assets ids with a 32 byte hash which is derived from the `keccak256` hash of the asset's symbol.
+#### The `native` Flag
 
-## Asset Precision
+The `native` flag determines how the pallet handles asset custody during cross-chain transfers:
 
-Asset precision is used to note the precision an asset is configured with on a remote chain, this allows the pallet to handle balance conversions correctly.
-To update or set the precision of an asset on dispatch `update_asset_precision` with the values that need to be set.
-The precision for ERC6160 assets deployed on EVM should always be set to 18.
+- **`native: true`** — The token is natively minted on your substrate chain. When a user teleports this asset, the pallet **locks** the tokens in its custody account. When the asset is received back from another chain, the pallet **unlocks** and transfers the tokens from custody to the beneficiary. This preserves the total supply on your chain. Use this for your chain's native currency (e.g. the balance managed by `pallet-balances`) and any other tokens that originate from your chain (e.g. assets created via `pallet-assets` on your runtime).
 
-## Teleporting assets
+- **`native: false`** — The token was not originally minted on your chain; it is a bridged/imported representation. When a user teleports this asset, the pallet **burns** the tokens, reducing the local supply. When the asset is received from another chain, the pallet **mints** new tokens to the beneficiary. Use this for any asset that originates from a different chain and is represented locally as a wrapped or bridged token.
 
-To make a crosschain transfer the `teleport` extrinsic should must be dispatched with the correct parameters.
+---
+
+## Updating Asset Precision
+
+Asset precision records the number of decimal places an asset uses on a remote chain. This allows the pallet to handle balance conversions correctly when transferring between chains with different decimal configurations (e.g. 10-decimal DOT on Polkadot vs 18-decimal DOT on Ethereum).
+
+Dispatch `update_asset_precision` with the following parameters:
+
+```rust lineNumbers
+pub struct PrecisionUpdate<AssetId> {
+    /// The local asset id
+    pub asset_id: AssetId,
+    /// New precisions per chain
+    pub precisions: BTreeMap<StateMachine, u8>,
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `asset_id` | The local asset ID to update precision for. |
+| `precisions` | A map of `StateMachine` to `u8` specifying the new decimal precision on each chain. |
+
+Incorrect precision values would lead to failed transfers
+
+---
+
+## Asset IDs
+
+Token gateway represents asset IDs with a 32-byte hash derived from `keccak256(symbol)`. For example, an asset with symbol `"DOT"` would have an asset ID of `keccak256(b"DOT")`. This hash is used to identify assets across all chains in the token gateway protocol.
+
+The local asset ID (used in `create_erc6160_asset` and `teleport`) is your runtime's native asset ID type, which is determined by your `Assets` pallet configuration.
+
+---
+
+## Teleporting Assets
+
+To make a cross-chain transfer, dispatch the `teleport` extrinsic with the following parameters:
 
 ```rust lineNumbers
 pub struct TeleportParams<AssetId, Balance> {
-	/// Asset Id registered on Hyperbridge
-	pub asset_id: AssetId,
-	/// Destination state machine
-	pub destination: StateMachine,
-	/// Receiving account on destination
-	pub recepient: H256,
-	/// Amount to be sent
-	pub amount: Balance,
-	/// Request timeout
-	pub timeout: u64,
-	/// Token gateway address
-	pub token_gateway: Vec<u8>,
-	/// Relayer fee
-	pub relayer_fee: Balance,
-    /// Optional call data
+    /// Asset Id registered on Hyperbridge
+    pub asset_id: AssetId,
+    /// Destination state machine
+    pub destination: StateMachine,
+    /// Receiving account on destination
+    pub recepient: H256,
+    /// Amount to be sent
+    pub amount: Balance,
+    /// Request timeout
+    pub timeout: u64,
+    /// Token gateway address
+    pub token_gateway: Vec<u8>,
+    /// Relayer fee
+    pub relayer_fee: Balance,
+    /// Optional call data to be executed on the destination chain
     pub call_data: Option<Vec<u8>>,
-	/// Redeem erc20 tokens
-	pub redeem: bool
+    /// Redeem native erc20 assets
+    pub redeem: bool,
 }
 ```
-Let's explore what each parameter holds:
 
 | Parameter | Description |
 |-----------|-------------|
-| `asset_id` | The local asset id for the asset that should be transferred. |
+| `asset_id` | The local asset ID for the asset to transfer. |
 | `destination` | The destination chain that should receive the funds. |
-| `recepient` | The beneficiary account for the funds on the destination. (For EVM chains, the address should be left padded with zeros to fit into the required 32 bytes.) |
-| `amount` | The amount that should be transferred. |
-| `timeout` | The request timeout, this is the time after which the request cannot be delivered to the destination. It should represent the cumulative time for finalization on the source chain and hyperbridge with some additional buffer. |
+| `recepient` | The beneficiary account on the destination. For EVM chains, the address should be left-padded with zeros to fit into the required 32 bytes. |
+| `amount` | The amount to transfer. |
+| `timeout` | The request timeout in seconds. After this time, the request cannot be delivered. It should account for finalization time on both the source chain and Hyperbridge, plus a buffer. |
 | `token_gateway` | The address of the token gateway module on the destination chain. |
-| `relayer_fee` | The amount to be paid to relayers for delivering the request, a value of zero means the dispatcher is responsible for relaying the request. |
-| `redeem` | This value should be set to true if bridging an asset that has an ERC20 deployment on the destination, it should be false in any other case. |
+| `relayer_fee` | The fee paid to relayers for delivering the request. A value of zero means the dispatcher is responsible for relaying. |
+| `call_data` | Optional calldata to execute on the destination chain after the transfer. |
+| `redeem` | Set to `true` if the asset on the destination EVM chain is an ERC20 token — this instructs the destination token gateway to redeem the ERC20 from its custody. Set to `false` if the asset on the destination is an ERC6160 token, in which case it will be minted directly to the beneficiary. |
 
+When teleporting, native assets (where `native = true`) are locked in the pallet's custody account, while non-native assets are burned. On the destination chain, the reverse happens — native assets are unlocked and non-native assets are minted.
 
 Funds from undelivered requests can be recovered by submitting a timeout message for the request through `pallet-ismp`.
+
+---
+
+## Registering Tokens on Hyperbridge via Governance
+
+To register an existing ERC20 token on the Hyperbridge Token Gateway (so it can be bridged across chains), you need to create a governance proposal that calls `tokenGovernor.createAssetMapping`. This call is gated by the `GovernorOrigin`, which on Hyperbridge requires either a whitelisted caller referendum or approval from the Technical Collective.
+
+### Overview
+
+The `create_asset_mapping` extrinsic on the `TokenGovernor` pallet dispatches cross-chain requests to register an existing ERC20 (or ERC6160) token contract on the Token Gateway contracts deployed on supported EVM chains. Unlike the local `create_erc6160_asset` call (which only updates local storage), `create_asset_mapping` sends ISMP requests to each specified chain to map the token contract addresses to an asset ID in the on-chain Token Gateway registry.
+
+**If the token is natively minted on a substrate chain**, you must also call `tokenGovernor.registerStandaloneChainNativeAssets` in the same proposal. This tells Hyperbridge's token gateway inspector that the asset originates from your chain. Without this registration, the inspector will enforce inflow balance tracking and reject outgoing transfer requests for the asset that exceed the tracked inflow. Both calls should be submitted together using `utility.batchAll`.
+
+### `ERC20AssetRegistration` Parameters
+
+```rust lineNumbers
+pub struct ERC20AssetRegistration {
+    /// The asset name
+    pub name: BoundedVec<u8, ConstU32<50>>,
+    /// The asset symbol
+    pub symbol: BoundedVec<u8, ConstU32<20>>,
+    /// Chains to support with the ERC20/ERC6160 addresses on each chain
+    pub chains: Vec<AssetRegistration>,
+}
+
+pub struct AssetRegistration {
+    /// Chain to register this asset on
+    pub chain: StateMachine,
+    /// Optional ERC20 address on this chain
+    pub erc20: Option<H160>,
+    /// Optional ERC6160 address on this chain
+    pub erc6160: Option<H160>,
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | The full name of the token (e.g., `"USD Coin"`). Limited to 50 characters. |
+| `symbol` | The token ticker (e.g., `"USDC"`). Limited to 20 characters. The asset ID will be derived as `keccak256(symbol)`. |
+| `chains` | A list of chains and their corresponding token contract addresses to register. |
+| `chains[].chain` | The `StateMachine` identifier for the target chain (e.g., `StateMachine::Evm(1)` for Ethereum). |
+| `chains[].erc20` | The ERC20 contract address on this chain. If the asset is a pure ERC6160 token (no ERC20 deployment), set this to `H160::from_low_u64_be(1)` (i.e. address `0x0000000000000000000000000000000000000001`). |
+| `chains[].erc6160` | The ERC6160 contract address on this chain. If the asset is a pure ERC20 token (no ERC6160 deployment), set this to `H160::from_low_u64_be(1)` (i.e. address `0x0000000000000000000000000000000000000001`). |
+
+### `registerStandaloneChainNativeAssets`
+
+When the token being registered is natively minted on a substrate chain, you must also register it as a native asset on Hyperbridge's `TokenGovernor`. This is required because Hyperbridge's token gateway inspector validates incoming transfer requests — if an asset is not registered as native for the source chain, the inspector enforces inflow balance limits, which will cause outgoing transfers to be rejected once they exceed what has previously flowed in.
+
+The `registerStandaloneChainNativeAssets` extrinsic accepts a map of `StateMachine` to a set of token gateway asset IDs (`H256`, i.e. `keccak256(symbol)`):
+
+```rust lineNumbers
+tokenGovernor.registerStandaloneChainNativeAssets(
+    assets: BTreeMap<StateMachine, BTreeSet<H256>>
+)
+```
+
+| Field | Description |
+|-------|-------------|
+| `assets` | A map where each key is the `StateMachine` of the chain where the token is natively minted, and each value is a set of token gateway asset IDs (`keccak256(symbol)`) for the native tokens on that chain. |
+
+### Creating a Whitelisted Caller Governance Proposal
+
+The `whitelisted_caller` track on Hyperbridge allows privileged calls to be executed through governance with a shorter decision period (2 days) compared to root referenda (14 days). Here is the process for creating a proposal:
+
+#### Step 1: Construct the call
+
+If the token is natively minted on a substrate chain, use `utility.batchAll` to combine `tokenGovernor.createAssetMapping` with `tokenGovernor.registerStandaloneChainNativeAssets`. If the token is not native to any substrate chain (e.g. registering an EVM-only ERC20), only `createAssetMapping` is needed.
+
+For example, to register a token called "MYTOKEN" that is natively minted on a Polkadot parachain (paraId 2000) and has ERC20 deployments on Ethereum and Arbitrum:
+
+```rust lineNumbers
+use sp_io::hashing::keccak_256;
+
+// The token gateway asset ID is keccak256 of the symbol
+let asset_id: H256 = keccak_256(b"MYTOKEN").into();
+
+let call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
+    calls: vec![
+        // 1. Register the token contract addresses on EVM chains
+        RuntimeCall::TokenGovernor(
+            pallet_token_governor::Call::create_asset_mapping {
+                asset: ERC20AssetRegistration {
+                    name: b"My Token".to_vec().try_into().unwrap(),
+                    symbol: b"MYTOKEN".to_vec().try_into().unwrap(),
+                    chains: vec![
+                        AssetRegistration {
+                            chain: StateMachine::Evm(1),      // Ethereum
+                            erc20: Some(H160::from_str("0x...").unwrap()),
+                            erc6160: Some(H160::from_str("0x0000000000000000000000000000000000000001")),
+                        },
+                        AssetRegistration {
+                            chain: StateMachine::Evm(42161),   // Arbitrum
+                            erc20: Some(H160::from_str("0x...").unwrap()),
+                            erc6160: Some(H160::from_str("0x0000000000000000000000000000000000000001")),
+                        },
+                    ],
+                },
+            },
+        ),
+        // 2. Register the asset as native to the substrate chain
+        RuntimeCall::TokenGovernor(
+            pallet_token_governor::Call::register_standalone_chain_native_assets {
+                assets: BTreeMap::from([(
+                    StateMachine::Polkadot(2000),  // The chain where the token is natively minted
+                    BTreeSet::from([asset_id]),
+                )]),
+            },
+        ),
+    ],
+});
+```
+
+For a non-native token (e.g. registering an EVM-only ERC20 like USDC), only `createAssetMapping` is needed:
+
+```rust lineNumbers
+let call = RuntimeCall::TokenGovernor(
+    pallet_token_governor::Call::create_asset_mapping {
+        asset: ERC20AssetRegistration {
+            name: b"USD Coin".to_vec().try_into().unwrap(),
+            symbol: b"USDC".to_vec().try_into().unwrap(),
+            chains: vec![
+                AssetRegistration {
+                    chain: StateMachine::Evm(1),      // Ethereum
+                    erc20: Some(H160::from_str("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap()),
+                    erc6160: Some(H160::from_str("0x0000000000000000000000000000000000000001")),
+                },
+                AssetRegistration {
+                    chain: StateMachine::Evm(42161),   // Arbitrum
+                    erc20: Some(H160::from_str("0xaf88d065e77c8cC2239327C5EDb3A432268e5831").unwrap()),
+                    erc6160: Some(H160::from_str("0x0000000000000000000000000000000000000001")),
+                },
+            ],
+        },
+    },
+);
+```
+
+#### Step 2: Submit the preimage
+
+Before submitting a referendum, the call must be registered as a preimage on the [Hyperbridge governance portal](https://hyperbridge.subsquare.io):
+
+1. Navigate to **Referenda > New proposal**
+2. Click **New Preimage**
+3. For native substrate tokens: select `utility` > `batchAll`, then add both `tokenGovernor.createAssetMapping` and `tokenGovernor.registerStandaloneChainNativeAssets` as batch items
+4. For non-native tokens: select `tokenGovernor` > `createAssetMapping` directly
+5. Fill in the parameters.
+6. Select the **whitelisted_caller** track (Track 1)
+7. Submit the referendum.
+
+#### Whitelisted Caller Track Parameters
+
+| Parameter | Value |
+|-----------|-------|
+| Decision deposit | 400,000 BRIDGE |
+| Prepare period | 20 minutes |
+| Decision period | 2 days |
+| Confirm period | 2 hours |
+| Min enactment period | 6 minutes |
+
+Once the referendum passes and is enacted, the calls will be dispatched — registering the token on the Token Gateway contracts of the specified EVM chains, and (if batched) marking it as a native asset of the originating substrate chain on Hyperbridge.

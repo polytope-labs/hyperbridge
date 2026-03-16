@@ -1,6 +1,6 @@
 export { IntentGateway } from "./IntentGateway"
 export { OrderStatusChecker } from "./OrderStatusChecker"
-export { encodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof } from "./utils"
+export { encodeERC7821ExecuteBatch, transformOrderForContract, fetchSourceProof, orderCommitment } from "./utils"
 export { SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
 export {
 	DEFAULT_GRAFFITI,

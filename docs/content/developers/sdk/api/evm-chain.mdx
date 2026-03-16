@@ -11,46 +11,6 @@ The `EvmChain` class provides methods for interacting with EVM-compatible chains
 class EvmChain implements IChain
 ```
 
-## Constructor
-
-### new EvmChain(params)
-
-Creates a new EvmChain instance for an EVM-compatible blockchain.
-
-**Parameters:**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `params.chainId` | `number` | The EVM chain ID (e.g., 1 for Ethereum, 42161 for Arbitrum) |
-| `params.rpcUrl` | `string` | RPC URL for the chain (must be an archive node for proof queries) |
-| `params.host` | `HexString` | Address of the IsmpHost contract on this chain |
-| `params.consensusStateId` | `string` | Optional. Consensus state identifier on Hyperbridge (auto-detected for known chains) |
-| `params.bundlerUrl` | `string` | Optional. ERC-4337 bundler URL for account abstraction support |
-
-**Returns:** `EvmChain`
-
-**Example:**
-
-```typescript lineNumbers
-import { EvmChain } from "@hyperbridge/sdk"
-
-const ethereumChain = new EvmChain({
-  chainId: 1,
-  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  host: "0x87ea459...",
-  consensusStateId: "ETH0" // Optional, auto-detected for Ethereum
-})
-
-const arbitrumChain = new EvmChain({
-  chainId: 42161,
-  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  host: "0x42fa123...",
-  bundlerUrl: "https://bundler.example.com" // Optional, for ERC-4337 support
-})
-```
-
----
-
 ## Static Methods
 
 ### EvmChain.create(rpcUrl, bundlerUrl?)
@@ -85,6 +45,48 @@ const destChain = await EvmChain.create(
   "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
   "https://bundler.example.com"
 )
+```
+
+---
+
+### EvmChain.fromParams(params)
+
+Creates an `EvmChain` instance from a fully-specified params object. Use this when you already know the chain ID and `IsmpHost` address and don't need auto-detection.
+
+```typescript lineNumbers
+static fromParams(params: EvmChainParams): EvmChain
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.chainId` | `number` | The EVM chain ID (e.g., 1 for Ethereum, 42161 for Arbitrum) |
+| `params.rpcUrl` | `string` | RPC URL for the chain (must be an archive node for proof queries) |
+| `params.host` | `HexString` | Address of the IsmpHost contract on this chain |
+| `params.consensusStateId` | `string` | Optional. Consensus state identifier on Hyperbridge (auto-detected for known chains) |
+| `params.bundlerUrl` | `string` | Optional. ERC-4337 bundler URL for account abstraction support |
+
+**Returns:** `EvmChain`
+
+**Example:**
+
+```typescript lineNumbers
+import { EvmChain } from "@hyperbridge/sdk"
+
+const ethereumChain = EvmChain.fromParams({
+  chainId: 1,
+  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  host: "0x87ea459...",
+  consensusStateId: "ETH0" // Optional, auto-detected for known chains
+})
+
+const arbitrumChain = EvmChain.fromParams({
+  chainId: 42161,
+  rpcUrl: "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  host: "0x42fa123...",
+  bundlerUrl: "https://bundler.example.com" // Optional, for ERC-4337 support
+})
 ```
 
 ---

@@ -3,15 +3,14 @@ import {
 	ChainConfig,
 	EvmChain,
 	IChain,
-	OrderV2,
+	Order,
 	TronChain,
-	orderV2Commitment,
+	orderCommitment,
 	hexToString,
 	retryPromise,
-	DecodedOrderV2PlacedLog,
+	DecodedOrderPlacedLog,
 	HexString,
 	tronChainIds,
-	getEvmChain,
 	IEvmChain,
 } from "@hyperbridge/sdk"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
@@ -50,7 +49,7 @@ export class EventMonitor extends EventEmitter {
 				host: this.configService.getHostAddress(chainName),
 				consensusStateId: this.configService.getConsensusStateId(chainName),
 			}
-			const chain = getEvmChain(chainParams)
+			const chain = EvmChain.fromParams(chainParams)
 			this.chains.set(config.chainId, chain as IEvmChain)
 			this.scanningMutexes.set(config.chainId, new Mutex())
 		})
@@ -180,8 +179,9 @@ export class EventMonitor extends EventEmitter {
 	private async processOrderPlacedLogs(chainId: number, chain: IEvmChain, logs: any[]): Promise<void> {
 		for (const log of logs) {
 			try {
-				const decodedLog = log as unknown as DecodedOrderV2PlacedLog
-				let order: OrderV2 = {
+				const decodedLog = log as unknown as DecodedOrderPlacedLog
+				const transactionHash = decodedLog.transactionHash
+				let order: Order = {
 					user: decodedLog.args.user,
 					source: hexToString(decodedLog.args.source) as HexString,
 					destination: hexToString(decodedLog.args.destination) as HexString,
@@ -208,27 +208,26 @@ export class EventMonitor extends EventEmitter {
 						token: input.token,
 						amount: input.amount,
 					})),
-					transactionHash: decodedLog.transactionHash,
 				}
 
 				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(order.source)
 				const placeOrderCallInput = await chain.getPlaceOrderCalldata!(
-					order.transactionHash as string,
+					transactionHash as string,
 					intentGatewayAddress,
 				)
 
 				const decodedCalldata = decodeFunctionData({
 					abi: INTENT_GATEWAY_V2_ABI,
 					data: placeOrderCallInput as HexString,
-				})?.args?.[0] as OrderV2
+				})?.args?.[0] as Order
 
 				order.output.beneficiary = decodedCalldata.output.beneficiary as `0x${string}`
 				order.output.call = decodedCalldata.output.call as HexString
 				order.predispatch.call = decodedCalldata.predispatch.call as HexString
-				order.id = orderV2Commitment(order)
+				order.id = orderCommitment(order)
 
-				this.logger.info({ orderId: order.id, txHash: order.transactionHash }, "New order detected")
-				this.emit("newOrder", { order })
+				this.logger.info({ orderId: order.id, txHash: transactionHash }, "New order detected")
+				this.emit("newOrder", { order, transactionHash })
 			} catch (error) {
 				this.logger.error({ err: error, log }, "Error parsing event log")
 			}

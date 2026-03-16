@@ -193,15 +193,13 @@ pub async fn wait_for_transaction_receipt(
 ) -> anyhow::Result<Option<TransactionReceipt>> {
 	let provider = client.client.clone();
 	let poll_interval = Duration::from_secs(7);
-	let deadline = tokio::time::Instant::now() + Duration::from_secs(5 * 60);
+	let start = tokio::time::Instant::now();
+	let deadline = start + Duration::from_secs(5 * 60);
 
 	loop {
 		match provider.get_transaction_receipt(B256::from_slice(&tx_hash.0)).await {
 			Ok(Some(receipt)) => {
-				tracing::trace!(
-					"Receipt available after {:?}",
-					tokio::time::Instant::now() - deadline
-				);
+				tracing::trace!("Receipt available after {:?}", start.elapsed());
 				return Ok(Some(receipt));
 			},
 			Ok(None) => tracing::trace!("Receipt not yet available, retrying in 7s"),

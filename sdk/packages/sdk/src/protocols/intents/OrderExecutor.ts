@@ -67,6 +67,7 @@ export class OrderExecutor {
 			minBids = 1,
 			bidTimeoutMs = 60_000,
 			pollIntervalMs = DEFAULT_POLL_INTERVAL,
+			specificSolver,
 		} = options
 
 		const commitment = order.id as HexString
@@ -138,13 +139,18 @@ export class OrderExecutor {
 
 				yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
+				const requestedSolver = specificSolver?.toLowerCase()
 				const startTime = Date.now()
 				let bids: FillerBid[] = []
 
 				while (Date.now() - startTime < bidTimeoutMs) {
 					try {
-						bids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
+						const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
+						const solverFilteredBids = requestedSolver
+							? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === requestedSolver)
+							: fetchedBids
 
+						bids = solverFilteredBids
 						if (bids.length >= minBids) {
 							break
 						}
@@ -162,10 +168,12 @@ export class OrderExecutor {
 
 				if (freshBids.length === 0) {
 					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
+					const solverClause = requestedSolver ? ` for requested solver ${specificSolver}` : ""
 					const noBidsError = isPartiallyFilled
-						? "No new bids after partial fill"
-						: `No new bids available within ${bidTimeoutMs}ms timeout`
-					if (isPartiallyFilled) {
+						? `No new bids${solverClause} after partial fill`
+						: `No new bids${solverClause} available within ${bidTimeoutMs}ms timeout`
+
+          if (isPartiallyFilled) {
 						yield {
 							status: "PARTIAL_FILL_EXHAUSTED",
 							commitment,

@@ -28,9 +28,9 @@ jobs:
               with:
                   toolchain: stable
 
-            - uses: pnpm/action-setup@v2
+            - uses: pnpm/action-setup@v4
               with:
-                  version: 8
+                  version: 10
 
             - name: Set up Node
               uses: actions/setup-node@v3

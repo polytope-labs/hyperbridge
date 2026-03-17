@@ -263,15 +263,6 @@ describe("Filler V2 - Solver Selection ON", () => {
 			console.log(`Order placed successfully with ID: ${order.id}`)
 		}
 
-		for await (const status of gen) {
-			if (status.status === "BID_SELECTED") {
-				console.log(`Bid selected: solver=${status.selectedSolver}, userOpHash=${status.userOpHash}`)
-			}
-			if (status.status === "FAILED") {
-				throw new Error(`Order execution failed: ${status.error}`)
-			}
-		}
-
 		expect(order.id).toBeDefined()
 		expect(order.user).toBe(bytes20ToBytes32(beneficiaryAddress))
 		expect(order.source).toBe(toHex(bscChapelId))

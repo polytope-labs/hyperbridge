@@ -60,6 +60,7 @@ export class BidManager {
 			order,
 			solverAccount,
 			solverPrivateKey,
+			solverSignMessage,
 			nonce,
 			entryPointAddress,
 			callGasLimit,
@@ -93,9 +94,15 @@ export class BidManager {
 		const sessionKey = order.session
 
 		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as import("viem").Hex]))
-
-		const solverAccount_ = privateKeyToAccount(solverPrivateKey as import("viem").Hex)
-		const solverSignature = await solverAccount_.signMessage({ message: { raw: messageHash } })
+		let solverSignature: HexString
+		if (solverSignMessage) {
+			solverSignature = await solverSignMessage(messageHash)
+		} else if (solverPrivateKey) {
+			const solverAccount_ = privateKeyToAccount(solverPrivateKey as import("viem").Hex)
+			solverSignature = await solverAccount_.signMessage({ message: { raw: messageHash } })
+		} else {
+			throw new Error("Missing solver signer: provide solverSignMessage or solverPrivateKey")
+		}
 
 		const signature = concat([order.id as HexString, solverSignature as import("viem").Hex]) as HexString
 

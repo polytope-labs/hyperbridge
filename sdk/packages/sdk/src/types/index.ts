@@ -1168,7 +1168,16 @@ export interface SubmitBidOptions {
 	order: Order
 	fillOptions: FillOptions
 	solverAccount: HexString
-	solverPrivateKey: HexString
+	/**
+	 * Legacy private-key signing path. Kept for backwards compatibility.
+	 * If `solverSignMessage` is provided, it will be preferred.
+	 */
+	solverPrivateKey?: HexString
+	/**
+	 * Optional callback for externally managed signer backends (e.g. MPC/KMS/HSM).
+	 * Must return a 65-byte hex ECDSA signature over the provided raw message hash.
+	 */
+	solverSignMessage?: (messageHash: HexString) => Promise<HexString>
 	nonce: bigint
 	entryPointAddress: HexString
 	// Estimated gas for executing fillOrder calldata

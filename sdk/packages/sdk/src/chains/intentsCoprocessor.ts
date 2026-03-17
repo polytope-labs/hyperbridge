@@ -261,11 +261,23 @@ export class IntentsCoprocessor {
 					if (result.status.isInBlock || result.status.isFinalized) {
 						resolved = true
 						clearTimeout(timeoutId)
-						resolve({
-							success: true,
-							blockHash: result.status.asInBlock.toHex() as HexString,
-							extrinsicHash: extrinsic.hash.toHex() as HexString,
-						})
+						const blockHash = result.status.isInBlock
+							? result.status.asInBlock.toHex()
+							: result.status.asFinalized.toHex()
+
+						// Check for dispatch errors within the finalized/inBlock status
+						if (result.dispatchError) {
+							resolve({
+								success: false,
+								error: `Dispatch error: ${result.dispatchError.toString()}`,
+							})
+						} else {
+							resolve({
+								success: true,
+								blockHash: blockHash as HexString,
+								extrinsicHash: extrinsic.hash.toHex() as HexString,
+							})
+						}
 					} else if (result.dispatchError) {
 						resolved = true
 						clearTimeout(timeoutId)

@@ -12,6 +12,7 @@ dist/
 /pallet-ismp/evm/solidity/cache
 .env*
 .vscode
+.cursor
 
 evm/out/
 evm/cache/

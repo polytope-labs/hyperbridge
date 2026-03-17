@@ -28,7 +28,7 @@ import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 import type { BundlerGasEstimate, PimlicoGasPriceEstimate } from "./types"
-import { getFeeToken, transformOrderForContract, convertGasToFeeToken } from "./utils"
+import { getFeeToken, transformOrderForContract, convertGasToFeeToken, convertFeeTokenToWei } from "./utils"
 import { CryptoUtils } from "./CryptoUtils"
 
 /**
@@ -241,8 +241,7 @@ export class GasEstimator {
 				preVerificationGas = (BigInt(gasEstimate.preVerificationGas) * 105n) / 100n
 
 				if (pimlicoGasPrices) {
-					const level =
-						pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
+					const level = pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
 
 					if (level) {
 						const pimMaxFeePerGas = BigInt(level.maxFeePerGas)
@@ -250,8 +249,7 @@ export class GasEstimator {
 
 						maxFeePerGas = pimMaxFeePerGas + (pimMaxFeePerGas * BigInt(maxFeeBumpPercent)) / 100n
 						maxPriorityFeePerGas =
-							pimMaxPriorityFeePerGas +
-							(pimMaxPriorityFeePerGas * BigInt(priorityFeeBumpPercent)) / 100n
+							pimMaxPriorityFeePerGas + (pimMaxPriorityFeePerGas * BigInt(priorityFeeBumpPercent)) / 100n
 					}
 				}
 			} catch (e) {
@@ -275,7 +273,8 @@ export class GasEstimator {
 		}
 
 		const totalGas = callGasLimit + verificationGasLimit + preVerificationGas
-		const totalGasCostWei = totalGas * maxFeePerGas
+		const rawTotalGasCostWei = totalGas * maxFeePerGas
+
 		const totalGasInDestFeeToken = await convertGasToFeeToken(
 			this.ctx,
 			totalGas,
@@ -283,11 +282,13 @@ export class GasEstimator {
 			destStateMachineId,
 			gasPrice,
 		)
-		const totalGasInSourceFeeToken = adjustDecimals(
-			totalGasInDestFeeToken,
-			destFeeToken.decimals,
-			sourceFeeToken.decimals,
-		)
+		const totalGasInSourceFeeToken = isSameChain
+			? totalGasInDestFeeToken
+			: adjustDecimals(totalGasInDestFeeToken, destFeeToken.decimals, sourceFeeToken.decimals)
+
+		const totalGasCostWei = isSameChain
+			? rawTotalGasCostWei
+			: await convertFeeTokenToWei(this.ctx, totalGasInSourceFeeToken, "source", souceStateMachineId)
 
 		return {
 			callGasLimit,

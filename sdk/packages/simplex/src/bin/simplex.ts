@@ -410,7 +410,6 @@ program
 							askPricePolicy,
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
-							strategyConfig.askPriceCurve,
 							strategyConfig.pairId,
 							fxConfirmationPolicy,
 						)

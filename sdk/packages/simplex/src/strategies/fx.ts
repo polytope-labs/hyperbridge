@@ -16,7 +16,7 @@ import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits, parseUnits } from "viem"
 import { getLogger } from "@/services/Logger"
-import { ConfirmationPolicy, FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -67,8 +67,6 @@ export class FXFiller implements FillerStrategy {
 	private logger = getLogger("fx-simplex")
 	/** On-chain pair ID for price submission */
 	private pairId?: HexString
-	/** Raw ask curve points for building on-chain price entries */
-	private askCurvePoints: PriceCurvePoint[]
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	/**
@@ -87,7 +85,6 @@ export class FXFiller implements FillerStrategy {
 	 *                                the filler will only size its outputs as if the order were $5,000.
 	 * @param exoticTokenAddresses   Map of chain identifier → exotic token address.
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
-	 * @param askCurvePoints         Raw ask curve points for on-chain price submission.
 	 * @param pairId                 On-chain pair ID (H256) for price submission.
 	 * @param confirmationPolicy     Optional per-chain confirmation policy for cross-chain orders.
 	 *                                If absent, no confirmation waiting is required.
@@ -101,7 +98,6 @@ export class FXFiller implements FillerStrategy {
 		askPricePolicy: FillerPricePolicy,
 		maxOrderUsdStr: string,
 		exoticTokenAddresses: Record<string, HexString>,
-		askCurvePoints: PriceCurvePoint[],
 		pairId?: HexString,
 		confirmationPolicy?: ConfirmationPolicy,
 	) {
@@ -118,7 +114,6 @@ export class FXFiller implements FillerStrategy {
 		}
 		this.account = privateKeyToAccount(privateKey)
 		this.pairId = pairId
-		this.askCurvePoints = askCurvePoints
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
@@ -165,9 +160,7 @@ export class FXFiller implements FillerStrategy {
 	 * The last point extends to a large upper bound.
 	 */
 	private buildPriceEntries(): PriceInput[] {
-		const points = [...this.askCurvePoints].sort(
-			(a, b) => parseFloat(a.amount) - parseFloat(b.amount),
-		)
+		const points = this.askPricePolicy.getPoints()
 
 		if (points.length === 0) return []
 
@@ -175,12 +168,12 @@ export class FXFiller implements FillerStrategy {
 		const decimals = 18
 
 		for (let i = 0; i < points.length; i++) {
-			const rangeStart = parseUnits(points[i].amount, decimals)
+			const rangeStart = parseUnits(points[i].amount.toString(), decimals)
 			const rangeEnd =
 				i < points.length - 1
-					? parseUnits(points[i + 1].amount, decimals) - 1n
+					? parseUnits(points[i + 1].amount.toString(), decimals) - 1n
 					: parseUnits("999999999", decimals) // large upper bound for last bucket
-			const price = parseUnits(points[i].price, decimals)
+			const price = parseUnits(points[i].price.toString(), decimals)
 
 			entries.push({ rangeStart, rangeEnd, price })
 		}

@@ -875,7 +875,6 @@ function createCrossChainFxIntentFiller(
 		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
-		[{ amount: "1", price: "9500" }, { amount: "10000", price: "9500" }],
 		undefined, // pairId
 		confirmationPolicy,
 	)
@@ -925,11 +924,6 @@ function createFxOnlyIntentFiller(
 	const extAsset = chainConfigService.getExtAsset(mainnetId)
 	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
-	const askCurvePoints = [
-		{ amount: "1", price: "10000" },
-		{ amount: "10000", price: "10000" },
-	]
-
 	const fxStrategy = new FXFiller(
 		privateKey,
 		chainConfigService,
@@ -939,7 +933,6 @@ function createFxOnlyIntentFiller(
 		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
-		askCurvePoints,
 	)
 
 	const strategies = [fxStrategy]

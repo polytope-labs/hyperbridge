@@ -176,6 +176,10 @@ export class FillerPricePolicy {
 		}
 	}
 
+	getPoints(): { amount: Decimal; price: Decimal }[] {
+		return this.points
+	}
+
 	getPrice(orderValueUsd: Decimal): Decimal {
 		const amount = orderValueUsd
 

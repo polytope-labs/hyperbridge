@@ -261,7 +261,7 @@ export class IntentsCoprocessor {
 					if (result.status.isInBlock || result.status.isFinalized) {
 						resolved = true
 						clearTimeout(timeoutId)
-						const blockHash = result.status.isInBlock
+						const txHash = result.status.isInBlock
 							? result.status.asInBlock.toHex()
 							: result.status.asFinalized.toHex()
 
@@ -274,7 +274,7 @@ export class IntentsCoprocessor {
 						} else {
 							resolve({
 								success: true,
-								blockHash: blockHash as HexString,
+								blockHash: txHash as HexString,
 								extrinsicHash: extrinsic.hash.toHex() as HexString,
 							})
 						}

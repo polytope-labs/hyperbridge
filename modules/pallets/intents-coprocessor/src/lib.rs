@@ -286,6 +286,8 @@ pub mod pallet {
 		DepositNotFound,
 		/// The deposit is still within the lock duration (unlock block not yet reached)
 		DepositStillLocked,
+		/// Cannot submit prices while withdrawal is pending
+		WithdrawalInProgress,
 		/// Withdrawal has already been initiated
 		WithdrawalAlreadyInitiated,
 	}
@@ -598,6 +600,10 @@ pub mod pallet {
 
 			let deposit_amount = PriceDepositAmount::<T>::get();
 			ensure!(!deposit_amount.is_zero(), Error::<T>::PriceDepositsNotConfigured);
+
+			if let Some((_, Some(_unlock_block))) = PriceDeposits::<T>::get(&submitter, &pair_id) {
+				return Err(Error::<T>::WithdrawalInProgress.into());
+			}
 
 			let now = T::Dispatcher::default().timestamp().as_secs();
 

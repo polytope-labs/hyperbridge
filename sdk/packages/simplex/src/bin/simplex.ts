@@ -22,7 +22,6 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
-import type { PriceUpdateConfig } from "@/services/PriceUpdateService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
 
@@ -92,6 +91,8 @@ interface FxStrategyConfig {
 	maxOrderUsd: string
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
 	exoticTokenAddresses: Record<string, HexString>
+	/** On-chain pair ID (H256) for price submission to the intents coprocessor */
+	pairId?: HexString
 }
 
 type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
@@ -237,21 +238,6 @@ interface BinanceConfig {
 	withdrawTimeoutMs?: number
 }
 
-interface PriceUpdatesConfig {
-	intervalSeconds?: number
-	pairs: Array<{
-		pairId: HexString
-		label?: string
-		/** Decimal places for human-readable amounts/prices. Default: 18 */
-		decimals?: number
-		entries: Array<{
-			rangeStart: string
-			rangeEnd: string
-			price: string
-		}>
-	}>
-}
-
 interface FillerTomlConfig {
 	simplex: {
 		privateKey: string
@@ -268,7 +254,6 @@ interface FillerTomlConfig {
 	chains: (UserProvidedChainConfig & { bundlerUrl?: string })[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
-	priceUpdates?: PriceUpdatesConfig
 }
 
 const program = new Command()
@@ -417,6 +402,8 @@ program
 							askPricePolicy,
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
+							strategyConfig.askPriceCurve,
+							strategyConfig.pairId,
 						)
 					}
 					default:
@@ -449,30 +436,6 @@ program
 				logger.info("Rebalancing service initialized")
 			}
 
-			// Parse price update configuration
-			let priceUpdateConfig: PriceUpdateConfig | undefined
-			if (config.priceUpdates?.pairs && config.priceUpdates.pairs.length > 0) {
-				priceUpdateConfig = {
-					intervalSeconds: config.priceUpdates.intervalSeconds,
-					pairs: config.priceUpdates.pairs.map((p) => {
-						const decimals = p.decimals ?? 18
-						return {
-							pairId: p.pairId,
-							label: p.label,
-							entries: p.entries.map((e) => ({
-								rangeStart: parseUnits(e.rangeStart, decimals),
-								rangeEnd: parseUnits(e.rangeEnd, decimals),
-								price: parseUnits(e.price, decimals),
-							})),
-						}
-					}),
-				}
-				logger.info(
-					{ pairCount: priceUpdateConfig.pairs.length, intervalSeconds: priceUpdateConfig.intervalSeconds ?? 300 },
-					"Price update configuration loaded",
-				)
-			}
-
 			// Initialize and start the intent filler
 			logger.info("Starting intent filler...")
 			const intentFiller = new IntentFiller(
@@ -485,7 +448,6 @@ program
 				privateKey,
 				rebalancingService,
 				bidStorageService,
-				priceUpdateConfig,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)

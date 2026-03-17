@@ -546,7 +546,7 @@ fn multiple_fillers_can_bid_on_same_order() {
 fn remove_recognized_pair_works() {
 	new_test_ext().execute_with(|| {
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
@@ -574,7 +574,7 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 		let submitter = AccountId32::new([1; 32]);
 
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -619,7 +619,7 @@ fn submit_pair_price_second_submission_is_free() {
 		let submitter = AccountId32::new([1; 32]);
 
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -672,7 +672,7 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 		let submitter = AccountId32::new([4; 32]); // no balance
 
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -698,7 +698,7 @@ fn withdraw_price_deposit_two_phase() {
 		let submitter = AccountId32::new([1; 32]);
 
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -764,7 +764,7 @@ fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 		let submitter = AccountId32::new([1; 32]);
 
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -833,7 +833,7 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -919,7 +919,7 @@ fn price_entry_encoding_matches_rpc_tuple_decoding() {
 fn price_entry_storage_roundtrip_via_raw_key() {
 	new_test_ext().execute_with(|| {
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 
 		let entry1 = types::PriceEntry {
@@ -970,7 +970,7 @@ fn multiple_submitters_independent_deposits() {
 		let submitter2 = AccountId32::new([2; 32]);
 
 		let pair =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair_id = pair.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
 
@@ -1012,9 +1012,9 @@ fn separate_deposits_per_pair() {
 		let submitter = AccountId32::new([1; 32]);
 
 		let pair1 =
-			types::TokenPair { base: H160::from_low_u64_be(1), quote: H160::from_low_u64_be(2) };
+			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
 		let pair2 =
-			types::TokenPair { base: H160::from_low_u64_be(3), quote: H160::from_low_u64_be(4) };
+			types::TokenPair { base: H256::from_low_u64_be(3), quote: H256::from_low_u64_be(4) };
 		let pair_id1 = pair1.pair_id();
 		let pair_id2 = pair2.pair_id();
 		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair1));
@@ -1069,5 +1069,48 @@ fn separate_deposits_per_pair() {
 			pair_id2,
 		));
 		assert_eq!(Balances::reserved_balance(&submitter), 0);
+	});
+}
+
+#[test]
+fn submit_pair_price_blocked_after_withdrawal_initiated() {
+	new_test_ext().execute_with(|| {
+		let submitter: AccountId = AccountId::from([1u8; 32]);
+		let deposit_amount = 100u64;
+
+		let pair =
+			TokenPair { base: H256::from_low_u64_be(0xAAAA), quote: H256::from_low_u64_be(0xBBBB) };
+		let pair_id = pair.pair_id();
+
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		PriceDepositAmount::<Test>::put(deposit_amount);
+		PriceDepositLockDuration::<Test>::put(10u64);
+
+		let entries = BoundedVec::try_from(vec![PriceInput {
+			range_start: U256::zero(),
+			range_end: U256::from(1000),
+			price: U256::from(42),
+		}])
+		.unwrap();
+
+		// Submit prices(reserves deposit)
+		assert_ok!(Intents::submit_pair_price(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+			entries.clone(),
+		));
+
+		// Initiate withdrawal
+		System::set_block_number(1);
+		assert_ok!(Intents::withdraw_price_deposit(
+			RuntimeOrigin::signed(submitter.clone()),
+			pair_id,
+		));
+
+		// Submitting prices should now fail
+		assert_noop!(
+			Intents::submit_pair_price(RuntimeOrigin::signed(submitter.clone()), pair_id, entries,),
+			Error::<Test>::WithdrawalInProgress
+		);
 	});
 }

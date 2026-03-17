@@ -147,15 +147,15 @@ pub struct Bid<AccountId> {
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct TokenPair {
 	/// The base token address
-	pub base: H160,
+	pub base: H256,
 	/// The quote token address
-	pub quote: H160,
+	pub quote: H256,
 }
 
 impl TokenPair {
 	/// Compute a unique identifier for this token pair
 	pub fn pair_id(&self) -> H256 {
-		let mut data = alloc::vec::Vec::with_capacity(40);
+		let mut data = alloc::vec::Vec::with_capacity(64);
 		data.extend_from_slice(&self.base.0);
 		data.extend_from_slice(&self.quote.0);
 		sp_io::hashing::keccak_256(&data).into()

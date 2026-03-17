@@ -15,7 +15,7 @@ The `submit_pair_price` extrinsic on the intents coprocessor pallet is the entry
 
 Submissions are batched. Each call accepts up to `MaxPriceEntries` entries (a compile-time constant configurable per runtime), where each entry specifies a base token amount range and the corresponding price of the base token in terms of the quote token. This makes it possible to quote different rates for different order sizes in a single transaction. For example, a submitter might quote USDC/CNGN at 1414 for orders between 0 and 999, and 1420 for orders between 1000 and 5000.
 
-Each price entry contains three fields. The `range_start` field is the lower bound of the base token amount range (inclusive). The `range_end` field is the upper bound (also inclusive). The `price` field is the price of the base token in terms of the quote token. The pallet validates that `range_start` is less than or equal to `range_end` for every entry and rejects empty submissions. When stored on-chain, each entry becomes a `PriceEntry` that also includes the submission timestamp.
+Each price entry contains three fields. The `range_start` field is the lower bound of the base token amount range (inclusive). The `range_end` field is the upper bound (also inclusive). The `price` field is the cost of one unit of the base token in terms of the quote token. The pallet validates that `range_start` is less than or equal to `range_end` for every entry and rejects empty submissions. When stored on-chain, each entry becomes a `PriceEntry` that also includes the submission timestamp.
 
 ## Deposit Model
 
@@ -49,41 +49,48 @@ The `intents_getPairPrices(pair_id)` RPC endpoint returns all price entries for 
 
 ## Simplex Filler Integration
 
-The simplex filler supports periodic price submission out of the box. When the filler starts, it checks whether a `[priceUpdates]` section is present in the configuration file. If price pairs are configured and a Hyperbridge WebSocket connection is available (via `substratePrivateKey` and `hyperbridgeWsUrl` in the `[simplex]` section), the filler creates a `PriceUpdateService` and starts it alongside the main order monitoring loop.
+The simplex filler submits price updates automatically as part of the FX strategy. When the filler starts and a `hyperfx` strategy is configured with a `pairId`, the FX strategy spawns a periodic task that converts its ask price curve into on-chain price entries and submits them via `IntentsCoprocessor.submitPairPrice()`. There is no separate price configuration section; the prices come directly from the strategy's existing ask price curve, which is the same curve used to evaluate order profitability.
 
-The `PriceUpdateService` runs on a configurable interval (defaulting to every 5 minutes). On each tick, it iterates through all configured pairs and calls `IntentsCoprocessor.submitPairPrice()` for each one. An initial submission is also triggered shortly after startup so that prices are available immediately rather than waiting for the first interval to elapse. The service logs success or failure for each pair and continues with the remaining pairs even if one fails.
+The task runs on a configurable interval (defaulting to every 5 minutes). An initial submission is triggered shortly after startup so that prices are available immediately rather than waiting for the first interval to elapse.
 
 ### Configuration
 
-Price updates are configured by adding a `[priceUpdates]` section to the filler TOML configuration file.
+Price submission is enabled by adding a `pairId` to the `hyperfx` strategy in the filler TOML configuration file. The ask price curve points are converted into price entries automatically, where each point on the curve defines a price range.
 
 ```toml
-[priceUpdates]
-intervalSeconds = 300  # How often to submit prices (default: 300 = 5 minutes)
+[[strategies]]
+type = "hyperfx"
+pairId = "0x..."                    # On-chain pair ID (keccak256 of base_address ++ quote_address)
+priceSubmissionIntervalSeconds = 300 # How often to submit prices (default: 300 = 5 minutes)
+maxOrderUsd = "5000"
 
-[[priceUpdates.pairs]]
-pairId = "0x..."       # The token pair ID (keccak256 of base_address ++ quote_address)
-label = "USDC/CNGN"
-decimals = 18          # Decimal places for amounts/prices (default: 18)
+[[strategies.askPriceCurve]]
+amount = "0"
+price = "1414"
 
-[[priceUpdates.pairs.entries]]
-rangeStart = "0"       # Min base amount in human-readable form
-rangeEnd = "999"       # Max base amount in human-readable form
-price = "1414"         # Price in human-readable form
-
-[[priceUpdates.pairs.entries]]
-rangeStart = "1000"
-rangeEnd = "5000"
+[[strategies.askPriceCurve]]
+amount = "1000"
 price = "1420"
+
+[[strategies.bidPriceCurve]]
+amount = "0"
+price = "1500"
+
+[[strategies.bidPriceCurve]]
+amount = "1000"
+price = "1490"
+
+[strategies.exoticTokenAddresses]
+"EVM-56" = "0xabc..."
 ```
 
-Amounts and prices in the configuration file are specified in human-readable form (for example, "1000" for 1000 tokens). The simplex CLI automatically converts them to 18-decimal format when submitting to the chain using the `decimals` field, which defaults to 18 if not specified. Multiple pairs can be configured by repeating `[[priceUpdates.pairs]]` blocks, and each pair can have multiple entries for tiered pricing at different order sizes.
+The ask curve points are sorted by amount and each point becomes a price entry. The range for each entry spans from that point's amount to just below the next point's amount. The last point extends to a large upper bound. Amounts and prices are converted to 18-decimal format before submission.
 
 The first submission for each pair will reserve a deposit from the substrate account. Subsequent updates to the same pair are free. When a filler wants to reclaim their deposit, they call `withdrawPriceDeposit` once to initiate the withdrawal (which records the unlock block), then call it again after the governance-configured lock duration has elapsed to unreserve the tokens.
 
 ### SDK Usage
 
-The `IntentsCoprocessor` class in `@hyperbridge/sdk` exposes methods for price submission and deposit withdrawal directly. These methods accept raw 18-decimal bigint values. The human-readable string conversion described above is a convenience provided by the simplex filler's TOML configuration parser.
+The `IntentsCoprocessor` class in `@hyperbridge/sdk` exposes methods for price submission and deposit withdrawal directly. These methods accept raw 18-decimal bigint values.
 
 ```typescript
 import { IntentsCoprocessor } from "@hyperbridge/sdk"
@@ -102,31 +109,6 @@ await coprocessor.submitPairPrice("0x...", [
 await coprocessor.withdrawPriceDeposit("0x...")
 // Phase 2: complete withdrawal after unlock block is reached
 await coprocessor.withdrawPriceDeposit("0x...")
-```
-
-The `PriceUpdateService` from `@hyperbridge/simplex` can also be used as a standalone component for periodic price submissions without running the full filler.
-
-```typescript
-import { PriceUpdateService } from "@hyperbridge/simplex"
-import { IntentsCoprocessor } from "@hyperbridge/sdk"
-import { parseUnits } from "viem"
-
-const coprocessor = IntentsCoprocessor.connect(wsUrl, substratePrivateKey)
-
-const service = new PriceUpdateService(coprocessor, {
-  intervalSeconds: 300,
-  pairs: [
-    {
-      pairId: "0x...",
-      label: "USDC/CNGN",
-      entries: [
-        { rangeStart: parseUnits("0", 18), rangeEnd: parseUnits("999", 18), price: parseUnits("1414", 18) },
-      ],
-    },
-  ],
-})
-
-service.start()
 ```
 
 ## Governance Parameters

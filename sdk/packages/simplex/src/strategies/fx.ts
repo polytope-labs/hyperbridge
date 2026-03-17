@@ -9,13 +9,14 @@ import {
 	IntentsCoprocessor,
 	adjustDecimals,
 	ADDRESS_ZERO,
+	type PriceInput,
 } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { formatUnits } from "viem"
+import { formatUnits, parseUnits } from "viem"
 import { getLogger } from "@/services/Logger"
-import { FillerPricePolicy } from "@/config/interpolated-curve"
+import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 
@@ -57,6 +58,10 @@ export class FXFiller implements FillerStrategy {
 	private maxOrderUsd: Decimal
 	private account: ReturnType<typeof privateKeyToAccount>
 	private logger = getLogger("fx-simplex")
+	/** On-chain pair ID for price submission */
+	private pairId?: HexString
+	/** Raw ask curve points for building on-chain price entries */
+	private askCurvePoints: PriceCurvePoint[]
 
 	/**
 	 * @param privateKey             Filler's private key used to sign UserOps.
@@ -74,6 +79,8 @@ export class FXFiller implements FillerStrategy {
 	 *                                the filler will only size its outputs as if the order were $5,000.
 	 * @param exoticTokenAddresses   Map of chain identifier → exotic token address.
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
+	 * @param askCurvePoints         Raw ask curve points for on-chain price submission.
+	 * @param pairId                 On-chain pair ID (H256) for price submission.
 	 */
 	constructor(
 		privateKey: HexString,
@@ -84,6 +91,8 @@ export class FXFiller implements FillerStrategy {
 		askPricePolicy: FillerPricePolicy,
 		maxOrderUsdStr: string,
 		exoticTokenAddresses: Record<string, HexString>,
+		askCurvePoints: PriceCurvePoint[],
+		pairId?: HexString,
 	) {
 		this.privateKey = privateKey
 		this.configService = configService
@@ -97,6 +106,69 @@ export class FXFiller implements FillerStrategy {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
 		this.account = privateKeyToAccount(privateKey)
+		this.pairId = pairId
+		this.askCurvePoints = askCurvePoints
+	}
+
+	/**
+	 * Submit initial prices using the ask price curve
+	 * Called once during filler initialization to publish the strategy's
+	 * prices on-chain before the filler starts processing orders.
+	 */
+	async submitInitialPrices(coprocessor: Promise<IntentsCoprocessor>): Promise<void> {
+		if (!this.pairId) {
+			this.logger.warn("No pairId configured, skipping price submission")
+			return
+		}
+
+		const entries = this.buildPriceEntries()
+		if (entries.length === 0) {
+			this.logger.warn("No price entries derived from ask curve, skipping price submission")
+			return
+		}
+
+		const pairId = this.pairId
+
+		try {
+			const cp = await coprocessor
+			const result = await cp.submitPairPrice(pairId, entries)
+			if (result.success) {
+				this.logger.info({ pairId, blockHash: result.blockHash, entryCount: entries.length }, "Initial prices submitted")
+			} else {
+				this.logger.error({ pairId, error: result.error }, "Failed to submit initial prices")
+			}
+		} catch (err) {
+			this.logger.error({ pairId, err }, "Error submitting initial prices")
+		}
+	}
+
+	/**
+	 * Convert the ask curve points into an on-chain PriceInput entries.
+	 * Each adjacent pair of points defines a price range.
+	 * The last point extends to a large upper bound.
+	 */
+	private buildPriceEntries(): PriceInput[] {
+		const points = [...this.askCurvePoints].sort(
+			(a, b) => parseFloat(a.amount) - parseFloat(b.amount),
+		)
+
+		if (points.length === 0) return []
+
+		const entries: PriceInput[] = []
+		const decimals = 18
+
+		for (let i = 0; i < points.length; i++) {
+			const rangeStart = parseUnits(points[i].amount, decimals)
+			const rangeEnd =
+				i < points.length - 1
+					? parseUnits(points[i + 1].amount, decimals) - 1n
+					: parseUnits("999999999", decimals) // large upper bound for last bucket
+			const price = parseUnits(points[i].price, decimals)
+
+			entries.push({ rangeStart, rangeEnd, price })
+		}
+
+		return entries
 	}
 
 	async canFill(order: OrderV2): Promise<boolean> {

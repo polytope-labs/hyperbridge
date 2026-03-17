@@ -13,5 +13,4 @@ export { InterpolatedCurve, ConfirmationPolicy, FillerBpsPolicy } from "@/config
 export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
 // Service exports
-export { ChainClientManager, ContractInteractionService, PriceUpdateService } from "@/services"
-export type { PriceUpdateConfig, PriceUpdatePairEntry } from "@/services/PriceUpdateService"
+export { ChainClientManager, ContractInteractionService } from "@/services"

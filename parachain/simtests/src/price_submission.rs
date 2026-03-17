@@ -6,20 +6,12 @@ use codec::Encode;
 use pallet_intents_coprocessor::types::{PriceInput, TokenPair};
 use pallet_intents_rpc::RpcPriceEntry;
 use polkadot_sdk::*;
-use primitive_types::{H160, H256, U256};
+use primitive_types::{H256, U256};
 use sc_consensus_manual_seal::CreatedBlock;
-use sp_core::{crypto::Ss58Codec, hashing::keccak_256, Bytes};
+use sp_core::{crypto::Ss58Codec, Bytes};
 use sp_keyring::sr25519::Keyring;
 use subxt::ext::subxt_rpcs::rpc_params;
 use subxt_utils::Hyperbridge;
-
-/// Compute the same pair_id as `TokenPair::pair_id()` — keccak256(base ++ quote).
-fn compute_pair_id(base: &H160, quote: &H160) -> H256 {
-	let mut data = Vec::with_capacity(40);
-	data.extend_from_slice(&base.0);
-	data.extend_from_slice(&quote.0);
-	keccak_256(&data).into()
-}
 
 /// Helper: submit raw SCALE-encoded call bytes from a given keyring account,
 /// create and finalize a block, then wait for success.
@@ -132,10 +124,10 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
 
-	let base = H160::from_low_u64_be(0xAAAA);
-	let quote = H160::from_low_u64_be(0xBBBB);
+	let base = H256::from_low_u64_be(0xAAAA);
+	let quote = H256::from_low_u64_be(0xBBBB);
 	let pair = TokenPair { base, quote };
-	let pair_id = compute_pair_id(&base, &quote);
+	let pair_id = pair.pair_id();
 
 	// 1 unit = 10^18 in raw representation
 	let one_unit = U256::from(10u64).pow(U256::from(18));

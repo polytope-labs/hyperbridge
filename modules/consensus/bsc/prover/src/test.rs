@@ -132,7 +132,7 @@ async fn verify_bsc_pos_headers() {
 
 			// Skip blocks without enough participants (2/3 + 1 threshold)
 			let participant_count = validators_bit_set.iter().as_bitslice().count_ones();
-			let required_participants = (2 * validator_set_for_check.len() / 3) + 1;
+			let required_participants = (2 * validator_set_for_check.len() / 3);
 			if participant_count < required_participants {
 				println!(
 					"Not enough participants in bsc update for block {} ({}/{}), skipping",

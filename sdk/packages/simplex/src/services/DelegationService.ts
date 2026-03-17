@@ -1,5 +1,5 @@
-import { privateKeyToAccount } from "viem/accounts"
-import { type HexString } from "@hyperbridge/sdk"
+import { privateKeyToAccount, type Account } from "viem/accounts"
+import type { HexString } from "@hyperbridge/sdk"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
@@ -13,14 +13,14 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
  */
 export class DelegationService {
 	private logger = getLogger("delegation-service")
-	private account: ReturnType<typeof privateKeyToAccount>
+	private account: Account
 
 	constructor(
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
-		private privateKey: HexString,
+		accountOrPrivateKey: Account | `0x${string}`,
 	) {
-		this.account = privateKeyToAccount(privateKey)
+		this.account = typeof accountOrPrivateKey === "string" ? privateKeyToAccount(accountOrPrivateKey) : accountOrPrivateKey
 	}
 
 	/**

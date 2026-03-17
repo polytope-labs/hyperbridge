@@ -10,7 +10,7 @@ import {
 	adjustDecimals,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
-import { privateKeyToAccount } from "viem/accounts"
+import { privateKeyToAccount, type Account } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
@@ -51,7 +51,6 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
  */
 export class FXFiller implements FillerStrategy {
 	name = "FXFiller"
-	private privateKey: HexString
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
@@ -62,7 +61,7 @@ export class FXFiller implements FillerStrategy {
 	/** Maps chain identifier → exotic token address (e.g. cNGN on each supported chain) */
 	private exoticTokenAddresses: Record<string, HexString>
 	private maxOrderUsd: Decimal
-	private account: ReturnType<typeof privateKeyToAccount>
+	private account: Account
 	private logger = getLogger("fx-simplex")
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
@@ -86,7 +85,7 @@ export class FXFiller implements FillerStrategy {
 	 *                                If absent, no confirmation waiting is required.
 	 */
 	constructor(
-		privateKey: HexString,
+		accountOrPrivateKey: Account | `0x${string}`,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
@@ -96,7 +95,6 @@ export class FXFiller implements FillerStrategy {
 		exoticTokenAddresses: Record<string, HexString>,
 		confirmationPolicy?: ConfirmationPolicy,
 	) {
-		this.privateKey = privateKey
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
@@ -107,7 +105,10 @@ export class FXFiller implements FillerStrategy {
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
-		this.account = privateKeyToAccount(privateKey)
+		this.account =
+			typeof accountOrPrivateKey === "string"
+				? privateKeyToAccount(accountOrPrivateKey)
+				: accountOrPrivateKey
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>

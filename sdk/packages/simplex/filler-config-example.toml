@@ -4,7 +4,18 @@
 
 # Filler configuration
 [simplex]
-privateKey = ""  # Replace with your actual EVM private key (not required if all chains are watchOnly)
+# Choose ONE signer mode:
+# 1) Private key signer
+privateKey = ""  # Replace with your EVM private key (not required if all chains are watchOnly)
+
+# 2) MPCVault signer (alternative to privateKey)
+# [simplex.mpcVault]
+# apiToken = ""
+# vaultUuid = ""
+# accountAddress = "0x0000000000000000000000000000000000000000"
+# callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+# baseUrl = "https://api.mpcvault.com" # optional
+
 maxConcurrentOrders = 5
 
 # ===== Solver Selection Mode Configuration =====
@@ -75,7 +86,7 @@ triggerPercentage = 0.5
 
 # Strategy configuration
 # You can configure multiple strategies
-# All strategies use the simplex.privateKey from above
+# All strategies use the configured simplex signer (privateKey or mpcVault)
 [[strategies]]
 type = "basic"
 # Filler BPS (basis points) curve based on order value

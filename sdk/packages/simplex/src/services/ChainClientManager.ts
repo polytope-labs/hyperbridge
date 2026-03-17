@@ -1,6 +1,7 @@
 import { PublicClient, WalletClient, createPublicClient, createWalletClient, http, type Chain } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { Order, HexString, ChainConfig, getViemChain } from "@hyperbridge/sdk"
+import type { Account } from "viem/accounts"
 import { FillerConfigService } from "./FillerConfigService"
 
 /**
@@ -29,10 +30,9 @@ class ViemClientFactoryImpl {
 		return this.publicClients.get(chainConfig.chainId)!
 	}
 
-	public getWalletClient(chainConfig: ChainConfig, privateKey: string): WalletClient {
+	public getWalletClient(chainConfig: ChainConfig, account: Account): WalletClient {
 		if (!this.walletClients.has(chainConfig.chainId)) {
 			const chain = getViemChain(chainConfig.chainId) as Chain
-			const account = privateKeyToAccount(privateKey as `0x${string}`)
 
 			const walletClient = createWalletClient({
 				chain,
@@ -58,14 +58,20 @@ export const ViemClientFactory = new ViemClientFactoryImpl()
  * Manages chain clients for different operations
  */
 export class ChainClientManager {
-	private privateKey: HexString
+	private account: Account
 	private configService: FillerConfigService
 	private clientFactory: ViemClientFactoryImpl
 
-	constructor(configService: FillerConfigService, privateKey?: HexString) {
-		this.privateKey = privateKey || generatePrivateKey()
+	constructor(configService: FillerConfigService, accountOrPrivateKey?: Account | HexString) {
 		this.configService = configService
 		this.clientFactory = ViemClientFactory
+		if (!accountOrPrivateKey) {
+			this.account = privateKeyToAccount(generatePrivateKey())
+		} else if (typeof accountOrPrivateKey === "string") {
+			this.account = privateKeyToAccount(accountOrPrivateKey as `0x${string}`)
+		} else {
+			this.account = accountOrPrivateKey
+		}
 	}
 
 	getPublicClient(chain: string): PublicClient {
@@ -75,7 +81,11 @@ export class ChainClientManager {
 
 	getWalletClient(chain: string): WalletClient {
 		const config = this.configService.getChainConfig(chain)
-		return this.clientFactory.getWalletClient(config, this.privateKey)
+		return this.clientFactory.getWalletClient(config, this.account)
+	}
+
+	getAccount(): Account {
+		return this.account
 	}
 
 	getClientsForOrder(order: Order): {

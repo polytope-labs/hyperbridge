@@ -25,8 +25,17 @@ export interface RebalancingConfig {
 	}
 }
 
+export interface MpcVaultConfig {
+	apiToken: string
+	vaultUuid: string
+	accountAddress: `0x${string}`
+	callbackClientSignerPublicKey: string
+	baseUrl?: string
+}
+
 export interface FillerConfig {
-	privateKey: string
+	privateKey?: string
+	mpcVault?: MpcVaultConfig
 	maxConcurrentOrders: number
 	logging?: LoggingConfig
 	hyperbridgeWsUrl?: string
@@ -209,6 +218,10 @@ export class FillerConfigService {
 
 	getSubstratePrivateKey(): string | undefined {
 		return this.fillerConfig?.substratePrivateKey
+	}
+
+	getMpcVaultConfig(): MpcVaultConfig | undefined {
+		return this.fillerConfig?.mpcVault
 	}
 
 	getEntryPointAddress(chain: string): HexString | undefined {

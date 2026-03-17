@@ -11,7 +11,7 @@ import {
 	adjustDecimals,
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
-import { privateKeyToAccount } from "viem/accounts"
+import { privateKeyToAccount, type Account } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
@@ -21,24 +21,22 @@ import { SupportedTokenType } from "@/strategies/base"
 
 export class BasicFiller implements FillerStrategy {
 	name = "BasicFiller"
-	private privateKey: HexString
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
 	private bpsPolicy: FillerBpsPolicy
-	private account: ReturnType<typeof privateKeyToAccount>
+	private account: Account
 	private logger = getLogger("basic-simplex")
 	confirmationPolicy: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	constructor(
-		privateKey: HexString,
+		accountOrPrivateKey: Account | `0x${string}`,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		bpsPolicy: FillerBpsPolicy,
 		confirmationPolicy: ConfirmationPolicy,
 	) {
-		this.privateKey = privateKey
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
@@ -47,7 +45,10 @@ export class BasicFiller implements FillerStrategy {
 			getConfirmationBlocks: (chainId: number, amountUsd: number) =>
 				confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 		}
-		this.account = privateKeyToAccount(privateKey)
+		this.account =
+			typeof accountOrPrivateKey === "string"
+				? privateKeyToAccount(accountOrPrivateKey)
+				: accountOrPrivateKey
 	}
 
 	/**

@@ -21,8 +21,10 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
+import { createSimplexSigner } from "@/services/wallet"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
+import type { Account } from "viem/accounts"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -237,9 +239,18 @@ interface BinanceConfig {
 	withdrawTimeoutMs?: number
 }
 
+interface MpcVaultTomlConfig {
+	apiToken: string
+	vaultUuid: string
+	accountAddress: HexString
+	callbackClientSignerPublicKey: string
+	baseUrl?: string
+}
+
 interface FillerTomlConfig {
 	simplex: {
-		privateKey: string
+		privateKey?: string
+		mpcVault?: MpcVaultTomlConfig
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
 		logging?: LoggingConfig
@@ -303,6 +314,7 @@ program
 
 			const fillerConfigForService: FillerServiceConfig = {
 				privateKey: config.simplex.privateKey,
+				mpcVault: config.simplex.mpcVault,
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 				logging: config.simplex.logging,
 				substratePrivateKey: config.simplex.substratePrivateKey,
@@ -356,12 +368,17 @@ program
 
 			// Create shared services to avoid duplicate RPC calls and reuse connections
 			const sharedCacheService = new CacheService()
-			const privateKey = config.simplex.privateKey as HexString
-			const chainClientManager = new ChainClientManager(configService, privateKey)
+			const configuredSigner =
+				config.simplex.privateKey || config.simplex.mpcVault
+					? createSimplexSigner(fillerConfigForService)
+					: undefined
+			const chainClientManager = new ChainClientManager(configService, configuredSigner?.account)
+			const signerAccount: Account = configuredSigner?.account ?? chainClientManager.getAccount()
 			const contractService = new ContractInteractionService(
 				chainClientManager,
-				privateKey,
+				signerAccount,
 				configService,
+				configuredSigner?.signBidMessage,
 				sharedCacheService,
 			)
 
@@ -381,7 +398,7 @@ program
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
 						const confirmationPolicy = new ConfirmationPolicy(strategyConfig.confirmationPolicies)
 						return new BasicFiller(
-							privateKey,
+							signerAccount,
 							configService,
 							chainClientManager,
 							contractService,
@@ -392,14 +409,16 @@ program
 					case "hyperfx": {
 						const bidPricePolicy = new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
 						const askPricePolicy = new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
-					const fxConfirmationPolicy = strategyConfig.confirmationPolicies
-						? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
-						: undefined
-					if (!fxConfirmationPolicy) {
-						logger.warn("No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped")
-					}
+						const fxConfirmationPolicy = strategyConfig.confirmationPolicies
+							? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
+							: undefined
+						if (!fxConfirmationPolicy) {
+							logger.warn(
+								"No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped",
+							)
+						}
 						return new FXFiller(
-							privateKey,
+							signerAccount,
 							configService,
 							chainClientManager,
 							contractService,
@@ -434,7 +453,7 @@ program
 				rebalancingService = new RebalancingService(
 					chainClientManager,
 					configService,
-					privateKey,
+					signerAccount,
 					binanceConfig,
 				)
 				logger.info("Rebalancing service initialized")
@@ -449,7 +468,7 @@ program
 				configService,
 				chainClientManager,
 				contractService,
-				privateKey,
+				signerAccount,
 				rebalancingService,
 				bidStorageService,
 			)
@@ -512,8 +531,25 @@ function validateConfig(config: FillerTomlConfig): void {
 		})
 	const allChainsWatchOnly = isWatchOnlyGlobal || isWatchOnlyPerChain
 
-	if (!config.simplex?.privateKey && !allChainsWatchOnly) {
-		throw new Error("Filler private key is required (unless all chains are in watchOnly mode)")
+	const hasPrivateKey = Boolean(config.simplex?.privateKey)
+	const hasMpcVault = Boolean(config.simplex?.mpcVault)
+
+	if (hasPrivateKey && hasMpcVault) {
+		throw new Error("Configure only one signer: either simplex.privateKey or simplex.mpcVault")
+	}
+
+	if (!hasPrivateKey && !hasMpcVault && !allChainsWatchOnly) {
+		throw new Error("Signer configuration is required (simplex.privateKey or simplex.mpcVault)")
+	}
+
+	if (hasMpcVault) {
+		const mpcVault = config.simplex.mpcVault!
+		if (!mpcVault.apiToken) throw new Error("simplex.mpcVault.apiToken is required")
+		if (!mpcVault.vaultUuid) throw new Error("simplex.mpcVault.vaultUuid is required")
+		if (!mpcVault.accountAddress) throw new Error("simplex.mpcVault.accountAddress is required")
+		if (!mpcVault.callbackClientSignerPublicKey) {
+			throw new Error("simplex.mpcVault.callbackClientSignerPublicKey is required")
+		}
 	}
 
 	if ((!config.strategies || config.strategies.length === 0) && !allChainsWatchOnly) {

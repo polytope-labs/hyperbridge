@@ -1,5 +1,5 @@
 import { toHex, formatUnits, encodeFunctionData, maxUint256, formatEther } from "viem"
-import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
+import { privateKeyToAccount, privateKeyToAddress, type Account } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
 	HexString,
@@ -39,18 +39,29 @@ export class ContractInteractionService {
 	private logger = getLogger("contract-service")
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
-	private account: ReturnType<typeof privateKeyToAccount>
+	private account: Account
+	private signBidMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
 
 	constructor(
 		private clientManager: ChainClientManager,
-		private privateKey: HexString,
+		accountOrPrivateKey: Account | HexString,
 		configService: FillerConfigService,
+		signBidMessage?: (messageHash: HexString, chainId: number) => Promise<HexString>,
 		sharedCacheService?: CacheService,
 	) {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
-		this.solverAccountAddress = privateKeyToAddress(this.privateKey)
-		this.account = privateKeyToAccount(this.privateKey)
+		this.account =
+			typeof accountOrPrivateKey === "string" ? privateKeyToAccount(accountOrPrivateKey) : accountOrPrivateKey
+		this.solverAccountAddress = this.account.address
+		this.signBidMessage =
+			signBidMessage ??
+			((messageHash: HexString) => {
+				if (!this.account.signMessage) {
+					throw new Error("Configured account does not support signMessage")
+				}
+				return this.account.signMessage({ message: { raw: messageHash } })
+			})
 		this.initCache()
 	}
 
@@ -572,7 +583,8 @@ export class ContractInteractionService {
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
-			solverPrivateKey: this.privateKey,
+			solverSignMessage: (messageHash: HexString) =>
+				this.signBidMessage(messageHash, Number.parseInt(order.destination.split("-")[1] ?? "1", 10) || 1),
 			nonce: cachedEstimate.nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,
@@ -581,7 +593,7 @@ export class ContractInteractionService {
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
 			callData,
-		})
+		} as any)
 
 		// Encode the UserOp as bytes for submission to Hyperbridge
 		const encodedUserOp = encodeUserOpScale(userOp)

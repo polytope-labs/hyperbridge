@@ -3,6 +3,7 @@ import type { BridgeResult, BridgeParams, EstimateResult } from "@circle-fin/bri
 import { createViemAdapterFromPrivateKey } from "@circle-fin/adapter-viem-v2"
 import type { Chain, PublicClient } from "viem"
 import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
+import type { Account } from "viem/accounts"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger } from "@/services/Logger"
@@ -51,12 +52,16 @@ export class CctpRebalancer {
 	private bridgeKit: BridgeKit
 	private adapter: ViemAdapter | null = null
 	private chainClientManager: ChainClientManager
-	private privateKey: HexString
+	private privateKey?: HexString
 	private logger: Logger
 
-	constructor(chainClientManager: ChainClientManager, configService: FillerConfigService, privateKey: HexString) {
+	constructor(
+		chainClientManager: ChainClientManager,
+		_configService: FillerConfigService,
+		accountOrPrivateKey: Account | HexString,
+	) {
 		this.chainClientManager = chainClientManager
-		this.privateKey = privateKey
+		this.privateKey = typeof accountOrPrivateKey === "string" ? accountOrPrivateKey : undefined
 		this.bridgeKit = new BridgeKit()
 		this.logger = getLogger("CctpRebalancer")
 	}
@@ -66,6 +71,12 @@ export class CctpRebalancer {
 	 */
 	private getAdapter(): ViemAdapter {
 		if (this.adapter) return this.adapter
+
+		if (!this.privateKey) {
+			throw new Error(
+				"CCTP rebalancer currently requires private key signer with @circle-fin/adapter-viem-v2 v1.4.0",
+			)
+		}
 
 		this.adapter = createViemAdapterFromPrivateKey({
 			privateKey: this.privateKey,

@@ -10,7 +10,7 @@ import {
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { privateKeyToAddress } from "viem/accounts"
+import { privateKeyToAddress, type Account } from "viem/accounts"
 import {
 	BidStorageService,
 	ChainClientManager,
@@ -39,7 +39,8 @@ export class IntentFiller {
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
-	private privateKey: HexString
+	private account: Account
+	private fillerAddress: HexString
 	private logger = getLogger("intent-filler")
 
 	constructor(
@@ -49,18 +50,18 @@ export class IntentFiller {
 		configService: FillerConfigService,
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		privateKey: HexString,
+		accountOrPrivateKey: Account | HexString,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
 	) {
 		this.configService = configService
-		this.privateKey = privateKey
+		this.account = typeof accountOrPrivateKey === "string" ? chainClientManager.getAccount() : accountOrPrivateKey
+		this.fillerAddress = this.account.address
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
-		const fillerAddress = privateKeyToAddress(privateKey) as HexString
-		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, fillerAddress)
+		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
 
@@ -113,7 +114,7 @@ export class IntentFiller {
 
 		// Set up delegation service on chains where solver selection is active
 		if (chainsWithSolverSelection.length > 0 && this.hyperbridge) {
-			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.privateKey)
+			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.account)
 			this.logger.info(
 				{ chains: chainsWithSolverSelection },
 				"Setting up EIP-7702 delegation on chains with solver selection",

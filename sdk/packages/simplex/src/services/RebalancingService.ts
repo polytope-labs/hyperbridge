@@ -1,5 +1,5 @@
 import { formatUnits } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
+import { privateKeyToAccount, type Account } from "viem/accounts"
 import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import { Decimal } from "decimal.js"
 import { ChainClientManager } from "./ChainClientManager"
@@ -109,19 +109,22 @@ export class RebalancingService {
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
-		privateKey: HexString,
+		accountOrPrivateKey: Account | HexString,
 		binanceConfig?: BinanceCexConfig,
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
 
-		const account = privateKeyToAccount(privateKey as `0x${string}`)
+		const account =
+			typeof accountOrPrivateKey === "string"
+				? privateKeyToAccount(accountOrPrivateKey as `0x${string}`)
+				: accountOrPrivateKey
 		this.walletAddress = account.address
 
-		this.cctpRebalancer = new CctpRebalancer(chainClientManager, configService, privateKey)
-		this.usdt0Rebalancer = new Usdt0Rebalancer(chainClientManager, configService, privateKey)
+		this.cctpRebalancer = new CctpRebalancer(chainClientManager, configService, accountOrPrivateKey)
+		this.usdt0Rebalancer = new Usdt0Rebalancer(chainClientManager, configService, account)
 		this.binanceRebalancer = binanceConfig
-			? new BinanceRebalancer(chainClientManager, configService, privateKey, binanceConfig)
+			? new BinanceRebalancer(chainClientManager, configService, account, binanceConfig)
 			: undefined
 	}
 

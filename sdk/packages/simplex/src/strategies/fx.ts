@@ -1,11 +1,11 @@
 import { FillerStrategy } from "@/strategies/base"
 import {
-	OrderV2,
+	Order,
 	ExecutionResult,
 	HexString,
 	bytes32ToBytes20,
-	FillOptionsV2,
-	TokenInfoV2,
+	FillOptions,
+	TokenInfo,
 	IntentsCoprocessor,
 	adjustDecimals,
 	ADDRESS_ZERO,
@@ -16,19 +16,26 @@ import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits, parseUnits } from "viem"
 import { getLogger } from "@/services/Logger"
-import { FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { ConfirmationPolicy, FillerPricePolicy, type PriceCurvePoint } from "@/config/interpolated-curve"
+import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 
 /**
- * Strategy for same-chain swaps between USD-pegged stablecoins (USDC/USDT)
- * and a single configurable exotic token priced via a `FillerPricePolicy`.
+ * Strategy for swaps between USD-pegged stablecoins (USDC/USDT) and a single
+ * configurable exotic token priced via a `FillerPricePolicy`.
+ * Supports both same-chain and cross-chain orders.
  *
  * The filler holds both the stablecoin(s) and the exotic token. When a user
- * places a same-chain order swapping between the two, this strategy:
+ * places an order swapping between the two (on the same chain or across
+ * different chains), this strategy:
  * 1. Evaluates profitability using the filler's price policy for the exotic token
- * 2. Calls fillOrder to deliver output tokens to the user
- * 3. Receives the user's escrowed input tokens from the contract
+ * 2. Calls fillOrder to deliver output tokens to the user on the destination chain
+ * 3. Receives the user's escrowed input tokens from the source chain contract
+ *
+ * For cross-chain orders, input tokens are resolved against the source chain's
+ * stable/exotic addresses, and output tokens against the destination chain's.
+ * The filler's output balance is checked on the destination chain.
  *
  * The filler manages their own internal rebalancing/swaps outside of order execution.
  *
@@ -62,6 +69,7 @@ export class FXFiller implements FillerStrategy {
 	private pairId?: HexString
 	/** Raw ask curve points for building on-chain price entries */
 	private askCurvePoints: PriceCurvePoint[]
+	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	/**
 	 * @param privateKey             Filler's private key used to sign UserOps.
@@ -81,6 +89,8 @@ export class FXFiller implements FillerStrategy {
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
 	 * @param askCurvePoints         Raw ask curve points for on-chain price submission.
 	 * @param pairId                 On-chain pair ID (H256) for price submission.
+	 * @param confirmationPolicy     Optional per-chain confirmation policy for cross-chain orders.
+	 *                                If absent, no confirmation waiting is required.
 	 */
 	constructor(
 		privateKey: HexString,
@@ -93,6 +103,7 @@ export class FXFiller implements FillerStrategy {
 		exoticTokenAddresses: Record<string, HexString>,
 		askCurvePoints: PriceCurvePoint[],
 		pairId?: HexString,
+		confirmationPolicy?: ConfirmationPolicy,
 	) {
 		this.privateKey = privateKey
 		this.configService = configService
@@ -108,10 +119,16 @@ export class FXFiller implements FillerStrategy {
 		this.account = privateKeyToAccount(privateKey)
 		this.pairId = pairId
 		this.askCurvePoints = askCurvePoints
+		if (confirmationPolicy) {
+			this.confirmationPolicy = {
+				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
+					confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
+			}
+		}
 	}
 
 	/**
-	 * Submit initial prices using the ask price curve
+	 * Submit initial prices using the ask price curve.
 	 * Called once during filler initialization to publish the strategy's
 	 * prices on-chain before the filler starts processing orders.
 	 */
@@ -143,7 +160,7 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Convert the ask curve points into an on-chain PriceInput entries.
+	 * Convert the ask curve points into on-chain PriceInput entries.
 	 * Each adjacent pair of points defines a price range.
 	 * The last point extends to a large upper bound.
 	 */
@@ -171,12 +188,8 @@ export class FXFiller implements FillerStrategy {
 		return entries
 	}
 
-	async canFill(order: OrderV2): Promise<boolean> {
+	async canFill(order: Order): Promise<boolean> {
 		try {
-			if (order.source !== order.destination) {
-				return false
-			}
-
 			if (order.inputs.length !== order.output.assets.length) {
 				this.logger.debug(
 					{ inputs: order.inputs.length, outputs: order.output.assets.length },
@@ -185,14 +198,10 @@ export class FXFiller implements FillerStrategy {
 				return false
 			}
 
-			const chain = order.source
-
-			for (let i = 0; i < order.inputs.length; i++) {
-				const pair = this.classifyPair(order.inputs[i].token, order.output.assets[i].token, chain)
-				if (!pair) {
-					this.logger.debug({ index: i }, "Unsupported token pair for same-chain swap")
-					return false
-				}
+			const pairs = this.classifyAllPairs(order)
+			if (!pairs) {
+				this.logger.debug({ sourceChain: order.source, destChain: order.destination }, "Unsupported token pair")
+				return false
 			}
 
 			return true
@@ -219,34 +228,26 @@ export class FXFiller implements FillerStrategy {
 	 * Note: we may intentionally overfill relative to the user's requested
 	 * outputs if the price policy makes that attractive. This is how we stay competitive.
 	 */
-	async calculateProfitability(order: OrderV2): Promise<number> {
+	async calculateProfitability(order: Order): Promise<number> {
 		try {
-			const chain = order.source
-			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(chain)
+			const sourceChain = order.source
+			const destChain = order.destination
+			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(sourceChain)
 
-			const destClient = this.clientManager.getPublicClient(chain)
+			const destClient = this.clientManager.getPublicClient(destChain)
 			const walletAddress = this.account.address as HexString
 			const balanceCache = new Map<string, bigint>()
 
-			const exoticAddress = this.exoticTokenAddresses[chain].toLowerCase()
-			const exoticDecimals = await this.contractService.getTokenDecimals(exoticAddress, chain)
-			const sourceUsdc = this.configService.getUsdcAsset(chain).toLowerCase()
-			const sourceUsdt = this.configService.getUsdtAsset(chain).toLowerCase()
-
-			let totalInputUsd = new Decimal(0)
-
-			for (let j = 0; j < order.inputs.length; j++) {
-				const inputAddress = bytes32ToBytes20(order.inputs[j].token).toLowerCase()
-				if (inputAddress === sourceUsdc || inputAddress === sourceUsdt) {
-					const decimals = await this.contractService.getTokenDecimals(inputAddress as HexString, chain)
-					totalInputUsd = totalInputUsd.plus(new Decimal(formatUnits(order.inputs[j].amount, decimals)))
-				} else if (inputAddress === exoticAddress) {
-					const normalized = new Decimal(formatUnits(order.inputs[j].amount, exoticDecimals))
-					totalInputUsd = totalInputUsd.plus(normalized.div(this.bidPricePolicy.getPrice(new Decimal(0))))
-				}
+			const pairs = this.classifyAllPairs(order)
+			if (!pairs) {
+				this.logger.info({ orderId: order.id }, "Skipping order: could not classify token pairs")
+				return 0
 			}
 
-			if (totalInputUsd.lte(0)) {
+			const usdResult = await this.getOrderUsdValue(order)
+			const totalInputUsd = usdResult?.inputUsd
+
+			if (!totalInputUsd || totalInputUsd.lte(0)) {
 				this.logger.info({ orderId: order.id }, "Skipping order: could not compute input USD value")
 				return 0
 			}
@@ -270,23 +271,25 @@ export class FXFiller implements FillerStrategy {
 			// - bidPrice: used when filler buys exotic (exotic->stable). Higher rate = fewer USD paid out.
 			const bidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
 			const askPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
-			const fillerOutputs: TokenInfoV2[] = []
+			const fillerOutputs: TokenInfo[] = []
 			let remainingUsd = cappedOrderUsd
 
 			for (let i = 0; i < order.inputs.length; i++) {
 				const input = order.inputs[i]
 				const output = order.output.assets[i]
-				const pair = this.classifyPair(input.token, output.token, chain)!
+				const pair = pairs[i]
 
-				const stableDecimals = await this.contractService.getTokenDecimals(
-					bytes32ToBytes20(pair.stableToken) as HexString,
-					chain,
+				const inputDecimals = await this.contractService.getTokenDecimals(
+					bytes32ToBytes20(input.token) as HexString,
+					sourceChain,
+				)
+				const outputDecimals = await this.contractService.getTokenDecimals(
+					bytes32ToBytes20(output.token) as HexString,
+					destChain,
 				)
 
-				const exoticTokenDecimals = await this.contractService.getTokenDecimals(
-					this.exoticTokenAddresses[chain],
-					chain,
-				)
+				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
+				const exoticTokenDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
 
 				const legResult = this.computeLegPolicyOutput(
 					input.amount,
@@ -304,7 +307,7 @@ export class FXFiller implements FillerStrategy {
 				const { usdUsed, policyMaxOutput } = legResult
 				remainingUsd = remainingUsd.minus(usdUsed)
 
-				// Cap by actual available balance for this token on the filler side.
+				// Cap by actual available balance for this token on the destination chain.
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
@@ -322,7 +325,7 @@ export class FXFiller implements FillerStrategy {
 					continue
 				}
 
-				if (finalOutputAmount < output.amount) {
+				if (sourceChain !== destChain && finalOutputAmount < output.amount) {
 					this.logger.info(
 						{
 							orderId: order.id,
@@ -368,15 +371,18 @@ export class FXFiller implements FillerStrategy {
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const input = order.inputs[i]
 				const output = fillerOutputs[i]
-				const pair = this.classifyPair(input.token, output.token, chain)!
-				const stableDecimals = await this.contractService.getTokenDecimals(
-					bytes32ToBytes20(pair.stableToken) as HexString,
-					chain,
+				const pair = pairs[i]
+
+				const inputDecimals = await this.contractService.getTokenDecimals(
+					bytes32ToBytes20(input.token) as HexString,
+					sourceChain,
 				)
-				const exoticDecimalsLeg = await this.contractService.getTokenDecimals(
-					this.exoticTokenAddresses[chain],
-					chain,
+				const outputDecimals = await this.contractService.getTokenDecimals(
+					bytes32ToBytes20(output.token) as HexString,
+					destChain,
 				)
+				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
+				const exoticDecimalsLeg = pair.inputIsStable ? outputDecimals : inputDecimals
 				if (pair.inputIsStable) {
 					// Filler sells exotic (stable→exotic): receives stable, gives exotic. Value exotic at bid (acquisition cost).
 					const inputUsd = new Decimal(formatUnits(input.amount, stableDecimals))
@@ -395,12 +401,14 @@ export class FXFiller implements FillerStrategy {
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
 			const feeProfit = order.fees > totalCostInSourceFeeToken ? order.fees - totalCostInSourceFeeToken : 0n
 			const feeProfitParsed = parseFloat(formatUnits(feeProfit, feeTokenDecimals))
-			// Total profit = fee profit + spread profit (spread in USD; assumes fee token is USD-pegged for combined return)
 			const totalProfit = feeProfitParsed + spreadProfitUsd.toNumber()
 
 			this.logger.info(
 				{
 					orderId: order.id,
+					sourceChain,
+					destChain,
+					crossChain: sourceChain !== destChain,
 					orderValueUsdFull: totalInputUsd.toString(),
 					orderValueUsdCapped: cappedOrderUsd.toString(),
 					maxOrderUsd: this.maxOrderUsd.toString(),
@@ -413,7 +421,7 @@ export class FXFiller implements FillerStrategy {
 					totalProfit,
 					profitable: totalProfit > 0,
 				},
-				"Same-chain swap profitability evaluation",
+				"FX swap profitability evaluation",
 			)
 
 			return totalProfit
@@ -431,7 +439,7 @@ export class FXFiller implements FillerStrategy {
 	 * This method only orchestrates the bid construction and submission; the
 	 * actual token movements are handled on-chain by the IntentGateway.
 	 */
-	async executeOrder(order: OrderV2, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
+	async executeOrder(order: Order, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
 		const startTime = Date.now()
 
 		try {
@@ -444,7 +452,7 @@ export class FXFiller implements FillerStrategy {
 
 			return await this.submitBid(order, startTime, intentsCoprocessor)
 		} catch (error) {
-			this.logger.error({ err: error }, "Error executing same-chain swap order")
+			this.logger.error({ err: error }, "Error executing FX swap order")
 			return {
 				success: false,
 				error: error instanceof Error ? error.message : "Unknown error",
@@ -464,7 +472,7 @@ export class FXFiller implements FillerStrategy {
 	 * `ContractInteractionService.prepareBidUserOp`.
 	 */
 	private async submitBid(
-		order: OrderV2,
+		order: Order,
 		startTime: number,
 		intentsCoprocessor: IntentsCoprocessor,
 	): Promise<ExecutionResult> {
@@ -589,36 +597,52 @@ export class FXFiller implements FillerStrategy {
 		return balance
 	}
 
-	private classifyPair(
-		inputToken: string,
-		outputToken: string,
-		chain: string,
-	): {
-		inputIsStable: boolean
-		stableToken: string
-		exoticToken: string
-	} | null {
-		const exoticAddress = this.exoticTokenAddresses[chain]
-		if (!exoticAddress) {
-			throw new Error(`Exotic token address not configured for chain ${chain}`)
+	/**
+	 * Classifies all (input, output) legs of an order in one pass.
+	 * Returns null if any leg has an unsupported pair.
+	 */
+	private classifyAllPairs(order: Order): CachedPairClassification[] | null {
+		if (order.id) {
+			const cached = this.contractService.cacheService.getPairClassifications(order.id)
+			if (cached) return cached
 		}
 
-		const normalizedInput = bytes32ToBytes20(inputToken).toLowerCase()
-		const normalizedOutput = bytes32ToBytes20(outputToken).toLowerCase()
-		const normalizedExotic = exoticAddress.toLowerCase()
-
-		const inputStable = this.getStableType(normalizedInput, chain)
-		const outputStable = this.getStableType(normalizedOutput, chain)
-
-		if (inputStable && normalizedOutput === normalizedExotic) {
-			return { inputIsStable: true, stableToken: inputToken, exoticToken: outputToken }
+		const sourceChain = order.source
+		const destChain = order.destination
+		const sourceExotic = this.exoticTokenAddresses[sourceChain]
+		const destExotic = this.exoticTokenAddresses[destChain]
+		if (!sourceExotic && !destExotic) {
+			throw new Error(`Exotic token address not configured for chains ${sourceChain} / ${destChain}`)
 		}
 
-		if (normalizedInput === normalizedExotic && outputStable) {
-			return { inputIsStable: false, stableToken: outputToken, exoticToken: inputToken }
+		const pairs: CachedPairClassification[] = []
+		for (let i = 0; i < order.inputs.length; i++) {
+			const normalizedInput = bytes32ToBytes20(order.inputs[i].token).toLowerCase()
+			const normalizedOutput = bytes32ToBytes20(order.output.assets[i].token).toLowerCase()
+
+			const inputStable = this.getStableType(normalizedInput, sourceChain)
+			const outputStable = this.getStableType(normalizedOutput, destChain)
+
+			if (inputStable && destExotic && normalizedOutput === destExotic.toLowerCase()) {
+				pairs.push({
+					inputIsStable: true,
+					stableToken: order.inputs[i].token,
+					exoticToken: order.output.assets[i].token,
+				})
+			} else if (sourceExotic && normalizedInput === sourceExotic.toLowerCase() && outputStable) {
+				pairs.push({
+					inputIsStable: false,
+					stableToken: order.output.assets[i].token,
+					exoticToken: order.inputs[i].token,
+				})
+			} else {
+				return null
+			}
 		}
 
-		return null
+		this.contractService.cacheService.setPairClassifications(order.id!, pairs)
+
+		return pairs
 	}
 
 	private getStableType(normalizedAddress: string, chain: string): boolean {
@@ -626,5 +650,39 @@ export class FXFiller implements FillerStrategy {
 			normalizedAddress === this.configService.getUsdcAsset(chain).toLowerCase() ||
 			normalizedAddress === this.configService.getUsdtAsset(chain).toLowerCase()
 		)
+	}
+
+	/**
+	 * Returns the USD value of the order's full input basket.
+	 * Stablecoin inputs are priced at face value; exotic inputs are converted
+	 * via the bid price policy at the minimum price point.
+	 * Returns `null` only when pair classification fails (genuine "can't price").
+	 */
+	async getOrderUsdValue(order: Order): Promise<{ inputUsd: Decimal } | null> {
+		const pairs = this.classifyAllPairs(order)
+		if (!pairs) return null
+
+		const sourceChain = order.source
+		let totalInputUsd = new Decimal(0)
+
+		for (let j = 0; j < order.inputs.length; j++) {
+			if (pairs[j].inputIsStable) {
+				const decimals = await this.contractService.getTokenDecimals(
+					bytes32ToBytes20(order.inputs[j].token) as HexString,
+					sourceChain,
+				)
+				totalInputUsd = totalInputUsd.plus(new Decimal(formatUnits(order.inputs[j].amount, decimals)))
+			} else {
+				const exoticDecimals = await this.contractService.getTokenDecimals(
+					this.exoticTokenAddresses[sourceChain],
+					sourceChain,
+				)
+				const normalized = new Decimal(formatUnits(order.inputs[j].amount, exoticDecimals))
+				totalInputUsd = totalInputUsd.plus(normalized.div(this.bidPricePolicy.getPrice(new Decimal(0))))
+			}
+		}
+
+		if (totalInputUsd.lte(0)) return null
+		return { inputUsd: totalInputUsd }
 	}
 }

@@ -310,6 +310,45 @@ export class CryptoUtils {
 	}
 
 	/**
+	 * Sends multiple JSON-RPC requests to the bundler in a single HTTP call
+	 * using JSON-RPC 2.0 batch syntax.  Results are returned in the same order
+	 * as the input `requests` array.
+	 *
+	 * @throws If the bundler URL is not configured, the HTTP call fails, or any
+	 *   individual response contains an error.
+	 */
+	async sendBundlerBatch<T extends unknown[]>(
+		requests: { method: BundlerMethod; params: unknown[] }[],
+	): Promise<T> {
+		if (!this.ctx.bundlerUrl) {
+			throw new Error("Bundler URL not configured")
+		}
+
+		const body = requests.map((r, i) => ({
+			jsonrpc: "2.0" as const,
+			id: i + 1,
+			method: r.method,
+			params: r.params,
+		}))
+
+		const response = await fetch(this.ctx.bundlerUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		})
+
+		const results = (await response.json()) as { id: number; result?: unknown; error?: { message?: string } }[]
+		results.sort((a, b) => a.id - b.id)
+
+		return results.map((r) => {
+			if (r.error) {
+				throw new Error(`Bundler error: ${r.error.message || JSON.stringify(r.error)}`)
+			}
+			return r.result
+		}) as T
+	}
+
+	/**
 	 * Encodes a list of calls into ERC-7821 `execute` calldata using
 	 * single-batch mode (`ERC7821_BATCH_MODE`).
 	 *

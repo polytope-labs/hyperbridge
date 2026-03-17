@@ -47,25 +47,6 @@ const hyperbridge = await SubstrateChain.connect({
 
 ---
 
-## Constructor
-
-### new SubstrateChain(params)
-
-Creates an unconnected `SubstrateChain` instance. You must call `connect()` before using any methods that require the WebSocket API. Prefer `SubstrateChain.connect(params)` for most use cases.
-
-**Parameters:**
-
-| Name | Type | Description |
-|------|------|-------------|
-| `params.stateMachineId` | `string` | State machine identifier (e.g., "POLKADOT-3367") |
-| `params.wsUrl` | `string` | WebSocket URL for the Substrate node (must be an archive node) |
-| `params.consensusStateId` | `string` | Consensus state identifier on Hyperbridge |
-| `params.hasher` | `"Blake2" \| "Keccak"` | Hashing algorithm used by the chain |
-
-**Returns:** `SubstrateChain`
-
----
-
 ## Properties
 
 ### api

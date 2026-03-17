@@ -11,7 +11,7 @@
 # Note that the GitHub Release will be created with a generated
 # title/body based on your changelogs.
 
-name: Release
+name: Publish Hyperbridge
 
 permissions:
     contents: write
@@ -292,6 +292,56 @@ jobs:
                   name: artifacts-dist-manifest
                   path: dist-manifest.json
 
+    # Build and push Docker image
+    build_docker:
+        runs-on: release-runner
+        steps:
+            - name: Checkout sources
+              uses: actions/checkout@v3
+              with:
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - uses: webfactory/ssh-agent@v0.5.4
+              with:
+                  ssh-private-key: "${{ secrets.SSH_KEY }}"
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install --assume-yes pkg-config git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+                  rustup install nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+                  sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+
+            - name: Build
+              run: |
+                  cargo build --release -p hyperbridge
+
+            - name: Install Cargo get
+              run: cargo install cargo-get
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+            - name: Build the Docker image
+              run: docker build -t polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node) -t polytopelabs/hyperbridge:latest -f ./scripts/docker/hyperbridge.Dockerfile .
+
+            - name: Docker Push
+              run: |
+                  docker push polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node)
+                  docker push polytopelabs/hyperbridge:latest
+
     # Create a GitHub Release while uploading all files to it
     announce:
         needs:
@@ -318,12 +368,34 @@ jobs:
               run: |
                   # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  CURRENT_TAG=${GITHUB_REF#refs/tags/}
+                  PREVIOUS_TAG=$(git tag -l "hyperbridge-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
+
+                  if [ -z "$PREVIOUS_TAG" ]; then
+                    COMMIT_RANGE="HEAD"
+                  else
+                    COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
+                  fi
+
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "node")
+
+                  echo "changelog<<EOF" >> $GITHUB_OUTPUT
+                  echo "## What's Changed" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "$CHANGELOG" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
             - name: Create GitHub Release
               uses: ncipollo/release-action@v1
               with:
                   tag: ${{ needs.plan.outputs.tag }}
                   name: ${{ fromJson(needs.host.outputs.val).announcement_title }}
-                  body: ${{ fromJson(needs.host.outputs.val).announcement_github_body }}
+                  body: |
+                      ${{ steps.changelog.outputs.changelog }}
+
+                      ${{ fromJson(needs.host.outputs.val).announcement_github_body }}
                   prerelease: ${{ fromJson(needs.host.outputs.val).announcement_is_prerelease }}
                   artifacts: "artifacts/*"
                   draft: true

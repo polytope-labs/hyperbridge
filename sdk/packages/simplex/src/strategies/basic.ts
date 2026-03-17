@@ -1,13 +1,13 @@
 import { Decimal } from "decimal.js"
 import { FillerStrategy } from "@/strategies/base"
 import {
-	OrderV2,
+	Order,
 	ExecutionResult,
 	HexString,
 	bytes32ToBytes20,
-	FillOptionsV2,
+	FillOptions,
 	ADDRESS_ZERO,
-	TokenInfoV2,
+	TokenInfo,
 	adjustDecimals,
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
@@ -56,7 +56,7 @@ export class BasicFiller implements FillerStrategy {
 	 * @param order The order to check
 	 * @returns True if the strategy can fill the order
 	 */
-	async canFill(order: OrderV2): Promise<boolean> {
+	async canFill(order: Order): Promise<boolean> {
 		try {
 			// Validate basic structure
 			if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
@@ -128,7 +128,7 @@ export class BasicFiller implements FillerStrategy {
 	 * @param order The order to calculate the USD value for
 	 * @returns The profit in USD (Number), or 0 if not profitable or output amounts don't meet minimum
 	 */
-	async calculateProfitability(order: OrderV2): Promise<number> {
+	async calculateProfitability(order: Order): Promise<number> {
 		try {
 			const { decimals: destFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
 				order.destination,
@@ -207,13 +207,13 @@ export class BasicFiller implements FillerStrategy {
 	 * @returns Object with isValid boolean and profitFromSlippage (normalized to specified decimals)
 	 */
 	private async calculateSlippageProfit(
-		order: OrderV2,
+		order: Order,
 		normalizeToDecimals: number,
 		fillerBps: bigint,
 	): Promise<{ isValid: boolean; profitFromSlippage: bigint }> {
 		const basisPoints = 10000n
 		let totalProfitNormalized = 0n
-		const fillerOutputs: TokenInfoV2[] = []
+		const fillerOutputs: TokenInfo[] = []
 
 		for (let i = 0; i < order.inputs.length; i++) {
 			const input = order.inputs[i]
@@ -286,7 +286,7 @@ export class BasicFiller implements FillerStrategy {
 	 * @param hyperbridge HyperbridgeService for bid submission (provided when solver selection is active)
 	 * @returns The execution result
 	 */
-	async executeOrder(order: OrderV2, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
+	async executeOrder(order: Order, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
 		const startTime = Date.now()
 
 		try {
@@ -309,7 +309,7 @@ export class BasicFiller implements FillerStrategy {
 	 * @private
 	 */
 	private async submitBidToHyperbridge(
-		order: OrderV2,
+		order: Order,
 		startTime: number,
 		intentsCoprocessor: IntentsCoprocessor,
 	): Promise<ExecutionResult> {
@@ -374,7 +374,7 @@ export class BasicFiller implements FillerStrategy {
 	 * Uses cached filler outputs (calculated based on bps) instead of order.output.assets
 	 * @private
 	 */
-	private async fillOrder(order: OrderV2, startTime: number): Promise<ExecutionResult> {
+	private async fillOrder(order: Order, startTime: number): Promise<ExecutionResult> {
 		const { destClient, walletClient } = this.clientManager.getClientsForOrder(order)
 
 		const { dispatchFee, nativeDispatchFee, callGasLimit } = await this.contractService.estimateGasFillPost(order)
@@ -385,7 +385,7 @@ export class BasicFiller implements FillerStrategy {
 			throw new Error(`No cached filler outputs found for order ${order.id}. Call calculateProfitability first.`)
 		}
 
-		const fillOptions: FillOptionsV2 = {
+		const fillOptions: FillOptions = {
 			relayerFee: dispatchFee,
 			nativeDispatchFee,
 			outputs: cachedFillerOutputs,
@@ -401,7 +401,7 @@ export class BasicFiller implements FillerStrategy {
 
 		// Total ETH to forward: native outputs + dispatch fee
 		const nativeValue =
-			cachedFillerOutputs.reduce((acc: bigint, output: TokenInfoV2) => {
+			cachedFillerOutputs.reduce((acc: bigint, output: TokenInfo) => {
 				if (bytes32ToBytes20(output.token) === ADDRESS_ZERO) {
 					return acc + output.amount
 				}

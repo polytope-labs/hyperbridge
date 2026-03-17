@@ -3,15 +3,15 @@ import { privateKeyToAccount } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20, hexToString, retryPromise } from "@/utils"
 import type {
-	OrderV2,
+	Order,
 	HexString,
 	PackedUserOperation,
 	SubmitBidOptions,
-	FillOptionsV2,
+	FillOptions,
 	SelectOptions,
 	FillerBid,
 	SelectBidResult,
-	TokenInfoV2,
+	TokenInfo,
 	ERC7821Call,
 } from "@/types"
 import type { IntentGatewayContext } from "./types"
@@ -126,7 +126,7 @@ export class BidManager {
 	 * @throws If the session key is not found, no valid bids exist, all
 	 *   simulations fail, or the bundler rejects the UserOperation.
 	 */
-	async selectBid(order: OrderV2, bids: FillerBid[], sessionPrivateKey?: HexString): Promise<SelectBidResult> {
+	async selectBid(order: Order, bids: FillerBid[], sessionPrivateKey?: HexString): Promise<SelectBidResult> {
 		const commitment = order.id as HexString
 		const sessionKeyAddress = order.session as HexString
 		console.log(`[BidManager] selectBid called for commitment=${commitment}, received ${bids.length} bid(s)`)
@@ -165,7 +165,7 @@ export class BidManager {
 			intentGatewayV2Address,
 		)
 
-		let selectedBid: { bid: FillerBid; options: FillOptionsV2 } | null = null
+		let selectedBid: { bid: FillerBid; options: FillOptions } | null = null
 		let sessionSignature: HexString | null = null
 
 		console.log(`[BidManager] Simulating ${sortedBids.length} sorted bid(s) to find a valid one`)
@@ -192,7 +192,7 @@ export class BidManager {
 			}
 
 			try {
-				await this.simulate(bidWithOptions.bid, selectOptions, intentGatewayV2Address)
+				await this.simulate(bidWithOptions.bid, bidWithOptions.options, selectOptions, intentGatewayV2Address)
 				console.log(`[BidManager] Bid ${idx + 1} from solver=${solverAddress}: simulation PASSED`)
 				selectedBid = bidWithOptions
 				sessionSignature = signature
@@ -239,7 +239,7 @@ export class BidManager {
 
 		let txnHash: HexString | undefined
 		let fillStatus: "full" | "partial" | undefined
-		let filledAmount: bigint | undefined
+		let filledAssets: TokenInfo[] | undefined
 		try {
 			const receipt = await retryPromise(
 				async () => {
@@ -279,10 +279,7 @@ export class BidManager {
 						fillStatus = "full"
 					} else if (matched?.eventName === "PartialFill") {
 						fillStatus = "partial"
-
-						// Sum all output amounts from the PartialFill event as the filled amount for this attempt
-						const outputs = (matched.args.outputs ?? []) as readonly { amount: bigint }[]
-						filledAmount = outputs.reduce((acc, o) => acc + o.amount, 0n)
+						filledAssets = (matched.args.outputs ?? []) as TokenInfo[]
 					}
 				} catch {
 					throw new Error("Failed to determine fill status from logs")
@@ -300,7 +297,7 @@ export class BidManager {
 			commitment,
 			txnHash,
 			fillStatus,
-			filledAmount,
+			filledAssets,
 		}
 	}
 
@@ -320,8 +317,8 @@ export class BidManager {
 	 */
 	private async validateAndSortBids(
 		bids: FillerBid[],
-		order: OrderV2,
-	): Promise<{ bid: FillerBid; options: FillOptionsV2 }[]> {
+		order: Order,
+	): Promise<{ bid: FillerBid; options: FillOptions }[]> {
 		const outputs = order.output.assets
 		const decodedBids = this.decodeBids(bids)
 
@@ -351,8 +348,8 @@ export class BidManager {
 	 * @param bids - Raw bids to decode.
 	 * @returns Array of successfully decoded `{ bid, options }` pairs.
 	 */
-	private decodeBids(bids: FillerBid[]): { bid: FillerBid; options: FillOptionsV2 }[] {
-		const result: { bid: FillerBid; options: FillOptionsV2 }[] = []
+	private decodeBids(bids: FillerBid[]): { bid: FillerBid; options: FillOptions }[] {
+		const result: { bid: FillerBid; options: FillOptions }[] = []
 		for (const bid of bids) {
 			const fillOptions = this.decodeBidFillOptions(bid)
 			if (fillOptions) {
@@ -366,13 +363,13 @@ export class BidManager {
 	}
 
 	/**
-	 * Extracts the `FillOptionsV2` struct from a single bid's ERC-7821
+	 * Extracts the `FillOptions` struct from a single bid's ERC-7821
 	 * batch calldata by finding and decoding the inner `fillOrder` call.
 	 *
 	 * @param bid - A single filler bid.
-	 * @returns The decoded `FillOptionsV2`, or `null` if extraction fails.
+	 * @returns The decoded `FillOptions`, or `null` if extraction fails.
 	 */
-	private decodeBidFillOptions(bid: FillerBid): FillOptionsV2 | null {
+	private decodeBidFillOptions(bid: FillerBid): FillOptions | null {
 		try {
 			const innerCalls = this.crypto.decodeERC7821Execute(bid.userOp.callData)
 			if (!innerCalls || innerCalls.length === 0) return null
@@ -384,7 +381,7 @@ export class BidManager {
 						data: call.data,
 					})
 					if (decoded?.functionName === "fillOrder" && decoded.args && decoded.args.length >= 2) {
-						const fillOptions = decoded.args[1] as FillOptionsV2
+						const fillOptions = decoded.args[1] as FillOptions
 						if (fillOptions?.outputs?.length > 0) {
 							return fillOptions
 						}
@@ -404,17 +401,30 @@ export class BidManager {
 	 * via `eth_call` from the solver's account, using the IntentGatewayV2
 	 * ERC-7821 batch-execute pattern.
 	 *
+	 * The native value forwarded to the simulation is computed from the fill options:
+	 * sum of any native-token (address(0)) output amounts plus the dispatch fee.
+	 *
 	 * @param bid - The filler bid to simulate.
+	 * @param fillOptions - Decoded fill options from the bid's calldata.
 	 * @param selectOptions - The signed solver-selection parameters.
 	 * @param intentGatewayV2Address - Address of the IntentGatewayV2 contract on the destination chain.
 	 * @throws If the `eth_call` simulation reverts or errors.
 	 */
 	private async simulate(
 		bid: FillerBid,
+		fillOptions: FillOptions,
 		selectOptions: SelectOptions,
 		intentGatewayV2Address: HexString,
 	): Promise<void> {
 		const solverAddress = bid.userOp.sender
+
+		// Compute the native ETH the fillOrder call requires:
+		// native token outputs (address(0)) + Hyperbridge dispatch fee
+		const nativeOutputs = fillOptions.outputs.reduce(
+			(acc, o) => (bytes32ToBytes20(o.token) === ADDRESS_ZERO ? acc + o.amount : acc),
+			0n,
+		)
+		const simulationValue = nativeOutputs + fillOptions.nativeDispatchFee
 
 		const selectCalldata = encodeFunctionData({
 			abi: IntentGatewayV2ABI,
@@ -424,7 +434,7 @@ export class BidManager {
 
 		const calls: ERC7821Call[] = [
 			{ target: intentGatewayV2Address, value: 0n, data: selectCalldata },
-			{ target: solverAddress, value: 0n, data: bid.userOp.callData },
+			{ target: solverAddress, value: simulationValue, data: bid.userOp.callData },
 		]
 		const batchedCalldata = this.crypto.encodeERC7821Execute(calls)
 
@@ -433,7 +443,7 @@ export class BidManager {
 				account: solverAddress,
 				to: solverAddress,
 				data: batchedCalldata,
-				value: 0n,
+				value: simulationValue,
 			})
 		} catch (e: unknown) {
 			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`)
@@ -446,15 +456,15 @@ export class BidManager {
 	 * Partial fill bids are allowed — the contract determines fill status.
 	 */
 	private sortSingleOutput(
-		decodedBids: { bid: FillerBid; options: FillOptionsV2 }[],
-		requiredAsset: TokenInfoV2,
-	): { bid: FillerBid; options: FillOptionsV2 }[] {
+		decodedBids: { bid: FillerBid; options: FillOptions }[],
+		requiredAsset: TokenInfo,
+	): { bid: FillerBid; options: FillOptions }[] {
 		const requiredAmount = new Decimal(requiredAsset.amount.toString())
 		console.log(
 			`[BidManager] sortSingleOutput: required token=${requiredAsset.token}, amount=${requiredAmount.toString()}`,
 		)
 
-		const validBids: { bid: FillerBid; options: FillOptionsV2; amount: bigint }[] = []
+		const validBids: { bid: FillerBid; options: FillOptions; amount: bigint }[] = []
 
 		for (const { bid, options } of decodedBids) {
 			const bidOutput = options.outputs[0]
@@ -499,14 +509,14 @@ export class BidManager {
 	 * Partial fill bids are allowed.
 	 */
 	private sortAllStables(
-		decodedBids: { bid: FillerBid; options: FillOptionsV2 }[],
-		orderOutputs: TokenInfoV2[],
+		decodedBids: { bid: FillerBid; options: FillOptions }[],
+		orderOutputs: TokenInfo[],
 		chainId: string,
-	): { bid: FillerBid; options: FillOptionsV2 }[] {
+	): { bid: FillerBid; options: FillOptions }[] {
 		const requiredUsd = this.computeStablesUsdValue(orderOutputs, chainId)
 		console.log(`[BidManager] sortAllStables: required USD value=${requiredUsd.toString()}`)
 
-		const validBids: { bid: FillerBid; options: FillOptionsV2; usdValue: Decimal }[] = []
+		const validBids: { bid: FillerBid; options: FillOptions; usdValue: Decimal }[] = []
 
 		for (const { bid, options } of decodedBids) {
 			const bidUsd = this.computeStablesUsdValue(options.outputs, chainId)
@@ -541,10 +551,10 @@ export class BidManager {
 	 * if pricing is unavailable. Partial fill bids are allowed.
 	 */
 	private async sortMixedOutputs(
-		decodedBids: { bid: FillerBid; options: FillOptionsV2 }[],
-		orderOutputs: TokenInfoV2[],
+		decodedBids: { bid: FillerBid; options: FillOptions }[],
+		orderOutputs: TokenInfo[],
 		chainId: string,
-	): Promise<{ bid: FillerBid; options: FillOptionsV2 }[]> {
+	): Promise<{ bid: FillerBid; options: FillOptions }[]> {
 		const requiredUsd = await this.computeOutputsUsdValue(orderOutputs, chainId)
 
 		if (requiredUsd === null) {
@@ -553,7 +563,7 @@ export class BidManager {
 		}
 
 		console.log(`[BidManager] sortMixedOutputs: required USD value=${requiredUsd.toString()}`)
-		const validBids: { bid: FillerBid; options: FillOptionsV2; usdValue: Decimal }[] = []
+		const validBids: { bid: FillerBid; options: FillOptions; usdValue: Decimal }[] = []
 
 		for (const { bid, options } of decodedBids) {
 			const bidUsd = await this.computeOutputsUsdValue(options.outputs, chainId)
@@ -591,13 +601,13 @@ export class BidManager {
 	 * Sorted by total offered amount descending.
 	 */
 	private sortByRawAmountFallback(
-		decodedBids: { bid: FillerBid; options: FillOptionsV2 }[],
-		orderOutputs: TokenInfoV2[],
-	): { bid: FillerBid; options: FillOptionsV2 }[] {
+		decodedBids: { bid: FillerBid; options: FillOptions }[],
+		orderOutputs: TokenInfo[],
+	): { bid: FillerBid; options: FillOptions }[] {
 		console.log(
 			`[BidManager] sortByRawAmountFallback: checking ${decodedBids.length} bid(s) against ${orderOutputs.length} required output(s)`,
 		)
-		const validBids: { bid: FillerBid; options: FillOptionsV2; totalOffered: Decimal }[] = []
+		const validBids: { bid: FillerBid; options: FillOptions; totalOffered: Decimal }[] = []
 
 		for (const { bid, options } of decodedBids) {
 			let valid = true
@@ -685,7 +695,7 @@ export class BidManager {
 	 * @param chainId - State-machine ID used to look up decimals.
 	 * @returns Total USD value as a `Decimal`.
 	 */
-	private computeStablesUsdValue(outputs: TokenInfoV2[], chainId: string): Decimal {
+	private computeStablesUsdValue(outputs: TokenInfo[], chainId: string): Decimal {
 		let total = new Decimal(0)
 		for (const output of outputs) {
 			const tokenAddr = bytes32ToBytes20(output.token)

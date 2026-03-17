@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest"
 import { transformOrderForContract } from "@/protocols/intents/utils"
-import type { OrderV2, HexString } from "@/types"
+import type { Order, HexString } from "@/types"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
 const ADDR_32 = "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
-const NATIVE  = "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString
+const NATIVE = "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString
 
-function makeOrder(overrides: Partial<OrderV2> = {}): OrderV2 {
+function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
 		user: "0x" as HexString,
 		source: "EVM-1",
@@ -82,11 +82,10 @@ describe("transformOrderForContract", () => {
 		expect(result.destination).toBe("0xddeeff")
 	})
 
-	it("strips id and transactionHash", () => {
-		const order = makeOrder({ id: "0xdeadbeef", transactionHash: "0xcafe" as HexString })
+	it("strips id", () => {
+		const order = makeOrder({ id: "0xdeadbeef" })
 		const result = transformOrderForContract(order)
 		expect("id" in result).toBe(false)
-		expect("transactionHash" in result).toBe(false)
 	})
 
 	it("preserves amounts unchanged", () => {

@@ -1,0 +1,459 @@
+---
+title: IntentGateway
+description: API reference for IntentGateway - place, execute, and cancel cross-chain intent orders via the Hyperbridge protocol.
+---
+
+# IntentGateway
+
+The `IntentGateway` class is the high-level facade for the IntentGatewayV2 protocol. It orchestrates the full lifecycle of an intent-based cross-chain swap: order placement, bid collection, execution, cancellation, and status checks.
+
+```typescript lineNumbers
+class IntentGateway
+```
+
+---
+
+## Static Methods
+
+### IntentGateway.create(source, dest, intentsCoprocessor?)
+
+Creates a fully initialised `IntentGateway` instance. Fetches fee tokens for both chains and optionally caches solver account bytecode before returning.
+
+```typescript lineNumbers
+static async create(
+  source: IEvmChain,
+  dest: IEvmChain,
+  intentsCoprocessor?: IntentsCoprocessor,
+): Promise<IntentGateway>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `source` | `IEvmChain` | Source chain where orders are placed and inputs are escrowed |
+| `dest` | `IEvmChain` | Destination chain where solvers fill orders and deliver outputs |
+| `intentsCoprocessor` | `IntentsCoprocessor` | Optional. Hyperbridge coprocessor client for bid fetching and UserOp submission |
+
+**Returns:** `Promise<IntentGateway>`
+
+**Example:**
+
+```typescript lineNumbers
+import { EvmChain, IntentsCoprocessor, IntentGateway } from "@hyperbridge/sdk"
+
+const source = await EvmChain.create("https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY")
+const dest = await EvmChain.create(
+  "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
+  "https://bundler.example.com",
+)
+const coprocessor = await IntentsCoprocessor.connect("wss://coprocessor.hyperbridge.network")
+
+const gateway = await IntentGateway.create(source, dest, coprocessor)
+```
+
+---
+
+## Properties
+
+### source
+
+The EVM chain on which orders are placed and inputs are escrowed.
+
+**Type:** `IEvmChain`
+
+---
+
+### dest
+
+The EVM chain on which solvers fill orders and deliver outputs.
+
+**Type:** `IEvmChain`
+
+---
+
+### intentsCoprocessor
+
+The Hyperbridge coprocessor client used for bid fetching and UserOp submission.
+
+**Type:** `IntentsCoprocessor | undefined`
+
+---
+
+## Methods
+
+### execute(order, graffiti?, options?)
+
+Bidirectional async generator that orchestrates the full order lifecycle: placement, fee estimation, bid collection, and execution. Yields a status update at each lifecycle stage. The caller is responsible for signing and broadcasting the placement transaction when prompted.
+
+```typescript lineNumbers
+async *execute(
+  order: Order,
+  graffiti?: HexString,
+  options?: {
+    maxPriorityFeePerGasBumpPercent?: number
+    maxFeePerGasBumpPercent?: number
+    minBids?: number
+    bidTimeoutMs?: number
+    pollIntervalMs?: number
+  },
+): AsyncGenerator<IntentOrderStatusUpdate, void, HexString>
+```
+
+**Parameters:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `order` | `Order` | — | The order to place and execute |
+| `graffiti` | `HexString` | `0x000...0` | Optional bytes32 tag for orderflow attribution/revenue share |
+| `options.minBids` | `number` | `1` | Minimum number of bids to collect before selecting |
+| `options.bidTimeoutMs` | `number` | `60000` | How long to poll for bids in milliseconds |
+| `options.maxPriorityFeePerGasBumpPercent` | `number` | `8` | Bump percentage applied to priority fee estimate |
+| `options.maxFeePerGasBumpPercent` | `number` | `10` | Bump percentage applied to max fee estimate |
+| `options.pollIntervalMs` | `number` | — | Interval between bid-polling attempts |
+
+**Yields:** `IntentOrderStatusUpdate`
+
+**Example:**
+
+```typescript lineNumbers
+const signer = createWalletClient({ ... })
+
+// execute is a bidirectional generator — hold a reference to pass the tx back
+const gen = gateway.execute(order)
+for await (const update of gen) {
+  switch (update.status) {
+    case "AWAITING_PLACE_ORDER": {
+      // Sign and broadcast the placement transaction
+      const txHash = await signer.sendTransaction({
+        to: update.to,
+        data: update.data,
+        value: update.value,
+      })
+      // Pass the tx hash back; the generator confirms on-chain and yields ORDER_PLACED.
+      // gen.next() here consumes ORDER_PLACED so the for-await resumes at AWAITING_BIDS.
+      const { value: placed } = await gen.next(txHash)
+      if (placed?.status === "ORDER_PLACED") {
+        console.log("Order on-chain:", placed.receipt.transactionHash)
+      }
+      break
+    }
+    case "AWAITING_BIDS":
+      console.log("Waiting for solver bids...")
+      break
+    case "BID_SELECTED":
+      console.log("Solver selected:", update.selectedSolver)
+      break
+    case "FILLED":
+      console.log("Order filled!")
+      break
+  }
+}
+```
+
+---
+
+### cancelOrder(order, indexerClient, fromDest?)
+
+Async generator that cancels a placed order and streams status events until cancellation is complete. Supports both source-chain and destination-chain initiated cancellation.
+
+```typescript lineNumbers
+async *cancelOrder(
+  order: Order,
+  indexerClient: IndexerClient,
+  fromDest?: boolean,
+): AsyncGenerator<CancelEvent>
+```
+
+**Parameters:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `order` | `Order` | — | The order to cancel |
+| `indexerClient` | `IndexerClient` | — | Indexer client for streaming ISMP request status |
+| `fromDest` | `boolean` | `false` | If `true`, initiates cancellation from the destination chain |
+
+**Yields:** `CancelEvent`
+
+**Throws:** If the order is same-chain and `fromDest` is `true`
+
+**Example:**
+
+```typescript lineNumbers
+const gen = gateway.cancelOrder(order, indexerClient)
+for await (const event of gen) {
+  switch (event.status) {
+    case "DESTINATION_FINALIZED":
+      console.log("Destination proof ready at height:", event.proof.height)
+      break
+    case "AWAITING_CANCEL_TRANSACTION": {
+      // cancelOrder is a bidirectional generator — pass the signed tx or tx hash back.
+      const txHash = await signer.sendTransaction({
+        to: event.to,
+        data: event.data,
+        value: event.value,
+      })
+      // gen.next(txHash) resumes the generator; CANCEL_STARTED is consumed here.
+      const { value: cancelStarted } = await gen.next(txHash)
+      if (cancelStarted?.status === "CANCEL_STARTED") {
+        console.log("Cancel tx confirmed:", cancelStarted.receipt.transactionHash)
+      }
+      break
+    }
+    case "SOURCE_FINALIZED":
+      console.log("Cancel request finalised on source:", event.metadata.transactionHash)
+      break
+    case "HYPERBRIDGE_DELIVERED":
+      console.log("Cancel message delivered to Hyperbridge:", event.metadata.transactionHash)
+      break
+    case "HYPERBRIDGE_FINALIZED":
+      console.log("Cancel message finalised on Hyperbridge:", event.metadata.transactionHash)
+      break
+    case "CANCELLATION_COMPLETE":
+      console.log("Refunded in tx:", event.transactionHash)
+      break
+  }
+}
+```
+
+---
+
+### quoteCancelNative(order, fromDest?)
+
+Quotes the native token cost for cancelling an order.
+
+```typescript lineNumbers
+async quoteCancelNative(order: Order, fromDest?: boolean): Promise<bigint>
+```
+
+**Parameters:**
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `order` | `Order` | — | The order to quote cancellation for |
+| `fromDest` | `boolean` | `false` | If `true`, quotes the destination-initiated cancellation fee |
+
+**Returns:** `Promise<bigint>` — Native token amount (in wei) required to submit the cancel transaction
+
+---
+
+### isOrderFilled(order)
+
+Checks whether an order has been filled on the destination chain by reading the commitment storage slot.
+
+```typescript lineNumbers
+async isOrderFilled(order: Order): Promise<boolean>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `order` | `Order` | The order to check |
+
+**Returns:** `Promise<boolean>` — `true` if the order has been filled
+
+---
+
+### isOrderRefunded(order)
+
+Checks whether all escrowed inputs for an order have been refunded on the source chain.
+
+```typescript lineNumbers
+async isOrderRefunded(order: Order): Promise<boolean>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `order` | `Order` | The order to check |
+
+**Returns:** `Promise<boolean>` — `true` if all escrowed inputs have been returned
+
+---
+
+### estimateFillOrder(params)
+
+Estimates the gas cost for a solver to fill the given order, broken down by individual gas components and converted to the source-chain fee token.
+
+```typescript lineNumbers
+async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstimate>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.order` | `Order` | Order to estimate gas for |
+| `params.maxPriorityFeePerGasBumpPercent` | `number` | Optional bump percentage for priority fee |
+| `params.maxFeePerGasBumpPercent` | `number` | Optional bump percentage for max fee |
+
+**Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
+
+---
+
+### encodeERC7821Execute(calls)
+
+Encodes a list of calls into ERC-7821 `execute` calldata using single-batch mode.
+
+```typescript lineNumbers
+encodeERC7821Execute(calls: ERC7821Call[]): HexString
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `calls` | `ERC7821Call[]` | Ordered list of calls to batch |
+
+**Returns:** `HexString` — ABI-encoded calldata for the ERC-7821 `execute` function
+
+---
+
+### decodeERC7821Execute(callData)
+
+Decodes ERC-7821 `execute` calldata back into its constituent calls.
+
+```typescript lineNumbers
+decodeERC7821Execute(callData: HexString): ERC7821Call[] | null
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `callData` | `HexString` | Hex-encoded calldata to decode |
+
+**Returns:** `ERC7821Call[] | null` — Array of decoded calls, or `null` on failure
+
+---
+
+## Types
+
+### IntentOrderStatusUpdate
+
+Tagged union of all status updates yielded by the `execute` generator. Use the `status` field to discriminate.
+
+```typescript lineNumbers
+type IntentOrderStatusUpdate =
+  | { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
+  | { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
+  | { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
+  | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation }
+  | { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
+  | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+  | { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
+  | { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
+```
+
+| Status | Fields | Description |
+|--------|--------|-------------|
+| `AWAITING_PLACE_ORDER` | `to`, `data`, `value?`, `sessionPrivateKey` | Caller must sign and broadcast the placement transaction, then send back the tx hash |
+| `ORDER_PLACED` | `order`, `receipt` | Order confirmed on-chain; `receipt` is the full viem `TransactionReceipt` of the placement transaction |
+| `AWAITING_BIDS` | `commitment`, `totalFilledAssets`, `remainingAssets` | Polling the coprocessor for solver bids |
+| `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | One or more bids collected |
+| `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp` | Best bid selected and UserOperation submitted to the bundler |
+| `USEROP_SUBMITTED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?` | UserOperation sent to the bundler |
+| `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
+| `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
+| `PARTIAL_FILL_EXHAUSTED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | No further fills expected for a partially filled order |
+| `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order execution failed unrecoverably |
+
+---
+
+### CancelEvent
+
+Tagged union of all status updates yielded by the `cancelOrder` generator.
+
+```typescript lineNumbers
+type BlockMetadata = {
+  blockHash: string
+  blockNumber: number
+  transactionHash: string
+  timestamp?: number
+}
+
+type CancelEvent =
+  | { status: "DESTINATION_FINALIZED"; proof: IProof }
+  | { status: "AWAITING_CANCEL_TRANSACTION"; data: HexString; to: HexString; value: bigint }
+  | { status: "CANCEL_STARTED"; receipt: TransactionReceipt }
+  | { status: "SOURCE_FINALIZED"; metadata: BlockMetadata }
+  | { status: "HYPERBRIDGE_DELIVERED"; metadata: BlockMetadata }
+  | { status: "HYPERBRIDGE_FINALIZED"; metadata: BlockMetadata }
+  | { status: "CANCELLATION_COMPLETE"; blockNumber: number; transactionHash: HexString }
+```
+
+| Status | Fields | Description |
+|--------|--------|-------------|
+| `DESTINATION_FINALIZED` | `proof` | State proof from the destination chain is ready |
+| `AWAITING_CANCEL_TRANSACTION` | `data`, `to`, `value` | Caller must sign and submit the cancel transaction |
+| `CANCEL_STARTED` | `receipt` | Cancel transaction confirmed on-chain |
+| `SOURCE_FINALIZED` | `metadata` | Cancel request finalised on source chain |
+| `HYPERBRIDGE_DELIVERED` | `metadata` | Cancel message delivered to Hyperbridge |
+| `HYPERBRIDGE_FINALIZED` | `metadata` | Cancel message finalised on Hyperbridge |
+| `CANCELLATION_COMPLETE` | `blockNumber`, `transactionHash` | Escrow refunded; cancellation done |
+
+---
+
+### Order
+
+Represents a cross-chain swap intent submitted to IntentGatewayV2.
+
+```typescript lineNumbers
+interface Order {
+  id?: string          // Order commitment hash (populated after placement)
+  user: HexString      // Address of the order creator
+  source: HexString    // State-machine ID of the source chain (e.g. "EVM-1")
+  destination: HexString // State-machine ID of the destination chain (e.g. "EVM-42161")
+  deadline: bigint     // Unix timestamp after which the order can be cancelled
+  nonce: bigint        // Unique order nonce (set by contract on placement)
+  fees: bigint         // Protocol fee in fee-token units
+  session: HexString   // Ephemeral session key address (set during placement)
+  predispatch: DispatchInfo // Optional calls to execute on the source chain before escrowing
+  inputs: TokenInfo[]  // Tokens escrowed on the source chain
+  output: PaymentInfo  // Token the solver must deliver on the destination chain
+}
+```
+
+---
+
+### TokenInfo
+
+A token address and amount pair used in `Order` inputs.
+
+```typescript lineNumbers
+interface TokenInfo {
+  token: HexString   // ERC-20 token contract address
+  amount: bigint     // Token amount in the token's native decimals
+}
+```
+
+---
+
+### PaymentInfo
+
+Describes the output the solver must deliver on the destination chain.
+
+```typescript lineNumbers
+interface PaymentInfo {
+  beneficiary: HexString  // Address to receive the output tokens
+  assets: TokenInfo[]     // Tokens the solver must deliver
+  call: HexString         // Optional calldata to execute on the destination after fill
+}
+```
+
+---
+
+### DispatchInfo
+
+Describes optional calls to execute on the source chain before inputs are escrowed.
+
+```typescript lineNumbers
+interface DispatchInfo {
+  assets: TokenInfo[]  // Tokens consumed by the predispatch call
+  call: HexString      // Calldata to execute before escrowing inputs
+}
+```

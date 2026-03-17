@@ -91,7 +91,7 @@ export class TokenGatewayService {
 				to: teleportParams.to,
 				redeem: teleportParams.redeem,
 				status: TeleportStatus.TELEPORTED,
-				usdValue: amountValueInUSD,
+				usdValue: BigInt(new Decimal(amountValueInUSD).truncated().toString()),
 				createdAt: timestampToDate(timestamp),
 				blockNumber: BigInt(blockNumber),
 				blockTimestamp: timestamp,

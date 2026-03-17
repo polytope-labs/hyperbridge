@@ -375,8 +375,7 @@ impl EvmClient {
 		let gas = call.estimate_gas().await?;
 		let pending = call.gas(gas).send().await?;
 		let tx_hash = *pending.tx_hash();
-		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone())
-			.await?;
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self).await?;
 
 		Ok(())
 	}
@@ -394,8 +393,7 @@ impl EvmClient {
 		let gas = call.estimate_gas().await?;
 		let pending = call.gas(gas).send().await?;
 		let tx_hash = *pending.tx_hash();
-		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self.client.clone())
-			.await?;
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self).await?;
 
 		Ok(())
 	}

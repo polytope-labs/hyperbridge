@@ -87,7 +87,7 @@ jobs:
                     COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
                   fi
 
-                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse)
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "sdk")
 
                   echo "# Changelog for ${CLEAN_TAG}" > CHANGELOG.md
                   echo "" >> CHANGELOG.md
@@ -107,10 +107,10 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.POLYTOPE_GITHUB_TOKEN }}
               with:
-                  tag_name: ${{ steps.previous-tag.outputs.clean_tag }}
+                  tag_name: ${{ steps.previous-tag.outputs.current_tag }}
                   release_name: "@hyperbridge/sdk ${{ steps.previous-tag.outputs.clean_tag }}"
                   body: ${{ steps.changelog.outputs.changelog }}
-                  draft: true
+                  draft: false
                   prerelease: false
 
             - name: Commit and push changelog

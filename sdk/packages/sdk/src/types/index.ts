@@ -1164,29 +1164,17 @@ export interface PackedUserOperation {
 	signature: HexString
 }
 
-export enum SolverBidSignerType {
-	PrivateKey = "privateKey",
-	External = "external",
+export interface SolverBidSigner {
+	/** Abstract signer backend used for bid message signing. */
+	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
 }
-
-export type SolverBidSigner =
-	| {
-			/** Local EOA private key signer. */
-			type: SolverBidSignerType.PrivateKey
-			privateKey: HexString
-	  }
-	| {
-			/** External signer backend (MPC/KMS/HSM/etc). */
-			type: SolverBidSignerType.External
-			signMessage: (messageHash: HexString) => Promise<HexString>
-	  }
 
 export interface SubmitBidOptions {
 	order: Order
 	fillOptions: FillOptions
 	solverAccount: HexString
 	/**
-	 * Tagged polymorphic signer for bid message signing.
+	 * Abstract signer for bid message signing.
 	 * Must return a 65-byte ECDSA signature over the raw `messageHash`.
 	 */
 	solverSigner: SolverBidSigner
@@ -1364,7 +1352,13 @@ export type IntentOrderStatusUpdate =
 			remainingAssets?: TokenInfo[]
 			error: string
 	  }
-	| { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
+	| {
+			status: "FAILED"
+			commitment?: HexString
+			totalFilledAssets?: TokenInfo[]
+			remainingAssets?: TokenInfo[]
+			error: string
+	  }
 
 /** Result of selecting a bid and submitting to the bundler */
 export interface SelectBidResult {

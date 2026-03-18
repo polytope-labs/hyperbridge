@@ -1,11 +1,13 @@
 import { type HexString } from "@hyperbridge/sdk"
 import { concatHex, padHex, toHex, type Hex } from "viem"
+import { toAccount, type Account } from "viem/accounts"
 import type {
 	CreateSigningRequestPayload,
 	EcdsaSignatureParts,
 	ExecuteSigningResponse,
 	MpcVaultClientConfig,
 	SigningRequestResponse,
+	MpcVaultSignerConfig,
 } from "./types"
 
 export class MpcVaultService {
@@ -177,4 +179,64 @@ export class MpcVaultService {
 		}
 		return this.normalizeHex(result.signedTransaction)
 	}
+}
+
+function requireChainId(value: unknown, context: string): number {
+	if (typeof value === "number" && Number.isFinite(value)) return value
+	if (typeof value === "bigint") return Number(value)
+	throw new Error(`Missing chainId for MPCVault ${context}`)
+}
+
+export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: Account; service: MpcVaultService } {
+	const service = new MpcVaultService({
+		apiToken: config.apiToken,
+		vaultUuid: config.vaultUuid,
+		accountAddress: config.accountAddress,
+		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
+		baseUrl: config.baseUrl,
+	})
+
+	const account = toAccount({
+		address: config.accountAddress,
+		async signMessage({ message }): Promise<HexString> {
+			const raw = typeof message === "object" && "raw" in message ? (message.raw as HexString) : undefined
+			if (!raw) {
+				throw new Error("MPCVault signer requires message.raw for signMessage")
+			}
+			throw new Error(
+				"MPCVault signMessage requires chain-specific context. Use signBidMessage(messageHash, chainId).",
+			)
+		},
+		async signTransaction(transaction): Promise<HexString> {
+			const params = transaction as {
+				chainId?: number | bigint
+				to?: HexString
+				value?: bigint
+				data?: HexString
+				nonce?: number
+				gas?: bigint
+				maxFeePerGas?: bigint
+				maxPriorityFeePerGas?: bigint
+			}
+			return service.signTransaction({
+				chainId: requireChainId(params.chainId, "transaction signing"),
+				to: params.to,
+				value: params.value,
+				data: params.data,
+				nonce: params.nonce,
+				gasLimit: params.gas,
+				maxFeePerGas: params.maxFeePerGas,
+				maxPriorityFeePerGas: params.maxPriorityFeePerGas,
+			})
+		},
+		async signTypedData(typedDataDefinition): Promise<HexString> {
+			const typedData = typedDataDefinition as {
+				domain?: { chainId?: number | bigint }
+			}
+			const chainId = requireChainId(typedData.domain?.chainId, "typed-data signing")
+			return service.signTypedData(JSON.stringify(typedDataDefinition), chainId)
+		},
+	})
+
+	return { account, service }
 }

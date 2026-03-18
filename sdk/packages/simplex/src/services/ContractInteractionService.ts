@@ -17,7 +17,6 @@ import {
 	type ERC7821Call,
 	transformOrderForContract,
 	TokenInfo,
-	SolverBidSignerType,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -28,6 +27,7 @@ import { getLogger } from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
+import type { SigningAccount } from "@/services/wallet"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
@@ -45,17 +45,16 @@ export class ContractInteractionService {
 
 	constructor(
 		private clientManager: ChainClientManager,
-		account: Account,
 		configService: FillerConfigService,
-		signBidMessage?: (messageHash: HexString, chainId: number) => Promise<HexString>,
+		signer?: SigningAccount,
 		sharedCacheService?: CacheService,
 	) {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
-		this.account = account
+		this.account = signer?.account ?? this.clientManager.getAccount()
 		this.solverAccountAddress = this.account.address
 		this.signBidMessage =
-			signBidMessage ??
+			signer?.signBidMessage ??
 			((messageHash: HexString) => {
 				if (!this.account.signMessage) {
 					throw new Error("Configured account does not support signMessage")
@@ -584,9 +583,7 @@ export class ContractInteractionService {
 			fillOptions,
 			solverAccount: solverAccountAddress,
 			solverSigner: {
-				type: SolverBidSignerType.External,
-				signMessage: (messageHash: HexString) =>
-					this.signBidMessage(messageHash, Number.parseInt(order.destination.split("-")[1] ?? "1", 10) || 1),
+				signMessage: this.signBidMessage,
 			},
 			nonce: cachedEstimate.nonce,
 			entryPointAddress,

@@ -8,6 +8,7 @@ import {
 	type UserProvidedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { FXFiller } from "@/strategies/fx"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
@@ -613,13 +614,13 @@ async function setUpMainnetFx() {
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const account = privateKeyToAccount(privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		account,
 		chainConfigService,
-		undefined,
+		signer,
 		cacheService,
 	)
 
@@ -671,13 +672,13 @@ async function setUpMainnetFxBase() {
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const account = privateKeyToAccount(privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		account,
 		chainConfigService,
-		undefined,
+		signer,
 		cacheService,
 	)
 
@@ -729,13 +730,13 @@ async function setUpMainnetFxArbitrum() {
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const account = privateKeyToAccount(privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		account,
 		chainConfigService,
-		undefined,
+		signer,
 		cacheService,
 	)
 
@@ -789,13 +790,13 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const account = privateKeyToAccount(privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		account,
 		chainConfigService,
-		undefined,
+		signer,
 		cacheService,
 	)
 

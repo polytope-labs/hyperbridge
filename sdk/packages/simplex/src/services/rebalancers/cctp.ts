@@ -17,7 +17,6 @@ import {
 } from "@circle-fin/bridge-kit/chains"
 import type { Chain, PublicClient, WalletClient } from "viem"
 import { parseStateMachineId } from "@hyperbridge/sdk"
-import type { Account } from "viem/accounts"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger } from "@/services/Logger"
@@ -71,7 +70,6 @@ export class CctpRebalancer {
 	constructor(
 		chainClientManager: ChainClientManager,
 		_configService: FillerConfigService,
-		_account: Account,
 	) {
 		this.chainClientManager = chainClientManager
 		this.bridgeKit = new BridgeKit()

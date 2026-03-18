@@ -241,6 +241,7 @@ interface BinanceConfig {
 
 interface FillerTomlConfig {
 	simplex: {
+		// The signer is optional to keep the watch-only mode compatible
 		signer?: SignerConfig
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
@@ -362,9 +363,8 @@ program
 			const signerAccount: Account = configuredSigner?.account ?? chainClientManager.getAccount()
 			const contractService = new ContractInteractionService(
 				chainClientManager,
-				signerAccount,
 				configService,
-				configuredSigner?.signBidMessage,
+				configuredSigner,
 				sharedCacheService,
 			)
 
@@ -436,12 +436,7 @@ program
 					logger.info("Binance CEX rebalancing configured")
 				}
 
-				rebalancingService = new RebalancingService(
-					chainClientManager,
-					configService,
-					signerAccount,
-					binanceConfig,
-				)
+				rebalancingService = new RebalancingService(chainClientManager, configService, binanceConfig)
 				logger.info("Rebalancing service initialized")
 			}
 

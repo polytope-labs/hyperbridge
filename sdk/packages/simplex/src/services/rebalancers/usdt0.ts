@@ -37,11 +37,10 @@ export class Usdt0Rebalancer {
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
-		account: Account,
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account = account
+		this.account = this.chainClientManager.getAccount()
 		this.logger = getLogger("Usdt0Rebalancer")
 	}
 

@@ -36,7 +36,7 @@ describe("BinanceRebalancer - CEX integration", () => {
 		sendTo: 1,
 	}
 
-	const rebalancer = new BinanceRebalancer(chainClientManager, configService, account, {
+	const rebalancer = new BinanceRebalancer(chainClientManager, configService, {
 		apiKey,
 		apiSecret,
 		travelRuleQuestionnaire,

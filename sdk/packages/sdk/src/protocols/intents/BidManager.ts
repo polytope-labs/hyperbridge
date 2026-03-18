@@ -1,5 +1,4 @@
 import { encodeFunctionData, decodeFunctionData, concat, keccak256, parseEventLogs } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20, hexToString, retryPromise } from "@/utils"
 import type {
@@ -14,7 +13,6 @@ import type {
 	TokenInfo,
 	ERC7821Call,
 } from "@/types"
-import { SolverBidSignerType } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
@@ -93,22 +91,10 @@ export class BidManager {
 		const userOpHash = this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
 		const sessionKey = order.session
 
-		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as import("viem").Hex]))
-		let solverSignature: HexString
-		switch (solverSigner.type) {
-			case SolverBidSignerType.External:
-				solverSignature = await solverSigner.signMessage(messageHash)
-				break
-			case SolverBidSignerType.PrivateKey: {
-				const solverAccount_ = privateKeyToAccount(solverSigner.privateKey as import("viem").Hex)
-				solverSignature = await solverAccount_.signMessage({ message: { raw: messageHash } })
-				break
-			}
-			default:
-				throw new Error("Unsupported solver signer type")
-		}
+		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as HexString]))
+		const solverSignature = await solverSigner.signMessage(messageHash, Number(chainId))
 
-		const signature = concat([order.id as HexString, solverSignature as import("viem").Hex]) as HexString
+		const signature = concat([order.id as HexString, solverSignature as HexString]) as HexString
 
 		return { ...userOp, signature }
 	}

@@ -113,12 +113,11 @@ export class BinanceRebalancer {
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
-		account: Account,
 		config: BinanceCexConfig,
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account = account
+		this.account = this.chainClientManager.getAccount()
 		this.config = config
 		this.logger = getLogger("BinanceRebalancer")
 

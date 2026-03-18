@@ -17,6 +17,7 @@ import {
 	type ERC7821Call,
 	transformOrderForContract,
 	TokenInfo,
+	SolverBidSignerType,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ChainClientManager } from "./ChainClientManager"
@@ -583,8 +584,11 @@ export class ContractInteractionService {
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
-			solverSignMessage: (messageHash: HexString) =>
-				this.signBidMessage(messageHash, Number.parseInt(order.destination.split("-")[1] ?? "1", 10) || 1),
+			solverSigner: {
+				type: SolverBidSignerType.External,
+				signMessage: (messageHash: HexString) =>
+					this.signBidMessage(messageHash, Number.parseInt(order.destination.split("-")[1] ?? "1", 10) || 1),
+			},
 			nonce: cachedEstimate.nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,

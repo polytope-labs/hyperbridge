@@ -22,9 +22,10 @@ import { getLogger, configureLogger } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { createSimplexSigner } from "@/services/wallet"
+import { SignerType, type SignerConfig } from "@/services/wallet"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
-import { privateKeyToAccount, type Account } from "viem/accounts"
+import type { Account } from "viem/accounts"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -247,11 +248,19 @@ interface MpcVaultTomlConfig {
 	baseUrl?: string
 }
 
+type SimplexSignerTomlConfig =
+	| {
+			type: "privateKey"
+			privateKey: string
+	  }
+	| {
+			type: "mpcVault"
+			mpcVault: MpcVaultTomlConfig
+	  }
+
 interface FillerTomlConfig {
 	simplex: {
-		privateKey?: string
-		mpcVault?: MpcVaultTomlConfig
-		delegationSubmitterPrivateKey?: string
+		signer?: SimplexSignerTomlConfig
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
 		logging?: LoggingConfig
@@ -314,9 +323,6 @@ program
 			}))
 
 			const fillerConfigForService: FillerServiceConfig = {
-				privateKey: config.simplex.privateKey,
-				mpcVault: config.simplex.mpcVault,
-				delegationSubmitterPrivateKey: config.simplex.delegationSubmitterPrivateKey,
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 				logging: config.simplex.logging,
 				substratePrivateKey: config.simplex.substratePrivateKey,
@@ -370,13 +376,20 @@ program
 
 			// Create shared services to avoid duplicate RPC calls and reuse connections
 			const sharedCacheService = new CacheService()
-			const configuredSigner =
-				config.simplex.privateKey || config.simplex.mpcVault
-					? createSimplexSigner(fillerConfigForService)
-					: undefined
-			const delegationSubmitterAccount = config.simplex.delegationSubmitterPrivateKey
-				? privateKeyToAccount(config.simplex.delegationSubmitterPrivateKey as HexString)
-				: undefined
+			// Keep signer construction isolated from broader runtime config.
+			const signerConfig: SignerConfig | undefined =
+				config.simplex.signer?.type === "privateKey"
+					? {
+							type: SignerType.PrivateKey,
+							privateKey: config.simplex.signer.privateKey as HexString,
+						}
+					: config.simplex.signer?.type === "mpcVault"
+						? {
+								type: SignerType.MpcVault,
+								mpcVault: config.simplex.signer.mpcVault,
+							}
+						: undefined
+			const configuredSigner = signerConfig ? createSimplexSigner(signerConfig) : undefined
 			const chainClientManager = new ChainClientManager(configService, configuredSigner?.account)
 			const signerAccount: Account = configuredSigner?.account ?? chainClientManager.getAccount()
 			const contractService = new ContractInteractionService(
@@ -477,7 +490,6 @@ program
 				rebalancingService,
 				bidStorageService,
 				configuredSigner,
-				delegationSubmitterAccount,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)
@@ -538,27 +550,23 @@ function validateConfig(config: FillerTomlConfig): void {
 		})
 	const allChainsWatchOnly = isWatchOnlyGlobal || isWatchOnlyPerChain
 
-	const hasPrivateKey = Boolean(config.simplex?.privateKey)
-	const hasMpcVault = Boolean(config.simplex?.mpcVault)
+	const signer = config.simplex?.signer
 
-	if (hasPrivateKey && hasMpcVault) {
-		throw new Error("Configure only one signer: either simplex.privateKey or simplex.mpcVault")
+	if (!signer && !allChainsWatchOnly) {
+		throw new Error("Signer configuration is required via [simplex.signer]")
 	}
 
-	if (!hasPrivateKey && !hasMpcVault && !allChainsWatchOnly) {
-		throw new Error("Signer configuration is required (simplex.privateKey or simplex.mpcVault)")
-	}
-
-	if (hasMpcVault) {
-		const mpcVault = config.simplex.mpcVault!
-		if (!mpcVault.apiToken) throw new Error("simplex.mpcVault.apiToken is required")
-		if (!mpcVault.vaultUuid) throw new Error("simplex.mpcVault.vaultUuid is required")
-		if (!mpcVault.accountAddress) throw new Error("simplex.mpcVault.accountAddress is required")
-		if (!mpcVault.callbackClientSignerPublicKey) {
-			throw new Error("simplex.mpcVault.callbackClientSignerPublicKey is required")
+	if (signer?.type === "privateKey") {
+		if (!signer.privateKey) {
+			throw new Error("simplex.signer.privateKey is required when simplex.signer.type=privateKey")
 		}
-		if (!config.simplex.delegationSubmitterPrivateKey && !allChainsWatchOnly) {
-			throw new Error("simplex.delegationSubmitterPrivateKey is required when using simplex.mpcVault")
+	} else if (signer?.type === "mpcVault") {
+		const mpcVault = signer.mpcVault
+		if (!mpcVault?.apiToken) throw new Error("simplex.signer.mpcVault.apiToken is required")
+		if (!mpcVault?.vaultUuid) throw new Error("simplex.signer.mpcVault.vaultUuid is required")
+		if (!mpcVault?.accountAddress) throw new Error("simplex.signer.mpcVault.accountAddress is required")
+		if (!mpcVault?.callbackClientSignerPublicKey) {
+			throw new Error("simplex.signer.mpcVault.callbackClientSignerPublicKey is required")
 		}
 	}
 

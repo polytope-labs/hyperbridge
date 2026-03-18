@@ -14,6 +14,7 @@ import type {
 	TokenInfo,
 	ERC7821Call,
 } from "@/types"
+import { SolverBidSignerType } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
@@ -59,8 +60,7 @@ export class BidManager {
 		const {
 			order,
 			solverAccount,
-			solverPrivateKey,
-			solverSignMessage,
+			solverSigner,
 			nonce,
 			entryPointAddress,
 			callGasLimit,
@@ -95,13 +95,17 @@ export class BidManager {
 
 		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as import("viem").Hex]))
 		let solverSignature: HexString
-		if (solverSignMessage) {
-			solverSignature = await solverSignMessage(messageHash)
-		} else if (solverPrivateKey) {
-			const solverAccount_ = privateKeyToAccount(solverPrivateKey as import("viem").Hex)
-			solverSignature = await solverAccount_.signMessage({ message: { raw: messageHash } })
-		} else {
-			throw new Error("Missing solver signer: provide solverSignMessage or solverPrivateKey")
+		switch (solverSigner.type) {
+			case SolverBidSignerType.External:
+				solverSignature = await solverSigner.signMessage(messageHash)
+				break
+			case SolverBidSignerType.PrivateKey: {
+				const solverAccount_ = privateKeyToAccount(solverSigner.privateKey as import("viem").Hex)
+				solverSignature = await solverAccount_.signMessage({ message: { raw: messageHash } })
+				break
+			}
+			default:
+				throw new Error("Unsupported solver signer type")
 		}
 
 		const signature = concat([order.id as HexString, solverSignature as import("viem").Hex]) as HexString

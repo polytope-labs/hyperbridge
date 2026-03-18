@@ -37,6 +37,29 @@ export interface MpcVaultClientConfig {
 	baseUrl?: string
 }
 
+export interface MpcVaultSignerConfig {
+	apiToken: string
+	vaultUuid: string
+	accountAddress: HexString
+	callbackClientSignerPublicKey: string
+	baseUrl?: string
+}
+
+export enum SignerType {
+	PrivateKey = "privateKey",
+	MpcVault = "mpcVault",
+}
+
+export type SignerConfig =
+	| {
+			type: SignerType.PrivateKey
+			privateKey: HexString
+	  }
+	| {
+			type: SignerType.MpcVault
+			mpcVault: MpcVaultSignerConfig
+	  }
+
 export type CreateSigningRequestPayload = {
 	vaultUuid: string
 	callbackClientSignerPublicKey: string
@@ -72,7 +95,7 @@ export interface SigningAccount {
 	mode: "privateKey" | "mpcVault"
 	account: Account
 	signBidMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
-	signAuthorizationHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
+	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 }
 
 // Backward-compat alias while call sites migrate.

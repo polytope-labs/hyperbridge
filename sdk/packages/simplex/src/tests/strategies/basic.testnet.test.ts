@@ -488,7 +488,6 @@ async function setUp() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -555,7 +554,6 @@ async function setUpTron() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,

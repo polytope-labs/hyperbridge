@@ -4,21 +4,21 @@
 
 # Filler configuration
 [simplex]
-# Choose ONE signer mode:
-# 1) Private key signer
-privateKey = ""  # Replace with your EVM private key (not required if all chains are watchOnly)
-
-# 2) MPCVault signer (alternative to privateKey)
-# [simplex.mpcVault]
+# Choose ONE signer mode via [simplex.signer]:
+# 1) Private key signer:
+# [simplex.signer]
+# type = "privateKey"
+# privateKey = "0x..."  # Not required if all chains are watchOnly
+#
+# 2) MPCVault signer:
+# [simplex.signer]
+# type = "mpcVault"
+# [simplex.signer.mpcVault]
 # apiToken = ""
 # vaultUuid = ""
 # accountAddress = "0x0000000000000000000000000000000000000000"
 # callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 # baseUrl = "https://api.mpcvault.com" # optional
-#
-# Required with MPCVault when delegation is enabled:
-# a local EOA that submits EIP-7702 type-0x04 transactions (gas payer)
-# delegationSubmitterPrivateKey = "0x..."
 
 maxConcurrentOrders = 5
 

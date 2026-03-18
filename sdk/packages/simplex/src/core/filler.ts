@@ -42,7 +42,6 @@ export class IntentFiller {
 	private configService: FillerConfigService
 	private account: Account
 	private signer?: SigningAccount
-	private delegationSubmitterAccount?: Account
 	private fillerAddress: HexString
 	private logger = getLogger("intent-filler")
 
@@ -57,7 +56,6 @@ export class IntentFiller {
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
 		signer?: SigningAccount,
-		delegationSubmitterAccount?: Account,
 	) {
 		this.configService = configService
 		this.account = typeof accountOrPrivateKey === "string" ? chainClientManager.getAccount() : accountOrPrivateKey
@@ -67,7 +65,6 @@ export class IntentFiller {
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
 		this.signer = signer
-		this.delegationSubmitterAccount = delegationSubmitterAccount
 		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
@@ -128,17 +125,7 @@ export class IntentFiller {
 				)
 				return
 			}
-			if (this.signer.mode === "mpcVault" && !this.delegationSubmitterAccount) {
-				throw new Error(
-					"MPC Vault delegation requires simplex.delegationSubmitterPrivateKey to submit EIP-7702 transactions",
-				)
-			}
-			this.delegationService = new DelegationService(
-				this.chainClientManager,
-				this.configService,
-				this.signer,
-				this.delegationSubmitterAccount,
-			)
+			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.signer)
 			this.logger.info(
 				{ chains: chainsWithSolverSelection },
 				"Setting up EIP-7702 delegation on chains with solver selection",

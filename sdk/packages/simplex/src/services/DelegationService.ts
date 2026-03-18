@@ -1,6 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { concat, keccak256, toHex, toRlp, zeroAddress } from "viem"
-import type { Account } from "viem/accounts"
+import { concat, keccak256, serializeTransaction, toHex, toRlp, zeroAddress } from "viem"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
@@ -20,7 +19,6 @@ export class DelegationService {
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
 		private signer: SigningAccount,
-		private submitterAccount?: Account,
 	) {}
 
 	private computeAuthorizationHash(chainId: number, contractAddress: HexString, nonce: number): HexString {
@@ -42,13 +40,13 @@ export class DelegationService {
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const chainId = this.configService.getChainId(chain)
 		const authorityAddress = this.signer.account.address as HexString
-		const submitterAddress = (this.submitterAccount?.address ?? authorityAddress) as HexString
 		const currentNonce = await publicClient.getTransactionCount({
 			address: authorityAddress,
 		})
-		const authorizationNonce = submitterAddress.toLowerCase() === authorityAddress.toLowerCase() ? currentNonce + 1 : currentNonce
+		// EIP-7702 auth nonce must be authority tx nonce + 1 when authority submits the type-0x04 tx.
+		const authorizationNonce = currentNonce + 1
 		const authHash = this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce))
-		const { r, s, yParity } = await this.signer.signAuthorizationHash(authHash)
+		const { r, s, yParity } = await this.signer.signRawHash(authHash)
 
 		return {
 			chainId,
@@ -58,6 +56,56 @@ export class DelegationService {
 			s,
 			yParity,
 		}
+	}
+
+	private async sendDelegationTransaction(
+		chain: string,
+		authorization: {
+			chainId: number
+			address: HexString
+			nonce: number
+			r: HexString
+			s: HexString
+			yParity: number
+		},
+	): Promise<HexString> {
+		const authority = this.signer.account
+		const walletClient = this.clientManager.getWalletClient(chain)
+		const publicClient = this.clientManager.getPublicClient(chain)
+
+		if (this.signer.mode === "mpcVault") {
+			const txRequest = await walletClient.prepareTransactionRequest({
+				account: authority,
+				to: authority.address,
+				value: 0n,
+				authorizationList: [authorization],
+				chain: walletClient.chain,
+			})
+
+			const txForSerialization = {
+				...txRequest,
+				type: "eip7702" as const,
+				chainId: txRequest.chainId ?? this.configService.getChainId(chain),
+				authorizationList: [authorization],
+			}
+
+			const unsignedSerialized = serializeTransaction(txForSerialization)
+			const txSigningHash = keccak256(unsignedSerialized)
+			const signature = await this.signer.signRawHash(txSigningHash as HexString)
+			const signedSerialized = serializeTransaction(txForSerialization, signature)
+
+			return (await publicClient.sendRawTransaction({
+				serializedTransaction: signedSerialized,
+			})) as HexString
+		}
+
+		return (await walletClient.sendTransaction({
+			account: authority,
+			to: authority.address,
+			value: 0n,
+			authorizationList: [authorization],
+			chain: walletClient.chain,
+		})) as HexString
 	}
 
 	/**
@@ -125,31 +173,22 @@ export class DelegationService {
 			return true
 		}
 
-		const authority = this.signer.account
-		const submitter = this.submitterAccount ?? authority
-		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
+		const authority = this.signer.account
 
 		try {
 			this.logger.info(
 				{
 					chain,
 					authority: authority.address,
-					submitter: submitter.address,
 					solverAccountContract,
+					mode: this.signer.mode,
 				},
 				"Setting up EIP-7702 delegation",
 			)
 
 			const authorization = await this.buildAuthorization(chain, solverAccountContract)
-
-			const hash = await walletClient.sendTransaction({
-				account: submitter,
-				to: submitter.address,
-				value: 0n,
-				authorizationList: [authorization as never],
-				chain: walletClient.chain,
-			})
+			const hash = await this.sendDelegationTransaction(chain, authorization)
 
 			this.logger.info({ chain, txHash: hash }, "Delegation transaction sent")
 
@@ -204,25 +243,16 @@ export class DelegationService {
 	 */
 	async revokeDelegation(chain: string): Promise<boolean> {
 		const authority = this.signer.account
-		const submitter = this.submitterAccount ?? authority
-		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		try {
 			this.logger.info(
-				{ chain, authority: authority.address, submitter: submitter.address },
+				{ chain, authority: authority.address, mode: this.signer.mode },
 				"Revoking EIP-7702 delegation",
 			)
 
 			const authorization = await this.buildAuthorization(chain, zeroAddress)
-
-			const hash = await walletClient.sendTransaction({
-				account: submitter,
-				to: submitter.address,
-				value: 0n,
-				authorizationList: [authorization as never],
-				chain: walletClient.chain,
-			})
+			const hash = await this.sendDelegationTransaction(chain, authorization)
 
 			const receipt = await publicClient.waitForTransactionReceipt({ hash })
 

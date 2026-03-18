@@ -595,7 +595,6 @@ async function setUpMainnetFx() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -653,7 +652,6 @@ async function setUpMainnetFxBase() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -711,7 +709,6 @@ async function setUpMainnetFxArbitrum() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -771,7 +768,6 @@ async function setUpMainnetFxArbitrumToBase() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,

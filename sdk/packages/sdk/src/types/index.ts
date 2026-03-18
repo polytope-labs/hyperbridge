@@ -1164,20 +1164,32 @@ export interface PackedUserOperation {
 	signature: HexString
 }
 
+export enum SolverBidSignerType {
+	PrivateKey = "privateKey",
+	External = "external",
+}
+
+export type SolverBidSigner =
+	| {
+			/** Local EOA private key signer. */
+			type: SolverBidSignerType.PrivateKey
+			privateKey: HexString
+	  }
+	| {
+			/** External signer backend (MPC/KMS/HSM/etc). */
+			type: SolverBidSignerType.External
+			signMessage: (messageHash: HexString) => Promise<HexString>
+	  }
+
 export interface SubmitBidOptions {
 	order: Order
 	fillOptions: FillOptions
 	solverAccount: HexString
 	/**
-	 * Legacy private-key signing path. Kept for backwards compatibility.
-	 * If `solverSignMessage` is provided, it will be preferred.
+	 * Tagged polymorphic signer for bid message signing.
+	 * Must return a 65-byte ECDSA signature over the raw `messageHash`.
 	 */
-	solverPrivateKey?: HexString
-	/**
-	 * Optional callback for externally managed signer backends (e.g. MPC/KMS/HSM).
-	 * Must return a 65-byte hex ECDSA signature over the provided raw message hash.
-	 */
-	solverSignMessage?: (messageHash: HexString) => Promise<HexString>
+	solverSigner: SolverBidSigner
 	nonce: bigint
 	entryPointAddress: HexString
 	// Estimated gas for executing fillOrder calldata

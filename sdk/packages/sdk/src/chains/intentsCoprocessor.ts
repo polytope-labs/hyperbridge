@@ -344,10 +344,9 @@ export class IntentsCoprocessor {
 
 	async submitPairPrice(pairId: HexString, entries: PriceInput[]): Promise<BidSubmissionResult> {
 		try {
-			// Encode entries as a Vec of (U256, U256, U256) tuples for the pallet
+			// Encode entries as a Vec of { amount, price } structs for the pallet
 			const encodedEntries = entries.map((e) => ({
-				range_start: e.rangeStart.toString(),
-				range_end: e.rangeEnd.toString(),
+				amount: e.amount.toString(),
 				price: e.price.toString(),
 			}))
 

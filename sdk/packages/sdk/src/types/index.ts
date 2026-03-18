@@ -1348,10 +1348,10 @@ export type IntentOrderStatusUpdate =
 /**
  * Price input for submitting pair prices to the intents coprocessor.
  * All values are raw 18-decimal bigints as expected by the pallet.
+ * The frontend determines ranges from the curve points.
  */
 export interface PriceInput {
-	rangeStart: bigint
-	rangeEnd: bigint
+	amount: bigint
 	price: bigint
 }
 

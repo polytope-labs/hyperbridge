@@ -208,63 +208,39 @@ export class FXFiller implements FillerStrategy {
 	/**
 	 * Convert the ask curve points into on-chain PriceInput entries.
 	 * For the ask pair (stable/exotic):
-	 *   - ranges are in stable (USD) amounts
+	 *   - amount = stable (USD) threshold
 	 *   - price = exotic tokens per 1 stable
 	 */
 	private buildAskPriceEntries(): PriceInput[] {
 		const points = this.askPricePolicy.getPoints()
 		if (points.length === 0) return []
 
-		const entries: PriceInput[] = []
 		const decimals = 18
-
-		for (let i = 0; i < points.length; i++) {
-			const rangeStart = parseUnits(points[i].amount.toString(), decimals)
-			const rangeEnd =
-				i < points.length - 1
-					? parseUnits(points[i + 1].amount.toString(), decimals) - 1n
-					: parseUnits("999999999", decimals)
-			const price = parseUnits(points[i].price.toString(), decimals)
-
-			entries.push({ rangeStart, rangeEnd, price })
-		}
-
-		return entries
+		return points.map((pt) => ({
+			amount: parseUnits(pt.amount.toString(), decimals),
+			price: parseUnits(pt.price.toString(), decimals),
+		}))
 	}
 
 	/**
 	 * Convert the bid curve points into on-chain PriceInput entries.
 	 * For the bid pair (exotic/stable):
-	 *   - ranges are in exotic token amounts (USD amount × exoticPerUsd)
+	 *   - amount = exotic token threshold (USD amount × exoticPerUsd)
 	 *   - price = stable tokens per 1 exotic (1 / exoticPerUsd)
 	 */
 	private buildBidPriceEntries(): PriceInput[] {
 		const points = this.bidPricePolicy.getPoints()
 		if (points.length === 0) return []
 
-		const entries: PriceInput[] = []
 		const decimals = 18
-
-		for (let i = 0; i < points.length; i++) {
-			// Convert USD range to exotic range: exoticAmount = usdAmount × exoticPerUsd
-			const exoticAmount = points[i].amount.mul(points[i].price)
-			const rangeStart = parseUnits(exoticAmount.toFixed(0), decimals)
-
-			const rangeEnd =
-				i < points.length - 1
-					? parseUnits(
-							points[i + 1].amount.mul(points[i + 1].price).toFixed(0),
-							decimals,
-						) - 1n
-					: parseUnits("999999999", decimals)
-
-			const stablePerExotic = new Decimal(1).div(points[i].price)
-			const price = parseUnits(stablePerExotic.toFixed(decimals), decimals)
-
-			entries.push({ rangeStart, rangeEnd, price })
-		}
-
-		return entries
+		return points.map((pt) => {
+			const exoticAmount = pt.amount.mul(pt.price)
+			const stablePerExotic = new Decimal(1).div(pt.price)
+			return {
+				amount: parseUnits(exoticAmount.toFixed(0), decimals),
+				price: parseUnits(stablePerExotic.toFixed(decimals), decimals),
+			}
+		})
 	}
 
 	async canFill(order: Order): Promise<boolean> {

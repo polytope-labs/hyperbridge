@@ -28,6 +28,7 @@ use frame_system::RawOrigin;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
 use sp_runtime::traits::ConstU32;
+use types::PriceInput;
 
 #[benchmarks(
     where
@@ -35,6 +36,7 @@ use sp_runtime::traits::ConstU32;
 )]
 mod benchmarks {
 	use super::*;
+	use frame_system::pallet_prelude::BlockNumberFor;
 
 	#[benchmark]
 	fn place_bid() {
@@ -184,6 +186,148 @@ mod benchmarks {
 		_(origin as T::RuntimeOrigin, state_machine, updates);
 
 		Ok(())
+	}
+
+	#[benchmark]
+	fn set_storage_deposit_fee() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, 1000u32.into());
+
+		assert_eq!(StorageDepositFee::<T>::get(), 1000u32.into());
+		Ok(())
+	}
+
+	#[benchmark]
+	fn submit_pair_price() {
+		let caller: T::AccountId = whitelisted_caller();
+		let pair_id = H256::repeat_byte(0xaa);
+
+		// Use a large balance to cover existential deposit + price deposit on any runtime
+		let balance = BalanceOf::<T>::from(u32::MAX);
+		<T as Config>::Currency::make_free_balance_be(&caller, balance);
+
+		let deposit_amount = <T as Config>::Currency::minimum_balance();
+		RecognizedPairs::<T>::insert(&pair_id, true);
+		PriceDepositAmount::<T>::put(deposit_amount);
+		PriceDepositLockDuration::<T>::put(BlockNumberFor::<T>::from(10u32));
+		PriceWindowDurationValue::<T>::put(86_400_000u64);
+
+		let max = T::MaxPriceEntries::get();
+		let mut entries_vec = vec![];
+		for i in 0..max {
+			entries_vec
+				.push(PriceInput { amount: U256::from(i * 1000), price: U256::from(2000 + i) });
+		}
+		let entries: BoundedVec<PriceInput, T::MaxPriceEntries> =
+			entries_vec.try_into().expect("entries fit in bounds");
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(caller.clone()), pair_id, entries);
+
+		assert!(!Prices::<T>::get(&pair_id).is_empty());
+	}
+
+	#[benchmark]
+	fn add_recognized_pair() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let pair_id = H256::repeat_byte(0xbb);
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, pair_id);
+
+		assert!(RecognizedPairs::<T>::get(&pair_id));
+		Ok(())
+	}
+
+	#[benchmark]
+	fn remove_recognized_pair() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let pair_id = H256::repeat_byte(0xcc);
+
+		RecognizedPairs::<T>::insert(&pair_id, true);
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, pair_id);
+
+		assert!(!RecognizedPairs::<T>::get(&pair_id));
+		Ok(())
+	}
+
+	#[benchmark]
+	fn set_price_window_duration() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, 172_800_000u64);
+
+		assert_eq!(PriceWindowDurationValue::<T>::get(), 172_800_000u64);
+		Ok(())
+	}
+
+	#[benchmark]
+	fn set_price_deposit_amount() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, 2000u32.into());
+
+		assert_eq!(PriceDepositAmount::<T>::get(), 2000u32.into());
+		Ok(())
+	}
+
+	#[benchmark]
+	fn set_price_deposit_lock_duration() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, 100u32.into());
+
+		assert_eq!(PriceDepositLockDuration::<T>::get(), 100u32.into());
+		Ok(())
+	}
+
+	#[benchmark]
+	fn withdraw_price_deposit() {
+		let caller: T::AccountId = whitelisted_caller();
+		let pair_id = H256::repeat_byte(0xdd);
+
+		// Use a large balance to cover existential deposit + price deposit on any runtime
+		let balance = BalanceOf::<T>::from(u32::MAX);
+		<T as Config>::Currency::make_free_balance_be(&caller, balance);
+
+		let deposit_amount = <T as Config>::Currency::minimum_balance();
+		RecognizedPairs::<T>::insert(&pair_id, true);
+		PriceDepositAmount::<T>::put(deposit_amount);
+		PriceDepositLockDuration::<T>::put(BlockNumberFor::<T>::from(10u32));
+		PriceWindowDurationValue::<T>::put(86_400_000u64);
+
+		let entries: BoundedVec<PriceInput, T::MaxPriceEntries> =
+			vec![PriceInput { amount: U256::zero(), price: U256::from(2000) }]
+				.try_into()
+				.expect("single entry fits");
+		let _ = Pallet::<T>::submit_pair_price(
+			RawOrigin::Signed(caller.clone()).into(),
+			pair_id,
+			entries,
+		);
+
+		let _ =
+			Pallet::<T>::withdraw_price_deposit(RawOrigin::Signed(caller.clone()).into(), pair_id);
+
+		frame_system::Pallet::<T>::set_block_number(100u32.into());
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(caller.clone()), pair_id);
+
+		assert!(PriceDeposits::<T>::get(&caller, &pair_id).is_none());
 	}
 
 	impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::tests::Test);

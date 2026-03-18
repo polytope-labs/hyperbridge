@@ -162,29 +162,23 @@ impl TokenPair {
 	}
 }
 
-/// Caller-provided price data for a specific range of base token amounts.
+/// Caller-provided price point for a token pair.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PriceInput {
-	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
-	pub range_start: U256,
-	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
-	pub range_end: U256,
-	/// The price of the base token in the quote token, with 18 decimal places
+	/// The amount threshold for this price point, with 18 decimal places
+	pub amount: U256,
+	/// The price at this amount, with 18 decimal places
 	pub price: U256,
 }
 
-/// An individual price submission stored on-chain. The price applies to a specific
-/// range of base token amounts, allowing submitters to quote different rates for
-/// different order sizes (e.g. USDC/CNGN: 0-999 at 1414, 1000-5000 at 1420).
+/// A price point stored on-chain. The frontend determines ranges from the curve points.
 #[derive(
 	Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq, PartialOrd, Ord,
 )]
 pub struct PriceEntry {
-	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
-	pub range_start: U256,
-	/// Upper bound of the base token amount range (inclusive), with 18 decimal places
-	pub range_end: U256,
-	/// The price of the base token in the quote token, with 18 decimal places
+	/// The amount threshold for this price point, with 18 decimal places
+	pub amount: U256,
+	/// The price at this amount, with 18 decimal places
 	pub price: U256,
 	/// The filler (submitter) address
 	pub filler: H256,

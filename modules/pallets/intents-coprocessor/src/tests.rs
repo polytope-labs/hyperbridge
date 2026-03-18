@@ -553,8 +553,7 @@ fn remove_recognized_pair_works() {
 		Prices::<Test>::insert(
 			&pair_id,
 			BTreeSet::from([types::PriceEntry {
-				range_start: U256::zero(),
-				range_end: U256::from(999),
+				amount: U256::zero(),
 				price: U256::from(1000),
 				filler: H256::from_low_u64_be(1),
 			}]),
@@ -582,8 +581,7 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -623,8 +621,7 @@ fn submit_pair_price_second_submission_is_free() {
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
 		let entries1 = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -640,8 +637,7 @@ fn submit_pair_price_second_submission_is_free() {
 
 		// Second submission — no additional deposit
 		let entries2 = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::from(1000),
-			range_end: U256::from(5000),
+			amount: U256::from(1000),
 			price: U256::from(3000),
 		}])
 		.unwrap();
@@ -675,8 +671,7 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -700,8 +695,7 @@ fn withdraw_price_deposit_two_phase() {
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -765,8 +759,7 @@ fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -834,8 +827,7 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		Prices::<Test>::insert(
 			&pair_id,
 			BTreeSet::from([types::PriceEntry {
-				range_start: U256::zero(),
-				range_end: U256::from(999),
+				amount: U256::zero(),
 				price: U256::from(1666),
 				filler: H256::from_low_u64_be(1),
 			}]),
@@ -861,8 +853,7 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		// Submit a new price — this is the first submission in the new window.
 		// It should clear stale entries before adding the new one.
 		let new_entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -881,31 +872,29 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 
 #[test]
 fn price_entry_encoding_matches_rpc_tuple_decoding() {
-	// The RPC decodes PriceEntry as Vec<(U256, U256, U256, H256)>.
+	// The RPC decodes PriceEntry as BTreeSet<PriceEntry>.
 	// Verify that PriceEntry's SCALE encoding is identical to the tuple encoding.
 	use codec::Encode;
 
-	let range_start = U256::zero();
-	let range_end = U256::from(999);
+	let amount = U256::zero();
 	let price = U256::from(42_000);
 	let filler = H256::from_low_u64_be(1);
 
-	let entry = PriceEntry { range_start, range_end, price, filler };
+	let entry = PriceEntry { amount, price, filler };
 
 	let entry_bytes = entry.encode();
-	let tuple_bytes = (range_start, range_end, price, filler).encode();
+	let tuple_bytes = (amount, price, filler).encode();
 	assert_eq!(entry_bytes, tuple_bytes, "PriceEntry SCALE encoding must match tuple encoding");
 
 	// Also verify round-trip: encode as PriceEntry, decode as tuple
-	type RpcTuple = (U256, U256, U256, H256);
+	type RpcTuple = (U256, U256, H256);
 	let entries = vec![entry];
 	let encoded = entries.encode();
 	let decoded: Vec<RpcTuple> = Decode::decode(&mut &encoded[..]).unwrap();
 	assert_eq!(decoded.len(), 1);
-	assert_eq!(decoded[0].0, range_start);
-	assert_eq!(decoded[0].1, range_end);
-	assert_eq!(decoded[0].2, price);
-	assert_eq!(decoded[0].3, filler);
+	assert_eq!(decoded[0].0, amount);
+	assert_eq!(decoded[0].1, price);
+	assert_eq!(decoded[0].2, filler);
 }
 
 #[test]
@@ -915,14 +904,12 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 
 		let entry1 = types::PriceEntry {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 			filler: H256::from_low_u64_be(1),
 		};
 		let entry2 = types::PriceEntry {
-			range_start: U256::from(1000),
-			range_end: U256::from(5000),
+			amount: U256::from(1000),
 			price: U256::from(3000),
 			filler: H256::from_low_u64_be(2),
 		};
@@ -941,17 +928,15 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 
 		let raw = sp_io::storage::get(&key).expect("Prices storage should exist");
 
-		type RpcTuple = (U256, U256, U256, H256);
+		type RpcTuple = (U256, U256, H256);
 		let decoded: Vec<RpcTuple> = Decode::decode(&mut &raw[..]).unwrap();
 		assert_eq!(decoded.len(), 2);
 		assert_eq!(decoded[0].0, U256::zero());
-		assert_eq!(decoded[0].1, U256::from(999));
-		assert_eq!(decoded[0].2, U256::from(2000));
-		assert_eq!(decoded[0].3, H256::from_low_u64_be(1));
+		assert_eq!(decoded[0].1, U256::from(2000));
+		assert_eq!(decoded[0].2, H256::from_low_u64_be(1));
 		assert_eq!(decoded[1].0, U256::from(1000));
-		assert_eq!(decoded[1].1, U256::from(5000));
-		assert_eq!(decoded[1].2, U256::from(3000));
-		assert_eq!(decoded[1].3, H256::from_low_u64_be(2));
+		assert_eq!(decoded[1].1, U256::from(3000));
+		assert_eq!(decoded[1].2, H256::from_low_u64_be(2));
 	});
 }
 
@@ -970,15 +955,13 @@ fn multiple_submitters_independent_deposits() {
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
 		let entries1 = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
 
 		let entries2 = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::from(1000),
-			range_end: U256::from(4999),
+			amount: U256::from(1000),
 			price: U256::from(2100),
 		}])
 		.unwrap();
@@ -1021,8 +1004,7 @@ fn separate_deposits_per_pair() {
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999),
+			amount: U256::zero(),
 			price: U256::from(2000),
 		}])
 		.unwrap();
@@ -1081,12 +1063,9 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 		PriceDepositAmount::<Test>::put(deposit_amount);
 		PriceDepositLockDuration::<Test>::put(10u64);
 
-		let entries = BoundedVec::try_from(vec![PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(1000),
-			price: U256::from(42),
-		}])
-		.unwrap();
+		let entries =
+			BoundedVec::try_from(vec![PriceInput { amount: U256::zero(), price: U256::from(42) }])
+				.unwrap();
 
 		// Submit prices(reserves deposit)
 		assert_ok!(Intents::submit_pair_price(

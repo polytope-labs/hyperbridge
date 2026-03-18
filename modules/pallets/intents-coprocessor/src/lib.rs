@@ -277,8 +277,6 @@ pub mod pallet {
 		PairNotRecognized,
 		/// Token pair already exists
 		PairAlreadyExists,
-		/// The price range is invalid (range_start > range_end)
-		InvalidPriceRange,
 		/// No price entries were provided
 		EmptyPriceEntries,
 		/// Price deposits are not configured (amount is zero)
@@ -561,7 +559,7 @@ pub mod pallet {
 		/// # Parameters
 		/// - `fee`: The new storage deposit fee
 		#[pallet::call_index(6)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::weight(T::WeightInfo::set_storage_deposit_fee())]
 		pub fn set_storage_deposit_fee(origin: OriginFor<T>, fee: BalanceOf<T>) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
@@ -582,9 +580,7 @@ pub mod pallet {
 		/// Each entry in `entries` specifies a base token amount range and the
 		/// corresponding price of the base token in terms of the quote token.
 		#[pallet::call_index(7)]
-		#[pallet::weight({
-			T::DbWeight::get().reads(12).saturating_add(T::DbWeight::get().writes(4))
-		})]
+		#[pallet::weight(T::WeightInfo::submit_pair_price())]
 		pub fn submit_pair_price(
 			origin: OriginFor<T>,
 			pair_id: H256,
@@ -593,10 +589,6 @@ pub mod pallet {
 			let submitter = ensure_signed(origin)?;
 
 			ensure!(!entries.is_empty(), Error::<T>::EmptyPriceEntries);
-			ensure!(
-				entries.iter().all(|e| e.range_start <= e.range_end),
-				Error::<T>::InvalidPriceRange
-			);
 			ensure!(RecognizedPairs::<T>::get(&pair_id), Error::<T>::PairNotRecognized);
 
 			let deposit_amount = PriceDepositAmount::<T>::get();
@@ -629,8 +621,7 @@ pub mod pallet {
 			let filler: H256 = H256::from_slice(&submitter.encode()[..32]);
 			Prices::<T>::mutate(&pair_id, |stored| {
 				stored.extend(entries.iter().map(|input| PriceEntry {
-					range_start: input.range_start,
-					range_end: input.range_end,
+					amount: input.amount,
 					price: input.price,
 					filler,
 				}));
@@ -643,7 +634,7 @@ pub mod pallet {
 
 		/// Add a recognized token pair for price tracking
 		#[pallet::call_index(8)]
-		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(1)))]
+		#[pallet::weight(T::WeightInfo::add_recognized_pair())]
 		pub fn add_recognized_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
@@ -658,7 +649,7 @@ pub mod pallet {
 
 		/// Remove a recognized token pair
 		#[pallet::call_index(9)]
-		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(2)))]
+		#[pallet::weight(T::WeightInfo::remove_recognized_pair())]
 		pub fn remove_recognized_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
@@ -674,7 +665,7 @@ pub mod pallet {
 
 		/// Set the price window duration
 		#[pallet::call_index(10)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::weight(T::WeightInfo::set_price_window_duration())]
 		pub fn set_price_window_duration(origin: OriginFor<T>, duration_ms: u64) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
@@ -687,7 +678,7 @@ pub mod pallet {
 
 		/// Set the deposit amount required for price submissions
 		#[pallet::call_index(11)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::weight(T::WeightInfo::set_price_deposit_amount())]
 		pub fn set_price_deposit_amount(
 			origin: OriginFor<T>,
 			amount: BalanceOf<T>,
@@ -703,7 +694,7 @@ pub mod pallet {
 
 		/// Set the lock duration (in blocks) for price deposits
 		#[pallet::call_index(12)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::weight(T::WeightInfo::set_price_deposit_lock_duration())]
 		pub fn set_price_deposit_lock_duration(
 			origin: OriginFor<T>,
 			duration_blocks: BlockNumberFor<T>,
@@ -733,7 +724,7 @@ pub mod pallet {
 		/// - `WithdrawalAlreadyInitiated`: First call was already made (waiting for unlock)
 		/// - `DepositStillLocked`: The unlock block has not yet been reached
 		#[pallet::call_index(13)]
-		#[pallet::weight(T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(1)))]
+		#[pallet::weight(T::WeightInfo::withdraw_price_deposit())]
 		pub fn withdraw_price_deposit(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 

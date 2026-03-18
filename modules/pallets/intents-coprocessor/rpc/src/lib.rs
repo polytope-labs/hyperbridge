@@ -57,11 +57,9 @@ pub struct RpcBidInfo {
 /// Amounts and prices are human-readable (divided by 10^18 from on-chain storage).
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct RpcPriceEntry {
-	/// Lower bound of the base token amount range (inclusive)
-	pub range_start: String,
-	/// Upper bound of the base token amount range (inclusive)
-	pub range_end: String,
-	/// The price of the base token in the quote token
+	/// The amount threshold for this price point
+	pub amount: String,
+	/// The price at this amount
 	pub price: String,
 	/// The filler (submitter) address
 	pub filler: String,
@@ -317,22 +315,15 @@ where
 			_ => return Ok(Vec::new()),
 		};
 
-		// Decode Vec<PriceEntry>
-		// PriceEntry SCALE-encodes as (U256, U256, U256, H256)
-		type Entry = (
-			primitive_types::U256,
-			primitive_types::U256,
-			primitive_types::U256,
-			primitive_types::H256,
-		);
-		match Vec::<Entry>::decode(&mut &data[..]) {
+		use pallet_intents_coprocessor::types::PriceEntry;
+
+		match BTreeSet::<PriceEntry>::decode(&mut &data[..]) {
 			Ok(entries) => Ok(entries
 				.into_iter()
-				.map(|(range_start, range_end, price, filler)| RpcPriceEntry {
-					range_start: format_u256_decimals(range_start, 18),
-					range_end: format_u256_decimals(range_end, 18),
-					price: format_u256_decimals(price, 18),
-					filler: format!("0x{}", hex::encode(filler.as_bytes())),
+				.map(|entry| RpcPriceEntry {
+					amount: format_u256_decimals(entry.amount, 18),
+					price: format_u256_decimals(entry.price, 18),
+					filler: format!("0x{}", hex::encode(entry.filler.as_bytes())),
 				})
 				.collect()),
 			Err(_) => Ok(Vec::new()),

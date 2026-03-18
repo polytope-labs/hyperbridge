@@ -24,7 +24,7 @@ mod tests;
 pub mod types;
 mod weights;
 
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 use codec::Encode as _;
 use frame_support::{
 	ensure,
@@ -145,7 +145,8 @@ pub mod pallet {
 
 	/// Price entries per pair
 	#[pallet::storage]
-	pub type Prices<T: Config> = StorageMap<_, Blake2_128Concat, H256, Vec<PriceEntry>, ValueQuery>;
+	pub type Prices<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, BTreeSet<PriceEntry>, ValueQuery>;
 
 	/// Deposits reserved by price submitters. Maps (account, pair_id) to
 	/// (deposit_amount, unlock_block). When `unlock_block` is `None`, the withdrawal
@@ -173,11 +174,12 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PriceDepositLockDuration<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
-	/// Whether prices have been cleared in the current window.
-	/// Reset to false by `on_initialize` when a new window starts.
-	/// Set to true on the first price submission in the new window.
+	/// Whether prices have been cleared for a given pair in the current window.
+	/// All entries are removed by `on_initialize` when a new window starts.
+	/// Set to true on the first price submission for that pair in the new window.
 	#[pallet::storage]
-	pub type PricesClearedThisWindow<T: Config> = StorageValue<_, bool, ValueQuery>;
+	pub type PricesClearedThisWindow<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
@@ -197,7 +199,7 @@ pub mod pallet {
 
 			if window_start == 0 || now.saturating_sub(window_start) >= window_duration_secs {
 				PriceWindowStart::<T>::put(now);
-				PricesClearedThisWindow::<T>::put(false);
+				let _ = PricesClearedThisWindow::<T>::clear(u32::MAX, None);
 
 				T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(2))
 			} else {
@@ -625,7 +627,7 @@ pub mod pallet {
 				});
 			}
 
-			Self::maybe_clear_stale_prices();
+			Self::maybe_clear_stale_prices(&pair_id);
 
 			Prices::<T>::mutate(&pair_id, |stored| {
 				stored.extend(entries.iter().map(|input| PriceEntry {
@@ -797,14 +799,15 @@ pub mod pallet {
 			offchain_bid_key_raw(commitment, &filler.encode())
 		}
 
-		/// Clear all prices if this is the first submission in a new window.
+		/// Clear prices for a specific pair if this is the first submission for that pair
+		/// in the current window.
 		///
 		/// Prices from the previous window persist until the first new submission
-		/// in the new window, at which point all entries across all pairs are cleared.
-		fn maybe_clear_stale_prices() {
-			if !PricesClearedThisWindow::<T>::get() {
-				let _ = Prices::<T>::clear(u32::MAX, None);
-				PricesClearedThisWindow::<T>::put(true);
+		/// for a given pair in the new window, at which point that pair's entries are cleared.
+		fn maybe_clear_stale_prices(pair_id: &H256) {
+			if !PricesClearedThisWindow::<T>::get(pair_id) {
+				Prices::<T>::remove(pair_id);
+				PricesClearedThisWindow::<T>::insert(pair_id, true);
 			}
 		}
 

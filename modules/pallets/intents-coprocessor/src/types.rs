@@ -177,7 +177,9 @@ pub struct PriceInput {
 /// An individual price submission stored on-chain. The price applies to a specific
 /// range of base token amounts, allowing submitters to quote different rates for
 /// different order sizes (e.g. USDC/CNGN: 0-999 at 1414, 1000-5000 at 1420).
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
+#[derive(
+	Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub struct PriceEntry {
 	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
 	pub range_start: U256,

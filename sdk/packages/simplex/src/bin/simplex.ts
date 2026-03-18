@@ -91,8 +91,6 @@ interface FxStrategyConfig {
 	maxOrderUsd: string
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
 	exoticTokenAddresses: Record<string, HexString>
-	/** On-chain pair ID (H256) for price submission to the intents coprocessor */
-	pairId?: HexString
 	/** Optional per-chain confirmation policies for cross-chain orders */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 }
@@ -410,7 +408,6 @@ program
 							askPricePolicy,
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
-							strategyConfig.pairId,
 							fxConfirmationPolicy,
 						)
 					}

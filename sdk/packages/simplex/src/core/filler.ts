@@ -112,11 +112,13 @@ export class IntentFiller {
 			}
 		}
 
-		// Submit initial prices on FX strategies during initialization
+		// Submit initial prices on FX strategies in the background
 		if (this.hyperbridge) {
 			for (const strategy of this.strategies) {
 				if (strategy instanceof FXFiller) {
-					await strategy.submitInitialPrices(this.hyperbridge)
+					strategy.submitInitialPrices(this.hyperbridge).catch((err) => {
+						this.logger.error({ err }, "Background price submission failed")
+					})
 				}
 			}
 		}

@@ -18,7 +18,7 @@
 #![cfg(test)]
 
 use crate::{self as pallet_intents, *};
-use alloc::vec;
+use alloc::{collections::BTreeSet, vec};
 use codec::Decode;
 use frame_support::{
 	assert_noop, assert_ok, parameter_types,
@@ -553,12 +553,12 @@ fn remove_recognized_pair_works() {
 
 		Prices::<Test>::insert(
 			&pair_id,
-			vec![types::PriceEntry {
+			BTreeSet::from([types::PriceEntry {
 				range_start: U256::zero(),
 				range_end: U256::from(999),
 				price: U256::from(1000),
 				timestamp: 1000,
-			}],
+			}]),
 		);
 
 		assert_ok!(Intents::remove_recognized_pair(RuntimeOrigin::root(), pair_id));
@@ -609,7 +609,7 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 		// Price entry stored
 		let prices = Prices::<Test>::get(&pair_id);
 		assert_eq!(prices.len(), 1);
-		assert_eq!(prices[0].price, U256::from(2000));
+		assert_eq!(prices.iter().next().unwrap().price, U256::from(2000));
 	});
 }
 
@@ -840,12 +840,12 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		// Simulate day 1: store some prices
 		Prices::<Test>::insert(
 			&pair_id,
-			vec![types::PriceEntry {
+			BTreeSet::from([types::PriceEntry {
 				range_start: U256::zero(),
 				range_end: U256::from(999),
 				price: U256::from(1666),
 				timestamp: 1000,
-			}],
+			}]),
 		);
 
 		// Window started at second 1000
@@ -882,7 +882,7 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		// Old entries gone, only new entry remains
 		let prices = Prices::<Test>::get(&pair_id);
 		assert_eq!(prices.len(), 1);
-		assert_eq!(prices[0].price, U256::from(2000));
+		assert_eq!(prices.iter().next().unwrap().price, U256::from(2000));
 	});
 }
 
@@ -935,7 +935,7 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 			timestamp: 2000,
 		};
 
-		Prices::<Test>::insert(&pair_id, vec![entry1.clone(), entry2.clone()]);
+		Prices::<Test>::insert(&pair_id, BTreeSet::from([entry1.clone(), entry2.clone()]));
 
 		// Build the storage key the same way the RPC does.
 		let pallet_prefix = b"Intents";
@@ -978,10 +978,17 @@ fn multiple_submitters_independent_deposits() {
 
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
-		let entries = BoundedVec::try_from(vec![PriceInput {
+		let entries1 = BoundedVec::try_from(vec![PriceInput {
 			range_start: U256::zero(),
 			range_end: U256::from(999),
 			price: U256::from(2000),
+		}])
+		.unwrap();
+
+		let entries2 = BoundedVec::try_from(vec![PriceInput {
+			range_start: U256::from(1000),
+			range_end: U256::from(4999),
+			price: U256::from(2100),
 		}])
 		.unwrap();
 
@@ -989,12 +996,12 @@ fn multiple_submitters_independent_deposits() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter1.clone()),
 			pair_id,
-			entries.clone(),
+			entries1,
 		));
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter2.clone()),
 			pair_id,
-			entries,
+			entries2,
 		));
 
 		// Each has their own deposit

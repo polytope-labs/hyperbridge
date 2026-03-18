@@ -14,7 +14,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { formatUnits, parseUnits } from "viem"
+import { formatUnits, parseUnits, keccak256, encodePacked, concat } from "viem"
 import { getLogger } from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { type CachedPairClassification } from "@/services/CacheService"
@@ -65,8 +65,6 @@ export class FXFiller implements FillerStrategy {
 	private maxOrderUsd: Decimal
 	private account: ReturnType<typeof privateKeyToAccount>
 	private logger = getLogger("fx-simplex")
-	/** On-chain pair ID for price submission */
-	private pairId?: HexString
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	/**
@@ -85,7 +83,6 @@ export class FXFiller implements FillerStrategy {
 	 *                                the filler will only size its outputs as if the order were $5,000.
 	 * @param exoticTokenAddresses   Map of chain identifier → exotic token address.
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
-	 * @param pairId                 On-chain pair ID (H256) for price submission.
 	 * @param confirmationPolicy     Optional per-chain confirmation policy for cross-chain orders.
 	 *                                If absent, no confirmation waiting is required.
 	 */
@@ -98,7 +95,6 @@ export class FXFiller implements FillerStrategy {
 		askPricePolicy: FillerPricePolicy,
 		maxOrderUsdStr: string,
 		exoticTokenAddresses: Record<string, HexString>,
-		pairId?: HexString,
 		confirmationPolicy?: ConfirmationPolicy,
 	) {
 		this.privateKey = privateKey
@@ -113,7 +109,6 @@ export class FXFiller implements FillerStrategy {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
 		this.account = privateKeyToAccount(privateKey)
-		this.pairId = pairId
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
@@ -123,45 +118,80 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Submit initial prices using the ask price curve.
+	 * Compute pair ID from token symbols.
+	 * Hashes each symbol to H256, then hashes the concatenation to match
+	 * the pallet's TokenPair::pair_id() = keccak256(base_H256 || quote_H256).
+	 *
+	 * Governance registers pairs with base = keccak256(baseSymbol),
+	 * quote = keccak256(quoteSymbol), producing the same pair_id.
+	 */
+	private computeSymbolPairId(baseSymbol: string, quoteSymbol: string): HexString {
+		const base = keccak256(encodePacked(["string"], [baseSymbol]))
+		const quote = keccak256(encodePacked(["string"], [quoteSymbol]))
+		return keccak256(concat([base as `0x${string}`, quote as `0x${string}`])) as HexString
+	}
+
+	/**
+	 * Submit initial prices for both ask and bid directions.
 	 * Called once during filler initialization to publish the strategy's
 	 * prices on-chain before the filler starts processing orders.
+	 *
+	 * - Ask pair (stable/exotic): submitted with askPricePolicy entries
+	 *   Ranges in stable amounts, price = exotic tokens per 1 stable
+	 * - Bid pair (exotic/stable): submitted with bidPricePolicy entries
+	 *   Ranges in exotic amounts, price = stable tokens per 1 exotic
 	 */
 	async submitInitialPrices(coprocessor: Promise<IntentsCoprocessor>): Promise<void> {
-		if (!this.pairId) {
-			this.logger.warn("No pairId configured, skipping price submission")
-			return
-		}
-
-		const entries = this.buildPriceEntries()
-		if (entries.length === 0) {
-			this.logger.warn("No price entries derived from ask curve, skipping price submission")
-			return
-		}
-
-		const pairId = this.pairId
-
 		try {
+			const chain = Object.keys(this.exoticTokenAddresses)[0]
+			const exoticAddress = this.exoticTokenAddresses[chain]
+			const usdcAddress = this.configService.getUsdcAsset(chain)
+
+			const [stableSymbol, exoticSymbol] = await Promise.all([
+				this.contractService.getTokenSymbol(usdcAddress, chain),
+				this.contractService.getTokenSymbol(exoticAddress, chain),
+			])
+
+			this.logger.info({ stableSymbol, exoticSymbol }, "Resolved token symbols for price submission")
+
 			const cp = await coprocessor
-			const result = await cp.submitPairPrice(pairId, entries)
-			if (result.success) {
-				this.logger.info({ pairId, blockHash: result.blockHash, entryCount: entries.length }, "Initial prices submitted")
-			} else {
-				this.logger.error({ pairId, error: result.error }, "Failed to submit initial prices")
+
+			// Ask pair
+			const askPairId = this.computeSymbolPairId(stableSymbol, exoticSymbol)
+			const askEntries = this.buildAskPriceEntries()
+			if (askEntries.length > 0) {
+				const askResult = await cp.submitPairPrice(askPairId, askEntries)
+				if (askResult.success) {
+					this.logger.info({ pairId: askPairId, direction: "ask", blockHash: askResult.blockHash, entryCount: askEntries.length }, "Ask prices submitted")
+				} else {
+					this.logger.error({ pairId: askPairId, direction: "ask", error: askResult.error }, "Failed to submit ask prices")
+				}
+			}
+
+			// Bid pair
+			const bidPairId = this.computeSymbolPairId(exoticSymbol, stableSymbol)
+			const bidEntries = this.buildBidPriceEntries()
+			if (bidEntries.length > 0) {
+				const bidResult = await cp.submitPairPrice(bidPairId, bidEntries)
+				if (bidResult.success) {
+					this.logger.info({ pairId: bidPairId, direction: "bid", blockHash: bidResult.blockHash, entryCount: bidEntries.length }, "Bid prices submitted")
+				} else {
+					this.logger.error({ pairId: bidPairId, direction: "bid", error: bidResult.error }, "Failed to submit bid prices")
+				}
 			}
 		} catch (err) {
-			this.logger.error({ pairId, err }, "Error submitting initial prices")
+			this.logger.error({ err }, "Error submitting initial prices")
 		}
 	}
 
 	/**
 	 * Convert the ask curve points into on-chain PriceInput entries.
-	 * Each adjacent pair of points defines a price range.
-	 * The last point extends to a large upper bound.
+	 * For the ask pair (stable/exotic):
+	 *   - ranges are in stable (USD) amounts
+	 *   - price = exotic tokens per 1 stable
 	 */
-	private buildPriceEntries(): PriceInput[] {
+	private buildAskPriceEntries(): PriceInput[] {
 		const points = this.askPricePolicy.getPoints()
-
 		if (points.length === 0) return []
 
 		const entries: PriceInput[] = []
@@ -172,8 +202,43 @@ export class FXFiller implements FillerStrategy {
 			const rangeEnd =
 				i < points.length - 1
 					? parseUnits(points[i + 1].amount.toString(), decimals) - 1n
-					: parseUnits("999999999", decimals) // large upper bound for last bucket
+					: parseUnits("999999999", decimals)
 			const price = parseUnits(points[i].price.toString(), decimals)
+
+			entries.push({ rangeStart, rangeEnd, price })
+		}
+
+		return entries
+	}
+
+	/**
+	 * Convert the bid curve points into on-chain PriceInput entries.
+	 * For the bid pair (exotic/stable):
+	 *   - ranges are in exotic token amounts (USD amount × exoticPerUsd)
+	 *   - price = stable tokens per 1 exotic (1 / exoticPerUsd)
+	 */
+	private buildBidPriceEntries(): PriceInput[] {
+		const points = this.bidPricePolicy.getPoints()
+		if (points.length === 0) return []
+
+		const entries: PriceInput[] = []
+		const decimals = 18
+
+		for (let i = 0; i < points.length; i++) {
+			// Convert USD range to exotic range: exoticAmount = usdAmount × exoticPerUsd
+			const exoticAmount = points[i].amount.mul(points[i].price)
+			const rangeStart = parseUnits(exoticAmount.toFixed(0), decimals)
+
+			const rangeEnd =
+				i < points.length - 1
+					? parseUnits(
+							points[i + 1].amount.mul(points[i + 1].price).toFixed(0),
+							decimals,
+						) - 1n
+					: parseUnits("999999999", decimals)
+
+			const stablePerExotic = new Decimal(1).div(points[i].price)
+			const price = parseUnits(stablePerExotic.toFixed(decimals), decimals)
 
 			entries.push({ rangeStart, rangeEnd, price })
 		}

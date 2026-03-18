@@ -177,6 +177,29 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Reads the ERC20 symbol for a token on a specific chain.
+	 * Handles both 20-byte and 32-byte (H256) address formats.
+	 */
+	async getTokenSymbol(tokenAddress: string, chain: string): Promise<string> {
+		const bytes20Address = tokenAddress.length === 66 ? bytes32ToBytes20(tokenAddress) : tokenAddress
+		const client = this.clientManager.getPublicClient(chain)
+
+		return await retryPromise(
+			() =>
+				client.readContract({
+					address: bytes20Address as HexString,
+					abi: ERC20_ABI,
+					functionName: "symbol",
+				}) as Promise<string>,
+			{
+				maxRetries: 3,
+				backoffMs: 250,
+				logMessage: "Failed to get token symbol",
+			},
+		)
+	}
+
+	/**
 	 * Estimates gas for filling an order and caches the full estimate for bid preparation
 	 */
 	async estimateGasFillPost(order: Order): Promise<{

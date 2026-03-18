@@ -875,7 +875,6 @@ function createCrossChainFxIntentFiller(
 		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
-		undefined, // pairId
 		confirmationPolicy,
 	)
 

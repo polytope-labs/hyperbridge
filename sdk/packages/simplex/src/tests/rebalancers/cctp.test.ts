@@ -70,7 +70,7 @@ async function setUp() {
 	const account = privateKeyToAccount(privateKey)
 	const chainClientManager = new ChainClientManager(chainConfigService, account)
 
-	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService, privateKey)
+	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService, account)
 
 	return {
 		rebalancingService,

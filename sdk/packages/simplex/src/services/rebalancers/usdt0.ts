@@ -1,5 +1,5 @@
 import { parseUnits, padHex, maxUint256, type Hex } from "viem"
-import { privateKeyToAccount, type Account } from "viem/accounts"
+import type { Account } from "viem/accounts"
 import { bytes20ToBytes32, type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -37,14 +37,11 @@ export class Usdt0Rebalancer {
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
-		accountOrPrivateKey: Account | HexString,
+		account: Account,
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account =
-			typeof accountOrPrivateKey === "string"
-				? privateKeyToAccount(accountOrPrivateKey as `0x${string}`)
-				: accountOrPrivateKey
+		this.account = account
 		this.logger = getLogger("Usdt0Rebalancer")
 	}
 

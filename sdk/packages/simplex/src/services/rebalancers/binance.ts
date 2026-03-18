@@ -1,6 +1,6 @@
 import { Wallet, WalletRestAPI } from "@binance/wallet"
 import { parseUnits, type Hex } from "viem"
-import { privateKeyToAccount, type Account } from "viem/accounts"
+import type { Account } from "viem/accounts"
 import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -113,15 +113,12 @@ export class BinanceRebalancer {
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
-		accountOrPrivateKey: Account | HexString,
+		account: Account,
 		config: BinanceCexConfig,
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account =
-			typeof accountOrPrivateKey === "string"
-				? privateKeyToAccount(accountOrPrivateKey as `0x${string}`)
-				: accountOrPrivateKey
+		this.account = account
 		this.config = config
 		this.logger = getLogger("BinanceRebalancer")
 

@@ -22,7 +22,6 @@
 		"build": "tsup",
 		"prepublishOnly": "npm run build",
 		"test": "vitest --watch=false --maxConcurrency=1",
-		"test:services": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/services.test.ts",
 		"test:filler": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
 		"test:basic": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
 		"test:fx": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",

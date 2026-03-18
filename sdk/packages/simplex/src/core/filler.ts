@@ -10,7 +10,7 @@ import {
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { privateKeyToAddress, type Account } from "viem/accounts"
+import { type Account } from "viem/accounts"
 import {
 	BidStorageService,
 	ChainClientManager,
@@ -52,13 +52,13 @@ export class IntentFiller {
 		configService: FillerConfigService,
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		accountOrPrivateKey: Account | HexString,
+		account: Account,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
 		signer?: SigningAccount,
 	) {
 		this.configService = configService
-		this.account = typeof accountOrPrivateKey === "string" ? chainClientManager.getAccount() : accountOrPrivateKey
+		this.account = account
 		this.fillerAddress = this.account.address
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService

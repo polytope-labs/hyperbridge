@@ -10,7 +10,7 @@ import {
 	adjustDecimals,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
-import { privateKeyToAccount, type Account } from "viem/accounts"
+import type { Account } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
@@ -85,7 +85,7 @@ export class FXFiller implements FillerStrategy {
 	 *                                If absent, no confirmation waiting is required.
 	 */
 	constructor(
-		accountOrPrivateKey: Account | `0x${string}`,
+		account: Account,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
@@ -105,10 +105,7 @@ export class FXFiller implements FillerStrategy {
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
-		this.account =
-			typeof accountOrPrivateKey === "string"
-				? privateKeyToAccount(accountOrPrivateKey)
-				: accountOrPrivateKey
+		this.account = account
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>

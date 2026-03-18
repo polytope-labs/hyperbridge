@@ -11,7 +11,7 @@ import {
 	adjustDecimals,
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
-import { privateKeyToAccount, type Account } from "viem/accounts"
+import type { Account } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
@@ -30,7 +30,7 @@ export class BasicFiller implements FillerStrategy {
 	confirmationPolicy: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	constructor(
-		accountOrPrivateKey: Account | `0x${string}`,
+		account: Account,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
@@ -45,10 +45,7 @@ export class BasicFiller implements FillerStrategy {
 			getConfirmationBlocks: (chainId: number, amountUsd: number) =>
 				confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 		}
-		this.account =
-			typeof accountOrPrivateKey === "string"
-				? privateKeyToAccount(accountOrPrivateKey)
-				: accountOrPrivateKey
+		this.account = account
 	}
 
 	/**

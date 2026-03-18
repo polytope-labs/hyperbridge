@@ -1,5 +1,5 @@
 import { toHex, formatUnits, encodeFunctionData, maxUint256, formatEther } from "viem"
-import { privateKeyToAccount, privateKeyToAddress, type Account } from "viem/accounts"
+import { privateKeyToAddress, type Account } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
 	HexString,
@@ -45,15 +45,14 @@ export class ContractInteractionService {
 
 	constructor(
 		private clientManager: ChainClientManager,
-		accountOrPrivateKey: Account | HexString,
+		account: Account,
 		configService: FillerConfigService,
 		signBidMessage?: (messageHash: HexString, chainId: number) => Promise<HexString>,
 		sharedCacheService?: CacheService,
 	) {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
-		this.account =
-			typeof accountOrPrivateKey === "string" ? privateKeyToAccount(accountOrPrivateKey) : accountOrPrivateKey
+		this.account = account
 		this.solverAccountAddress = this.account.address
 		this.signBidMessage =
 			signBidMessage ??

@@ -124,3 +124,7 @@ export function createSimplexSigner(config: SignerConfig): SigningAccount {
 
 	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
 }
+
+export function initializeSignerFromToml(signerTomlConfig?: SignerConfig): SigningAccount | undefined {
+	return signerTomlConfig ? createSimplexSigner(signerTomlConfig) : undefined
+}

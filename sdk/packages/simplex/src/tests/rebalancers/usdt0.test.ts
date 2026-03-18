@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { ChainClientManager, FillerConfigService, RebalancingService, type UserProvidedChainConfig } from "@/services"
 import type { HexString } from "@hyperbridge/sdk"
+import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 
 describe("RebalancingService - USDT0 (LayerZero OFT)", () => {
@@ -67,7 +68,8 @@ async function setUp() {
 
 	const chainConfigService = new FillerConfigService(testChainConfigs)
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const account = privateKeyToAccount(privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 
 	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService, privateKey)
 

@@ -396,11 +396,12 @@ function createIntentFiller(
 	chainConfigService: FillerConfigService,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,
@@ -430,7 +431,7 @@ function createIntentFiller(
 
 	const strategies = [
 		new BasicFiller(
-			privateKey,
+			account,
 			chainConfigService,
 			chainClientManager,
 			contractService,
@@ -446,7 +447,7 @@ function createIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		privateKey,
+		account,
 	)
 }
 
@@ -505,11 +506,12 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,
@@ -571,11 +573,12 @@ async function setUpTron() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,

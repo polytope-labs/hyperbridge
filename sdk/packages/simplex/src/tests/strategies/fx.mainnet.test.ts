@@ -612,11 +612,12 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,
@@ -669,11 +670,12 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,
@@ -726,11 +728,12 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,
@@ -785,11 +788,12 @@ async function setUpMainnetFxArbitrumToBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
+		account,
 		chainConfigService,
 		undefined,
 		cacheService,
@@ -827,8 +831,9 @@ function createCrossChainFxIntentFiller(
 	chainIds: string[],
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
@@ -867,7 +872,7 @@ function createCrossChainFxIntentFiller(
 	})
 
 	const fxStrategy = new FXFiller(
-		privateKey,
+		account,
 		chainConfigService,
 		chainClientManager,
 		contractService,
@@ -888,7 +893,7 @@ function createCrossChainFxIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		privateKey,
+		account,
 		undefined,
 		bidStorage,
 	)
@@ -902,8 +907,9 @@ function createFxOnlyIntentFiller(
 	mainnetId: string,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const account = privateKeyToAccount(privateKey)
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, account)
 
 	// Bid: filler buys exotic from user → 1 USD = 10000 EXT (filler pays fewer USD per exotic)
 	// Ask: filler sells exotic to user → 1 USD = 9500 EXT (filler gives fewer exotic per USD = spread profit)
@@ -924,7 +930,7 @@ function createFxOnlyIntentFiller(
 	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
 	const fxStrategy = new FXFiller(
-		privateKey,
+		account,
 		chainConfigService,
 		chainClientManager,
 		contractService,
@@ -944,7 +950,7 @@ function createFxOnlyIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		privateKey,
+		account,
 		undefined,
 		bidStorage,
 	)

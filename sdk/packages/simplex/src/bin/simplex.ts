@@ -21,8 +21,7 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
-import { createSimplexSigner } from "@/services/wallet"
-import { SignerType, type SignerConfig } from "@/services/wallet"
+import { initializeSignerFromToml, SignerType, type SignerConfig } from "@/services/wallet"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
 import type { Account } from "viem/accounts"
@@ -240,27 +239,9 @@ interface BinanceConfig {
 	withdrawTimeoutMs?: number
 }
 
-interface MpcVaultTomlConfig {
-	apiToken: string
-	vaultUuid: string
-	accountAddress: HexString
-	callbackClientSignerPublicKey: string
-	baseUrl?: string
-}
-
-type SimplexSignerTomlConfig =
-	| {
-			type: "privateKey"
-			privateKey: string
-	  }
-	| {
-			type: "mpcVault"
-			mpcVault: MpcVaultTomlConfig
-	  }
-
 interface FillerTomlConfig {
 	simplex: {
-		signer?: SimplexSignerTomlConfig
+		signer?: SignerConfig
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
 		logging?: LoggingConfig
@@ -376,20 +357,7 @@ program
 
 			// Create shared services to avoid duplicate RPC calls and reuse connections
 			const sharedCacheService = new CacheService()
-			// Keep signer construction isolated from broader runtime config.
-			const signerConfig: SignerConfig | undefined =
-				config.simplex.signer?.type === "privateKey"
-					? {
-							type: SignerType.PrivateKey,
-							privateKey: config.simplex.signer.privateKey as HexString,
-						}
-					: config.simplex.signer?.type === "mpcVault"
-						? {
-								type: SignerType.MpcVault,
-								mpcVault: config.simplex.signer.mpcVault,
-							}
-						: undefined
-			const configuredSigner = signerConfig ? createSimplexSigner(signerConfig) : undefined
+			const configuredSigner = initializeSignerFromToml(config.simplex.signer)
 			const chainClientManager = new ChainClientManager(configService, configuredSigner?.account)
 			const signerAccount: Account = configuredSigner?.account ?? chainClientManager.getAccount()
 			const contractService = new ContractInteractionService(
@@ -556,11 +524,11 @@ function validateConfig(config: FillerTomlConfig): void {
 		throw new Error("Signer configuration is required via [simplex.signer]")
 	}
 
-	if (signer?.type === "privateKey") {
+	if (signer?.type === SignerType.PrivateKey) {
 		if (!signer.privateKey) {
 			throw new Error("simplex.signer.privateKey is required when simplex.signer.type=privateKey")
 		}
-	} else if (signer?.type === "mpcVault") {
+	} else if (signer?.type === SignerType.MpcVault) {
 		const mpcVault = signer.mpcVault
 		if (!mpcVault?.apiToken) throw new Error("simplex.signer.mpcVault.apiToken is required")
 		if (!mpcVault?.vaultUuid) throw new Error("simplex.signer.mpcVault.vaultUuid is required")

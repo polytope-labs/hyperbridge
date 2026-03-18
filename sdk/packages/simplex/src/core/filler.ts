@@ -20,6 +20,7 @@ import {
 } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
+import type { SigningAccount } from "@/services/wallet"
 import { Decimal } from "decimal.js"
 
 export class IntentFiller {
@@ -40,6 +41,8 @@ export class IntentFiller {
 	private config: FillerConfig
 	private configService: FillerConfigService
 	private account: Account
+	private signer?: SigningAccount
+	private delegationSubmitterAccount?: Account
 	private fillerAddress: HexString
 	private logger = getLogger("intent-filler")
 
@@ -53,6 +56,8 @@ export class IntentFiller {
 		accountOrPrivateKey: Account | HexString,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
+		signer?: SigningAccount,
+		delegationSubmitterAccount?: Account,
 	) {
 		this.configService = configService
 		this.account = typeof accountOrPrivateKey === "string" ? chainClientManager.getAccount() : accountOrPrivateKey
@@ -61,6 +66,8 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
+		this.signer = signer
+		this.delegationSubmitterAccount = delegationSubmitterAccount
 		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
@@ -114,7 +121,24 @@ export class IntentFiller {
 
 		// Set up delegation service on chains where solver selection is active
 		if (chainsWithSolverSelection.length > 0 && this.hyperbridge) {
-			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.account)
+			if (!this.signer) {
+				this.logger.warn(
+					{ chains: chainsWithSolverSelection },
+					"Skipping EIP-7702 delegation setup: no simplex signer configured",
+				)
+				return
+			}
+			if (this.signer.mode === "mpcVault" && !this.delegationSubmitterAccount) {
+				throw new Error(
+					"MPC Vault delegation requires simplex.delegationSubmitterPrivateKey to submit EIP-7702 transactions",
+				)
+			}
+			this.delegationService = new DelegationService(
+				this.chainClientManager,
+				this.configService,
+				this.signer,
+				this.delegationSubmitterAccount,
+			)
 			this.logger.info(
 				{ chains: chainsWithSolverSelection },
 				"Setting up EIP-7702 delegation on chains with solver selection",

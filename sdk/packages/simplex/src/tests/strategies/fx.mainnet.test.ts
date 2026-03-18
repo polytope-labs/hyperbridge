@@ -619,6 +619,7 @@ async function setUpMainnetFx() {
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 
@@ -676,6 +677,7 @@ async function setUpMainnetFxBase() {
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 
@@ -733,6 +735,7 @@ async function setUpMainnetFxArbitrum() {
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 
@@ -792,6 +795,7 @@ async function setUpMainnetFxArbitrumToBase() {
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 

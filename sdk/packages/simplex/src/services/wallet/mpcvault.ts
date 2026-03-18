@@ -123,6 +123,25 @@ export class MpcVaultService {
 		return this.signatureFromParts(parts)
 	}
 
+	async signRawHash(hash: HexString): Promise<HexString> {
+		const uuid = await this.createSigningRequest({
+			vaultUuid: this.vaultUuid,
+			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
+			rawMessage: {
+				from: this.accountAddress,
+				content: hash,
+				ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY",
+			},
+		})
+
+		const result = await this.executeSigningRequest(uuid)
+		const parts = result.signatures?.signatures?.[0]?.ecdsaSignature
+		if (!parts) {
+			throw new Error("MPCVault did not return ECDSA signature for raw_message")
+		}
+		return this.signatureFromParts(parts)
+	}
+
 	async signTransaction(params: {
 		chainId: number
 		to?: HexString

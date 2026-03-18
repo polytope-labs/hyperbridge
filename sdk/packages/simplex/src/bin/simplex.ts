@@ -24,7 +24,7 @@ import { BidStorageService } from "@/services/BidStorageService"
 import { createSimplexSigner } from "@/services/wallet"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
-import type { Account } from "viem/accounts"
+import { privateKeyToAccount, type Account } from "viem/accounts"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -251,6 +251,7 @@ interface FillerTomlConfig {
 	simplex: {
 		privateKey?: string
 		mpcVault?: MpcVaultTomlConfig
+		delegationSubmitterPrivateKey?: string
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
 		logging?: LoggingConfig
@@ -315,6 +316,7 @@ program
 			const fillerConfigForService: FillerServiceConfig = {
 				privateKey: config.simplex.privateKey,
 				mpcVault: config.simplex.mpcVault,
+				delegationSubmitterPrivateKey: config.simplex.delegationSubmitterPrivateKey,
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 				logging: config.simplex.logging,
 				substratePrivateKey: config.simplex.substratePrivateKey,
@@ -372,6 +374,9 @@ program
 				config.simplex.privateKey || config.simplex.mpcVault
 					? createSimplexSigner(fillerConfigForService)
 					: undefined
+			const delegationSubmitterAccount = config.simplex.delegationSubmitterPrivateKey
+				? privateKeyToAccount(config.simplex.delegationSubmitterPrivateKey as HexString)
+				: undefined
 			const chainClientManager = new ChainClientManager(configService, configuredSigner?.account)
 			const signerAccount: Account = configuredSigner?.account ?? chainClientManager.getAccount()
 			const contractService = new ContractInteractionService(
@@ -471,6 +476,8 @@ program
 				signerAccount,
 				rebalancingService,
 				bidStorageService,
+				configuredSigner,
+				delegationSubmitterAccount,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)
@@ -549,6 +556,9 @@ function validateConfig(config: FillerTomlConfig): void {
 		if (!mpcVault.accountAddress) throw new Error("simplex.mpcVault.accountAddress is required")
 		if (!mpcVault.callbackClientSignerPublicKey) {
 			throw new Error("simplex.mpcVault.callbackClientSignerPublicKey is required")
+		}
+		if (!config.simplex.delegationSubmitterPrivateKey && !allChainsWatchOnly) {
+			throw new Error("simplex.delegationSubmitterPrivateKey is required when using simplex.mpcVault")
 		}
 	}
 

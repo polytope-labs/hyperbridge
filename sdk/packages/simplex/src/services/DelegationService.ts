@@ -1,8 +1,10 @@
-import { privateKeyToAccount, type Account } from "viem/accounts"
 import type { HexString } from "@hyperbridge/sdk"
+import { concat, keccak256, toHex, toRlp, zeroAddress } from "viem"
+import type { Account } from "viem/accounts"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
+import type { SigningAccount } from "./wallet"
 
 /** EIP-7702 delegation indicator prefix */
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
@@ -13,14 +15,49 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
  */
 export class DelegationService {
 	private logger = getLogger("delegation-service")
-	private account: Account
 
 	constructor(
 		private clientManager: ChainClientManager,
 		private configService: FillerConfigService,
-		accountOrPrivateKey: Account | `0x${string}`,
-	) {
-		this.account = typeof accountOrPrivateKey === "string" ? privateKeyToAccount(accountOrPrivateKey) : accountOrPrivateKey
+		private signer: SigningAccount,
+		private submitterAccount?: Account,
+	) {}
+
+	private computeAuthorizationHash(chainId: number, contractAddress: HexString, nonce: number): HexString {
+		const encoded = toRlp([toHex(chainId), contractAddress, toHex(nonce)])
+		return keccak256(concat(["0x05", encoded])) as HexString
+	}
+
+	private async buildAuthorization(
+		chain: string,
+		contractAddress: HexString,
+	): Promise<{
+		chainId: number
+		address: HexString
+		nonce: number
+		r: HexString
+		s: HexString
+		yParity: number
+	}> {
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const chainId = this.configService.getChainId(chain)
+		const authorityAddress = this.signer.account.address as HexString
+		const submitterAddress = (this.submitterAccount?.address ?? authorityAddress) as HexString
+		const currentNonce = await publicClient.getTransactionCount({
+			address: authorityAddress,
+		})
+		const authorizationNonce = submitterAddress.toLowerCase() === authorityAddress.toLowerCase() ? currentNonce + 1 : currentNonce
+		const authHash = this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce))
+		const { r, s, yParity } = await this.signer.signAuthorizationHash(authHash)
+
+		return {
+			chainId,
+			address: contractAddress,
+			nonce: authorizationNonce,
+			r,
+			s,
+			yParity,
+		}
 	}
 
 	/**
@@ -31,7 +68,7 @@ export class DelegationService {
 	 */
 	async isDelegated(chain: string): Promise<boolean> {
 		const client = this.clientManager.getPublicClient(chain)
-		const account = this.account
+		const account = this.signer.account
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
 
 		if (!solverAccountContract) {
@@ -88,24 +125,29 @@ export class DelegationService {
 			return true
 		}
 
-		const account = this.account
+		const authority = this.signer.account
+		const submitter = this.submitterAccount ?? authority
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		try {
-			this.logger.info({ chain, eoa: account.address, solverAccountContract }, "Setting up EIP-7702 delegation")
+			this.logger.info(
+				{
+					chain,
+					authority: authority.address,
+					submitter: submitter.address,
+					solverAccountContract,
+				},
+				"Setting up EIP-7702 delegation",
+			)
 
-			const authorization = await walletClient.signAuthorization({
-				account,
-				contractAddress: solverAccountContract,
-				executor: "self", // Required when EOA signs authorization and also sends the transaction
-			})
+			const authorization = await this.buildAuthorization(chain, solverAccountContract)
 
 			const hash = await walletClient.sendTransaction({
-				account,
-				to: account.address,
+				account: submitter,
+				to: submitter.address,
 				value: 0n,
-				authorizationList: [authorization],
+				authorizationList: [authorization as never],
 				chain: walletClient.chain,
 			})
 
@@ -161,26 +203,24 @@ export class DelegationService {
 	 * @returns True if revocation was successful
 	 */
 	async revokeDelegation(chain: string): Promise<boolean> {
-		const account = this.account
+		const authority = this.signer.account
+		const submitter = this.submitterAccount ?? authority
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		try {
-			this.logger.info({ chain, eoa: account.address }, "Revoking EIP-7702 delegation")
+			this.logger.info(
+				{ chain, authority: authority.address, submitter: submitter.address },
+				"Revoking EIP-7702 delegation",
+			)
 
-			// Delegate to zero address to revoke
-			// IMPORTANT: executor: 'self' required when EOA signs and sends the transaction
-			const authorization = await walletClient.signAuthorization({
-				account,
-				contractAddress: "0x0000000000000000000000000000000000000000",
-				executor: "self",
-			})
+			const authorization = await this.buildAuthorization(chain, zeroAddress)
 
 			const hash = await walletClient.sendTransaction({
-				account,
-				to: account.address,
+				account: submitter,
+				to: submitter.address,
 				value: 0n,
-				authorizationList: [authorization],
+				authorizationList: [authorization as never],
 				chain: walletClient.chain,
 			})
 

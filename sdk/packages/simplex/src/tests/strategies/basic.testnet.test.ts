@@ -260,21 +260,7 @@ describe("Filler V2 - Solver Selection ON", () => {
 
 		if (result.value && "status" in result.value && result.value.status === "ORDER_PLACED") {
 			order = result.value.order as Order
-		}
-
-				if (status.status === "ORDER_PLACED") {
-					order = status.order as OrderV2
-					console.log(`Order placed successfully with ID: ${order.id}`)
-				}
-				if (status.status === "BID_SELECTED") {
-					selectedSolver = status.selectedSolver as HexString
-					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "FAILED") {
-					throw new Error(`Order execution failed: ${status.error}`)
-				}
-			}
-			result = await gen.next()
+			console.log(`Order placed successfully with ID: ${order.id}`)
 		}
 
 		expect(order.id).toBeDefined()
@@ -416,6 +402,7 @@ function createIntentFiller(
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 
@@ -525,6 +512,7 @@ async function setUp() {
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 
@@ -591,6 +579,7 @@ async function setUpTron() {
 		chainClientManager,
 		privateKey,
 		chainConfigService,
+		undefined,
 		cacheService,
 	)
 

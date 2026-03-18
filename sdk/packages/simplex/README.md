@@ -38,6 +38,7 @@ Update `filler-config.toml` with:
 - RPC URLs for each chain you want to support
 - Confirmation policies for each chain
 - (Optional) Solver selection mode settings for Hyperbridge integration
+- If using `simplex.mpcVault`, also set `simplex.delegationSubmitterPrivateKey`
 
 ### 3. Run the FillerV2
 
@@ -153,6 +154,27 @@ solverAccountContractAddress = "0x..."
 # Directory for persistent bid storage (enables fund recovery)
 dataDir = "/path/to/data"
 ```
+
+### MPC Vault Delegation Submitter
+
+When using MPC Vault signer mode, delegation setup requires a submitter EOA to broadcast EIP-7702 type-`0x04` transactions carrying the MPC-signed authorization tuple.
+
+```toml
+[simplex]
+# Local EOA used only to submit delegation txs (pays gas)
+delegationSubmitterPrivateKey = "0x..."
+
+# MPC authority signer
+[simplex.mpcVault]
+apiToken = "..."
+vaultUuid = "..."
+accountAddress = "0x..."
+callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+```
+
+Notes:
+- `delegationSubmitterPrivateKey` is required when `simplex.mpcVault` is configured and the filler is not running in all-chain watch-only mode.
+- This submitter key is used for delegation setup/revoke transactions, while the delegation authorization itself is still signed by MPC Vault.
 
 ## CLI Commands
 

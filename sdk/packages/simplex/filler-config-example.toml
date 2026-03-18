@@ -15,6 +15,10 @@ privateKey = ""  # Replace with your EVM private key (not required if all chains
 # accountAddress = "0x0000000000000000000000000000000000000000"
 # callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 # baseUrl = "https://api.mpcvault.com" # optional
+#
+# Required with MPCVault when delegation is enabled:
+# a local EOA that submits EIP-7702 type-0x04 transactions (gas payer)
+# delegationSubmitterPrivateKey = "0x..."
 
 maxConcurrentOrders = 5
 

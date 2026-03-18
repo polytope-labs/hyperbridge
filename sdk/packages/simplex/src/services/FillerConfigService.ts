@@ -36,6 +36,7 @@ export interface MpcVaultConfig {
 export interface FillerConfig {
 	privateKey?: string
 	mpcVault?: MpcVaultConfig
+	delegationSubmitterPrivateKey?: string
 	maxConcurrentOrders: number
 	logging?: LoggingConfig
 	hyperbridgeWsUrl?: string
@@ -222,6 +223,10 @@ export class FillerConfigService {
 
 	getMpcVaultConfig(): MpcVaultConfig | undefined {
 		return this.fillerConfig?.mpcVault
+	}
+
+	getDelegationSubmitterPrivateKey(): string | undefined {
+		return this.fillerConfig?.delegationSubmitterPrivateKey
 	}
 
 	getEntryPointAddress(chain: string): HexString | undefined {

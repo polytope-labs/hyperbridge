@@ -61,10 +61,19 @@ export type CreateSigningRequestPayload = {
 		type: "TYPE_PERSONAL_SIGN" | "TYPE_SIGN_TYPED_DATA"
 		content: string
 	}
+	rawMessage?: {
+		from: HexString
+		content: HexString
+		ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY" | "ECDSA_HASH_FUNCTION_SHA256"
+	}
 }
 
-export interface SimplexSigner {
+export interface SigningAccount {
 	mode: "privateKey" | "mpcVault"
 	account: Account
 	signBidMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
+	signAuthorizationHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 }
+
+// Backward-compat alias while call sites migrate.
+export type SimplexSigner = SigningAccount

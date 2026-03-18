@@ -21,7 +21,7 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
-import { initializeSignerFromToml, SignerType, type SignerConfig } from "@/services/wallet"
+import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
 import type { Account } from "viem/accounts"
@@ -517,20 +517,6 @@ function validateConfig(config: FillerTomlConfig): void {
 
 	if (!signer && !allChainsWatchOnly) {
 		throw new Error("Signer configuration is required via [simplex.signer]")
-	}
-
-	if (signer?.type === SignerType.PrivateKey) {
-		if (!signer.privateKey) {
-			throw new Error("simplex.signer.privateKey is required when simplex.signer.type=privateKey")
-		}
-	} else if (signer?.type === SignerType.MpcVault) {
-		const mpcVault = signer.mpcVault
-		if (!mpcVault?.apiToken) throw new Error("simplex.signer.mpcVault.apiToken is required")
-		if (!mpcVault?.vaultUuid) throw new Error("simplex.signer.mpcVault.vaultUuid is required")
-		if (!mpcVault?.accountAddress) throw new Error("simplex.signer.mpcVault.accountAddress is required")
-		if (!mpcVault?.callbackClientSignerPublicKey) {
-			throw new Error("simplex.signer.mpcVault.callbackClientSignerPublicKey is required")
-		}
 	}
 
 	if ((!config.strategies || config.strategies.length === 0) && !allChainsWatchOnly) {

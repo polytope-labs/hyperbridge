@@ -14,7 +14,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
-import { formatUnits, parseUnits, keccak256, encodePacked, concat } from "viem"
+import { formatUnits, parseUnits, keccak256, encodePacked } from "viem"
 import { getLogger } from "@/services/Logger"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { type CachedPairClassification } from "@/services/CacheService"
@@ -118,17 +118,10 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Compute pair ID from token symbols.
-	 * Hashes each symbol to H256, then hashes the concatenation to match
-	 * the pallet's TokenPair::pair_id() = keccak256(base_H256 || quote_H256).
-	 *
-	 * Governance registers pairs with base = keccak256(baseSymbol),
-	 * quote = keccak256(quoteSymbol), producing the same pair_id.
+	 * Compute pair ID from token symbols: keccak256("baseSymbol/quoteSymbol")
 	 */
 	private computeSymbolPairId(baseSymbol: string, quoteSymbol: string): HexString {
-		const base = keccak256(encodePacked(["string"], [baseSymbol]))
-		const quote = keccak256(encodePacked(["string"], [quoteSymbol]))
-		return keccak256(concat([base as `0x${string}`, quote as `0x${string}`])) as HexString
+		return keccak256(encodePacked(["string"], [`${baseSymbol}/${quoteSymbol}`])) as HexString
 	}
 
 	/**
@@ -156,31 +149,59 @@ export class FXFiller implements FillerStrategy {
 
 			const cp = await coprocessor
 
+			// Query the on-chain max price entries per extrinsic
+			const maxEntries = cp.getMaxPriceEntries()
+			this.logger.info({ maxEntries }, "On-chain MaxPriceEntries")
+
 			// Ask pair
 			const askPairId = this.computeSymbolPairId(stableSymbol, exoticSymbol)
 			const askEntries = this.buildAskPriceEntries()
-			if (askEntries.length > 0) {
-				const askResult = await cp.submitPairPrice(askPairId, askEntries)
-				if (askResult.success) {
-					this.logger.info({ pairId: askPairId, direction: "ask", blockHash: askResult.blockHash, entryCount: askEntries.length }, "Ask prices submitted")
-				} else {
-					this.logger.error({ pairId: askPairId, direction: "ask", error: askResult.error }, "Failed to submit ask prices")
-				}
-			}
+			await this.submitEntriesInChunks(cp, askPairId, askEntries, maxEntries, "ask")
 
 			// Bid pair
 			const bidPairId = this.computeSymbolPairId(exoticSymbol, stableSymbol)
 			const bidEntries = this.buildBidPriceEntries()
-			if (bidEntries.length > 0) {
-				const bidResult = await cp.submitPairPrice(bidPairId, bidEntries)
-				if (bidResult.success) {
-					this.logger.info({ pairId: bidPairId, direction: "bid", blockHash: bidResult.blockHash, entryCount: bidEntries.length }, "Bid prices submitted")
-				} else {
-					this.logger.error({ pairId: bidPairId, direction: "bid", error: bidResult.error }, "Failed to submit bid prices")
-				}
-			}
+			await this.submitEntriesInChunks(cp, bidPairId, bidEntries, maxEntries, "bid")
 		} catch (err) {
 			this.logger.error({ err }, "Error submitting initial prices")
+		}
+	}
+
+	/**
+	 * Submit price entries in chunks respecting the on-chain MaxPriceEntries limit.
+	 */
+	private async submitEntriesInChunks(
+		cp: IntentsCoprocessor,
+		pairId: HexString,
+		entries: PriceInput[],
+		maxEntries: number,
+		direction: string,
+	): Promise<void> {
+		if (entries.length === 0) return
+
+		const chunks: PriceInput[][] = []
+		for (let i = 0; i < entries.length; i += maxEntries) {
+			chunks.push(entries.slice(i, i + maxEntries))
+		}
+
+		this.logger.info(
+			{ pairId, direction, totalEntries: entries.length, chunks: chunks.length, maxEntries },
+			"Submitting price entries",
+		)
+
+		for (let i = 0; i < chunks.length; i++) {
+			const result = await cp.submitPairPrice(pairId, chunks[i])
+			if (result.success) {
+				this.logger.info(
+					{ pairId, direction, chunk: i + 1, of: chunks.length, blockHash: result.blockHash, entryCount: chunks[i].length },
+					"Price chunk submitted",
+				)
+			} else {
+				this.logger.error(
+					{ pairId, direction, chunk: i + 1, of: chunks.length, error: result.error },
+					"Failed to submit price chunk",
+				)
+			}
 		}
 	}
 

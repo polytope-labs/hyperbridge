@@ -47,7 +47,7 @@ pub use weights::WeightInfo;
 
 use types::{
 	Bid, GatewayInfo, IntentGatewayParams, PriceEntry, PriceInput, RequestKind,
-	TokenDecimalsUpdate, TokenInfo, TokenPair,
+	TokenDecimalsUpdate, TokenInfo,
 };
 
 // Re-export pallet items so that they can be accessed from the crate namespace.
@@ -132,8 +132,7 @@ pub mod pallet {
 
 	/// Recognized token pairs for price tracking
 	#[pallet::storage]
-	pub type RecognizedPairs<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, TokenPair, OptionQuery>;
+	pub type RecognizedPairs<T: Config> = StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
 
 	/// Start timestamp (in seconds) of the current price window
 	#[pallet::storage]
@@ -146,7 +145,7 @@ pub mod pallet {
 	/// Price entries per pair
 	#[pallet::storage]
 	pub type Prices<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, BTreeSet<PriceEntry>, ValueQuery>;
+		CountedStorageMap<_, Blake2_128Concat, H256, BTreeSet<PriceEntry>, ValueQuery>;
 
 	/// Deposits reserved by price submitters. Maps (account, pair_id) to
 	/// (deposit_amount, unlock_block). When `unlock_block` is `None`, the withdrawal
@@ -199,7 +198,7 @@ pub mod pallet {
 
 			if window_start == 0 || now.saturating_sub(window_start) >= window_duration_secs {
 				PriceWindowStart::<T>::put(now);
-				let _ = PricesClearedThisWindow::<T>::clear(u32::MAX, None);
+				let _ = PricesClearedThisWindow::<T>::clear(Prices::<T>::count(), None);
 
 				T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(2))
 			} else {
@@ -237,7 +236,7 @@ pub mod pallet {
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
 		/// A recognized token pair was added
-		RecognizedPairAdded { pair_id: H256, pair: TokenPair },
+		RecognizedPairAdded { pair_id: H256 },
 		/// A recognized token pair was removed
 		RecognizedPairRemoved { pair_id: H256 },
 		/// Prices were submitted for a token pair
@@ -598,7 +597,7 @@ pub mod pallet {
 				entries.iter().all(|e| e.range_start <= e.range_end),
 				Error::<T>::InvalidPriceRange
 			);
-			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
+			ensure!(RecognizedPairs::<T>::get(&pair_id), Error::<T>::PairNotRecognized);
 
 			let deposit_amount = PriceDepositAmount::<T>::get();
 			ensure!(!deposit_amount.is_zero(), Error::<T>::PriceDepositsNotConfigured);
@@ -606,8 +605,6 @@ pub mod pallet {
 			if let Some((_, Some(_unlock_block))) = PriceDeposits::<T>::get(&submitter, &pair_id) {
 				return Err(Error::<T>::WithdrawalInProgress.into());
 			}
-
-			let now = T::Dispatcher::default().timestamp().as_secs();
 
 			// Reserve deposit on first submission per (account, pair)
 			if !PriceDeposits::<T>::contains_key(&submitter, &pair_id) {
@@ -629,12 +626,13 @@ pub mod pallet {
 
 			Self::maybe_clear_stale_prices(&pair_id);
 
+			let filler: H256 = H256::from_slice(&submitter.encode()[..32]);
 			Prices::<T>::mutate(&pair_id, |stored| {
 				stored.extend(entries.iter().map(|input| PriceEntry {
 					range_start: input.range_start,
 					range_end: input.range_end,
 					price: input.price,
-					timestamp: now,
+					filler,
 				}));
 			});
 
@@ -646,15 +644,14 @@ pub mod pallet {
 		/// Add a recognized token pair for price tracking
 		#[pallet::call_index(8)]
 		#[pallet::weight(T::DbWeight::get().reads(1).saturating_add(T::DbWeight::get().writes(1)))]
-		pub fn add_recognized_pair(origin: OriginFor<T>, pair: TokenPair) -> DispatchResult {
+		pub fn add_recognized_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			let pair_id = pair.pair_id();
-			ensure!(!RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairAlreadyExists);
+			ensure!(!RecognizedPairs::<T>::get(&pair_id), Error::<T>::PairAlreadyExists);
 
-			RecognizedPairs::<T>::insert(&pair_id, &pair);
+			RecognizedPairs::<T>::insert(&pair_id, true);
 
-			Self::deposit_event(Event::RecognizedPairAdded { pair_id, pair });
+			Self::deposit_event(Event::RecognizedPairAdded { pair_id });
 
 			Ok(())
 		}
@@ -665,7 +662,7 @@ pub mod pallet {
 		pub fn remove_recognized_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			ensure!(RecognizedPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRecognized);
+			ensure!(RecognizedPairs::<T>::get(&pair_id), Error::<T>::PairNotRecognized);
 
 			RecognizedPairs::<T>::remove(&pair_id);
 			Prices::<T>::remove(&pair_id);

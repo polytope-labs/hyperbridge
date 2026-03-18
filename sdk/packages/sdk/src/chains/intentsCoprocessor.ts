@@ -338,6 +338,10 @@ export class IntentsCoprocessor {
 	 * @param entries - Array of price entries with range and price data
 	 * @returns BidSubmissionResult with success status and block/extrinsic hash
 	 */
+	getMaxPriceEntries(): number {
+		return (this.api.consts.intentsCoprocessor as any).maxPriceEntries.toNumber()
+	}
+
 	async submitPairPrice(pairId: HexString, entries: PriceInput[]): Promise<BidSubmissionResult> {
 		try {
 			// Encode entries as a Vec of (U256, U256, U256) tuples for the pallet

@@ -545,11 +545,10 @@ fn multiple_fillers_can_bid_on_same_order() {
 #[test]
 fn remove_recognized_pair_works() {
 	new_test_ext().execute_with(|| {
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		Prices::<Test>::insert(
 			&pair_id,
@@ -557,13 +556,13 @@ fn remove_recognized_pair_works() {
 				range_start: U256::zero(),
 				range_end: U256::from(999),
 				price: U256::from(1000),
-				timestamp: 1000,
+				filler: H256::from_low_u64_be(1),
 			}]),
 		);
 
 		assert_ok!(Intents::remove_recognized_pair(RuntimeOrigin::root(), pair_id));
 
-		assert!(RecognizedPairs::<Test>::get(&pair_id).is_none());
+		assert!(!RecognizedPairs::<Test>::get(&pair_id));
 		assert!(Prices::<Test>::get(&pair_id).is_empty());
 	});
 }
@@ -573,10 +572,9 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -618,10 +616,9 @@ fn submit_pair_price_second_submission_is_free() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -671,10 +668,9 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([4; 32]); // no balance
 
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -697,10 +693,9 @@ fn withdraw_price_deposit_two_phase() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -763,10 +758,9 @@ fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -832,10 +826,9 @@ fn set_price_deposit_lock_duration_works() {
 fn prices_persist_across_window_and_clear_on_first_submission() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		// Simulate day 1: store some prices
 		Prices::<Test>::insert(
@@ -844,7 +837,7 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 				range_start: U256::zero(),
 				range_end: U256::from(999),
 				price: U256::from(1666),
-				timestamp: 1000,
+				filler: H256::from_low_u64_be(1),
 			}]),
 		);
 
@@ -888,23 +881,23 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 
 #[test]
 fn price_entry_encoding_matches_rpc_tuple_decoding() {
-	// The RPC decodes PriceEntry as Vec<(U256, U256, U256, u64)>.
+	// The RPC decodes PriceEntry as Vec<(U256, U256, U256, H256)>.
 	// Verify that PriceEntry's SCALE encoding is identical to the tuple encoding.
 	use codec::Encode;
 
 	let range_start = U256::zero();
 	let range_end = U256::from(999);
 	let price = U256::from(42_000);
-	let timestamp = 1_700_000_000u64;
+	let filler = H256::from_low_u64_be(1);
 
-	let entry = PriceEntry { range_start, range_end, price, timestamp };
+	let entry = PriceEntry { range_start, range_end, price, filler };
 
 	let entry_bytes = entry.encode();
-	let tuple_bytes = (range_start, range_end, price, timestamp).encode();
+	let tuple_bytes = (range_start, range_end, price, filler).encode();
 	assert_eq!(entry_bytes, tuple_bytes, "PriceEntry SCALE encoding must match tuple encoding");
 
 	// Also verify round-trip: encode as PriceEntry, decode as tuple
-	type RpcTuple = (U256, U256, U256, u64);
+	type RpcTuple = (U256, U256, U256, H256);
 	let entries = vec![entry];
 	let encoded = entries.encode();
 	let decoded: Vec<RpcTuple> = Decode::decode(&mut &encoded[..]).unwrap();
@@ -912,27 +905,26 @@ fn price_entry_encoding_matches_rpc_tuple_decoding() {
 	assert_eq!(decoded[0].0, range_start);
 	assert_eq!(decoded[0].1, range_end);
 	assert_eq!(decoded[0].2, price);
-	assert_eq!(decoded[0].3, timestamp);
+	assert_eq!(decoded[0].3, filler);
 }
 
 #[test]
 fn price_entry_storage_roundtrip_via_raw_key() {
 	new_test_ext().execute_with(|| {
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 
 		let entry1 = types::PriceEntry {
 			range_start: U256::zero(),
 			range_end: U256::from(999),
 			price: U256::from(2000),
-			timestamp: 1000,
+			filler: H256::from_low_u64_be(1),
 		};
 		let entry2 = types::PriceEntry {
 			range_start: U256::from(1000),
 			range_end: U256::from(5000),
 			price: U256::from(3000),
-			timestamp: 2000,
+			filler: H256::from_low_u64_be(2),
 		};
 
 		Prices::<Test>::insert(&pair_id, BTreeSet::from([entry1.clone(), entry2.clone()]));
@@ -949,17 +941,17 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 
 		let raw = sp_io::storage::get(&key).expect("Prices storage should exist");
 
-		type RpcTuple = (U256, U256, U256, u64);
+		type RpcTuple = (U256, U256, U256, H256);
 		let decoded: Vec<RpcTuple> = Decode::decode(&mut &raw[..]).unwrap();
 		assert_eq!(decoded.len(), 2);
 		assert_eq!(decoded[0].0, U256::zero());
 		assert_eq!(decoded[0].1, U256::from(999));
 		assert_eq!(decoded[0].2, U256::from(2000));
-		assert_eq!(decoded[0].3, 1000u64);
+		assert_eq!(decoded[0].3, H256::from_low_u64_be(1));
 		assert_eq!(decoded[1].0, U256::from(1000));
 		assert_eq!(decoded[1].1, U256::from(5000));
 		assert_eq!(decoded[1].2, U256::from(3000));
-		assert_eq!(decoded[1].3, 2000u64);
+		assert_eq!(decoded[1].3, H256::from_low_u64_be(2));
 	});
 }
 
@@ -969,10 +961,9 @@ fn multiple_submitters_independent_deposits() {
 		let submitter1 = AccountId32::new([1; 32]);
 		let submitter2 = AccountId32::new([2; 32]);
 
-		let pair =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair_id = pair.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		let pair_id =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -1018,14 +1009,12 @@ fn separate_deposits_per_pair() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
 
-		let pair1 =
-			types::TokenPair { base: H256::from_low_u64_be(1), quote: H256::from_low_u64_be(2) };
-		let pair2 =
-			types::TokenPair { base: H256::from_low_u64_be(3), quote: H256::from_low_u64_be(4) };
-		let pair_id1 = pair1.pair_id();
-		let pair_id2 = pair2.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair1));
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair2));
+		let pair_id1 =
+			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		let pair_id2 =
+			types::TokenPair { base: b"TOKEN_C".to_vec(), quote: b"TOKEN_D".to_vec() }.pair_id();
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id1));
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id2));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -1085,11 +1074,10 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 		let submitter: AccountId = AccountId::from([1u8; 32]);
 		let deposit_amount = 100u64;
 
-		let pair =
-			TokenPair { base: H256::from_low_u64_be(0xAAAA), quote: H256::from_low_u64_be(0xBBBB) };
+		let pair = types::TokenPair { base: b"TOKEN_X".to_vec(), quote: b"TOKEN_Y".to_vec() };
 		let pair_id = pair.pair_id();
 
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair));
+		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 		PriceDepositAmount::<Test>::put(deposit_amount);
 		PriceDepositLockDuration::<Test>::put(10u64);
 

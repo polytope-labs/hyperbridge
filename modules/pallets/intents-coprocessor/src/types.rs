@@ -142,28 +142,27 @@ pub struct Bid<AccountId> {
 	/// The signed user operation (opaque bytes)
 	pub user_op: Vec<u8>,
 }
-
 /// A recognized token pair for price tracking
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct TokenPair {
-	/// The base token address
-	pub base: H256,
-	/// The quote token address
-	pub quote: H256,
+	/// The base token symbol (e.g. "USDC")
+	pub base: Vec<u8>,
+	/// The quote token symbol (e.g. "cNGN")
+	pub quote: Vec<u8>,
 }
 
 impl TokenPair {
-	/// Compute a unique identifier for this token pair
+	/// Compute a unique identifier: keccak256("base/quote")
 	pub fn pair_id(&self) -> H256 {
-		let mut data = alloc::vec::Vec::with_capacity(64);
-		data.extend_from_slice(&self.base.0);
-		data.extend_from_slice(&self.quote.0);
+		let mut data = Vec::with_capacity(self.base.len() + 1 + self.quote.len());
+		data.extend_from_slice(&self.base);
+		data.push(b'/');
+		data.extend_from_slice(&self.quote);
 		sp_io::hashing::keccak_256(&data).into()
 	}
 }
 
 /// Caller-provided price data for a specific range of base token amounts.
-/// The pallet adds a timestamp when storing.
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct PriceInput {
 	/// Lower bound of the base token amount range (inclusive), with 18 decimal places
@@ -187,8 +186,8 @@ pub struct PriceEntry {
 	pub range_end: U256,
 	/// The price of the base token in the quote token, with 18 decimal places
 	pub price: U256,
-	/// Timestamp of submission (seconds)
-	pub timestamp: u64,
+	/// The filler (submitter) address
+	pub filler: H256,
 }
 
 impl IntentGatewayParams {

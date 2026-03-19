@@ -58,7 +58,6 @@ export class Usdt0Rebalancer {
 
 		const publicClient = this.chainClientManager.getPublicClient(source)
 		const walletClient = this.chainClientManager.getWalletClient(source)
-		const account = this.account
 		const recipient = recipientAddress || this.account.address
 		const amountWei = parseUnits(amount, 6)
 
@@ -67,7 +66,7 @@ export class Usdt0Rebalancer {
 				address: tokenAddress as `0x${string}`,
 				abi: ERC20_ABI,
 				functionName: "allowance",
-				args: [account.address, oftAddress],
+				args: [this.account.address, oftAddress],
 			})
 			if (allowance < amountWei) {
 				const approveTx = await walletClient.writeContract({
@@ -75,7 +74,6 @@ export class Usdt0Rebalancer {
 					abi: ERC20_ABI,
 					functionName: "approve",
 					args: [oftAddress, maxUint256],
-					account,
 					chain: walletClient.chain,
 				})
 				await publicClient.waitForTransactionReceipt({ hash: approveTx, confirmations: 1 })
@@ -114,7 +112,6 @@ export class Usdt0Rebalancer {
 			functionName: "send",
 			args: [sendParam, msgFee, recipient],
 			value: msgFee.nativeFee,
-			account,
 			chain: walletClient.chain,
 		})
 

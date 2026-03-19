@@ -616,12 +616,7 @@ async function setUpMainnetFx() {
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		chainConfigService,
-		signer,
-		cacheService,
-	)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const polygonWalletClient = chainClientManager.getWalletClient(polygonMainnetId)
 	const polygonPublicClient = chainClientManager.getPublicClient(polygonMainnetId)
@@ -673,12 +668,7 @@ async function setUpMainnetFxBase() {
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		chainConfigService,
-		signer,
-		cacheService,
-	)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const baseWalletClient = chainClientManager.getWalletClient(baseMainnetId)
 	const basePublicClient = chainClientManager.getPublicClient(baseMainnetId)
@@ -730,12 +720,7 @@ async function setUpMainnetFxArbitrum() {
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		chainConfigService,
-		signer,
-		cacheService,
-	)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const arbitrumWalletClient = chainClientManager.getWalletClient(arbitrumMainnetId)
 	const arbitrumPublicClient = chainClientManager.getPublicClient(arbitrumMainnetId)
@@ -789,12 +774,7 @@ async function setUpMainnetFxArbitrumToBase() {
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		chainConfigService,
-		signer,
-		cacheService,
-	)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const arbitrumWalletClient = chainClientManager.getWalletClient(arbitrumMainnetId)
 	const arbitrumPublicClient = chainClientManager.getPublicClient(arbitrumMainnetId)

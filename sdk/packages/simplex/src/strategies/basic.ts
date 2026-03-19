@@ -406,21 +406,19 @@ export class BasicFiller implements FillerStrategy {
 				return acc
 			}, 0n) + nativeDispatchFee
 
-		const account = this.signer.account
+		const fillerAddress = this.signer.account.address
 		const tx = await walletClient
 			.sendTransaction({
-				account,
-				to: account.address,
+				to: fillerAddress,
 				data: callData,
 				value: nativeValue,
 				chain: walletClient.chain,
 				gas: callGasLimit + (callGasLimit * 2500n) / 10000n,
 			})
-            .catch(async (err) => {
-                this.logger.error({ err }, "Could not send transaction")
+			.catch(async (err) => {
+				this.logger.error({ err }, "Could not send transaction")
 				return await walletClient.sendTransaction({
-					account,
-					to: account.address,
+					to: fillerAddress,
 					data: callData,
 					value: nativeValue,
 					chain: walletClient.chain,

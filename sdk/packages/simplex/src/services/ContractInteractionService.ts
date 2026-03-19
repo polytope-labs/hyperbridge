@@ -449,7 +449,6 @@ export class ContractInteractionService {
 			args: [this.solverAccountAddress],
 			value: amount,
 			chain: walletClient.chain,
-			account: this.signer.account,
 		})
 
 		const receipt = await publicClient.waitForTransactionReceipt({ hash })
@@ -491,7 +490,6 @@ export class ContractInteractionService {
 			functionName: "withdrawTo",
 			args: [this.solverAccountAddress, balance],
 			chain: walletClient.chain,
-			account: this.signer.account,
 		})
 
 		const receipt = await publicClient.waitForTransactionReceipt({ hash })

@@ -69,14 +69,13 @@ export class DelegationService {
 			yParity: number
 		},
 	): Promise<HexString> {
-		const authority = this.signer.account
+		const authorityAddress = this.signer.account.address
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		if (this.signer.mode === "mpcVault") {
 			const txRequest = await walletClient.prepareTransactionRequest({
-				account: authority,
-				to: authority.address,
+				to: authorityAddress,
 				value: 0n,
 				authorizationList: [authorization],
 				chain: walletClient.chain,
@@ -100,8 +99,7 @@ export class DelegationService {
 		}
 
 		return (await walletClient.sendTransaction({
-			account: authority,
-			to: authority.address,
+			to: authorityAddress,
 			value: 0n,
 			authorizationList: [authorization],
 			chain: walletClient.chain,

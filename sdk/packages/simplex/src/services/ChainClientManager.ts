@@ -1,4 +1,12 @@
-import { PublicClient, WalletClient, createPublicClient, createWalletClient, http, type Chain } from "viem"
+import {
+	PublicClient,
+	WalletClient,
+	createPublicClient,
+	createWalletClient,
+	http,
+	type Chain,
+	type Transport,
+} from "viem"
 import { generatePrivateKey } from "viem/accounts"
 import { Order, ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
@@ -11,7 +19,7 @@ import { createSimplexSigner, SignerType } from "./wallet"
  */
 class ViemClientFactoryImpl {
 	private publicClients: Map<number, PublicClient> = new Map()
-	private walletClients: Map<number, WalletClient> = new Map()
+	private walletClients: Map<number, WalletClient<Transport, Chain, Account>> = new Map()
 
 	public getPublicClient(chainConfig: ChainConfig): PublicClient {
 		if (!this.publicClients.has(chainConfig.chainId)) {
@@ -32,7 +40,7 @@ class ViemClientFactoryImpl {
 		return this.publicClients.get(chainConfig.chainId)!
 	}
 
-	public getWalletClient(chainConfig: ChainConfig, account: Account): WalletClient {
+	public getWalletClient(chainConfig: ChainConfig, account: Account): WalletClient<Transport, Chain, Account> {
 		if (!this.walletClients.has(chainConfig.chainId)) {
 			const chain = getViemChain(chainConfig.chainId) as Chain
 
@@ -67,10 +75,12 @@ export class ChainClientManager {
 	constructor(configService: FillerConfigService, signer?: SigningAccount) {
 		this.configService = configService
 		this.clientFactory = ViemClientFactory
-		this.signer = signer ?? createSimplexSigner({
-			type: SignerType.PrivateKey,
-			privateKey: generatePrivateKey(),
-		})
+		this.signer =
+			signer ??
+			createSimplexSigner({
+				type: SignerType.PrivateKey,
+				privateKey: generatePrivateKey(),
+			})
 	}
 
 	getPublicClient(chain: string): PublicClient {
@@ -78,7 +88,7 @@ export class ChainClientManager {
 		return this.clientFactory.getPublicClient(config)
 	}
 
-	getWalletClient(chain: string): WalletClient {
+	getWalletClient(chain: string): WalletClient<Transport, Chain, Account> {
 		const config = this.configService.getChainConfig(chain)
 		return this.clientFactory.getWalletClient(config, this.signer.account)
 	}
@@ -94,7 +104,7 @@ export class ChainClientManager {
 	getClientsForOrder(order: Order): {
 		destClient: PublicClient
 		sourceClient: PublicClient
-		walletClient: WalletClient
+		walletClient: WalletClient<Transport, Chain, Account>
 	} {
 		return {
 			destClient: this.getPublicClient(order.destination),

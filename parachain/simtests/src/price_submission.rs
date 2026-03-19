@@ -80,9 +80,9 @@ fn encode_submit_pair_price(pair_id: H256, entries: Vec<PriceInput>) -> Vec<u8> 
 
 /// Manually encode a call to `IntentsCoprocessor::add_recognized_pair`.
 /// Pallet index 65, call index 8.
-fn encode_add_recognized_pair(pair: &TokenPair) -> Vec<u8> {
+fn encode_add_recognized_pair(pair_id: H256) -> Vec<u8> {
 	let mut data = vec![65u8, 8u8];
-	data.extend_from_slice(&pair.encode());
+	data.extend_from_slice(&pair_id.encode());
 	data
 }
 
@@ -124,9 +124,7 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	let url = &format!("ws://127.0.0.1:{}", port);
 	let (client, rpc_client) = subxt_utils::client::ws_client::<Hyperbridge>(url, u32::MAX).await?;
 
-	let base = H256::from_low_u64_be(0xAAAA);
-	let quote = H256::from_low_u64_be(0xBBBB);
-	let pair = TokenPair { base, quote };
+	let pair = TokenPair { base: b"USDC".to_vec(), quote: b"cNGN".to_vec() };
 	let pair_id = pair.pair_id();
 
 	// 1 unit = 10^18 in raw representation
@@ -138,22 +136,18 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	// Lock duration: 5 blocks
 	let lock_duration: u32 = 5;
 
-	// Price entries: 0-999 at 1414.5, 1000-5000 at 1420
+	// Price entries: amount thresholds with corresponding prices
+	// Entry 1: amount=0 at price 1414.5, Entry 2: amount=1000 at price 1420
 	let price_entries = vec![
 		PriceInput {
-			range_start: U256::zero(),
-			range_end: U256::from(999) * one_unit,
+			amount: U256::zero(),
 			price: U256::from(14145) * one_unit / U256::from(10), // 1414.5 * 10^18
 		},
-		PriceInput {
-			range_start: U256::from(1000) * one_unit,
-			range_end: U256::from(5000) * one_unit,
-			price: U256::from(1420) * one_unit,
-		},
+		PriceInput { amount: U256::from(1000) * one_unit, price: U256::from(1420) * one_unit },
 	];
 
 	// Add recognized pair
-	sudo_raw_and_finalize(&client, &rpc_client, encode_add_recognized_pair(&pair)).await?;
+	sudo_raw_and_finalize(&client, &rpc_client, encode_add_recognized_pair(pair_id)).await?;
 	println!("Recognized pair added: {pair_id:?}");
 
 	// Set deposit amount
@@ -181,19 +175,17 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 
 	assert_eq!(prices.len(), 2, "expected 2 price entries");
 
-	// Verify first entry: 0-999 at 1414.5
-	assert_eq!(prices[0].range_start, "0", "range1 start should be 0");
-	assert_eq!(prices[0].range_end, "999", "range1 end should be 999");
+	// Verify first entry: amount=0 at price 1414.5
+	assert_eq!(prices[0].amount, "0", "amount1 should be 0");
 	assert_eq!(prices[0].price, "1414.5", "price1 should be 1414.5 (decimals preserved)");
 
-	// Verify second entry: 1000-5000 at 1420
-	assert_eq!(prices[1].range_start, "1000", "range2 start should be 1000");
-	assert_eq!(prices[1].range_end, "5000", "range2 end should be 5000");
+	// Verify second entry: amount=1000 at price 1420
+	assert_eq!(prices[1].amount, "1000", "amount2 should be 1000");
 	assert_eq!(prices[1].price, "1420", "price2 should be 1420");
 
 	println!("RPC returns human-readable prices with decimals preserved");
-	println!("  entry[0]: {}-{} @ {}", prices[0].range_start, prices[0].range_end, prices[0].price);
-	println!("  entry[1]: {}-{} @ {}", prices[1].range_start, prices[1].range_end, prices[1].price);
+	println!("  entry[0]: amount={} @ {}", prices[0].amount, prices[0].price);
+	println!("  entry[1]: amount={} @ {}", prices[1].amount, prices[1].price);
 
 	// Initiate withdrawal
 	submit_raw_and_finalize(

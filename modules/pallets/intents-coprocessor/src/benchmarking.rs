@@ -201,7 +201,7 @@ mod benchmarks {
 	}
 
 	#[benchmark]
-	fn submit_pair_price() {
+	fn submit_pair_price(n: Linear<1, 100>) {
 		let caller: T::AccountId = whitelisted_caller();
 		let pair_id = H256::repeat_byte(0xaa);
 
@@ -215,9 +215,9 @@ mod benchmarks {
 		PriceDepositLockDuration::<T>::put(BlockNumberFor::<T>::from(10u32));
 		PriceWindowDurationValue::<T>::put(86_400_000u64);
 
-		let max = T::MaxPriceEntries::get();
+		let count = n.min(T::MaxPriceEntries::get());
 		let mut entries_vec = vec![];
-		for i in 0..max {
+		for i in 0..count {
 			entries_vec
 				.push(PriceInput { amount: U256::from(i * 1000), price: U256::from(2000 + i) });
 		}

@@ -62,6 +62,8 @@ export class FXFiller implements FillerStrategy {
 	private askPricePolicy: FillerPricePolicy
 	/** Maps chain identifier → exotic token address (e.g. cNGN on each supported chain) */
 	private exoticTokenAddresses: Record<string, HexString>
+	/** Maps chain identifier → stablecoin address used by this strategy (e.g. USDC or USDT) */
+	private stablecoinAddresses: Record<string, HexString>
 	private maxOrderUsd: Decimal
 	private account: ReturnType<typeof privateKeyToAccount>
 	private logger = getLogger("fx-simplex")
@@ -83,6 +85,9 @@ export class FXFiller implements FillerStrategy {
 	 *                                the filler will only size its outputs as if the order were $5,000.
 	 * @param exoticTokenAddresses   Map of chain identifier → exotic token address.
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
+	 * @param stablecoinAddresses    Map of chain identifier → stablecoin address used by this strategy.
+	 *                                Example: `{ "EVM-56": "0xdef..." }` for USDC on BSC.
+	 *                                When USDT support is needed, just pass the USDT address instead.
 	 * @param confirmationPolicy     Optional per-chain confirmation policy for cross-chain orders.
 	 *                                If absent, no confirmation waiting is required.
 	 */
@@ -95,6 +100,7 @@ export class FXFiller implements FillerStrategy {
 		askPricePolicy: FillerPricePolicy,
 		maxOrderUsdStr: string,
 		exoticTokenAddresses: Record<string, HexString>,
+		stablecoinAddresses: Record<string, HexString>,
 		confirmationPolicy?: ConfirmationPolicy,
 	) {
 		this.privateKey = privateKey
@@ -104,6 +110,7 @@ export class FXFiller implements FillerStrategy {
 		this.bidPricePolicy = bidPricePolicy
 		this.askPricePolicy = askPricePolicy
 		this.exoticTokenAddresses = exoticTokenAddresses
+		this.stablecoinAddresses = stablecoinAddresses
 		this.maxOrderUsd = new Decimal(maxOrderUsdStr)
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
@@ -115,6 +122,17 @@ export class FXFiller implements FillerStrategy {
 					confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 			}
 		}
+	}
+
+	/**
+	 * Get the stablecoin address configured for this strategy on the given chain.
+	 */
+	private getUsdToken(chain: string): HexString {
+		const addr = this.stablecoinAddresses[chain]
+		if (!addr) {
+			throw new Error(`Stablecoin address not configured for chain ${chain}`)
+		}
+		return addr
 	}
 
 	/**
@@ -138,10 +156,10 @@ export class FXFiller implements FillerStrategy {
 		try {
 			const chain = Object.keys(this.exoticTokenAddresses)[0]
 			const exoticAddress = this.exoticTokenAddresses[chain]
-			const usdcAddress = this.configService.getUsdcAsset(chain)
+			const stableAddress = this.getUsdToken(chain)
 
 			const [stableSymbol, exoticSymbol] = await Promise.all([
-				this.contractService.getTokenSymbol(usdcAddress, chain),
+				this.contractService.getTokenSymbol(stableAddress, chain),
 				this.contractService.getTokenSymbol(exoticAddress, chain),
 			])
 

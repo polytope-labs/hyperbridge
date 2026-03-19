@@ -866,6 +866,11 @@ function createCrossChainFxIntentFiller(
 		},
 	})
 
+	const stablecoinAddresses: Record<string, HexString> = {}
+	for (const id of chainIds) {
+		stablecoinAddresses[id] = chainConfigService.getUsdcAsset(id)
+	}
+
 	const fxStrategy = new FXFiller(
 		privateKey,
 		chainConfigService,
@@ -875,6 +880,7 @@ function createCrossChainFxIntentFiller(
 		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
+		stablecoinAddresses,
 		confirmationPolicy,
 	)
 
@@ -923,6 +929,11 @@ function createFxOnlyIntentFiller(
 	const extAsset = chainConfigService.getExtAsset(mainnetId)
 	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
+	const stablecoinAddresses: Record<string, HexString> = {}
+	if (mainnetId) {
+		stablecoinAddresses[mainnetId] = chainConfigService.getUsdcAsset(mainnetId)
+	}
+
 	const fxStrategy = new FXFiller(
 		privateKey,
 		chainConfigService,
@@ -932,6 +943,7 @@ function createFxOnlyIntentFiller(
 		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
+		stablecoinAddresses,
 	)
 
 	const strategies = [fxStrategy]

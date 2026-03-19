@@ -580,7 +580,7 @@ pub mod pallet {
 		/// Each entry in `entries` specifies a base token amount range and the
 		/// corresponding price of the base token in terms of the quote token.
 		#[pallet::call_index(7)]
-		#[pallet::weight(T::WeightInfo::submit_pair_price())]
+		#[pallet::weight(T::WeightInfo::submit_pair_price(entries.len() as u32))]
 		pub fn submit_pair_price(
 			origin: OriginFor<T>,
 			pair_id: H256,

@@ -42,7 +42,7 @@ pub trait WeightInfo {
 	fn sweep_dust() -> Weight;
 	fn update_token_decimals() -> Weight;
 	fn set_storage_deposit_fee() -> Weight;
-	fn submit_pair_price() -> Weight;
+	fn submit_pair_price(n: u32) -> Weight;
 	fn add_recognized_pair() -> Weight;
 	fn remove_recognized_pair() -> Weight;
 	fn set_price_window_duration() -> Weight;
@@ -122,9 +122,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 
 	/// Storage: RecognizedPairs (r:1 w:0), PriceDepositAmount (r:1 w:0),
 	/// PriceDeposits (r:1 w:1), PricesClearedThisWindow (r:1 w:1), Prices (r:1 w:1)
-	fn submit_pair_price() -> Weight {
+	fn submit_pair_price(n: u32) -> Weight {
 		Weight::from_parts(100_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 5000))
+			.saturating_add(Weight::from_parts(5_000_000u64.saturating_mul(n as u64), 0))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
@@ -193,7 +194,7 @@ impl WeightInfo for () {
 	fn set_storage_deposit_fee() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
-	fn submit_pair_price() -> Weight {
+	fn submit_pair_price(_n: u32) -> Weight {
 		Weight::from_parts(100_000_000, 0)
 	}
 	fn add_recognized_pair() -> Weight {

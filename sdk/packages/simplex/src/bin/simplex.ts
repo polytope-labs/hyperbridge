@@ -91,6 +91,8 @@ interface FxStrategyConfig {
 	maxOrderUsd: string
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
 	exoticTokenAddresses: Record<string, HexString>
+	/** Map of chain identifier (e.g. "EVM-97") to stablecoin address used by this strategy (USDC, USDT, etc.) */
+	stablecoinAddresses: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 }
@@ -408,6 +410,7 @@ program
 							askPricePolicy,
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
+							strategyConfig.stablecoinAddresses,
 							fxConfirmationPolicy,
 						)
 					}
@@ -618,6 +621,10 @@ function validateConfig(config: FillerTomlConfig): void {
 
 			if (!strategy.exoticTokenAddresses || Object.keys(strategy.exoticTokenAddresses).length === 0) {
 				throw new Error("FX strategy must have at least one entry in 'exoticTokenAddresses'")
+			}
+
+			if (!strategy.stablecoinAddresses || Object.keys(strategy.stablecoinAddresses).length === 0) {
+				throw new Error("FX strategy must have at least one entry in 'stablecoinAddresses'")
 			}
 
 			if (strategy.confirmationPolicies) {

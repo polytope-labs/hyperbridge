@@ -13,9 +13,9 @@ The intents system needs on-chain price data for token pairs to function correct
 
 The `submit_pair_price` extrinsic on the intents coprocessor pallet is the entry point for all price submissions. It accepts a pair ID and a bounded list of price entries. All prices and amount ranges are encoded as U256 values scaled by 10^18, giving 18 decimal places of precision.
 
-Submissions are batched. Each call accepts up to `MaxPriceEntries` entries (a compile-time constant configurable per runtime), where each entry specifies a base token amount range and the corresponding price of the base token in terms of the quote token. This makes it possible to quote different rates for different order sizes in a single transaction. For example, a submitter might quote USDC/CNGN at 1414 for orders between 0 and 999, and 1420 for orders between 1000 and 5000.
+Submissions are batched. Each call accepts up to `MaxPriceEntries` entries (a compile-time constant configurable per runtime), where each entry specifies an amount threshold and the corresponding price of the base token in terms of the quote token. This makes it possible to quote different rates for different order sizes in a single transaction. For example, a submitter might quote USDC/CNGN at 1414 for amounts starting at 0, and 1420 for amounts starting at 1000.
 
-Each price entry contains three fields. The `range_start` field is the lower bound of the base token amount range (inclusive). The `range_end` field is the upper bound (also inclusive). The `price` field is the cost of one unit of the base token in terms of the quote token. The pallet validates that `range_start` is less than or equal to `range_end` for every entry and rejects empty submissions. When stored on-chain, each entry becomes a `PriceEntry` that also includes the submission timestamp.
+Each price entry contains two fields. The `amount` field is the base token amount threshold at which this price applies. The `price` field is the cost of one unit of the base token in terms of the quote token. The pallet rejects empty submissions. When stored on-chain, each entry becomes a `PriceEntry` that also includes the filler's account ID.
 
 ## Deposit Model
 
@@ -45,7 +45,7 @@ Only governance-approved token pairs can receive price submissions. This prevent
 
 ## RPC
 
-The `intents_getPairPrices(pair_id)` RPC endpoint returns all price entries for a given token pair. The raw on-chain values (U256 scaled by 10^18) are converted to human-readable decimal strings with fractional precision preserved. For example, an on-chain value of 1414500000000000000000 is returned as the string "1414.5". Each returned entry includes the amount range boundaries (`range_start` and `range_end`), the `price`, and the submission `timestamp` in seconds.
+The `intents_getPairPrices(pair_id)` RPC endpoint returns all price entries for a given token pair. The raw on-chain values (U256 scaled by 10^18) are converted to human-readable decimal strings with fractional precision preserved. For example, an on-chain value of 1414500000000000000000 is returned as the string "1414.5". Each returned entry includes the `amount` threshold, the `price`, and the `filler` account.
 
 ## Simplex Filler Integration
 
@@ -61,7 +61,6 @@ Price submission is enabled by adding a `pairId` to the `hyperfx` strategy in th
 [[strategies]]
 type = "hyperfx"
 pairId = "0x..."                    # On-chain pair ID (keccak256 of base_address ++ quote_address)
-priceSubmissionIntervalSeconds = 300 # How often to submit prices (default: 300 = 5 minutes)
 maxOrderUsd = "5000"
 
 [[strategies.askPriceCurve]]
@@ -82,6 +81,9 @@ price = "1490"
 
 [strategies.exoticTokenAddresses]
 "EVM-56" = "0xabc..."
+
+[strategies.stablecoinAddresses]
+"EVM-56" = "0xdef..."
 ```
 
 The ask curve points are sorted by amount and each point becomes a price entry. The range for each entry spans from that point's amount to just below the next point's amount. The last point extends to a large upper bound. Amounts and prices are converted to 18-decimal format before submission.
@@ -100,8 +102,8 @@ const coprocessor = await IntentsCoprocessor.connect(wsUrl, substratePrivateKey)
 
 // Submit prices for a token pair (values in 18-decimal format)
 await coprocessor.submitPairPrice("0x...", [
-  { rangeStart: parseUnits("0", 18), rangeEnd: parseUnits("999", 18), price: parseUnits("1414", 18) },
-  { rangeStart: parseUnits("1000", 18), rangeEnd: parseUnits("5000", 18), price: parseUnits("1420", 18) },
+  { amount: parseUnits("0", 18), price: parseUnits("1414", 18) },
+  { amount: parseUnits("1000", 18), price: parseUnits("1420", 18) },
 ])
 
 // Withdraw deposit (two-phase):

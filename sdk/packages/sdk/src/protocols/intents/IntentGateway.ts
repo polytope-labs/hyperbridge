@@ -267,20 +267,6 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Quotes the native token cost for cancelling an order.
-	 *
-	 * Delegates to {@link OrderCanceller.quoteCancelNative}.
-	 *
-	 * @param order - The order to quote cancellation for.
-	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
-	 *   Defaults to `false` (source-side cancellation).
-	 * @returns The native token amount required to submit the cancel transaction.
-	 */
-	async quoteCancelNative(order: Order, fromDest: boolean = false): Promise<bigint> {
-		return this.orderCanceller.quoteCancelNative(order, fromDest)
-	}
-
-	/**
 	 * Returns both the native token cost and the relayer fee for cancelling an
 	 * order. Use `relayerFee` to approve the ERC-20 spend before submitting.
 	 *

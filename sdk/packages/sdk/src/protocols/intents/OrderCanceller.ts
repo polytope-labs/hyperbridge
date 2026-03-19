@@ -51,22 +51,6 @@ export class OrderCanceller {
 	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
-	 * Quotes the native token cost of cancelling an order from the given chain.
-	 *
-	 * For same-chain orders the cost is zero. For cross-chain orders, the
-	 * quote covers the ISMP GET/POST dispatch fee.
-	 *
-	 * @param order - The order to quote a cancellation for.
-	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
-	 *   Defaults to `false` (source-side cancellation).
-	 * @returns The native token amount required to submit the cancel transaction.
-	 */
-	async quoteCancelNative(order: Order, fromDest: boolean = false): Promise<bigint> {
-		const quote = await this.quoteCancelOrder(order, fromDest)
-		return quote.nativeValue
-	}
-
-	/**
 	 * Returns both the native token cost and the relayer fee for cancelling an
 	 * order. Frontends can use `relayerFee` to approve the ERC-20 spend before
 	 * submitting the cancel transaction.

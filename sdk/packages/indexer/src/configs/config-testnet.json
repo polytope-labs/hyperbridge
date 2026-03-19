@@ -117,7 +117,7 @@
 		"chainId": "420420417",
 		"startBlock": 4749233,
 		"stateMachineId": "EVM-420420417",
-		"blockConfirmations": 5,
+		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0xbb26e04a71e7c12093e82b83ba310163eac186fa",
 			"handlerV1": "0x8b31a195c98ead34cf463a66f52942b6145a68a2",

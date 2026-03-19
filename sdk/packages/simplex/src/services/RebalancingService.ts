@@ -113,7 +113,7 @@ export class RebalancingService {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
 
-		this.walletAddress = this.chainClientManager.getAccount().address
+		this.walletAddress = this.chainClientManager.getSigner().account.address
 
 		this.cctpRebalancer = new CctpRebalancer(chainClientManager, configService)
 		this.usdt0Rebalancer = new Usdt0Rebalancer(chainClientManager, configService)

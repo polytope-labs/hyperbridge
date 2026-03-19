@@ -1,5 +1,4 @@
 import { toHex, formatUnits, encodeFunctionData, maxUint256, formatEther } from "viem"
-import { privateKeyToAddress, type Account } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
 	HexString,
@@ -40,27 +39,18 @@ export class ContractInteractionService {
 	private logger = getLogger("contract-service")
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
-	private account: Account
-	private signBidMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
+	private signer: SigningAccount
 
 	constructor(
 		private clientManager: ChainClientManager,
 		configService: FillerConfigService,
-		signer?: SigningAccount,
+		signer: SigningAccount,
 		sharedCacheService?: CacheService,
 	) {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
-		this.account = signer?.account ?? this.clientManager.getAccount()
-		this.solverAccountAddress = this.account.address
-		this.signBidMessage =
-			signer?.signBidMessage ??
-			((messageHash: HexString) => {
-				if (!this.account.signMessage) {
-					throw new Error("Configured account does not support signMessage")
-				}
-				return this.account.signMessage({ message: { raw: messageHash } })
-			})
+		this.signer = signer
+		this.solverAccountAddress = this.signer.account.address
 		this.initCache()
 	}
 
@@ -459,7 +449,7 @@ export class ContractInteractionService {
 			args: [this.solverAccountAddress],
 			value: amount,
 			chain: walletClient.chain,
-			account: this.account,
+			account: this.signer.account,
 		})
 
 		const receipt = await publicClient.waitForTransactionReceipt({ hash })
@@ -501,7 +491,7 @@ export class ContractInteractionService {
 			functionName: "withdrawTo",
 			args: [this.solverAccountAddress, balance],
 			chain: walletClient.chain,
-			account: this.account,
+			account: this.signer.account,
 		})
 
 		const receipt = await publicClient.waitForTransactionReceipt({ hash })
@@ -582,9 +572,7 @@ export class ContractInteractionService {
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
-			solverSigner: {
-				signMessage: this.signBidMessage,
-			},
+			solverSigner: this.signer,
 			nonce: cachedEstimate.nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,
@@ -593,7 +581,7 @@ export class ContractInteractionService {
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
 			callData,
-		} as any)
+		})
 
 		// Encode the UserOp as bytes for submission to Hyperbridge
 		const encodedUserOp = encodeUserOpScale(userOp)

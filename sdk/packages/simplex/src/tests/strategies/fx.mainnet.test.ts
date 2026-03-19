@@ -613,10 +613,9 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const account = privateKeyToAccount(privateKey)
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, account)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
 		chainConfigService,
@@ -671,10 +670,9 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const account = privateKeyToAccount(privateKey)
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, account)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
 		chainConfigService,
@@ -729,10 +727,9 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const account = privateKeyToAccount(privateKey)
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, account)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
 		chainConfigService,
@@ -789,10 +786,9 @@ async function setUpMainnetFxArbitrumToBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const account = privateKeyToAccount(privateKey)
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, account)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
 		chainConfigService,
@@ -832,9 +828,9 @@ function createCrossChainFxIntentFiller(
 	chainIds: string[],
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const account = privateKeyToAccount(privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, account)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
@@ -873,7 +869,7 @@ function createCrossChainFxIntentFiller(
 	})
 
 	const fxStrategy = new FXFiller(
-		account,
+		signer,
 		chainConfigService,
 		chainClientManager,
 		contractService,
@@ -894,7 +890,7 @@ function createCrossChainFxIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		account,
+		signer,
 		undefined,
 		bidStorage,
 	)
@@ -908,9 +904,9 @@ function createFxOnlyIntentFiller(
 	mainnetId: string,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const account = privateKeyToAccount(privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, account)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
 	// Bid: filler buys exotic from user → 1 USD = 10000 EXT (filler pays fewer USD per exotic)
 	// Ask: filler sells exotic to user → 1 USD = 9500 EXT (filler gives fewer exotic per USD = spread profit)
@@ -931,7 +927,7 @@ function createFxOnlyIntentFiller(
 	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
 	const fxStrategy = new FXFiller(
-		account,
+		signer,
 		chainConfigService,
 		chainClientManager,
 		contractService,
@@ -951,7 +947,7 @@ function createFxOnlyIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		account,
+		signer,
 		undefined,
 		bidStorage,
 	)

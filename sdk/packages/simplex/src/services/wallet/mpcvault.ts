@@ -204,7 +204,7 @@ export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: 
 				throw new Error("MPCVault signer requires message.raw for signMessage")
 			}
 			throw new Error(
-				"MPCVault signMessage requires chain-specific context. Use signBidMessage(messageHash, chainId).",
+				"MPCVault does not support signMessage without chain context. Use the top-level signMessage(messageHash, chainId).",
 			)
 		},
 		async signTransaction(transaction): Promise<HexString> {

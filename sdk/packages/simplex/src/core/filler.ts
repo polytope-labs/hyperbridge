@@ -10,7 +10,6 @@ import {
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { type Account } from "viem/accounts"
 import {
 	BidStorageService,
 	ChainClientManager,
@@ -40,8 +39,7 @@ export class IntentFiller {
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
-	private account: Account
-	private signer?: SigningAccount
+	private signer: SigningAccount
 	private fillerAddress: HexString
 	private logger = getLogger("intent-filler")
 
@@ -52,19 +50,17 @@ export class IntentFiller {
 		configService: FillerConfigService,
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		account: Account,
+		signer: SigningAccount,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
-		signer?: SigningAccount,
 	) {
 		this.configService = configService
-		this.account = account
-		this.fillerAddress = this.account.address
+		this.signer = signer
+		this.fillerAddress = this.signer.account.address
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
-		this.signer = signer
 		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
@@ -118,13 +114,6 @@ export class IntentFiller {
 
 		// Set up delegation service on chains where solver selection is active
 		if (chainsWithSolverSelection.length > 0 && this.hyperbridge) {
-			if (!this.signer) {
-				this.logger.warn(
-					{ chains: chainsWithSolverSelection },
-					"Skipping EIP-7702 delegation setup: no simplex signer configured",
-				)
-				return
-			}
 			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.signer)
 			this.logger.info(
 				{ chains: chainsWithSolverSelection },

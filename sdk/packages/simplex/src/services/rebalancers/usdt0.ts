@@ -40,7 +40,7 @@ export class Usdt0Rebalancer {
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account = this.chainClientManager.getAccount()
+		this.account = this.chainClientManager.getSigner().account
 		this.logger = getLogger("Usdt0Rebalancer")
 	}
 

@@ -1,7 +1,7 @@
 import { Wallet, WalletRestAPI } from "@binance/wallet"
 import { parseUnits, type Hex } from "viem"
-import type { Account } from "viem/accounts"
 import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
+import type { Account } from "viem/accounts"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger } from "@/services/Logger"
@@ -117,7 +117,7 @@ export class BinanceRebalancer {
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.account = this.chainClientManager.getAccount()
+		this.account = this.chainClientManager.getSigner().account
 		this.config = config
 		this.logger = getLogger("BinanceRebalancer")
 

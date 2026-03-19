@@ -1,6 +1,7 @@
 import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
 import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
+import type { Account } from "viem/accounts"
 import type HandlerV1 from "@/abis/handler"
 import type { IChain } from "@/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
@@ -1164,20 +1165,21 @@ export interface PackedUserOperation {
 	signature: HexString
 }
 
-export interface SolverBidSigner {
-	/** Abstract signer backend used for bid message signing. */
+export interface SigningAccount {
+	/** The viem Account backing this signer. */
+	account: Account
+	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
 	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
+	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
+	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 }
 
 export interface SubmitBidOptions {
 	order: Order
 	fillOptions: FillOptions
 	solverAccount: HexString
-	/**
-	 * Abstract signer for bid message signing.
-	 * Must return a 65-byte ECDSA signature over the raw `messageHash`.
-	 */
-	solverSigner: SolverBidSigner
+	/** Canonical signer used for bid message signing and raw-hash operations. */
+	solverSigner: SigningAccount
 	nonce: bigint
 	entryPointAddress: HexString
 	// Estimated gas for executing fillOrder calldata

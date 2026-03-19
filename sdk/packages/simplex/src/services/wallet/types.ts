@@ -1,5 +1,4 @@
-import type { HexString } from "@hyperbridge/sdk"
-import type { Account } from "viem/accounts"
+import type { HexString, SigningAccount as SdkSigningAccount } from "@hyperbridge/sdk"
 
 export interface MpcVaultError {
 	message?: string
@@ -91,12 +90,6 @@ export type CreateSigningRequestPayload = {
 	}
 }
 
-export interface SigningAccount {
+export interface SigningAccount extends SdkSigningAccount {
 	mode: "privateKey" | "mpcVault"
-	account: Account
-	signBidMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
-	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 }
-
-// Backward-compat alias while call sites migrate.
-export type SimplexSigner = SigningAccount

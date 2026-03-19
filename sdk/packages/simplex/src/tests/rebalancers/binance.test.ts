@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { ChainClientManager, FillerConfigService, type UserProvidedChainConfig } from "@/services"
 import { BinanceRebalancer, type UnifiedRebalanceOptions } from "@/services/rebalancers"
-import { privateKeyToAccount } from "viem/accounts"
+import { createSimplexSigner, SignerType } from "@/services/wallet"
 import "../setup"
 
 describe("BinanceRebalancer - CEX integration", () => {
@@ -26,8 +26,8 @@ describe("BinanceRebalancer - CEX integration", () => {
 	]
 
 	const configService = new FillerConfigService(chainConfigs)
-	const account = privateKeyToAccount(privateKey)
-	const chainClientManager = new ChainClientManager(configService, account)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const chainClientManager = new ChainClientManager(configService, signer)
 
 	// Travel rule questionnaire for self-transfer to own unhosted wallet (e.g. UAE)
 	// See Binance docs: https://developers.binance.com/docs/wallet/travel-rule/withdraw-questionnaire#uae

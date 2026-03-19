@@ -39,13 +39,13 @@ export function createSimplexSigner(config: SignerConfig): SigningAccount {
 				yParity,
 			}
 		}
-		return {
-			mode: "privateKey",
-			account,
-			signBidMessage: (messageHash: HexString, chainId: number) =>
-				account.signMessage({ message: { raw: messageHash } }),
-			signRawHash,
-		}
+	return {
+		mode: "privateKey",
+		account,
+		signMessage: (messageHash: HexString, _chainId: number) =>
+			account.signMessage({ message: { raw: messageHash } }),
+		signRawHash,
+	}
 	}
 
 	if (config.type === SignerType.MpcVault) {
@@ -54,13 +54,13 @@ export function createSimplexSigner(config: SignerConfig): SigningAccount {
 			const signature = await service.signRawHash(hash)
 			return parseSignature(signature)
 		}
-		return {
-			mode: "mpcVault",
-			account,
-			signBidMessage: (messageHash: HexString, chainId: number) =>
-				service.signPersonalMessage(messageHash, chainId),
-			signRawHash,
-		}
+	return {
+		mode: "mpcVault",
+		account,
+		signMessage: (messageHash: HexString, chainId: number) =>
+			service.signPersonalMessage(messageHash, chainId),
+		signRawHash,
+	}
 	}
 
 	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)

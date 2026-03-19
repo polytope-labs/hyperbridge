@@ -24,7 +24,7 @@ import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
-import type { Account } from "viem/accounts"
+import type { SigningAccount } from "@/services/wallet"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -359,12 +359,12 @@ program
 			// Create shared services to avoid duplicate RPC calls and reuse connections
 			const sharedCacheService = new CacheService()
 			const configuredSigner = initializeSignerFromToml(config.simplex.signer)
-			const chainClientManager = new ChainClientManager(configService, configuredSigner?.account)
-			const signerAccount: Account = configuredSigner?.account ?? chainClientManager.getAccount()
+			const chainClientManager = new ChainClientManager(configService, configuredSigner)
+			const runtimeSigner: SigningAccount = chainClientManager.getSigner()
 			const contractService = new ContractInteractionService(
 				chainClientManager,
 				configService,
-				configuredSigner,
+				runtimeSigner,
 				sharedCacheService,
 			)
 
@@ -384,7 +384,7 @@ program
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
 						const confirmationPolicy = new ConfirmationPolicy(strategyConfig.confirmationPolicies)
 						return new BasicFiller(
-							signerAccount,
+							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
@@ -404,7 +404,7 @@ program
 							)
 						}
 						return new FXFiller(
-							signerAccount,
+							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
@@ -449,10 +449,9 @@ program
 				configService,
 				chainClientManager,
 				contractService,
-				signerAccount,
+				runtimeSigner,
 				rebalancingService,
 				bidStorageService,
-				configuredSigner,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)

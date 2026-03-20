@@ -98,6 +98,31 @@ export class PolkadotHubChain implements IChain {
 		return new PolkadotHubChain(params, evm)
 	}
 
+	/**
+	 * Creates a `PolkadotHubChain` by auto-detecting the EVM chain ID and `IsmpHost` address via
+	 * {@link EvmChain.create}, plus a Substrate RPC URL for Revive child-trie proofs.
+	 *
+	 * @param evmRpcUrl - HTTP(S) JSON-RPC URL of the EVM (Revive) node
+	 * @param substrateRpcUrl - Substrate node RPC (HTTP or WebSocket) for proof queries
+	 * @param bundlerUrl - Optional ERC-4337 bundler URL (forwarded to `EvmChain.create`)
+	 */
+	static async create(evmRpcUrl: string, substrateRpcUrl: string, bundlerUrl?: string): Promise<PolkadotHubChain> {
+		const evm = await EvmChain.create(evmRpcUrl, bundlerUrl)
+		const chainId = Number.parseInt(evm.config.stateMachineId.replace(/^EVM-/, ""), 10)
+		if (!Number.isFinite(chainId)) {
+			throw new Error(`Unexpected EVM stateMachineId: ${evm.config.stateMachineId}`)
+		}
+		const params: PolkadotHubChainParams = {
+			chainId,
+			rpcUrl: evm.config.rpcUrl,
+			host: evm.config.host,
+			consensusStateId: evm.config.consensusStateId,
+			bundlerUrl: evm.bundlerUrl,
+			substrateRpcUrl,
+		}
+		return new PolkadotHubChain(params, evm)
+	}
+
 	private constructor(
 		private readonly params: PolkadotHubChainParams,
 		evm: EvmChain,

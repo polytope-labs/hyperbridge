@@ -5,7 +5,7 @@ import type { ApiPromise } from "@polkadot/api"
 import { Option as PolkadotOption } from "@polkadot/types"
 import { logger } from "ethers"
 import { TextEncoder } from "util"
-import { CHAINS_BY_ISMP_HOST } from "@/constants"
+import { CHAINS_BY_ISMP_HOST, TRON_CHAIN_IDS } from "@/constants"
 import { providers } from "ethers"
 import { Codec } from "@polkadot/types/types"
 
@@ -146,12 +146,26 @@ export async function fetchStateCommitmentsEVM(params: {
 	// Generate keys for timestamp, overlay, and state root
 	const [timestampKey, overlayKey, stateRootKey] = generateStateCommitmentKeys(paraId, height)
 
-	// For all other EVM chains, use SubQuery's api provider which correctly
-	// queries storage at the specific block height being indexed.
-	const provider = api as providers.Provider
-	const timestampValue = await provider.getStorageAt(hostContract, bytesToHex(timestampKey))
-	const overlayRootValue = await provider.getStorageAt(hostContract, bytesToHex(overlayKey))
-	const stateRootValue = await provider.getStorageAt(hostContract, bytesToHex(stateRootKey))
+	const isTron = TRON_CHAIN_IDS.has(chainId)
+	if (isTron && !unsafeApi) {
+		logger.warn("unsafeApi is not available for Tron chain, cannot fetch state commitments")
+		return null
+	}
+	const provider = (isTron ? unsafeApi! : api) as providers.Provider
+
+	let timestampValue: string | null
+	let overlayRootValue: string | null
+	let stateRootValue: string | null
+
+	if (isTron) {
+		timestampValue = await provider.getStorageAt(hostContract, bytesToHex(timestampKey), "latest")
+		overlayRootValue = await provider.getStorageAt(hostContract, bytesToHex(overlayKey), "latest")
+		stateRootValue = await provider.getStorageAt(hostContract, bytesToHex(stateRootKey), "latest")
+	} else {
+		timestampValue = await provider.getStorageAt(hostContract, bytesToHex(timestampKey))
+		overlayRootValue = await provider.getStorageAt(hostContract, bytesToHex(overlayKey))
+		stateRootValue = await provider.getStorageAt(hostContract, bytesToHex(stateRootKey))
+	}
 
 	if (!timestampValue) {
 		return null

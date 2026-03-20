@@ -197,6 +197,11 @@ export enum TeleportStatus {
 	REFUNDED = "REFUNDED",
 }
 
+export interface CancelQuote {
+	nativeValue: bigint
+	relayerFee: bigint
+}
+
 export interface TokenGatewayAssetTeleportedResponse {
 	tokenGatewayAssetTeleportedV2s: {
 		nodes: Array<{

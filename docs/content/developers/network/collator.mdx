@@ -61,7 +61,7 @@ The ratio of this asset to a Relayer's `$BRIDGE` earnings is 1 to 1. For every `
 the higher your reputation score becomes, and the better your chances of being selected as a Collator
 
 ## The path to becoming a Collator
-The process involves four main stages: Accruing reputation score/asset, preparing your node, bonding as a candidate, and registering your controller.
+The process involves four main stages: Accruing reputation score/asset, preparing your node, linking your controller, and bonding as a candidate.
 
 ### Step 1: Accrue Reputation by Relaying Messages with Your Controller Account
 This is the foundation of the entire system. The primary goal is to be an active and reliable relayer.
@@ -241,14 +241,30 @@ node to start producing blocks as soon as you are selected for the active set.
 </figure>
 
 
-### Step 3: Register as a Candidate By Bonding Funds from your Stash Account
-Now that the node is ready and your keys are linked, you can now declare your intention to becoming a Collator.
-
-**Candidacy Bond**: To register as a candidate, your controller account must have a `$BRIDGE` token of at least the minimum candidacy bond, which is 200,000 $BRIDGE.
-**Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
+### Step 3: Link your Controller to your Stash
+You must now create the on-chain link between your Stash account and your operational Controller account. This must be done before registering as a candidate, as `ValidatorRegistration` requires the controller to be linked first.
+**Action**: Call the collatorManager.register extrinsic
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
 - Select your Stash account.
+- Choose the `collatorManager` pallet and the `register` extrinsic.
+- In the `controller` field, select your `Controller` account (the one with the reputation and session keys).
+
+<figure>
+  <img src="/register_controller.png" alt="Registering Your Controller" />
+  <figcaption style={{ textAlign: "center" }}>How to register your Controller Account</figcaption>
+</figure>
+
+This tells the network: "I bonded the Stash, designate this Controller to perform collator duties on my behalf."
+
+### Step 4: Register as a Candidate By Bonding Funds from your Stash Account
+Now that the node is ready, your keys are linked, and your controller is registered, you can declare your intention to become a Collator.
+
+**Candidacy Bond**: To register as a candidate, your stash account must have a `$BRIDGE` token of at least the minimum candidacy bond, which is 200,000 $BRIDGE.
+**Action**: Call the `collatorSelection.registerAsCandidate` extrinsic.
+
+- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
+- Select your Stash account (the same one from Step 3).
 - Choose the `collatorSelection` pallet and the `registerAsCandidate` extrinsic.
 - Sign and submit the transaction.
 
@@ -259,22 +275,6 @@ Now that the node is ready and your keys are linked, you can now declare your in
 
 
 This transaction will lock your bond and add your Stash account to the candidate pool.
-
-### Step 4: Link your Controller to your Stash
-This is the final and most important step. You must now create the on-chain link between your bonded Stash account and your operational Controller account.
-**Action**: Call the collatorManager.register extrinsic
-
-- Navigate to `Developer -> Extrinsics` in the Polkadot-JS UI.
-- Select your Stash account(the same one from Step 3).
-- Choose the `collatorManager` pallet and the `register` extrinsic.
-- In the `controller` field, select your `Controller` account (the one with the reputation and session keys).
-
-<figure>
-  <img src="/register_controller.png" alt="Registering Your Controller" />
-  <figcaption style={{ textAlign: "center" }}>How to register your Controller Account</figcaption>
-</figure>
-
-This tells the network: "I  bonded the Stash, designate this Controller to perform collator duties on my behalf."
 
 ## The selection process & what happens next
 

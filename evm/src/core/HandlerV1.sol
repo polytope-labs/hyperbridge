@@ -120,7 +120,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - `IsmpHost`
      * @param proof - consensus proof
      */
-    function handleConsensus(IHost host, bytes calldata proof) external notFrozen(host) {
+    function handleConsensus(IHost host, bytes calldata proof) external virtual notFrozen(host) {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
 
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();

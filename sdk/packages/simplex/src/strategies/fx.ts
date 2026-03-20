@@ -10,7 +10,6 @@ import {
 	adjustDecimals,
 	ADDRESS_ZERO,
 	type PriceInput,
-	PriceSide,
 } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
@@ -175,12 +174,12 @@ export class FXFiller implements FillerStrategy {
 			// Ask pair
 			const askPairId = this.computeSymbolPairId(stableSymbol, exoticSymbol)
 			const askEntries = this.buildAskPriceEntries()
-			await this.submitEntriesInChunks(cp, askPairId, PriceSide.Ask, askEntries, maxEntries, "ask")
+			await this.submitEntriesInChunks(cp, askPairId, askEntries, maxEntries, "ask")
 
 			// Bid pair
 			const bidPairId = this.computeSymbolPairId(exoticSymbol, stableSymbol)
 			const bidEntries = this.buildBidPriceEntries()
-			await this.submitEntriesInChunks(cp, bidPairId, PriceSide.Bid, bidEntries, maxEntries, "bid")
+			await this.submitEntriesInChunks(cp, bidPairId, bidEntries, maxEntries, "bid")
 		} catch (err) {
 			this.logger.error({ err }, "Error submitting initial prices")
 		}
@@ -192,7 +191,6 @@ export class FXFiller implements FillerStrategy {
 	private async submitEntriesInChunks(
 		cp: IntentsCoprocessor,
 		pairId: HexString,
-		side: PriceSide,
 		entries: PriceInput[],
 		maxEntries: number,
 		direction: string,
@@ -210,7 +208,7 @@ export class FXFiller implements FillerStrategy {
 		)
 
 		for (let i = 0; i < chunks.length; i++) {
-			const result = await cp.submitPairPrice(pairId, side, chunks[i])
+			const result = await cp.submitPairPrice(pairId, chunks[i])
 			if (result.success) {
 				this.logger.info(
 					{ pairId, direction, chunk: i + 1, of: chunks.length, blockHash: result.blockHash, entryCount: chunks[i].length },

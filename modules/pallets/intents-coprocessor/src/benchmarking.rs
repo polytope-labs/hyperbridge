@@ -28,7 +28,7 @@ use frame_system::RawOrigin;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
 use sp_runtime::traits::ConstU32;
-use types::{PriceInput, Side};
+use types::PriceInput;
 
 #[benchmarks(
     where
@@ -204,7 +204,6 @@ mod benchmarks {
 	fn submit_pair_price(n: Linear<1, 100>) {
 		let caller: T::AccountId = whitelisted_caller();
 		let pair_id = H256::repeat_byte(0xaa);
-		let side = Side::Ask;
 
 		// Use a large balance to cover existential deposit + price deposit on any runtime
 		let balance = BalanceOf::<T>::from(u32::MAX);
@@ -225,9 +224,9 @@ mod benchmarks {
 			entries_vec.try_into().expect("entries fit in bounds");
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), pair_id, side, entries);
+		_(RawOrigin::Signed(caller.clone()), pair_id, entries);
 
-		assert!(!Prices::<T>::get(&(pair_id, side)).is_empty());
+		assert!(!Prices::<T>::get(&pair_id).is_empty());
 	}
 
 	#[benchmark]
@@ -270,7 +269,6 @@ mod benchmarks {
 	fn withdraw_price_deposit() {
 		let caller: T::AccountId = whitelisted_caller();
 		let pair_id = H256::repeat_byte(0xdd);
-		let side = Side::Ask;
 
 		// Use a large balance to cover existential deposit + price deposit on any runtime
 		let balance = BalanceOf::<T>::from(u32::MAX);
@@ -288,22 +286,18 @@ mod benchmarks {
 		let _ = Pallet::<T>::submit_pair_price(
 			RawOrigin::Signed(caller.clone()).into(),
 			pair_id,
-			side,
 			entries,
 		);
 
-		let _ = Pallet::<T>::withdraw_price_deposit(
-			RawOrigin::Signed(caller.clone()).into(),
-			pair_id,
-			side,
-		);
+		let _ =
+			Pallet::<T>::withdraw_price_deposit(RawOrigin::Signed(caller.clone()).into(), pair_id);
 
 		frame_system::Pallet::<T>::set_block_number(100u32.into());
 
 		#[extrinsic_call]
-		_(RawOrigin::Signed(caller.clone()), pair_id, side);
+		_(RawOrigin::Signed(caller.clone()), pair_id);
 
-		assert!(PriceDeposits::<T>::get(&caller, &(pair_id, side)).is_none());
+		assert!(PriceDeposits::<T>::get(&caller, &pair_id).is_none());
 	}
 
 	impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::tests::Test);

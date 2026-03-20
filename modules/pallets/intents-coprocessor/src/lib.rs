@@ -46,7 +46,7 @@ use sp_runtime::{
 pub use weights::WeightInfo;
 
 use types::{
-	Bid, GatewayInfo, IntentGatewayParams, PriceEntry, PriceInput, RequestKind, Side,
+	Bid, GatewayInfo, IntentGatewayParams, PriceEntry, PriceInput, RequestKind,
 	TokenDecimalsUpdate, TokenInfo,
 };
 
@@ -138,12 +138,12 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PriceWindowDurationValue<T: Config> = StorageValue<_, u64, ValueQuery>;
 
-	/// Price entries per (pair, side)
+	/// Price entries per pair
 	#[pallet::storage]
 	pub type Prices<T: Config> =
-		CountedStorageMap<_, Blake2_128Concat, (H256, Side), BTreeSet<PriceEntry>, ValueQuery>;
+		CountedStorageMap<_, Blake2_128Concat, H256, BTreeSet<PriceEntry>, ValueQuery>;
 
-	/// Deposits reserved by price submitters. Maps (account, (pair_id, side)) to
+	/// Deposits reserved by price submitters. Maps (account, pair_id) to
 	/// (deposit_amount, unlock_block). When `unlock_block` is `None`, the withdrawal
 	/// has not been initiated. The first call to `withdraw_price_deposit` sets
 	/// `unlock_block` to `current_block + PriceDepositLockDuration`. The second
@@ -154,7 +154,7 @@ pub mod pallet {
 		Blake2_128Concat,
 		T::AccountId,
 		Blake2_128Concat,
-		(H256, Side),                              // (pair_id, side)
+		H256,                                      // pair_id
 		(BalanceOf<T>, Option<BlockNumberFor<T>>), // (deposit_amount, unlock_block)
 		OptionQuery,
 	>;
@@ -169,12 +169,12 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type PriceDepositLockDuration<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
 
-	/// Whether prices have been cleared for a given (pair, side) in the current window.
+	/// Whether prices have been cleared for a given pair in the current window.
 	/// All entries are removed by `on_initialize` when a new window starts.
-	/// Set to true on the first price submission for that (pair, side) in the new window.
+	/// Set to true on the first price submission for that pair in the new window.
 	#[pallet::storage]
 	pub type PricesClearedThisWindow<T: Config> =
-		StorageMap<_, Blake2_128Concat, (H256, Side), bool, ValueQuery>;
+		StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
 
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
@@ -232,7 +232,7 @@ pub mod pallet {
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
 		/// Prices were submitted for a token pair
-		PriceSubmitted { submitter: T::AccountId, pair_id: H256, side: Side },
+		PriceSubmitted { submitter: T::AccountId, pair_id: H256 },
 		/// Price window duration was updated
 		PriceWindowDurationUpdated { duration_ms: u64 },
 		/// Price deposit amount was updated
@@ -240,26 +240,15 @@ pub mod pallet {
 		/// Price deposit lock duration was updated (in blocks)
 		PriceDepositLockDurationUpdated { duration_blocks: BlockNumberFor<T> },
 		/// Price deposit was reserved on first submission
-		PriceDepositReserved {
-			submitter: T::AccountId,
-			pair_id: H256,
-			side: Side,
-			amount: BalanceOf<T>,
-		},
+		PriceDepositReserved { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
 		/// Price deposit withdrawal was initiated (unlock block noted)
 		PriceDepositWithdrawalInitiated {
 			submitter: T::AccountId,
 			pair_id: H256,
-			side: Side,
 			unlock_block: BlockNumberFor<T>,
 		},
 		/// Price deposit was withdrawn (tokens unreserved)
-		PriceDepositWithdrawn {
-			submitter: T::AccountId,
-			pair_id: H256,
-			side: Side,
-			amount: BalanceOf<T>,
-		},
+		PriceDepositWithdrawn { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -569,11 +558,11 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Submit prices for a token pair on a given side (bid or ask).
+		/// Submit prices for a token pair.
 		///
-		/// On the first submission per (account, pair, side), a deposit is reserved
+		/// On the first submission per (account, pair), a deposit is reserved
 		/// from the submitter's balance. Subsequent submissions for the same
-		/// (pair, side) are free. The deposit can be withdrawn after the configured
+		/// pair are free. The deposit can be withdrawn after the configured
 		/// lock duration via `withdraw_price_deposit`.
 		///
 		/// Each entry in `entries` specifies a base token amount threshold and the
@@ -583,7 +572,6 @@ pub mod pallet {
 		pub fn submit_pair_price(
 			origin: OriginFor<T>,
 			pair_id: H256,
-			side: Side,
 			entries: BoundedVec<PriceInput, T::MaxPriceEntries>,
 		) -> DispatchResult {
 			let submitter = ensure_signed(origin)?;
@@ -593,35 +581,32 @@ pub mod pallet {
 			let deposit_amount = PriceDepositAmount::<T>::get();
 			ensure!(!deposit_amount.is_zero(), Error::<T>::PriceDepositsNotConfigured);
 
-			let key = (pair_id, side);
-
-			if let Some((_, Some(_unlock_block))) = PriceDeposits::<T>::get(&submitter, &key) {
+			if let Some((_, Some(_unlock_block))) = PriceDeposits::<T>::get(&submitter, &pair_id) {
 				return Err(Error::<T>::WithdrawalInProgress.into());
 			}
 
-			// Reserve deposit on first submission per (account, pair, side)
-			if !PriceDeposits::<T>::contains_key(&submitter, &key) {
+			// Reserve deposit on first submission per (account, pair)
+			if !PriceDeposits::<T>::contains_key(&submitter, &pair_id) {
 				<T as Config>::Currency::reserve(&submitter, deposit_amount)
 					.map_err(|_| Error::<T>::InsufficientBalance)?;
 
 				PriceDeposits::<T>::insert(
 					&submitter,
-					&key,
+					&pair_id,
 					(deposit_amount, None::<BlockNumberFor<T>>),
 				);
 
 				Self::deposit_event(Event::PriceDepositReserved {
 					submitter: submitter.clone(),
 					pair_id,
-					side,
 					amount: deposit_amount,
 				});
 			}
 
-			Self::maybe_clear_stale_prices(&key);
+			Self::maybe_clear_stale_prices(&pair_id);
 
 			let filler: H256 = H256::from_slice(&submitter.encode()[..32]);
-			Prices::<T>::mutate(&key, |stored| {
+			Prices::<T>::mutate(&pair_id, |stored| {
 				stored.extend(entries.iter().map(|input| PriceEntry {
 					amount: input.amount,
 					price: input.price,
@@ -629,7 +614,7 @@ pub mod pallet {
 				}));
 			});
 
-			Self::deposit_event(Event::PriceSubmitted { submitter, pair_id, side });
+			Self::deposit_event(Event::PriceSubmitted { submitter, pair_id });
 
 			Ok(())
 		}
@@ -689,24 +674,18 @@ pub mod pallet {
 		///
 		/// # Parameters
 		/// - `pair_id`: The token pair the deposit was made for
-		/// - `side`: The side (bid or ask) the deposit was made for
 		///
 		/// # Errors
-		/// - `DepositNotFound`: No deposit exists for this account, pair, and side
+		/// - `DepositNotFound`: No deposit exists for this account and pair
 		/// - `WithdrawalAlreadyInitiated`: First call was already made (waiting for unlock)
 		/// - `DepositStillLocked`: The unlock block has not yet been reached
 		#[pallet::call_index(13)]
 		#[pallet::weight(T::WeightInfo::withdraw_price_deposit())]
-		pub fn withdraw_price_deposit(
-			origin: OriginFor<T>,
-			pair_id: H256,
-			side: Side,
-		) -> DispatchResult {
+		pub fn withdraw_price_deposit(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 
-			let key = (pair_id, side);
 			let (deposit_amount, unlock_block) =
-				PriceDeposits::<T>::get(&who, &key).ok_or(Error::<T>::DepositNotFound)?;
+				PriceDeposits::<T>::get(&who, &pair_id).ok_or(Error::<T>::DepositNotFound)?;
 
 			match unlock_block {
 				None => {
@@ -715,12 +694,11 @@ pub mod pallet {
 					let lock_duration = PriceDepositLockDuration::<T>::get();
 					let unlock_at = current_block.saturating_add(lock_duration);
 
-					PriceDeposits::<T>::insert(&who, &key, (deposit_amount, Some(unlock_at)));
+					PriceDeposits::<T>::insert(&who, &pair_id, (deposit_amount, Some(unlock_at)));
 
 					Self::deposit_event(Event::PriceDepositWithdrawalInitiated {
 						submitter: who,
 						pair_id,
-						side,
 						unlock_block: unlock_at,
 					});
 				},
@@ -730,12 +708,11 @@ pub mod pallet {
 					ensure!(current_block >= unlock_at, Error::<T>::DepositStillLocked);
 
 					<T as Config>::Currency::unreserve(&who, deposit_amount);
-					PriceDeposits::<T>::remove(&who, &key);
+					PriceDeposits::<T>::remove(&who, &pair_id);
 
 					Self::deposit_event(Event::PriceDepositWithdrawn {
 						submitter: who,
 						pair_id,
-						side,
 						amount: deposit_amount,
 					});
 				},
@@ -766,16 +743,16 @@ pub mod pallet {
 			offchain_bid_key_raw(commitment, &filler.encode())
 		}
 
-		/// Clear prices for a specific (pair, side) if this is the first submission
+		/// Clear prices for a specific pair if this is the first submission
 		/// in the current window.
 		///
 		/// Prices from the previous window persist until the first new submission
-		/// for a given (pair, side) in the new window, at which point those entries
+		/// for a given pair in the new window, at which point those entries
 		/// are cleared.
-		fn maybe_clear_stale_prices(key: &(H256, Side)) {
-			if !PricesClearedThisWindow::<T>::get(key) {
-				Prices::<T>::remove(key);
-				PricesClearedThisWindow::<T>::insert(key, true);
+		fn maybe_clear_stale_prices(pair_id: &H256) {
+			if !PricesClearedThisWindow::<T>::get(pair_id) {
+				Prices::<T>::remove(pair_id);
+				PricesClearedThisWindow::<T>::insert(pair_id, true);
 			}
 		}
 

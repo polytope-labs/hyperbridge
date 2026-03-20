@@ -1355,12 +1355,6 @@ export type IntentOrderStatusUpdate =
  * All values are raw 18-decimal bigints as expected by the pallet.
  * The frontend determines ranges from the curve points.
  */
-/** Side of a price quote — matches the pallet's `Side` enum */
-export enum PriceSide {
-	Bid = "Bid",
-	Ask = "Ask",
-}
-
 export interface PriceInput {
 	amount: bigint
 	price: bigint

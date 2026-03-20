@@ -188,12 +188,12 @@ fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(9877, format!("{e}"), None::<String>)
 }
 
-/// Construct the full storage key for a `StorageMap` entry with `Blake2_128Concat` hasher.
-fn storage_map_key(pallet: &[u8], storage: &[u8], map_key: &H256) -> Vec<u8> {
+/// Construct the full storage key for a `StorageMap` entry with `Blake2_128Concat` hasher,
+/// using raw pre-encoded key bytes.
+fn storage_map_key_raw(pallet: &[u8], storage: &[u8], map_key_bytes: &[u8]) -> Vec<u8> {
 	let mut key = Vec::new();
 	key.extend_from_slice(&sp_core::hashing::twox_128(pallet));
 	key.extend_from_slice(&sp_core::hashing::twox_128(storage));
-	let map_key_bytes = map_key.as_bytes();
 	key.extend_from_slice(&sp_core::hashing::blake2_128(map_key_bytes));
 	key.extend_from_slice(map_key_bytes);
 	key
@@ -217,9 +217,9 @@ pub trait IntentsApi {
 	#[method(name = "intents_getBidsForOrder")]
 	fn get_bids_for_order(&self, commitment: H256) -> RpcResult<Vec<RpcBidInfo>>;
 
-	/// Get all prices for a token pair
+	/// Get all prices for a token pair and side ("bid" or "ask")
 	#[method(name = "intents_getPairPrices")]
-	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<Vec<RpcPriceEntry>>;
+	fn get_pair_prices(&self, pair_id: H256, side: String) -> RpcResult<Vec<RpcPriceEntry>>;
 
 	#[subscription(name = "intents_subscribeBids" => "intents_bidNotification", unsubscribe = "intents_unsubscribeBids", item = RpcBidInfo)]
 	async fn subscribe_bids(&self, commitment: Option<H256>) -> SubscriptionResult;
@@ -304,10 +304,17 @@ where
 		Ok(bids.into_iter().collect())
 	}
 
-	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<Vec<RpcPriceEntry>> {
+	fn get_pair_prices(&self, pair_id: H256, side: String) -> RpcResult<Vec<RpcPriceEntry>> {
 		let best_hash = self.client.info().best_hash;
 
-		let key = storage_map_key(b"IntentsCoprocessor", b"Prices", &pair_id);
+		let side_enum = match side.to_lowercase().as_str() {
+			"bid" => pallet_intents_coprocessor::types::Side::Bid,
+			"ask" => pallet_intents_coprocessor::types::Side::Ask,
+			_ =>
+				return Err(runtime_error_into_rpc_error("Invalid side: must be \"bid\" or \"ask\"")),
+		};
+		let composite_key = (pair_id, side_enum).encode();
+		let key = storage_map_key_raw(b"IntentsCoprocessor", b"Prices", &composite_key);
 		let storage_key = sp_core::storage::StorageKey(key);
 
 		let data = match self.client.storage(best_hash, &storage_key) {

@@ -3,7 +3,7 @@
 use std::env;
 
 use codec::Encode;
-use pallet_intents_coprocessor::types::{PriceInput, TokenPair};
+use pallet_intents_coprocessor::types::{PriceInput, Side, TokenPair};
 use pallet_intents_rpc::RpcPriceEntry;
 use polkadot_sdk::*;
 use primitive_types::{H256, U256};
@@ -71,18 +71,11 @@ async fn advance_blocks(
 
 /// Manually encode a call to `IntentsCoprocessor::submit_pair_price`.
 /// Pallet index 65, call index 7.
-fn encode_submit_pair_price(pair_id: H256, entries: Vec<PriceInput>) -> Vec<u8> {
+fn encode_submit_pair_price(pair_id: H256, side: Side, entries: Vec<PriceInput>) -> Vec<u8> {
 	let mut data = vec![65u8, 7u8]; // pallet_index, call_index
 	data.extend_from_slice(&pair_id.encode());
+	data.extend_from_slice(&side.encode());
 	data.extend_from_slice(&entries.encode());
-	data
-}
-
-/// Manually encode a call to `IntentsCoprocessor::add_recognized_pair`.
-/// Pallet index 65, call index 8.
-fn encode_add_recognized_pair(pair_id: H256) -> Vec<u8> {
-	let mut data = vec![65u8, 8u8];
-	data.extend_from_slice(&pair_id.encode());
 	data
 }
 
@@ -104,9 +97,10 @@ fn encode_set_price_deposit_lock_duration(duration_blocks: u32) -> Vec<u8> {
 
 /// Manually encode a call to `IntentsCoprocessor::withdraw_price_deposit`.
 /// Pallet index 65, call index 13.
-fn encode_withdraw_price_deposit(pair_id: H256) -> Vec<u8> {
+fn encode_withdraw_price_deposit(pair_id: H256, side: Side) -> Vec<u8> {
 	let mut data = vec![65u8, 13u8];
 	data.extend_from_slice(&pair_id.encode());
+	data.extend_from_slice(&side.encode());
 	data
 }
 
@@ -146,9 +140,7 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 		PriceInput { amount: U256::from(1000) * one_unit, price: U256::from(1420) * one_unit },
 	];
 
-	// Add recognized pair
-	sudo_raw_and_finalize(&client, &rpc_client, encode_add_recognized_pair(pair_id)).await?;
-	println!("Recognized pair added: {pair_id:?}");
+	let side = Side::Ask;
 
 	// Set deposit amount
 	sudo_raw_and_finalize(&client, &rpc_client, encode_set_price_deposit_amount(deposit_amount))
@@ -165,13 +157,13 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	println!("Lock duration set: {lock_duration} blocks");
 
 	// Submit prices
-	let submit_call_data = encode_submit_pair_price(pair_id, price_entries);
+	let submit_call_data = encode_submit_pair_price(pair_id, side, price_entries);
 	submit_raw_and_finalize(&client, &rpc_client, submit_call_data, Keyring::Alice).await?;
 	println!("Prices submitted for pair {pair_id:?}");
 
 	// Query prices via RPC
 	let prices: Vec<RpcPriceEntry> =
-		rpc_client.request("intents_getPairPrices", rpc_params![pair_id]).await?;
+		rpc_client.request("intents_getPairPrices", rpc_params![pair_id, "ask"]).await?;
 
 	assert_eq!(prices.len(), 2, "expected 2 price entries");
 
@@ -191,7 +183,7 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	submit_raw_and_finalize(
 		&client,
 		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
+		encode_withdraw_price_deposit(pair_id, side),
 		Keyring::Alice,
 	)
 	.await?;
@@ -201,7 +193,7 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	let early_result = submit_raw_and_finalize(
 		&client,
 		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
+		encode_withdraw_price_deposit(pair_id, side),
 		Keyring::Alice,
 	)
 	.await;
@@ -216,7 +208,7 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	submit_raw_and_finalize(
 		&client,
 		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
+		encode_withdraw_price_deposit(pair_id, side),
 		Keyring::Alice,
 	)
 	.await?;
@@ -226,7 +218,7 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	let gone_result = submit_raw_and_finalize(
 		&client,
 		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
+		encode_withdraw_price_deposit(pair_id, side),
 		Keyring::Alice,
 	)
 	.await;

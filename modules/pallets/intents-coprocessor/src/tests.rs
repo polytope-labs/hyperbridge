@@ -17,7 +17,7 @@
 
 #![cfg(test)]
 
-use crate::{self as pallet_intents, *};
+use crate::{self as pallet_intents, types::Side, *};
 use alloc::{collections::BTreeSet, vec};
 use codec::Decode;
 use frame_support::{
@@ -543,37 +543,13 @@ fn multiple_fillers_can_bid_on_same_order() {
 }
 
 #[test]
-fn remove_recognized_pair_works() {
-	new_test_ext().execute_with(|| {
-		let pair_id =
-			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
-
-		Prices::<Test>::insert(
-			&pair_id,
-			BTreeSet::from([types::PriceEntry {
-				amount: U256::zero(),
-				price: U256::from(1000),
-				filler: H256::from_low_u64_be(1),
-			}]),
-		);
-
-		assert_ok!(Intents::remove_recognized_pair(RuntimeOrigin::root(), pair_id));
-
-		assert!(!RecognizedPairs::<Test>::get(&pair_id));
-		assert!(Prices::<Test>::get(&pair_id).is_empty());
-	});
-}
-
-#[test]
 fn submit_pair_price_reserves_deposit_on_first_submission() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
+		let side = Side::Ask;
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -589,6 +565,7 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			entries,
 		));
 
@@ -598,12 +575,12 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 
 		// Deposit record stored (no unlock block yet)
 		let (stored_amount, unlock_block) =
-			PriceDeposits::<Test>::get(&submitter, &pair_id).unwrap();
+			PriceDeposits::<Test>::get(&submitter, &(pair_id, side)).unwrap();
 		assert_eq!(stored_amount, deposit_amount);
 		assert_eq!(unlock_block, None);
 
 		// Price entry stored
-		let prices = Prices::<Test>::get(&pair_id);
+		let prices = Prices::<Test>::get(&(pair_id, side));
 		assert_eq!(prices.len(), 1);
 		assert_eq!(prices.iter().next().unwrap().price, U256::from(2000));
 	});
@@ -613,10 +590,10 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 fn submit_pair_price_second_submission_is_free() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
+		let side = Side::Ask;
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -629,6 +606,7 @@ fn submit_pair_price_second_submission_is_free() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			entries1,
 		));
 
@@ -645,6 +623,7 @@ fn submit_pair_price_second_submission_is_free() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			entries2,
 		));
 
@@ -654,7 +633,7 @@ fn submit_pair_price_second_submission_is_free() {
 		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
 
 		// Two entries now stored
-		let prices = Prices::<Test>::get(&pair_id);
+		let prices = Prices::<Test>::get(&(pair_id, side));
 		assert_eq!(prices.len(), 2);
 	});
 }
@@ -666,7 +645,6 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -677,7 +655,12 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 		.unwrap();
 
 		assert_noop!(
-			Intents::submit_pair_price(RuntimeOrigin::signed(submitter), pair_id, entries,),
+			Intents::submit_pair_price(
+				RuntimeOrigin::signed(submitter),
+				pair_id,
+				Side::Ask,
+				entries,
+			),
 			Error::<Test>::InsufficientBalance
 		);
 	});
@@ -687,10 +670,10 @@ fn submit_pair_price_fails_with_insufficient_balance() {
 fn withdraw_price_deposit_two_phase() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
+		let side = Side::Ask;
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -703,6 +686,7 @@ fn withdraw_price_deposit_two_phase() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			entries,
 		));
 
@@ -714,6 +698,7 @@ fn withdraw_price_deposit_two_phase() {
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 		));
 
 		// Deposit is NOT yet unreserved
@@ -721,13 +706,17 @@ fn withdraw_price_deposit_two_phase() {
 		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
 
 		// Unlock block is set (1 + 10 = 11)
-		let (_, unlock_block) = PriceDeposits::<Test>::get(&submitter, &pair_id).unwrap();
+		let (_, unlock_block) = PriceDeposits::<Test>::get(&submitter, &(pair_id, side)).unwrap();
 		assert_eq!(unlock_block, Some(11u64));
 
 		// Phase 2 too early: still locked at block 5
 		System::set_block_number(5);
 		assert_noop!(
-			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter.clone()), pair_id,),
+			Intents::withdraw_price_deposit(
+				RuntimeOrigin::signed(submitter.clone()),
+				pair_id,
+				side,
+			),
 			Error::<Test>::DepositStillLocked
 		);
 
@@ -736,6 +725,7 @@ fn withdraw_price_deposit_two_phase() {
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 		));
 
 		// Deposit unreserved
@@ -743,7 +733,7 @@ fn withdraw_price_deposit_two_phase() {
 		assert_eq!(Balances::reserved_balance(&submitter), 0);
 
 		// Deposit record removed
-		assert!(PriceDeposits::<Test>::get(&submitter, &pair_id).is_none());
+		assert!(PriceDeposits::<Test>::get(&submitter, &(pair_id, side)).is_none());
 	});
 }
 
@@ -751,10 +741,10 @@ fn withdraw_price_deposit_two_phase() {
 fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
+		let side = Side::Ask;
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -767,6 +757,7 @@ fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			entries,
 		));
 
@@ -775,12 +766,13 @@ fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 		));
 
 		// Phase 2: Try to complete at block 5 (unlock is at 11)
 		System::set_block_number(5);
 		assert_noop!(
-			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter), pair_id,),
+			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter), pair_id, side,),
 			Error::<Test>::DepositStillLocked
 		);
 	});
@@ -793,7 +785,7 @@ fn withdraw_price_deposit_fails_when_no_deposit() {
 		let pair_id = H256::random();
 
 		assert_noop!(
-			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter), pair_id,),
+			Intents::withdraw_price_deposit(RuntimeOrigin::signed(submitter), pair_id, Side::Ask,),
 			Error::<Test>::DepositNotFound
 		);
 	});
@@ -819,13 +811,14 @@ fn set_price_deposit_lock_duration_works() {
 fn prices_persist_across_window_and_clear_on_first_submission() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
+		let side = Side::Ask;
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
+		let key = (pair_id, side);
 
 		// Simulate day 1: store some prices
 		Prices::<Test>::insert(
-			&pair_id,
+			&key,
 			BTreeSet::from([types::PriceEntry {
 				amount: U256::zero(),
 				price: U256::from(1666),
@@ -840,14 +833,14 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		pallet_timestamp::Now::<Test>::put(50_000_000u64); // 50_000 seconds in ms
 		Intents::on_initialize(1u64);
 
-		assert_eq!(Prices::<Test>::get(&pair_id).len(), 1);
+		assert_eq!(Prices::<Test>::get(&key).len(), 1);
 
 		// Advance past the window (1000 + 86_400 = 87_400 seconds)
 		pallet_timestamp::Now::<Test>::put(90_000_000u64); // 90_000 seconds in ms
 		Intents::on_initialize(2u64);
 
 		// Prices still persist (readable until first new submission)
-		assert_eq!(Prices::<Test>::get(&pair_id).len(), 1);
+		assert_eq!(Prices::<Test>::get(&key).len(), 1);
 		assert_eq!(PriceWindowStart::<Test>::get(), 90_000);
 
 		// Submit a new price — this is the first submission in the new window.
@@ -860,11 +853,12 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			new_entries,
 		));
 
 		// Old entries gone, only new entry remains
-		let prices = Prices::<Test>::get(&pair_id);
+		let prices = Prices::<Test>::get(&key);
 		assert_eq!(prices.len(), 1);
 		assert_eq!(prices.iter().next().unwrap().price, U256::from(2000));
 	});
@@ -900,8 +894,12 @@ fn price_entry_encoding_matches_rpc_tuple_decoding() {
 #[test]
 fn price_entry_storage_roundtrip_via_raw_key() {
 	new_test_ext().execute_with(|| {
+		use codec::Encode;
+
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+		let side = Side::Ask;
+		let storage_key = (pair_id, side);
 
 		let entry1 = types::PriceEntry {
 			amount: U256::zero(),
@@ -914,7 +912,7 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 			filler: H256::from_low_u64_be(2),
 		};
 
-		Prices::<Test>::insert(&pair_id, BTreeSet::from([entry1.clone(), entry2.clone()]));
+		Prices::<Test>::insert(&storage_key, BTreeSet::from([entry1.clone(), entry2.clone()]));
 
 		// Build the storage key the same way the RPC does.
 		let pallet_prefix = b"Intents";
@@ -922,9 +920,9 @@ fn price_entry_storage_roundtrip_via_raw_key() {
 		let mut key = Vec::new();
 		key.extend_from_slice(&sp_io::hashing::twox_128(pallet_prefix));
 		key.extend_from_slice(&sp_io::hashing::twox_128(b"Prices"));
-		let pair_id_bytes = pair_id.as_bytes();
-		key.extend_from_slice(&sp_io::hashing::blake2_128(pair_id_bytes));
-		key.extend_from_slice(pair_id_bytes);
+		let map_key_bytes = storage_key.encode();
+		key.extend_from_slice(&sp_io::hashing::blake2_128(&map_key_bytes));
+		key.extend_from_slice(&map_key_bytes);
 
 		let raw = sp_io::storage::get(&key).expect("Prices storage should exist");
 
@@ -945,10 +943,10 @@ fn multiple_submitters_independent_deposits() {
 	new_test_ext().execute_with(|| {
 		let submitter1 = AccountId32::new([1; 32]);
 		let submitter2 = AccountId32::new([2; 32]);
+		let side = Side::Ask;
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -970,11 +968,13 @@ fn multiple_submitters_independent_deposits() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter1.clone()),
 			pair_id,
+			side,
 			entries1,
 		));
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter2.clone()),
 			pair_id,
+			side,
 			entries2,
 		));
 
@@ -983,7 +983,7 @@ fn multiple_submitters_independent_deposits() {
 		assert_eq!(Balances::reserved_balance(&submitter2), deposit_amount);
 
 		// Two entries in prices
-		assert_eq!(Prices::<Test>::get(&pair_id).len(), 2);
+		assert_eq!(Prices::<Test>::get(&(pair_id, side)).len(), 2);
 	});
 }
 
@@ -991,13 +991,12 @@ fn multiple_submitters_independent_deposits() {
 fn separate_deposits_per_pair() {
 	new_test_ext().execute_with(|| {
 		let submitter = AccountId32::new([1; 32]);
+		let side = Side::Ask;
 
 		let pair_id1 =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 		let pair_id2 =
 			types::TokenPair { base: b"TOKEN_C".to_vec(), quote: b"TOKEN_D".to_vec() }.pair_id();
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id1));
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id2));
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
@@ -1012,11 +1011,13 @@ fn separate_deposits_per_pair() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id1,
+			side,
 			entries.clone(),
 		));
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id2,
+			side,
 			entries,
 		));
 
@@ -1028,10 +1029,12 @@ fn separate_deposits_per_pair() {
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id1,
+			side,
 		));
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id2,
+			side,
 		));
 
 		// Phase 2: Complete both after lock duration (block 11)
@@ -1039,12 +1042,14 @@ fn separate_deposits_per_pair() {
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id1,
+			side,
 		));
 		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
 
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id2,
+			side,
 		));
 		assert_eq!(Balances::reserved_balance(&submitter), 0);
 	});
@@ -1055,11 +1060,11 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 	new_test_ext().execute_with(|| {
 		let submitter: AccountId = AccountId::from([1u8; 32]);
 		let deposit_amount = 100u64;
+		let side = Side::Ask;
 
 		let pair = types::TokenPair { base: b"TOKEN_X".to_vec(), quote: b"TOKEN_Y".to_vec() };
 		let pair_id = pair.pair_id();
 
-		assert_ok!(Intents::add_recognized_pair(RuntimeOrigin::root(), pair_id));
 		PriceDepositAmount::<Test>::put(deposit_amount);
 		PriceDepositLockDuration::<Test>::put(10u64);
 
@@ -1071,6 +1076,7 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 		assert_ok!(Intents::submit_pair_price(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 			entries.clone(),
 		));
 
@@ -1079,11 +1085,17 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id,
+			side,
 		));
 
 		// Submitting prices should now fail
 		assert_noop!(
-			Intents::submit_pair_price(RuntimeOrigin::signed(submitter.clone()), pair_id, entries,),
+			Intents::submit_pair_price(
+				RuntimeOrigin::signed(submitter.clone()),
+				pair_id,
+				side,
+				entries,
+			),
 			Error::<Test>::WithdrawalInProgress
 		);
 	});

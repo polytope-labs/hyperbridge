@@ -43,8 +43,6 @@ pub trait WeightInfo {
 	fn update_token_decimals() -> Weight;
 	fn set_storage_deposit_fee() -> Weight;
 	fn submit_pair_price(n: u32) -> Weight;
-	fn add_recognized_pair() -> Weight;
-	fn remove_recognized_pair() -> Weight;
 	fn set_price_window_duration() -> Weight;
 	fn set_price_deposit_amount() -> Weight;
 	fn set_price_deposit_lock_duration() -> Weight;
@@ -120,28 +118,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
-	/// Storage: RecognizedPairs (r:1 w:0), PriceDepositAmount (r:1 w:0),
+	/// Storage: PriceDepositAmount (r:1 w:0),
 	/// PriceDeposits (r:1 w:1), PricesClearedThisWindow (r:1 w:1), Prices (r:1 w:1)
 	fn submit_pair_price(n: u32) -> Weight {
 		Weight::from_parts(100_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 5000))
 			.saturating_add(Weight::from_parts(5_000_000u64.saturating_mul(n as u64), 0))
-			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().reads(4))
 			.saturating_add(T::DbWeight::get().writes(4))
-	}
-
-	/// Storage: RecognizedPairs (r:1 w:1)
-	fn add_recognized_pair() -> Weight {
-		Weight::from_parts(15_000_000, 0)
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-
-	/// Storage: RecognizedPairs (r:1 w:1), Prices (r:0 w:1)
-	fn remove_recognized_pair() -> Weight {
-		Weight::from_parts(20_000_000, 0)
-			.saturating_add(T::DbWeight::get().reads(1))
-			.saturating_add(T::DbWeight::get().writes(2))
 	}
 
 	/// Storage: PriceWindowDurationValue (r:0 w:1)
@@ -196,12 +180,6 @@ impl WeightInfo for () {
 	}
 	fn submit_pair_price(_n: u32) -> Weight {
 		Weight::from_parts(100_000_000, 0)
-	}
-	fn add_recognized_pair() -> Weight {
-		Weight::from_parts(15_000_000, 0)
-	}
-	fn remove_recognized_pair() -> Weight {
-		Weight::from_parts(20_000_000, 0)
 	}
 	fn set_price_window_duration() -> Weight {
 		Weight::from_parts(10_000_000, 0)

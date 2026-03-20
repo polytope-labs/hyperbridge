@@ -142,6 +142,27 @@ pub struct Bid<AccountId> {
 	/// The signed user operation (opaque bytes)
 	pub user_op: Vec<u8>,
 }
+/// Represents the side of a price quote (bid or ask).
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	TypeInfo,
+	PartialEq,
+	Eq,
+	PartialOrd,
+	Ord,
+)]
+pub enum Side {
+	/// Bid side: the price a filler is willing to pay to buy the base token.
+	Bid,
+	/// Ask side: the price a filler wants to sell the base token at.
+	Ask,
+}
+
 /// A recognized token pair for price tracking
 #[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
 pub struct TokenPair {

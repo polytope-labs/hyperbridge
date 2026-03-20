@@ -6,6 +6,7 @@ import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
 import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, PriceInput, Quote } from "@/types"
+import { PriceSide } from "@/types"
 import { interpolatePrice } from "@/utils/interpolate"
 import type { SubstrateChain } from "./substrate"
 
@@ -350,7 +351,7 @@ export class IntentsCoprocessor {
 		return (this.api.consts.intentsCoprocessor as any).maxPriceEntries.toNumber()
 	}
 
-	async submitPairPrice(pairId: HexString, entries: PriceInput[]): Promise<BidSubmissionResult> {
+	async submitPairPrice(pairId: HexString, side: PriceSide, entries: PriceInput[]): Promise<BidSubmissionResult> {
 		try {
 			// Encode entries as a Vec of { amount, price } structs for the pallet
 			const encodedEntries = entries.map((e) => ({
@@ -358,7 +359,7 @@ export class IntentsCoprocessor {
 				price: e.price.toString(),
 			}))
 
-			const extrinsic = this.api.tx.intentsCoprocessor.submitPairPrice(pairId, encodedEntries)
+			const extrinsic = this.api.tx.intentsCoprocessor.submitPairPrice(pairId, side, encodedEntries)
 			return await this.signAndSendExtrinsic(extrinsic)
 		} catch (error) {
 			return {
@@ -377,9 +378,9 @@ export class IntentsCoprocessor {
 	 * @param pairId - The token pair identifier (H256 / bytes32)
 	 * @returns BidSubmissionResult with success status and block/extrinsic hash
 	 */
-	async withdrawPriceDeposit(pairId: HexString): Promise<BidSubmissionResult> {
+	async withdrawPriceDeposit(pairId: HexString, side: PriceSide): Promise<BidSubmissionResult> {
 		try {
-			const extrinsic = this.api.tx.intentsCoprocessor.withdrawPriceDeposit(pairId)
+			const extrinsic = this.api.tx.intentsCoprocessor.withdrawPriceDeposit(pairId, side)
 			return await this.signAndSendExtrinsic(extrinsic)
 		} catch (error) {
 			return {
@@ -398,10 +399,10 @@ export class IntentsCoprocessor {
 	 * @param amount - The base token amount to get quotes for (human-readable number, e.g. 500 for 500 tokens)
 	 * @returns Array of Quote objects, one per filler who has price entries for this pair
 	 */
-	async getQuotes(pairId: HexString, amount: number): Promise<Quote[]> {
+	async getQuotes(pairId: HexString, side: PriceSide, amount: number): Promise<Quote[]> {
 		const entries: RpcPriceEntry[] = await (this.api as any)._rpcCore.provider.send(
 			"intents_getPairPrices",
-			[pairId],
+			[pairId, side.toLowerCase()],
 		)
 
 		if (entries.length === 0) return []

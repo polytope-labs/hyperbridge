@@ -6,6 +6,7 @@ import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
 import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, PriceInput, Quote } from "@/types"
+import { interpolatePrice } from "@/utils/interpolate"
 import type { SubstrateChain } from "./substrate"
 
 /** Offchain storage key prefix for bids */
@@ -418,39 +419,11 @@ export class IntentsCoprocessor {
 			// Sort by amount ascending
 			points.sort((a, b) => a.amount - b.amount)
 
-			const interpolatedPrice = this.interpolatePrice(points, amount)
-			quotes.push({ filler, price: interpolatedPrice.toString() })
+			const interpolated = interpolatePrice(points, amount)
+			quotes.push({ filler, amount: interpolated.toString() })
 		}
 
 		return quotes
-	}
-
-	/**
-	 * Piecewise linear interpolation over sorted price points.
-	 * Below the minimum amount, returns the first point's price.
-	 * Above the maximum amount, returns the last point's price.
-	 * Between two points, linearly interpolates.
-	 */
-	private interpolatePrice(points: { amount: number; price: number }[], amount: number): number {
-		if (points.length === 1 || amount <= points[0].amount) {
-			return points[0].price
-		}
-
-		const last = points[points.length - 1]
-		if (amount >= last.amount) {
-			return last.price
-		}
-
-		for (let i = 0; i < points.length - 1; i++) {
-			const p1 = points[i]
-			const p2 = points[i + 1]
-			if (amount >= p1.amount && amount <= p2.amount) {
-				const t = (amount - p1.amount) / (p2.amount - p1.amount)
-				return p1.price + t * (p2.price - p1.price)
-			}
-		}
-
-		return last.price
 	}
 
 	/**

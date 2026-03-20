@@ -1,4 +1,5 @@
 import Decimal from "decimal.js"
+import { interpolatePrice } from "@hyperbridge/sdk"
 
 /**
  * A coordinate point on a curve
@@ -181,31 +182,10 @@ export class FillerPricePolicy {
 	}
 
 	getPrice(orderValueUsd: Decimal): Decimal {
-		const amount = orderValueUsd
-
-		// Below minimum configured amount, use the first point
-		if (amount.lte(this.points[0].amount)) {
-			return this.points[0].price
-		}
-
-		// Above maximum configured amount, use the last point
-		const lastPoint = this.points[this.points.length - 1]
-		if (amount.gte(lastPoint.amount)) {
-			return lastPoint.price
-		}
-
-		// Piecewise linear interpolation between surrounding points
-		for (let i = 0; i < this.points.length - 1; i++) {
-			const p1 = this.points[i]
-			const p2 = this.points[i + 1]
-
-			if (amount.gte(p1.amount) && amount.lte(p2.amount)) {
-				const t = amount.minus(p1.amount).div(p2.amount.minus(p1.amount))
-				return p1.price.plus(t.mul(p2.price.minus(p1.price)))
-			}
-		}
-
-		// Fallback (should not be reached due to earlier checks)
-		return lastPoint.price
+		const numPoints = this.points.map((p) => ({
+			amount: p.amount.toNumber(),
+			price: p.price.toNumber(),
+		}))
+		return new Decimal(interpolatePrice(numPoints, orderValueUsd.toNumber()))
 	}
 }

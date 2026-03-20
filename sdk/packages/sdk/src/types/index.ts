@@ -1364,8 +1364,8 @@ export interface PriceInput {
 export interface Quote {
 	/** The filler's on-chain account address */
 	filler: string
-	/** The interpolated price at the requested amount */
-	price: string
+	/** The interpolated amount at the requested input (human-readable decimal string) */
+	amount: string
 }
 
 /** Result of selecting a bid and submitting to the bundler */

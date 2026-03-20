@@ -1355,6 +1355,14 @@ export interface PriceInput {
 	price: bigint
 }
 
+/** A quote from a single filler for a given amount, produced by interpolating their price entries */
+export interface Quote {
+	/** The filler's on-chain account address */
+	filler: string
+	/** The interpolated price at the requested amount */
+	price: string
+}
+
 /** Result of selecting a bid and submitting to the bundler */
 export interface SelectBidResult {
 	userOp: PackedUserOperation

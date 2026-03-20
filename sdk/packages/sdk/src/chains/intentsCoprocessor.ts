@@ -5,7 +5,7 @@ import { hexToU8a, u8aToHex, u8aConcat } from "@polkadot/util"
 import { decodeAddress, keccakAsU8a } from "@polkadot/util-crypto"
 import { numberToBytes, bytesToBigInt } from "viem"
 import { Bytes, Struct, u8, Vector } from "scale-ts"
-import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, PriceInput } from "@/types"
+import type { BidSubmissionResult, HexString, PackedUserOperation, BidStorageEntry, FillerBid, PriceInput, Quote } from "@/types"
 import type { SubstrateChain } from "./substrate"
 
 /** Offchain storage key prefix for bids */
@@ -73,6 +73,13 @@ export function decodeUserOpScale(hex: HexString): PackedUserOperation {
 		paymasterAndData: u8aToHex(new Uint8Array(decoded.paymasterAndData)) as HexString,
 		signature: u8aToHex(new Uint8Array(decoded.signature)) as HexString,
 	}
+}
+
+/** RPC response shape from intents_getPairPrices */
+interface RpcPriceEntry {
+	amount: string
+	price: string
+	filler: string
 }
 
 /** RPC response shape from intents_getBidsForOrder */
@@ -379,6 +386,71 @@ export class IntentsCoprocessor {
 				error: error instanceof Error ? error.message : "Unknown error",
 			}
 		}
+	}
+
+	/**
+	 * Fetches all price entries for a token pair, groups them by filler,
+	 * runs piecewise linear interpolation on each filler's price curve,
+	 * and returns the interpolated quote at the requested amount from each filler.
+	 *
+	 * @param pairId - The token pair identifier (H256 / bytes32)
+	 * @param amount - The base token amount to get quotes for (human-readable number, e.g. 500 for 500 tokens)
+	 * @returns Array of Quote objects, one per filler who has price entries for this pair
+	 */
+	async getQuotes(pairId: HexString, amount: number): Promise<Quote[]> {
+		const entries: RpcPriceEntry[] = await (this.api as any)._rpcCore.provider.send(
+			"intents_getPairPrices",
+			[pairId],
+		)
+
+		if (entries.length === 0) return []
+
+		// Group entries by filler
+		const byFiller = new Map<string, { amount: number; price: number }[]>()
+		for (const entry of entries) {
+			const points = byFiller.get(entry.filler) ?? []
+			points.push({ amount: parseFloat(entry.amount), price: parseFloat(entry.price) })
+			byFiller.set(entry.filler, points)
+		}
+
+		const quotes: Quote[] = []
+		for (const [filler, points] of byFiller) {
+			// Sort by amount ascending
+			points.sort((a, b) => a.amount - b.amount)
+
+			const interpolatedPrice = this.interpolatePrice(points, amount)
+			quotes.push({ filler, price: interpolatedPrice.toString() })
+		}
+
+		return quotes
+	}
+
+	/**
+	 * Piecewise linear interpolation over sorted price points.
+	 * Below the minimum amount, returns the first point's price.
+	 * Above the maximum amount, returns the last point's price.
+	 * Between two points, linearly interpolates.
+	 */
+	private interpolatePrice(points: { amount: number; price: number }[], amount: number): number {
+		if (points.length === 1 || amount <= points[0].amount) {
+			return points[0].price
+		}
+
+		const last = points[points.length - 1]
+		if (amount >= last.amount) {
+			return last.price
+		}
+
+		for (let i = 0; i < points.length - 1; i++) {
+			const p1 = points[i]
+			const p2 = points[i + 1]
+			if (amount >= p1.amount && amount <= p2.amount) {
+				const t = (amount - p1.amount) / (p2.amount - p1.amount)
+				return p1.price + t * (p2.price - p1.price)
+			}
+		}
+
+		return last.price
 	}
 
 	/**

@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@hyperbridge/core':
-        specifier: ^1.6.0
-        version: 1.6.0
+        specifier: file:../sdk/packages/core
+        version: file:../sdk/packages/core
       '@openzeppelin/contracts':
         specifier: ^5.4.0
         version: 5.4.0
@@ -114,8 +114,8 @@ packages:
     resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
     engines: {node: '>=14'}
 
-  '@hyperbridge/core@1.6.0':
-    resolution: {integrity: sha512-Cq6kbCuuSECZF0nd+br/5+XvmY88499KqxCOfpqDOdFt7dIsG7F/CAT8u7V3JpqN/pE7jKxIqBWAZH4uxQM6yA==}
+  '@hyperbridge/core@file:../sdk/packages/core':
+    resolution: {directory: ../sdk/packages/core, type: directory}
 
   '@noble/curves@1.4.2':
     resolution: {integrity: sha512-TavHr8qycMChk8UwMld0ZDRvatedkzWfH8IiaeGCfymOP5i0hSCozz9vHOL0nkwk7HRMlFnAiKpS2jrUmSybcw==}
@@ -1100,7 +1100,7 @@ snapshots:
 
   '@fastify/busboy@2.1.1': {}
 
-  '@hyperbridge/core@1.6.0':
+  '@hyperbridge/core@file:../sdk/packages/core':
     dependencies:
       '@openzeppelin/contracts': 5.4.0
       '@polytope-labs/solidity-merkle-trees': 0.3.4

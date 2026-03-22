@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "simplex"
+    static_configs:
+      - targets: ["simplex:9090"]

@@ -22,7 +22,7 @@ import { getLogger, configureLogger } from "@/services/Logger"
 import { privateKeyToAddress } from "viem/accounts"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
-import { DashboardService } from "@/services/DashboardService"
+import { MetricsService } from "@/services/MetricsService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
 
@@ -272,7 +272,7 @@ program
 	.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
 	.option(
 		"-p, --port <[host:]port>",
-		"Enable web dashboard on the given address (e.g. 3420, 0.0.0.0:3420, 127.0.0.1:3420)",
+		"Enable Prometheus metrics server on the given address (e.g. 9090, 0.0.0.0:9090, 127.0.0.1:9090)",
 	)
 	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string }) => {
 		try {
@@ -463,45 +463,35 @@ program
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 			await intentFiller.initialize()
 
-			// Start optional web dashboard
-			let dashboard: DashboardService | undefined
+			// Start optional Prometheus metrics server
+			let metrics: MetricsService | undefined
 			if (options.port) {
-				const [dashHost, dashPortStr] = options.port.includes(":")
+				const [metricsHost, metricsPortStr] = options.port.includes(":")
 					? options.port.split(":").slice(-2) as [string, string]
 					: ["0.0.0.0", options.port]
-				const dashPort = parseInt(dashPortStr, 10)
-				if (isNaN(dashPort) || dashPort < 1 || dashPort > 65535) {
-					logger.warn({ bind: options.port }, "Invalid dashboard address, skipping")
+				const metricsPort = parseInt(metricsPortStr, 10)
+				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
+					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
 				} else {
-					const curveConfig = {
-						fillerAddress: privateKeyToAddress(privateKey),
-						chains: config.chains.map((c) => c.chainId),
-						strategies: config.strategies.map((s) => {
-							if (s.type === "basic") {
-								return { type: "basic" as const, bpsCurve: s.bpsCurve }
-							} else {
-								return {
-									type: "hyperfx" as const,
-									bidPriceCurve: s.bidPriceCurve,
-									askPriceCurve: s.askPriceCurve,
-									maxOrderUsd: s.maxOrderUsd,
-									exoticTokenAddresses: s.exoticTokenAddresses,
-								}
-							}
-						}),
+					// Collect exotic token addresses from FX strategies
+					const exoticTokenAddresses: Record<string, string> = {}
+					for (const s of config.strategies) {
+						if (s.type === "hyperfx" && s.exoticTokenAddresses) {
+							Object.assign(exoticTokenAddresses, s.exoticTokenAddresses)
+						}
 					}
-					dashboard = new DashboardService({
+					metrics = new MetricsService({
 						monitor: intentFiller.monitor,
 						bidStorage: bidStorageService,
 						chainClientManager,
 						configService,
 						fillerAddress: privateKeyToAddress(privateKey),
-						curveConfig,
+						chains: config.chains.map((c) => c.chainId),
+						exoticTokenAddresses,
 						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 						substratePrivateKey: config.simplex.substratePrivateKey,
-						retractStaleBids: () => intentFiller.retractStaleBids(),
 					})
-					dashboard.start(dashPort, dashHost)
+					metrics.start(metricsPort, metricsHost)
 				}
 			}
 
@@ -529,14 +519,14 @@ program
 			// Handle graceful shutdown
 			process.on("SIGINT", async () => {
 				logger.warn("Shutting down intent filler (SIGINT)...")
-				dashboard?.stop()
+				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			})
 
 			process.on("SIGTERM", async () => {
 				logger.warn("Shutting down intent filler (SIGTERM)...")
-				dashboard?.stop()
+				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			})

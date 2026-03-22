@@ -56,11 +56,80 @@ We provide a simple script for Docker operations:
 # Run as container
 ./scripts/docker.sh run
 
-# Use Docker Compose
+# Use Docker Compose (includes Prometheus + Grafana)
 ./scripts/docker.sh up
 ./scripts/docker.sh down
 ./scripts/docker.sh logs
 ```
+
+## Monitoring
+
+Simplex exposes Prometheus metrics when started with the `-p` flag. The Docker Compose stack includes Prometheus and Grafana pre-configured with a dashboard.
+
+### Quick Start
+
+```bash
+# Start everything (simplex + prometheus + grafana)
+cd scripts && docker compose up -d
+
+# Grafana is at http://localhost:3420 (admin/admin)
+# Prometheus is at http://localhost:9091
+```
+
+### Without Docker
+
+```bash
+# Start simplex with metrics on port 9090
+simplex run -c config.toml -p 9090
+
+# Point your own Prometheus at http://localhost:9090/metrics
+```
+
+### Exposed Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `simplex_orders_detected_total` | counter | | Orders detected on-chain |
+| `simplex_orders_filled_total` | counter | | Orders successfully filled |
+| `simplex_orders_executed_total` | counter | `success`, `strategy` | Orders executed (pass/fail) |
+| `simplex_orders_skipped_total` | counter | | Orders skipped (not profitable) |
+| `simplex_bids_submitted_total` | counter | `success` | Bids submitted to Hyperbridge |
+| `simplex_balance_usdc` | gauge | `chain_id` | USDC balance per chain |
+| `simplex_balance_usdt` | gauge | `chain_id` | USDT balance per chain |
+| `simplex_balance_native` | gauge | `chain_id`, `symbol` | Native token balance per chain |
+| `simplex_balance_exotic` | gauge | `chain_id`, `symbol` | Exotic token balance per chain |
+| `simplex_bids_pending` | gauge | | Bids pending retraction |
+| `simplex_bids_successful` | gauge | | Total successful bids |
+| `simplex_bids_failed` | gauge | | Total failed bids |
+| `simplex_bids_retracted` | gauge | | Total retracted bids |
+| `simplex_hyperbridge_balance_free` | gauge | | Substrate free balance |
+| `simplex_hyperbridge_balance_reserved` | gauge | | Substrate reserved balance |
+| `simplex_uptime_seconds` | gauge | | Process uptime |
+| `simplex_order_processing_duration_seconds` | histogram | `success` | Detection-to-execution latency |
+
+Node.js process metrics (CPU, memory, GC, event loop) are also exported with the `simplex_` prefix.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `GRAFANA_PORT` | `3420` | Grafana host port |
+| `GRAFANA_USER` | `admin` | Grafana admin username |
+| `GRAFANA_PASSWORD` | `admin` | Grafana admin password |
+| `PROMETHEUS_PORT` | `9091` | Prometheus host port |
+| `CONFIG_PATH` | `../config.toml` | Path to simplex config file |
+
+### Grafana Dashboard
+
+A pre-provisioned "Simplex Filler" dashboard is included with panels for:
+
+- Order throughput and success rate
+- Order processing latency percentiles (p50/p95/p99)
+- USDC/USDT/native/exotic balance history per chain
+- Total stablecoin balance across all chains
+- Hyperbridge substrate balance
+- Bid status breakdown
+- Process memory usage
 
 ## Configuration
 

@@ -73,6 +73,7 @@
 		"ethers": "^5.7.2",
 		"p-queue": "^8.1.0",
 		"pino": "^9.9.5",
+		"prom-client": "^15.1.0",
 		"pino-pretty": "^11.3.0",
 		"scale-ts": "^1.6.1",
 		"toml": "^3.0.0",

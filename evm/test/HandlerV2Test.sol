@@ -135,12 +135,14 @@ contract HandlerV2Test is Test {
     }
 
     function testHandleConsensusV2RecordsRelayerOnEpochChange() public {
-        bytes memory proof = _makeConsensusProof(2000, 1, 42);
+        // epoch must be exactly currentEpoch + 1, starting from 0
+        bytes memory proof = _makeConsensusProof(2000, 1, 1);
 
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
-        assertEq(handler.relayerOf(42), tx.origin);
+        assertEq(handler.relayerOf(1), tx.origin);
+        assertEq(handler.currentEpoch(), 1);
     }
 
     function testHandleConsensusV2NoEpochChange() public {
@@ -157,7 +159,7 @@ contract HandlerV2Test is Test {
     }
 
     function testBatchCallRevertsAtomically() public {
-        bytes memory validProof = _makeConsensusProof(2000, 1, 42);
+        bytes memory validProof = _makeConsensusProof(2000, 1, 1);
 
         // second call is invalid (empty proof)
         bytes[] memory calls = new bytes[](2);
@@ -169,11 +171,11 @@ contract HandlerV2Test is Test {
         handler.batchCall(calls);
 
         // relayer mapping should not have been set since batch reverted
-        assertEq(handler.relayerOf(42), address(0));
+        assertEq(handler.relayerOf(1), address(0));
     }
 
     function testBatchCallPreservesMsgSender() public {
-        bytes memory proof = _makeConsensusProof(2000, 1, 7);
+        bytes memory proof = _makeConsensusProof(2000, 1, 1);
 
         bytes[] memory calls = new bytes[](1);
         calls[0] = abi.encodeWithSelector(handler.handleConsensus.selector, host, proof);
@@ -182,7 +184,7 @@ contract HandlerV2Test is Test {
         vm.prank(relayer);
         handler.batchCall(calls);
 
-        assertEq(handler.relayerOf(7), relayer);
+        assertEq(handler.relayerOf(1), relayer);
     }
 
     function testSupportsInterfaceV2() public view {
@@ -190,12 +192,36 @@ contract HandlerV2Test is Test {
     }
 
     function testBackwardCompatDirectCall() public {
-        bytes memory proof = _makeConsensusProof(2000, 1, 5);
+        bytes memory proof = _makeConsensusProof(2000, 1, 1);
 
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
-        assertEq(handler.relayerOf(5), tx.origin);
+        assertEq(handler.relayerOf(1), tx.origin);
+    }
+
+    function testInvalidEpochReverts() public {
+        // skip epoch 1, try to go straight to 2 — should revert
+        bytes memory proof = _makeConsensusProof(2000, 1, 2);
+
+        vm.prank(tx.origin);
+        vm.expectRevert(abi.encodeWithSelector(HandlerV2.InvalidEpoch.selector, 1, 2));
+        handler.handleConsensus(host, proof);
+    }
+
+    function testSequentialEpochs() public {
+        // epoch 1
+        bytes memory proof1 = _makeConsensusProof(2000, 1, 1);
+        vm.prank(tx.origin);
+        handler.handleConsensus(host, proof1);
+        assertEq(handler.currentEpoch(), 1);
+
+        // epoch 2
+        bytes memory proof2 = _makeConsensusProof(2000, 2, 2);
+        vm.prank(tx.origin);
+        handler.handleConsensus(host, proof2);
+        assertEq(handler.currentEpoch(), 2);
+        assertEq(handler.relayerOf(2), tx.origin);
     }
 
 

@@ -32,9 +32,9 @@ RUN cd packages/sdk && pnpm build
 # Build simplex
 RUN cd packages/simplex && pnpm build
 
-# Create a healthcheck script
+# Create a healthcheck script that hits the metrics /health endpoint
 RUN echo '#!/bin/sh' > /app/healthcheck.sh && \
-    echo 'ps -ef | grep "node" | grep -v grep > /dev/null || exit 1' >> /app/healthcheck.sh && \
+    echo 'node -e "fetch(\"http://localhost:9090/health\").then(r=>{if(!r.ok)throw 1})" 2>/dev/null || ps -ef | grep "node" | grep -v grep > /dev/null || exit 1' >> /app/healthcheck.sh && \
     chmod +x /app/healthcheck.sh
 
 USER simplex

@@ -1,0 +1,430 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Orders Detected",
+      "description": "Total number of new intent orders discovered on-chain by the event monitor.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "simplex_orders_detected_total",
+          "legendFormat": "detected",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Orders Filled",
+      "description": "Total number of orders this filler successfully filled on the destination chain.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "targets": [
+        {
+          "expr": "simplex_orders_filled_total",
+          "legendFormat": "filled",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Orders Executed",
+      "description": "Total number of order execution attempts, including both successes and failures.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(simplex_orders_executed_total)",
+          "legendFormat": "executed",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Orders Skipped",
+      "description": "Total number of orders skipped because no strategy found them profitable to fill.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "simplex_orders_skipped_total",
+          "legendFormat": "skipped",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "orange", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Bids Placed",
+      "description": "Total number of bids submitted to Hyperbridge's solver selection system.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "expr": "simplex_bids_submitted_total",
+          "legendFormat": "placed",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Pending Bids",
+      "description": "Number of bids awaiting retraction from Hyperbridge storage. All bids are retracted after the order is filled on-chain, regardless of which filler won.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "targets": [
+        {
+          "expr": "simplex_bids_pending",
+          "legendFormat": "pending",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "yellow", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Order Processing Duration (p50 / p99)",
+      "description": "End-to-end latency from order detection to execution result, broken down by phase: confirmation (waiting for source chain confirmations), evaluation (strategy profitability calculation), queue_wait (time in the per-chain sequential queue), and execution (the actual fill transaction).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(simplex_order_processing_duration_seconds_bucket[5m])))",
+          "legendFormat": "total p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(simplex_order_processing_duration_seconds_bucket[5m])))",
+          "legendFormat": "total p99",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, phase) (rate(simplex_order_phase_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{phase}} p50",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, phase) (rate(simplex_order_phase_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{phase}} p99",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "s"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Total Order Volume Processed (USD)",
+      "description": "Cumulative USD value of all orders successfully filled, broken down by source chain.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "targets": [
+        {
+          "expr": "sum by (chain_id) (increase(simplex_order_volume_usd_total[$__range]))",
+          "legendFormat": "chain {{chain_id}}",
+          "instant": false,
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "stacking": { "mode": "none" } },
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Cumulative Profit (USD)",
+      "description": "Cumulative USD profit earned from the bid/ask spread and fee surplus on filled orders, broken down by source chain.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "sum by (chain_id) (increase(simplex_order_profit_usd_total[$__range]))",
+          "legendFormat": "chain {{chain_id}}",
+          "instant": false,
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "USDC Balance",
+      "description": "Current USDC balance held by the filler on each chain. Decreases when filling orders, increases after rebalancing.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "expr": "simplex_balance_usdc",
+          "legendFormat": "chain {{chain_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "USDT Balance",
+      "description": "Current USDT balance held by the filler on each chain. Decreases when filling orders, increases after rebalancing.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        {
+          "expr": "simplex_balance_usdt",
+          "legendFormat": "chain {{chain_id}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Native Token Balance",
+      "description": "Native gas token balance (e.g. ETH) on each chain. Used to pay for fill transaction gas fees.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "targets": [
+        {
+          "expr": "simplex_balance_native",
+          "legendFormat": "{{symbol}} (chain {{chain_id}})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "decimals": 4
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Non-USD Token Balance",
+      "description": "Balance of non-USD tokens held by the filler for FX strategy orders, labelled by symbol.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "targets": [
+        {
+          "expr": "simplex_balance_exotic",
+          "legendFormat": "{{symbol}} (chain {{chain_id}})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "decimals": 4
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Hyperbridge Substrate Balance",
+      "description": "Filler's balance on the Hyperbridge substrate chain. Free balance is available for bid deposits; reserved balance is locked in active bids.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "targets": [
+        {
+          "expr": "simplex_hyperbridge_balance_free",
+          "legendFormat": "free",
+          "refId": "A"
+        },
+        {
+          "expr": "simplex_hyperbridge_balance_reserved",
+          "legendFormat": "reserved",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 },
+          "decimals": 4
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Execution Success Rate",
+      "description": "Percentage of order execution attempts that succeeded, calculated over a 5-minute rolling window.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+      "targets": [
+        {
+          "expr": "sum(rate(simplex_orders_executed_total{success=\"true\"}[5m])) / sum(rate(simplex_orders_executed_total[5m])) * 100",
+          "legendFormat": "success %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 80 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Process Memory",
+      "description": "RSS is total physical memory used by the process. Heap used is the portion of V8's heap actively holding JavaScript objects.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "targets": [
+        {
+          "expr": "simplex_process_resident_memory_bytes",
+          "legendFormat": "RSS",
+          "refId": "A"
+        },
+        {
+          "expr": "simplex_nodejs_heap_size_used_bytes",
+          "legendFormat": "heap used",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "bytes"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Uptime",
+      "description": "Time since the simplex filler process was last started.",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "targets": [
+        {
+          "expr": "simplex_uptime_seconds",
+          "legendFormat": "uptime",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["simplex", "hyperbridge"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Simplex Filler",
+  "uid": "simplex-filler",
+  "version": 1
+}

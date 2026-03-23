@@ -1,7 +1,7 @@
 import { createSessionKeyStorage, createCancellationStorage, createUsedUserOpsStorage } from "@/storage"
 import { Swap } from "@/utils/swap"
 import type { TransactionReceipt } from "viem"
-import type { Order, HexString } from "@/types"
+import type { Order, HexString, CancelQuote } from "@/types"
 import type {
 	PackedUserOperation,
 	SubmitBidOptions,
@@ -211,6 +211,7 @@ export class IntentGateway {
 			minBids?: number
 			bidTimeoutMs?: number
 			pollIntervalMs?: number
+			solver?: { address: HexString; timeoutMs: number }
 		},
 	): AsyncGenerator<IntentOrderStatusUpdate, void, HexString> {
 		let value: bigint | undefined
@@ -257,6 +258,7 @@ export class IntentGateway {
 			minBids: options?.minBids,
 			bidTimeoutMs: options?.bidTimeoutMs,
 			pollIntervalMs: options?.pollIntervalMs,
+			solver: options?.solver,
 		})) {
 			yield status
 		}
@@ -265,17 +267,18 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Quotes the native token cost for cancelling an order.
+	 * Returns both the native token cost and the relayer fee for cancelling an
+	 * order. Use `relayerFee` to approve the ERC-20 spend before submitting.
 	 *
-	 * Delegates to {@link OrderCanceller.quoteCancelNative}.
+	 * Delegates to {@link OrderCanceller.quoteCancelOrder}.
 	 *
 	 * @param order - The order to quote cancellation for.
 	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
-	 *   Defaults to `false` (source-side cancellation).
-	 * @returns The native token amount required to submit the cancel transaction.
+	 * @returns `{ nativeValue }` — native token amount (wei) to send as `value`;
+	 *   `{ relayerFee }` — relayer incentive denominated in the chain's fee token.
 	 */
-	async quoteCancelNative(order: Order, fromDest: boolean = false): Promise<bigint> {
-		return this.orderCanceller.quoteCancelNative(order, fromDest)
+	async quoteCancelOrder(order: Order, fromDest: boolean = false): Promise<CancelQuote> {
+		return this.orderCanceller.quoteCancelOrder(order, fromDest)
 	}
 
 	/**

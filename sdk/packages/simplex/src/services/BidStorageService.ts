@@ -76,6 +76,7 @@ export class BidStorageService {
 			CREATE INDEX IF NOT EXISTS idx_bids_success ON bids(success);
 			CREATE INDEX IF NOT EXISTS idx_bids_retracted ON bids(retracted);
 			CREATE INDEX IF NOT EXISTS idx_bids_created_at ON bids(created_at);
+
 		`)
 
 		this.logger.debug("Bid storage schema initialized")

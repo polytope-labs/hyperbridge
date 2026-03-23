@@ -64,9 +64,9 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	)
 	.map_err(|_| anyhow!("Could not deseerialize vote address set"))?;
 
-	if validators_bit_set.iter().as_bitslice().count_ones() <
-		((2 * current_validators.len() / 3) + 1)
-	{
+	// We have to use the same threshold specified in the bsc parlia consensus which is 2/3
+	// https://github.com/bnb-chain/bsc/blob/da35ee13e2fe38efaeab2d6fb27f112332459b50/consensus/parlia/parlia.go#L557
+	if validators_bit_set.iter().as_bitslice().count_ones() < ((2 * current_validators.len()) / 3) {
 		Err(anyhow!("Not enough participants"))?
 	}
 

@@ -1,4 +1,3 @@
-import { toHex } from "viem"
 import type { ChainConfig, HexString } from "@/types"
 import { chainConfigs, getConfigByStateMachineId, Chains, hyperbridgeAddress } from "@/configs/chain"
 
@@ -86,9 +85,10 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.chainId ?? 0
 	}
 
-	getConsensusStateId(chain: string): HexString {
+	getConsensusStateId(chain: string): string {
 		const id = this.getConfig(chain)?.consensusStateId
-		return id ? toHex(id) : ("0x" as HexString)
+		if (!id) throw new Error(`No consensusStateId configured for chain: ${chain}`)
+		return id
 	}
 
 	getHyperbridgeChainId(): number {

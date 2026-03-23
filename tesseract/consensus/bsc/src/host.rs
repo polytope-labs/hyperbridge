@@ -199,7 +199,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										);
 
 									if validators_bit_set.iter().as_bitslice().count_ones() <
-										((2 * next_validators.validators.len() / 3) + 1)
+										(2 * next_validators.validators.len() / 3)
 									{
 										log::trace!(
 											"Not enough participants in bsc update for block {block:?}"
@@ -315,7 +315,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										);
 
 									if validators_bit_set.iter().as_bitslice().count_ones() <
-										((2 * consensus_state.current_validators.len() / 3) + 1)
+										(2 * consensus_state.current_validators.len() / 3)
 									{
 										log::trace!(
 											"Not enough participants in bsc update for block {block:?}"

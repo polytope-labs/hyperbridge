@@ -219,3 +219,50 @@ export async function convertGasToFeeToken(
 		return parseUnits(gasCostInFeeToken.toFixed(feeToken.decimals), feeToken.decimals)
 	}
 }
+
+/**
+ * Converts a fee-token amount on a given chain into the equivalent native wei amount.
+ *
+ * First attempts a Uniswap V2 quote (fee token -> WETH). If that quote fails or
+ * returns zero, falls back to a price-oracle estimate assuming the fee token is $1.
+ *
+ * @param ctx - Shared IntentsV2 context.
+ * @param feeTokenAmount - Amount in fee token units (scaled by fee token decimals).
+ * @param feeTokenIn - Which chain side the fee-token amount belongs to (`"source"` or `"dest"`).
+ * @param evmChainID - State-machine ID of the chain used for conversion.
+ * @returns Native wei-equivalent amount.
+ */
+export async function convertFeeTokenToWei(
+	ctx: IntentGatewayContext,
+	feeTokenAmount: bigint,
+	feeTokenIn: "source" | "dest",
+	evmChainID: string,
+): Promise<bigint> {
+	const chain = ctx[feeTokenIn]
+	const client = chain.client
+	const wethAddr = chain.configService.getWrappedNativeAssetWithDecimals(evmChainID).asset
+	const feeToken = await getFeeToken(ctx, evmChainID, chain)
+
+	try {
+		const { amountOut } = await ctx.swap.findBestProtocolWithAmountIn(
+			client,
+			feeToken.address,
+			wethAddr,
+			feeTokenAmount,
+			evmChainID,
+			{ selectedProtocol: "v2" },
+		)
+		if (amountOut === 0n) {
+			throw new Error()
+		}
+		return amountOut
+	} catch {
+		const nativeCurrency = client.chain?.nativeCurrency
+		const chainId = Number.parseInt(evmChainID.split("-")[1])
+		const feeTokenAmountInToken = new Decimal(formatUnits(feeTokenAmount, feeToken.decimals))
+		const nativeTokenPriceUsd = await fetchPrice(nativeCurrency?.symbol, chainId)
+		const feeTokenAmountUsd = feeTokenAmountInToken.times(new Decimal(1))
+		const nativeAmount = feeTokenAmountUsd.dividedBy(nativeTokenPriceUsd)
+		return parseUnits(nativeAmount.toFixed(nativeCurrency?.decimals ?? 18), nativeCurrency?.decimals ?? 18)
+	}
+}

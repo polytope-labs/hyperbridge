@@ -116,8 +116,10 @@ async function runCrossChainEstimate(srcKey: string, destKey: string) {
 	const estimate = await intentGateway.estimateFillOrder({ order })
 
 	console.log(`${srcKey} => ${destKey}`)
+	console.log("Estimated cost (totalGasCostWei):", estimate.totalGasCostWei)
 	console.log("Estimated fee (totalGasInFeeToken):", estimate.totalGasInFeeToken)
 
+	assert(estimate.totalGasCostWei > 0n)
 	assert(estimate.totalGasInFeeToken > 0n)
 }
 
@@ -138,6 +140,8 @@ async function runSameChainEstimate(chainKey: string) {
 
 	const estimate = await intentGateway.estimateFillOrder({ order })
 
+	console.log(`${chainKey} same-chain estimated cost (totalGasCostWei):`, estimate.totalGasCostWei)
 	console.log(`${chainKey} same-chain USDC => EXT, estimated fee:`, estimate.totalGasInFeeToken)
+	assert(estimate.totalGasCostWei > 0n)
 	assert(estimate.totalGasInFeeToken > 0n)
 }

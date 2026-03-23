@@ -19,9 +19,11 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
+import { privateKeyToAddress } from "viem/accounts"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
+import { MetricsService } from "@/services/MetricsService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
 import type { SigningAccount } from "@/services/wallet"
@@ -271,7 +273,11 @@ program
 	.requiredOption("-c, --config <path>", "Path to TOML configuration file")
 	.option("-d, --data-dir <path>", "Directory for persistent data storage (bids database, etc.)")
 	.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
-	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean }) => {
+	.option(
+		"-p, --port <[host:]port>",
+		"Enable Prometheus metrics server on the given address (e.g. 9090, 0.0.0.0:9090, 127.0.0.1:9090)",
+	)
+	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string }) => {
 		try {
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)
@@ -457,6 +463,38 @@ program
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 			await intentFiller.initialize()
 
+			// Start optional Prometheus metrics server
+			let metrics: MetricsService | undefined
+			if (options.port) {
+				const [metricsHost, metricsPortStr] = options.port.includes(":")
+					? options.port.split(":").slice(-2) as [string, string]
+					: ["0.0.0.0", options.port]
+				const metricsPort = parseInt(metricsPortStr, 10)
+				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
+					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
+				} else {
+					// Collect exotic token addresses from FX strategies
+					const exoticTokenAddresses: Record<string, string> = {}
+					for (const s of config.strategies) {
+						if (s.type === "hyperfx" && s.exoticTokenAddresses) {
+							Object.assign(exoticTokenAddresses, s.exoticTokenAddresses)
+						}
+					}
+					metrics = new MetricsService({
+						monitor: intentFiller.monitor,
+						bidStorage: bidStorageService,
+						chainClientManager,
+						configService,
+						fillerAddress: privateKeyToAddress(privateKey),
+						chains: config.chains.map((c) => c.chainId),
+						exoticTokenAddresses,
+						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
+						substratePrivateKey: config.simplex.substratePrivateKey,
+					})
+					metrics.start(metricsPort, metricsHost)
+				}
+			}
+
 			// Start the filler
 			intentFiller.start()
 
@@ -481,12 +519,14 @@ program
 			// Handle graceful shutdown
 			process.on("SIGINT", async () => {
 				logger.warn("Shutting down intent filler (SIGINT)...")
+				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			})
 
 			process.on("SIGTERM", async () => {
 				logger.warn("Shutting down intent filler (SIGTERM)...")
+				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			})

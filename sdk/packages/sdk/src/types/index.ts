@@ -16,9 +16,9 @@ export type HexString = `0x${string}`
 
 export interface IConfig {
 	// confuration object for the source chain
-	source: IEvmConfig | ISubstrateConfig
+	source: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
 	// confuration object for the destination chain
-	dest: IEvmConfig | ISubstrateConfig
+	dest: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
 	// confuration object for hyperbridge
 	hyperbridge: IHyperbridgeConfig
 	// Flag to enable tracing console logs
@@ -34,6 +34,14 @@ export interface IEvmConfig {
 	host: HexString
 	// consensus state identifier of this chain on hyperbridge
 	consensusStateId: string
+}
+
+/**
+ * EVM-on-Substrate (e.g. Polkadot Hub) — same as {@link IEvmConfig} plus a Substrate node RPC URL
+ * used for `state_getReadProof` / `state_getChildReadProof` (Revive child trie proofs).
+ */
+export interface IPolkadotHubConfig extends IEvmConfig {
+	substrateRpcUrl: string
 }
 
 export interface ISubstrateConfig {
@@ -196,6 +204,11 @@ export enum TeleportStatus {
 	TELEPORTED = "TELEPORTED",
 	RECEIVED = "RECEIVED",
 	REFUNDED = "REFUNDED",
+}
+
+export interface CancelQuote {
+	nativeValue: bigint
+	relayerFee: bigint
 }
 
 export interface TokenGatewayAssetTeleportedResponse {
@@ -1381,6 +1394,16 @@ export interface ExecuteIntentOrderOptions {
 	minBids?: number
 	bidTimeoutMs?: number
 	pollIntervalMs?: number
+	/**
+	 * If set, bids are restricted to the given solver until `timeoutMs` elapses,
+	 * after which any solver is accepted.
+	 */
+	solver?: {
+		/** Only bids from this address (matched against userOp.sender) will be considered */
+		address: HexString
+		/** After this many ms without a matching bid, execution falls back to any solver */
+		timeoutMs: number
+	}
 }
 
 /** Type for ERC-7821 Call struct */

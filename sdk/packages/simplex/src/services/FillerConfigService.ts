@@ -112,7 +112,7 @@ export class FillerConfigService {
 		return this.chainConfigService.getChainId(chain)
 	}
 
-	getConsensusStateId(chain: string): HexString {
+	getConsensusStateId(chain: string): string {
 		return this.chainConfigService.getConsensusStateId(chain)
 	}
 

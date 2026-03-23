@@ -18,7 +18,7 @@
 # vaultUuid = ""
 # accountAddress = "0x0000000000000000000000000000000000000000"
 # callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
-# baseUrl = "https://api.mpcvault.com" # optional
+# grpcTarget = "api.mpcvault.com:443" # optional; default when omitted
 
 maxConcurrentOrders = 5
 

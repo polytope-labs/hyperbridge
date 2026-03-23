@@ -604,7 +604,6 @@ function createMpcVaultFillSigner() {
 			vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
 			accountAddress: process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString,
 			callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY!,
-			baseUrl: process.env.MPCVAULT_BASE_URL,
 		},
 	})
 }

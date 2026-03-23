@@ -1,56 +1,87 @@
 import { type HexString } from "@hyperbridge/sdk"
-import { concatHex, keccak256, padHex, toHex, type Hex } from "viem"
+import { concatHex, keccak256, padHex, toHex } from "viem"
 import { toAccount, type Account } from "viem/accounts"
-import type {
-	CreateSigningRequestPayload,
-	EcdsaSignatureParts,
-	ExecuteSigningResponse,
-	MpcVaultClientConfig,
-	SigningRequestResponse,
-	MpcVaultSignerConfig,
-} from "./types"
+import * as grpc from "@grpc/grpc-js"
+import {
+	PlatformAPIClient,
+	ECDSAHashFunction,
+	EVMMessage_Type,
+	type CreateSigningRequestRequest,
+	type CreateSigningRequestResponse,
+	type ExecuteSigningRequestsRequest,
+	type ExecuteSigningRequestsResponse,
+	type SignatureContainer_ECDSASignature,
+} from "../../proto/mpcvault/platform/v1/api"
+import type { MpcVaultClientConfig, MpcVaultSignerConfig } from "./types"
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function promisifyUnary<TReq, TRes>(
+	method: (
+		request: TReq,
+		metadata: grpc.Metadata,
+		callback: (error: grpc.ServiceError | null, response: TRes) => void,
+	) => grpc.ClientUnaryCall,
+	request: TReq,
+	metadata: grpc.Metadata,
+): Promise<TRes> {
+	return new Promise<TRes>((resolve, reject) => {
+		method(request, metadata, (err, response) => {
+			if (err) reject(err)
+			else resolve(response)
+		})
+	})
+}
+
+// ---------------------------------------------------------------------------
+// MpcVaultService — gRPC with generated types
+// ---------------------------------------------------------------------------
 
 export class MpcVaultService {
-	private readonly apiToken: string
 	private readonly vaultUuid: string
 	private readonly accountAddress: HexString
 	private readonly callbackClientSignerPublicKey: string
-	private readonly baseUrl: string
+	private readonly client: PlatformAPIClient
+	private readonly metadata: grpc.Metadata
 
 	constructor(config: MpcVaultClientConfig) {
-		this.apiToken = config.apiToken
 		this.vaultUuid = config.vaultUuid
 		this.accountAddress = config.accountAddress
 		this.callbackClientSignerPublicKey = config.callbackClientSignerPublicKey
-		this.baseUrl = config.baseUrl ?? "https://api.mpcvault.com"
+
+		const grpcTarget = config.grpcTarget ?? "api.mpcvault.com:443"
+		this.client = new PlatformAPIClient(grpcTarget, grpc.credentials.createSsl())
+
+		this.metadata = new grpc.Metadata()
+		this.metadata.add("x-mtoken", config.apiToken)
 	}
 
 	getAccountAddress(): HexString {
 		return this.accountAddress
 	}
 
-	private async post<TResponse>(path: string, body: unknown): Promise<TResponse> {
-		const response = await fetch(`${this.baseUrl}${path}`, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				"x-mtoken": this.apiToken,
-			},
-			body: JSON.stringify(body),
-		})
-
-		if (!response.ok) {
-			throw new Error(`MPCVault request failed (${response.status} ${response.statusText})`)
-		}
-
-		return (await response.json()) as TResponse
+	/** Close the underlying gRPC channel. Call during graceful shutdown. */
+	close(): void {
+		this.client.close()
 	}
 
-	private async createSigningRequest(payload: CreateSigningRequestPayload): Promise<string> {
-		const response = await this.post<SigningRequestResponse>("/v1/createSigningRequest", payload)
-		if (response.error) {
-			throw new Error(`MPCVault createSigningRequest error: ${response.error.message ?? "unknown error"}`)
+	// -----------------------------------------------------------------------
+	// Signing request lifecycle
+	// -----------------------------------------------------------------------
+
+	private async createSigningRequest(request: CreateSigningRequestRequest): Promise<string> {
+		const response = await promisifyUnary<CreateSigningRequestRequest, CreateSigningRequestResponse>(
+			this.client.createSigningRequest.bind(this.client),
+			request,
+			this.metadata,
+		)
+
+		if (response.error?.message) {
+			throw new Error(`MPCVault createSigningRequest error: ${response.error.message}`)
 		}
+
 		const uuid = response.signingRequest?.uuid
 		if (!uuid) {
 			throw new Error("MPCVault createSigningRequest response did not include signing request uuid")
@@ -58,21 +89,30 @@ export class MpcVaultService {
 		return uuid
 	}
 
-	private async executeSigningRequest(uuid: string): Promise<ExecuteSigningResponse> {
-		const response = await this.post<ExecuteSigningResponse>("/v1/executeSigningRequests", { uuid })
-		if (response.error) {
-			throw new Error(`MPCVault executeSigningRequests error: ${response.error.message ?? "unknown error"}`)
+	private async executeSigningRequest(uuid: string): Promise<ExecuteSigningRequestsResponse> {
+		const response = await promisifyUnary<ExecuteSigningRequestsRequest, ExecuteSigningRequestsResponse>(
+			this.client.executeSigningRequests.bind(this.client),
+			{ uuid },
+			this.metadata,
+		)
+
+		if (response.error?.message) {
+			throw new Error(`MPCVault executeSigningRequests error: ${response.error.message}`)
 		}
 		return response
 	}
 
-	private signatureFromParts(parts: EcdsaSignatureParts): HexString {
-		const r = padHex(toHex(BigInt(parts.R ?? "0")), { size: 32 })
-		const s = padHex(toHex(BigInt(parts.S ?? "0")), { size: 32 })
-		const vInt = this.parseFlexibleBigInt(parts.V ?? "0")
+	// -----------------------------------------------------------------------
+	// Signature assembly
+	// -----------------------------------------------------------------------
+
+	private signatureFromParts(parts: SignatureContainer_ECDSASignature, normalizeV = false): HexString {
+		const r = padHex(toHex(BigInt(parts.R || "0")), { size: 32 })
+		const s = padHex(toHex(BigInt(parts.S || "0")), { size: 32 })
+		const vInt = this.parseFlexibleBigInt(parts.V || "0")
 		let v = padHex(toHex(vInt), { size: 1 })
 
-		if (parts.normalizedV) {
+		if (normalizeV) {
 			v = padHex(toHex(vInt < 27n ? vInt + 27n : vInt), { size: 1 })
 		}
 
@@ -90,81 +130,81 @@ export class MpcVaultService {
 		return (value.startsWith("0x") ? value : `0x${value}`) as HexString
 	}
 
+	private extractEcdsaSignature(
+		response: ExecuteSigningRequestsResponse,
+		context: string,
+	): SignatureContainer_ECDSASignature {
+		const parts = response.signatures?.signatures?.[0]?.ecdsaSignature
+		if (!parts) {
+			throw new Error(`MPCVault did not return ECDSA signature parts for ${context}`)
+		}
+		return parts
+	}
+
+	// -----------------------------------------------------------------------
+	// Public signing methods
+	// -----------------------------------------------------------------------
+
 	/**
 	 * Sign a message with EIP-191 personal_sign semantics.
 	 * We apply the EIP-191 prefix ourselves and use raw_message (USE_MESSAGE_DIRECTLY)
 	 * to avoid ambiguity about how MPC Vault's TYPE_PERSONAL_SIGN handles the content field.
 	 */
-	async signPersonalMessage(messageHash: HexString, chainId: number): Promise<HexString> {
-		// Apply EIP-191 prefix ourselves: keccak256("\x19Ethereum Signed Message:\n32" || messageHash)
+	async signPersonalMessage(messageHash: HexString, _chainId: number): Promise<HexString> {
 		const messageBytes = Buffer.from(messageHash.slice(2), "hex")
 		const prefix = Buffer.from(`\x19Ethereum Signed Message:\n${messageBytes.length}`)
 		const ethSignedMessageHash = keccak256(concatHex([toHex(prefix), messageHash]))
-
-		// Sign the final hash directly via raw_message — no additional hashing by MPC Vault
 		const ethSignedBytes = Buffer.from(ethSignedMessageHash.slice(2), "hex")
-		const base64Content = ethSignedBytes.toString("base64")
 
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
+			notes: "",
+			broadcastTx: false,
 			rawMessage: {
 				from: this.accountAddress,
-				content: base64Content,
-				ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY",
+				content: ethSignedBytes,
+				ecdsaHashFunction: ECDSAHashFunction.ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY,
 			},
 		})
 
 		const result = await this.executeSigningRequest(uuid)
-		const parts = result.signatures?.signatures?.[0]?.ecdsaSignature
-		if (!parts) {
-			throw new Error("MPCVault did not return ECDSA signature parts for personal_sign")
-		}
-
-		return this.signatureFromParts({ ...parts, normalizedV: true })
+		return this.signatureFromParts(this.extractEcdsaSignature(result, "personal_sign"), true)
 	}
 
 	async signTypedData(typedDataJson: string, chainId: number): Promise<HexString> {
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
+			notes: "",
+			broadcastTx: false,
 			evmMessage: {
 				chainId: String(chainId),
 				from: this.accountAddress,
-				type: "TYPE_SIGN_TYPED_DATA",
-				content: Buffer.from(typedDataJson).toString("base64"),
+				type: EVMMessage_Type.TYPE_SIGN_TYPED_DATA,
+				content: Buffer.from(typedDataJson),
 			},
 		})
 
 		const result = await this.executeSigningRequest(uuid)
-		const parts = result.signatures?.signatures?.[0]?.ecdsaSignature
-		if (!parts) {
-			throw new Error("MPCVault did not return ECDSA signature parts for typed data signing")
-		}
-		return this.signatureFromParts(parts)
+		return this.signatureFromParts(this.extractEcdsaSignature(result, "typed data signing"))
 	}
 
 	async signRawHash(hash: HexString): Promise<HexString> {
-		const bytes = Buffer.from(hash.slice(2), "hex")
-		const base64Content = bytes.toString("base64")
-
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
+			notes: "",
+			broadcastTx: false,
 			rawMessage: {
 				from: this.accountAddress,
-				content: base64Content,
-				ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY",
+				content: Buffer.from(hash.slice(2), "hex"),
+				ecdsaHashFunction: ECDSAHashFunction.ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY,
 			},
 		})
 
 		const result = await this.executeSigningRequest(uuid)
-		const parts = result.signatures?.signatures?.[0]?.ecdsaSignature
-		if (!parts) {
-			throw new Error("MPCVault did not return ECDSA signature for raw_message")
-		}
-
-		return this.signatureFromParts(parts)
+		return this.signatureFromParts(this.extractEcdsaSignature(result, "raw_message"))
 	}
 
 	async signTransaction(params: {
@@ -180,22 +220,20 @@ export class MpcVaultService {
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
+			notes: "",
 			broadcastTx: false,
 			evmSendCustom: {
-				chainId: params.chainId,
+				chainId: String(params.chainId),
 				from: this.accountAddress,
 				to: params.to ?? "",
 				value: (params.value ?? 0n).toString(),
-				input:
-					params.data && params.data !== "0x"
-						? Buffer.from(params.data.slice(2), "hex").toString("base64")
-						: "",
+				input: params.data && params.data !== "0x" ? Buffer.from(params.data.slice(2), "hex") : Buffer.alloc(0),
 				gasFee: {
 					gasLimit: params.gasLimit?.toString(),
 					maxFee: params.maxFeePerGas?.toString(),
 					maxPriorityFee: params.maxPriorityFeePerGas?.toString(),
 				},
-				nonce: params.nonce,
+				nonce: params.nonce?.toString(),
 			},
 		})
 
@@ -206,6 +244,10 @@ export class MpcVaultService {
 		return this.normalizeHex(result.signedTransaction)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Account factory
+// ---------------------------------------------------------------------------
 
 function requireChainId(value: unknown, context: string): number {
 	if (typeof value === "number" && Number.isFinite(value)) return value
@@ -219,7 +261,7 @@ export function createMpcVaultAccount(config: MpcVaultSignerConfig): { account: 
 		vaultUuid: config.vaultUuid,
 		accountAddress: config.accountAddress,
 		callbackClientSignerPublicKey: config.callbackClientSignerPublicKey,
-		baseUrl: config.baseUrl,
+		grpcTarget: config.grpcTarget,
 	})
 
 	const account = toAccount({

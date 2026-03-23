@@ -10,3 +10,6 @@
 [submodule "sdk/packages/core/lib/forge-std"]
 	path = sdk/packages/core/lib/forge-std
 	url = https://github.com/foundry-rs/forge-std
+[submodule "sdk/packages/simplex/proto/mpcvaultapis"]
+	path = sdk/packages/simplex/proto/mpcvaultapis
+	url = https://github.com/mpcvault/mpcvaultapis.git

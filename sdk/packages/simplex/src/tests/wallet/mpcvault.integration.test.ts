@@ -82,7 +82,6 @@ function createTestService(): MpcVaultService {
 		vaultUuid: process.env.MPCVAULT_VAULT_UUID as string,
 		accountAddress: process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString,
 		callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY as string,
-		baseUrl: process.env.MPCVAULT_BASE_URL,
 	})
 }
 
@@ -181,7 +180,6 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 			vaultUuid: process.env.MPCVAULT_VAULT_UUID as string,
 			accountAddress,
 			callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY as string,
-			baseUrl: process.env.MPCVAULT_BASE_URL,
 		})
 
 		expect(account.address.toLowerCase()).toBe(accountAddress.toLowerCase())

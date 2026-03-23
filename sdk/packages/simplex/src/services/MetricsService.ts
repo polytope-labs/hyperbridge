@@ -166,7 +166,7 @@ export class MetricsService {
 
 		this.balanceExotic = new Gauge({
 			name: "simplex_balance_exotic",
-			help: "Exotic token balance per chain",
+			help: "Non-USD token balance per chain",
 			labelNames: ["chain_id", "symbol"],
 			registers: [this.registry],
 		})

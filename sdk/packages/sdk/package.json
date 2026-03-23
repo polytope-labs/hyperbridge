@@ -77,7 +77,7 @@
 		"tronweb": "^6.2.0",
 		"ts-pattern": "^5.6.2",
 		"unstorage": "^1.17.2",
-		"viem": "^2.34.0"
+		"viem": "2.47.6"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
@@ -122,8 +122,7 @@
 		"@polkadot/x-randomvalues": "^13.5.6",
 		"@polkadot/x-textdecoder": "^13.5.6",
 		"@polkadot/x-textencoder": "^13.5.6",
-		"@polkadot/x-ws": "^13.5.6",
-		"typescript": "^5.9.3"
+		"@polkadot/x-ws": "^13.5.6"
 	},
 	"peerDependencies": {
 		"vite": "^5.0.0 || ^6.0.0"

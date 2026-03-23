@@ -82,7 +82,7 @@
 		"pino-pretty": "^11.3.0",
 		"scale-ts": "^1.6.1",
 		"toml": "^3.0.0",
-		"viem": "^2.34.0"
+		"viem": "2.47.6"
 	},
 	"resolutions": {
 		"@polkadot/api": "^16.4.6",

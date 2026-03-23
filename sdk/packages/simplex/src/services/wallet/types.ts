@@ -1,4 +1,9 @@
+/**
+ * Wallet types aligned with `@hyperbridge/sdk` `SigningAccount`.
+ * Keep `viem` on one workspace version (`sdk/package.json` -> `pnpm.overrides`) so `account` matches simplex's `viem` types.
+ */
 import type { HexString, SigningAccount as SdkSigningAccount } from "@hyperbridge/sdk"
+import { Account } from "viem"
 
 export interface MpcVaultClientConfig {
 	apiToken: string
@@ -40,5 +45,6 @@ export type SignerConfig =
 	  }
 
 export interface SigningAccount extends SdkSigningAccount {
+	account: Account
 	mode: "privateKey" | "mpcVault"
 }

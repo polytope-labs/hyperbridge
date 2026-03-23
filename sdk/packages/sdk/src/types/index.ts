@@ -2,6 +2,9 @@ import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
 import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
 import type { Account } from "viem/accounts"
+
+/** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
+export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV1 from "@/abis/handler"
 import type { IChain } from "@/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
@@ -1179,8 +1182,6 @@ export interface PackedUserOperation {
 }
 
 export interface SigningAccount {
-	/** The viem Account backing this signer. */
-	account: Account
 	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
 	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
 	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */

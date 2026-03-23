@@ -19,7 +19,6 @@ import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
-import { privateKeyToAddress } from "viem/accounts"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
@@ -467,7 +466,7 @@ program
 			let metrics: MetricsService | undefined
 			if (options.port) {
 				const [metricsHost, metricsPortStr] = options.port.includes(":")
-					? options.port.split(":").slice(-2) as [string, string]
+					? (options.port.split(":").slice(-2) as [string, string])
 					: ["0.0.0.0", options.port]
 				const metricsPort = parseInt(metricsPortStr, 10)
 				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
@@ -485,7 +484,7 @@ program
 						bidStorage: bidStorageService,
 						chainClientManager,
 						configService,
-						fillerAddress: privateKeyToAddress(privateKey),
+						fillerAddress: runtimeSigner.account.address,
 						chains: config.chains.map((c) => c.chainId),
 						exoticTokenAddresses,
 						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,

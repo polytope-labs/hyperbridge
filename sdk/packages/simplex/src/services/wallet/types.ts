@@ -8,6 +8,7 @@ export interface EcdsaSignatureParts {
 	R?: string
 	S?: string
 	V?: string
+	normalizedV?: boolean
 }
 
 export interface ExecuteSigningResponse {
@@ -69,7 +70,7 @@ export type CreateSigningRequestPayload = {
 		from: HexString
 		to: HexString | ""
 		value: string
-		input: HexString
+		input: string
 		gasFee?: {
 			gasLimit?: string
 			maxFee?: string
@@ -85,7 +86,7 @@ export type CreateSigningRequestPayload = {
 	}
 	rawMessage?: {
 		from: HexString
-		content: HexString
+		content: string
 		ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY" | "ECDSA_HASH_FUNCTION_SHA256"
 	}
 }

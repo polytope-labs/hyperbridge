@@ -1,5 +1,5 @@
 import { type HexString } from "@hyperbridge/sdk"
-import { concatHex, padHex, toHex, type Hex } from "viem"
+import { concatHex, keccak256, padHex, toHex, type Hex } from "viem"
 import { toAccount, type Account } from "viem/accounts"
 import type {
 	CreateSigningRequestPayload,
@@ -67,10 +67,15 @@ export class MpcVaultService {
 	}
 
 	private signatureFromParts(parts: EcdsaSignatureParts): HexString {
-		const r = padHex((parts.R ?? "0x0") as Hex, { size: 32 })
-		const s = padHex((parts.S ?? "0x0") as Hex, { size: 32 })
+		const r = padHex(toHex(BigInt(parts.R ?? "0")), { size: 32 })
+		const s = padHex(toHex(BigInt(parts.S ?? "0")), { size: 32 })
 		const vInt = this.parseFlexibleBigInt(parts.V ?? "0")
-		const v = padHex(toHex(vInt), { size: 1 })
+		let v = padHex(toHex(vInt), { size: 1 })
+
+		if (parts.normalizedV) {
+			v = padHex(toHex(vInt < 27n ? vInt + 27n : vInt), { size: 1 })
+		}
+
 		return concatHex([r, s, v]) as HexString
 	}
 
@@ -85,15 +90,28 @@ export class MpcVaultService {
 		return (value.startsWith("0x") ? value : `0x${value}`) as HexString
 	}
 
+	/**
+	 * Sign a message with EIP-191 personal_sign semantics.
+	 * We apply the EIP-191 prefix ourselves and use raw_message (USE_MESSAGE_DIRECTLY)
+	 * to avoid ambiguity about how MPC Vault's TYPE_PERSONAL_SIGN handles the content field.
+	 */
 	async signPersonalMessage(messageHash: HexString, chainId: number): Promise<HexString> {
+		// Apply EIP-191 prefix ourselves: keccak256("\x19Ethereum Signed Message:\n32" || messageHash)
+		const messageBytes = Buffer.from(messageHash.slice(2), "hex")
+		const prefix = Buffer.from(`\x19Ethereum Signed Message:\n${messageBytes.length}`)
+		const ethSignedMessageHash = keccak256(concatHex([toHex(prefix), messageHash]))
+
+		// Sign the final hash directly via raw_message — no additional hashing by MPC Vault
+		const ethSignedBytes = Buffer.from(ethSignedMessageHash.slice(2), "hex")
+		const base64Content = ethSignedBytes.toString("base64")
+
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
-			evmMessage: {
-				chainId: String(chainId),
+			rawMessage: {
 				from: this.accountAddress,
-				type: "TYPE_PERSONAL_SIGN",
-				content: messageHash,
+				content: base64Content,
+				ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY",
 			},
 		})
 
@@ -102,7 +120,8 @@ export class MpcVaultService {
 		if (!parts) {
 			throw new Error("MPCVault did not return ECDSA signature parts for personal_sign")
 		}
-		return this.signatureFromParts(parts)
+
+		return this.signatureFromParts({ ...parts, normalizedV: true })
 	}
 
 	async signTypedData(typedDataJson: string, chainId: number): Promise<HexString> {
@@ -113,7 +132,7 @@ export class MpcVaultService {
 				chainId: String(chainId),
 				from: this.accountAddress,
 				type: "TYPE_SIGN_TYPED_DATA",
-				content: toHex(typedDataJson),
+				content: Buffer.from(typedDataJson).toString("base64"),
 			},
 		})
 
@@ -126,12 +145,15 @@ export class MpcVaultService {
 	}
 
 	async signRawHash(hash: HexString): Promise<HexString> {
+		const bytes = Buffer.from(hash.slice(2), "hex")
+		const base64Content = bytes.toString("base64")
+
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
 			rawMessage: {
 				from: this.accountAddress,
-				content: hash,
+				content: base64Content,
 				ecdsaHashFunction: "ECDSA_HASH_FUNCTION_USE_MESSAGE_DIRECTLY",
 			},
 		})
@@ -141,6 +163,7 @@ export class MpcVaultService {
 		if (!parts) {
 			throw new Error("MPCVault did not return ECDSA signature for raw_message")
 		}
+
 		return this.signatureFromParts(parts)
 	}
 
@@ -163,7 +186,10 @@ export class MpcVaultService {
 				from: this.accountAddress,
 				to: params.to ?? "",
 				value: (params.value ?? 0n).toString(),
-				input: params.data ?? "0x",
+				input:
+					params.data && params.data !== "0x"
+						? Buffer.from(params.data.slice(2), "hex").toString("base64")
+						: "",
 				gasFee: {
 					gasLimit: params.gasLimit?.toString(),
 					maxFee: params.maxFeePerGas?.toString(),

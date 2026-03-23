@@ -8,6 +8,9 @@ import type { SigningAccount } from "./wallet"
 /** EIP-7702 delegation indicator prefix */
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
+/** Floor for set-code (0x04) txs; L2s like Arbitrum reject viem's default ~94k with "intrinsic gas too low". */
+const DELEGATION_TX_GAS_FLOOR = 350_000n
+
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
  * This enables the filler to participate in solver selection mode.
@@ -42,6 +45,7 @@ export class DelegationService {
 		const authorityAddress = this.signer.account.address as HexString
 		const currentNonce = await publicClient.getTransactionCount({
 			address: authorityAddress,
+			blockTag: "pending",
 		})
 		// EIP-7702 auth nonce must be authority tx nonce + 1 when authority submits the type-0x04 tx.
 		const authorizationNonce = currentNonce + 1
@@ -74,18 +78,28 @@ export class DelegationService {
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		if (this.signer.mode === "mpcVault") {
+			const chainNonce = await publicClient.getTransactionCount({
+				address: authorityAddress,
+				blockTag: "pending",
+			})
+
 			const txRequest = await walletClient.prepareTransactionRequest({
 				to: authorityAddress,
 				value: 0n,
 				authorizationList: [authorization],
 				chain: walletClient.chain,
+				nonce: chainNonce,
 			})
+
+			const numericChainId = txRequest.chainId ?? this.configService.getChainId(chain)
 
 			const txForSerialization = {
 				...txRequest,
 				type: "eip7702" as const,
-				chainId: txRequest.chainId ?? this.configService.getChainId(chain),
+				chainId: numericChainId,
 				authorizationList: [authorization],
+				nonce: chainNonce,
+				gas: DELEGATION_TX_GAS_FLOOR,
 			}
 
 			const unsignedSerialized = serializeTransaction(txForSerialization)

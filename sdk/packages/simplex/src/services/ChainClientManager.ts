@@ -14,12 +14,16 @@ import { FillerConfigService } from "./FillerConfigService"
 import type { SigningAccount } from "./wallet"
 import { createSimplexSigner, SignerType } from "./wallet"
 
+function walletClientCacheKey(chainId: number, accountAddress: string): string {
+	return `${chainId}:${accountAddress.toLowerCase()}`
+}
+
 /**
  * Factory for creating and managing Viem clients
  */
 class ViemClientFactoryImpl {
 	private publicClients: Map<number, PublicClient> = new Map()
-	private walletClients: Map<number, WalletClient<Transport, Chain, Account>> = new Map()
+	private walletClients: Map<string, WalletClient<Transport, Chain, Account>> = new Map()
 
 	public getPublicClient(chainConfig: ChainConfig): PublicClient {
 		if (!this.publicClients.has(chainConfig.chainId)) {
@@ -41,7 +45,8 @@ class ViemClientFactoryImpl {
 	}
 
 	public getWalletClient(chainConfig: ChainConfig, account: Account): WalletClient<Transport, Chain, Account> {
-		if (!this.walletClients.has(chainConfig.chainId)) {
+		const key = walletClientCacheKey(chainConfig.chainId, account.address)
+		if (!this.walletClients.has(key)) {
 			const chain = getViemChain(chainConfig.chainId) as Chain
 
 			const walletClient = createWalletClient({
@@ -54,10 +59,10 @@ class ViemClientFactoryImpl {
 				}),
 			})
 
-			this.walletClients.set(chainConfig.chainId, walletClient)
+			this.walletClients.set(key, walletClient)
 		}
 
-		return this.walletClients.get(chainConfig.chainId)!
+		return this.walletClients.get(key)!
 	}
 }
 

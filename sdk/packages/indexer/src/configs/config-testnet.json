@@ -23,6 +23,12 @@
 		"startBlock": 34996,
 		"stateMachineId": "KUSAMA-2034"
 	},
+	"polkadex-testnet": {
+		"type": "substrate",
+		"chainId": "0x97dc37ed537bfa3a740757e02c7a466503908364b1a359d8d5f9cb44def0deac",
+		"startBlock": 13063,
+		"stateMachineId": "SUBSTRATE-PDEX"
+	},
 	"sepolia": {
 		"type": "evm",
 		"chainId": "11155111",

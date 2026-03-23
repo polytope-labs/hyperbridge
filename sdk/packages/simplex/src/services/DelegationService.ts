@@ -1,5 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
-import { concat, keccak256, serializeTransaction, toHex, toRlp, zeroAddress } from "viem"
+import { concat, keccak256, toHex, toRlp, zeroAddress } from "viem"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
@@ -77,47 +77,14 @@ export class DelegationService {
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
 
-		if (this.signer.mode === "mpcVault") {
-			const chainNonce = await publicClient.getTransactionCount({
-				address: authorityAddress,
-				blockTag: "pending",
-			})
-
-			const txRequest = await walletClient.prepareTransactionRequest({
-				to: authorityAddress,
-				value: 0n,
-				authorizationList: [authorization],
-				chain: walletClient.chain,
-				nonce: chainNonce,
-			})
-
-			const numericChainId = txRequest.chainId ?? this.configService.getChainId(chain)
-
-			const txForSerialization = {
-				...txRequest,
-				type: "eip7702" as const,
-				chainId: numericChainId,
-				authorizationList: [authorization],
-				nonce: chainNonce,
-				gas: DELEGATION_TX_GAS_FLOOR,
-			}
-
-			const unsignedSerialized = serializeTransaction(txForSerialization)
-			const txSigningHash = keccak256(unsignedSerialized)
-			const signature = await this.signer.signRawHash(txSigningHash as HexString)
-			const signedSerialized = serializeTransaction(txForSerialization, signature)
-
-			return (await publicClient.sendRawTransaction({
-				serializedTransaction: signedSerialized,
-			})) as HexString
-		}
-
-		return (await walletClient.sendTransaction({
-			to: authorityAddress,
-			value: 0n,
-			authorizationList: [authorization],
-			chain: walletClient.chain,
-		})) as HexString
+		return this.signer.sendEip7702DelegationTransaction({
+			walletClient,
+			publicClient,
+			authorityAddress,
+			authorization,
+			chainIdFallback: this.configService.getChainId(chain),
+			gasFloor: DELEGATION_TX_GAS_FLOOR,
+		})
 	}
 
 	/**

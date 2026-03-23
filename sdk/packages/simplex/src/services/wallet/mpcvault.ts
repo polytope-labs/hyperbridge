@@ -119,6 +119,21 @@ export class MpcVaultService {
 		return concatHex([r, s, v]) as HexString
 	}
 
+	private ecdsaPartsToSignatureComponents(parts: SignatureContainer_ECDSASignature): {
+		r: HexString
+		s: HexString
+		yParity: number
+	} {
+		const r = padHex(toHex(BigInt(parts.R || "0")), { size: 32 }) as HexString
+		const s = padHex(toHex(BigInt(parts.S || "0")), { size: 32 }) as HexString
+		const vInt = this.parseFlexibleBigInt(parts.V || "0")
+		const yParity = vInt >= 27n ? Number(vInt - 27n) : Number(vInt)
+		if (yParity !== 0 && yParity !== 1) {
+			throw new Error(`Invalid signature v/yParity value: ${vInt}`)
+		}
+		return { r, s, yParity }
+	}
+
 	private parseFlexibleBigInt(value: string): bigint {
 		if (value.startsWith("0x") || value.startsWith("0X")) {
 			return BigInt(value)
@@ -190,7 +205,7 @@ export class MpcVaultService {
 		return this.signatureFromParts(this.extractEcdsaSignature(result, "typed data signing"))
 	}
 
-	async signRawHash(hash: HexString): Promise<HexString> {
+	private async executeRawMessageSigningRequest(hash: HexString): Promise<SignatureContainer_ECDSASignature> {
 		const uuid = await this.createSigningRequest({
 			vaultUuid: this.vaultUuid,
 			callbackClientSignerPublicKey: this.callbackClientSignerPublicKey,
@@ -204,7 +219,17 @@ export class MpcVaultService {
 		})
 
 		const result = await this.executeSigningRequest(uuid)
-		return this.signatureFromParts(this.extractEcdsaSignature(result, "raw_message"))
+		return this.extractEcdsaSignature(result, "raw_message")
+	}
+
+	async signRawHash(hash: HexString): Promise<HexString> {
+		const parts = await this.executeRawMessageSigningRequest(hash)
+		return this.signatureFromParts(parts, false)
+	}
+
+	async signRawHashComponents(hash: HexString): Promise<{ r: HexString; s: HexString; yParity: number }> {
+		const parts = await this.executeRawMessageSigningRequest(hash)
+		return this.ecdsaPartsToSignatureComponents(parts)
 	}
 
 	async signTransaction(params: {

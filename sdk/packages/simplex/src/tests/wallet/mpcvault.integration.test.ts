@@ -111,6 +111,18 @@ describe.skipIf(!hasMpcVaultCredentials())("MPCVaultService integration", () => 
 		expect(sig.length).toBe(132)
 	}, 120_000)
 
+	it("signRawHashComponents returns r, s, yParity for the same raw hash flow", async () => {
+		const service = createTestService()
+		const dummyHash = `0x${"ba".repeat(32)}` as HexString
+		const { r, s, yParity } = await service.signRawHashComponents(dummyHash)
+
+		expect(isHex(r)).toBe(true)
+		expect(isHex(s)).toBe(true)
+		expect(r.length).toBe(66)
+		expect(s.length).toBe(66)
+		expect(yParity === 0 || yParity === 1).toBe(true)
+	}, 120_000)
+
 	it("signPersonalMessage completes and returns a 65-byte ECDSA hex signature", async () => {
 		const service = createTestService()
 

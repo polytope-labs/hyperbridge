@@ -33,9 +33,15 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
     // Maps authority set ID to the relayer that submitted the consensus proof for that epoch
     mapping(uint256 => address) private _relayers;
 
+    // The current authority set epoch
+    uint256 private _currentEpoch;
+
     error BatchCallFailed(uint256 index, bytes reason);
     event RelayerRegistered(uint256 indexed authoritySetId, address indexed relayer);
     event BatchExecuted(address indexed relayer, uint256 callCount);
+
+    // The provided epoch is not exactly prevEpoch + 1
+    error InvalidEpoch(uint256 expected, uint256 actual);
 
     /**
      * @dev See {IERC165-supportsInterface}.
@@ -90,6 +96,9 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
         }
 
         if (newEpoch != 0) {
+            uint256 expected = _currentEpoch + 1;
+            if (newEpoch != expected) revert InvalidEpoch(expected, newEpoch);
+            _currentEpoch = newEpoch;
             _relayers[newEpoch] = msg.sender;
             emit RelayerRegistered(newEpoch, msg.sender);
         }
@@ -102,5 +111,12 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
      */
     function relayerOf(uint256 authoritySetId) external view returns (address) {
         return _relayers[authoritySetId];
+    }
+
+    /**
+     * @dev Returns the current authority set epoch.
+     */
+    function currentEpoch() external view returns (uint256) {
+        return _currentEpoch;
     }
 }

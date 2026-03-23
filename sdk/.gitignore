@@ -25,6 +25,7 @@ packages/indexer/docker/mainnet/
 packages/simplex/src/filler-config.toml
 packages/simplex/src/simplex-config.toml
 packages/simplex/.simplex-data
+packages/simplex/src/proto
 
 
 # Compiled Java class files

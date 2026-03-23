@@ -15,9 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr,
-	ParachainInfo, Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId,
-	XcmGateway,
+	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, XcmGateway,
 	EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;

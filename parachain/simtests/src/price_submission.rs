@@ -102,6 +102,22 @@ fn encode_withdraw_price_deposit(pair_id: H256) -> Vec<u8> {
 	data
 }
 
+/// Manually encode a call to `IntentsCoprocessor::register_pair`.
+/// Pallet index 65, call index 8.
+fn encode_register_pair(pair_id: H256) -> Vec<u8> {
+	let mut data = vec![65u8, 8u8];
+	data.extend_from_slice(&pair_id.encode());
+	data
+}
+
+/// Manually encode a call to `IntentsCoprocessor::set_pair_registration_deposit`.
+/// Pallet index 65, call index 14.
+fn encode_set_pair_registration_deposit(amount: u128) -> Vec<u8> {
+	let mut data = vec![65u8, 14u8];
+	data.extend_from_slice(&amount.encode());
+	data
+}
+
 /// Integration test for the deposit-based price submission system.
 ///
 /// Exercises the full lifecycle:
@@ -151,6 +167,25 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	)
 	.await?;
 	println!("Lock duration set: {lock_duration} blocks");
+
+	// Set pair registration deposit and register pair
+	let pair_reg_deposit: u128 = 50_000_000_000_000;
+	sudo_raw_and_finalize(
+		&client,
+		&rpc_client,
+		encode_set_pair_registration_deposit(pair_reg_deposit),
+	)
+	.await?;
+	println!("Pair registration deposit set: {pair_reg_deposit}");
+
+	submit_raw_and_finalize(
+		&client,
+		&rpc_client,
+		encode_register_pair(pair_id),
+		Keyring::Alice,
+	)
+	.await?;
+	println!("Pair registered: {pair_id:?}");
 
 	// Submit prices
 	let submit_call_data = encode_submit_pair_price(pair_id, price_entries);

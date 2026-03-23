@@ -171,8 +171,15 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		pallet_intents::PriceDepositAmount::<Test>::put(500u64);
 		// Lock duration: 10 blocks
 		pallet_intents::PriceDepositLockDuration::<Test>::put(10u64);
+		// Pair registration deposit: 300 tokens
+		pallet_intents::PairRegistrationDeposit::<Test>::put(300u64);
 	});
 	ext
+}
+
+/// Helper: register a pair from the given account
+fn register_pair(who: &AccountId, pair_id: H256) {
+	assert_ok!(Intents::register_pair(RuntimeOrigin::signed(who.clone()), pair_id));
 }
 
 #[test]
@@ -552,6 +559,8 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
+		register_pair(&submitter, pair_id);
+
 		let balance_before = Balances::free_balance(&submitter);
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
@@ -567,9 +576,11 @@ fn submit_pair_price_reserves_deposit_on_first_submission() {
 			entries,
 		));
 
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+
 		// Deposit was reserved
 		assert_eq!(Balances::free_balance(&submitter), balance_before - deposit_amount);
-		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit + deposit_amount);
 
 		// Deposit record stored (no unlock block yet)
 		let (stored_amount, unlock_block) =
@@ -593,6 +604,8 @@ fn submit_pair_price_second_submission_is_free() {
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		register_pair(&submitter, pair_id);
 
 		let entries1 = BoundedVec::try_from(vec![PriceInput {
 			amount: U256::zero(),
@@ -622,10 +635,12 @@ fn submit_pair_price_second_submission_is_free() {
 			entries2,
 		));
 
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+
 		// Balance unchanged (no extra deposit)
 		assert_eq!(Balances::free_balance(&submitter), balance_after_first);
-		// Still only one deposit reserved
-		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
+		// Pair registration deposit + one price deposit reserved
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit + deposit_amount);
 
 		// Two entries now stored
 		let prices = Prices::<Test>::get(&pair_id);
@@ -636,12 +651,16 @@ fn submit_pair_price_second_submission_is_free() {
 #[test]
 fn submit_pair_price_fails_with_insufficient_balance() {
 	new_test_ext().execute_with(|| {
+		let rich = AccountId32::new([1; 32]);
 		let submitter = AccountId32::new([4; 32]); // no balance
 
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		// Register pair from a funded account
+		register_pair(&rich, pair_id);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
 			amount: U256::zero(),
@@ -666,6 +685,8 @@ fn withdraw_price_deposit_two_phase() {
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
+		register_pair(&submitter, pair_id);
+
 		let entries = BoundedVec::try_from(vec![PriceInput {
 			amount: U256::zero(),
 			price: U256::from(2000),
@@ -688,9 +709,11 @@ fn withdraw_price_deposit_two_phase() {
 			pair_id,
 		));
 
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+
 		// Deposit is NOT yet unreserved
 		assert_eq!(Balances::free_balance(&submitter), balance_after_submit);
-		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit + deposit_amount);
 
 		// Unlock block is set (1 + 10 = 11)
 		let (_, unlock_block) = PriceDeposits::<Test>::get(&submitter, &pair_id).unwrap();
@@ -710,9 +733,9 @@ fn withdraw_price_deposit_two_phase() {
 			pair_id,
 		));
 
-		// Deposit unreserved
+		// Price deposit unreserved, pair registration deposit remains
 		assert_eq!(Balances::free_balance(&submitter), balance_after_submit + deposit_amount);
-		assert_eq!(Balances::reserved_balance(&submitter), 0);
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit);
 
 		// Deposit record removed
 		assert!(PriceDeposits::<Test>::get(&submitter, &pair_id).is_none());
@@ -728,6 +751,8 @@ fn withdraw_price_deposit_phase2_fails_when_still_locked() {
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		register_pair(&submitter, pair_id);
 
 		let entries = BoundedVec::try_from(vec![PriceInput {
 			amount: U256::zero(),
@@ -792,6 +817,8 @@ fn prices_persist_across_window_and_clear_on_first_submission() {
 		let submitter = AccountId32::new([1; 32]);
 		let pair_id =
 			types::TokenPair { base: b"TOKEN_A".to_vec(), quote: b"TOKEN_B".to_vec() }.pair_id();
+
+		register_pair(&submitter, pair_id);
 
 		// Simulate day 1: store some prices
 		Prices::<Test>::insert(
@@ -923,6 +950,8 @@ fn multiple_submitters_independent_deposits() {
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
 
+		register_pair(&submitter1, pair_id);
+
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
 		let entries1 = BoundedVec::try_from(vec![PriceInput {
@@ -949,8 +978,11 @@ fn multiple_submitters_independent_deposits() {
 			entries2,
 		));
 
-		// Each has their own deposit
-		assert_eq!(Balances::reserved_balance(&submitter1), deposit_amount);
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+
+		// submitter1 has pair registration deposit + price deposit
+		assert_eq!(Balances::reserved_balance(&submitter1), reg_deposit + deposit_amount);
+		// submitter2 only has price deposit
 		assert_eq!(Balances::reserved_balance(&submitter2), deposit_amount);
 
 		// Two entries in prices
@@ -969,6 +1001,9 @@ fn separate_deposits_per_pair() {
 			types::TokenPair { base: b"TOKEN_C".to_vec(), quote: b"TOKEN_D".to_vec() }.pair_id();
 
 		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		register_pair(&submitter, pair_id1);
+		register_pair(&submitter, pair_id2);
 
 		let deposit_amount = PriceDepositAmount::<Test>::get();
 
@@ -989,8 +1024,10 @@ fn separate_deposits_per_pair() {
 			entries,
 		));
 
-		// Two deposits reserved (one per pair)
-		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount * 2);
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+
+		// Two pair registration deposits + two price deposits
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit * 2 + deposit_amount * 2);
 
 		// Phase 1: Initiate both withdrawals at block 1
 		System::set_block_number(1);
@@ -1009,13 +1046,15 @@ fn separate_deposits_per_pair() {
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id1,
 		));
-		assert_eq!(Balances::reserved_balance(&submitter), deposit_amount);
+		// One price deposit withdrawn, still have: 2 reg deposits + 1 price deposit
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit * 2 + deposit_amount);
 
 		assert_ok!(Intents::withdraw_price_deposit(
 			RuntimeOrigin::signed(submitter.clone()),
 			pair_id2,
 		));
-		assert_eq!(Balances::reserved_balance(&submitter), 0);
+		// Both price deposits withdrawn, only pair registration deposits remain
+		assert_eq!(Balances::reserved_balance(&submitter), reg_deposit * 2);
 	});
 }
 
@@ -1030,6 +1069,8 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 
 		PriceDepositAmount::<Test>::put(deposit_amount);
 		PriceDepositLockDuration::<Test>::put(10u64);
+
+		register_pair(&submitter, pair_id);
 
 		let entries =
 			BoundedVec::try_from(vec![PriceInput { amount: U256::zero(), price: U256::from(42) }])
@@ -1053,6 +1094,75 @@ fn submit_pair_price_blocked_after_withdrawal_initiated() {
 		assert_noop!(
 			Intents::submit_pair_price(RuntimeOrigin::signed(submitter.clone()), pair_id, entries,),
 			Error::<Test>::WithdrawalInProgress
+		);
+	});
+}
+
+#[test]
+fn register_pair_works() {
+	new_test_ext().execute_with(|| {
+		let who = AccountId32::new([1; 32]);
+		let pair_id = H256::repeat_byte(0xaa);
+
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+		let balance_before = Balances::free_balance(&who);
+
+		assert_ok!(Intents::register_pair(RuntimeOrigin::signed(who.clone()), pair_id));
+
+		// Deposit reserved
+		assert_eq!(Balances::free_balance(&who), balance_before - reg_deposit);
+		assert!(RegisteredPairs::<Test>::contains_key(&pair_id));
+
+		let (registrant, deposit) = RegisteredPairs::<Test>::get(&pair_id).unwrap();
+		assert_eq!(registrant, who);
+		assert_eq!(deposit, reg_deposit);
+	});
+}
+
+#[test]
+fn deregister_pair_works() {
+	new_test_ext().execute_with(|| {
+		let who = AccountId32::new([1; 32]);
+		let pair_id = H256::repeat_byte(0xaa);
+
+		assert_ok!(Intents::register_pair(RuntimeOrigin::signed(who.clone()), pair_id));
+
+		let reg_deposit = PairRegistrationDeposit::<Test>::get();
+		let balance_before_deregister = Balances::free_balance(&who);
+
+		assert_ok!(Intents::deregister_pair(RuntimeOrigin::root(), pair_id));
+
+		// Deposit returned to original registrant
+		assert_eq!(Balances::free_balance(&who), balance_before_deregister + reg_deposit);
+		assert!(!RegisteredPairs::<Test>::contains_key(&pair_id));
+	});
+}
+
+#[test]
+fn set_pair_registration_deposit_works() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Intents::set_pair_registration_deposit(RuntimeOrigin::root(), 5000u64));
+		assert_eq!(PairRegistrationDeposit::<Test>::get(), 5000u64);
+	});
+}
+
+#[test]
+fn submit_pair_price_fails_when_pair_not_registered() {
+	new_test_ext().execute_with(|| {
+		let submitter = AccountId32::new([1; 32]);
+		let pair_id = H256::repeat_byte(0xff); // not registered
+
+		pallet_timestamp::Now::<Test>::put(2_000_000u64);
+
+		let entries = BoundedVec::try_from(vec![PriceInput {
+			amount: U256::zero(),
+			price: U256::from(2000),
+		}])
+		.unwrap();
+
+		assert_noop!(
+			Intents::submit_pair_price(RuntimeOrigin::signed(submitter), pair_id, entries),
+			Error::<Test>::PairNotRegistered
 		);
 	});
 }

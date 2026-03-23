@@ -214,6 +214,11 @@ mod benchmarks {
 		PriceDepositLockDuration::<T>::put(BlockNumberFor::<T>::from(10u32));
 		PriceWindowDurationValue::<T>::put(86_400_000u64);
 
+		// Register the pair
+		let reg_deposit = <T as Config>::Currency::minimum_balance();
+		PairRegistrationDeposit::<T>::put(reg_deposit);
+		let _ = Pallet::<T>::register_pair(RawOrigin::Signed(caller.clone()).into(), pair_id);
+
 		let count = n.min(T::MaxPriceEntries::get());
 		let mut entries_vec = vec![];
 		for i in 0..count {
@@ -279,6 +284,10 @@ mod benchmarks {
 		PriceDepositLockDuration::<T>::put(BlockNumberFor::<T>::from(10u32));
 		PriceWindowDurationValue::<T>::put(86_400_000u64);
 
+		let reg_deposit = <T as Config>::Currency::minimum_balance();
+		PairRegistrationDeposit::<T>::put(reg_deposit);
+		let _ = Pallet::<T>::register_pair(RawOrigin::Signed(caller.clone()).into(), pair_id);
+
 		let entries: BoundedVec<PriceInput, T::MaxPriceEntries> =
 			vec![PriceInput { amount: U256::zero(), price: U256::from(2000) }]
 				.try_into()
@@ -298,6 +307,57 @@ mod benchmarks {
 		_(RawOrigin::Signed(caller.clone()), pair_id);
 
 		assert!(PriceDeposits::<T>::get(&caller, &pair_id).is_none());
+	}
+
+	#[benchmark]
+	fn register_pair() {
+		let caller: T::AccountId = whitelisted_caller();
+		let pair_id = H256::repeat_byte(0xbb);
+
+		let balance = BalanceOf::<T>::from(u32::MAX);
+		<T as Config>::Currency::make_free_balance_be(&caller, balance);
+
+		let deposit = <T as Config>::Currency::minimum_balance();
+		PairRegistrationDeposit::<T>::put(deposit);
+
+		#[extrinsic_call]
+		_(RawOrigin::Signed(caller.clone()), pair_id);
+
+		assert!(RegisteredPairs::<T>::contains_key(&pair_id));
+	}
+
+	#[benchmark]
+	fn deregister_pair() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+		let caller: T::AccountId = whitelisted_caller();
+		let pair_id = H256::repeat_byte(0xcc);
+
+		let balance = BalanceOf::<T>::from(u32::MAX);
+		<T as Config>::Currency::make_free_balance_be(&caller, balance);
+
+		let deposit = <T as Config>::Currency::minimum_balance();
+		PairRegistrationDeposit::<T>::put(deposit);
+
+		let _ = Pallet::<T>::register_pair(RawOrigin::Signed(caller).into(), pair_id);
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, pair_id);
+
+		assert!(!RegisteredPairs::<T>::contains_key(&pair_id));
+		Ok(())
+	}
+
+	#[benchmark]
+	fn set_pair_registration_deposit() -> Result<(), BenchmarkError> {
+		let origin =
+			T::GovernanceOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+
+		#[extrinsic_call]
+		_(origin as T::RuntimeOrigin, 5000u32.into());
+
+		assert_eq!(PairRegistrationDeposit::<T>::get(), 5000u32.into());
+		Ok(())
 	}
 
 	impl_benchmark_test_suite!(Pallet, crate::tests::new_test_ext(), crate::tests::Test);

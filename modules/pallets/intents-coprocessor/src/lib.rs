@@ -176,6 +176,16 @@ pub mod pallet {
 	pub type PricesClearedThisWindow<T: Config> =
 		StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
 
+	/// Registered token pairs. Anyone can register a pair by reserving a deposit.
+	/// Maps pair_id to (registrant, deposit_amount).
+	#[pallet::storage]
+	pub type RegisteredPairs<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, (T::AccountId, BalanceOf<T>), OptionQuery>;
+
+	/// The deposit amount required to register a new token pair
+	#[pallet::storage]
+	pub type PairRegistrationDeposit<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
 	where
@@ -249,6 +259,12 @@ pub mod pallet {
 		},
 		/// Price deposit was withdrawn (tokens unreserved)
 		PriceDepositWithdrawn { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
+		/// A token pair was registered with a deposit
+		PairRegistered { registrant: T::AccountId, pair_id: H256, deposit: BalanceOf<T> },
+		/// A token pair was deregistered and deposit returned
+		PairDeregistered { registrant: T::AccountId, pair_id: H256, deposit: BalanceOf<T> },
+		/// Pair registration deposit amount was updated
+		PairRegistrationDepositUpdated { amount: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -277,6 +293,12 @@ pub mod pallet {
 		WithdrawalInProgress,
 		/// Withdrawal has already been initiated
 		WithdrawalAlreadyInitiated,
+		/// The token pair is not registered
+		PairNotRegistered,
+		/// The token pair is already registered
+		PairAlreadyRegistered,
+		/// Pair registration deposit is not configured (amount is zero)
+		PairRegistrationDepositNotConfigured,
 	}
 
 	#[pallet::call]
@@ -577,6 +599,7 @@ pub mod pallet {
 			let submitter = ensure_signed(origin)?;
 
 			ensure!(!entries.is_empty(), Error::<T>::EmptyPriceEntries);
+			ensure!(RegisteredPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRegistered);
 
 			let deposit_amount = PriceDepositAmount::<T>::get();
 			ensure!(!deposit_amount.is_zero(), Error::<T>::PriceDepositsNotConfigured);
@@ -615,6 +638,65 @@ pub mod pallet {
 			});
 
 			Self::deposit_event(Event::PriceSubmitted { submitter, pair_id });
+
+			Ok(())
+		}
+
+		/// Register a token pair by reserving a deposit.
+		///
+		/// Anyone can register a pair. The deposit is reserved from the caller's
+		/// balance and returned when the pair is deregistered.
+		///
+		/// # Parameters
+		/// - `pair_id`: The token pair identifier (keccak256 of "BASE/QUOTE")
+		///
+		/// # Errors
+		/// - `PairRegistrationDepositNotConfigured`: If the registration deposit is zero
+		/// - `PairAlreadyRegistered`: If the pair is already registered
+		/// - `InsufficientBalance`: If the caller cannot afford the deposit
+		#[pallet::call_index(8)]
+		#[pallet::weight(T::WeightInfo::register_pair())]
+		pub fn register_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+
+			let deposit = PairRegistrationDeposit::<T>::get();
+			ensure!(!deposit.is_zero(), Error::<T>::PairRegistrationDepositNotConfigured);
+			ensure!(
+				!RegisteredPairs::<T>::contains_key(&pair_id),
+				Error::<T>::PairAlreadyRegistered
+			);
+
+			<T as Config>::Currency::reserve(&who, deposit)
+				.map_err(|_| Error::<T>::InsufficientBalance)?;
+
+			RegisteredPairs::<T>::insert(&pair_id, (who.clone(), deposit));
+
+			Self::deposit_event(Event::PairRegistered { registrant: who, pair_id, deposit });
+
+			Ok(())
+		}
+
+		/// Deregister a token pair and return the deposit to the original registrant.
+		///
+		/// Can only be called by governance.
+		///
+		/// # Parameters
+		/// - `pair_id`: The token pair identifier
+		///
+		/// # Errors
+		/// - `PairNotRegistered`: If the pair is not registered
+		#[pallet::call_index(9)]
+		#[pallet::weight(T::WeightInfo::deregister_pair())]
+		pub fn deregister_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			let (registrant, deposit) =
+				RegisteredPairs::<T>::get(&pair_id).ok_or(Error::<T>::PairNotRegistered)?;
+
+			<T as Config>::Currency::unreserve(&registrant, deposit);
+			RegisteredPairs::<T>::remove(&pair_id);
+
+			Self::deposit_event(Event::PairDeregistered { registrant, pair_id, deposit });
 
 			Ok(())
 		}
@@ -717,6 +799,22 @@ pub mod pallet {
 					});
 				},
 			}
+
+			Ok(())
+		}
+
+		/// Set the deposit amount required to register a new token pair
+		#[pallet::call_index(14)]
+		#[pallet::weight(T::WeightInfo::set_pair_registration_deposit())]
+		pub fn set_pair_registration_deposit(
+			origin: OriginFor<T>,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+
+			PairRegistrationDeposit::<T>::put(amount);
+
+			Self::deposit_event(Event::PairRegistrationDepositUpdated { amount });
 
 			Ok(())
 		}

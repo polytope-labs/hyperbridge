@@ -69,6 +69,19 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
 echo "Generating TypeScript from proto files..."
+# Locate well-known proto includes (wrappers.proto, descriptor.proto, etc.)
+WELL_KNOWN_PROTOS=""
+for candidate in "$(dirname "$(command -v protoc)" 2>/dev/null)/../include" /usr/include /usr/local/include; do
+	if [ -f "$candidate/google/protobuf/wrappers.proto" ]; then
+		WELL_KNOWN_PROTOS="$candidate"
+		break
+	fi
+done
+if [ -z "$WELL_KNOWN_PROTOS" ]; then
+	echo "Error: Could not find Google well-known proto includes (google/protobuf/wrappers.proto)"
+	exit 1
+fi
+
 protoc \
 	--plugin="protoc-gen-ts_proto=$PLUGIN" \
 	--ts_proto_out="$OUT_DIR" \
@@ -78,6 +91,7 @@ protoc \
 	--ts_proto_opt=useExactTypes=false \
 	--ts_proto_opt=forceLong=string \
 	-I="$PROTO_DIR" \
+	-I="$WELL_KNOWN_PROTOS" \
 	"$PROTO_DIR"/mpcvault/platform/v1/api.proto \
 	"$PROTO_DIR"/mpcvault/platform/v1/error.proto
 

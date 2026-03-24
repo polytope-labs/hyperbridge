@@ -248,8 +248,8 @@ interface FillerTomlConfig {
 		pendingQueue: PendingQueueConfig
 		logging?: LoggingConfig
 		watchOnly?: boolean | Record<string, boolean>
-		substratePrivateKey?: string
-		hyperbridgeWsUrl?: string
+		substratePrivateKey: string
+		hyperbridgeWsUrl: string
 		entryPointAddress?: string
 		solverAccountContractAddress?: string
 	}
@@ -555,6 +555,14 @@ function validateConfig(config: FillerTomlConfig): void {
 
 	if (!signer && !allChainsWatchOnly) {
 		throw new Error("Signer configuration is required via [simplex.signer]")
+	}
+
+	if (!config.simplex?.substratePrivateKey) {
+		throw new Error("simplex.substratePrivateKey is required")
+	}
+
+	if (!config.simplex?.hyperbridgeWsUrl) {
+		throw new Error("simplex.hyperbridgeWsUrl is required")
 	}
 
 	if ((!config.strategies || config.strategies.length === 0) && !allChainsWatchOnly) {

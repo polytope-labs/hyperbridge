@@ -118,6 +118,7 @@ members = [
     "tesseract/consensus/relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
+    "tesseract/consensus/proof-indexer",
 
 
     # Airdrop

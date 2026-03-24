@@ -35,9 +35,12 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::SubstrateClient;
 use zk_beefy::BeefyProver as Sp1BeefyProverTrait;
 
+use codec::Encode;
+use proof_indexer::ProofIndexer;
+
 use crate::{
 	backend::{ConsensusProof, ProofBackend, QueueMessage, StreamMessage},
-	prover::{query_parachain_header, Prover, ProverConsensusState},
+	prover::{query_parachain_header, Prover, ProverConsensusState, PROOF_TYPE_ZK},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +67,10 @@ where
 	prover: Prover<R, P, B>,
 	/// The underlying substrate client
 	pub client: SubstrateClient<P>,
+	/// Stores ZK proofs in the indexer PostgreSQL for external queryability
+	proof_indexer: Option<Arc<ProofIndexer>>,
+	/// When true, proofs are stored in the indexer DB but not submitted on-chain
+	store_only: bool,
 }
 
 impl<R, P, B, Q> BeefyHost<R, P, B, Q>
@@ -84,8 +91,10 @@ where
 		prover: Prover<R, P, B>,
 		client: SubstrateClient<P>,
 		backend: Arc<Q>,
+		proof_indexer: Option<Arc<ProofIndexer>>,
+		store_only: bool,
 	) -> Result<Self, anyhow::Error> {
-		Ok(BeefyHost { backend, prover, client, config })
+		Ok(BeefyHost { backend, prover, client, config, proof_indexer, store_only })
 	}
 
 	/// Initialize the consensus state for the prover (used by the state storage backend), then
@@ -116,6 +125,34 @@ where
 		self.backend.save_state(&prover_consensus_state).await?;
 
 		Ok(())
+	}
+
+	async fn maybe_index_proof(
+		&self,
+		state_machine: &ismp::host::StateMachine,
+		message: &ismp::messaging::ConsensusMessage,
+		finalized_height: u32,
+		set_id: u64,
+	) {
+		let Some(ref indexer) = self.proof_indexer else { return };
+
+		if message.consensus_proof.first() != Some(&PROOF_TYPE_ZK) {
+			return;
+		}
+
+		let state_id = String::from_utf8_lossy(&self.config.consensus_state_id);
+		if let Err(err) = indexer
+			.store_zk_proof(
+				&state_machine.to_string(),
+				&message.encode(),
+				&state_id,
+				finalized_height,
+				set_id,
+			)
+			.await
+		{
+			tracing::error!("Failed to store ZK proof in indexer DB: {err:?}");
+		}
 	}
 }
 
@@ -182,7 +219,10 @@ where
 					let item =
 						self.backend.receive_mandatory_proof(&counterparty_state_machine).await;
 
-					let QueueMessage { id, proof: ConsensusProof { message, set_id, .. } } =
+					let QueueMessage {
+						id,
+						proof: ConsensusProof { message, set_id, finalized_height },
+					} =
 						match item {
 							Ok(Some(message)) => message,
 							// no new items in the queue, continue to process messages queue
@@ -230,20 +270,27 @@ where
 						continue;
 					}
 
-					if let Err(err) = counterparty
-						.submit(
-							vec![Message::Consensus(message)],
-							self.client.state_machine_id().state_id,
-						)
-						.await
-					{
-						tracing::error!(
-							"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
-						);
+					self.maybe_index_proof(
+						&counterparty_state_machine,
+						&message,
+						finalized_height,
+						set_id,
+					).await;
 
-						// non-fatal error, keep trying. This will pull it from the queue once more
-						continue;
-					};
+					if !self.store_only {
+						if let Err(err) = counterparty
+							.submit(
+								vec![Message::Consensus(message)],
+								self.client.state_machine_id().state_id,
+							)
+							.await
+						{
+							tracing::error!(
+								"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
+							);
+							continue;
+						};
+					}
 
 					tracing::info!(
 						"Submitted mandatory proof to {counterparty_state_machine} for {set_id}"
@@ -334,19 +381,27 @@ where
 					}
 				}
 
-				if let Err(err) = counterparty
-					.submit(
-						vec![Message::Consensus(message)],
-						self.client.state_machine_id().state_id,
-					)
-					.await
-				{
-					tracing::error!(
-						"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
-					);
-					// non-fatal error, keep trying. This will pull it from the queue once more
-					continue;
-				};
+				self.maybe_index_proof(
+					&counterparty_state_machine,
+					&message,
+					finalized_height,
+					set_id,
+				).await;
+
+				if !self.store_only {
+					if let Err(err) = counterparty
+						.submit(
+							vec![Message::Consensus(message)],
+							self.client.state_machine_id().state_id,
+						)
+						.await
+					{
+						tracing::error!(
+							"Error submitting consensus message to {counterparty_state_machine}: {err:?}",
+						);
+						continue;
+					};
+				}
 
 				self.backend
 					.delete_message(&counterparty_state_machine, &id, StreamMessage::NewMessages)

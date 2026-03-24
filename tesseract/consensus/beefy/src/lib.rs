@@ -76,9 +76,10 @@ impl BeefyConfig {
 		config.realtime = true; // Enable real-time notifications
 		let backend = Arc::new(backend::RedisProofBackend::new(config).await?);
 
-		let host =
-			BeefyHost::<R, P, zk_beefy::LocalProver, _>::new(self.host, prover, client, backend)
-				.await?;
+		let host = BeefyHost::<R, P, zk_beefy::LocalProver, _>::new(
+			self.host, prover, client, backend, None, false,
+		)
+		.await?;
 
 		Ok(host)
 	}

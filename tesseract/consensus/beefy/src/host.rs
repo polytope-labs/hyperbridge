@@ -129,9 +129,9 @@ where
 
 	async fn maybe_index_proof(
 		&self,
-		state_machine: &ismp::host::StateMachine,
 		message: &ismp::messaging::ConsensusMessage,
 		finalized_height: u32,
+		finalized_parachain_height: u64,
 		set_id: u64,
 	) {
 		let Some(ref indexer) = self.proof_indexer else { return };
@@ -140,13 +140,11 @@ where
 			return;
 		}
 
-		let state_id = String::from_utf8_lossy(&self.config.consensus_state_id);
 		if let Err(err) = indexer
 			.store_zk_proof(
-				&state_machine.to_string(),
 				&message.encode(),
-				&state_id,
 				finalized_height,
+				finalized_parachain_height,
 				set_id,
 			)
 			.await
@@ -221,7 +219,7 @@ where
 
 					let QueueMessage {
 						id,
-						proof: ConsensusProof { message, set_id, finalized_height },
+						proof: ConsensusProof { message, set_id, finalized_height, finalized_parachain_height },
 					} =
 						match item {
 							Ok(Some(message)) => message,
@@ -271,9 +269,9 @@ where
 					}
 
 					self.maybe_index_proof(
-						&counterparty_state_machine,
 						&message,
 						finalized_height,
+						finalized_parachain_height,
 						set_id,
 					).await;
 
@@ -312,7 +310,7 @@ where
 
 				let QueueMessage {
 					id,
-					proof: ConsensusProof { message, finalized_height, set_id },
+					proof: ConsensusProof { message, finalized_height, finalized_parachain_height, set_id },
 				} = match item {
 					Ok(Some(message)) => message,
 					Ok(None) => break, // no new items in the queue
@@ -382,9 +380,9 @@ where
 				}
 
 				self.maybe_index_proof(
-					&counterparty_state_machine,
 					&message,
 					finalized_height,
+					finalized_parachain_height,
 					set_id,
 				).await;
 

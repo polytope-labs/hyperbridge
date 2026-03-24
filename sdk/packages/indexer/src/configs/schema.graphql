@@ -1996,24 +1996,19 @@ type ZkConsensusProof @entity {
 	id: ID!
 
 	"""
-	Target state machine (e.g. "EVM(1)", "EVM(11155111)")
-	"""
-	stateMachine: String! @index
-
-	"""
 	Full SCALE-encoded ConsensusMessage bytes
 	"""
 	consensusProof: Bytes!
 
 	"""
-	Consensus state identifier (e.g. "BEEF")
-	"""
-	consensusStateId: String!
-
-	"""
 	Relay chain block height finalized by this proof
 	"""
 	finalizedHeight: BigInt! @index
+
+	"""
+	Parachain block height finalized by this proof
+	"""
+	finalizedParachainHeight: BigInt! @index
 
 	"""
 	Validator set ID that signed this proof

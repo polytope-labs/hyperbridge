@@ -125,10 +125,11 @@ export class IntentFiller {
 				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
 			}
 
-			// Deposit 30% of total funds to EntryPoint on each chain
+			// Ensure EntryPoint deposit covers target gas units on each chain
+			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
 				try {
-					await this.contractService.topUpEntryPointDeposit(chain, 0, 30)
+					await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
 				} catch (err) {
 					this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
 				}
@@ -266,9 +267,6 @@ export class IntentFiller {
 		promises.push(this.retractionQueue.onIdle())
 
 		await Promise.all(promises)
-
-		// Withdraw any remaining EntryPoint deposits back to the solver EOA
-		await this.contractService.withdrawAllEntryPointDeposits()
 
 		// Disconnect shared Hyperbridge connection
 		if (this.hyperbridge) {
@@ -556,7 +554,8 @@ export class IntentFiller {
 		// Top up EntryPoint deposit if we were the filler
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
-			this.contractService.topUpEntryPointDeposit(chain, 5, 30).catch((err) => {
+			const targetGasUnits = this.configService.getTargetGasUnits()
+			this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
 				this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
 			})
 		}

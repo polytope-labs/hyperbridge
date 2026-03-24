@@ -252,6 +252,8 @@ interface FillerTomlConfig {
 		hyperbridgeWsUrl: string
 		entryPointAddress?: string
 		solverAccountContractAddress?: string
+		/** Target gas units for EntryPoint deposits per chain. Defaults to 3,000,000. */
+		targetGasUnits?: number
 	}
 	strategies: StrategyConfig[]
 	chains: (UserProvidedChainConfig & { bundlerUrl?: string })[]
@@ -317,6 +319,7 @@ program
 				entryPointAddress: config.simplex.entryPointAddress,
 				dataDir: options.dataDir,
 				rebalancing: config.rebalancing,
+				targetGasUnits: config.simplex.targetGasUnits,
 			}
 
 			const configService = new FillerConfigService(fillerChainConfigs, fillerConfigForService)

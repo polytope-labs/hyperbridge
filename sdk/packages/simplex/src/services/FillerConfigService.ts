@@ -38,6 +38,11 @@ export interface FillerConfig {
 	 */
 	gasFeeBump?: GasFeeBumpConfig
 	rebalancing?: RebalancingConfig
+	/**
+	 * Target gas units the EntryPoint deposit should cover per chain.
+	 * Defaults to 3,000,000 if not set.
+	 */
+	targetGasUnits?: number
 }
 
 /**
@@ -304,4 +309,11 @@ export class FillerConfigService {
 		return this.fillerConfig?.rebalancing?.triggerPercentage
 	}
 
+	/**
+	 * Get target gas units for EntryPoint deposits.
+	 * Defaults to 3,000,000 if not configured.
+	 */
+	getTargetGasUnits(): bigint {
+		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
 }

@@ -282,49 +282,69 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Tops up the solver's EntryPoint deposit to `targetPercent` of wallet
-	 * balance if the current deposit is below `thresholdPercent` of wallet
-	 * balance.
+	 * Tops up the solver's EntryPoint deposit so it covers at least
+	 * `targetGasUnits` at the current gas price. Skips if the wallet
+	 * balance cannot afford at least 1M gas units (not enough to send txs).
 	 *
 	 * @param chain - The chain identifier
-	 * @param thresholdPercent - Deposit must be below this % of wallet balance to trigger a top-up (e.g. 5)
-	 * @param targetPercent - Top up to this % of wallet balance (e.g. 30)
+	 * @param targetGasUnits - Gas units the deposit should cover (default 3M)
+	 * @param thresholdGasUnits - Only top up if deposit is below this many gas units (defaults to targetGasUnits)
 	 */
-	async topUpEntryPointDeposit(chain: string, thresholdPercent: number, targetPercent: number): Promise<void> {
+	async topUpEntryPointDeposit(chain: string, targetGasUnits: bigint = 3_000_000n, thresholdGasUnits?: bigint): Promise<void> {
+		const effectiveThreshold = thresholdGasUnits ?? targetGasUnits
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {
 			return
 		}
 
 		const publicClient = this.clientManager.getPublicClient(chain)
-		const [currentDeposit, solverBalance] = await Promise.all([
+		const [currentDeposit, solverBalance, gasPrice] = await Promise.all([
 			this.getSolverEntryPointBalance(chain),
 			publicClient.getBalance({ address: this.solverAccountAddress }),
+			publicClient.getGasPrice(),
 		])
 
-		// Total funds = wallet balance + current deposit
-		const totalFunds = solverBalance + currentDeposit
-		const threshold = (totalFunds * BigInt(thresholdPercent)) / 100n
-		const target = (totalFunds * BigInt(targetPercent)) / 100n
-
-		if (target === 0n) {
-			this.logger.warn({ chain }, "Target deposit is zero, skipping EntryPoint top-up")
+		if (gasPrice === 0n) {
+			this.logger.warn({ chain }, "Gas price is zero, skipping EntryPoint top-up")
 			return
 		}
 
-		if (currentDeposit >= threshold) {
-			this.logger.debug(
+		// Skip if wallet can't afford at least 1M gas units
+		const walletGasUnits = solverBalance / gasPrice
+		const minWalletGasUnits = 1_000_000n
+
+		if (walletGasUnits < minWalletGasUnits) {
+			this.logger.warn(
 				{
 					chain,
-					currentDeposit: formatEther(currentDeposit),
-					threshold: formatEther(threshold),
+					walletBalance: formatEther(solverBalance),
+					walletGasUnits: walletGasUnits.toString(),
+					gasPrice: gasPrice.toString(),
 				},
-				"EntryPoint deposit above threshold, no top-up needed",
+				"Wallet balance too low to afford minimum gas, skipping EntryPoint top-up",
 			)
 			return
 		}
 
-		const deficit = target - currentDeposit
+		const targetDeposit = targetGasUnits * gasPrice
+		const thresholdDeposit = effectiveThreshold * gasPrice
+		const depositGasUnits = currentDeposit / gasPrice
+
+		if (currentDeposit >= thresholdDeposit) {
+			this.logger.info(
+				{
+					chain,
+					currentDeposit: formatEther(currentDeposit),
+					depositGasUnits: depositGasUnits.toString(),
+					targetGasUnits: targetGasUnits.toString(),
+					walletBalance: formatEther(solverBalance),
+				},
+				"EntryPoint deposit covers target gas units, no top-up needed",
+			)
+			return
+		}
+
+		const deficit = targetDeposit - currentDeposit
 
 		if (solverBalance < deficit) {
 			this.logger.warn(
@@ -332,12 +352,11 @@ export class ContractInteractionService {
 					chain,
 					deficit: formatEther(deficit),
 					solverBalance: formatEther(solverBalance),
+					depositGasUnits: depositGasUnits.toString(),
+					targetGasUnits: targetGasUnits.toString(),
 				},
 				"Solver EOA balance insufficient to reach target deposit, depositing available balance",
 			)
-			if (solverBalance === 0n) {
-				return
-			}
 			await this.depositToEntryPoint(chain, solverBalance)
 			return
 		}
@@ -346,10 +365,11 @@ export class ContractInteractionService {
 			{
 				chain,
 				currentDeposit: formatEther(currentDeposit),
-				target: formatEther(target),
+				depositGasUnits: depositGasUnits.toString(),
+				targetGasUnits: targetGasUnits.toString(),
 				topUpAmount: formatEther(deficit),
 			},
-			"Topping up EntryPoint deposit to target",
+			"Topping up EntryPoint deposit to cover target gas units",
 		)
 
 		await this.depositToEntryPoint(chain, deficit)

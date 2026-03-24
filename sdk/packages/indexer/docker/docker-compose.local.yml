@@ -24,6 +24,7 @@ services:
             - --workers=${SUBQL_WORKERS:-6}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
+            - --disable-multichain-rewind-lock
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --store-cache-async=false
@@ -71,7 +72,7 @@ services:
     #         retries: 10
 
     subquery-node-bsc-chapel-local:
-        image: polytopelabs/subql-node-ethereum:v6.3.1
+        image: polytopelabs/subql-node-ethereum:latest
         restart: always
         environment:
             DB_USER: ${DB_USER}
@@ -98,6 +99,7 @@ services:
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
             - --unfinalized-blocks
+            - --disable-multichain-rewind-lock
             - --block-confirmations=0
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -108,7 +110,7 @@ services:
             retries: 10
 
     subquery-node-arbitrum-sepolia-local:
-        image: polytopelabs/subql-node-ethereum:v6.3.1
+        image: polytopelabs/subql-node-ethereum:latest
         restart: always
         environment:
             DB_USER: ${DB_USER}
@@ -135,6 +137,7 @@ services:
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
             - --unfinalized-blocks
+            - --disable-multichain-rewind-lock
             - --block-confirmations=0
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -145,7 +148,7 @@ services:
             retries: 10
 
     subquery-node-polygon-amoy-local:
-        image: polytopelabs/subql-node-ethereum:v6.3.1
+        image: polytopelabs/subql-node-ethereum:latest
         restart: always
         environment:
             DB_USER: ${DB_USER}
@@ -168,6 +171,7 @@ services:
             - --workers=${SUBQL_WORKERS:-6}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
             - --multi-chain
+            - --disable-multichain-rewind-lock
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --store-cache-async=false

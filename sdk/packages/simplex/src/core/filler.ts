@@ -10,7 +10,6 @@ import {
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
 import pQueue from "p-queue"
-import { privateKeyToAddress } from "viem/accounts"
 import {
 	BidStorageService,
 	ChainClientManager,
@@ -20,6 +19,7 @@ import {
 } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
+import type { SigningAccount } from "@/services/wallet"
 import { FXFiller } from "@/strategies/fx"
 import { Decimal } from "decimal.js"
 
@@ -40,7 +40,8 @@ export class IntentFiller {
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
-	private privateKey: HexString
+	private signer: SigningAccount
+	private fillerAddress: HexString
 	private logger = getLogger("intent-filler")
 
 	constructor(
@@ -50,18 +51,18 @@ export class IntentFiller {
 		configService: FillerConfigService,
 		chainClientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		privateKey: HexString,
+		signer: SigningAccount,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
 	) {
 		this.configService = configService
-		this.privateKey = privateKey
+		this.signer = signer
+		this.fillerAddress = this.signer.account.address
 		this.chainClientManager = chainClientManager
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
-		const fillerAddress = privateKeyToAddress(privateKey) as HexString
-		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, fillerAddress)
+		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
 
@@ -125,7 +126,7 @@ export class IntentFiller {
 
 		// Set up delegation service on chains where solver selection is active
 		if (chainsWithSolverSelection.length > 0 && this.hyperbridge) {
-			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.privateKey)
+			this.delegationService = new DelegationService(this.chainClientManager, this.configService, this.signer)
 			this.logger.info(
 				{ chains: chainsWithSolverSelection },
 				"Setting up EIP-7702 delegation on chains with solver selection",
@@ -135,6 +136,17 @@ export class IntentFiller {
 				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
 			}
 		}
+	}
+
+	/**
+	 * Immediately enqueues retraction for all stale bids (older than maxAgeMs).
+	 * Returns the number of bids queued for retraction.
+	 */
+	public async retractStaleBids(maxAgeMs = 60 * 60 * 1000): Promise<number> {
+		if (!this.bidStorage || !this.hyperbridge) return 0
+		const expired = this.bidStorage.getExpiredUnretractedBids(maxAgeMs)
+		await this.sweepExpiredBids(maxAgeMs)
+		return expired.length
 	}
 
 	public start(): void {
@@ -353,6 +365,7 @@ export class IntentFiller {
 				// The AbortController lets evaluateOrder cancel the confirmation
 				// loop early when the order turns out to be unprofitable.
 				const abortController = new AbortController()
+				const confirmStartMs = Date.now()
 
 				const waitForConfirmations = async (): Promise<void> => {
 					let currentConfirmations = await retryPromise(
@@ -401,10 +414,12 @@ export class IntentFiller {
 						return result
 					}),
 				])
+				const confirmDurationSec = (Date.now() - confirmStartMs) / 1000
+				this.monitor.emit("orderTiming", { orderId: order.id, phase: "confirmation", durationSec: confirmDurationSec })
 
 				// Execute immediately
 				if (evaluationResult) {
-					this.executeOrder(order, evaluationResult.strategy, solverSelectionActive)
+					this.executeOrder(order, evaluationResult.strategy, solverSelectionActive, inputUsdValue, evaluationResult.profitability)
 				}
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
@@ -442,6 +457,7 @@ export class IntentFiller {
 			return null
 		}
 
+		const evalStartMs = Date.now()
 		const eligibleStrategies = await Promise.all(
 			this.strategies.map(async (strategy) => {
 				if (!canFillCache.get(strategy)) return null
@@ -455,8 +471,12 @@ export class IntentFiller {
 			.filter((s): s is NonNullable<typeof s> => s !== null && s.profitability > 0)
 			.sort((a, b) => b.profitability - a.profitability)
 
+		const evalDurationSec = (Date.now() - evalStartMs) / 1000
+		this.monitor.emit("orderTiming", { orderId: order.id, phase: "evaluation", durationSec: evalDurationSec })
+
 		if (validStrategies.length === 0) {
 			this.logger.warn({ orderId: order.id }, "No profitable strategy found for order")
+			this.monitor.emit("orderSkipped", { orderId: order.id, reason: "No profitable strategy" })
 			return null
 		}
 
@@ -472,7 +492,7 @@ export class IntentFiller {
 		return validStrategies[0]
 	}
 
-	private executeOrder(order: Order, bestStrategy: FillerStrategy, solverSelectionActive: boolean): void {
+	private executeOrder(order: Order, bestStrategy: FillerStrategy, solverSelectionActive: boolean, inputUsdValue: Decimal, profitUsd: number): void {
 		// Get the chain-specific queue
 		const chainQueue = this.chainQueues.get(getChainId(order.destination)!)
 		if (!chainQueue) {
@@ -482,7 +502,11 @@ export class IntentFiller {
 
 		// Execute with the most profitable strategy using the chain-specific queue
 		// This ensures transactions for the same chain are processed sequentially
+		const queuedAtMs = Date.now()
 		chainQueue.add(async () => {
+			const queueDurationSec = (Date.now() - queuedAtMs) / 1000
+			this.monitor.emit("orderTiming", { orderId: order.id, phase: "queue_wait", durationSec: queueDurationSec })
+
 			this.logger.info(
 				{ orderId: order.id, strategy: bestStrategy.name, chain: order.destination },
 				"Executing order",
@@ -495,12 +519,23 @@ export class IntentFiller {
 					})
 				}
 
+				const execStartMs = Date.now()
 				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
 				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
+				const execDurationSec = (Date.now() - execStartMs) / 1000
+				this.monitor.emit("orderTiming", { orderId: order.id, phase: "execution", durationSec: execDurationSec })
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
 				if (result.success) {
-					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash })
+					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash, volumeUsd: inputUsdValue.toNumber(), profitUsd, chainId: getChainId(order.source) })
 				}
+				this.monitor.emit("orderExecuted", {
+					orderId: order.id,
+					success: result.success,
+					txHash: result.txHash,
+					strategy: bestStrategy.name,
+					commitment: result.commitment,
+					error: result.error,
+				})
 
 				if (result.commitment) {
 					const commitment = result.commitment as HexString

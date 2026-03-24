@@ -22,8 +22,11 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
+import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
+import { MetricsService } from "@/services/MetricsService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import { Decimal } from "decimal.js"
+import type { SigningAccount } from "@/services/wallet"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -242,7 +245,8 @@ interface BinanceConfig {
 
 interface FillerTomlConfig {
 	simplex: {
-		privateKey: string
+		// The signer is optional to keep the watch-only mode compatible
+		signer?: SignerConfig
 		maxConcurrentOrders: number
 		pendingQueue: PendingQueueConfig
 		logging?: LoggingConfig
@@ -271,7 +275,11 @@ program
 	.requiredOption("-c, --config <path>", "Path to TOML configuration file")
 	.option("-d, --data-dir <path>", "Directory for persistent data storage (bids database, etc.)")
 	.option("--watch-only", "Watch-only mode: monitor orders without executing fills", false)
-	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean }) => {
+	.option(
+		"-p, --port <[host:]port>",
+		"Enable Prometheus metrics server on the given address (e.g. 9090, 0.0.0.0:9090, 127.0.0.1:9090)",
+	)
+	.action(async (options: { config: string; dataDir?: string; watchOnly?: boolean; port?: string }) => {
 		try {
 			// Display ASCII art header
 			process.stdout.write(ASCII_HEADER)
@@ -305,7 +313,6 @@ program
 			}))
 
 			const fillerConfigForService: FillerServiceConfig = {
-				privateKey: config.simplex.privateKey,
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 				logging: config.simplex.logging,
 				substratePrivateKey: config.simplex.substratePrivateKey,
@@ -359,12 +366,13 @@ program
 
 			// Create shared services to avoid duplicate RPC calls and reuse connections
 			const sharedCacheService = new CacheService()
-			const privateKey = config.simplex.privateKey as HexString
-			const chainClientManager = new ChainClientManager(configService, privateKey)
+			const configuredSigner = initializeSignerFromToml(config.simplex.signer)
+			const chainClientManager = new ChainClientManager(configService, configuredSigner)
+			const runtimeSigner: SigningAccount = chainClientManager.getSigner()
 			const contractService = new ContractInteractionService(
 				chainClientManager,
-				privateKey,
 				configService,
+				runtimeSigner,
 				sharedCacheService,
 			)
 
@@ -384,7 +392,7 @@ program
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
 						const confirmationPolicy = new ConfirmationPolicy(strategyConfig.confirmationPolicies)
 						return new BasicFiller(
-							privateKey,
+							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
@@ -395,14 +403,16 @@ program
 					case "hyperfx": {
 						const bidPricePolicy = new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
 						const askPricePolicy = new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
-					const fxConfirmationPolicy = strategyConfig.confirmationPolicies
-						? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
-						: undefined
-					if (!fxConfirmationPolicy) {
-						logger.warn("No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped")
-					}
+						const fxConfirmationPolicy = strategyConfig.confirmationPolicies
+							? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
+							: undefined
+						if (!fxConfirmationPolicy) {
+							logger.warn(
+								"No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped",
+							)
+						}
 						return new FXFiller(
-							privateKey,
+							runtimeSigner,
 							configService,
 							chainClientManager,
 							contractService,
@@ -435,12 +445,7 @@ program
 					logger.info("Binance CEX rebalancing configured")
 				}
 
-				rebalancingService = new RebalancingService(
-					chainClientManager,
-					configService,
-					privateKey,
-					binanceConfig,
-				)
+				rebalancingService = new RebalancingService(chainClientManager, configService, binanceConfig)
 				logger.info("Rebalancing service initialized")
 			}
 
@@ -453,13 +458,45 @@ program
 				configService,
 				chainClientManager,
 				contractService,
-				privateKey,
+				runtimeSigner,
 				rebalancingService,
 				bidStorageService,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)
 			await intentFiller.initialize()
+
+			// Start optional Prometheus metrics server
+			let metrics: MetricsService | undefined
+			if (options.port) {
+				const [metricsHost, metricsPortStr] = options.port.includes(":")
+					? (options.port.split(":").slice(-2) as [string, string])
+					: ["0.0.0.0", options.port]
+				const metricsPort = parseInt(metricsPortStr, 10)
+				if (isNaN(metricsPort) || metricsPort < 1 || metricsPort > 65535) {
+					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
+				} else {
+					// Collect exotic token addresses from FX strategies
+					const exoticTokenAddresses: Record<string, string> = {}
+					for (const s of config.strategies) {
+						if (s.type === "hyperfx" && s.exoticTokenAddresses) {
+							Object.assign(exoticTokenAddresses, s.exoticTokenAddresses)
+						}
+					}
+					metrics = new MetricsService({
+						monitor: intentFiller.monitor,
+						bidStorage: bidStorageService,
+						chainClientManager,
+						configService,
+						fillerAddress: runtimeSigner.account.address,
+						chains: config.chains.map((c) => c.chainId),
+						exoticTokenAddresses,
+						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
+						substratePrivateKey: config.simplex.substratePrivateKey,
+					})
+					metrics.start(metricsPort, metricsHost)
+				}
+			}
 
 			// Start the filler
 			intentFiller.start()
@@ -485,12 +522,14 @@ program
 			// Handle graceful shutdown
 			process.on("SIGINT", async () => {
 				logger.warn("Shutting down intent filler (SIGINT)...")
+				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			})
 
 			process.on("SIGTERM", async () => {
 				logger.warn("Shutting down intent filler (SIGTERM)...")
+				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
 			})
@@ -516,8 +555,10 @@ function validateConfig(config: FillerTomlConfig): void {
 		})
 	const allChainsWatchOnly = isWatchOnlyGlobal || isWatchOnlyPerChain
 
-	if (!config.simplex?.privateKey && !allChainsWatchOnly) {
-		throw new Error("Filler private key is required (unless all chains are in watchOnly mode)")
+	const signer = config.simplex?.signer
+
+	if (!signer && !allChainsWatchOnly) {
+		throw new Error("Signer configuration is required via [simplex.signer]")
 	}
 
 	if ((!config.strategies || config.strategies.length === 0) && !allChainsWatchOnly) {

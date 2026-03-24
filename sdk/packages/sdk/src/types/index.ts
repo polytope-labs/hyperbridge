@@ -1,6 +1,10 @@
 import type { ConsolaInstance } from "consola"
 import type { GraphQLClient } from "graphql-request"
 import type { ContractFunctionArgs, Hex, Log, PublicClient, TransactionReceipt } from "viem"
+import type { Account } from "viem/accounts"
+
+/** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
+export type { Account as ViemAccount } from "viem/accounts"
 import type HandlerV1 from "@/abis/handler"
 import type { IChain } from "@/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
@@ -15,9 +19,9 @@ export type HexString = `0x${string}`
 
 export interface IConfig {
 	// confuration object for the source chain
-	source: IEvmConfig | ISubstrateConfig
+	source: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
 	// confuration object for the destination chain
-	dest: IEvmConfig | ISubstrateConfig
+	dest: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
 	// confuration object for hyperbridge
 	hyperbridge: IHyperbridgeConfig
 	// Flag to enable tracing console logs
@@ -33,6 +37,14 @@ export interface IEvmConfig {
 	host: HexString
 	// consensus state identifier of this chain on hyperbridge
 	consensusStateId: string
+}
+
+/**
+ * EVM-on-Substrate (e.g. Polkadot Hub) — same as {@link IEvmConfig} plus a Substrate node RPC URL
+ * used for `state_getReadProof` / `state_getChildReadProof` (Revive child trie proofs).
+ */
+export interface IPolkadotHubConfig extends IEvmConfig {
+	substrateRpcUrl: string
 }
 
 export interface ISubstrateConfig {
@@ -1169,11 +1181,19 @@ export interface PackedUserOperation {
 	signature: HexString
 }
 
+export interface SigningAccount {
+	/** Signs a bid message hash for a given chain. Returns a 65-byte ECDSA signature. */
+	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
+	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
+	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
+}
+
 export interface SubmitBidOptions {
 	order: Order
 	fillOptions: FillOptions
 	solverAccount: HexString
-	solverPrivateKey: HexString
+	/** Canonical signer used for bid message signing and raw-hash operations. */
+	solverSigner: SigningAccount
 	nonce: bigint
 	entryPointAddress: HexString
 	// Estimated gas for executing fillOrder calldata
@@ -1348,7 +1368,13 @@ export type IntentOrderStatusUpdate =
 			remainingAssets?: TokenInfo[]
 			error: string
 	  }
-	| { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
+	| {
+			status: "FAILED"
+			commitment?: HexString
+			totalFilledAssets?: TokenInfo[]
+			remainingAssets?: TokenInfo[]
+			error: string
+	  }
 
 /**
  * Price input for submitting pair prices to the intents coprocessor.

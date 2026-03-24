@@ -1,5 +1,4 @@
 import { encodeFunctionData, decodeFunctionData, concat, keccak256, parseEventLogs } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ADDRESS_ZERO, bytes32ToBytes20, hexToString, retryPromise } from "@/utils"
 import type {
@@ -59,7 +58,7 @@ export class BidManager {
 		const {
 			order,
 			solverAccount,
-			solverPrivateKey,
+			solverSigner,
 			nonce,
 			entryPointAddress,
 			callGasLimit,
@@ -92,12 +91,10 @@ export class BidManager {
 		const userOpHash = this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
 		const sessionKey = order.session
 
-		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as import("viem").Hex]))
+		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as HexString]))
+		const solverSignature = await solverSigner.signMessage(messageHash, Number(chainId))
 
-		const solverAccount_ = privateKeyToAccount(solverPrivateKey as import("viem").Hex)
-		const solverSignature = await solverAccount_.signMessage({ message: { raw: messageHash } })
-
-		const signature = concat([order.id as HexString, solverSignature as import("viem").Hex]) as HexString
+		const signature = concat([order.id as HexString, solverSignature as HexString]) as HexString
 
 		return { ...userOp, signature }
 	}

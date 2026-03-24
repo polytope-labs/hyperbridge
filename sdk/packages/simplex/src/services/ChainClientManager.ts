@@ -1,14 +1,29 @@
-import { PublicClient, WalletClient, createPublicClient, createWalletClient, http, type Chain } from "viem"
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
-import { Order, HexString, ChainConfig, getViemChain } from "@hyperbridge/sdk"
+import {
+	PublicClient,
+	WalletClient,
+	createPublicClient,
+	createWalletClient,
+	http,
+	type Chain,
+	type Transport,
+} from "viem"
+import { generatePrivateKey } from "viem/accounts"
+import { Order, ChainConfig, getViemChain } from "@hyperbridge/sdk"
+import type { Account } from "viem/accounts"
 import { FillerConfigService } from "./FillerConfigService"
+import type { SigningAccount } from "./wallet"
+import { createSimplexSigner, SignerType } from "./wallet"
+
+function walletClientCacheKey(chainId: number, accountAddress: string): string {
+	return `${chainId}:${accountAddress.toLowerCase()}`
+}
 
 /**
  * Factory for creating and managing Viem clients
  */
 class ViemClientFactoryImpl {
 	private publicClients: Map<number, PublicClient> = new Map()
-	private walletClients: Map<number, WalletClient> = new Map()
+	private walletClients: Map<string, WalletClient<Transport, Chain, Account>> = new Map()
 
 	public getPublicClient(chainConfig: ChainConfig): PublicClient {
 		if (!this.publicClients.has(chainConfig.chainId)) {
@@ -29,10 +44,10 @@ class ViemClientFactoryImpl {
 		return this.publicClients.get(chainConfig.chainId)!
 	}
 
-	public getWalletClient(chainConfig: ChainConfig, privateKey: string): WalletClient {
-		if (!this.walletClients.has(chainConfig.chainId)) {
+	public getWalletClient(chainConfig: ChainConfig, account: Account): WalletClient<Transport, Chain, Account> {
+		const key = walletClientCacheKey(chainConfig.chainId, account.address)
+		if (!this.walletClients.has(key)) {
 			const chain = getViemChain(chainConfig.chainId) as Chain
-			const account = privateKeyToAccount(privateKey as `0x${string}`)
 
 			const walletClient = createWalletClient({
 				chain,
@@ -44,10 +59,10 @@ class ViemClientFactoryImpl {
 				}),
 			})
 
-			this.walletClients.set(chainConfig.chainId, walletClient)
+			this.walletClients.set(key, walletClient)
 		}
 
-		return this.walletClients.get(chainConfig.chainId)!
+		return this.walletClients.get(key)!
 	}
 }
 
@@ -58,14 +73,19 @@ export const ViemClientFactory = new ViemClientFactoryImpl()
  * Manages chain clients for different operations
  */
 export class ChainClientManager {
-	private privateKey: HexString
+	private signer: SigningAccount
 	private configService: FillerConfigService
 	private clientFactory: ViemClientFactoryImpl
 
-	constructor(configService: FillerConfigService, privateKey?: HexString) {
-		this.privateKey = privateKey || generatePrivateKey()
+	constructor(configService: FillerConfigService, signer?: SigningAccount) {
 		this.configService = configService
 		this.clientFactory = ViemClientFactory
+		this.signer =
+			signer ??
+			createSimplexSigner({
+				type: SignerType.PrivateKey,
+				privateKey: generatePrivateKey(),
+			})
 	}
 
 	getPublicClient(chain: string): PublicClient {
@@ -73,15 +93,23 @@ export class ChainClientManager {
 		return this.clientFactory.getPublicClient(config)
 	}
 
-	getWalletClient(chain: string): WalletClient {
+	getWalletClient(chain: string): WalletClient<Transport, Chain, Account> {
 		const config = this.configService.getChainConfig(chain)
-		return this.clientFactory.getWalletClient(config, this.privateKey)
+		return this.clientFactory.getWalletClient(config, this.signer.account)
+	}
+
+	getAccount(): Account {
+		return this.signer.account
+	}
+
+	getSigner(): SigningAccount {
+		return this.signer
 	}
 
 	getClientsForOrder(order: Order): {
 		destClient: PublicClient
 		sourceClient: PublicClient
-		walletClient: WalletClient
+		walletClient: WalletClient<Transport, Chain, Account>
 	} {
 		return {
 			destClient: this.getPublicClient(order.destination),

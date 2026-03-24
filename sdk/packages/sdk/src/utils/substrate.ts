@@ -1,4 +1,4 @@
-import { Struct, Vector, u8, u64, Tuple, Enum, _void, u32, Option } from "scale-ts"
+import { type CodecType, Enum, Option, Struct, Tuple, Vector, _void, u32, u64, u8 } from "scale-ts"
 
 export type IStateMachine =
 	| {
@@ -34,6 +34,27 @@ export const EvmStateProof = Struct({
 	 */
 	storageProof: Vector(Tuple(Vector(u8), Vector(Vector(u8)))),
 })
+
+/**
+ * Main trie proof (AccountInfo + child root) plus per-contract child trie proofs for Revive / EVM-on-Substrate.
+ * Matches `SubstrateEvmProof` in `modules/ismp/state-machines/evm/src/types.rs` (`storage_proof` is a
+ * `BTreeMap<Vec<u8>, Vec<Vec<u8>>>` — same layout as a length-prefixed list of `(key, value)` pairs).
+ */
+export const SubstrateEvmProof = Struct({
+	main_proof: Vector(Vector(u8)),
+	storage_proof: Vector(Tuple(Vector(u8), Vector(Vector(u8)))),
+})
+
+/** Encode proof for Polkadot Hub / Revive; `scale-ts` types `Vector(u8)` as `number[]` but `Uint8Array` is valid at runtime. */
+export function encodeSubstrateEvmProofBytes(params: {
+	mainProof: Uint8Array[]
+	storageProof: Map<Uint8Array, Uint8Array[]>
+}): Uint8Array {
+	return SubstrateEvmProof.enc({
+		main_proof: params.mainProof,
+		storage_proof: Array.from(params.storageProof.entries()),
+	} as unknown as CodecType<typeof SubstrateEvmProof>)
+}
 
 export const SubstrateHashing = Enum({
 	/* For chains that use keccak as their hashing algo */

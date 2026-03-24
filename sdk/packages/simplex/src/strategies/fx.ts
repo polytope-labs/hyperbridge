@@ -251,15 +251,28 @@ export class FXFiller implements FillerStrategy {
 					continue
 				}
 
+				if (policyMaxOutput < output.amount) {
+					this.logger.info(
+						{
+							orderId: order.id,
+							token: output.token,
+							policyOutput: policyMaxOutput.toString(),
+							userRequested: output.amount.toString(),
+						},
+						"Skipping order: filler price yields less than user's requested amount",
+					)
+					return 0
+				}
+
 				if (sourceChain !== destChain && finalOutputAmount < output.amount) {
 					this.logger.info(
 						{
 							orderId: order.id,
 							token: output.token,
-							fillerOutput: finalOutputAmount.toString(),
+							fillerBalance: balance.toString(),
 							userRequested: output.amount.toString(),
 						},
-						"Skipping order: filler output below user's requested minimum",
+						"Skipping cross-chain order: insufficient balance for full fill",
 					)
 					return 0
 				}

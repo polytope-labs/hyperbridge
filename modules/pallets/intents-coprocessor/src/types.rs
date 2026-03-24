@@ -181,8 +181,8 @@ pub struct PriceEntry {
 	pub amount: U256,
 	/// The price at this amount, with 18 decimal places
 	pub price: U256,
-	/// The filler (submitter) address
-	pub filler: H256,
+	/// Unix timestamp (seconds) when this entry was submitted
+	pub timestamp: u64,
 }
 
 impl IntentGatewayParams {

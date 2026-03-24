@@ -339,8 +339,8 @@ export class IntentsCoprocessor {
 	/**
 	 * Submits price entries for a recognized token pair on Hyperbridge.
 	 *
-	 * The first submission per pair requires a deposit (reserved from the caller's balance).
-	 * Subsequent updates to the same pair are free.
+	 * A fee is charged per submission. New entries overwrite previous ones
+	 * for the same (pair_id, filler) combination.
 	 *
 	 * @param pairId - The token pair identifier (H256 / bytes32)
 	 * @param entries - Array of price entries with range and price data
@@ -359,27 +359,6 @@ export class IntentsCoprocessor {
 			}))
 
 			const extrinsic = this.api.tx.intentsCoprocessor.submitPairPrice(pairId, encodedEntries)
-			return await this.signAndSendExtrinsic(extrinsic)
-		} catch (error) {
-			return {
-				success: false,
-				error: error instanceof Error ? error.message : "Unknown error",
-			}
-		}
-	}
-
-	/**
-	 * Withdraws a previously reserved price deposit for a token pair.
-	 *
-	 * Funds can only be withdrawn after the configured lock duration has elapsed
-	 * since the first price submission for that pair.
-	 *
-	 * @param pairId - The token pair identifier (H256 / bytes32)
-	 * @returns BidSubmissionResult with success status and block/extrinsic hash
-	 */
-	async withdrawPriceDeposit(pairId: HexString): Promise<BidSubmissionResult> {
-		try {
-			const extrinsic = this.api.tx.intentsCoprocessor.withdrawPriceDeposit(pairId)
 			return await this.signAndSendExtrinsic(extrinsic)
 		} catch (error) {
 			return {

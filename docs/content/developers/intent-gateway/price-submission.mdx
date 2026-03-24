@@ -1,55 +1,41 @@
 ---
 title: Price Submission Protocol
-description: Deposit-based price submission system for the intents coprocessor pallet
+description: Fee based price submission system for the intents coprocessor pallet
 ---
 
 # Price Submission Protocol
 
 ## Overview
 
-The intents system needs on-chain price data for token pairs to function correctly. Rather than relying on external oracles, the protocol allows anyone to submit prices for governance-approved token pairs by putting up a deposit on their first submission. After that initial deposit, updating prices for the same pair is free. The deposit can be reclaimed later through a two-phase withdrawal process, which gives the system time to detect and respond to malicious data before the submitter disappears with their funds.
+The intents system needs onchain price data for token pairs to function correctly. Rather than relying on external oracles, the protocol allows anyone to submit prices for governance approved token pairs by paying a per submission fee. The fee is transferred to the treasury. Each submission overwrites the submitter's previous prices for that pair, so there is no accumulation of stale data, only the latest prices from each filler are stored.
 
 ## Submitting Prices
 
 The `submit_pair_price` extrinsic on the intents coprocessor pallet is the entry point for all price submissions. It accepts a pair ID and a bounded list of price entries. All prices and amount ranges are encoded as U256 values scaled by 10^18, giving 18 decimal places of precision.
 
-Submissions are batched. Each call accepts up to `MaxPriceEntries` entries (a compile-time constant configurable per runtime), where each entry specifies an amount threshold and the corresponding price of the base token in terms of the quote token. This makes it possible to quote different rates for different order sizes in a single transaction. For example, a submitter might quote USDC/CNGN at 1414 for amounts starting at 0, and 1420 for amounts starting at 1000.
+Submissions are batched. Each call accepts up to `MaxPriceEntries` entries (a compile time constant configurable per runtime), where each entry specifies an amount threshold and the corresponding price of the base token in terms of the quote token. This makes it possible to quote different rates for different order sizes in a single transaction. For example, a submitter might quote USDC/CNGN at 1414 for amounts starting at 0, and 1420 for amounts starting at 1000.
 
-Each price entry contains two fields. The `amount` field is the base token amount threshold at which this price applies. The `price` field is the cost of one unit of the base token in terms of the quote token. The pallet rejects empty submissions. When stored on-chain, each entry becomes a `PriceEntry` that also includes the filler's account ID.
+Each price entry contains two fields. The `amount` field is the base token amount threshold at which this price applies. The `price` field is the cost of one unit of the base token in terms of the quote token. The pallet rejects empty submissions. When stored onchain, each entry becomes a `PriceEntry` that also includes a Unix timestamp of when the submission was made.
 
-## Deposit Model
+## Fee Model
 
-On the first price submission for a given account and token pair, a deposit is reserved from the submitter's balance. The deposit amount is set by governance through the `set_price_deposit_amount` extrinsic. After the initial deposit, the submitter can update prices for the same token pair as many times as they want without paying anything further.
+Every call to `submit_pair_price` charges a fee from the submitter's balance. The fee is transferred to the treasury via `Currency::transfer`. The fee amount is set by governance through the `set_price_submission_fee` extrinsic. If the fee is zero, submissions are free.
 
-This design discourages spam because each new pair requires locking funds, while keeping ongoing price updates free for active participants.
+This design discourages spam while keeping the barrier to entry low for active market participants.
 
-## Two-Phase Withdrawal
+## Storage Model
 
-Withdrawing a deposit uses a two-phase process through the `withdraw_price_deposit` extrinsic. The first call initiates the withdrawal by recording the unlock block, which is the current block number plus the governance-configured lock duration. No tokens are moved at this point, and the pallet emits a `PriceDepositWithdrawalInitiated` event.
+Prices are stored in a `StorageDoubleMap` keyed by `(pair_id, filler)`. Each filler's entry for a pair is a bounded vector of their latest price entries. Submitting new prices for a pair completely replaces the filler's previous entries. There is no merging or appending.
 
-Once the unlock block has been reached, a second call to the same extrinsic completes the withdrawal. The pallet unreserves the tokens, removes the deposit record, and emits a `PriceDepositWithdrawn` event. If the second call is made before the unlock block, it fails with a `DepositStillLocked` error.
-
-The lock duration is measured in blocks and set by governance through `set_price_deposit_lock_duration`. This two-phase model ensures there is always a window during which bad actors can be identified and penalized before they can withdraw their deposit.
-
-## Price Windows and Data Lifecycle
-
-Prices are organized into time-based windows. The window duration is governance-configurable via `PriceWindowDurationValue`, specified in milliseconds.
-
-The `on_initialize` hook runs every block and checks whether the current window has expired. When it has, it resets a `PricesClearedThisWindow` flag to false. Prices from the previous window are not cleared immediately. They persist so that consumers can still read the previous window's data.
-
-On the first new submission in a new window, all price entries across all pairs are cleared before the new entries are stored. This lazy clearing approach avoids the cost of iterating all pairs in `on_initialize` (which would be unbounded weight paid by the block producer) while ensuring stale data is replaced as soon as fresh data arrives. After the first submission clears the data, the global boolean flag ensures subsequent submissions in the same window skip the clearing step entirely.
-
-## Recognized Pairs
-
-Only governance-approved token pairs can receive price submissions. This prevents spam for arbitrary token combinations and keeps storage growth under control. Governance manages pairs through the `add_recognized_pair` and `remove_recognized_pair` extrinsics. Removing a pair also cleans up its associated price data and storage.
+This means each filler maintains exactly one set of prices per pair. Resubmissions are cheap because they simply overwrite the existing data. There is no need for cleanup or expiry mechanisms. The frontend can filter by filler or timestamp freshness as needed.
 
 ## RPC
 
-The `intents_getPairPrices(pair_id)` RPC endpoint returns all price entries for a given token pair. The raw on-chain values (U256 scaled by 10^18) are converted to human-readable decimal strings with fractional precision preserved. For example, an on-chain value of 1414500000000000000000 is returned as the string "1414.5". Each returned entry includes the `amount` threshold, the `price`, and the `filler` account.
+The `intents_getPairPrices(pair_id)` RPC endpoint returns all price entries for a given token pair across all fillers. The raw onchain values (U256 scaled by 10^18) are converted to human readable decimal strings with fractional precision preserved. For example, an onchain value of 1414500000000000000000 is returned as the string "1414.5". Each returned entry includes the `amount` threshold, the `price`, the `filler` account hash, and the `timestamp`.
 
 ## Simplex Filler Integration
 
-The simplex filler submits price updates automatically as part of the FX strategy. When the filler starts and a `hyperfx` strategy is configured with a `pairId`, the FX strategy spawns a periodic task that converts its ask price curve into on-chain price entries and submits them via `IntentsCoprocessor.submitPairPrice()`. There is no separate price configuration section; the prices come directly from the strategy's existing ask price curve, which is the same curve used to evaluate order profitability.
+The simplex filler submits price updates automatically as part of the FX strategy. When the filler starts and a `hyperfx` strategy is configured with a `pairId`, the FX strategy spawns a periodic task that converts its ask price curve into onchain price entries and submits them via `IntentsCoprocessor.submitPairPrice()`. There is no separate price configuration section; the prices come directly from the strategy's existing ask price curve, which is the same curve used to evaluate order profitability.
 
 The task runs on a configurable interval (defaulting to every 5 minutes). An initial submission is triggered shortly after startup so that prices are available immediately rather than waiting for the first interval to elapse.
 
@@ -60,7 +46,7 @@ Price submission is enabled by adding a `pairId` to the `hyperfx` strategy in th
 ```toml
 [[strategies]]
 type = "hyperfx"
-pairId = "0x..."                    # On-chain pair ID (keccak256 of base_address ++ quote_address)
+pairId = "0x..."                    # Onchain pair ID (keccak256 of base_address ++ quote_address)
 maxOrderUsd = "5000"
 
 [[strategies.askPriceCurve]]
@@ -86,13 +72,13 @@ price = "1490"
 "EVM-56" = "0xdef..."
 ```
 
-The ask curve points are sorted by amount and each point becomes a price entry. The range for each entry spans from that point's amount to just below the next point's amount. The last point extends to a large upper bound. Amounts and prices are converted to 18-decimal format before submission.
+The ask curve points are sorted by amount and each point becomes a price entry. The range for each entry spans from that point's amount to just below the next point's amount. The last point extends to a large upper bound. Amounts and prices are converted to 18 decimal format before submission.
 
-The first submission for each pair will reserve a deposit from the substrate account. Subsequent updates to the same pair are free. When a filler wants to reclaim their deposit, they call `withdrawPriceDeposit` once to initiate the withdrawal (which records the unlock block), then call it again after the governance-configured lock duration has elapsed to unreserve the tokens.
+Each submission pays a fee to the treasury. Subsequent submissions for the same pair overwrite the previous entries, keeping only the latest prices onchain.
 
 ### SDK Usage
 
-The `IntentsCoprocessor` class in `@hyperbridge/sdk` exposes methods for price submission and deposit withdrawal directly. These methods accept raw 18-decimal bigint values.
+The `IntentsCoprocessor` class in `@hyperbridge/sdk` exposes methods for price submission directly. These methods accept raw 18 decimal bigint values.
 
 ```typescript
 import { IntentsCoprocessor } from "@hyperbridge/sdk"
@@ -100,29 +86,18 @@ import { parseUnits } from "viem"
 
 const coprocessor = await IntentsCoprocessor.connect(wsUrl, substratePrivateKey)
 
-// Submit prices for a token pair (values in 18-decimal format)
+// Submit prices for a token pair (values in 18 decimal format)
+// Each submission overwrites previous entries for this filler + pair
 await coprocessor.submitPairPrice("0x...", [
   { amount: parseUnits("0", 18), price: parseUnits("1414", 18) },
   { amount: parseUnits("1000", 18), price: parseUnits("1420", 18) },
 ])
-
-// Withdraw deposit (two-phase):
-// Phase 1: initiate withdrawal (records unlock block)
-await coprocessor.withdrawPriceDeposit("0x...")
-// Phase 2: complete withdrawal after unlock block is reached
-await coprocessor.withdrawPriceDeposit("0x...")
 ```
 
 ## Governance Parameters
 
-The protocol has several parameters that are stored on-chain and updatable through governance extrinsics.
+The protocol has several parameters that are stored onchain and updatable through governance extrinsics.
 
-`PriceWindowDurationValue` controls the length of each price window in milliseconds. When a window expires, the next submission triggers a lazy clear of all existing price data.
+`PriceSubmissionFee` is the fee charged per submission, transferred to the treasury. Set via `set_price_submission_fee`.
 
-`PriceDepositAmount` is the amount reserved from a submitter's balance on their first price submission for a given token pair. This deposit stays locked until explicitly withdrawn through the two-phase process.
-
-`PriceDepositLockDuration` determines how many blocks the deposit remains locked after a withdrawal is initiated. The submitter must wait this many blocks before completing the withdrawal.
-
-`MaxPriceEntries` is a compile-time constant (configurable per runtime) that limits how many price entries can be included in a single submission.
-
-Recognized token pairs are managed through `add_recognized_pair` and `remove_recognized_pair`. Only pairs that have been explicitly added by governance can receive price submissions.
+`MaxPriceEntries` is a compile time constant (configurable per runtime) that limits how many price entries can be included in a single submission.

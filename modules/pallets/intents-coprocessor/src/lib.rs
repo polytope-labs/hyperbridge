@@ -24,12 +24,12 @@ mod tests;
 pub mod types;
 mod weights;
 
-use alloc::{collections::BTreeSet, vec::Vec};
+use alloc::vec::Vec;
 use codec::Encode as _;
 use frame_support::{
 	ensure,
-	traits::{Currency, ReservableCurrency},
-	BoundedVec,
+	traits::{Currency, ExistenceRequirement, ReservableCurrency},
+	BoundedVec, PalletId,
 };
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -39,10 +39,7 @@ use polkadot_sdk::*;
 use primitive_types::{H160, H256};
 use sp_core::Get;
 use sp_io::offchain_index;
-use sp_runtime::{
-	traits::{ConstU32, Zero},
-	Saturating,
-};
+use sp_runtime::traits::{AccountIdConversion, ConstU32, Zero};
 pub use weights::WeightInfo;
 
 use types::{
@@ -93,6 +90,9 @@ pub mod pallet {
 		/// Origin that can perform governance actions
 		type GovernanceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
+		/// Treasury pallet ID for receiving price submission fees
+		type TreasuryAccount: Get<PalletId>;
+
 		/// Maximum number of price entries per submission
 		#[pallet::constant]
 		type MaxPriceEntries: Get<u32>;
@@ -130,88 +130,24 @@ pub mod pallet {
 	pub type Gateways<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, GatewayInfo, OptionQuery>;
 
-	/// Start timestamp (in seconds) of the current price window
+	/// Price entries per (pair_id, filler). Each submission overwrites the previous entries.
 	#[pallet::storage]
-	pub type PriceWindowStart<T: Config> = StorageValue<_, u64, ValueQuery>;
-
-	/// Price window duration in milliseconds
-	#[pallet::storage]
-	pub type PriceWindowDurationValue<T: Config> = StorageValue<_, u64, ValueQuery>;
-
-	/// Price entries per pair
-	#[pallet::storage]
-	pub type Prices<T: Config> =
-		CountedStorageMap<_, Blake2_128Concat, H256, BTreeSet<PriceEntry>, ValueQuery>;
-
-	/// Deposits reserved by price submitters. Maps (account, pair_id) to
-	/// (deposit_amount, unlock_block). When `unlock_block` is `None`, the withdrawal
-	/// has not been initiated. The first call to `withdraw_price_deposit` sets
-	/// `unlock_block` to `current_block + PriceDepositLockDuration`. The second
-	/// call (after that block) unreserves the tokens.
-	#[pallet::storage]
-	pub type PriceDeposits<T: Config> = StorageDoubleMap<
+	pub type Prices<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
-		T::AccountId,
+		H256, // pair_id
 		Blake2_128Concat,
-		H256,                                      // pair_id
-		(BalanceOf<T>, Option<BlockNumberFor<T>>), // (deposit_amount, unlock_block)
+		H256, // filler (H256 encoded from AccountId)
+		BoundedVec<PriceEntry, T::MaxPriceEntries>,
 		OptionQuery,
 	>;
 
-	/// The amount reserved from submitters on their first price submission per pair
+	/// Fee charged per price submission, configurable via governance
 	#[pallet::storage]
-	pub type PriceDepositAmount<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
-
-	/// How many blocks the price deposit is locked before it can be withdrawn.
-	/// When a filler initiates a withdrawal, the unlock block is set to
-	/// `current_block + PriceDepositLockDuration`.
-	#[pallet::storage]
-	pub type PriceDepositLockDuration<T: Config> = StorageValue<_, BlockNumberFor<T>, ValueQuery>;
-
-	/// Whether prices have been cleared for a given pair in the current window.
-	/// All entries are removed by `on_initialize` when a new window starts.
-	/// Set to true on the first price submission for that pair in the new window.
-	#[pallet::storage]
-	pub type PricesClearedThisWindow<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, bool, ValueQuery>;
-
-	/// Registered token pairs. Anyone can register a pair by reserving a deposit.
-	/// Maps pair_id to (registrant, deposit_amount).
-	#[pallet::storage]
-	pub type RegisteredPairs<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, (T::AccountId, BalanceOf<T>), OptionQuery>;
-
-	/// The deposit amount required to register a new token pair
-	#[pallet::storage]
-	pub type PairRegistrationDeposit<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+	pub type PriceSubmissionFee<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
 	#[pallet::hooks]
-	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
-	where
-		T::AccountId: From<[u8; 32]>,
-	{
-		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-			let now = T::Dispatcher::default().timestamp().as_secs();
-			let window_duration_secs = PriceWindowDurationValue::<T>::get().saturating_div(1000);
-
-			// Nothing to do if duration is not configured
-			if window_duration_secs == 0 {
-				return T::DbWeight::get().reads(2);
-			}
-
-			let window_start = PriceWindowStart::<T>::get();
-
-			if window_start == 0 || now.saturating_sub(window_start) >= window_duration_secs {
-				PriceWindowStart::<T>::put(now);
-				let _ = PricesClearedThisWindow::<T>::clear(Prices::<T>::count(), None);
-
-				T::DbWeight::get().reads(3).saturating_add(T::DbWeight::get().writes(2))
-			} else {
-				T::DbWeight::get().reads(3)
-			}
-		}
-	}
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> where T::AccountId: From<[u8; 32]> {}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -242,29 +178,9 @@ pub mod pallet {
 		/// Storage deposit fee was updated
 		StorageDepositFeeUpdated { fee: BalanceOf<T> },
 		/// Prices were submitted for a token pair
-		PriceSubmitted { submitter: T::AccountId, pair_id: H256 },
-		/// Price window duration was updated
-		PriceWindowDurationUpdated { duration_ms: u64 },
-		/// Price deposit amount was updated
-		PriceDepositAmountUpdated { amount: BalanceOf<T> },
-		/// Price deposit lock duration was updated (in blocks)
-		PriceDepositLockDurationUpdated { duration_blocks: BlockNumberFor<T> },
-		/// Price deposit was reserved on first submission
-		PriceDepositReserved { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
-		/// Price deposit withdrawal was initiated (unlock block noted)
-		PriceDepositWithdrawalInitiated {
-			submitter: T::AccountId,
-			pair_id: H256,
-			unlock_block: BlockNumberFor<T>,
-		},
-		/// Price deposit was withdrawn (tokens unreserved)
-		PriceDepositWithdrawn { submitter: T::AccountId, pair_id: H256, amount: BalanceOf<T> },
-		/// A token pair was registered with a deposit
-		PairRegistered { registrant: T::AccountId, pair_id: H256, deposit: BalanceOf<T> },
-		/// A token pair was deregistered and deposit returned
-		PairDeregistered { registrant: T::AccountId, pair_id: H256, deposit: BalanceOf<T> },
-		/// Pair registration deposit amount was updated
-		PairRegistrationDepositUpdated { amount: BalanceOf<T> },
+		PriceSubmitted { submitter: T::AccountId, pair_id: H256, fee: BalanceOf<T> },
+		/// Price submission fee was updated
+		PriceSubmissionFeeUpdated { fee: BalanceOf<T> },
 	}
 
 	#[pallet::error]
@@ -283,22 +199,6 @@ pub mod pallet {
 		DispatchFailed,
 		/// No price entries were provided
 		EmptyPriceEntries,
-		/// Price deposits are not configured (amount is zero)
-		PriceDepositsNotConfigured,
-		/// No deposit found for this account and pair
-		DepositNotFound,
-		/// The deposit is still within the lock duration (unlock block not yet reached)
-		DepositStillLocked,
-		/// Cannot submit prices while withdrawal is pending
-		WithdrawalInProgress,
-		/// Withdrawal has already been initiated
-		WithdrawalAlreadyInitiated,
-		/// The token pair is not registered
-		PairNotRegistered,
-		/// The token pair is already registered
-		PairAlreadyRegistered,
-		/// Pair registration deposit is not configured (amount is zero)
-		PairRegistrationDepositNotConfigured,
 	}
 
 	#[pallet::call]
@@ -582,10 +482,9 @@ pub mod pallet {
 
 		/// Submit prices for a token pair.
 		///
-		/// On the first submission per (account, pair), a deposit is reserved
-		/// from the submitter's balance. Subsequent submissions for the same
-		/// pair are free. The deposit can be withdrawn after the configured
-		/// lock duration via `withdraw_price_deposit`.
+		/// A fee is charged on each submission. New entries overwrite any
+		/// previous entries for the same (pair_id, filler) combination.
+		/// Each entry includes a timestamp so the frontend can filter stale prices.
 		///
 		/// Each entry in `entries` specifies a base token amount threshold and the
 		/// corresponding price of the base token in terms of the quote token.
@@ -599,222 +498,49 @@ pub mod pallet {
 			let submitter = ensure_signed(origin)?;
 
 			ensure!(!entries.is_empty(), Error::<T>::EmptyPriceEntries);
-			ensure!(RegisteredPairs::<T>::contains_key(&pair_id), Error::<T>::PairNotRegistered);
 
-			let deposit_amount = PriceDepositAmount::<T>::get();
-			ensure!(!deposit_amount.is_zero(), Error::<T>::PriceDepositsNotConfigured);
-
-			if let Some((_, Some(_unlock_block))) = PriceDeposits::<T>::get(&submitter, &pair_id) {
-				return Err(Error::<T>::WithdrawalInProgress.into());
-			}
-
-			// Reserve deposit on first submission per (account, pair)
-			if !PriceDeposits::<T>::contains_key(&submitter, &pair_id) {
-				<T as Config>::Currency::reserve(&submitter, deposit_amount)
-					.map_err(|_| Error::<T>::InsufficientBalance)?;
-
-				PriceDeposits::<T>::insert(
+			let fee = PriceSubmissionFee::<T>::get();
+			if !fee.is_zero() {
+				let treasury: T::AccountId = T::TreasuryAccount::get().into_account_truncating();
+				<T as Config>::Currency::transfer(
 					&submitter,
-					&pair_id,
-					(deposit_amount, None::<BlockNumberFor<T>>),
-				);
-
-				Self::deposit_event(Event::PriceDepositReserved {
-					submitter: submitter.clone(),
-					pair_id,
-					amount: deposit_amount,
-				});
+					&treasury,
+					fee,
+					ExistenceRequirement::KeepAlive,
+				)
+				.map_err(|_| Error::<T>::InsufficientBalance)?;
 			}
 
-			Self::maybe_clear_stale_prices(&pair_id);
-
+			let now = T::Dispatcher::default().timestamp().as_secs();
 			let filler: H256 = H256::from_slice(&submitter.encode()[..32]);
-			Prices::<T>::mutate(&pair_id, |stored| {
-				stored.extend(entries.iter().map(|input| PriceEntry {
+
+			let price_entries: BoundedVec<PriceEntry, T::MaxPriceEntries> = entries
+				.iter()
+				.map(|input| PriceEntry {
 					amount: input.amount,
 					price: input.price,
-					filler,
-				}));
-			});
+					timestamp: now,
+				})
+				.collect::<Vec<_>>()
+				.try_into()
+				.expect("same length as input; qed");
 
-			Self::deposit_event(Event::PriceSubmitted { submitter, pair_id });
+			Prices::<T>::insert(&pair_id, &filler, price_entries);
 
-			Ok(())
-		}
-
-		/// Register a token pair by reserving a deposit.
-		///
-		/// Anyone can register a pair. The deposit is reserved from the caller's
-		/// balance and returned when the pair is deregistered.
-		///
-		/// # Parameters
-		/// - `pair_id`: The token pair identifier (keccak256 of "BASE/QUOTE")
-		///
-		/// # Errors
-		/// - `PairRegistrationDepositNotConfigured`: If the registration deposit is zero
-		/// - `PairAlreadyRegistered`: If the pair is already registered
-		/// - `InsufficientBalance`: If the caller cannot afford the deposit
-		#[pallet::call_index(8)]
-		#[pallet::weight(T::WeightInfo::register_pair())]
-		pub fn register_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-
-			let deposit = PairRegistrationDeposit::<T>::get();
-			ensure!(!deposit.is_zero(), Error::<T>::PairRegistrationDepositNotConfigured);
-			ensure!(
-				!RegisteredPairs::<T>::contains_key(&pair_id),
-				Error::<T>::PairAlreadyRegistered
-			);
-
-			<T as Config>::Currency::reserve(&who, deposit)
-				.map_err(|_| Error::<T>::InsufficientBalance)?;
-
-			RegisteredPairs::<T>::insert(&pair_id, (who.clone(), deposit));
-
-			Self::deposit_event(Event::PairRegistered { registrant: who, pair_id, deposit });
+			Self::deposit_event(Event::PriceSubmitted { submitter, pair_id, fee });
 
 			Ok(())
 		}
 
-		/// Deregister a token pair and return the deposit to the original registrant.
-		///
-		/// Can only be called by governance.
-		///
-		/// # Parameters
-		/// - `pair_id`: The token pair identifier
-		///
-		/// # Errors
-		/// - `PairNotRegistered`: If the pair is not registered
-		#[pallet::call_index(9)]
-		#[pallet::weight(T::WeightInfo::deregister_pair())]
-		pub fn deregister_pair(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
-			T::GovernanceOrigin::ensure_origin(origin)?;
-
-			let (registrant, deposit) =
-				RegisteredPairs::<T>::get(&pair_id).ok_or(Error::<T>::PairNotRegistered)?;
-
-			<T as Config>::Currency::unreserve(&registrant, deposit);
-			RegisteredPairs::<T>::remove(&pair_id);
-
-			Self::deposit_event(Event::PairDeregistered { registrant, pair_id, deposit });
-
-			Ok(())
-		}
-
-		/// Set the price window duration
+		/// Set the fee charged per price submission
 		#[pallet::call_index(10)]
-		#[pallet::weight(T::WeightInfo::set_price_window_duration())]
-		pub fn set_price_window_duration(origin: OriginFor<T>, duration_ms: u64) -> DispatchResult {
+		#[pallet::weight(T::WeightInfo::set_price_submission_fee())]
+		pub fn set_price_submission_fee(origin: OriginFor<T>, fee: BalanceOf<T>) -> DispatchResult {
 			T::GovernanceOrigin::ensure_origin(origin)?;
 
-			PriceWindowDurationValue::<T>::put(duration_ms);
+			PriceSubmissionFee::<T>::put(fee);
 
-			Self::deposit_event(Event::PriceWindowDurationUpdated { duration_ms });
-
-			Ok(())
-		}
-
-		/// Set the deposit amount required for price submissions
-		#[pallet::call_index(11)]
-		#[pallet::weight(T::WeightInfo::set_price_deposit_amount())]
-		pub fn set_price_deposit_amount(
-			origin: OriginFor<T>,
-			amount: BalanceOf<T>,
-		) -> DispatchResult {
-			T::GovernanceOrigin::ensure_origin(origin)?;
-
-			PriceDepositAmount::<T>::put(amount);
-
-			Self::deposit_event(Event::PriceDepositAmountUpdated { amount });
-
-			Ok(())
-		}
-
-		/// Set the lock duration (in blocks) for price deposits
-		#[pallet::call_index(12)]
-		#[pallet::weight(T::WeightInfo::set_price_deposit_lock_duration())]
-		pub fn set_price_deposit_lock_duration(
-			origin: OriginFor<T>,
-			duration_blocks: BlockNumberFor<T>,
-		) -> DispatchResult {
-			T::GovernanceOrigin::ensure_origin(origin)?;
-
-			PriceDepositLockDuration::<T>::put(duration_blocks);
-
-			Self::deposit_event(Event::PriceDepositLockDurationUpdated { duration_blocks });
-
-			Ok(())
-		}
-
-		/// Withdraw a price deposit using a two-phase process.
-		///
-		/// **First call**: Initiates the withdrawal by recording the unlock block
-		/// (current block + `PriceDepositLockDuration`). No tokens are moved.
-		///
-		/// **Second call** (after the unlock block has been reached): Unreserves
-		/// the deposited tokens and removes the deposit record.
-		///
-		/// # Parameters
-		/// - `pair_id`: The token pair the deposit was made for
-		///
-		/// # Errors
-		/// - `DepositNotFound`: No deposit exists for this account and pair
-		/// - `WithdrawalAlreadyInitiated`: First call was already made (waiting for unlock)
-		/// - `DepositStillLocked`: The unlock block has not yet been reached
-		#[pallet::call_index(13)]
-		#[pallet::weight(T::WeightInfo::withdraw_price_deposit())]
-		pub fn withdraw_price_deposit(origin: OriginFor<T>, pair_id: H256) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-
-			let (deposit_amount, unlock_block) =
-				PriceDeposits::<T>::get(&who, &pair_id).ok_or(Error::<T>::DepositNotFound)?;
-
-			match unlock_block {
-				None => {
-					// Phase 1: Initiate withdrawal — note the unlock block
-					let current_block = <frame_system::Pallet<T>>::block_number();
-					let lock_duration = PriceDepositLockDuration::<T>::get();
-					let unlock_at = current_block.saturating_add(lock_duration);
-
-					PriceDeposits::<T>::insert(&who, &pair_id, (deposit_amount, Some(unlock_at)));
-
-					Self::deposit_event(Event::PriceDepositWithdrawalInitiated {
-						submitter: who,
-						pair_id,
-						unlock_block: unlock_at,
-					});
-				},
-				Some(unlock_at) => {
-					// Phase 2: Complete withdrawal — unreserve if unlock block reached
-					let current_block = <frame_system::Pallet<T>>::block_number();
-					ensure!(current_block >= unlock_at, Error::<T>::DepositStillLocked);
-
-					<T as Config>::Currency::unreserve(&who, deposit_amount);
-					PriceDeposits::<T>::remove(&who, &pair_id);
-
-					Self::deposit_event(Event::PriceDepositWithdrawn {
-						submitter: who,
-						pair_id,
-						amount: deposit_amount,
-					});
-				},
-			}
-
-			Ok(())
-		}
-
-		/// Set the deposit amount required to register a new token pair
-		#[pallet::call_index(14)]
-		#[pallet::weight(T::WeightInfo::set_pair_registration_deposit())]
-		pub fn set_pair_registration_deposit(
-			origin: OriginFor<T>,
-			amount: BalanceOf<T>,
-		) -> DispatchResult {
-			T::GovernanceOrigin::ensure_origin(origin)?;
-
-			PairRegistrationDeposit::<T>::put(amount);
-
-			Self::deposit_event(Event::PairRegistrationDepositUpdated { amount });
+			Self::deposit_event(Event::PriceSubmissionFeeUpdated { fee });
 
 			Ok(())
 		}
@@ -839,19 +565,6 @@ pub mod pallet {
 		/// Generate offchain storage key for a bid
 		pub fn offchain_bid_key(commitment: &H256, filler: &T::AccountId) -> Vec<u8> {
 			offchain_bid_key_raw(commitment, &filler.encode())
-		}
-
-		/// Clear prices for a specific pair if this is the first submission
-		/// in the current window.
-		///
-		/// Prices from the previous window persist until the first new submission
-		/// for a given pair in the new window, at which point those entries
-		/// are cleared.
-		fn maybe_clear_stale_prices(pair_id: &H256) {
-			if !PricesClearedThisWindow::<T>::get(pair_id) {
-				Prices::<T>::remove(pair_id);
-				PricesClearedThisWindow::<T>::insert(pair_id, true);
-			}
 		}
 
 		/// Dispatch a cross-chain message to a gateway contract

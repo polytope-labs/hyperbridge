@@ -91,6 +91,7 @@ impl pallet_intents_coprocessor::Config for Runtime {
 	type Currency = Balances;
 	type StorageDepositFee = IntentStorageDepositFee;
 	type GovernanceOrigin = EnsureRoot<AccountId>;
+	type TreasuryAccount = TreasuryPalletId;
 	type MaxPriceEntries = ConstU32<10>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }

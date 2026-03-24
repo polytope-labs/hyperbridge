@@ -43,13 +43,7 @@ pub trait WeightInfo {
 	fn update_token_decimals() -> Weight;
 	fn set_storage_deposit_fee() -> Weight;
 	fn submit_pair_price(n: u32) -> Weight;
-	fn set_price_window_duration() -> Weight;
-	fn set_price_deposit_amount() -> Weight;
-	fn set_price_deposit_lock_duration() -> Weight;
-	fn withdraw_price_deposit() -> Weight;
-	fn register_pair() -> Weight;
-	fn deregister_pair() -> Weight;
-	fn set_pair_registration_deposit() -> Weight;
+	fn set_price_submission_fee() -> Weight;
 }
 
 /// Weights for pallet_intents using the Substrate node and recommended hardware.
@@ -121,60 +115,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
-	/// Storage: PriceDepositAmount (r:1 w:0),
-	/// PriceDeposits (r:1 w:1), PricesClearedThisWindow (r:1 w:1), Prices (r:1 w:1)
+	/// Storage: PriceSubmissionFee (r:1 w:0), Prices (r:0 w:1)
 	fn submit_pair_price(n: u32) -> Weight {
-		Weight::from_parts(100_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 5000))
+		Weight::from_parts(50_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 4000))
 			.saturating_add(Weight::from_parts(5_000_000u64.saturating_mul(n as u64), 0))
-			.saturating_add(T::DbWeight::get().reads(4))
-			.saturating_add(T::DbWeight::get().writes(4))
-	}
-
-	/// Storage: PriceWindowDurationValue (r:0 w:1)
-	fn set_price_window_duration() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-
-	/// Storage: PriceDepositAmount (r:0 w:1)
-	fn set_price_deposit_amount() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-
-	/// Storage: PriceDepositLockDuration (r:0 w:1)
-	fn set_price_deposit_lock_duration() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-
-	/// Storage: PriceDeposits (r:1 w:1), PriceDepositLockDuration (r:1 w:0)
-	fn withdraw_price_deposit() -> Weight {
-		Weight::from_parts(45_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3500))
-			.saturating_add(T::DbWeight::get().reads(3))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-
-	/// Storage: PairRegistrationDeposit (r:1 w:0), RegisteredPairs (r:1 w:1)
-	fn register_pair() -> Weight {
-		Weight::from_parts(40_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3000))
-			.saturating_add(T::DbWeight::get().reads(2))
-			.saturating_add(T::DbWeight::get().writes(1))
-	}
-
-	/// Storage: RegisteredPairs (r:1 w:1)
-	fn deregister_pair() -> Weight {
-		Weight::from_parts(35_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3000))
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 
-	/// Storage: PairRegistrationDeposit (r:0 w:1)
-	fn set_pair_registration_deposit() -> Weight {
+	/// Storage: PriceSubmissionFee (r:0 w:1)
+	fn set_price_submission_fee() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
@@ -204,27 +155,9 @@ impl WeightInfo for () {
 		Weight::from_parts(10_000_000, 0)
 	}
 	fn submit_pair_price(_n: u32) -> Weight {
-		Weight::from_parts(100_000_000, 0)
+		Weight::from_parts(50_000_000, 0)
 	}
-	fn set_price_window_duration() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-	fn set_price_deposit_amount() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-	fn set_price_deposit_lock_duration() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-	fn withdraw_price_deposit() -> Weight {
-		Weight::from_parts(45_000_000, 0)
-	}
-	fn register_pair() -> Weight {
-		Weight::from_parts(40_000_000, 0)
-	}
-	fn deregister_pair() -> Weight {
-		Weight::from_parts(35_000_000, 0)
-	}
-	fn set_pair_registration_deposit() -> Weight {
+	fn set_price_submission_fee() -> Weight {
 		Weight::from_parts(10_000_000, 0)
 	}
 }

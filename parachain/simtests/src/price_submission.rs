@@ -53,22 +53,6 @@ async fn sudo_raw_and_finalize(
 	submit_raw_and_finalize(client, rpc_client, sudo_call_data, Keyring::Alice).await
 }
 
-/// Helper: create and finalize `n` empty blocks to advance the chain.
-async fn advance_blocks(
-	rpc_client: &subxt::backend::rpc::RpcClient,
-	n: u32,
-) -> Result<(), anyhow::Error> {
-	for _ in 0..n {
-		let block = rpc_client
-			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, false])
-			.await?;
-		rpc_client
-			.request::<bool>("engine_finalizeBlock", rpc_params![block.hash])
-			.await?;
-	}
-	Ok(())
-}
-
 /// Manually encode a call to `IntentsCoprocessor::submit_pair_price`.
 /// Pallet index 65, call index 7.
 fn encode_submit_pair_price(pair_id: H256, entries: Vec<PriceInput>) -> Vec<u8> {
@@ -78,53 +62,22 @@ fn encode_submit_pair_price(pair_id: H256, entries: Vec<PriceInput>) -> Vec<u8> 
 	data
 }
 
-/// Manually encode a call to `IntentsCoprocessor::set_price_deposit_amount`.
-/// Pallet index 65, call index 11.
-fn encode_set_price_deposit_amount(amount: u128) -> Vec<u8> {
-	let mut data = vec![65u8, 11u8];
-	data.extend_from_slice(&amount.encode());
+/// Manually encode a call to `IntentsCoprocessor::set_price_submission_fee`.
+/// Pallet index 65, call index 10.
+fn encode_set_price_submission_fee(fee: u128) -> Vec<u8> {
+	let mut data = vec![65u8, 10u8];
+	data.extend_from_slice(&fee.encode());
 	data
 }
 
-/// Manually encode a call to `IntentsCoprocessor::set_price_deposit_lock_duration`.
-/// Pallet index 65, call index 12. Duration is BlockNumberFor<T> = u32 on gargantua.
-fn encode_set_price_deposit_lock_duration(duration_blocks: u32) -> Vec<u8> {
-	let mut data = vec![65u8, 12u8];
-	data.extend_from_slice(&duration_blocks.encode());
-	data
-}
 
-/// Manually encode a call to `IntentsCoprocessor::withdraw_price_deposit`.
-/// Pallet index 65, call index 13.
-fn encode_withdraw_price_deposit(pair_id: H256) -> Vec<u8> {
-	let mut data = vec![65u8, 13u8];
-	data.extend_from_slice(&pair_id.encode());
-	data
-}
-
-/// Manually encode a call to `IntentsCoprocessor::register_pair`.
-/// Pallet index 65, call index 8.
-fn encode_register_pair(pair_id: H256) -> Vec<u8> {
-	let mut data = vec![65u8, 8u8];
-	data.extend_from_slice(&pair_id.encode());
-	data
-}
-
-/// Manually encode a call to `IntentsCoprocessor::set_pair_registration_deposit`.
-/// Pallet index 65, call index 14.
-fn encode_set_pair_registration_deposit(amount: u128) -> Vec<u8> {
-	let mut data = vec![65u8, 14u8];
-	data.extend_from_slice(&amount.encode());
-	data
-}
-
-/// Integration test for the deposit-based price submission system.
+/// Integration test for the fee-based price submission system.
 ///
 /// Exercises the full lifecycle:
-/// 1. Governance setup (add recognized pair, set deposit amount and lock duration)
-/// 2. Price submission (verifies deposit is reserved)
+/// 1. Governance setup (set submission fee, register pair)
+/// 2. Price submission (verifies fee is charged, prices stored)
 /// 3. RPC query (verifies human-readable prices with decimals preserved)
-/// 4. Two-phase withdrawal (initiate → fail before unlock → complete after unlock)
+/// 4. Re-submission overwrites previous entries
 #[tokio::test]
 #[ignore]
 async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
@@ -138,11 +91,8 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	// 1 unit = 10^18 in raw representation
 	let one_unit = U256::from(10u64).pow(U256::from(18));
 
-	// Deposit amount: 100 units
-	let deposit_amount: u128 = 100_000_000_000_000;
-
-	// Lock duration: 5 blocks
-	let lock_duration: u32 = 5;
+	// Submission fee: 100 units
+	let submission_fee: u128 = 100_000_000_000_000;
 
 	// Price entries: amount thresholds with corresponding prices
 	// Entry 1: amount=0 at price 1414.5, Entry 2: amount=1000 at price 1420
@@ -154,38 +104,14 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 		PriceInput { amount: U256::from(1000) * one_unit, price: U256::from(1420) * one_unit },
 	];
 
-	// Set deposit amount
-	sudo_raw_and_finalize(&client, &rpc_client, encode_set_price_deposit_amount(deposit_amount))
-		.await?;
-	println!("Deposit amount set: {deposit_amount}");
-
-	// Set lock duration (5 blocks)
+	// Set submission fee
 	sudo_raw_and_finalize(
 		&client,
 		&rpc_client,
-		encode_set_price_deposit_lock_duration(lock_duration),
+		encode_set_price_submission_fee(submission_fee),
 	)
 	.await?;
-	println!("Lock duration set: {lock_duration} blocks");
-
-	// Set pair registration deposit and register pair
-	let pair_reg_deposit: u128 = 50_000_000_000_000;
-	sudo_raw_and_finalize(
-		&client,
-		&rpc_client,
-		encode_set_pair_registration_deposit(pair_reg_deposit),
-	)
-	.await?;
-	println!("Pair registration deposit set: {pair_reg_deposit}");
-
-	submit_raw_and_finalize(
-		&client,
-		&rpc_client,
-		encode_register_pair(pair_id),
-		Keyring::Alice,
-	)
-	.await?;
-	println!("Pair registered: {pair_id:?}");
+	println!("Submission fee set: {submission_fee}");
 
 	// Submit prices
 	let submit_call_data = encode_submit_pair_price(pair_id, price_entries);
@@ -210,51 +136,25 @@ async fn test_price_submission_lifecycle() -> Result<(), anyhow::Error> {
 	println!("  entry[0]: amount={} @ {}", prices[0].amount, prices[0].price);
 	println!("  entry[1]: amount={} @ {}", prices[1].amount, prices[1].price);
 
-	// Initiate withdrawal
-	submit_raw_and_finalize(
-		&client,
-		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
-		Keyring::Alice,
-	)
-	.await?;
-	println!("Withdrawal initiated (unlock block recorded)");
+	// Re-submit with different prices — should overwrite
+	let new_entries = vec![
+		PriceInput { amount: U256::zero(), price: U256::from(1500) * one_unit },
+		PriceInput { amount: U256::from(2000) * one_unit, price: U256::from(1520) * one_unit },
+	];
+	let resubmit_call_data = encode_submit_pair_price(pair_id, new_entries);
+	submit_raw_and_finalize(&client, &rpc_client, resubmit_call_data, Keyring::Alice).await?;
+	println!("Prices re-submitted (should overwrite)");
 
-	// Attempting phase 2 immediately should fail (lock not expired)
-	let early_result = submit_raw_and_finalize(
-		&client,
-		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
-		Keyring::Alice,
-	)
-	.await;
-	assert!(early_result.is_err(), "withdrawal should fail before lock expires");
-	println!("correctly rejected (deposit still locked)");
+	// Query again and verify overwrite
+	let prices2: Vec<RpcPriceEntry> =
+		rpc_client.request("intents_getPairPrices", rpc_params![pair_id]).await?;
 
-	// Advance blocks past the lock duration
-	advance_blocks(&rpc_client, lock_duration + 1).await?;
-	println!("Advanced {} blocks past lock duration", lock_duration + 1);
-
-	// Complete withdrawal
-	submit_raw_and_finalize(
-		&client,
-		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
-		Keyring::Alice,
-	)
-	.await?;
-	println!("Deposit successfully withdrawn");
-
-	// Verify deposit is gone, another withdrawal should fail with DepositNotFound
-	let gone_result = submit_raw_and_finalize(
-		&client,
-		&rpc_client,
-		encode_withdraw_price_deposit(pair_id),
-		Keyring::Alice,
-	)
-	.await;
-	assert!(gone_result.is_err(), "deposit should no longer exist");
-	println!("Deposit confirmed removed (subsequent withdrawal fails)");
+	assert_eq!(prices2.len(), 2, "expected 2 price entries after overwrite");
+	assert_eq!(prices2[0].amount, "0");
+	assert_eq!(prices2[0].price, "1500");
+	assert_eq!(prices2[1].amount, "2000");
+	assert_eq!(prices2[1].price, "1520");
+	println!("Overwrite confirmed: old prices replaced");
 
 	println!("Price submission lifecycle test passed!");
 	Ok(())

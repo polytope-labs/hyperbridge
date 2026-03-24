@@ -433,6 +433,7 @@ impl pallet_intents_coprocessor::Config for Runtime {
 			MIN_TECH_COLLECTIVE_APPROVAL,
 		>,
 	>;
+	type TreasuryAccount = TreasuryPalletId;
 	type MaxPriceEntries = ConstU32<10>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }

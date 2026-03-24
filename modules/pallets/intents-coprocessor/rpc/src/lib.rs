@@ -63,6 +63,8 @@ pub struct RpcPriceEntry {
 	pub price: String,
 	/// The filler (submitter) address
 	pub filler: String,
+	/// Unix timestamp (seconds) when this entry was submitted
+	pub timestamp: u64,
 }
 
 impl Ord for RpcBidInfo {
@@ -188,15 +190,15 @@ fn runtime_error_into_rpc_error(e: impl std::fmt::Display) -> ErrorObjectOwned {
 	ErrorObject::owned(9877, format!("{e}"), None::<String>)
 }
 
-/// Construct the full storage key for a `StorageMap` entry with `Blake2_128Concat` hasher.
-fn storage_map_key(pallet: &[u8], storage: &[u8], map_key: &H256) -> Vec<u8> {
-	let mut key = Vec::new();
-	key.extend_from_slice(&sp_core::hashing::twox_128(pallet));
-	key.extend_from_slice(&sp_core::hashing::twox_128(storage));
-	let map_key_bytes = map_key.as_bytes();
-	key.extend_from_slice(&sp_core::hashing::blake2_128(map_key_bytes));
-	key.extend_from_slice(map_key_bytes);
-	key
+/// Construct the prefix for iterating a `StorageDoubleMap` by the first key (Blake2_128Concat).
+fn storage_double_map_prefix(pallet: &[u8], storage: &[u8], key1: &H256) -> Vec<u8> {
+	let mut prefix = Vec::new();
+	prefix.extend_from_slice(&sp_core::hashing::twox_128(pallet));
+	prefix.extend_from_slice(&sp_core::hashing::twox_128(storage));
+	let key1_bytes = key1.as_bytes();
+	prefix.extend_from_slice(&sp_core::hashing::blake2_128(key1_bytes));
+	prefix.extend_from_slice(key1_bytes);
+	prefix
 }
 
 /// Construct the storage key prefix for iterating all fillers in the on-chain
@@ -307,27 +309,47 @@ where
 	fn get_pair_prices(&self, pair_id: H256) -> RpcResult<Vec<RpcPriceEntry>> {
 		let best_hash = self.client.info().best_hash;
 
-		let key = storage_map_key(b"IntentsCoprocessor", b"Prices", &pair_id);
-		let storage_key = sp_core::storage::StorageKey(key);
+		// Iterate all fillers for this pair_id in the Prices double map
+		let prefix = storage_double_map_prefix(b"IntentsCoprocessor", b"Prices", &pair_id);
+		let prefix_key = sp_core::storage::StorageKey(prefix.clone());
 
-		let data = match self.client.storage(best_hash, &storage_key) {
-			Ok(Some(data)) => data.0,
-			_ => return Ok(Vec::new()),
-		};
+		let keys = self
+			.client
+			.storage_keys(best_hash, Some(&prefix_key), None)
+			.map_err(runtime_error_into_rpc_error)?;
 
 		use pallet_intents_coprocessor::types::PriceEntry;
 
-		match BTreeSet::<PriceEntry>::decode(&mut &data[..]) {
-			Ok(entries) => Ok(entries
-				.into_iter()
-				.map(|entry| RpcPriceEntry {
-					amount: format_u256_decimals(entry.amount, 18),
-					price: format_u256_decimals(entry.price, 18),
-					filler: format!("0x{}", hex::encode(entry.filler.as_bytes())),
-				})
-				.collect()),
-			Err(_) => Ok(Vec::new()),
+		let mut result = Vec::new();
+		const MAX_FILLERS: usize = 100;
+
+		for key in keys.take(MAX_FILLERS) {
+			// Extract filler H256 from the key (after prefix: blake2_128(filler) + filler)
+			let filler_start = prefix.len() + 16; // 16 bytes for blake2_128
+			if key.0.len() < filler_start + 32 {
+				continue;
+			}
+			let filler_bytes = &key.0[filler_start..filler_start + 32];
+			let filler = format!("0x{}", hex::encode(filler_bytes));
+
+			let data = match self.client.storage(best_hash, &key) {
+				Ok(Some(data)) => data.0,
+				_ => continue,
+			};
+
+			if let Ok(entries) = Vec::<PriceEntry>::decode(&mut &data[..]) {
+				for entry in entries {
+					result.push(RpcPriceEntry {
+						amount: format_u256_decimals(entry.amount, 18),
+						price: format_u256_decimals(entry.price, 18),
+						filler: filler.clone(),
+						timestamp: entry.timestamp,
+					});
+				}
+			}
 		}
+
+		Ok(result)
 	}
 
 	async fn subscribe_bids(

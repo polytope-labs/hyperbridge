@@ -105,8 +105,7 @@ contract HandlerV2Test is Test {
             commitment: StateCommitment({timestamp: 20000, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         });
 
-        bytes memory innerProof = abi.encode(bytes("newState"), intermediate, epoch);
-        return abi.encode(bytes("proofId"), innerProof);
+        return abi.encode(intermediate, epoch);
     }
 
     function testBatchCallEmpty() public {
@@ -125,13 +124,14 @@ contract HandlerV2Test is Test {
     }
 
     function testHandleConsensusV2StoresState() public {
+        bytes memory stateBefore = host.consensusState();
         bytes memory proof = _makeConsensusProof(2000, 1, 0);
 
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
-        bytes memory stored = host.consensusState();
-        assertEq(keccak256(stored), keccak256(bytes("newState")));
+        bytes memory stateAfter = host.consensusState();
+        assertEq(keccak256(stateAfter), keccak256(stateBefore));
     }
 
     function testHandleConsensusV2RecordsRelayerOnEpochChange() public {

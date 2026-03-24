@@ -4,10 +4,10 @@ import {
 	ExecutionResult,
 	HexString,
 	bytes32ToBytes20,
+	type ERC7821Call,
 	FillOptions,
 	TokenInfo,
 	IntentsCoprocessor,
-	adjustDecimals,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
 import { ChainClientManager, ContractInteractionService } from "@/services"
@@ -18,6 +18,8 @@ import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-cur
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+import type { OutputFundingConfig } from "@/funding/types"
+import { AerodromeFundingPlanner } from "@/funding/aerodrome/AerodromeFundingPlanner"
 import type { SigningAccount } from "@/services/wallet"
 
 /**
@@ -64,6 +66,8 @@ export class FXFiller implements FillerStrategy {
 	private signer: SigningAccount
 	private logger = getLogger("fx-simplex")
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
+	private outputFunding?: OutputFundingConfig
+	private aerodromeFundingPlanner?: AerodromeFundingPlanner
 
 	/**
 	 * @param privateKey             Filler's private key used to sign UserOps.
@@ -83,6 +87,7 @@ export class FXFiller implements FillerStrategy {
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
 	 * @param confirmationPolicy     Optional per-chain confirmation policy for cross-chain orders.
 	 *                                If absent, no confirmation waiting is required.
+	 * @param outputFunding          Optional on-chain liquidity sourcing (e.g. Aerodrome LP removal).
 	 */
 	constructor(
 		signer: SigningAccount,
@@ -94,6 +99,7 @@ export class FXFiller implements FillerStrategy {
 		maxOrderUsdStr: string,
 		exoticTokenAddresses: Record<string, HexString>,
 		confirmationPolicy?: ConfirmationPolicy,
+		outputFunding?: OutputFundingConfig,
 	) {
 		this.configService = configService
 		this.clientManager = clientManager
@@ -101,6 +107,14 @@ export class FXFiller implements FillerStrategy {
 		this.bidPricePolicy = bidPricePolicy
 		this.askPricePolicy = askPricePolicy
 		this.exoticTokenAddresses = exoticTokenAddresses
+		this.outputFunding = outputFunding
+		if (outputFunding?.aerodrome) {
+			this.aerodromeFundingPlanner = new AerodromeFundingPlanner(
+				clientManager,
+				outputFunding.aerodrome,
+				configService,
+			)
+		}
 		this.maxOrderUsd = new Decimal(maxOrderUsdStr)
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
@@ -111,6 +125,31 @@ export class FXFiller implements FillerStrategy {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
 					confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 			}
+		}
+	}
+
+	// =========================================================================
+	// Lifecycle
+	// =========================================================================
+
+	/**
+	 * Call once at startup after construction.
+	 * Hydrates Aerodrome pool metadata and fetches initial LP / reserve state.
+	 * Replaces the old per-startup `validateAerodromePoolsOnChain` call.
+	 */
+	async initialise(): Promise<void> {
+		if (this.aerodromeFundingPlanner) {
+			await this.aerodromeFundingPlanner.initialise(this.signer.account.address as HexString)
+		}
+	}
+
+	/**
+	 * Refresh Aerodrome liquidity state (reserves, LP balances).
+	 * Call periodically — e.g. every block or on a 12–15 s timer.
+	 */
+	async refreshFundingState(chain?: string): Promise<void> {
+		if (this.aerodromeFundingPlanner) {
+			await this.aerodromeFundingPlanner.refresh(chain)
 		}
 	}
 
@@ -200,6 +239,8 @@ export class FXFiller implements FillerStrategy {
 			const fillerOutputs: TokenInfo[] = []
 			let remainingUsd = cappedOrderUsd
 
+			const fundingCalls: ERC7821Call[] = []
+
 			for (let i = 0; i < order.inputs.length; i++) {
 				const input = order.inputs[i]
 				const output = order.output.assets[i]
@@ -233,11 +274,26 @@ export class FXFiller implements FillerStrategy {
 				const { usdUsed, policyMaxOutput } = legResult
 				remainingUsd = remainingUsd.minus(usdUsed)
 
-				// Cap by actual available balance for this token on the destination chain.
+				// Cap by wallet balance on the destination chain, optionally topped up via Aerodrome LP removal.
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
-				const finalOutputAmount = balance > policyMaxOutput ? policyMaxOutput : balance
+				let effectiveBalance = balance
+				const deficit = policyMaxOutput > balance ? policyMaxOutput - balance : 0n
+				if (deficit > 0n && this.aerodromeFundingPlanner) {
+					const planned = await this.aerodromeFundingPlanner.planWithdrawalForToken(
+						destChain,
+						walletAddress,
+						tokenAddress,
+						deficit,
+					)
+					if (planned.calls.length > 0) {
+						fundingCalls.push(...planned.calls)
+						effectiveBalance = balance + planned.credited
+					}
+				}
+
+				const finalOutputAmount = effectiveBalance > policyMaxOutput ? policyMaxOutput : effectiveBalance
 
 				if (finalOutputAmount === 0n) {
 					this.logger.info(
@@ -278,7 +334,7 @@ export class FXFiller implements FillerStrategy {
 				}
 
 				// Decrement remaining balance for this token so repeated outputs share the same pool.
-				const remaining = balance - finalOutputAmount
+				const remaining = effectiveBalance - finalOutputAmount
 				balanceCache.set(tokenAddress, remaining > 0n ? remaining : 0n)
 
 				fillerOutputs.push({ token: output.token, amount: finalOutputAmount })
@@ -302,6 +358,18 @@ export class FXFiller implements FillerStrategy {
 			}
 
 			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
+
+			if (order.id) {
+				if (fundingCalls.length > 0 && this.aerodromeFundingPlanner) {
+					this.contractService.cacheService.setFundingPrepends(
+						order.id,
+						fundingCalls,
+						this.aerodromeFundingPlanner.fundingGasMultiplierBps,
+					)
+				} else {
+					this.contractService.cacheService.clearFundingPrepends(order.id)
+				}
+			}
 
 			// Spread profit (bid/ask): value received minus cost, using opposite side of spread for valuation.
 			// - When filler sells exotic (stable→exotic): value exotic we give at acquisition cost (bid).

@@ -214,12 +214,26 @@ export class ContractInteractionService {
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
 			this.logger.info({ estimate }, "Estimate")
+			let callGasLimit = estimate.callGasLimit
+			const funding = this.cacheService.getFundingPrepends(order.id!)
+			if (funding && funding.calls.length > 0) {
+				callGasLimit = (callGasLimit * BigInt(funding.gasMultiplierBps)) / 10000n
+				this.logger.info(
+					{
+						orderId: order.id,
+						gasMultiplierBps: funding.gasMultiplierBps,
+						callGasLimit: callGasLimit.toString(),
+					},
+					"Applied Aerodrome funding callGasLimit multiplier",
+				)
+			}
+
 			this.cacheService.setGasEstimate(
 				order.id!,
 				estimate.totalGasInFeeToken,
 				estimate.fillOptions.relayerFee,
 				estimate.fillOptions.nativeDispatchFee,
-				estimate.callGasLimit,
+				callGasLimit,
 				estimate.verificationGasLimit,
 				estimate.preVerificationGas,
 				estimate.maxFeePerGas,
@@ -659,7 +673,10 @@ export class ContractInteractionService {
 			),
 		)
 
-		const calls: ERC7821Call[] = []
+		const fundingPrepends = order.id ? this.cacheService.getFundingPrepends(order.id) : null
+		const prependCalls = fundingPrepends?.calls ?? []
+
+		const calls: ERC7821Call[] = [...prependCalls]
 		for (const [i, [tokenAddress, required]] of entries.entries()) {
 			if (allowances[i] < required) {
 				calls.push({

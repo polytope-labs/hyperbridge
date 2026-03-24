@@ -2018,7 +2018,7 @@ type ZkConsensusProof @entity {
 	"""
 	Validator set ID that signed this proof
 	"""
-	setId: BigInt! @index
+	validatorSetId: BigInt! @index
 
 	"""
 	Timestamp when the proof was stored

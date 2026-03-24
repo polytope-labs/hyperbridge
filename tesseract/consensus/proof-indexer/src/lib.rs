@@ -33,7 +33,7 @@ pub struct ZkProofRow {
 	pub consensus_proof: Vec<u8>,
 	pub consensus_state_id: String,
 	pub finalized_height: i64,
-	pub set_id: i64,
+	pub validator_set_id: i64,
 	pub created_at: chrono::NaiveDateTime,
 }
 
@@ -55,7 +55,7 @@ impl ProofIndexer {
 		// Table and column names follow SubQuery's convention:
 		// PascalCase entity → snake_case table, camelCase fields → snake_case columns.
 		// `id` is TEXT to match SubQuery's `ID!` type.
-		// `finalized_height` and `set_id` are NUMERIC to match SubQuery's `BigInt`.
+		// `finalized_height` and `validator_set_id` are NUMERIC to match SubQuery's `BigInt`.
 		client
 			.batch_execute(
 				"CREATE TABLE IF NOT EXISTS app.zk_consensus_proofs (
@@ -64,15 +64,15 @@ impl ProofIndexer {
 				consensus_proof     BYTEA NOT NULL,
 				consensus_state_id  TEXT NOT NULL,
 				finalized_height    NUMERIC NOT NULL,
-				set_id              NUMERIC NOT NULL,
+				validator_set_id              NUMERIC NOT NULL,
 				created_at          TIMESTAMP NOT NULL DEFAULT NOW()
 			);
 			CREATE INDEX IF NOT EXISTS idx_zk_proofs_state_machine
 				ON app.zk_consensus_proofs(state_machine);
 			CREATE INDEX IF NOT EXISTS idx_zk_proofs_finalized_height
 				ON app.zk_consensus_proofs(finalized_height);
-			CREATE INDEX IF NOT EXISTS idx_zk_proofs_set_id
-				ON app.zk_consensus_proofs(set_id);
+			CREATE INDEX IF NOT EXISTS idx_zk_proofs_validator_set_id
+				ON app.zk_consensus_proofs(validator_set_id);
 			CREATE INDEX IF NOT EXISTS idx_zk_proofs_created_at
 				ON app.zk_consensus_proofs(created_at);",
 			)
@@ -87,14 +87,14 @@ impl ProofIndexer {
 		consensus_proof: &[u8],
 		consensus_state_id: &str,
 		finalized_height: u32,
-		set_id: u64,
+		validator_set_id: u64,
 	) -> anyhow::Result<()> {
-		let id = format!("{state_machine}-{finalized_height}-{set_id}");
+		let id = format!("{state_machine}-{finalized_height}-{validator_set_id}");
 
 		self.client
 			.execute(
 				"INSERT INTO app.zk_consensus_proofs
-				(id, state_machine, consensus_proof, consensus_state_id, finalized_height, set_id)
+				(id, state_machine, consensus_proof, consensus_state_id, finalized_height, validator_set_id)
 			 VALUES ($1, $2, $3, $4, $5, $6)
 			 ON CONFLICT (id) DO NOTHING",
 				&[
@@ -103,7 +103,7 @@ impl ProofIndexer {
 					&consensus_proof,
 					&consensus_state_id,
 					&(finalized_height as i64),
-					&(set_id as i64),
+					&(validator_set_id as i64),
 				],
 			)
 			.await?;
@@ -116,7 +116,7 @@ impl ProofIndexer {
 			.client
 			.query_opt(
 				"SELECT id, state_machine, consensus_proof, consensus_state_id,
-					finalized_height::BIGINT, set_id::BIGINT, created_at
+					finalized_height::BIGINT, validator_set_id::BIGINT, created_at
 			 FROM app.zk_consensus_proofs
 			 WHERE state_machine = $1
 			 ORDER BY finalized_height DESC
@@ -131,7 +131,7 @@ impl ProofIndexer {
 			consensus_proof: r.get(2),
 			consensus_state_id: r.get(3),
 			finalized_height: r.get(4),
-			set_id: r.get(5),
+			validator_set_id: r.get(5),
 			created_at: r.get(6),
 		}))
 	}
@@ -145,7 +145,7 @@ impl ProofIndexer {
 			.client
 			.query(
 				"SELECT id, state_machine, consensus_proof, consensus_state_id,
-					finalized_height::BIGINT, set_id::BIGINT, created_at
+					finalized_height::BIGINT, validator_set_id::BIGINT, created_at
 			 FROM app.zk_consensus_proofs
 			 WHERE state_machine = $1 AND finalized_height >= $2
 			 ORDER BY finalized_height ASC",
@@ -161,7 +161,7 @@ impl ProofIndexer {
 				consensus_proof: r.get(2),
 				consensus_state_id: r.get(3),
 				finalized_height: r.get(4),
-				set_id: r.get(5),
+				validator_set_id: r.get(5),
 				created_at: r.get(6),
 			})
 			.collect())

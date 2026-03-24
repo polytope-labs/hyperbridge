@@ -517,12 +517,6 @@ export class IntentFiller {
 				this.monitor.emit("orderTiming", { orderId: order.id, phase: "execution", durationSec: execDurationSec })
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
 
-				// Top up EntryPoint deposit if it dropped below 5% of total funds
-				if (solverSelectionActive) {
-					this.contractService.topUpEntryPointDeposit(order.destination, 5, 30).catch((err) => {
-						this.logger.error({ orderId: order.id, err }, "Post-fill EntryPoint deposit top-up failed")
-					})
-				}
 				if (result.success) {
 					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash, volumeUsd: inputUsdValue.toNumber(), profitUsd, chainId: getChainId(order.source) })
 				}
@@ -559,6 +553,14 @@ export class IntentFiller {
 	}
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
+		// Top up EntryPoint deposit if we were the filler
+		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
+			const chain = `EVM-${chainId}`
+			this.contractService.topUpEntryPointDeposit(chain, 5, 30).catch((err) => {
+				this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
+			})
+		}
+
 		if (!this.bidStorage || !this.hyperbridge) {
 			return
 		}

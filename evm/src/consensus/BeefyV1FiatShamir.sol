@@ -30,6 +30,7 @@ import {
 } from "./Types.sol";
 
 import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
@@ -83,7 +84,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * proportionally smaller merkle multi-proof. The bitmap verification and
  * transcript construction add negligible overhead.
  */
-contract BeefyV1FiatShamir is IConsensus, ERC165 {
+contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
     using HeaderImpl for Header;
     using Transcript for Transcript.State;
 
@@ -137,7 +138,25 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+            || super.supportsInterface(interfaceId);
+    }
+
+    function verify(bytes memory previousState, bytes memory proof)
+        external
+        pure
+        returns (bytes memory, IntermediateState[] memory, uint256)
+    {
+        BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
+        (RelayChainProof memory relay, ParachainProof memory parachain, uint256[4] memory signersBitmap) =
+            abi.decode(proof, (RelayChainProof, ParachainProof, uint256[4]));
+
+        uint256 prevNextAuthoritySetId = consensusState.nextAuthoritySet.id;
+        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
+            verifyConsensus(consensusState, relay, parachain, signersBitmap);
+
+        uint256 newEpoch = newState.nextAuthoritySet.id > prevNextAuthoritySetId ? newState.nextAuthoritySet.id : 0;
+        return (abi.encode(newState), intermediates, newEpoch);
     }
 
     /**

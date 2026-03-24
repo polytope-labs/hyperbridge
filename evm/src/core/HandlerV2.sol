@@ -72,16 +72,14 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
      * Verifies the proof, stores the new consensus state and intermediate states,
      * and records the relayer for the new authority set epoch if one occurred.
      * @param host - `IsmpHost`
-     * @param proof - consensus proof, ABI-encoded as (bytes proofId, bytes consensusProof)
+     * @param proof - consensus proof
      */
     function handleConsensus(IHost host, bytes calldata proof) external override(HandlerV1, IHandler) notFrozen(host) {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (bytes memory proofId, bytes memory consensusProof) = abi.decode(proof, (bytes, bytes));
-
         (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 newEpoch) =
-            IConsensusV2(host.consensusClient()).verify(proofId, consensusProof);
+            IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
         uint256 intermediatesLen = intermediates.length;

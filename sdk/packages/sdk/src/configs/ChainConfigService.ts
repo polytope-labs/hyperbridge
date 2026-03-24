@@ -103,6 +103,10 @@ export class ChainConfigService {
 		return (this.getConfig(chain)?.addresses.UniswapRouter02 ?? "0x") as HexString
 	}
 
+	getAerodromeRouterAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.AerodromeRouter ?? "0x") as HexString
+	}
+
 	getUniswapV2FactoryAddress(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.UniswapV2Factory ?? "0x") as HexString
 	}

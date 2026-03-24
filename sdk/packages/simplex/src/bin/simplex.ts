@@ -7,8 +7,9 @@ import { parse } from "toml"
 import { IntentFiller } from "@/core/filler"
 import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
+import type { AerodromePoolConfig, OutputFundingConfig } from "@/funding/types"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
-import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
+import { ChainConfig, Chains, FillerConfig, HexString, getConfigByStateMachineId } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
 	UserProvidedChainConfig,
@@ -69,6 +70,11 @@ interface BasicStrategyConfig {
 	confirmationPolicies: Record<string, ChainConfirmationPolicy>
 }
 
+/** TOML row for an Aerodrome pool; `chain` is the state machine id e.g. `EVM-8453`. */
+interface AerodromePoolToml extends AerodromePoolConfig {
+	chain: string
+}
+
 interface FxStrategyConfig {
 	type: "hyperfx"
 	/**
@@ -95,6 +101,12 @@ interface FxStrategyConfig {
 	exoticTokenAddresses: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
+	/** Optional Aerodrome LP funding for destination-chain outputs */
+	outputFunding?: {
+		aerodrome?: {
+			pools?: AerodromePoolToml[]
+		}
+	}
 }
 
 type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
@@ -366,6 +378,7 @@ program
 			const configuredSigner = initializeSignerFromToml(config.simplex.signer)
 			const chainClientManager = new ChainClientManager(configService, configuredSigner)
 			const runtimeSigner: SigningAccount = chainClientManager.getSigner()
+
 			const contractService = new ContractInteractionService(
 				chainClientManager,
 				configService,
@@ -408,6 +421,24 @@ program
 								"No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped",
 							)
 						}
+						let outputFunding: OutputFundingConfig | undefined
+						if (strategyConfig.outputFunding?.aerodrome?.pools?.length) {
+							const poolsByChain: Record<string, AerodromePoolConfig[]> = {}
+							for (const row of strategyConfig.outputFunding.aerodrome.pools) {
+								const chain = row.chain
+								if (!poolsByChain[chain]) poolsByChain[chain] = []
+								poolsByChain[chain].push({
+									pair: row.pair,
+									gauge: row.gauge,
+								})
+							}
+
+							outputFunding = {
+								aerodrome: {
+									poolsByChain,
+								},
+							}
+						}
 						return new FXFiller(
 							runtimeSigner,
 							configService,
@@ -418,12 +449,37 @@ program
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
 							fxConfirmationPolicy,
+							outputFunding,
 						)
 					}
 					default:
 						throw new Error(`Unknown strategy type: ${(strategyConfig as StrategyConfig).type}`)
 				}
 			})
+
+			// Initialise FXFiller strategies
+			for (const strategy of strategies) {
+				if (strategy instanceof FXFiller) {
+					logger.info("Hydrating Aerodrome funding state...")
+					await strategy.initialise()
+				}
+			}
+
+			// Set up periodic Aerodrome state refresh (~12s)
+			const FUNDING_REFRESH_INTERVAL_MS = 12_000
+			const fundingRefreshTimers: ReturnType<typeof setInterval>[] = []
+			for (const strategy of strategies) {
+				if (strategy instanceof FXFiller) {
+					const timer = setInterval(async () => {
+						try {
+							await strategy.refreshFundingState()
+						} catch (err) {
+							logger.error({ err }, "Aerodrome funding state refresh failed")
+						}
+					}, FUNDING_REFRESH_INTERVAL_MS)
+					fundingRefreshTimers.push(timer)
+				}
+			}
 
 			// Initialize rebalancing service only if fully configured
 			let rebalancingService: RebalancingService | undefined
@@ -516,19 +572,18 @@ program
 			)
 
 			// Handle graceful shutdown
-			process.on("SIGINT", async () => {
-				logger.warn("Shutting down intent filler (SIGINT)...")
+			const shutdown = async (signal: string) => {
+				logger.warn(`Shutting down intent filler (${signal})...`)
+				for (const timer of fundingRefreshTimers) {
+					clearInterval(timer)
+				}
 				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)
-			})
+			}
 
-			process.on("SIGTERM", async () => {
-				logger.warn("Shutting down intent filler (SIGTERM)...")
-				metrics?.stop()
-				await intentFiller.stop()
-				process.exit(0)
-			})
+			process.on("SIGINT", () => shutdown("SIGINT"))
+			process.on("SIGTERM", () => shutdown("SIGTERM"))
 		} catch (error) {
 			// Use console.error for initial startup errors since logger might not be configured yet
 			console.error("Failed to start filler:", error)
@@ -622,6 +677,29 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 
 		if (strategy.type === "hyperfx") {
+			if (strategy.outputFunding?.aerodrome) {
+				if (strategy.outputFunding.aerodrome.pools?.length) {
+					for (const pool of strategy.outputFunding.aerodrome.pools) {
+						if (!pool.chain?.trim()) {
+							throw new Error(
+								"Each Aerodrome outputFunding pool must have a non-empty 'chain' (e.g. EVM-8453)",
+							)
+						}
+						if (!pool.pair) {
+							throw new Error("Each Aerodrome pool must include a 'pair' address")
+						}
+						const chainCfg = getConfigByStateMachineId(pool.chain as Chains)
+						const aerodromeRouter = chainCfg?.addresses.AerodromeRouter
+						const z = aerodromeRouter?.toLowerCase()
+						if (!z || z === "0x" || z === "0x0000000000000000000000000000000000000000") {
+							throw new Error(
+								`Aerodrome pool ${pool.pair} uses chain ${pool.chain} but SDK chain config has no addresses.AerodromeRouter for that chain`,
+							)
+						}
+					}
+				}
+			}
+
 			// Validate bid price curve
 			if (
 				!strategy.bidPriceCurve ||

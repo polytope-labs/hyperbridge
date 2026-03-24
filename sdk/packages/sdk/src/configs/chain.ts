@@ -123,6 +123,8 @@ export interface ChainConfigData {
 		Usdt0Oft?: `0x${string}`
 		/** SolverAccount contract address used for EIP-7702 delegation */
 		SolverAccount?: `0x${string}`
+		/** Aerodrome (Solidly-style) router for LP removal / swaps on chains where Aerodrome is deployed */
+		AerodromeRouter?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -447,6 +449,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			AerodromeRouter: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
 			// Usdt0Oft: Not available on Base
 		},
 		rpcEnvKey: "BASE_MAINNET",

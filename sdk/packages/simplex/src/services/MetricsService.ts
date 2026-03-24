@@ -1,4 +1,6 @@
 import { createServer, type Server } from "node:http"
+import { readFileSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { networkInterfaces } from "node:os"
 import { formatUnits } from "viem"
 import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "prom-client"
@@ -46,6 +48,15 @@ export interface MetricsServiceOptions {
 	exoticTokenAddresses: Record<string, string>
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
+	dataDir?: string
+}
+
+interface PersistedCounters {
+	ordersDetected: number
+	ordersFilled: number
+	ordersSkipped: number
+	orderVolumeUsd: Record<string, number>
+	orderProfitUsd: Record<string, number>
 }
 
 export class MetricsService {
@@ -85,11 +96,14 @@ export class MetricsService {
 	private orderPhaseDuration: Histogram
 
 	private startTime: number
+	private persistPath: string | undefined
+	private persistInterval?: NodeJS.Timeout
 
 	constructor(options: MetricsServiceOptions) {
 		this.options = options
 		this.startTime = Date.now()
 		this.registry = new Registry()
+		this.persistPath = options.dataDir ? join(options.dataDir, "metrics-state.json") : undefined
 
 		collectDefaultMetrics({ register: this.registry, prefix: "simplex_" })
 
@@ -231,6 +245,8 @@ export class MetricsService {
 			registers: [this.registry],
 		})
 
+		this.restoreCounters()
+
 		this.server = createServer(async (req, res) => {
 			const path = (req.url ?? "/").split("?")[0]
 
@@ -268,6 +284,11 @@ export class MetricsService {
 		setTimeout(() => this.refreshBalances(), 5_000)
 		this.balanceRefreshInterval = setInterval(() => this.refreshBalances(), 60_000)
 
+		// Persist counters every 30s
+		if (this.persistPath) {
+			this.persistInterval = setInterval(() => this.persistCounters(), 30_000)
+		}
+
 		// Init polkadot API for Hyperbridge balance if configured
 		if (this.options.hyperbridgeWsUrl && this.options.substratePrivateKey) {
 			this.initPolkadotApi().catch((err) => {
@@ -277,11 +298,61 @@ export class MetricsService {
 	}
 
 	stop(): void {
+		if (this.persistInterval) clearInterval(this.persistInterval)
 		if (this.balanceRefreshInterval) clearInterval(this.balanceRefreshInterval)
+		this.persistCounters()
 		if (this.polkadotApi) {
 			this.polkadotApi.disconnect().catch(() => {})
 		}
 		this.server.close()
+	}
+
+	private restoreCounters(): void {
+		if (!this.persistPath) return
+		try {
+			const raw = readFileSync(this.persistPath, "utf-8")
+			const saved: PersistedCounters = JSON.parse(raw)
+			if (saved.ordersDetected > 0) this.ordersDetectedTotal.inc(saved.ordersDetected)
+			if (saved.ordersFilled > 0) this.ordersFilledTotal.inc(saved.ordersFilled)
+			if (saved.ordersSkipped > 0) this.ordersSkippedTotal.inc(saved.ordersSkipped)
+			for (const [chainId, val] of Object.entries(saved.orderVolumeUsd ?? {})) {
+				if (val > 0) this.orderVolumeUsdTotal.inc({ chain_id: chainId }, val)
+			}
+			for (const [chainId, val] of Object.entries(saved.orderProfitUsd ?? {})) {
+				if (val > 0) this.orderProfitUsdTotal.inc({ chain_id: chainId }, val)
+			}
+			this.logger.info({ path: this.persistPath }, "Restored counter state from disk")
+		} catch {
+			// No saved state or parse error — start fresh
+		}
+	}
+
+	private async persistCounters(): Promise<void> {
+		if (!this.persistPath) return
+		try {
+			const volumeMetric = await this.orderVolumeUsdTotal.get()
+			const profitMetric = await this.orderProfitUsdTotal.get()
+
+			const orderVolumeUsd: Record<string, number> = {}
+			for (const v of volumeMetric.values) {
+				orderVolumeUsd[v.labels.chain_id as string] = v.value
+			}
+			const orderProfitUsd: Record<string, number> = {}
+			for (const v of profitMetric.values) {
+				orderProfitUsd[v.labels.chain_id as string] = v.value
+			}
+
+			const state: PersistedCounters = {
+				ordersDetected: (await this.ordersDetectedTotal.get()).values[0]?.value ?? 0,
+				ordersFilled: (await this.ordersFilledTotal.get()).values[0]?.value ?? 0,
+				ordersSkipped: (await this.ordersSkippedTotal.get()).values[0]?.value ?? 0,
+				orderVolumeUsd,
+				orderProfitUsd,
+			}
+			writeFileSync(this.persistPath, JSON.stringify(state))
+		} catch (err) {
+			this.logger.warn({ err }, "Failed to persist counter state")
+		}
 	}
 
 	// ─── Polkadot / Hyperbridge Balance ──────────────────────────────────────────

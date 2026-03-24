@@ -489,6 +489,7 @@ program
 						exoticTokenAddresses,
 						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 						substratePrivateKey: config.simplex.substratePrivateKey,
+						dataDir: options.dataDir,
 					})
 					metrics.start(metricsPort, metricsHost)
 				}

@@ -29,10 +29,9 @@ pub struct ProofIndexer {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ZkProofRow {
 	pub id: String,
-	pub state_machine: String,
 	pub consensus_proof: Vec<u8>,
-	pub consensus_state_id: String,
 	pub finalized_height: i64,
+	pub finalized_parachain_height: i64,
 	pub validator_set_id: i64,
 	pub created_at: chrono::NaiveDateTime,
 }
@@ -43,7 +42,6 @@ impl ProofIndexer {
 	pub async fn initialize(database_url: &str) -> anyhow::Result<Self> {
 		let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
 
-		// Drive the connection in the background
 		tokio::spawn(async move {
 			if let Err(e) = connection.await {
 				tracing::error!("PostgreSQL connection error: {e}");
@@ -55,22 +53,21 @@ impl ProofIndexer {
 		// Table and column names follow SubQuery's convention:
 		// PascalCase entity → snake_case table, camelCase fields → snake_case columns.
 		// `id` is TEXT to match SubQuery's `ID!` type.
-		// `finalized_height` and `validator_set_id` are NUMERIC to match SubQuery's `BigInt`.
+		// Height and set ID columns are NUMERIC to match SubQuery's `BigInt`.
 		client
 			.batch_execute(
 				"CREATE TABLE IF NOT EXISTS app.zk_consensus_proofs (
-				id                  TEXT PRIMARY KEY,
-				state_machine       TEXT NOT NULL,
-				consensus_proof     BYTEA NOT NULL,
-				consensus_state_id  TEXT NOT NULL,
-				finalized_height    NUMERIC NOT NULL,
-				validator_set_id              NUMERIC NOT NULL,
-				created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+				id                          TEXT PRIMARY KEY,
+				consensus_proof             BYTEA NOT NULL,
+				finalized_height            NUMERIC NOT NULL,
+				finalized_parachain_height  NUMERIC NOT NULL,
+				validator_set_id            NUMERIC NOT NULL,
+				created_at                  TIMESTAMP NOT NULL DEFAULT NOW()
 			);
-			CREATE INDEX IF NOT EXISTS idx_zk_proofs_state_machine
-				ON app.zk_consensus_proofs(state_machine);
 			CREATE INDEX IF NOT EXISTS idx_zk_proofs_finalized_height
 				ON app.zk_consensus_proofs(finalized_height);
+			CREATE INDEX IF NOT EXISTS idx_zk_proofs_finalized_parachain_height
+				ON app.zk_consensus_proofs(finalized_parachain_height);
 			CREATE INDEX IF NOT EXISTS idx_zk_proofs_validator_set_id
 				ON app.zk_consensus_proofs(validator_set_id);
 			CREATE INDEX IF NOT EXISTS idx_zk_proofs_created_at
@@ -83,26 +80,24 @@ impl ProofIndexer {
 
 	pub async fn store_zk_proof(
 		&self,
-		state_machine: &str,
 		consensus_proof: &[u8],
-		consensus_state_id: &str,
 		finalized_height: u32,
+		finalized_parachain_height: u64,
 		validator_set_id: u64,
 	) -> anyhow::Result<()> {
-		let id = format!("{state_machine}-{finalized_height}-{validator_set_id}");
+		let id = format!("{finalized_height}-{finalized_parachain_height}-{validator_set_id}");
 
 		self.client
 			.execute(
 				"INSERT INTO app.zk_consensus_proofs
-				(id, state_machine, consensus_proof, consensus_state_id, finalized_height, validator_set_id)
-			 VALUES ($1, $2, $3, $4, $5, $6)
+				(id, consensus_proof, finalized_height, finalized_parachain_height, validator_set_id)
+			 VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (id) DO NOTHING",
 				&[
 					&id,
-					&state_machine,
 					&consensus_proof,
-					&consensus_state_id,
 					&(finalized_height as i64),
+					&(finalized_parachain_height as i64),
 					&(validator_set_id as i64),
 				],
 			)
@@ -111,59 +106,48 @@ impl ProofIndexer {
 		Ok(())
 	}
 
-	pub async fn latest_proof(&self, state_machine: &str) -> anyhow::Result<Option<ZkProofRow>> {
+	pub async fn latest_proof(&self) -> anyhow::Result<Option<ZkProofRow>> {
 		let row = self
 			.client
 			.query_opt(
-				"SELECT id, state_machine, consensus_proof, consensus_state_id,
-					finalized_height::BIGINT, validator_set_id::BIGINT, created_at
+				"SELECT id, consensus_proof,
+					finalized_height::BIGINT, finalized_parachain_height::BIGINT,
+					validator_set_id::BIGINT, created_at
 			 FROM app.zk_consensus_proofs
-			 WHERE state_machine = $1
 			 ORDER BY finalized_height DESC
 			 LIMIT 1",
-				&[&state_machine],
+				&[],
 			)
 			.await?;
 
-		Ok(row.map(|r| ZkProofRow {
-			id: r.get(0),
-			state_machine: r.get(1),
-			consensus_proof: r.get(2),
-			consensus_state_id: r.get(3),
-			finalized_height: r.get(4),
-			validator_set_id: r.get(5),
-			created_at: r.get(6),
-		}))
+		Ok(row.map(row_to_proof))
 	}
 
-	pub async fn proofs_since_height(
-		&self,
-		state_machine: &str,
-		height: i64,
-	) -> anyhow::Result<Vec<ZkProofRow>> {
+	pub async fn proofs_since_height(&self, height: i64) -> anyhow::Result<Vec<ZkProofRow>> {
 		let rows = self
 			.client
 			.query(
-				"SELECT id, state_machine, consensus_proof, consensus_state_id,
-					finalized_height::BIGINT, validator_set_id::BIGINT, created_at
+				"SELECT id, consensus_proof,
+					finalized_height::BIGINT, finalized_parachain_height::BIGINT,
+					validator_set_id::BIGINT, created_at
 			 FROM app.zk_consensus_proofs
-			 WHERE state_machine = $1 AND finalized_height >= $2
+			 WHERE finalized_height >= $1
 			 ORDER BY finalized_height ASC",
-				&[&state_machine, &height],
+				&[&height],
 			)
 			.await?;
 
-		Ok(rows
-			.into_iter()
-			.map(|r| ZkProofRow {
-				id: r.get(0),
-				state_machine: r.get(1),
-				consensus_proof: r.get(2),
-				consensus_state_id: r.get(3),
-				finalized_height: r.get(4),
-				validator_set_id: r.get(5),
-				created_at: r.get(6),
-			})
-			.collect())
+		Ok(rows.into_iter().map(row_to_proof).collect())
+	}
+}
+
+fn row_to_proof(r: tokio_postgres::Row) -> ZkProofRow {
+	ZkProofRow {
+		id: r.get(0),
+		consensus_proof: r.get(1),
+		finalized_height: r.get(2),
+		finalized_parachain_height: r.get(3),
+		validator_set_id: r.get(4),
+		created_at: r.get(5),
 	}
 }

@@ -81,6 +81,7 @@ interface RpcPriceEntry {
 	amount: string
 	price: string
 	filler: string
+	timestamp: number
 }
 
 /** RPC response shape from intents_getBidsForOrder */
@@ -383,11 +384,15 @@ export class IntentsCoprocessor {
 			[pairId],
 		)
 
-		if (entries.length === 0) return []
+		// Filter out price entries older than 24 hours
+		const cutoff = Math.floor(Date.now() / 1000) - 86400
+		const fresh = entries.filter((e) => e.timestamp >= cutoff)
+
+		if (fresh.length === 0) return []
 
 		// Group entries by filler
 		const byFiller = new Map<string, { amount: number; price: number }[]>()
-		for (const entry of entries) {
+		for (const entry of fresh) {
 			const points = byFiller.get(entry.filler) ?? []
 			points.push({ amount: parseFloat(entry.amount), price: parseFloat(entry.price) })
 			byFiller.set(entry.filler, points)

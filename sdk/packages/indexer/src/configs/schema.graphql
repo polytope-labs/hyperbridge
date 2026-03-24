@@ -1987,3 +1987,41 @@ type HyperbridgeCollatorRewardTransaction @entity {
 	"""
 	createdAt: Date! @index
 }
+
+"""
+ZK consensus proofs indexed by the relayer. Applications query these proofs
+and submit them on-chain via HandlerV2.handleConsensus().
+"""
+type ZkConsensusProof @entity {
+	id: ID!
+
+	"""
+	Target state machine (e.g. "EVM(1)", "EVM(11155111)")
+	"""
+	stateMachine: String! @index
+
+	"""
+	Full SCALE-encoded ConsensusMessage bytes
+	"""
+	consensusProof: Bytes!
+
+	"""
+	Consensus state identifier (e.g. "BEEF")
+	"""
+	consensusStateId: String!
+
+	"""
+	Relay chain block height finalized by this proof
+	"""
+	finalizedHeight: BigInt! @index
+
+	"""
+	Validator set ID that signed this proof
+	"""
+	setId: BigInt! @index
+
+	"""
+	Timestamp when the proof was stored
+	"""
+	createdAt: Date! @index
+}

@@ -13,6 +13,7 @@ use arb_host::ArbConfig;
 use evm_host::EvmHostConfig;
 use ismp::{host::StateMachine, messaging::CreateConsensusState};
 use op_host::OpConfig;
+use proof_indexer::ProofIndexer;
 use tesseract_beefy::{
 	host::{BeefyHost, BeefyHostConfig},
 	prover::{Prover, ProverConfig},
@@ -148,7 +149,11 @@ pub struct HyperbridgeHostConfig {
 
 impl HyperbridgeHostConfig {
 	/// Constructs an instance of the [`IsmpHost`] from the provided configs
-	pub async fn into_client<R, P>(self) -> Result<AnyHost<R, P>, anyhow::Error>
+	pub async fn into_client<R, P>(
+		self,
+		proof_indexer: Option<Arc<ProofIndexer>>,
+		store_only: bool,
+	) -> Result<AnyHost<R, P>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
 		P: subxt::Config + Send + Sync + Clone,
@@ -179,7 +184,17 @@ impl HyperbridgeHostConfig {
 				let backend =
 					Arc::new(tesseract_beefy::backend::RedisProofBackend::new(config).await?);
 
-				AnyHost::Beefy(BeefyHost::new(beefy, prover_instance, client, backend).await?)
+				AnyHost::Beefy(
+					BeefyHost::new(
+						beefy,
+						prover_instance,
+						client,
+						backend,
+						proof_indexer,
+						store_only,
+					)
+					.await?,
+				)
 			},
 			ConsensusHost::Grandpa(grandpa) =>
 				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?),

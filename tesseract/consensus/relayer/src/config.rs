@@ -16,6 +16,12 @@ pub struct RelayerConfig {
 	/// Enables the hyperbridge host
 	#[serde(default = "default_true")]
 	pub enable_hyperbridge_consensus: bool,
+	/// PostgreSQL connection URL for the indexer database (stores ZK proofs)
+	#[serde(default)]
+	pub indexer_db_url: Option<String>,
+	/// When true, ZK proofs are stored in the indexer DB but not submitted on-chain
+	#[serde(default)]
+	pub store_only: bool,
 }
 
 fn default_true() -> bool {
@@ -28,6 +34,8 @@ impl Default for RelayerConfig {
 			challenge_period: None,
 			maximum_update_intervals: None,
 			enable_hyperbridge_consensus: true,
+			indexer_db_url: None,
+			store_only: false,
 		}
 	}
 }

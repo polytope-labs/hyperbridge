@@ -43,6 +43,7 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
 zk-beefy = { path = "../beefy/zk" }
+proof-indexer = { path = "../proof-indexer" }
 tesseract-bsc = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-polygon = { path = "../polygon" }

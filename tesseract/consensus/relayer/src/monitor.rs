@@ -16,7 +16,7 @@ pub async fn monitor_clients(
 ) -> anyhow::Result<()> {
 	let hyperbridge = hyperbridge_config
 		.clone()
-		.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
+		.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(None, false)
 		.await?;
 	let hyperbridge_provider = hyperbridge.provider();
 

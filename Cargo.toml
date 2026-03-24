@@ -351,6 +351,7 @@ tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
+proof-indexer = { path = "tesseract/consensus/proof-indexer" }
 
 
 [workspace.dependencies.codec]

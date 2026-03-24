@@ -282,75 +282,77 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Ensures the solver's EntryPoint deposit has enough native token to cover
-	 * the estimated gas cost for a given order.
+	 * Tops up the solver's EntryPoint deposit to `targetPercent` of wallet
+	 * balance if the current deposit is below `thresholdPercent` of wallet
+	 * balance.
 	 *
-	 * Uses cached gas estimates (from estimateGasFillPost) and, if the current
-	 * deposit is insufficient, tops up by depositing 10% of the solver's EOA
-	 * native balance on the destination chain.
+	 * @param chain - The chain identifier
+	 * @param thresholdPercent - Deposit must be below this % of wallet balance to trigger a top-up (e.g. 5)
+	 * @param targetPercent - Top up to this % of wallet balance (e.g. 30)
 	 */
-	async ensureEntryPointDeposit(order: Order): Promise<void> {
-		if (!order.id) {
-			this.logger.warn({ destination: order.destination }, "Order has no ID, skipping EntryPoint deposit check")
+	async topUpEntryPointDeposit(chain: string, thresholdPercent: number, targetPercent: number): Promise<void> {
+		const entryPointAddress = this.configService.getEntryPointAddress(chain)
+		if (!entryPointAddress) {
 			return
 		}
 
-		const gasEstimate = this.cacheService.getGasEstimate(order.id)
-		if (!gasEstimate) {
-			this.logger.warn(
-				{ orderId: order.id, destination: order.destination },
-				"No cached gas estimate found, skipping EntryPoint deposit check",
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const [currentDeposit, solverBalance] = await Promise.all([
+			this.getSolverEntryPointBalance(chain),
+			publicClient.getBalance({ address: this.solverAccountAddress }),
+		])
+
+		// Total funds = wallet balance + current deposit
+		const totalFunds = solverBalance + currentDeposit
+		const threshold = (totalFunds * BigInt(thresholdPercent)) / 100n
+		const target = (totalFunds * BigInt(targetPercent)) / 100n
+
+		if (target === 0n) {
+			this.logger.warn({ chain }, "Target deposit is zero, skipping EntryPoint top-up")
+			return
+		}
+
+		if (currentDeposit >= threshold) {
+			this.logger.debug(
+				{
+					chain,
+					currentDeposit: formatEther(currentDeposit),
+					threshold: formatEther(threshold),
+				},
+				"EntryPoint deposit above threshold, no top-up needed",
 			)
 			return
 		}
 
-		const requiredNative = 3n * gasEstimate.totalGasCostWei
+		const deficit = target - currentDeposit
 
-		const currentDeposit = await this.getSolverEntryPointBalance(order.destination)
-
-		this.logger.debug(
-			{
-				orderId: order.id,
-				destination: order.destination,
-				currentDeposit: formatEther(currentDeposit),
-				requiredNative: formatEther(requiredNative),
-			},
-			"EntryPoint deposit gas coverage check",
-		)
-
-		if (currentDeposit >= requiredNative) {
-			return
-		}
-
-		const publicClient = this.clientManager.getPublicClient(order.destination)
-		const solverBalance = await publicClient.getBalance({ address: this.solverAccountAddress })
-		const depositAmount = solverBalance / 10n
-
-		if (depositAmount === 0n) {
+		if (solverBalance < deficit) {
 			this.logger.warn(
 				{
-					orderId: order.id,
-					destination: order.destination,
+					chain,
+					deficit: formatEther(deficit),
 					solverBalance: formatEther(solverBalance),
 				},
-				"Solver EOA balance too low to top up EntryPoint deposit",
+				"Solver EOA balance insufficient to reach target deposit, depositing available balance",
 			)
+			if (solverBalance === 0n) {
+				return
+			}
+			await this.depositToEntryPoint(chain, solverBalance)
 			return
 		}
 
 		this.logger.info(
 			{
-				orderId: order.id,
-				destination: order.destination,
-				requiredNative: formatEther(requiredNative),
+				chain,
 				currentDeposit: formatEther(currentDeposit),
-				solverBalance: formatEther(solverBalance),
-				depositAmount: formatEther(depositAmount),
+				target: formatEther(target),
+				topUpAmount: formatEther(deficit),
 			},
-			"Top up EntryPoint deposit by 10% of solver EOA balance",
+			"Topping up EntryPoint deposit to target",
 		)
 
-		await this.depositToEntryPoint(order.destination, depositAmount)
+		await this.depositToEntryPoint(chain, deficit)
 	}
 
 	/**

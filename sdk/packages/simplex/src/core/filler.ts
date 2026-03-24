@@ -95,8 +95,9 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Initializes the filler, including setting up EIP-7702 delegation if solver selection is active on any chain.
-	 * This should be called before start().
+	 * Initializes the filler, including setting up EIP-7702 delegation and
+	 * depositing the target amount to the EntryPoint on chains where solver
+	 * selection is active. This should be called before start().
 	 */
 	public async initialize(): Promise<void> {
 		// Check which chains have solver selection active
@@ -122,6 +123,15 @@ export class IntentFiller {
 			const result = await this.delegationService.setupDelegationOnChains(chainsWithSolverSelection)
 			if (!result.success) {
 				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
+			}
+
+			// Deposit 30% of total funds to EntryPoint on each chain
+			for (const chain of chainsWithSolverSelection) {
+				try {
+					await this.contractService.topUpEntryPointDeposit(chain, 0, 30)
+				} catch (err) {
+					this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
+				}
 			}
 		}
 	}
@@ -500,18 +510,19 @@ export class IntentFiller {
 			)
 
 			try {
-				if (solverSelectionActive) {
-					this.contractService.ensureEntryPointDeposit(order).catch((err) => {
-						this.logger.error({ orderId: order.id, err }, "Background EntryPoint deposit top-up failed")
-					})
-				}
-
 				const execStartMs = Date.now()
 				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
 				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
 				const execDurationSec = (Date.now() - execStartMs) / 1000
 				this.monitor.emit("orderTiming", { orderId: order.id, phase: "execution", durationSec: execDurationSec })
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
+
+				// Top up EntryPoint deposit if it dropped below 5% of total funds
+				if (solverSelectionActive) {
+					this.contractService.topUpEntryPointDeposit(order.destination, 5, 30).catch((err) => {
+						this.logger.error({ orderId: order.id, err }, "Post-fill EntryPoint deposit top-up failed")
+					})
+				}
 				if (result.success) {
 					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash, volumeUsd: inputUsdValue.toNumber(), profitUsd, chainId: getChainId(order.source) })
 				}

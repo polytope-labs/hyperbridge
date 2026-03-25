@@ -310,7 +310,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe.only("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 funding", () => {
+describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 funding", () => {
 	it("Should create V4 position, place USDC→cNGN order, and fill using V4 funding venue", async () => {
 		const {
 			baseIntentGatewayV2,

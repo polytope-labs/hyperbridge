@@ -60,16 +60,9 @@ async fn main() -> Result<(), anyhow::Error> {
 	let proof_indexer = match config.remove("indexer_db_url") {
 		Some(val) => {
 			let db_url: String = val.try_into()?;
-			match proof_indexer::ProofIndexer::initialize(&db_url).await {
-				Ok(indexer) => {
-					log::info!("ZK proof indexer connected to indexer DB");
-					Some(Arc::new(indexer))
-				},
-				Err(err) => {
-					log::error!("Failed to initialize ZK proof indexer: {err:?}");
-					None
-				},
-			}
+			let indexer = proof_indexer::ProofIndexer::initialize(&db_url).await?;
+			log::info!("ZK proof indexer connected to indexer DB");
+			Some(Arc::new(indexer))
 		},
 		None => None,
 	};

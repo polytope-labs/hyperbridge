@@ -37,8 +37,9 @@ pub struct ZkProofRow {
 }
 
 impl ProofIndexer {
-	/// Connect to the indexer PostgreSQL and ensure the proof table exists.
-	/// Safe to call on every startup — all DDL is idempotent.
+	/// Connect to the indexer PostgreSQL.
+	/// The `app.zk_consensus_proofs` table is created by the SubQuery indexer
+	/// from the `ZkConsensusProof` entity in `schema.graphql`.
 	pub async fn initialize(database_url: &str) -> anyhow::Result<Self> {
 		let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
 
@@ -47,33 +48,6 @@ impl ProofIndexer {
 				tracing::error!("PostgreSQL connection error: {e}");
 			}
 		});
-
-		client.batch_execute("CREATE SCHEMA IF NOT EXISTS app").await?;
-
-		// Table and column names follow SubQuery's convention:
-		// PascalCase entity → snake_case table, camelCase fields → snake_case columns.
-		// `id` is TEXT to match SubQuery's `ID!` type.
-		// Height and set ID columns are NUMERIC to match SubQuery's `BigInt`.
-		client
-			.batch_execute(
-				"CREATE TABLE IF NOT EXISTS app.zk_consensus_proofs (
-				id                          TEXT PRIMARY KEY,
-				consensus_proof             BYTEA NOT NULL,
-				finalized_height            NUMERIC NOT NULL,
-				finalized_parachain_height  NUMERIC NOT NULL,
-				validator_set_id            NUMERIC NOT NULL,
-				created_at                  TIMESTAMP NOT NULL DEFAULT NOW()
-			);
-			CREATE INDEX IF NOT EXISTS idx_zk_proofs_finalized_height
-				ON app.zk_consensus_proofs(finalized_height);
-			CREATE INDEX IF NOT EXISTS idx_zk_proofs_finalized_parachain_height
-				ON app.zk_consensus_proofs(finalized_parachain_height);
-			CREATE INDEX IF NOT EXISTS idx_zk_proofs_validator_set_id
-				ON app.zk_consensus_proofs(validator_set_id);
-			CREATE INDEX IF NOT EXISTS idx_zk_proofs_created_at
-				ON app.zk_consensus_proofs(created_at);",
-			)
-			.await?;
 
 		Ok(Self { client: Arc::new(client) })
 	}
@@ -111,8 +85,8 @@ impl ProofIndexer {
 			.client
 			.query_opt(
 				"SELECT id, consensus_proof,
-					finalized_height::BIGINT, finalized_parachain_height::BIGINT,
-					validator_set_id::BIGINT, created_at
+					finalized_height, finalized_parachain_height,
+					validator_set_id, created_at
 			 FROM app.zk_consensus_proofs
 			 ORDER BY finalized_height DESC
 			 LIMIT 1",
@@ -128,8 +102,8 @@ impl ProofIndexer {
 			.client
 			.query(
 				"SELECT id, consensus_proof,
-					finalized_height::BIGINT, finalized_parachain_height::BIGINT,
-					validator_set_id::BIGINT, created_at
+					finalized_height, finalized_parachain_height,
+					validator_set_id, created_at
 			 FROM app.zk_consensus_proofs
 			 WHERE finalized_height >= $1
 			 ORDER BY finalized_height ASC",
@@ -149,5 +123,46 @@ fn row_to_proof(r: tokio_postgres::Row) -> ZkProofRow {
 		finalized_parachain_height: r.get(3),
 		validator_set_id: r.get(4),
 		created_at: r.get(5),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[tokio::test]
+	#[ignore]
+	async fn store_and_query_zk_proofs() {
+		let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for this test");
+		let indexer = ProofIndexer::initialize(&db_url).await.unwrap();
+
+		let proof_bytes = vec![0x01, 0xaa, 0xbb, 0xcc];
+
+		indexer.store_zk_proof(&proof_bytes, 1000, 500, 42).await.unwrap();
+		indexer.store_zk_proof(&proof_bytes, 2000, 1000, 42).await.unwrap();
+		indexer.store_zk_proof(&proof_bytes, 3000, 1500, 43).await.unwrap();
+
+		// duplicate insert is a no-op
+		indexer.store_zk_proof(&proof_bytes, 1000, 500, 42).await.unwrap();
+
+		let latest = indexer.latest_proof().await.unwrap().unwrap();
+		assert_eq!(latest.finalized_height, 3000);
+		assert_eq!(latest.finalized_parachain_height, 1500);
+		assert_eq!(latest.validator_set_id, 43);
+		assert_eq!(latest.consensus_proof, proof_bytes);
+
+		let since = indexer.proofs_since_height(2000).await.unwrap();
+		assert_eq!(since.len(), 2);
+		assert_eq!(since[0].finalized_height, 2000);
+		assert_eq!(since[1].finalized_height, 3000);
+
+		let none = indexer.proofs_since_height(5000).await.unwrap();
+		assert!(none.is_empty());
+
+		indexer
+			.client
+			.batch_execute("DELETE FROM app.zk_consensus_proofs")
+			.await
+			.unwrap();
 	}
 }

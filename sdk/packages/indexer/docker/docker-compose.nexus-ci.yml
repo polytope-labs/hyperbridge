@@ -37,8 +37,7 @@ services:
 
 
     graphql-engine:
-        # Pin: latest/1.0.6 crash with GLIBC_2.38 vs base image libc (see container logs).
-        image: polytopelabs/omnihedron:1.0.5
+        image: polytopelabs/omnihedron:latest
         restart: always
         ports:
             - 3100:3000

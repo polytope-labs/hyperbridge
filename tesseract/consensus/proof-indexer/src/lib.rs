@@ -43,6 +43,7 @@ impl ProofIndexer {
 	pub async fn initialize(database_url: &str) -> anyhow::Result<Self> {
 		let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
 
+		// tokio_postgres requires the connection to be driven in a background task
 		tokio::spawn(async move {
 			if let Err(e) = connection.await {
 				tracing::error!("PostgreSQL connection error: {e}");

@@ -448,7 +448,7 @@ where
 							},
 						};
 
-						self.maybe_index_proof(&message);
+						self.maybe_index_proof(&message).await;
 
 						for state_machine in self.config.state_machines.iter() {
 							tracing::info!(
@@ -560,7 +560,7 @@ where
 					},
 				};
 
-				self.maybe_index_proof(&message);
+				self.maybe_index_proof(&message).await;
 
 				for state_machine in state_machines {
 					tracing::info!(
@@ -583,27 +583,25 @@ where
 		}
 	}
 
-	fn maybe_index_proof(&self, proof: &ConsensusProof) {
+	async fn maybe_index_proof(&self, proof: &ConsensusProof) {
 		let Some(ref indexer) = self.proof_indexer else { return };
 
 		if proof.message.consensus_proof.first() != Some(&PROOF_TYPE_ZK) {
 			return;
 		}
 
-		let indexer = indexer.clone();
 		let encoded = proof.message.encode();
-		let finalized_height = proof.finalized_height;
-		let finalized_parachain_height = proof.finalized_parachain_height;
-		let set_id = proof.set_id;
-
-		tokio::spawn(async move {
-			if let Err(err) = indexer
-				.store_zk_proof(&encoded, finalized_height, finalized_parachain_height, set_id)
-				.await
-			{
-				tracing::error!("Failed to store ZK proof in indexer DB: {err:?}");
-			}
-		});
+		if let Err(err) = indexer
+			.store_zk_proof(
+				&encoded,
+				proof.finalized_height,
+				proof.finalized_parachain_height,
+				proof.set_id,
+			)
+			.await
+		{
+			tracing::error!("Failed to store ZK proof in indexer DB: {err:?}");
+		}
 	}
 }
 

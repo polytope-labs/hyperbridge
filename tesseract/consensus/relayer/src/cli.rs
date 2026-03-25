@@ -13,8 +13,6 @@ use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 use tesseract_sync_committee::L2Config;
 
-use proof_indexer::ProofIndexer;
-
 use crate::{
 	any::{AnyConfig, AnyHost},
 	config::HyperbridgeConfig,
@@ -58,7 +56,7 @@ impl Cli {
 
 		let hyperbridge = hyperbridge_config
 			.clone()
-			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(None, false)
+			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
 		// initialize the beefy proof queues for all evm state machines
@@ -71,20 +69,6 @@ impl Cli {
 
 		let clients = create_client_map(config.clone()).await?;
 		let relayer = relayer.unwrap_or_default();
-
-		let proof_indexer = match relayer.indexer_db_url {
-			Some(ref db_url) => match ProofIndexer::initialize(db_url).await {
-				Ok(indexer) => {
-					log::info!("ZK proof indexer connected to indexer DB");
-					Some(Arc::new(indexer))
-				},
-				Err(err) => {
-					log::error!("Failed to initialize ZK proof indexer: {err:?}");
-					None
-				},
-			},
-			None => None,
-		};
 
 		if let Some(ref state_machine_str) = self.base {
 			let state_machine = StateMachine::from_str(state_machine_str.as_str())
@@ -104,10 +88,7 @@ impl Cli {
 		for (_, client) in clients.clone() {
 			let hyperbridge = hyperbridge_config
 				.clone()
-				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(
-					proof_indexer.clone(),
-					relayer.store_only,
-				)
+				.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 				.await?;
 			let hyper_bridge_name = hyperbridge.provider().name();
 			let name =
@@ -135,10 +116,7 @@ impl Cli {
 				{
 					let hyperbridge = hyperbridge_config
 						.clone()
-						.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(
-							proof_indexer.clone(),
-							relayer.store_only,
-						)
+						.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 						.await?;
 					async move {
 						let res = client.start_consensus(hyperbridge.provider()).await;

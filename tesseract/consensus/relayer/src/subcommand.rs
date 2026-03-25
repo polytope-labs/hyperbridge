@@ -49,7 +49,7 @@ impl LogMetatdata {
 		let hyperbridge = config
 			.hyperbridge
 			.clone()
-			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(None, false)
+			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
 		let clients = create_client_map(config.clone()).await?;
@@ -117,7 +117,7 @@ impl LogMetatdata {
 		let hyperbridge = config
 			.hyperbridge
 			.clone()
-			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(None, false)
+			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
 		let mut clients = create_client_map(config.clone()).await?;

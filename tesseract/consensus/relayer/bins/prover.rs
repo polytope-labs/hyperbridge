@@ -57,6 +57,23 @@ async fn main() -> Result<(), anyhow::Error> {
 		SubstrateClient::new(substrate_config.try_into()?).await?
 	};
 
+	let proof_indexer = match config.remove("indexer_db_url") {
+		Some(val) => {
+			let db_url: String = val.try_into()?;
+			match proof_indexer::ProofIndexer::initialize(&db_url).await {
+				Ok(indexer) => {
+					log::info!("ZK proof indexer connected to indexer DB");
+					Some(Arc::new(indexer))
+				},
+				Err(err) => {
+					log::error!("Failed to initialize ZK proof indexer: {err:?}");
+					None
+				},
+			}
+		},
+		None => None,
+	};
+
 	let mut beefy_prover = {
 		let beefy_config: tesseract_beefy::prover::BeefyProverConfig = config
 			.remove("beefy")
@@ -77,7 +94,7 @@ async fn main() -> Result<(), anyhow::Error> {
 			KeccakSubstrateChain,
 			zk_beefy::LocalProver,
 			tesseract_beefy::backend::RedisProofBackend,
-		>::new(beefy_config, substrate, prover, backend)
+		>::new(beefy_config, substrate, prover, backend, proof_indexer)
 		.await?
 	};
 

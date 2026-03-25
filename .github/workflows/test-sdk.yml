@@ -62,7 +62,7 @@ jobs:
                   BASE_MAINNET=${{ secrets.BASE_MAINNET }}
                   POLYGON_MAINNET=${{ secrets.POLYGON_MAINNET }}
                   ARBITRUM_MAINNET=${{ secrets.ARBITRUM_MAINNET }}
-                  ARBITRUM_SEPOLIA=${{ secrets.ARBITRUM_SEPOLIA }}
+                  BASE_SEPOLIA=${{ secrets.BASE_SEPOLIA }}
                   POLYGON_AMOY=${{ secrets.POLYGON_AMOY }}
                   SEPOLIA=${{ secrets.SEPOLIA }}
                   BUNDLER_URL=${{ secrets.BUNDLER_URL }}

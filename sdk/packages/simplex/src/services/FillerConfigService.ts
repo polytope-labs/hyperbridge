@@ -170,6 +170,18 @@ export class FillerConfigService {
 		return this.chainConfigService.getUniswapV4QuoterAddress(chain)
 	}
 
+	getUniswapV4PositionManagerAddress(chain: string): HexString {
+		return this.chainConfigService.getUniswapV4PositionManagerAddress(chain)
+	}
+
+	getUniswapV4PoolManagerAddress(chain: string): HexString {
+		return this.chainConfigService.getUniswapV4PoolManagerAddress(chain)
+	}
+
+	getUniswapV4StateViewAddress(chain: string): HexString {
+		return this.chainConfigService.getUniswapV4StateViewAddress(chain)
+	}
+
 	getPermit2Address(chain: string): HexString {
 		return this.chainConfigService.getPermit2Address(chain)
 	}

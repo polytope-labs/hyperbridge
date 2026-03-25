@@ -36,10 +36,8 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
     // The current authority set epoch
     uint256 private _currentEpoch;
 
+    // A call in the batch failed
     error BatchCallFailed(uint256 index, bytes reason);
-
-    // The provided epoch is not exactly prevEpoch + 1
-    error InvalidEpoch(uint256 expected, uint256 actual);
 
     event NewEpoch(uint256 indexed authoritySetId, address indexed relayer);
 
@@ -77,12 +75,8 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (
-            bytes memory verifiedState,
-            IntermediateState[] memory intermediates,
-            uint256 prevAuthoritySetId,
-            uint256 newAuthoritySetId
-        ) = IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
+        (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 nextAuthoritySetId) =
+            IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
         uint256 intermediatesLen = intermediates.length;
@@ -96,12 +90,10 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
             }
         }
 
-        if (newAuthoritySetId != prevAuthoritySetId) {
-            uint256 expected = _currentEpoch + 1;
-            if (newAuthoritySetId != expected) revert InvalidEpoch(expected, newAuthoritySetId);
-            _currentEpoch = newAuthoritySetId;
-            _epochs[newAuthoritySetId] = msg.sender;
-            emit NewEpoch(newAuthoritySetId, msg.sender);
+        if (nextAuthoritySetId > _currentEpoch) {
+            _currentEpoch = nextAuthoritySetId;
+            _epochs[nextAuthoritySetId] = msg.sender;
+            emit NewEpoch(nextAuthoritySetId, msg.sender);
         }
     }
 

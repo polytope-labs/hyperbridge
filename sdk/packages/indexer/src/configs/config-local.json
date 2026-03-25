@@ -39,14 +39,14 @@
 		"startBlock": 7599812,
 		"stateMachineId": "SUBSTRATE-cere"
 	},
-	"arbitrum-sepolia": {
+	"base-sepolia": {
 		"type": "evm",
-		"chainId": "421614",
-		"startBlock": 243514765,
-		"stateMachineId": "EVM-421614",
+		"chainId": "84532",
+		"startBlock": 16589470,
+		"stateMachineId": "EVM-84532",
 		"contracts": {
-			"ethereumHost": "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
-			"handlerV1": "0x84b962657aA916286D7B24D37f458a2D823180dc",
+			"ethereumHost": "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
+			"handlerV1": "0x4638945E120846366cB7Abc08DB9c0766E3a663F",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}

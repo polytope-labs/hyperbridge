@@ -23,6 +23,7 @@ export { handleEscrowRefundedEvent } from "@/handlers/events/intentGateway/escro
 // Intent Gateway V2 Handlers
 export { handleOrderPlacedEventV2 } from "@/handlers/events/intentGatewayV2/orderPlacedV2.event.handler"
 export { handleOrderFilledEventV2 } from "@/handlers/events/intentGatewayV2/orderFilledV2.event.handler"
+export { handlePartialFilledEventV2 } from "@/handlers/events/intentGatewayV2/partialFilledV2.event.handler"
 export { handleEscrowReleasedEventV2 } from "@/handlers/events/intentGatewayV2/escrowReleasedV2.event.handler"
 export { handleEscrowRefundedEventV2 } from "@/handlers/events/intentGatewayV2/escrowRefundedV2.event.handler"
 export { handleDustCollectedEvent } from "@/handlers/events/intentGatewayV2/dustCollected.event.handler"

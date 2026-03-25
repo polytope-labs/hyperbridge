@@ -44,7 +44,7 @@ contract TestConsensusClientV2 is IConsensus, IConsensusV2, ERC165 {
     /**
      * @dev IConsensusV2 implementation — used by HandlerV2.handleConsensus.
      */
-    function verify(bytes memory previousState, bytes memory proof)
+    function verify(bytes calldata previousState, bytes calldata proof)
         external
         pure
         returns (bytes memory, IntermediateState[] memory, uint256, uint256)

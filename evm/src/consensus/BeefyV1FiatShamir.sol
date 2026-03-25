@@ -142,7 +142,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
             || super.supportsInterface(interfaceId);
     }
 
-    function verify(bytes memory previousState, bytes memory proof)
+    function verify(bytes calldata previousState, bytes calldata proof)
         external
         pure
         returns (bytes memory, IntermediateState[] memory, uint256, uint256)

@@ -31,17 +31,17 @@ import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
  */
 contract HandlerV2 is HandlerV1, IHandlerV2 {
     // Maps authority set ID to the relayer that submitted the consensus proof for that epoch
-    mapping(uint256 => address) private _relayers;
+    mapping(uint256 => address) private _epochs;
 
     // The current authority set epoch
     uint256 private _currentEpoch;
 
     error BatchCallFailed(uint256 index, bytes reason);
-    event RelayerRegistered(uint256 indexed authoritySetId, address indexed relayer);
-    event BatchExecuted(address indexed relayer, uint256 callCount);
 
     // The provided epoch is not exactly prevEpoch + 1
     error InvalidEpoch(uint256 expected, uint256 actual);
+
+    event NewEpoch(uint256 indexed authoritySetId, address indexed relayer);
 
     /**
      * @dev See {IERC165-supportsInterface}.
@@ -64,7 +64,6 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
                 revert BatchCallFailed(i, returnData);
             }
         }
-        emit BatchExecuted(msg.sender, len);
     }
 
     /**
@@ -101,8 +100,8 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
             uint256 expected = _currentEpoch + 1;
             if (newAuthoritySetId != expected) revert InvalidEpoch(expected, newAuthoritySetId);
             _currentEpoch = newAuthoritySetId;
-            _relayers[newAuthoritySetId] = msg.sender;
-            emit RelayerRegistered(newAuthoritySetId, msg.sender);
+            _epochs[newAuthoritySetId] = msg.sender;
+            emit NewEpoch(newAuthoritySetId, msg.sender);
         }
     }
 
@@ -112,7 +111,7 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
      * @return the relayer address, or address(0) if not set
      */
     function relayerOf(uint256 authoritySetId) external view returns (address) {
-        return _relayers[authoritySetId];
+        return _epochs[authoritySetId];
     }
 
     /**

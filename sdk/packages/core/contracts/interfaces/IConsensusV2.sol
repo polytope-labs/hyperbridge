@@ -33,7 +33,7 @@ interface IConsensusV2 {
      * @return The authority set ID before verification
      * @return The authority set ID after verification
      */
-    function verify(bytes memory previousState, bytes memory proof)
+    function verify(bytes calldata previousState, bytes calldata proof)
         external
         view
         returns (bytes memory, IntermediateState[] memory, uint256, uint256);

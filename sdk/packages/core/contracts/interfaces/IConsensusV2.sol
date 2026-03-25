@@ -25,16 +25,15 @@ import {IntermediateState} from "./IConsensus.sol";
 interface IConsensusV2 {
     /**
      * @dev Verifies a consensus proof and returns the updated state, newly finalized intermediate states,
-     * and the previous and current authority set IDs.
+     * and the next authority set ID.
      * @param previousState The current trusted consensus state (encoded based on consensus type)
      * @param proof The consensus proof to be verified
      * @return The new consensus state after verification (encoded)
      * @return Array of newly finalized intermediate states that can be trusted
-     * @return The authority set ID before verification
-     * @return The authority set ID after verification
+     * @return The next authority set ID
      */
     function verify(bytes calldata previousState, bytes calldata proof)
         external
         view
-        returns (bytes memory, IntermediateState[] memory, uint256, uint256);
+        returns (bytes memory, IntermediateState[] memory, uint256);
 }

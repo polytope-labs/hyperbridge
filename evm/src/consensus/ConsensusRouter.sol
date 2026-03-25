@@ -110,7 +110,7 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     function verify(bytes calldata previousState, bytes calldata encodedProof)
         external
         view
-        returns (bytes memory, IntermediateState[] memory, uint256, uint256)
+        returns (bytes memory, IntermediateState[] memory, uint256)
     {
         if (encodedProof.length == 0) revert EmptyProof();
 

@@ -145,17 +145,16 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
     function verify(bytes calldata previousState, bytes calldata proof)
         external
         pure
-        returns (bytes memory, IntermediateState[] memory, uint256, uint256)
+        returns (bytes memory, IntermediateState[] memory, uint256)
     {
         BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
         (RelayChainProof memory relay, ParachainProof memory parachain, uint256[4] memory signersBitmap) =
             abi.decode(proof, (RelayChainProof, ParachainProof, uint256[4]));
 
-        uint256 prevAuthoritySetId = consensusState.nextAuthoritySet.id;
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, relay, parachain, signersBitmap);
 
-        return (abi.encode(newState), intermediates, prevAuthoritySetId, newState.nextAuthoritySet.id);
+        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     /**

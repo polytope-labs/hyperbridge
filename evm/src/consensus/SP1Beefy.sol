@@ -63,7 +63,7 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
     function verify(bytes calldata previousState, bytes calldata proof)
         external
         view
-        returns (bytes memory, IntermediateState[] memory, uint256, uint256)
+        returns (bytes memory, IntermediateState[] memory, uint256)
     {
         BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
         (
@@ -75,11 +75,10 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
         SP1BeefyProof memory sp1Proof =
             SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: plonkProof});
 
-        uint256 prevAuthoritySetId = consensusState.nextAuthoritySet.id;
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, sp1Proof);
 
-        return (abi.encode(newState), intermediates, prevAuthoritySetId, newState.nextAuthoritySet.id);
+        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     /*

@@ -60,7 +60,7 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
             || super.supportsInterface(interfaceId);
     }
 
-    function verify(bytes memory previousState, bytes memory proof)
+    function verify(bytes calldata previousState, bytes calldata proof)
         external
         view
         returns (bytes memory, IntermediateState[] memory, uint256, uint256)

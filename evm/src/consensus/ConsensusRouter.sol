@@ -107,7 +107,7 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     /**
      * @dev IConsensusV2 verify which routes to the appropriate verifier based on the first byte of the proof.
      */
-    function verify(bytes memory previousState, bytes memory encodedProof)
+    function verify(bytes calldata previousState, bytes calldata encodedProof)
         external
         view
         returns (bytes memory, IntermediateState[] memory, uint256, uint256)
@@ -122,11 +122,8 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
 
         ProofType proofType = ProofType(proofTypeByte);
 
-        // Strip the first byte and pass to the appropriate client
-        bytes memory actualProof = new bytes(encodedProof.length - 1);
-        for (uint256 i = 0; i < actualProof.length; i++) {
-            actualProof[i] = encodedProof[i + 1];
-        }
+        // Strip the first byte
+        bytes calldata actualProof = encodedProof[1:];
 
         if (proofType == ProofType.ZK) {
             return IConsensusV2(address(sp1Beefy)).verify(previousState, actualProof);

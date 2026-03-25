@@ -199,8 +199,10 @@ export class ContractInteractionService {
 
 			const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
+			const funding = this.cacheService.getFundingPrepends(order.id!)
 			const estimate = await sdkHelper.estimateFillOrder({
 				order,
+				prependCalls: funding?.calls,
 				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
 			})
@@ -214,19 +216,7 @@ export class ContractInteractionService {
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
 			this.logger.info({ estimate }, "Estimate")
-			let callGasLimit = estimate.callGasLimit
-			const funding = this.cacheService.getFundingPrepends(order.id!)
-			if (funding && funding.calls.length > 0) {
-				callGasLimit = (callGasLimit * BigInt(funding.gasMultiplierBps)) / 10000n
-				this.logger.info(
-					{
-						orderId: order.id,
-						gasMultiplierBps: funding.gasMultiplierBps,
-						callGasLimit: callGasLimit.toString(),
-					},
-					"Applied Aerodrome funding callGasLimit multiplier",
-				)
-			}
+			const callGasLimit = estimate.callGasLimit
 
 			this.cacheService.setGasEstimate(
 				order.id!,

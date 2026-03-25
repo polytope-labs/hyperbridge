@@ -7,9 +7,11 @@ import { parse } from "toml"
 import { IntentFiller } from "@/core/filler"
 import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
-import type { AerodromePoolConfig, OutputFundingConfig } from "@/funding/types"
+import type { AerodromePoolConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
+import { AerodromeFundingPlanner } from "@/funding/aerodrome/AerodromeFundingPlanner"
+import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
-import { ChainConfig, Chains, FillerConfig, HexString, getConfigByStateMachineId } from "@hyperbridge/sdk"
+import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
 	UserProvidedChainConfig,
@@ -75,6 +77,12 @@ interface AerodromePoolToml extends AerodromePoolConfig {
 	chain: string
 }
 
+/** TOML row for a Uniswap V4 position; only chain + tokenId needed. */
+interface UniswapV4PositionToml {
+	chain: string
+	tokenId: string // bigint as string in TOML
+}
+
 interface FxStrategyConfig {
 	type: "hyperfx"
 	/**
@@ -101,10 +109,13 @@ interface FxStrategyConfig {
 	exoticTokenAddresses: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
-	/** Optional Aerodrome LP funding for destination-chain outputs */
+	/** Optional on-chain liquidity funding for destination-chain outputs */
 	outputFunding?: {
 		aerodrome?: {
 			pools?: AerodromePoolToml[]
+		}
+		uniswapV4?: {
+			positions?: UniswapV4PositionToml[]
 		}
 	}
 }
@@ -424,7 +435,7 @@ program
 								"No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped",
 							)
 						}
-						let outputFunding: OutputFundingConfig | undefined
+						const fundingVenues: FundingVenue[] = []
 						if (strategyConfig.outputFunding?.aerodrome?.pools?.length) {
 							const poolsByChain: Record<string, AerodromePoolConfig[]> = {}
 							for (const row of strategyConfig.outputFunding.aerodrome.pools) {
@@ -435,12 +446,22 @@ program
 									gauge: row.gauge,
 								})
 							}
-
-							outputFunding = {
-								aerodrome: {
-									poolsByChain,
-								},
+							fundingVenues.push(
+								new AerodromeFundingPlanner(chainClientManager, { poolsByChain }, configService),
+							)
+						}
+						if (strategyConfig.outputFunding?.uniswapV4?.positions?.length) {
+							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
+							for (const row of strategyConfig.outputFunding.uniswapV4.positions) {
+								const chain = row.chain
+								if (!positionsByChain[chain]) positionsByChain[chain] = []
+								positionsByChain[chain].push({
+									tokenId: BigInt(row.tokenId),
+								})
 							}
+							fundingVenues.push(
+								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService),
+							)
 						}
 						return new FXFiller(
 							runtimeSigner,
@@ -452,7 +473,7 @@ program
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
 							fxConfirmationPolicy,
-							outputFunding,
+							fundingVenues,
 						)
 					}
 					default:
@@ -460,15 +481,15 @@ program
 				}
 			})
 
-			// Initialise FXFiller strategies
+			// Initialise FXFiller strategies (hydrate funding venue state)
 			for (const strategy of strategies) {
 				if (strategy instanceof FXFiller) {
-					logger.info("Hydrating Aerodrome funding state...")
+					logger.info("Hydrating funding venue state...")
 					await strategy.initialise()
 				}
 			}
 
-			// Set up periodic Aerodrome state refresh (~12s)
+			// Set up periodic funding state refresh (~12s)
 			const FUNDING_REFRESH_INTERVAL_MS = 12_000
 			const fundingRefreshTimers: ReturnType<typeof setInterval>[] = []
 			for (const strategy of strategies) {
@@ -477,7 +498,7 @@ program
 						try {
 							await strategy.refreshFundingState()
 						} catch (err) {
-							logger.error({ err }, "Aerodrome funding state refresh failed")
+							logger.error({ err }, "Funding state refresh failed")
 						}
 					}, FUNDING_REFRESH_INTERVAL_MS)
 					fundingRefreshTimers.push(timer)
@@ -689,27 +710,11 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 
 		if (strategy.type === "hyperfx") {
-			if (strategy.outputFunding?.aerodrome) {
-				if (strategy.outputFunding.aerodrome.pools?.length) {
-					for (const pool of strategy.outputFunding.aerodrome.pools) {
-						if (!pool.chain?.trim()) {
-							throw new Error(
-								"Each Aerodrome outputFunding pool must have a non-empty 'chain' (e.g. EVM-8453)",
-							)
-						}
-						if (!pool.pair) {
-							throw new Error("Each Aerodrome pool must include a 'pair' address")
-						}
-						const chainCfg = getConfigByStateMachineId(pool.chain as Chains)
-						const aerodromeRouter = chainCfg?.addresses.AerodromeRouter
-						const z = aerodromeRouter?.toLowerCase()
-						if (!z || z === "0x" || z === "0x0000000000000000000000000000000000000000") {
-							throw new Error(
-								`Aerodrome pool ${pool.pair} uses chain ${pool.chain} but SDK chain config has no addresses.AerodromeRouter for that chain`,
-							)
-						}
-					}
-				}
+			if (strategy.outputFunding?.aerodrome?.pools?.length) {
+				AerodromeFundingPlanner.validateConfig(strategy.outputFunding.aerodrome.pools)
+			}
+			if (strategy.outputFunding?.uniswapV4?.positions?.length) {
+				UniswapV4FundingPlanner.validateConfig(strategy.outputFunding.uniswapV4.positions)
 			}
 
 			// Validate bid price curve

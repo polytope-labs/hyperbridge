@@ -18,8 +18,7 @@ import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-cur
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-import type { OutputFundingConfig } from "@/funding/types"
-import { AerodromeFundingPlanner } from "@/funding/aerodrome/AerodromeFundingPlanner"
+import type { FundingVenue } from "@/funding/types"
 import type { SigningAccount } from "@/services/wallet"
 
 /**
@@ -66,8 +65,7 @@ export class FXFiller implements FillerStrategy {
 	private signer: SigningAccount
 	private logger = getLogger("fx-simplex")
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
-	private outputFunding?: OutputFundingConfig
-	private aerodromeFundingPlanner?: AerodromeFundingPlanner
+	private fundingVenues: FundingVenue[]
 
 	/**
 	 * @param privateKey             Filler's private key used to sign UserOps.
@@ -87,7 +85,8 @@ export class FXFiller implements FillerStrategy {
 	 *                                Example: `{ "EVM-56": "0xabc..." }` for cNGN on BSC.
 	 * @param confirmationPolicy     Optional per-chain confirmation policy for cross-chain orders.
 	 *                                If absent, no confirmation waiting is required.
-	 * @param outputFunding          Optional on-chain liquidity sourcing (e.g. Aerodrome LP removal).
+	 * @param fundingVenues          Optional funding venues for on-chain liquidity sourcing
+	 *                                (e.g. Aerodrome LP removal, Uniswap V4 position withdrawal).
 	 */
 	constructor(
 		signer: SigningAccount,
@@ -99,7 +98,7 @@ export class FXFiller implements FillerStrategy {
 		maxOrderUsdStr: string,
 		exoticTokenAddresses: Record<string, HexString>,
 		confirmationPolicy?: ConfirmationPolicy,
-		outputFunding?: OutputFundingConfig,
+		fundingVenues: FundingVenue[] = [],
 	) {
 		this.configService = configService
 		this.clientManager = clientManager
@@ -107,14 +106,7 @@ export class FXFiller implements FillerStrategy {
 		this.bidPricePolicy = bidPricePolicy
 		this.askPricePolicy = askPricePolicy
 		this.exoticTokenAddresses = exoticTokenAddresses
-		this.outputFunding = outputFunding
-		if (outputFunding?.aerodrome) {
-			this.aerodromeFundingPlanner = new AerodromeFundingPlanner(
-				clientManager,
-				outputFunding.aerodrome,
-				configService,
-			)
-		}
+		this.fundingVenues = fundingVenues
 		this.maxOrderUsd = new Decimal(maxOrderUsdStr)
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
@@ -134,23 +126,19 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Call once at startup after construction.
-	 * Hydrates Aerodrome pool metadata and fetches initial LP / reserve state.
-	 * Replaces the old per-startup `validateAerodromePoolsOnChain` call.
+	 * Hydrates all funding venue state (pool metadata, position info, reserves).
 	 */
 	async initialise(): Promise<void> {
-		if (this.aerodromeFundingPlanner) {
-			await this.aerodromeFundingPlanner.initialise(this.signer.account.address as HexString)
-		}
+		const solver = this.signer.account.address as HexString
+		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 	}
 
 	/**
-	 * Refresh Aerodrome liquidity state (reserves, LP balances).
+	 * Refresh funding venue state (reserves, LP balances, prices).
 	 * Call periodically — e.g. every block or on a 12–15 s timer.
 	 */
 	async refreshFundingState(chain?: string): Promise<void> {
-		if (this.aerodromeFundingPlanner) {
-			await this.aerodromeFundingPlanner.refresh(chain)
-		}
+		await Promise.all(this.fundingVenues.map((v) => v.refresh(chain)))
 	}
 
 	async canFill(order: Order): Promise<boolean> {
@@ -279,17 +267,14 @@ export class FXFiller implements FillerStrategy {
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
 				let effectiveBalance = balance
-				const deficit = policyMaxOutput > balance ? policyMaxOutput - balance : 0n
-				if (deficit > 0n && this.aerodromeFundingPlanner) {
-					const planned = await this.aerodromeFundingPlanner.planWithdrawalForToken(
-						destChain,
-						walletAddress,
-						tokenAddress,
-						deficit,
-					)
+				let deficit = policyMaxOutput > balance ? policyMaxOutput - balance : 0n
+				for (const venue of this.fundingVenues) {
+					if (deficit <= 0n) break
+					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, deficit)
 					if (planned.calls.length > 0) {
 						fundingCalls.push(...planned.calls)
-						effectiveBalance = balance + planned.credited
+						effectiveBalance += planned.credited
+						deficit -= planned.credited
 					}
 				}
 
@@ -360,12 +345,8 @@ export class FXFiller implements FillerStrategy {
 			this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
 
 			if (order.id) {
-				if (fundingCalls.length > 0 && this.aerodromeFundingPlanner) {
-					this.contractService.cacheService.setFundingPrepends(
-						order.id,
-						fundingCalls,
-						this.aerodromeFundingPlanner.fundingGasMultiplierBps,
-					)
+				if (fundingCalls.length > 0) {
+					this.contractService.cacheService.setFundingPrepends(order.id, fundingCalls)
 				} else {
 					this.contractService.cacheService.clearFundingPrepends(order.id)
 				}

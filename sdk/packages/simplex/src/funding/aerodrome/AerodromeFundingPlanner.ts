@@ -3,7 +3,7 @@ import type { ERC7821Call } from "@hyperbridge/sdk"
 import { encodeFunctionData, maxUint256 } from "viem"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import type { AerodromeOutputFundingConfig, HydratedPool } from "@/funding/types"
+import type { FundingVenue, AerodromeOutputFundingConfig, HydratedPool } from "@/funding/types"
 import { AerodromeLiquidityState } from "@/funding/aerodrome/AerodromeLiquidityState"
 import { AERODROME_GAUGE_ABI, AERODROME_ROUTER_ABI } from "@/config/abis/Aerodrome"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -69,7 +69,8 @@ function liquidityForVolatileDeficit(deficit: bigint, reserveOut: bigint, totalS
 // Planner
 // ============================================================================
 
-export class AerodromeFundingPlanner {
+export class AerodromeFundingPlanner implements FundingVenue {
+	name = "Aerodrome"
 	/** Long-lived state per chain, keyed by chain identifier. */
 	private stateByChain = new Map<string, AerodromeLiquidityState>()
 
@@ -79,12 +80,28 @@ export class AerodromeFundingPlanner {
 		private readonly configService: FillerConfigService,
 	) {}
 
-	get minAmountOutBps(): number {
-		return MIN_AMOUNT_OUT_BPS
+	/**
+	 * Validates raw TOML pool entries before constructing the planner.
+	 * Throws on missing/invalid required fields. Address availability
+	 * is checked later in `initialise()` when configService is available.
+	 */
+	static validateConfig(
+		pools: { chain?: string; pair?: string; gauge?: string }[],
+	): void {
+		for (const pool of pools) {
+			if (!pool.chain?.trim()) {
+				throw new Error(
+					"Each Aerodrome outputFunding pool must have a non-empty 'chain' (e.g. EVM-8453)",
+				)
+			}
+			if (!pool.pair) {
+				throw new Error("Each Aerodrome pool must include a 'pair' address")
+			}
+		}
 	}
 
-	get fundingGasMultiplierBps(): number {
-		return FUNDING_GAS_MULTIPLIER_BPS
+	get minAmountOutBps(): number {
+		return MIN_AMOUNT_OUT_BPS
 	}
 
 	// =========================================================================

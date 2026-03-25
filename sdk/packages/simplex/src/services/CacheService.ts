@@ -57,7 +57,6 @@ interface FundingCallCache {
 
 interface FundingPrependsCache {
 	calls: FundingCallCache[]
-	gasMultiplierBps: number
 	timestamp: number
 }
 
@@ -301,7 +300,7 @@ export class CacheService {
 		}
 	}
 
-	getFundingPrepends(orderId: string): { calls: ERC7821Call[]; gasMultiplierBps: number } | null {
+	getFundingPrepends(orderId: string): { calls: ERC7821Call[] } | null {
 		try {
 			const cache = this.cacheData.fundingPrepends[orderId]
 			if (cache && this.isCacheValid(cache.timestamp)) {
@@ -311,7 +310,6 @@ export class CacheService {
 						value: BigInt(c.value),
 						data: c.data as HexString,
 					})),
-					gasMultiplierBps: cache.gasMultiplierBps,
 				}
 			}
 			return null
@@ -321,7 +319,7 @@ export class CacheService {
 		}
 	}
 
-	setFundingPrepends(orderId: string, calls: ERC7821Call[], gasMultiplierBps: number): void {
+	setFundingPrepends(orderId: string, calls: ERC7821Call[]): void {
 		try {
 			this.cleanupStaleData()
 			this.cacheData.fundingPrepends[orderId] = {
@@ -330,7 +328,6 @@ export class CacheService {
 					value: c.value.toString(),
 					data: c.data,
 				})),
-				gasMultiplierBps,
 				timestamp: Date.now(),
 			}
 		} catch (error) {

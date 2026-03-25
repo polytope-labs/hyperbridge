@@ -47,14 +47,14 @@ contract TestConsensusClientV2 is IConsensus, IConsensusV2, ERC165 {
     function verify(bytes memory previousState, bytes memory proof)
         external
         pure
-        returns (bytes memory, IntermediateState[] memory, uint256)
+        returns (bytes memory, IntermediateState[] memory, uint256, uint256)
     {
-        (IntermediateState memory intermediate, uint256 newEpoch) =
-            abi.decode(proof, (IntermediateState, uint256));
+        (IntermediateState memory intermediate, uint256 prevAuthoritySetId, uint256 newAuthoritySetId) =
+            abi.decode(proof, (IntermediateState, uint256, uint256));
 
         IntermediateState[] memory intermediates = new IntermediateState[](1);
         intermediates[0] = intermediate;
 
-        return (previousState, intermediates, newEpoch);
+        return (previousState, intermediates, prevAuthoritySetId, newAuthoritySetId);
     }
 }

@@ -88,18 +88,17 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
     function verify(bytes memory previousState, bytes memory proof)
         external
         pure
-        returns (bytes memory, IntermediateState[] memory, uint256)
+        returns (bytes memory, IntermediateState[] memory, uint256, uint256)
     {
         BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
         (RelayChainProof memory relay, ParachainProof memory parachain) =
             abi.decode(proof, (RelayChainProof, ParachainProof));
 
-        uint256 prevNextAuthoritySetId = consensusState.nextAuthoritySet.id;
+        uint256 prevAuthoritySetId = consensusState.nextAuthoritySet.id;
         (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
             verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
 
-        uint256 newEpoch = newState.nextAuthoritySet.id > prevNextAuthoritySetId ? newState.nextAuthoritySet.id : 0;
-        return (abi.encode(newState), intermediates, newEpoch);
+        return (abi.encode(newState), intermediates, prevAuthoritySetId, newState.nextAuthoritySet.id);
     }
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)

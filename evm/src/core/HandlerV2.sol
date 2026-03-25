@@ -78,8 +78,12 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 newEpoch) =
-            IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
+        (
+            bytes memory verifiedState,
+            IntermediateState[] memory intermediates,
+            uint256 prevAuthoritySetId,
+            uint256 newAuthoritySetId
+        ) = IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
         uint256 intermediatesLen = intermediates.length;
@@ -93,12 +97,12 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
             }
         }
 
-        if (newEpoch != 0) {
+        if (newAuthoritySetId != prevAuthoritySetId) {
             uint256 expected = _currentEpoch + 1;
-            if (newEpoch != expected) revert InvalidEpoch(expected, newEpoch);
-            _currentEpoch = newEpoch;
-            _relayers[newEpoch] = msg.sender;
-            emit RelayerRegistered(newEpoch, msg.sender);
+            if (newAuthoritySetId != expected) revert InvalidEpoch(expected, newAuthoritySetId);
+            _currentEpoch = newAuthoritySetId;
+            _relayers[newAuthoritySetId] = msg.sender;
+            emit RelayerRegistered(newAuthoritySetId, msg.sender);
         }
     }
 

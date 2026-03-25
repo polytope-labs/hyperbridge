@@ -200,12 +200,25 @@ export class ContractInteractionService {
 			const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 			const gasFeeBumpConfig = this.configService.getGasFeeBumpConfig()
 			const funding = this.cacheService.getFundingPrepends(order.id!)
+
+			// NOTE: We intentionally do NOT pass funding prepend calls to the
+			// estimation.  The V4 PositionManager's modifyLiquidities uses
+			// flash-accounting and an internal msgSender() (via _getLocker) that
+			// does not resolve correctly in the bundler's eth_estimateUserOperationGas
+			// simulation context, causing FailedOpWithRevert.  Instead we estimate
+			// without the prepends and apply a gas multiplier afterwards.
 			const estimate = await sdkHelper.estimateFillOrder({
 				order,
-				prependCalls: funding?.calls,
+				prependCalls: undefined,
 				maxPriorityFeePerGasBumpPercent: gasFeeBumpConfig?.maxPriorityFeePerGasBumpPercent,
 				maxFeePerGasBumpPercent: gasFeeBumpConfig?.maxFeePerGasBumpPercent,
 			})
+
+			// If funding prepend calls are present, bump callGasLimit to account
+			// for the extra V4 modifyLiquidities + take operations.  Each V4
+			// decrease-liquidity + take-pair action costs roughly 200-350k gas.
+			const FUNDING_GAS_PER_CALL = 400_000n
+			const fundingGasBump = funding?.calls?.length ? FUNDING_GAS_PER_CALL * BigInt(funding.calls.length) : 0n
 
 			const nonce = await client.readContract({
 				address: this.configService.getEntryPointAddress(order.destination)!,
@@ -215,8 +228,8 @@ export class ContractInteractionService {
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
-			this.logger.info({ estimate }, "Estimate")
-			const callGasLimit = estimate.callGasLimit
+			this.logger.info({ estimate, fundingGasBump: fundingGasBump.toString() }, "Estimate")
+			const callGasLimit = estimate.callGasLimit + fundingGasBump
 
 			this.cacheService.setGasEstimate(
 				order.id!,

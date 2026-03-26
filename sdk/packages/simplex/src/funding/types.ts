@@ -20,13 +20,21 @@ export interface FundingVenue {
 	 * Plans ERC-7821 calls to withdraw `amountNeeded` of `tokenOutLower`
 	 * from LP positions on `destChain`. Returns the calls and the credited
 	 * amount that will become available after execution.
+	 *
+	 * Access is serialised per chain via a mutex so concurrent evaluations
+	 * do not race on shared liquidity state.
 	 */
 	planWithdrawalForToken(
 		destChain: string,
 		solver: HexString,
 		tokenOutLower: string,
 		amountNeeded: bigint,
-	): Promise<{ calls: ERC7821Call[]; credited: bigint }>
+	): Promise<FundingPlanResult>
+}
+
+export interface FundingPlanResult {
+	calls: ERC7821Call[]
+	credited: bigint
 }
 
 // =========================================================================

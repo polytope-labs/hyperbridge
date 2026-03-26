@@ -14,8 +14,7 @@ const logger = getLogger("aerodrome-state")
  * refreshes live data (reserves, totalSupply, LP balances).  The planner
  * reads from this cache instead of hitting the chain per-order.
  *
- * `consume()` / `restore()` track LP earmarked for pending orders so
- * concurrent evaluations don't double-spend.
+ * Concurrent access is serialised by the planner's per-chain mutex.
  */
 export class AerodromeLiquidityState {
 	/** Keyed by `pair` address (lower-cased). */
@@ -143,6 +142,7 @@ export class AerodromeLiquidityState {
 		pool.reserve0 = reserves[0]
 		pool.reserve1 = reserves[1]
 		pool.totalSupply = totalSupply
+
 		pool.walletLp = walletLp
 		pool.gaugeLp = gaugeLp
 		pool.remainingLp = walletLp + gaugeLp
@@ -171,35 +171,8 @@ export class AerodromeLiquidityState {
 		return this.pools.get(pair.toLowerCase())
 	}
 
-	// =========================================================================
-	// LP accounting (for concurrent order evaluation)
-	// =========================================================================
-
-	/** Remaining LP available for a given pair after prior `consume()` calls. */
+	/** Remaining LP available for a given pair. */
 	remaining(pair: HexString): bigint {
 		return this.pools.get(pair.toLowerCase())?.remainingLp ?? 0n
-	}
-
-	/**
-	 * Earmark LP for a pending order.
-	 * Decrements `remainingLp` so parallel evaluations see an accurate picture.
-	 */
-	consume(pair: HexString, amount: bigint): void {
-		const pool = this.pools.get(pair.toLowerCase())
-		if (!pool) throw new Error(`Unknown pair ${pair}`)
-		if (amount > pool.remainingLp) {
-			throw new Error(`Aerodrome LP underflow for pair ${pair}: need ${amount}, have ${pool.remainingLp}`)
-		}
-		pool.remainingLp -= amount
-	}
-
-	/**
-	 * Restore LP if an order evaluation is abandoned (e.g. profitability check
-	 * fails after partial planning).  Prevents leaked reservations.
-	 */
-	restore(pair: HexString, amount: bigint): void {
-		const pool = this.pools.get(pair.toLowerCase())
-		if (!pool) throw new Error(`Unknown pair ${pair}`)
-		pool.remainingLp += amount
 	}
 }

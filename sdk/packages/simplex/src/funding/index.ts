@@ -1,5 +1,6 @@
 export type {
 	FundingVenue,
+	FundingPlanResult,
 	AerodromePoolConfig,
 	AerodromeOutputFundingConfig,
 	HydratedPool,

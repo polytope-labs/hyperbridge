@@ -15,8 +15,7 @@ const logger = getLogger("uniswapv4-state")
  * hydration and amount calculations.  Pool state is fetched via the StateView
  * contract (getSlot0, getLiquidity) rather than raw extsload.
  *
- * `consume()` / `restore()` track liquidity earmarked for pending orders so
- * concurrent evaluations don't double-spend.
+ * Concurrent access is serialised by the planner's per-chain mutex.
  */
 export class UniswapV4LiquidityState {
 	/** Keyed by tokenId.toString(). */
@@ -268,29 +267,9 @@ export class UniswapV4LiquidityState {
 		})
 	}
 
-	// =========================================================================
-	// Liquidity accounting (for concurrent order evaluation)
-	// =========================================================================
-
+	/** Remaining liquidity available for a given position. */
 	remaining(tokenId: bigint): bigint {
 		return this.positions.get(tokenId.toString())?.remainingLiquidity ?? 0n
-	}
-
-	consume(tokenId: bigint, amount: bigint): void {
-		const pos = this.positions.get(tokenId.toString())
-		if (!pos) throw new Error(`Unknown position ${tokenId}`)
-		if (amount > pos.remainingLiquidity) {
-			throw new Error(
-				`UniswapV4 liquidity underflow for position ${tokenId}: need ${amount}, have ${pos.remainingLiquidity}`,
-			)
-		}
-		pos.remainingLiquidity -= amount
-	}
-
-	restore(tokenId: bigint, amount: bigint): void {
-		const pos = this.positions.get(tokenId.toString())
-		if (!pos) throw new Error(`Unknown position ${tokenId}`)
-		pos.remainingLiquidity += amount
 	}
 }
 

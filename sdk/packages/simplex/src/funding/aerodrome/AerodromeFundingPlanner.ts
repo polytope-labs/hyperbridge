@@ -1,9 +1,10 @@
 import type { HexString } from "@hyperbridge/sdk"
 import type { ERC7821Call } from "@hyperbridge/sdk"
 import { encodeFunctionData, maxUint256 } from "viem"
+import { Mutex } from "async-mutex"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import type { FundingVenue, AerodromeOutputFundingConfig, HydratedPool } from "@/funding/types"
+import type { FundingPlanResult, FundingVenue, AerodromeOutputFundingConfig, HydratedPool } from "@/funding/types"
 import { AerodromeLiquidityState } from "@/funding/aerodrome/AerodromeLiquidityState"
 import { AERODROME_GAUGE_ABI, AERODROME_ROUTER_ABI } from "@/config/abis/Aerodrome"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -13,8 +14,6 @@ const logger = getLogger("aerodrome-funding")
 
 /** Slippage for `amount0Min` / `amount1Min` (99.90 % of quote ≈ 0.10 % slip). */
 const MIN_AMOUNT_OUT_BPS = 9990
-/** Gas multiplier (bps, 1e4 = 1×) applied to `callGasLimit` when funding prepends are present (2×). */
-const FUNDING_GAS_MULTIPLIER_BPS = 20000
 const MAX_BS_ITER = 48
 
 // ============================================================================
@@ -73,6 +72,8 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	name = "Aerodrome"
 	/** Long-lived state per chain, keyed by chain identifier. */
 	private stateByChain = new Map<string, AerodromeLiquidityState>()
+	/** Per-chain mutex serialising planWithdrawalForToken to prevent concurrent state races. */
+	private mutexByChain = new Map<string, Mutex>()
 
 	constructor(
 		private readonly clientManager: ChainClientManager,
@@ -85,14 +86,10 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	 * Throws on missing/invalid required fields. Address availability
 	 * is checked later in `initialise()` when configService is available.
 	 */
-	static validateConfig(
-		pools: { chain?: string; pair?: string; gauge?: string }[],
-	): void {
+	static validateConfig(pools: { chain?: string; pair?: string; gauge?: string }[]): void {
 		for (const pool of pools) {
 			if (!pool.chain?.trim()) {
-				throw new Error(
-					"Each Aerodrome outputFunding pool must have a non-empty 'chain' (e.g. EVM-8453)",
-				)
+				throw new Error("Each Aerodrome outputFunding pool must have a non-empty 'chain' (e.g. EVM-8453)")
 			}
 			if (!pool.pair) {
 				throw new Error("Each Aerodrome pool must include a 'pair' address")
@@ -123,6 +120,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 			const state = new AerodromeLiquidityState(chain, pools, router, solver, this.clientManager)
 			await state.hydrate()
 			this.stateByChain.set(chain, state)
+			this.mutexByChain.set(chain, new Mutex())
 		}
 	}
 
@@ -163,122 +161,124 @@ export class AerodromeFundingPlanner implements FundingVenue {
 		solver: HexString,
 		tokenOutLower: string,
 		amountNeeded: bigint,
-	): Promise<{ calls: ERC7821Call[]; credited: bigint }> {
-		if (amountNeeded <= 0n) return { calls: [], credited: 0n }
+	): Promise<FundingPlanResult> {
+		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
+
+		if (amountNeeded <= 0n) return noopResult
 
 		const state = this.stateByChain.get(destChain)
-		if (!state || !state.isHydrated()) return { calls: [], credited: 0n }
+		if (!state || !state.isHydrated()) return noopResult
 
-		// Refresh on-chain state for this chain right before planning so
-		// reserves and LP balances are as fresh as possible.
-		await state.refresh()
+		const mutex = this.mutexByChain.get(destChain)!
+		return mutex.runExclusive(async () => {
+			// Refresh on-chain state for this chain right before planning so
+			// reserves and LP balances are as fresh as possible.
+			await state.refresh()
 
-		const tokenNeed = tokenOutLower.toLowerCase()
-		const candidatePools = state.poolsForToken(tokenNeed)
+			const tokenNeed = tokenOutLower.toLowerCase()
+			const candidatePools = state.poolsForToken(tokenNeed)
 
-		for (const pool of candidatePools) {
-			const lpAvail = state.remaining(pool.pair)
-			if (lpAvail === 0n) continue
+			for (const pool of candidatePools) {
+				const lpAvail = state.remaining(pool.pair)
+				if (lpAvail === 0n) continue
 
-			const [tokenA, tokenB] = sortTokens(pool.token0, pool.token1)
+				const [tokenA, tokenB] = sortTokens(pool.token0, pool.token1)
 
-			// --- solve LP amount ---
-			const liquidity =
-				this.solveLiquidityForDeficit(pool, tokenNeed, amountNeeded, lpAvail) ??
-				(await this.solveLiquidityForDeficitStable(
-					destChain,
-					pool,
+				// --- solve LP amount ---
+				const liquidity =
+					this.solveLiquidityForDeficit(pool, tokenNeed, amountNeeded, lpAvail) ??
+					(await this.solveLiquidityForDeficitStable(
+						destChain,
+						pool,
+						tokenA,
+						tokenB,
+						tokenNeed,
+						amountNeeded,
+						lpAvail,
+					))
+				if (liquidity <= 0n) continue
+
+				const cappedL = liquidity > lpAvail ? lpAvail : liquidity
+
+				// --- quote expected output ---
+				const expected = await this.quoteExpectedAmounts(destChain, pool, tokenA, tokenB, cappedL)
+				if (!expected) continue
+
+				const { amount0, amount1 } = mapRouterAmountsToToken01(
+					pool.token0,
 					tokenA,
-					tokenB,
-					tokenNeed,
-					amountNeeded,
-					lpAvail,
-				))
-			if (liquidity <= 0n) continue
+					expected.amountA,
+					expected.amountB,
+				)
+				const credit = tokenNeed === pool.token0.toLowerCase() ? amount0 : amount1
+				if (credit === 0n) continue
 
-			const cappedL = liquidity > lpAvail ? lpAvail : liquidity
+				// --- slippage ---
+				// By the time the tx lands, reserves can change (other swaps, liquidity moves, ordering in the block).
+				const bps = BigInt(this.minAmountOutBps)
+				const amount0Min = (amount0 * bps) / 10000n
+				const amount1Min = (amount1 * bps) / 10000n
+				const { amountAMin, amountBMin } = mapToken01MinsToRouter(pool.token0, tokenA, amount0Min, amount1Min)
 
-			// --- quote expected output ---
-			const expected = await this.quoteExpectedAmounts(destChain, pool, tokenA, tokenB, cappedL)
-			if (!expected) continue
+				// --- build ERC-7821 calls ---
+				const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60)
+				const calls: ERC7821Call[] = []
 
-			const { amount0, amount1 } = mapRouterAmountsToToken01(
-				pool.token0,
-				tokenA,
-				expected.amountA,
-				expected.amountB,
-			)
-			const credit = tokenNeed === pool.token0.toLowerCase() ? amount0 : amount1
-			if (credit === 0n) continue
-
-			// --- slippage ---
-			// By the time the tx lands, reserves can change (other swaps, liquidity moves, ordering in the block).
-			const bps = BigInt(this.minAmountOutBps)
-			const amount0Min = (amount0 * bps) / 10000n
-			const amount1Min = (amount1 * bps) / 10000n
-			const { amountAMin, amountBMin } = mapToken01MinsToRouter(pool.token0, tokenA, amount0Min, amount1Min)
-
-			// --- build ERC-7821 calls ---
-			const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60)
-			const calls: ERC7821Call[] = []
-
-			// 1. Gauge withdraw (if needed)
-			if (pool.gauge) {
-				// Only withdraw the shortfall beyond what's already in the wallet.
-				const shortfall = cappedL > pool.walletLp ? cappedL - pool.walletLp : 0n
-				const withdrawAmt = shortfall > pool.gaugeLp ? pool.gaugeLp : shortfall
-				if (withdrawAmt > 0n) {
-					calls.push({
-						target: pool.gauge,
-						value: 0n,
-						data: encodeFunctionData({
-							abi: AERODROME_GAUGE_ABI,
-							functionName: "withdraw",
-							args: [withdrawAmt],
-						}) as HexString,
-					})
+				// 1. Gauge withdraw (if needed)
+				if (pool.gauge) {
+					// Only withdraw the shortfall beyond what's already in the wallet.
+					const shortfall = cappedL > pool.walletLp ? cappedL - pool.walletLp : 0n
+					const withdrawAmt = shortfall > pool.gaugeLp ? pool.gaugeLp : shortfall
+					if (withdrawAmt > 0n) {
+						calls.push({
+							target: pool.gauge,
+							value: 0n,
+							data: encodeFunctionData({
+								abi: AERODROME_GAUGE_ABI,
+								functionName: "withdraw",
+								args: [withdrawAmt],
+							}) as HexString,
+						})
+					}
 				}
+
+				// 2. Approve LP token to router
+				calls.push({
+					target: pool.pair,
+					value: 0n,
+					data: encodeFunctionData({
+						abi: ERC20_ABI,
+						functionName: "approve",
+						args: [pool.router, maxUint256],
+					}) as HexString,
+				})
+
+				// 3. Remove liquidity
+				calls.push({
+					target: pool.router,
+					value: 0n,
+					data: encodeFunctionData({
+						abi: AERODROME_ROUTER_ABI,
+						functionName: "removeLiquidity",
+						args: [tokenA, tokenB, pool.stable, cappedL, amountAMin, amountBMin, solver, deadline],
+					}) as HexString,
+				})
+
+				logger.debug(
+					{
+						pair: pool.pair,
+						liquidity: cappedL.toString(),
+						tokenOut: tokenNeed,
+						credited: credit.toString(),
+					},
+					"Aerodrome funding planned",
+				)
+
+				return { calls, credited: credit }
 			}
 
-			// 2. Approve LP token to router
-			calls.push({
-				target: pool.pair,
-				value: 0n,
-				data: encodeFunctionData({
-					abi: ERC20_ABI,
-					functionName: "approve",
-					args: [pool.router, maxUint256],
-				}) as HexString,
-			})
-
-			// 3. Remove liquidity
-			calls.push({
-				target: pool.router,
-				value: 0n,
-				data: encodeFunctionData({
-					abi: AERODROME_ROUTER_ABI,
-					functionName: "removeLiquidity",
-					args: [tokenA, tokenB, pool.stable, cappedL, amountAMin, amountBMin, solver, deadline],
-				}) as HexString,
-			})
-
-			// --- bookkeeping ---
-			state.consume(pool.pair, cappedL)
-
-			logger.debug(
-				{
-					pair: pool.pair,
-					liquidity: cappedL.toString(),
-					tokenOut: tokenNeed,
-					credited: credit.toString(),
-				},
-				"Aerodrome funding planned",
-			)
-
-			return { calls, credited: credit }
-		}
-
-		return { calls: [], credited: 0n }
+			return noopResult
+		}) // mutex.runExclusive
 	}
 
 	// =========================================================================

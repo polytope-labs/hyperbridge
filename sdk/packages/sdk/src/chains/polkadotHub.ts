@@ -16,7 +16,9 @@ import type {
 } from "@/types"
 import { replaceWebsocketWithHttp } from "@/utils"
 import { decodeReviveContractTrieId } from "@/utils/reviveAccount"
-import { encodeSubstrateEvmProofBytes } from "@/utils/substrate"
+import { type CodecType } from "scale-ts"
+
+import { EvmStateProof } from "@/utils/substrate"
 
 /** Substrate default child trie prefix (`ChildInfo::new_default`). */
 const DEFAULT_CHILD_STORAGE_PREFIX = new TextEncoder().encode(":child_storage:default:")
@@ -212,10 +214,10 @@ export class PolkadotHubChain implements IChain {
 			)
 		}
 
-		const encoded = encodeSubstrateEvmProofBytes({
-			mainProof: mainProofBytes,
-			storageProof: storageProofEncoded,
-		})
+		const encoded = EvmStateProof.enc({
+			contractProof: mainProofBytes,
+			storageProof: Array.from(storageProofEncoded.entries()),
+		} as unknown as CodecType<typeof EvmStateProof>)
 		return bytesToHex(encoded) as HexString
 	}
 

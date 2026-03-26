@@ -31,17 +31,15 @@ import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
  */
 contract HandlerV2 is HandlerV1, IHandlerV2 {
     // Maps authority set ID to the relayer that submitted the consensus proof for that epoch
-    mapping(uint256 => address) private _relayers;
+    mapping(uint256 => address) private _epochs;
 
     // The current authority set epoch
     uint256 private _currentEpoch;
 
+    // A call in the batch failed
     error BatchCallFailed(uint256 index, bytes reason);
-    event RelayerRegistered(uint256 indexed authoritySetId, address indexed relayer);
-    event BatchExecuted(address indexed relayer, uint256 callCount);
 
-    // The provided epoch is not exactly prevEpoch + 1
-    error InvalidEpoch(uint256 expected, uint256 actual);
+    event NewEpoch(uint256 indexed authoritySetId, address indexed relayer);
 
     /**
      * @dev See {IERC165-supportsInterface}.
@@ -64,7 +62,6 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
                 revert BatchCallFailed(i, returnData);
             }
         }
-        emit BatchExecuted(msg.sender, len);
     }
 
     /**
@@ -78,7 +75,7 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
-        (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 newEpoch) =
+        (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 nextAuthoritySetId) =
             IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
         host.storeConsensusState(verifiedState);
 
@@ -93,12 +90,10 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
             }
         }
 
-        if (newEpoch != 0) {
-            uint256 expected = _currentEpoch + 1;
-            if (newEpoch != expected) revert InvalidEpoch(expected, newEpoch);
-            _currentEpoch = newEpoch;
-            _relayers[newEpoch] = msg.sender;
-            emit RelayerRegistered(newEpoch, msg.sender);
+        if (nextAuthoritySetId > _currentEpoch) {
+            _currentEpoch = nextAuthoritySetId;
+            _epochs[nextAuthoritySetId] = msg.sender;
+            emit NewEpoch(nextAuthoritySetId, msg.sender);
         }
     }
 
@@ -108,7 +103,7 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
      * @return the relayer address, or address(0) if not set
      */
     function relayerOf(uint256 authoritySetId) external view returns (address) {
-        return _relayers[authoritySetId];
+        return _epochs[authoritySetId];
     }
 
     /**

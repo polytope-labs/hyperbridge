@@ -11,34 +11,32 @@ import {
 	adjustDecimals,
 	IntentsCoprocessor,
 } from "@hyperbridge/sdk"
-import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
 import { getLogger } from "@/services/Logger"
 import { FillerBpsPolicy, ConfirmationPolicy } from "@/config/interpolated-curve"
 import { SupportedTokenType } from "@/strategies/base"
+import type { SigningAccount } from "@/services/wallet"
 
 export class BasicFiller implements FillerStrategy {
 	name = "BasicFiller"
-	private privateKey: HexString
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
 	private bpsPolicy: FillerBpsPolicy
-	private account: ReturnType<typeof privateKeyToAccount>
+	private signer: SigningAccount
 	private logger = getLogger("basic-simplex")
 	confirmationPolicy: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	constructor(
-		privateKey: HexString,
+		signer: SigningAccount,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
 		bpsPolicy: FillerBpsPolicy,
 		confirmationPolicy: ConfirmationPolicy,
 	) {
-		this.privateKey = privateKey
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
@@ -47,7 +45,7 @@ export class BasicFiller implements FillerStrategy {
 			getConfirmationBlocks: (chainId: number, amountUsd: number) =>
 				confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 		}
-		this.account = privateKeyToAccount(privateKey)
+		this.signer = signer
 	}
 
 	/**
@@ -325,7 +323,7 @@ export class BasicFiller implements FillerStrategy {
 		}
 
 		// With EIP-7702 delegation, the filler's EOA address IS the solver account
-		const solverAccountAddress = this.account.address as HexString
+		const solverAccountAddress = this.signer.account.address as HexString
 
 		this.logger.info({ orderId: order.id, destination: order.destination }, "Submitting bid to Hyperbridge")
 
@@ -408,20 +406,19 @@ export class BasicFiller implements FillerStrategy {
 				return acc
 			}, 0n) + nativeDispatchFee
 
+		const fillerAddress = this.signer.account.address
 		const tx = await walletClient
 			.sendTransaction({
-				account: this.account,
-				to: this.account.address,
+				to: fillerAddress,
 				data: callData,
 				value: nativeValue,
 				chain: walletClient.chain,
 				gas: callGasLimit + (callGasLimit * 2500n) / 10000n,
 			})
-            .catch(async (err) => {
-                this.logger.error({ err }, "Could not send transaction")
+			.catch(async (err) => {
+				this.logger.error({ err }, "Could not send transaction")
 				return await walletClient.sendTransaction({
-					account: this.account,
-					to: this.account.address,
+					to: fillerAddress,
 					data: callData,
 					value: nativeValue,
 					chain: walletClient.chain,

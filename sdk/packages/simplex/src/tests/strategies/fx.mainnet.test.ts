@@ -8,6 +8,7 @@ import {
 	type UserProvidedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
 import { FXFiller } from "@/strategies/fx"
 import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import {
@@ -440,146 +441,172 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 })
 
 describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
-	it("Should place USDC order on Arbitrum and fill with EXT on Base using FX strategy only", async () => {
-		const {
-			arbitrumIntentGatewayV2,
-			arbitrumPublicClient,
-			arbitrumWalletClient,
-			basePublicClient,
-			chainConfigs,
-			fillerConfig,
-			chainConfigService,
-			arbitrumMainnetId,
-			baseMainnetId,
-			contractService,
-		} = await setUpMainnetFxArbitrumToBase()
+	it.skipIf(!hasMpcVaultFillCredentials())(
+		"Should place USDC order on Arbitrum and fill with EXT on Base using FX strategy only (user private key, filler MPC)",
+		async () => {
+			const {
+				arbitrumIntentGatewayV2,
+				arbitrumPublicClient,
+				arbitrumWalletClient,
+				basePublicClient,
+				chainConfigs,
+				fillerConfig,
+				chainConfigService,
+				arbitrumMainnetId,
+				baseMainnetId,
+				contractService,
+			} = await setUpMainnetFxArbitrumToBase()
 
-		const intentFiller = createCrossChainFxIntentFiller(
-			chainConfigs,
-			fillerConfig,
-			chainConfigService,
-			contractService,
-			[arbitrumMainnetId, baseMainnetId],
-		)
-		await intentFiller.initialize()
-		intentFiller.start()
+			const fillSigner = createMpcVaultFillSigner()
+			const intentFiller = createCrossChainFxIntentFiller(
+				chainConfigs,
+				fillerConfig,
+				chainConfigService,
+				[arbitrumMainnetId, baseMainnetId],
+				fillSigner,
+			)
+			await intentFiller.initialize()
+			intentFiller.start()
 
-		const sourceUsdc = chainConfigService.getUsdcAsset(arbitrumMainnetId)
-		const destExt = chainConfigService.getExtAsset(baseMainnetId)!
+			const sourceUsdc = chainConfigService.getUsdcAsset(arbitrumMainnetId)
+			const destExt = chainConfigService.getExtAsset(baseMainnetId)!
 
-		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, arbitrumMainnetId)
-		const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
-		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
+			const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, arbitrumMainnetId)
+			const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
+			const amountIn = parseUnits("0.01", sourceUsdcDecimals)
 
-		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+			const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 
-		const requestedExtOut = parseUnits("0.006", destExtDecimals)
-		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+			const requestedExtOut = parseUnits("0.006", destExtDecimals)
+			const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
 
-		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
-		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
-		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+			const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
+			const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+			const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
-		let order: Order = {
-			user: bytes20ToBytes32(user),
-			source: toHex(arbitrumMainnetId),
-			destination: toHex(baseMainnetId),
-			deadline: 12545151568145n,
-			nonce: 0n,
-			fees: 0n,
-			session: "0x0000000000000000000000000000000000000000" as HexString,
-			predispatch: { assets: [], call: "0x" as HexString },
-			inputs,
-			output: { beneficiary, assets: outputs, call: "0x" as HexString },
-		}
-
-		const intentsCoprocessor = await IntentsCoprocessor.connect(
-			process.env.HYPERBRIDGE_NEXUS!,
-			process.env.SECRET_PHRASE!,
-		)
-
-		const arbitrumEvmChain = EvmChain.fromParams({
-			chainId: 42161,
-			host: chainConfigService.getHostAddress(arbitrumMainnetId),
-			rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
-			bundlerUrl: chainConfigService.getBundlerUrl(arbitrumMainnetId),
-		})
-
-		const baseEvmChain = EvmChain.fromParams({
-			chainId: 8453,
-			host: chainConfigService.getHostAddress(baseMainnetId),
-			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
-			bundlerUrl: chainConfigService.getBundlerUrl(baseMainnetId),
-		})
-
-		const feeToken = await contractService.getFeeTokenWithDecimals(arbitrumMainnetId)
-		await approveTokens(
-			arbitrumWalletClient,
-			arbitrumPublicClient,
-			feeToken.address,
-			arbitrumIntentGatewayV2.address,
-		)
-		await approveTokens(arbitrumWalletClient, arbitrumPublicClient, sourceUsdc, arbitrumIntentGatewayV2.address)
-
-		const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, baseEvmChain, intentsCoprocessor)
-
-		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000,
-			pollIntervalMs: 5_000,
-		})
-
-		let result = await gen.next()
-		if (result.value?.status === "AWAITING_PLACE_ORDER") {
-			const { to, data, value } = result.value
-
-			const signedTx = (await arbitrumWalletClient.signTransaction(
-				(await arbitrumPublicClient.prepareTransactionRequest({
-					to,
-					data,
-					value: value ?? 0n,
-					account: arbitrumWalletClient.account!,
-					chain: arbitrumWalletClient.chain,
-				})) as any,
-			)) as HexString
-			result = await gen.next(signedTx)
-		}
-
-		let userOpHash: HexString | undefined
-		let selectedSolver: HexString | undefined
-
-		while (!result.done) {
-			if (result.value && "status" in result.value) {
-				const status = result.value
-				console.log("status", status)
-
-				if (status.status === "BID_SELECTED") {
-					selectedSolver = status.selectedSolver as HexString
-					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
-				}
-				if (status.status === "FAILED") {
-					throw new Error(`Order execution failed: ${status.error}`)
-				}
+			let order: Order = {
+				user: bytes20ToBytes32(user),
+				source: toHex(arbitrumMainnetId),
+				destination: toHex(baseMainnetId),
+				deadline: 12545151568145n,
+				nonce: 0n,
+				fees: 0n,
+				session: "0x0000000000000000000000000000000000000000" as HexString,
+				predispatch: { assets: [], call: "0x" as HexString },
+				inputs,
+				output: { beneficiary, assets: outputs, call: "0x" as HexString },
 			}
-			result = await gen.next()
-		}
 
-		expect(userOpHash).toBeDefined()
-		expect(selectedSolver).toBeDefined()
+			const intentsCoprocessor = await IntentsCoprocessor.connect(
+				process.env.HYPERBRIDGE_NEXUS!,
+				process.env.SECRET_PHRASE!,
+			)
 
-		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
-			basePublicClient,
-			chainConfigService.getIntentGatewayV2Address(baseMainnetId),
-		)
-		expect(isFilled).toBe(true)
+			const arbitrumEvmChain = EvmChain.fromParams({
+				chainId: 42161,
+				host: chainConfigService.getHostAddress(arbitrumMainnetId),
+				rpcUrl: chainConfigService.getRpcUrl(arbitrumMainnetId),
+				bundlerUrl: chainConfigService.getBundlerUrl(arbitrumMainnetId),
+			})
 
-		await intentFiller.stop()
-		await intentsCoprocessor.disconnect()
-	}, 600_000)
+			const baseEvmChain = EvmChain.fromParams({
+				chainId: 8453,
+				host: chainConfigService.getHostAddress(baseMainnetId),
+				rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+				bundlerUrl: chainConfigService.getBundlerUrl(baseMainnetId),
+			})
+
+			const feeToken = await contractService.getFeeTokenWithDecimals(arbitrumMainnetId)
+			await approveTokens(
+				arbitrumWalletClient,
+				arbitrumPublicClient,
+				feeToken.address,
+				arbitrumIntentGatewayV2.address,
+			)
+			await approveTokens(arbitrumWalletClient, arbitrumPublicClient, sourceUsdc, arbitrumIntentGatewayV2.address)
+
+			const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, baseEvmChain, intentsCoprocessor)
+
+			const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+				bidTimeoutMs: 600_000,
+				pollIntervalMs: 5_000,
+			})
+
+			let result = await gen.next()
+			if (result.value?.status === "AWAITING_PLACE_ORDER") {
+				const { to, data, value } = result.value
+
+				const signedTx = (await arbitrumWalletClient.signTransaction(
+					(await arbitrumPublicClient.prepareTransactionRequest({
+						to,
+						data,
+						value: value ?? 0n,
+						account: arbitrumWalletClient.account!,
+						chain: arbitrumWalletClient.chain,
+					})) as any,
+				)) as HexString
+				result = await gen.next(signedTx)
+			}
+
+			let userOpHash: HexString | undefined
+			let selectedSolver: HexString | undefined
+
+			while (!result.done) {
+				if (result.value && "status" in result.value) {
+					const status = result.value
+					console.log("status", status)
+
+					if (status.status === "BID_SELECTED") {
+						selectedSolver = status.selectedSolver as HexString
+						userOpHash = status.userOpHash as HexString
+					}
+					if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
+					if (status.status === "FAILED") {
+						throw new Error(`Order execution failed: ${status.error}`)
+					}
+				}
+				result = await gen.next()
+			}
+
+			expect(userOpHash).toBeDefined()
+			expect(selectedSolver).toBeDefined()
+
+			const isFilled = await pollForOrderFilled(
+				order.id as HexString,
+				basePublicClient,
+				chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+			)
+			expect(isFilled).toBe(true)
+
+			await intentFiller.stop()
+			await intentsCoprocessor.disconnect()
+		},
+		600_000,
+	)
 })
+
+function hasMpcVaultFillCredentials(): boolean {
+	return Boolean(
+		process.env.MPCVAULT_API_TOKEN &&
+			process.env.MPCVAULT_VAULT_UUID &&
+			process.env.MPCVAULT_ACCOUNT_ADDRESS &&
+			process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY,
+	)
+}
+
+function createMpcVaultFillSigner() {
+	return createSimplexSigner({
+		type: SignerType.MpcVault,
+		mpcVault: {
+			apiToken: process.env.MPCVAULT_API_TOKEN!,
+			vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
+			accountAddress: process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString,
+			callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY!,
+		},
+	})
+}
 
 function bundlerUrl(chainId: number): string | undefined {
 	const apiKey = process.env.BUNDLER_API_KEY
@@ -595,7 +622,6 @@ async function setUpMainnetFx() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -613,14 +639,10 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		privateKey,
-		chainConfigService,
-		cacheService,
-	)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const polygonWalletClient = chainClientManager.getWalletClient(polygonMainnetId)
 	const polygonPublicClient = chainClientManager.getPublicClient(polygonMainnetId)
@@ -652,7 +674,6 @@ async function setUpMainnetFxBase() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -670,14 +691,10 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		privateKey,
-		chainConfigService,
-		cacheService,
-	)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const baseWalletClient = chainClientManager.getWalletClient(baseMainnetId)
 	const basePublicClient = chainClientManager.getPublicClient(baseMainnetId)
@@ -709,7 +726,6 @@ async function setUpMainnetFxArbitrum() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -727,14 +743,10 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
-	const contractService = new ContractInteractionService(
-		chainClientManager,
-		privateKey,
-		chainConfigService,
-		cacheService,
-	)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
 
 	const arbitrumWalletClient = chainClientManager.getWalletClient(arbitrumMainnetId)
 	const arbitrumPublicClient = chainClientManager.getPublicClient(arbitrumMainnetId)
@@ -768,7 +780,6 @@ async function setUpMainnetFxArbitrumToBase() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -785,13 +796,15 @@ async function setUpMainnetFxArbitrumToBase() {
 		},
 	}
 
+	// User EOA (PRIVATE_KEY): Arbitrum wallet for approvals and placing the order.
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const userSigner = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, userSigner)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
 		chainConfigService,
+		userSigner,
 		cacheService,
 	)
 
@@ -823,12 +836,17 @@ function createCrossChainFxIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
-	contractService: ContractInteractionService,
 	chainIds: string[],
+	fillerSigner: SigningAccount,
 ): IntentFiller {
-	const privateKey = process.env.PRIVATE_KEY as HexString
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, fillerSigner)
+	const contractService = new ContractInteractionService(
+		chainClientManager,
+		chainConfigService,
+		fillerSigner,
+		cacheService,
+	)
 
 	const bidPricePolicy = new FillerPricePolicy({
 		points: [
@@ -867,7 +885,7 @@ function createCrossChainFxIntentFiller(
 	})
 
 	const fxStrategy = new FXFiller(
-		privateKey,
+		fillerSigner,
 		chainConfigService,
 		chainClientManager,
 		contractService,
@@ -888,7 +906,7 @@ function createCrossChainFxIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		privateKey,
+		fillerSigner,
 		undefined,
 		bidStorage,
 	)
@@ -902,8 +920,9 @@ function createFxOnlyIntentFiller(
 	mainnetId: string,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
 	// Bid: filler buys exotic from user → 1 USD = 10000 EXT (filler pays fewer USD per exotic)
 	// Ask: filler sells exotic to user → 1 USD = 9500 EXT (filler gives fewer exotic per USD = spread profit)
@@ -924,7 +943,7 @@ function createFxOnlyIntentFiller(
 	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
 	const fxStrategy = new FXFiller(
-		privateKey,
+		signer,
 		chainConfigService,
 		chainClientManager,
 		contractService,
@@ -944,7 +963,7 @@ function createFxOnlyIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		privateKey,
+		signer,
 		undefined,
 		bidStorage,
 	)

@@ -15,7 +15,7 @@
 		"release": "pnpm build && pnpm --filter=\"*\" publish --no-git-checks"
 	},
 	"devDependencies": {
-"@typescript-eslint/eslint-plugin": "^8.25.0",
+		"@typescript-eslint/eslint-plugin": "^8.25.0",
 		"@typescript-eslint/parser": "^8.25.0",
 		"eslint": "^9.21.0",
 		"eslint-config-prettier": "^10.0.2",
@@ -54,7 +54,15 @@
 		]
 	},
 	"pnpm": {
-		"onlyBuiltDependencies": ["better-sqlite3", "bufferutil", "utf-8-validate", "esbuild"]
+		"onlyBuiltDependencies": [
+			"better-sqlite3",
+			"bufferutil",
+			"utf-8-validate",
+			"esbuild"
+		],
+		"overrides": {
+			"viem": "2.47.6"
+		}
 	},
 	"engines": {
 		"node": ">=22",

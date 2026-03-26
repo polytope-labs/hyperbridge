@@ -54,6 +54,7 @@ contract HandlerV2Test is Test {
         consensusClient = new TestConsensusClientV2();
         handler = new HandlerV2();
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
+
         uint256 paraId = 2000;
         HostManagerParams memory gParams = HostManagerParams({admin: address(this), host: address(0)});
         manager = new HostManager(gParams);
@@ -94,7 +95,7 @@ contract HandlerV2Test is Test {
     }
 
 
-    function _makeConsensusProof(uint256 stateMachineId, uint256 height, uint256 epoch)
+    function _makeConsensusProof(uint256 stateMachineId, uint256 height, uint256 nextAuthoritySetId)
         internal
         pure
         returns (bytes memory)
@@ -105,7 +106,7 @@ contract HandlerV2Test is Test {
             commitment: StateCommitment({timestamp: 20000, overlayRoot: bytes32(0), stateRoot: bytes32(0)})
         });
 
-        return abi.encode(intermediate, epoch);
+        return abi.encode(intermediate, nextAuthoritySetId);
     }
 
     function testBatchCallEmpty() public {
@@ -114,6 +115,7 @@ contract HandlerV2Test is Test {
     }
 
     function testBatchCallSingleConsensus() public {
+        // no epoch change: both IDs are 0
         bytes memory proof = _makeConsensusProof(2000, 1, 0);
 
         bytes[] memory calls = new bytes[](1);
@@ -135,7 +137,7 @@ contract HandlerV2Test is Test {
     }
 
     function testHandleConsensusV2RecordsRelayerOnEpochChange() public {
-        // epoch must be exactly currentEpoch + 1, starting from 0
+        // authority set changed from 0 to 1
         bytes memory proof = _makeConsensusProof(2000, 1, 1);
 
         vm.prank(tx.origin);
@@ -146,6 +148,7 @@ contract HandlerV2Test is Test {
     }
 
     function testHandleConsensusV2NoEpochChange() public {
+        // same authority set ID — no rotation
         bytes memory proof = _makeConsensusProof(2000, 1, 0);
 
         vm.prank(tx.origin);
@@ -175,6 +178,7 @@ contract HandlerV2Test is Test {
     }
 
     function testBatchCallPreservesMsgSender() public {
+        // authority set changed from 0 to 1
         bytes memory proof = _makeConsensusProof(2000, 1, 1);
 
         bytes[] memory calls = new bytes[](1);
@@ -200,23 +204,32 @@ contract HandlerV2Test is Test {
         assertEq(handler.relayerOf(1), tx.origin);
     }
 
-    function testInvalidEpochReverts() public {
-        // skip epoch 1, try to go straight to 2 — should revert
-        bytes memory proof = _makeConsensusProof(2000, 1, 2);
-
-        vm.prank(tx.origin);
-        vm.expectRevert(abi.encodeWithSelector(HandlerV2.InvalidEpoch.selector, 1, 2));
-        handler.handleConsensus(host, proof);
-    }
-
-    function testSequentialEpochs() public {
-        // epoch 1
+    function testStaleEpochIgnored() public {
+        // first, advance to epoch 1
         bytes memory proof1 = _makeConsensusProof(2000, 1, 1);
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof1);
         assertEq(handler.currentEpoch(), 1);
 
-        // epoch 2
+        // submit proof with same epoch (not increasing) — should not update relayer
+        address otherRelayer = address(0xDEAD);
+        bytes memory proof2 = _makeConsensusProof(2000, 2, 1);
+        vm.prank(otherRelayer);
+        handler.handleConsensus(host, proof2);
+
+        // epoch unchanged, relayer for epoch 1 still the original
+        assertEq(handler.currentEpoch(), 1);
+        assertEq(handler.relayerOf(1), tx.origin);
+    }
+
+    function testSequentialEpochs() public {
+        // epoch 0 -> 1
+        bytes memory proof1 = _makeConsensusProof(2000, 1, 1);
+        vm.prank(tx.origin);
+        handler.handleConsensus(host, proof1);
+        assertEq(handler.currentEpoch(), 1);
+
+        // epoch 1 -> 2
         bytes memory proof2 = _makeConsensusProof(2000, 2, 2);
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof2);

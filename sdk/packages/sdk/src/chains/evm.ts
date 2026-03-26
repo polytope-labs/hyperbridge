@@ -143,6 +143,7 @@ export class EvmChain implements IChain {
 			100: "GNO0", // Gnosis
 			10200: "GNO0", // Gnosis Chiado
 			420420417: "PAS0", // Polkadot Asset Hub (Paseo)
+			420420419: "DOT0", // Polkadot Asset Hub (Polkadot)
 		}
 
 		// Set default consensusStateId if not provided
@@ -818,7 +819,7 @@ export function requestCommitmentKey(key: Hex): { slot1: Hex; slot2: Hex } {
 	}
 }
 
-function responseCommitmentKey(key: Hex): Hex {
+export function responseCommitmentKey(key: Hex): Hex {
 	// First derive the map key
 	const keyBytes = hexToBytes(key)
 	const slot = RESPONSE_COMMITMENTS_SLOT

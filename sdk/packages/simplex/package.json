@@ -19,19 +19,21 @@
 		"dist"
 	],
 	"scripts": {
-		"build": "tsup",
+		"codegen": "bash ./scripts/build.sh --codegen-only",
+		"build": "bash ./scripts/build.sh",
 		"prepublishOnly": "npm run build",
-		"test": "vitest --watch=false --maxConcurrency=1",
-		"test:services": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/services.test.ts",
-		"test:filler": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
-		"test:basic": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
-		"test:fx": "vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
-		"test:watch": "vitest",
-		"lint": "biome lint .",
-		"lint:fix": "biome lint --write .",
-		"format": "prettier --write \"src/**/*.ts\"",
-		"cli": "NODE_NO_WARNINGS=1 tsx src/bin/simplex.ts",
-		"cli:dev": "nodemon --watch src --ext ts --exec tsx src/bin/simplex.ts"
+		"test": "pnpm run codegen && vitest --watch=false --maxConcurrency=1",
+		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
+		"test:basic": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/basic.testnet.test.ts",
+		"test:fx": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
+		"test:mpcvault": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=120000 src/tests/wallet/mpcvault.integration.test.ts",
+		"test:watch": "pnpm run codegen && vitest",
+		"lint": "pnpm run codegen && biome lint src/bin src/config src/core src/services src/strategies src/tests src/index.ts",
+		"lint:fix": "pnpm run codegen && biome lint --write src/bin src/config src/core src/services src/strategies src/tests src/index.ts",
+		"format": "pnpm run codegen && prettier --write \"src/**/*.ts\"",
+		"cli": "pnpm run codegen && NODE_NO_WARNINGS=1 tsx src/bin/simplex.ts",
+		"cli:dev": "pnpm run codegen && nodemon --watch src --ext ts --exec tsx src/bin/simplex.ts",
+		"proto:generate": "./scripts/generate-proto.sh"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
@@ -40,6 +42,7 @@
 		"@vitest/coverage-v8": "^3.0.7",
 		"nodemon": "^3.1.0",
 		"tronweb": "^6.2.0",
+		"ts-proto": "^2.6.1",
 		"tsup": "^8.4.0",
 		"tsx": "^4.16.2",
 		"typescript": "^5.7.3",
@@ -57,6 +60,8 @@
 		"@binance/wallet": "^16.0.0",
 		"@circle-fin/adapter-viem-v2": "1.4.0",
 		"@circle-fin/bridge-kit": "1.5.0",
+		"@bufbuild/protobuf": "^2.2.3",
+		"@grpc/grpc-js": "^1.12.5",
 		"@hyperbridge/sdk": "workspace:*",
 		"@polkadot/api": "latest",
 		"@polkadot/util": "latest",
@@ -73,10 +78,11 @@
 		"ethers": "^5.7.2",
 		"p-queue": "^8.1.0",
 		"pino": "^9.9.5",
+		"prom-client": "^15.1.0",
 		"pino-pretty": "^11.3.0",
 		"scale-ts": "^1.6.1",
 		"toml": "^3.0.0",
-		"viem": "^2.34.0"
+		"viem": "2.47.6"
 	},
 	"resolutions": {
 		"@polkadot/api": "^16.4.6",

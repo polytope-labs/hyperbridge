@@ -44,17 +44,17 @@ contract TestConsensusClientV2 is IConsensus, IConsensusV2, ERC165 {
     /**
      * @dev IConsensusV2 implementation — used by HandlerV2.handleConsensus.
      */
-    function verify(bytes memory previousState, bytes memory proof)
+    function verify(bytes calldata previousState, bytes calldata proof)
         external
         pure
         returns (bytes memory, IntermediateState[] memory, uint256)
     {
-        (IntermediateState memory intermediate, uint256 newEpoch) =
+        (IntermediateState memory intermediate, uint256 nextAuthoritySetId) =
             abi.decode(proof, (IntermediateState, uint256));
 
         IntermediateState[] memory intermediates = new IntermediateState[](1);
         intermediates[0] = intermediate;
 
-        return (previousState, intermediates, newEpoch);
+        return (previousState, intermediates, nextAuthoritySetId);
     }
 }

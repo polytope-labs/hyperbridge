@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { ChainClientManager, FillerConfigService, RebalancingService, type UserProvidedChainConfig } from "@/services"
 import type { HexString } from "@hyperbridge/sdk"
+import { createSimplexSigner, SignerType } from "@/services/wallet"
 import "../setup"
 
 describe("RebalancingService - CCTP", () => {
@@ -66,9 +67,10 @@ async function setUp() {
 
 	const chainConfigService = new FillerConfigService(testChainConfigs)
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
-	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService, privateKey)
+	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService)
 
 	return {
 		rebalancingService,

@@ -1,5 +1,5 @@
 import { parseUnits, padHex, maxUint256, type Hex } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
+import type { Account } from "viem/accounts"
 import { bytes20ToBytes32, type HexString, parseStateMachineId } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -31,13 +31,16 @@ export interface Usdt0EstimateResult {
 export class Usdt0Rebalancer {
 	private readonly chainClientManager: ChainClientManager
 	private readonly configService: FillerConfigService
-	private readonly privateKey: HexString
+	private readonly account: Account
 	private readonly logger: Logger
 
-	constructor(chainClientManager: ChainClientManager, configService: FillerConfigService, privateKey: HexString) {
+	constructor(
+		chainClientManager: ChainClientManager,
+		configService: FillerConfigService,
+	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.privateKey = privateKey
+		this.account = this.chainClientManager.getSigner().account
 		this.logger = getLogger("Usdt0Rebalancer")
 	}
 
@@ -55,8 +58,7 @@ export class Usdt0Rebalancer {
 
 		const publicClient = this.chainClientManager.getPublicClient(source)
 		const walletClient = this.chainClientManager.getWalletClient(source)
-		const account = privateKeyToAccount(this.privateKey as `0x${string}`)
-		const recipient = recipientAddress || account.address
+		const recipient = recipientAddress || this.account.address
 		const amountWei = parseUnits(amount, 6)
 
 		if (sourceChainId === 1) {
@@ -64,7 +66,7 @@ export class Usdt0Rebalancer {
 				address: tokenAddress as `0x${string}`,
 				abi: ERC20_ABI,
 				functionName: "allowance",
-				args: [account.address, oftAddress],
+				args: [this.account.address, oftAddress],
 			})
 			if (allowance < amountWei) {
 				const approveTx = await walletClient.writeContract({
@@ -72,7 +74,6 @@ export class Usdt0Rebalancer {
 					abi: ERC20_ABI,
 					functionName: "approve",
 					args: [oftAddress, maxUint256],
-					account,
 					chain: walletClient.chain,
 				})
 				await publicClient.waitForTransactionReceipt({ hash: approveTx, confirmations: 1 })
@@ -111,7 +112,6 @@ export class Usdt0Rebalancer {
 			functionName: "send",
 			args: [sendParam, msgFee, recipient],
 			value: msgFee.nativeFee,
-			account,
 			chain: walletClient.chain,
 		})
 
@@ -167,8 +167,7 @@ export class Usdt0Rebalancer {
 		if (!oftAddress) throw new Error(`Chain ${source} not supported by USDT0`)
 
 		const publicClient = this.chainClientManager.getPublicClient(source)
-		const account = privateKeyToAccount(this.privateKey as `0x${string}`)
-		const recipient = recipientAddress || account.address
+		const recipient = recipientAddress || this.account.address
 		const amountWei = parseUnits(amount, 6)
 		const recipientBytes32 = padHex(recipient, { size: 32 })
 		const sendParam = {

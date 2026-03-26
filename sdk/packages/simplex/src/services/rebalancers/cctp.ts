@@ -1,15 +1,29 @@
 import { BridgeKit, isKitError, isRetryableError, getErrorMessage } from "@circle-fin/bridge-kit"
 import type { BridgeResult, BridgeParams, EstimateResult } from "@circle-fin/bridge-kit"
-import { createViemAdapterFromPrivateKey } from "@circle-fin/adapter-viem-v2"
-import type { Chain, PublicClient } from "viem"
-import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
+import { ViemAdapter } from "@circle-fin/adapter-viem-v2"
+import {
+	Arbitrum,
+	ArbitrumSepolia,
+	Base,
+	BaseSepolia,
+	Ethereum,
+	EthereumSepolia,
+	Optimism,
+	OptimismSepolia,
+	Polygon,
+	PolygonAmoy,
+	Unichain,
+	UnichainSepolia,
+} from "@circle-fin/bridge-kit/chains"
+import type { Chain, PublicClient, WalletClient } from "viem"
+import { parseStateMachineId } from "@hyperbridge/sdk"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger } from "@/services/Logger"
 import { RebalanceOptions } from "."
 
 /** Viem adapter type */
-type ViemAdapter = ReturnType<typeof createViemAdapterFromPrivateKey>
+type ViemAdapterInstance = ViemAdapter
 
 /**
  * Maps EVM chain IDs to CCTP chain names used by Bridge Kit
@@ -49,14 +63,15 @@ function stateMachineToCctpChain(stateMachineId: string): string {
  */
 export class CctpRebalancer {
 	private bridgeKit: BridgeKit
-	private adapter: ViemAdapter | null = null
+	private adapter: ViemAdapterInstance | null = null
 	private chainClientManager: ChainClientManager
-	private privateKey: HexString
 	private logger: Logger
 
-	constructor(chainClientManager: ChainClientManager, configService: FillerConfigService, privateKey: HexString) {
+	constructor(
+		chainClientManager: ChainClientManager,
+		_configService: FillerConfigService,
+	) {
 		this.chainClientManager = chainClientManager
-		this.privateKey = privateKey
 		this.bridgeKit = new BridgeKit()
 		this.logger = getLogger("CctpRebalancer")
 	}
@@ -64,17 +79,39 @@ export class CctpRebalancer {
 	/**
 	 * Creates the viem adapter lazily, using existing public clients from ChainClientManager
 	 */
-	private getAdapter(): ViemAdapter {
+	private getAdapter(): ViemAdapterInstance {
 		if (this.adapter) return this.adapter
 
-		this.adapter = createViemAdapterFromPrivateKey({
-			privateKey: this.privateKey,
+		this.adapter = new ViemAdapter(
+			{
 			getPublicClient: ({ chain }: { chain: Chain }) => {
 				// Use existing public client from ChainClientManager
 				const stateMachineId = `EVM-${chain.id}`
 				return this.chainClientManager.getPublicClient(stateMachineId) as PublicClient
 			},
-		})
+				getWalletClient: ({ chain }: { chain: Chain }) => {
+					const stateMachineId = `EVM-${chain.id}`
+					return this.chainClientManager.getWalletClient(stateMachineId) as WalletClient
+				},
+			},
+			{
+				addressContext: "user-controlled",
+				supportedChains: [
+					Ethereum,
+					EthereumSepolia,
+					Arbitrum,
+					ArbitrumSepolia,
+					Base,
+					BaseSepolia,
+					Optimism,
+					OptimismSepolia,
+					Polygon,
+					PolygonAmoy,
+					Unichain,
+					UnichainSepolia,
+				],
+			},
+		)
 
 		return this.adapter
 	}

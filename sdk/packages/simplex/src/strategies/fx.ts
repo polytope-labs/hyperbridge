@@ -307,7 +307,7 @@ export class FXFiller implements FillerStrategy {
 						},
 						"Skipping cross-chain order: insufficient balance for full fill",
 					)
-					return 0
+						return 0
 				}
 
 				// Decrement remaining balance for this token so repeated outputs share the same pool.
@@ -620,7 +620,9 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		this.contractService.cacheService.setPairClassifications(order.id!, pairs)
+		if (order.id) {
+			this.contractService.cacheService.setPairClassifications(order.id, pairs)
+		}
 
 		return pairs
 	}

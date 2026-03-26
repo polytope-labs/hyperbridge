@@ -1,5 +1,6 @@
 import { UNISWAP_V4_POSITION_MANAGER_ABI } from "@/config/abis/UniswapV4"
 import type {
+	FundingPlanResult,
 	FundingVenue,
 	HydratedV4Position,
 	UniswapV4OutputFundingConfig,
@@ -11,6 +12,7 @@ import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
+import { Mutex } from "async-mutex"
 import { Percent } from "@uniswap/sdk-core"
 import { V4PositionManager } from "@uniswap/v4-sdk"
 import type { RemoveLiquidityOptions } from "@uniswap/v4-sdk"
@@ -37,6 +39,8 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	name = "UniswapV4"
 	/** Long-lived state per chain, keyed by chain identifier. */
 	private stateByChain = new Map<string, UniswapV4LiquidityState>()
+	/** Per-chain mutex serialising planWithdrawalForToken to prevent concurrent state races. */
+	private mutexByChain = new Map<string, Mutex>()
 
 	constructor(
 		private readonly clientManager: ChainClientManager,
@@ -131,6 +135,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 			)
 			await state.hydrate()
 			this.stateByChain.set(chain, state)
+			this.mutexByChain.set(chain, new Mutex())
 		}
 	}
 
@@ -167,7 +172,9 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		solver: HexString,
 		tokenOutLower: string,
 		amountNeeded: bigint,
-	): Promise<{ calls: ERC7821Call[]; credited: bigint }> {
+	): Promise<FundingPlanResult> {
+		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
+
 		logger.info(
 			{
 				destChain,
@@ -178,7 +185,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 			"UniswapV4 planWithdrawalForToken called",
 		)
 
-		if (amountNeeded <= 0n) return { calls: [], credited: 0n }
+		if (amountNeeded <= 0n) return noopResult
 
 		const state = this.stateByChain.get(destChain)
 		if (!state || !state.isHydrated()) {
@@ -186,116 +193,117 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				{ destChain, hasState: !!state, isHydrated: state?.isHydrated() },
 				"UniswapV4 no state or not hydrated",
 			)
-			return { calls: [], credited: 0n }
+			return noopResult
 		}
 
-		// Refresh on-chain state for this chain right before planning so
-		// liquidity and price data are as fresh as possible.
-		await state.refresh()
+		const mutex = this.mutexByChain.get(destChain)!
+		return mutex.runExclusive(async () => {
+			// Refresh on-chain state for this chain right before planning so
+			// liquidity and price data are as fresh as possible.
+			await state.refresh()
 
-		const tokenNeed = tokenOutLower.toLowerCase()
-		const candidates = state
-			.positionsForToken(tokenNeed)
-			.sort((a, b) => (b.remainingLiquidity > a.remainingLiquidity ? 1 : -1))
-
-		logger.info(
-			{
-				tokenNeed,
-				candidateCount: candidates.length,
-				candidates: candidates.map((c) => ({
-					tokenId: c.tokenId.toString(),
-					remainingLiquidity: c.remainingLiquidity.toString(),
-					currency0: c.currency0,
-					currency1: c.currency1,
-				})),
-			},
-			"UniswapV4 candidates found",
-		)
-
-		let remaining = amountNeeded
-		const allCalls: ERC7821Call[] = []
-		let totalCredited = 0n
-
-		for (const pos of candidates) {
-			if (remaining <= 0n) break
-
-			const availLiq = state.remaining(pos.tokenId)
-			if (availLiq === 0n) continue
-
-			const isToken0 = pos.currency0.toLowerCase() === tokenNeed
-
-			// Bump the target by 0.05% (5 bps) so the V4 withdrawal overshoots
-			// the exact amount needed.  The on-chain DECREASE_LIQUIDITY may
-			// yield slightly less than the SDK's theoretical calculation due to
-			// rounding differences.  With on-demand refresh the observed
-			// divergence is typically <1 bps; the 5 bps buffer provides a
-			// comfortable margin without removing excess liquidity.
-			const bufferedRemaining = remaining + (remaining * 5n) / 10_000n
-
-			// Use binary search to find the minimal liquidity that covers the buffered target
-			const neededLiq = this.findLiquidityForDeficit(state, pos, isToken0, bufferedRemaining)
-			if (neededLiq <= 0n) continue
-
-			const cappedLiq = neededLiq > availLiq ? availLiq : neededLiq
-
-			// Build SDK Position to compute expected amounts
-			const sdkPosition = state.buildSdkPosition(pos.tokenId, cappedLiq)
-			if (!sdkPosition) continue
-
-			// The SDK Position computes amounts for the given liquidity
-			const amount0 = BigInt(sdkPosition.amount0.quotient.toString())
-			const amount1 = BigInt(sdkPosition.amount1.quotient.toString())
-			const credit = isToken0 ? amount0 : amount1
+			const tokenNeed = tokenOutLower.toLowerCase()
+			const candidates = state
+				.positionsForToken(tokenNeed)
+				.sort((a, b) => (b.remainingLiquidity > a.remainingLiquidity ? 1 : -1))
 
 			logger.info(
 				{
-					tokenId: pos.tokenId.toString(),
-					isToken0,
-					sqrtPriceX96: pos.sqrtPriceX96.toString(),
-					neededLiq: neededLiq.toString(),
-					availLiq: availLiq.toString(),
-					cappedLiq: cappedLiq.toString(),
-					amount0: amount0.toString(),
-					amount1: amount1.toString(),
-					credit: credit.toString(),
-					requestedDeficit: remaining.toString(),
-					bufferedDeficit: bufferedRemaining.toString(),
+					tokenNeed,
+					candidateCount: candidates.length,
+					candidates: candidates.map((c) => ({
+						tokenId: c.tokenId.toString(),
+						remainingLiquidity: c.remainingLiquidity.toString(),
+						currency0: c.currency0,
+						currency1: c.currency1,
+					})),
 				},
-				"UniswapV4 per-position calculation",
+				"UniswapV4 candidates found",
 			)
 
-			if (credit === 0n) continue
+			let remaining = amountNeeded
+			const allCalls: ERC7821Call[] = []
+			let totalCredited = 0n
 
-			// Use V4PositionManager.removeCallParameters to generate the calldata
-			// This encodes DECREASE_LIQUIDITY + TAKE_PAIR actions internally
-			const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq)
-			if (!call) continue
+			for (const pos of candidates) {
+				if (remaining <= 0n) break
 
-			allCalls.push(call)
-			state.consume(pos.tokenId, cappedLiq)
-			totalCredited += credit
-			remaining -= credit
+				const availLiq = state.remaining(pos.tokenId)
+				if (availLiq === 0n) continue
 
-			logger.debug(
+				const isToken0 = pos.currency0.toLowerCase() === tokenNeed
+
+				// Bump the target by the slippage tolerance (10 bps) so the V4
+				// withdrawal overshoots the exact amount needed.  This ensures
+				// that even in the worst-case slippage scenario the credited
+				// tokens still cover the fill requirement, avoiding a wasted
+				// revert on the entire ERC-7821 batch.
+				const bufferedRemaining = remaining + (remaining * 10n) / 10_000n
+
+				// Use binary search to find the minimal liquidity that covers the buffered target
+				const neededLiq = this.findLiquidityForDeficit(state, pos, isToken0, bufferedRemaining)
+				if (neededLiq <= 0n) continue
+
+				const cappedLiq = neededLiq > availLiq ? availLiq : neededLiq
+
+				// Build SDK Position to compute expected amounts
+				const sdkPosition = state.buildSdkPosition(pos.tokenId, cappedLiq)
+				if (!sdkPosition) continue
+
+				// The SDK Position computes amounts for the given liquidity
+				const amount0 = BigInt(sdkPosition.amount0.quotient.toString())
+				const amount1 = BigInt(sdkPosition.amount1.quotient.toString())
+				const credit = isToken0 ? amount0 : amount1
+
+				logger.info(
+					{
+						tokenId: pos.tokenId.toString(),
+						isToken0,
+						sqrtPriceX96: pos.sqrtPriceX96.toString(),
+						neededLiq: neededLiq.toString(),
+						availLiq: availLiq.toString(),
+						cappedLiq: cappedLiq.toString(),
+						amount0: amount0.toString(),
+						amount1: amount1.toString(),
+						credit: credit.toString(),
+						requestedDeficit: remaining.toString(),
+						bufferedDeficit: bufferedRemaining.toString(),
+					},
+					"UniswapV4 per-position calculation",
+				)
+
+				if (credit === 0n) continue
+
+				// Use V4PositionManager.removeCallParameters to generate the calldata
+				// This encodes DECREASE_LIQUIDITY + TAKE_PAIR actions internally
+				const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq)
+				if (!call) continue
+
+				allCalls.push(call)
+				totalCredited += credit
+				remaining -= credit
+
+				logger.debug(
+					{
+						tokenId: pos.tokenId.toString(),
+						liquidity: cappedLiq.toString(),
+						tokenOut: tokenNeed,
+						credited: credit.toString(),
+					},
+					"UniswapV4 funding planned",
+				)
+			}
+
+			logger.info(
 				{
-					tokenId: pos.tokenId.toString(),
-					liquidity: cappedLiq.toString(),
-					tokenOut: tokenNeed,
-					credited: credit.toString(),
+					callCount: allCalls.length,
+					totalCredited: totalCredited.toString(),
 				},
-				"UniswapV4 funding planned",
+				"UniswapV4 planWithdrawalForToken result",
 			)
-		}
 
-		logger.info(
-			{
-				callCount: allCalls.length,
-				totalCredited: totalCredited.toString(),
-			},
-			"UniswapV4 planWithdrawalForToken result",
-		)
-
-		return { calls: allCalls, credited: totalCredited }
+			return { calls: allCalls, credited: totalCredited }
+		}) // mutex.runExclusive
 	}
 
 	// =========================================================================

@@ -1,7 +1,7 @@
 import { Wallet, WalletRestAPI } from "@binance/wallet"
 import { parseUnits, type Hex } from "viem"
-import { privateKeyToAccount } from "viem/accounts"
 import { type HexString, parseStateMachineId } from "@hyperbridge/sdk"
+import type { Account } from "viem/accounts"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger, type Logger } from "@/services/Logger"
@@ -104,7 +104,7 @@ export class BinanceRebalancer {
 	private readonly walletClient: Wallet
 	private readonly chainClientManager: ChainClientManager
 	private readonly configService: FillerConfigService
-	private readonly privateKey: HexString
+	private readonly account: Account
 	private readonly config: BinanceCexConfig
 	private readonly logger: Logger
 	private readonly pollIntervalMs: number
@@ -113,12 +113,11 @@ export class BinanceRebalancer {
 	constructor(
 		chainClientManager: ChainClientManager,
 		configService: FillerConfigService,
-		privateKey: HexString,
 		config: BinanceCexConfig,
 	) {
 		this.chainClientManager = chainClientManager
 		this.configService = configService
-		this.privateKey = privateKey
+		this.account = this.chainClientManager.getSigner().account
 		this.config = config
 		this.logger = getLogger("BinanceRebalancer")
 
@@ -207,13 +206,12 @@ export class BinanceRebalancer {
 		await this.waitForDepositCredit(coin, depositTxHash, depositTimeoutBlocks)
 		this.logger.info("Deposit credited on Binance")
 
-		const account = privateKeyToAccount(this.privateKey as `0x${string}`)
 		let withdrawalId: string
 
 		if (this.useTravelRule) {
-			withdrawalId = await this.withdrawWithTravelRule(coin, account.address, amount, destNetwork)
+			withdrawalId = await this.withdrawWithTravelRule(coin, this.account.address, amount, destNetwork)
 		} else {
-			withdrawalId = await this.withdrawStandard(coin, account.address, amount, destNetwork)
+			withdrawalId = await this.withdrawStandard(coin, this.account.address, amount, destNetwork)
 		}
 
 		this.logger.info(

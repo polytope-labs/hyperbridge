@@ -66,8 +66,59 @@ const hyperbridge = await SubstrateChain.connect({
 })
 ```
 
+**Polkadot Hub chain (EVM on Substrate / Revive):**
+
+Use `PolkadotHubChain` when the execution environment is the EVM hosted on a Substrate chain (Revive). It wraps an internal [`EvmChain`](/developers/sdk/api/evm-chain) for RPC reads, contract calls, and transaction helpers, and uses a **Substrate JSON-RPC** endpoint to build storage proofs (`queryProof`, `queryStateProof`) from the main trie and Revive child tries—the same layout the relayer uses for Substrate-EVM.
+
+`PolkadotHubChain.create(evmRpcUrl, substrateRpcUrl, bundlerUrl?)` mirrors [`EvmChain.create`](/developers/sdk/api/evm-chain): it resolves chain id and `IsmpHost` from known deployments, attaches your Substrate endpoint for proofs, and optionally forwards an ERC-4337 **bundler URL** as the third argument (same semantics as `EvmChain.create`).
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { PolkadotHubChain } from "@hyperbridge/sdk"
+
+const evmRpc = "https://your-evm-endpoint.example"
+const substrateRpc = "https://your-substrate-endpoint.example"
+
+// Without a bundler (two arguments)
+const polkadotHub = await PolkadotHubChain.create(evmRpc, substrateRpc)
+
+// With an ERC-4337 bundler (optional third argument, same as EvmChain.create)
+const polkadotHubWithBundler = await PolkadotHubChain.create(
+  evmRpc,
+  substrateRpc,
+  "https://your-bundler.example",
+)
+```
+
+Or pass full parameters when you already know chain id and host:
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { PolkadotHubChain } from "@hyperbridge/sdk"
+
+const polkadotHub = PolkadotHubChain.fromParams({
+  chainId: 420420417,
+  rpcUrl: "https://your-evm-endpoint.example",
+  host: "0xYourIsmpHostAddress",
+  substrateRpcUrl: "https://your-substrate-endpoint.example",
+  // Optional — defaults exist for some known chain IDs (same as EvmChain)
+  consensusStateId: "PAS0",
+  // Optional — ERC-4337 bundler, same as EvmChain
+  // bundlerUrl: "https://...",
+})
+```
+
+| Field | Description |
+|-------|-------------|
+| `chainId`, `rpcUrl`, `host` | Same as [`EvmChain`](/developers/sdk/api/evm-chain): EVM chain id, JSON-RPC URL, and `IsmpHost` address. |
+| `substrateRpcUrl` | Substrate node RPC (HTTP or WebSocket). WebSocket URLs are converted to HTTP for proof RPCs. |
+| `consensusStateId` | Optional Hyperbridge consensus state id for this chain (mirrors `EvmChain`). |
+| `bundlerUrl` | Optional account-abstraction bundler (mirrors `EvmChain`). |
+
+The instance’s `config` includes every `IEvmConfig` field plus `substrateRpcUrl` (`IPolkadotHubConfig`).
+
+**Proofs:** `queryProof` **must** be called with an explicit finalized (or chosen) block height as `at`. Other `IChain` methods delegate to the inner EVM client, same pattern as other chain types.
+
 For detailed configuration options and supported chains, see:
-- [EvmChain API Reference](/developers/sdk/api/evm-chain)
+- [EvmChain API Reference](/developers/sdk/api/evm-chain) (shared EVM surface for Polkadot Hub)
 - [SubstrateChain API Reference](/developers/sdk/api/substrate-chain)
 
 ---
@@ -111,9 +162,9 @@ const indexer = new IndexerClient({
 |-----------|------|-------------|
 | `queryClient` | `QueryClient` | Query client for the Hyperbridge indexer |
 | `pollInterval` | `number` | Polling interval in milliseconds (default: 1000) |
-| `source` | `IChain` | Source chain instance |
+| `source` | `IChain` | Source chain instance (`EvmChain`, `SubstrateChain`, `PolkadotHubChain`, …) |
 | `dest` | `IChain` | Destination chain instance |
-| `hyperbridge` | `IChain` | Hyperbridge chain instance |
+| `hyperbridge` | `IChain` | Hyperbridge chain instance (often `SubstrateChain`) |
 
 For complete API documentation and usage examples, see the [IndexerClient API Reference](/developers/sdk/api/indexer-client).
 
@@ -180,7 +231,7 @@ main().catch(console.error)
 Now that you have the SDK set up, explore the detailed documentation:
 
 - **[IndexerClient API](/developers/sdk/api/indexer-client)** - Complete API reference with all methods and usage examples
-- **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration
+- **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration (also applies to the EVM layer of `PolkadotHubChain`)
 - **[SubstrateChain API](/developers/sdk/api/substrate-chain)** - Substrate chain methods and configuration
 - **[Tracking Requests](/developers/sdk/tracking/post-requests)** - Monitor cross-chain message statuses
 - **[Vite Integration](/developers/sdk/vite-integration)** - Detailed Vite plugin configuration and framework examples

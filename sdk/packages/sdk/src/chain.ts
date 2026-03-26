@@ -5,6 +5,7 @@ import type {
 	IEvmConfig,
 	IGetRequest,
 	IMessage,
+	IPolkadotHubConfig,
 	IPostRequest,
 	ISubstrateConfig,
 	StateMachineHeight,
@@ -16,6 +17,7 @@ export * from "@/chains/evm"
 export * from "@/chains/substrate"
 export * from "@/chains/intentsCoprocessor"
 export * from "@/chains/tron"
+export * from "@/chains/polkadotHub"
 
 /**
  * Type representing an ISMP message.
@@ -139,7 +141,7 @@ export interface IChain {
 	/**
 	 * Returns the configuration for this chain
 	 */
-	get config(): IEvmConfig | ISubstrateConfig
+	get config(): IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
 
 	/*
 	 * Returns the current timestamp of the chain in seconds.
@@ -189,7 +191,7 @@ export interface IChain {
 }
 
 /**
- * Interface for EVM-compatible chains (EVM and Tron).
+ * Interface for EVM-compatible chains (EVM, Tron, Polkadot Hub).
  * Extends IChain with methods required by IntentGatewayV2 and other EVM-specific protocols.
  */
 export interface IEvmChain extends IChain {

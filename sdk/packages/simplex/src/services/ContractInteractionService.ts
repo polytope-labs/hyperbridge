@@ -1,5 +1,4 @@
 import { toHex, formatUnits, encodeFunctionData, maxUint256, formatEther } from "viem"
-import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import {
 	ADDRESS_ZERO,
 	HexString,
@@ -27,6 +26,7 @@ import { getLogger } from "@/services/Logger"
 import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
+import type { SigningAccount } from "@/services/wallet"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
@@ -39,18 +39,18 @@ export class ContractInteractionService {
 	private logger = getLogger("contract-service")
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
 	private solverAccountAddress: HexString
-	private account: ReturnType<typeof privateKeyToAccount>
+	private signer: SigningAccount
 
 	constructor(
 		private clientManager: ChainClientManager,
-		private privateKey: HexString,
 		configService: FillerConfigService,
+		signer: SigningAccount,
 		sharedCacheService?: CacheService,
 	) {
 		this.configService = configService
 		this.cacheService = sharedCacheService || new CacheService()
-		this.solverAccountAddress = privateKeyToAddress(this.privateKey)
-		this.account = privateKeyToAccount(this.privateKey)
+		this.signer = signer
+		this.solverAccountAddress = this.signer.account.address
 		this.initCache()
 	}
 
@@ -449,7 +449,6 @@ export class ContractInteractionService {
 			args: [this.solverAccountAddress],
 			value: amount,
 			chain: walletClient.chain,
-			account: this.account,
 		})
 
 		const receipt = await publicClient.waitForTransactionReceipt({ hash })
@@ -491,7 +490,6 @@ export class ContractInteractionService {
 			functionName: "withdrawTo",
 			args: [this.solverAccountAddress, balance],
 			chain: walletClient.chain,
-			account: this.account,
 		})
 
 		const receipt = await publicClient.waitForTransactionReceipt({ hash })
@@ -572,7 +570,7 @@ export class ContractInteractionService {
 			order,
 			fillOptions,
 			solverAccount: solverAccountAddress,
-			solverPrivateKey: this.privateKey,
+			solverSigner: this.signer,
 			nonce: cachedEstimate.nonce,
 			entryPointAddress,
 			callGasLimit: cachedEstimate.callGasLimit,

@@ -36,7 +36,7 @@
 		"test": "jest --runInBand --detectOpenHandles",
 		"format": "prettier --write \"**/*.ts\"",
 		"clean": "rm -rf dist node_modules",
-		"server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV subquerynetwork/subql-query:latest --name=app --playground",
+		"server": "docker run -d --name graphql-server -p 3000:3000 --restart always --env-file ../../.env.$ENV polytopelabs/omnihedron:latest --name=app --playground",
 		"codegen:l2-chains": "tsx scripts/generate-l2-chains.ts",
 		"codegen:subql": "subql codegen -f src/configs",
 		"codegen:yamls": "tsx scripts/generate-chain-yamls.ts && tsx scripts/generate-compose.ts",

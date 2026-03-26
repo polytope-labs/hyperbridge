@@ -10,7 +10,6 @@ import {
 	adjustDecimals,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
-import { privateKeyToAccount } from "viem/accounts"
 import { ChainClientManager, ContractInteractionService } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { formatUnits } from "viem"
@@ -19,6 +18,7 @@ import { ConfirmationPolicy, FillerPricePolicy } from "@/config/interpolated-cur
 import { type CachedPairClassification } from "@/services/CacheService"
 import { Decimal } from "decimal.js"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+import type { SigningAccount } from "@/services/wallet"
 
 /**
  * Strategy for swaps between USD-pegged stablecoins (USDC/USDT) and a single
@@ -51,7 +51,6 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
  */
 export class FXFiller implements FillerStrategy {
 	name = "FXFiller"
-	private privateKey: HexString
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
@@ -62,7 +61,7 @@ export class FXFiller implements FillerStrategy {
 	/** Maps chain identifier → exotic token address (e.g. cNGN on each supported chain) */
 	private exoticTokenAddresses: Record<string, HexString>
 	private maxOrderUsd: Decimal
-	private account: ReturnType<typeof privateKeyToAccount>
+	private signer: SigningAccount
 	private logger = getLogger("fx-simplex")
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
@@ -86,7 +85,7 @@ export class FXFiller implements FillerStrategy {
 	 *                                If absent, no confirmation waiting is required.
 	 */
 	constructor(
-		privateKey: HexString,
+		signer: SigningAccount,
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
@@ -96,7 +95,6 @@ export class FXFiller implements FillerStrategy {
 		exoticTokenAddresses: Record<string, HexString>,
 		confirmationPolicy?: ConfirmationPolicy,
 	) {
-		this.privateKey = privateKey
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
@@ -107,7 +105,7 @@ export class FXFiller implements FillerStrategy {
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
-		this.account = privateKeyToAccount(privateKey)
+		this.signer = signer
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
@@ -163,7 +161,7 @@ export class FXFiller implements FillerStrategy {
 			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(sourceChain)
 
 			const destClient = this.clientManager.getPublicClient(destChain)
-			const walletAddress = this.account.address as HexString
+			const walletAddress = this.signer.account.address as HexString
 			const balanceCache = new Map<string, bigint>()
 
 			const pairs = this.classifyAllPairs(order)
@@ -412,7 +410,7 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		const solverAccountAddress = this.account.address as HexString
+		const solverAccountAddress = this.signer.account.address as HexString
 
 		// Prepare the signed UserOp for bid submission (bundles approvals + fillOrder internally)
 		const { commitment, userOp } = await this.contractService.prepareBidUserOp(

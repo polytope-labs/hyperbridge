@@ -37,7 +37,7 @@ services:
 
 
     graphql-engine:
-        image: subquerynetwork/subql-query:v2.21.0
+        image: polytopelabs/omnihedron:latest
         restart: always
         ports:
             - 3100:3000

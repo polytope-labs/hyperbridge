@@ -14,7 +14,7 @@ import {
 	sleep,
 } from "@/utils"
 import { STORAGE_KEYS } from "@/storage"
-import type { Order, HexString, IGetRequest, IPostRequest } from "@/types"
+import type { Order, HexString, IGetRequest, IPostRequest, CancelQuote } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
 import type { IProof } from "@/chain"
 import type { IndexerClient } from "@/client"
@@ -51,21 +51,20 @@ export class OrderCanceller {
 	constructor(private readonly ctx: IntentGatewayContext) {}
 
 	/**
-	 * Quotes the native token cost of cancelling an order from the given chain.
+	 * Returns both the native token cost and the relayer fee for cancelling an
+	 * order. Frontends can use `relayerFee` to approve the ERC-20 spend before
+	 * submitting the cancel transaction.
 	 *
-	 * For same-chain orders the cost is zero. For cross-chain orders, the
-	 * quote covers the ISMP GET/POST dispatch fee.
-	 *
-	 * @param order - The order to quote a cancellation for.
-	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
-	 *   Defaults to `false` (source-side cancellation).
-	 * @returns The native token amount required to submit the cancel transaction.
+	 * @param order - The order to quote.
+	 * @param fromDest - If `true`, quotes the destination-initiated path.
+	 * @returns `{ nativeValue }` — native token amount (wei) to send as `value`;
+	 *   `{ relayerFee }` — relayer incentive denominated in the chain's fee token.
 	 */
-	async quoteCancelNative(order: Order, fromDest: boolean = false): Promise<bigint> {
+	async quoteCancelOrder(order: Order, fromDest: boolean = false): Promise<CancelQuote> {
 		if (fromDest) {
-			return this.quoteCancelNativeFromDest(order)
+			return this.quoteCancelFromDest(order)
 		}
-		return this.quoteCancelNativeFromSource(order)
+		return this.quoteCancelFromSource(order)
 	}
 
 	/**
@@ -78,9 +77,12 @@ export class OrderCanceller {
 	 * @param order - The order to quote.
 	 * @returns The native token dispatch fee in wei.
 	 */
-	private async quoteCancelNativeFromSource(order: Order): Promise<bigint> {
-		if (order.source === order.destination) return 0n
+	private async quoteCancelFromSource(order: Order): Promise<CancelQuote> {
+		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
 
+		const sourceStateMachine = order.source.startsWith("0x")
+			? hexToString(order.source as HexString)
+			: (order.source as string)
 		const height = order.deadline + 1n
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayV2Address(
@@ -97,7 +99,7 @@ export class OrderCanceller {
 		const context = encodeWithdrawalRequest(order, order.user as HexString)
 
 		const getRequest: IGetRequest = {
-			source: order.source.startsWith("0x") ? hexToString(order.source as HexString) : (order.source as string),
+			source: sourceStateMachine,
 			dest: order.destination.startsWith("0x")
 				? hexToString(order.destination as HexString)
 				: (order.destination as string),
@@ -109,7 +111,11 @@ export class OrderCanceller {
 			context,
 		}
 
-		return await this.ctx.source.quoteNative(getRequest, 0n)
+		const feeInSourceFeeToken = await convertGasToFeeToken(this.ctx, 400_000n, "source", sourceStateMachine)
+		const relayerFee = (feeInSourceFeeToken * 1005n) / 1000n
+
+		const nativeValue = await this.ctx.source.quoteNative(getRequest, relayerFee)
+		return { nativeValue, relayerFee }
 	}
 
 	/**
@@ -220,18 +226,18 @@ export class OrderCanceller {
 			STORAGE_KEYS.getRequest(orderId),
 		)
 		if (!getRequest) {
-			const value = await this.quoteCancelNativeFromSource(order)
+			const quote = await this.quoteCancelFromSource(order)
 			const data = encodeFunctionData({
 				abi: IntentGatewayV2ABI,
 				functionName: "cancelOrder",
-				args: [transformOrderForContract(order), { relayerFee: 0n, height: destIProof.height }],
+				args: [transformOrderForContract(order), { relayerFee: quote.relayerFee, height: destIProof.height }],
 			}) as HexString
 
 			const signedTransaction = yield {
 				status: "AWAITING_CANCEL_TRANSACTION" as const,
 				data,
 				to: intentGatewayAddress,
-				value,
+				value: quote.nativeValue,
 			}
 
 			const receipt =
@@ -332,8 +338,8 @@ export class OrderCanceller {
 	 * @param order - The order to quote.
 	 * @returns The native token dispatch fee in wei.
 	 */
-	private async quoteCancelNativeFromDest(order: Order): Promise<bigint> {
-		if (order.source === order.destination) return 0n
+	private async quoteCancelFromDest(order: Order): Promise<CancelQuote> {
+		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
 
 		const destStateMachine = order.destination.startsWith("0x")
 			? hexToString(order.destination as HexString)
@@ -359,7 +365,8 @@ export class OrderCanceller {
 			timeoutTimestamp: 0n,
 		}
 
-		return await this.ctx.dest.quoteNative(postRequest, relayerFee)
+		const nativeValue = await this.ctx.dest.quoteNative(postRequest, relayerFee)
+		return { nativeValue, relayerFee }
 	}
 
 	/**
@@ -399,18 +406,18 @@ export class OrderCanceller {
 		)
 
 		if (!commitment) {
-			const value = await this.quoteCancelNativeFromDest(order)
+			const quote = await this.quoteCancelFromDest(order)
 			const data = encodeFunctionData({
 				abi: IntentGatewayV2ABI,
 				functionName: "cancelOrder",
-				args: [transformOrderForContract(order), { relayerFee: 0n, height: 0n }],
+				args: [transformOrderForContract(order), { relayerFee: quote.relayerFee, height: 0n }],
 			}) as HexString
 
 			const signedTransaction = yield {
 				status: "AWAITING_CANCEL_TRANSACTION" as const,
 				data,
 				to: intentGatewayAddress,
-				value,
+				value: quote.nativeValue,
 			}
 
 			const receipt =

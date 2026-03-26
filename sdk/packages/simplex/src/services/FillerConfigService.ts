@@ -26,7 +26,6 @@ export interface RebalancingConfig {
 }
 
 export interface FillerConfig {
-	privateKey: string
 	maxConcurrentOrders: number
 	logging?: LoggingConfig
 	hyperbridgeWsUrl?: string
@@ -113,7 +112,7 @@ export class FillerConfigService {
 		return this.chainConfigService.getChainId(chain)
 	}
 
-	getConsensusStateId(chain: string): HexString {
+	getConsensusStateId(chain: string): string {
 		return this.chainConfigService.getConsensusStateId(chain)
 	}
 

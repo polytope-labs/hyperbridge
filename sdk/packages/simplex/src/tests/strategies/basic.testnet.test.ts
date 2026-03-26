@@ -7,6 +7,7 @@ import {
 	type UserProvidedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
+import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { BasicFiller } from "@/strategies/basic"
 import {
 	type ChainConfig,
@@ -396,12 +397,13 @@ function createIntentFiller(
 	chainConfigService: FillerConfigService,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
 		chainConfigService,
+		signer,
 		cacheService,
 	)
 
@@ -429,7 +431,7 @@ function createIntentFiller(
 
 	const strategies = [
 		new BasicFiller(
-			privateKey,
+			signer,
 			chainConfigService,
 			chainClientManager,
 			contractService,
@@ -445,7 +447,7 @@ function createIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		privateKey,
+		signer,
 	)
 }
 
@@ -487,7 +489,6 @@ async function setUp() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -505,12 +506,13 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
 		chainConfigService,
+		signer,
 		cacheService,
 	)
 
@@ -553,7 +555,6 @@ async function setUpTron() {
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
-		privateKey: process.env.PRIVATE_KEY as HexString,
 		maxConcurrentOrders: 5,
 		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
 		substratePrivateKey: process.env.SECRET_PHRASE,
@@ -571,12 +572,13 @@ async function setUpTron() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
 	const cacheService = new CacheService()
-	const chainClientManager = new ChainClientManager(chainConfigService, privateKey)
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
 		chainClientManager,
-		privateKey,
 		chainConfigService,
+		signer,
 		cacheService,
 	)
 

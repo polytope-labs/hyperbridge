@@ -11,8 +11,8 @@ import { getLogger } from "@/services/Logger"
 
 const logger = getLogger("aerodrome-funding")
 
-/** Slippage for `amount0Min` / `amount1Min` (99.70 % of quote ≈ 0.3 % slip). */
-const MIN_AMOUNT_OUT_BPS = 9970
+/** Slippage for `amount0Min` / `amount1Min` (99.90 % of quote ≈ 0.10 % slip). */
+const MIN_AMOUNT_OUT_BPS = 9990
 /** Gas multiplier (bps, 1e4 = 1×) applied to `callGasLimit` when funding prepends are present (2×). */
 const FUNDING_GAS_MULTIPLIER_BPS = 20000
 const MAX_BS_ITER = 48
@@ -128,7 +128,8 @@ export class AerodromeFundingPlanner implements FundingVenue {
 
 	/**
 	 * Refresh live data (reserves, LP balances) for one or all chains.
-	 * Call periodically — e.g. every block or on a 12-15 s timer.
+	 * Called automatically at the start of planWithdrawalForToken for the
+	 * relevant chain.
 	 */
 	async refresh(chain?: string): Promise<void> {
 		if (chain) {
@@ -152,9 +153,10 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	 * Produces ERC-7821 calls to withdraw LP and remove liquidity so that at
 	 * least `amountNeeded` of `tokenOut` is credited to the solver.
 	 *
-	 * Reads reserves / LP balances from the cached `AerodromeLiquidityState`
-	 * instead of hitting the chain.  Only stable-pool binary search still
-	 * needs RPC calls (quoteRemoveLiquidity).
+	 * Refreshes on-chain state (reserves, LP balances) for the destination
+	 * chain immediately before planning to ensure calculations use the latest
+	 * data.  Only stable-pool binary search still needs additional RPC calls
+	 * (quoteRemoveLiquidity).
 	 */
 	async planWithdrawalForToken(
 		destChain: string,
@@ -166,6 +168,10 @@ export class AerodromeFundingPlanner implements FundingVenue {
 
 		const state = this.stateByChain.get(destChain)
 		if (!state || !state.isHydrated()) return { calls: [], credited: 0n }
+
+		// Refresh on-chain state for this chain right before planning so
+		// reserves and LP balances are as fresh as possible.
+		await state.refresh()
 
 		const tokenNeed = tokenOutLower.toLowerCase()
 		const candidatePools = state.poolsForToken(tokenNeed)

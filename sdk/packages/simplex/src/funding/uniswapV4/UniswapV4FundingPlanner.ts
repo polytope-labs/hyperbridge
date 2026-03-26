@@ -12,15 +12,14 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
 import { Percent } from "@uniswap/sdk-core"
-import { Position as V4Position, V4PositionManager } from "@uniswap/v4-sdk"
+import { V4PositionManager } from "@uniswap/v4-sdk"
 import type { RemoveLiquidityOptions } from "@uniswap/v4-sdk"
-import JSBI from "jsbi"
 import { encodeFunctionData } from "viem"
 
 const logger = getLogger("uniswapv4-funding")
 
-/** Slippage tolerance for remove-liquidity operations (0.30%). */
-const SLIPPAGE_TOLERANCE = new Percent(30, 10_000) // 0.30%
+/** Slippage tolerance for remove-liquidity operations (0.10%). */
+const SLIPPAGE_TOLERANCE = new Percent(10, 10_000) // 0.10%
 
 /**
  * Funding venue that sources output tokens by removing liquidity from
@@ -159,6 +158,9 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 * Uses the SDK's `Position` class for amount calculations and
 	 * `V4PositionManager.removeCallParameters()` for calldata generation.
 	 * Can aggregate across multiple positions if one doesn't cover the full deficit.
+	 *
+	 * Refreshes on-chain state (liquidity, sqrtPrice) for the destination chain
+	 * immediately before planning to ensure calculations use the latest data.
 	 */
 	async planWithdrawalForToken(
 		destChain: string,
@@ -186,6 +188,10 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 			)
 			return { calls: [], credited: 0n }
 		}
+
+		// Refresh on-chain state for this chain right before planning so
+		// liquidity and price data are as fresh as possible.
+		await state.refresh()
 
 		const tokenNeed = tokenOutLower.toLowerCase()
 		const candidates = state
@@ -218,14 +224,13 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 			const isToken0 = pos.currency0.toLowerCase() === tokenNeed
 
-			// Bump the target by 0.5% so the V4 withdrawal overshoots the
-			// exact amount needed.  The on-chain DECREASE_LIQUIDITY may yield
-			// slightly less than the SDK's theoretical calculation due to
-			// rounding, price movement, or slippage.  By requesting 0.5% more
-			// liquidity we ensure the solver's wallet balance after withdrawal
-			// always covers the committed output amount.  The small surplus
-			// stays in the solver's wallet.
-			const bufferedRemaining = remaining + (remaining * 5n) / 1000n
+			// Bump the target by 0.05% (5 bps) so the V4 withdrawal overshoots
+			// the exact amount needed.  The on-chain DECREASE_LIQUIDITY may
+			// yield slightly less than the SDK's theoretical calculation due to
+			// rounding differences.  With on-demand refresh the observed
+			// divergence is typically <1 bps; the 5 bps buffer provides a
+			// comfortable margin without removing excess liquidity.
+			const bufferedRemaining = remaining + (remaining * 5n) / 10_000n
 
 			// Use binary search to find the minimal liquidity that covers the buffered target
 			const neededLiq = this.findLiquidityForDeficit(state, pos, isToken0, bufferedRemaining)
@@ -263,7 +268,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 			// Use V4PositionManager.removeCallParameters to generate the calldata
 			// This encodes DECREASE_LIQUIDITY + TAKE_PAIR actions internally
-			const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq, solver)
+			const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq)
 			if (!call) continue
 
 			allCalls.push(call)
@@ -367,7 +372,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		state: UniswapV4LiquidityState,
 		pos: HydratedV4Position,
 		liquidity: bigint,
-		solver: HexString,
 	): ERC7821Call | null {
 		// Build an SDK Position representing what we want to remove
 		const sdkPosition = state.buildSdkPosition(pos.tokenId, liquidity)

@@ -133,14 +133,6 @@ export class FXFiller implements FillerStrategy {
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 	}
 
-	/**
-	 * Refresh funding venue state (reserves, LP balances, prices).
-	 * Call periodically — e.g. every block or on a 12–15 s timer.
-	 */
-	async refreshFundingState(chain?: string): Promise<void> {
-		await Promise.all(this.fundingVenues.map((v) => v.refresh(chain)))
-	}
-
 	async canFill(order: Order): Promise<boolean> {
 		try {
 			if (order.inputs.length !== order.output.assets.length) {

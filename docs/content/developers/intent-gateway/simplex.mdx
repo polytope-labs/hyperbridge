@@ -124,7 +124,7 @@ pools = [
 ```
 
 <Callout type="info">
-Both funding venues can be configured simultaneously. They are initialized at startup and refreshed every ~12 seconds. When planning a withdrawal, Simplex queries all configured venues and aggregates liquidity across multiple positions or pools if needed.
+Both funding venues can be configured simultaneously. They are initialized at startup and refreshed on-demand — state is fetched fresh from the chain immediately before each withdrawal plan, ensuring calculations use the latest liquidity and price data. Simplex queries all configured venues and aggregates liquidity across multiple positions or pools if needed.
 </Callout>
 
 ## Configuration

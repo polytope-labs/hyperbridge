@@ -103,7 +103,7 @@ export class AerodromeLiquidityState {
 
 	/**
 	 * Refreshes live data: reserves, totalSupply, and LP balances.
-	 * Call periodically (e.g. every block or every ~12-15 s).
+	 * Called on-demand by the planner before each withdrawal plan.
 	 */
 	async refresh(): Promise<void> {
 		const client = this.clientManager.getPublicClient(this.chain)

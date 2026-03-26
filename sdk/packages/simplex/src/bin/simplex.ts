@@ -486,22 +486,6 @@ program
 				}
 			}
 
-			// Set up periodic funding state refresh (~12s)
-			const FUNDING_REFRESH_INTERVAL_MS = 12_000
-			const fundingRefreshTimers: ReturnType<typeof setInterval>[] = []
-			for (const strategy of strategies) {
-				if (strategy instanceof FXFiller) {
-					const timer = setInterval(async () => {
-						try {
-							await strategy.refreshFundingState()
-						} catch (err) {
-							logger.error({ err }, "Funding state refresh failed")
-						}
-					}, FUNDING_REFRESH_INTERVAL_MS)
-					fundingRefreshTimers.push(timer)
-				}
-			}
-
 			// Initialize rebalancing service only if fully configured
 			let rebalancingService: RebalancingService | undefined
 			const rebalancingConfig = configService.getRebalancingConfig()
@@ -595,9 +579,6 @@ program
 			// Handle graceful shutdown
 			const shutdown = async (signal: string) => {
 				logger.warn(`Shutting down intent filler (${signal})...`)
-				for (const timer of fundingRefreshTimers) {
-					clearInterval(timer)
-				}
 				metrics?.stop()
 				await intentFiller.stop()
 				process.exit(0)

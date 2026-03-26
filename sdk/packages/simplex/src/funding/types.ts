@@ -14,7 +14,7 @@ export interface FundingVenue {
 	name: string
 	/** One-time startup hydration of on-chain state. */
 	initialise(solver: HexString): Promise<void>
-	/** Periodic refresh of live state (reserves, balances, prices). */
+	/** Refresh live state (reserves, balances, prices). Called on-demand before withdrawal planning. */
 	refresh(chain?: string): Promise<void>
 	/**
 	 * Plans ERC-7821 calls to withdraw `amountNeeded` of `tokenOutLower`

@@ -162,6 +162,7 @@ export class PolkadotHubChain implements IChain {
 
 	private async fetchCombinedProof(at: bigint, queries: Map<Uint8Array, Uint8Array[]>): Promise<HexString> {
 		const height = Number(at)
+
 		if (!Number.isSafeInteger(height) || height < 0) {
 			throw new Error("Block height must be a non-negative safe integer for Substrate RPC")
 		}
@@ -208,16 +209,27 @@ export class PolkadotHubChain implements IChain {
 				blockHash,
 			])) as ReadProofRpc
 
+			const childNodes = childRead.proof.map((p) => hexToBytes(p as HexString))
+
 			storageProofEncoded.set(
 				addr20,
-				childRead.proof.map((p) => hexToBytes(p as HexString)),
+				childNodes,
 			)
 		}
 
+		// Match `EvmChain.queryProof`: scale-ts `Vector` encoders expect plain arrays of numbers for `Vec<u8>`,
+		// not `Uint8Array` instances (nested Uint8Arrays can encode incorrectly).
+		const storageEntries = Array.from(storageProofEncoded.entries())
+		const contractProofForEnc = mainProofBytes.map((b) => Array.from(b))
+		const storageProofForEnc = storageEntries.map(([k, nodes]) => [
+			Array.from(k),
+			nodes.map((n) => Array.from(n)),
+		]) as CodecType<typeof EvmStateProof>["storageProof"]
+
 		const encoded = EvmStateProof.enc({
-			contractProof: mainProofBytes,
-			storageProof: Array.from(storageProofEncoded.entries()),
-		} as unknown as CodecType<typeof EvmStateProof>)
+			contractProof: contractProofForEnc,
+			storageProof: storageProofForEnc,
+		})
 		return bytesToHex(encoded) as HexString
 	}
 

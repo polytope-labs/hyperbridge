@@ -104,6 +104,39 @@ bpsCurve = [
     { amount = "100000", value = 10 },    # $100000 orders: 0.1% margin
 ]
 
+# HyperFX strategy for exotic token swaps (e.g. stablecoin <-> cNGN)
+# Uncomment and configure to enable
+# [[strategies]]
+# type = "hyperfx"
+# maxOrderUsd = "5000"
+#
+# # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
+# bidPriceCurve = [
+#     { amount = "100",  price = "1580" },
+#     { amount = "1000", price = "1575" },
+#     { amount = "5000", price = "1570" },
+# ]
+#
+# # Ask price curve: exotic per USD when *selling* exotic to a user (stable→exotic leg)
+# askPriceCurve = [
+#     { amount = "100",  price = "1560" },
+#     { amount = "1000", price = "1555" },
+#     { amount = "5000", price = "1550" },
+# ]
+#
+# [strategies.exoticTokenAddresses]
+# "EVM-56"  = "0xExoticTokenAddressOnBsc"
+# "EVM-137" = "0xExoticTokenAddressOnPolygon"
+#
+# # Auto-funding from on-chain liquidity (optional)
+# # When wallet balance is insufficient, Simplex withdraws from these positions atomically
+#
+# [strategies.outputFunding.uniswapV4]
+# positions = [
+#     { chain = "EVM-8453", tokenId = "123456789" },
+# ]
+#
+
 
 # Chain configuration - RPC URLs are required
 # All other chain data (addresses, assets, etc.) comes from the SDK automatically

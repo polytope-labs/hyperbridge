@@ -60,7 +60,7 @@ Both curves are expressed in **exotic tokens per USD**. A higher bid means the f
 
 `maxOrderUsd` caps the filler's exposure per order. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
 
-HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, and a `bundlerUrl` on each `[[chains]]` entry where HyperFX will operate. Simplex automatically monitors and tops up the ERC-4337 EntryPoint deposit as a background task — depositing 10% of the solver account's native balance when it falls low.
+HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` in `[simplex]`. Simplex automatically monitors and tops up the ERC-4337 EntryPoint deposit as a background task — depositing 10% of the solver account's native balance when it falls low.
 
 ```toml lineNumbers
 [[strategies]]
@@ -99,18 +99,46 @@ Fee profit:       $2.80 − $1.30 costs = $1.50
 Total profit:     ~$14.20
 ```
 
+#### Auto-Funding from On-Chain Liquidity
+
+When the solver's wallet balance on the destination chain is insufficient to fill an order, HyperFX can automatically withdraw liquidity from on-chain positions to cover the deficit. Withdrawal calls are prepended to the UserOperation as ERC-7821 batch calls, making the funding atomic with the fill.
+
+Configured under `[strategies.outputFunding]` within the HyperFX strategy block:
+
+**Uniswap V4** — Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. 0.30% slippage tolerance, 30-minute deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
+
+```toml lineNumbers
+[strategies.outputFunding.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "123456789" },
+]
+```
+
+**Aerodrome** — Withdraws LP from Aerodrome pools on Base. Supports both volatile and stable pools. 0.3% slippage tolerance. The `gauge` field is optional — if provided, staked LP is withdrawn from the gauge before burning.
+
+```toml lineNumbers
+[strategies.outputFunding.aerodrome]
+pools = [
+    { chain = "EVM-8453", pair = "0xLpPairAddress", gauge = "0xGaugeAddress" },
+]
+```
+
+<Callout type="info">
+Both funding venues can be configured simultaneously. They are initialized at startup and refreshed every ~12 seconds. When planning a withdrawal, Simplex queries all configured venues and aggregates liquidity across multiple positions or pools if needed.
+</Callout>
+
 ## Configuration
 
 ### `[simplex]`
 
 ```toml lineNumbers
 [simplex]
-privateKey          = "0x..."  # EVM private key
 maxConcurrentOrders = 5
 
 # Required for HyperFX / solver selection
-substratePrivateKey = "0x.."       # Hex seed or mnemonic for Hyperbridge extrinsics
-hyperbridgeWsUrl    = "wss://nexus.ibp.network"       # Hyperbridge WebSocket endpoint
+substratePrivateKey = "0x.."                     # Hex seed or mnemonic for Hyperbridge extrinsics
+hyperbridgeWsUrl    = "wss://nexus.ibp.network"  # Hyperbridge WebSocket endpoint
+bundlerUrl          = "https://api.pimlico.io/v2/rpc?apikey=YOUR_KEY"  # ERC-4337 bundler
 
 [simplex.logging]
 level = "info"                 # trace | debug | info | warn | error
@@ -120,19 +148,56 @@ maxRechecks    = 10
 recheckDelayMs = 30000
 ```
 
-Each chain where HyperFX operates needs a `bundlerUrl` in its `[[chains]]` entry:
+### Signer Configuration
+
+The `[simplex.signer]` section defines how Simplex signs EVM transactions. Two modes are supported:
+
+**Private Key** — Signs transactions locally using a raw private key:
 
 ```toml lineNumbers
-[[chains]]
-chainId   = 8453
-rpcUrl    = "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY"
-bundlerUrl = "https://api.pimlico.io/v2/8453/rpc?apikey=YOUR_KEY"
-
-[[chains]]
-chainId   = 56
-rpcUrl    = "https://bsc-dataseed.binance.org/"
-bundlerUrl = "https://api.pimlico.io/v2/56/rpc?apikey=YOUR_KEY"
+[simplex.signer]
+type = "privateKey"
+privateKey = "0x..."
 ```
+
+**MPC Vault** — Signs transactions via [MPC Vault](https://mpcvault.com), an institutional custody service that uses gRPC for signing ceremonies:
+
+```toml lineNumbers
+[simplex.signer]
+type = "mpcVault"
+
+[simplex.signer.mpcVault]
+apiToken                      = "your-api-token"
+vaultUuid                     = "your-vault-uuid"
+accountAddress                = "0xYourWalletAddress"
+callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+# grpcTarget = "api.mpcvault.com:443"  # optional, this is the default
+```
+
+<Callout type="info">
+MPC Vault requires an Ed25519 keypair registered in the MPC Vault console and a running client-signer container (<code>ghcr.io/mpcvault/client-signer:latest</code>). See the <a href="https://docs.mpcvault.com">MPC Vault documentation</a> for setup instructions.
+</Callout>
+
+<Callout type="warning">
+When <code>[simplex.signer]</code> is omitted entirely, Simplex starts in watch-only mode — it monitors orders and logs strategy evaluations but does not execute any fills.
+</Callout>
+
+### Watch-Only Mode
+
+Simplex can run in watch-only mode to monitor orders and log strategy evaluations without executing fills. Useful for testing configuration and estimating profitability.
+
+```toml lineNumbers
+# Option 1: Global watch-only (all chains)
+[simplex]
+watchOnly = true
+
+# Option 2: Per-chain watch-only
+[simplex.watchOnly]
+"8453" = true    # Watch-only on Base
+"56"   = false   # Active on BSC
+```
+
+The `--watch-only` CLI flag overrides config and applies to all chains.
 
 ### Confirmation Policy
 
@@ -245,7 +310,7 @@ services:
 
 ## Requirements
 
-You need an EVM private key funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
+You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
 
 RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably.
 
@@ -265,6 +330,10 @@ Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
 
 **HyperFX bid submission fails**
 --
-Confirm `substratePrivateKey` and `hyperbridgeWsUrl` are set in `[simplex]`, that each relevant chain has a `bundlerUrl`, and that your Substrate account has BRIDGE tokens. Ensure the solver account has sufficient native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit as a background task (10% of native balance per top-up).
+Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. Ensure the solver account has sufficient native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit as a background task (10% of native balance per top-up). If using MPC Vault, verify the client-signer container is running and reachable.
+
+**Funding venue withdrawal failed**
+--
+Confirm the LP position or pool has sufficient liquidity and that the token addresses match the exotic token configured in HyperFX. For Aerodrome, verify the `pair` and `gauge` addresses are correct. For Uniswap V4, verify the `tokenId` exists and is owned by the solver account. Check logs for specific revert reasons.
 
 For verbose output, set `level = "debug"` in `[simplex.logging]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).

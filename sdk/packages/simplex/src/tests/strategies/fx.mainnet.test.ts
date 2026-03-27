@@ -44,6 +44,7 @@ import { Token, Percent } from "@uniswap/sdk-core"
 import { Pool as V4Pool, Position as V4Position, V4PositionManager } from "@uniswap/v4-sdk"
 import type { MintOptions } from "@uniswap/v4-sdk"
 import "../setup"
+import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 
 // NOTE: This is a live mainnet integration test.
 // It is skipped by default to avoid accidental execution in CI.
@@ -310,8 +311,23 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
+const PERMIT2_TOKEN_APPROVE_ABI = [
+	{
+		name: "approve",
+		type: "function",
+		stateMutability: "nonpayable",
+		inputs: [
+			{ name: "token", type: "address" },
+			{ name: "spender", type: "address" },
+			{ name: "amount", type: "uint160" },
+			{ name: "expiration", type: "uint48" },
+		],
+		outputs: [],
+	},
+] as const
+
 describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 funding", () => {
-	it("Should create V4 position, place USDC→cNGN order, and fill using V4 funding venue", async () => {
+	it("mints a USDC/cNGN V4 LP NFT (or uses FX_TEST_V4_MINT_TX), then fills a USDC→cNGN order via V4 funding", async () => {
 		const {
 			baseIntentGatewayV2,
 			basePublicClient,
@@ -321,167 +337,151 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			chainConfigService,
 			baseMainnetId,
 			contractService,
+			chainClientManager,
+			signer,
 		} = await setUpMainnetFxBase()
 
+		const baseAccount = baseWalletClient.account
+		if (!baseAccount) {
+			throw new Error("Base wallet client has no account (set PRIVATE_KEY for this test)")
+		}
+
 		const privateKey = process.env.PRIVATE_KEY as HexString
-		const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
-		const chainClientManager = new ChainClientManager(chainConfigService, signer)
 		const user = privateKeyToAccount(privateKey).address
 
-		// Pool details for USDC/cNGN on Base V4 (0.15% fee)
-		const cNGN = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" as HexString
-		// const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as HexString
-		const positionManagerAddr = "0x7c5f5a4bbd8fd63184577525326123b519429bdc" as HexString
-		// const poolManagerAddr = "0x498581ff718922c3f8e6a244956af099b2652b2b" as HexString
-		// const stateViewAddr = "0xa3c0c9b65bad0b08107aa264b0f3db444b867a71" as HexString
-		// const permit2Addr = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as HexString
-		const chainId = 8453
-		// // cNGN < USDC by address, so currency0 = cNGN, currency1 = USDC
-		// const poolFee = 1500
-		// const poolTickSpacing = 30
-		// const poolHooks = "0x0000000000000000000000000000000000000000" as HexString
+		const cNGN =
+			chainConfigService.getCNgnAsset(baseMainnetId) ??
+			("0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" as HexString)
+		const USDC = chainConfigService.getUsdcAsset(baseMainnetId)
+		const positionManagerAddr = chainConfigService.getUniswapV4PositionManagerAddress(baseMainnetId)
+		const stateViewAddr = chainConfigService.getUniswapV4StateViewAddress(baseMainnetId)
+		const permit2Addr = chainConfigService.getPermit2Address(baseMainnetId)
 
-		// // SDK Currency objects (cNGN 6 decimals, USDC 6 decimals)
-		// const cNGNToken = new Token(chainId, cNGN, 6, "cNGN")
-		// const USDCToken = new Token(chainId, USDC, 6, "USDC")
+		const chainId = chainConfigService.getChainId(baseMainnetId)
+		const cNGNDecimals = chainConfigService.getCNgnDecimals(baseMainnetId) ?? 6
+		const usdcDecimals = await contractService.getTokenDecimals(USDC, baseMainnetId)
 
-		// // ─── Phase 1: Read balances ───
-		// const cngnBalance = (await basePublicClient.readContract({
-		// 	abi: ERC20_ABI,
-		// 	address: cNGN,
-		// 	functionName: "balanceOf",
-		// 	args: [user],
-		// })) as bigint
-		// const usdcForLp = parseUnits("1", 6) // 1 USDC
-		// console.log("cNGN balance:", cngnBalance.toString())
-		// console.log("USDC for LP:", usdcForLp.toString())
+		const poolFee = 1500
+		const poolTickSpacing = 30
+		const poolHooks = "0x0000000000000000000000000000000000000000" as HexString
 
-		// // ─── Phase 2: Read pool state via StateView ───
-		// const poolId = V4Pool.getPoolId(cNGNToken, USDCToken, poolFee, poolTickSpacing, poolHooks)
-		// console.log("PoolId:", poolId)
+		const cNGNToken = new Token(chainId, cNGN, cNGNDecimals, "cNGN")
+		const USDCToken = new Token(chainId, USDC, usdcDecimals, "USDC")
 
-		// const [slot0Result, poolLiquidity] = await Promise.all([
-		// 	basePublicClient.readContract({
-		// 		address: stateViewAddr,
-		// 		abi: UNISWAP_V4_STATE_VIEW_ABI,
-		// 		functionName: "getSlot0",
-		// 		args: [poolId as HexString],
-		// 	}) as Promise<[bigint, number, number, number]>,
-		// 	basePublicClient.readContract({
-		// 		address: stateViewAddr,
-		// 		abi: UNISWAP_V4_STATE_VIEW_ABI,
-		// 		functionName: "getLiquidity",
-		// 		args: [poolId as HexString],
-		// 	}) as Promise<bigint>,
-		// ])
+		const requestedCngnOut = parseUnits("14", cNGNDecimals)
 
-		// const sqrtPriceX96 = slot0Result[0]
-		// const currentTick = slot0Result[1]
-		// console.log("Current tick:", currentTick)
-		// console.log("sqrtPriceX96:", sqrtPriceX96.toString())
-		// console.log("Pool liquidity:", poolLiquidity.toString())
+		// ─── Phase 1: Read balances ───
+		const cngnBalanceBefore = (await basePublicClient.readContract({
+			abi: ERC20_ABI,
+			address: cNGN,
+			functionName: "balanceOf",
+			args: [user],
+		})) as bigint
+		const usdcForLp = parseUnits("1", usdcDecimals)
+		expect(cngnBalanceBefore).toBeGreaterThan(0n)
+		console.log("cNGN balance:", cngnBalanceBefore.toString())
+		console.log("USDC for LP:", usdcForLp.toString())
 
-		// // Wide range around current tick, snapped to tickSpacing 30
-		// const tickLower = Math.floor((currentTick - 3000) / poolTickSpacing) * poolTickSpacing
-		// const tickUpper = Math.ceil((currentTick + 3000) / poolTickSpacing) * poolTickSpacing
-		// console.log("Tick range:", tickLower, "to", tickUpper)
+		// ─── Phase 2: Read pool state via StateView ───
+		const poolId = V4Pool.getPoolId(cNGNToken, USDCToken, poolFee, poolTickSpacing, poolHooks)
+		console.log("PoolId:", poolId)
 
-		// // ─── Phase 3: Compute position via SDK ───
-		// const sdkPool = new V4Pool(
-		// 	cNGNToken,
-		// 	USDCToken,
-		// 	poolFee,
-		// 	poolTickSpacing,
-		// 	poolHooks,
-		// 	sqrtPriceX96.toString(),
-		// 	poolLiquidity.toString(),
-		// 	currentTick,
-		// )
+		const [slot0Result, poolLiquidity] = await Promise.all([
+			basePublicClient.readContract({
+				address: stateViewAddr,
+				abi: UNISWAP_V4_STATE_VIEW_ABI,
+				functionName: "getSlot0",
+				args: [poolId as HexString],
+			}) as Promise<[bigint, number, number, number]>,
+			basePublicClient.readContract({
+				address: stateViewAddr,
+				abi: UNISWAP_V4_STATE_VIEW_ABI,
+				functionName: "getLiquidity",
+				args: [poolId as HexString],
+			}) as Promise<bigint>,
+		])
 
-		// // Use SDK Position.fromAmounts to compute max liquidity from token amounts
-		// const position = V4Position.fromAmounts({
-		// 	pool: sdkPool,
-		// 	tickLower,
-		// 	tickUpper,
-		// 	amount0: cngnBalance.toString(), // cNGN (currency0)
-		// 	amount1: usdcForLp.toString(), // USDC (currency1)
-		// 	useFullPrecision: true,
-		// })
+		const sqrtPriceX96 = slot0Result[0]
+		const currentTick = slot0Result[1]
+		console.log("Current tick:", currentTick)
+		console.log("sqrtPriceX96:", sqrtPriceX96.toString())
+		console.log("Pool liquidity:", poolLiquidity.toString())
 
-		// console.log("SDK Position liquidity:", position.liquidity.toString())
-		// console.log("SDK Position amount0 (cNGN):", position.amount0.toExact())
-		// console.log("SDK Position amount1 (USDC):", position.amount1.toExact())
+		const tickLower = Math.floor((currentTick - 3000) / poolTickSpacing) * poolTickSpacing
+		const tickUpper = Math.ceil((currentTick + 3000) / poolTickSpacing) * poolTickSpacing
+		console.log("Tick range:", tickLower, "to", tickUpper)
 
-		// expect(BigInt(position.liquidity.toString())).toBeGreaterThan(0n)
+		// ─── Phase 3: Compute position via SDK ───
+		const sdkPool = new V4Pool(
+			cNGNToken,
+			USDCToken,
+			poolFee,
+			poolTickSpacing,
+			poolHooks,
+			sqrtPriceX96.toString(),
+			poolLiquidity.toString(),
+			currentTick,
+		)
 
-		// // ─── Phase 4: Create V4 LP position via SDK ───
-		// // Approve tokens to Permit2
-		// await approveTokens(baseWalletClient, basePublicClient, cNGN, permit2Addr)
-		// await approveTokens(baseWalletClient, basePublicClient, USDC, permit2Addr)
+		const position = V4Position.fromAmounts({
+			pool: sdkPool,
+			tickLower,
+			tickUpper,
+			amount0: cngnBalanceBefore.toString(),
+			amount1: usdcForLp.toString(),
+			useFullPrecision: true,
+		})
 
-		// // Approve Permit2 allowance to PositionManager
-		// const permit2Abi = [
-		// 	{
-		// 		name: "approve",
-		// 		type: "function",
-		// 		stateMutability: "nonpayable",
-		// 		inputs: [
-		// 			{ name: "token", type: "address" },
-		// 			{ name: "spender", type: "address" },
-		// 			{ name: "amount", type: "uint160" },
-		// 			{ name: "expiration", type: "uint48" },
-		// 		],
-		// 		outputs: [],
-		// 	},
-		// ] as const
+		expect(BigInt(position.liquidity.toString())).toBeGreaterThan(0n)
 
-		// const maxAmount160 = (1n << 160n) - 1n
-		// const farFutureExpiration = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 // 1 year
+		let mintReceipt: Awaited<ReturnType<typeof basePublicClient.waitForTransactionReceipt>>
+		let mintTxHash: HexString
 
-		// const tx1 = await baseWalletClient.writeContract({
-		// 	abi: permit2Abi,
-		// 	address: permit2Addr,
-		// 	functionName: "approve",
-		// 	args: [cNGN, positionManagerAddr, maxAmount160, farFutureExpiration],
-		// 	chain: baseWalletClient.chain,
-		// 	account: baseWalletClient.account!,
-		// })
-		// await basePublicClient.waitForTransactionReceipt({ hash: tx1, confirmations: 1 })
-		// console.log("Permit2 approved cNGN for PositionManager")
+		const useExistingMintTx = Boolean(process.env.FX_TEST_V4_MINT_TX?.trim())
+		if (useExistingMintTx) {
+			mintTxHash = process.env.FX_TEST_V4_MINT_TX as HexString
+			mintReceipt = await basePublicClient.waitForTransactionReceipt({ hash: mintTxHash, confirmations: 1 })
+			console.log("V4 position: using existing mint tx from FX_TEST_V4_MINT_TX:", mintTxHash)
+		} else {
+			await approveTokens(baseWalletClient, basePublicClient, cNGN, permit2Addr)
+			await approveTokens(baseWalletClient, basePublicClient, USDC, permit2Addr)
 
-		// const tx2 = await baseWalletClient.writeContract({
-		// 	abi: permit2Abi,
-		// 	address: permit2Addr,
-		// 	functionName: "approve",
-		// 	args: [USDC, positionManagerAddr, maxAmount160, farFutureExpiration],
-		// 	chain: baseWalletClient.chain,
-		// 	account: baseWalletClient.account!,
-		// })
-		// await basePublicClient.waitForTransactionReceipt({ hash: tx2, confirmations: 1 })
-		// console.log("Permit2 approved USDC for PositionManager")
+			const maxAmount160 = (1n << 160n) - 1n
+			const farFutureExpiration = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365
 
-		// // Use SDK V4PositionManager.addCallParameters to build mint calldata
-		// const deadline = Math.floor(Date.now() / 1000) + 30 * 60 // 30 min
+			for (const token of [cNGN, USDC] as const) {
+				const txPermit = await baseWalletClient.writeContract({
+					abi: PERMIT2_TOKEN_APPROVE_ABI,
+					address: permit2Addr,
+					functionName: "approve",
+					args: [token, positionManagerAddr, maxAmount160, farFutureExpiration],
+					chain: baseWalletClient.chain,
+					account: baseAccount,
+				})
+				await basePublicClient.waitForTransactionReceipt({ hash: txPermit, confirmations: 1 })
+			}
 
-		// const mintOptions: MintOptions = {
-		// 	slippageTolerance: new Percent(50, 10_000), // 0.5% slippage for minting
-		// 	deadline: deadline.toString(),
-		// 	hookData: "0x",
-		// 	recipient: user,
-		// 	sqrtPriceX96: undefined, // pool already exists, no need to create
-		// }
+			const deadline = Math.floor(Date.now() / 1000) + 30 * 60
+			const mintOptions: MintOptions = {
+				slippageTolerance: new Percent(50, 10_000),
+				deadline: deadline.toString(),
+				hookData: "0x",
+				recipient: user,
+			}
 
-		// const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(position, mintOptions)
+			const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(position, mintOptions)
 
-		// console.log("calldata:", mintCalldata)
-		// console.log("value:", mintValue)
+			mintTxHash = await baseWalletClient.sendTransaction({
+				to: positionManagerAddr,
+				data: mintCalldata as HexString,
+				value: BigInt(mintValue),
+				chain: baseWalletClient.chain,
+				account: baseAccount,
+			})
+			mintReceipt = await basePublicClient.waitForTransactionReceipt({ hash: mintTxHash, confirmations: 1 })
+			console.log("V4 position minted, tx:", mintTxHash)
+		}
 
-		// Execute via PositionManager.multicall
-		const mintTxHash = "0x1c7870fe38135d4bd8966da0c410d988e755f75735bd5438fe42d4c3c1b23431"
-		const mintReceipt = await basePublicClient.waitForTransactionReceipt({ hash: mintTxHash, confirmations: 1 })
-		console.log("V4 position minted, tx:", mintTxHash)
-
-		// Extract tokenId from ERC-721 Transfer event (Transfer(address,address,uint256))
 		const transferTopic = keccak256(encodePacked(["string"], ["Transfer(address,address,uint256)"]))
 		const transferLog = mintReceipt.logs.find(
 			(log) =>
@@ -490,10 +490,21 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				log.topics[1] === "0x0000000000000000000000000000000000000000000000000000000000000000",
 		)
 		expect(transferLog).toBeDefined()
-		const tokenId = BigInt(transferLog!.topics[3]!)
+		const tokenIdTopic = transferLog?.topics[3]
+		if (!tokenIdTopic) {
+			throw new Error("V4 mint receipt: missing ERC-721 Transfer tokenId topic")
+		}
+		const tokenId = BigInt(tokenIdTopic)
 		console.log("Minted tokenId:", tokenId.toString())
 
-		// ─── Phase 5: Verify filler has ~0 cNGN in wallet ───
+		const nftOwner = (await basePublicClient.readContract({
+			address: positionManagerAddr,
+			abi: UNISWAP_V4_POSITION_MANAGER_ABI,
+			functionName: "ownerOf",
+			args: [tokenId],
+		})) as HexString
+		expect(nftOwner.toLowerCase()).toBe(user.toLowerCase())
+
 		const cngnBalanceAfter = (await basePublicClient.readContract({
 			abi: ERC20_ABI,
 			address: cNGN,
@@ -501,6 +512,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			args: [user],
 		})) as bigint
 		console.log("cNGN balance after LP:", cngnBalanceAfter.toString())
+		if (!useExistingMintTx) {
+			expect(cngnBalanceAfter).toBeLessThan(cngnBalanceBefore)
+		}
 
 		// ─── Phase 6: Create filler with V4 funding venue ───
 		const v4Planner = new UniswapV4FundingPlanner(
@@ -543,9 +557,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		intentFiller.start()
 
 		// ─── Phase 7: Place USDC→cNGN order ───
-		const sourceUsdc = chainConfigService.getUsdcAsset(baseMainnetId)
-		const amountIn = parseUnits("0.01", 6) // 0.01 USDC
-		const requestedCngnOut = parseUnits("14", 6)
+		const sourceUsdc = USDC
+		const amountIn = parseUnits("0.01", usdcDecimals)
 
 		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(cNGN), amount: requestedCngnOut }]
@@ -947,11 +960,6 @@ function createMpcVaultFillSigner() {
 	})
 }
 
-function bundlerUrl(chainId: number): string | undefined {
-	const apiKey = process.env.BUNDLER_API_KEY
-	return apiKey ? `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${apiKey}` : undefined
-}
-
 async function setUpMainnetFx() {
 	const polygonMainnetId = "EVM-137"
 	const chains = [polygonMainnetId]
@@ -1053,6 +1061,8 @@ async function setUpMainnetFxBase() {
 		chainConfigService,
 		fillerConfig,
 		chainConfigs,
+		chainClientManager,
+		signer,
 	}
 }
 

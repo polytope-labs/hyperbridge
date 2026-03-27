@@ -2,6 +2,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import type { ERC7821Call } from "@hyperbridge/sdk"
 import { encodeFunctionData, maxUint256 } from "viem"
 import { Mutex } from "async-mutex"
+import type { Decimal } from "decimal.js"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { FundingPlanResult, FundingVenue, AerodromeOutputFundingConfig, HydratedPool } from "@/funding/types"
@@ -141,6 +142,10 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	/** Retrieve the liquidity state for a chain.  Returns undefined if not configured. */
 	getState(chain: string): AerodromeLiquidityState | undefined {
 		return this.stateByChain.get(chain)
+	}
+
+	getExoticTokenPrice(_chain: string, _exoticToken: string): Decimal | null {
+		throw new Error("unimplemented")
 	}
 
 	// =========================================================================

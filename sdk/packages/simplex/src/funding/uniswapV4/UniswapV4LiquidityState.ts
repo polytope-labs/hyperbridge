@@ -271,6 +271,13 @@ export class UniswapV4LiquidityState {
 	remaining(tokenId: bigint): bigint {
 		return this.positions.get(tokenId.toString())?.remainingLiquidity ?? 0n
 	}
+
+	/** Returns the SDK Pool's total active liquidity for sorting by depth. */
+	getPoolLiquidity(tokenId: bigint): bigint {
+		const poolId = this.tokenIdToPoolId.get(tokenId.toString())
+		const pool = poolId ? this.sdkPools.get(poolId) : undefined
+		return pool ? BigInt(pool.liquidity.toString()) : 0n
+	}
 }
 
 // =========================================================================

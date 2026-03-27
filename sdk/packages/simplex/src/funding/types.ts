@@ -1,4 +1,5 @@
 import type { HexString, ERC7821Call } from "@hyperbridge/sdk"
+import type { Decimal } from "decimal.js"
 
 // =========================================================================
 // Unified Funding Venue Interface
@@ -30,6 +31,18 @@ export interface FundingVenue {
 		tokenOutLower: string,
 		amountNeeded: bigint,
 	): Promise<FundingPlanResult>
+	/**
+	 * Returns the USD price (USDC/USDT) of the given exotic token on the
+	 * specified chain. Supports both direct stable pairs and WETH-routed
+	 * pairs. Uses the most-liquid qualifying pool. Returns null when no
+	 * qualifying pool exists or prices have not yet been fetched.
+	 *
+	 * Prices are refreshed automatically every 6 seconds from on-chain
+	 * pool state and cached in the venue's internal state.
+	 */
+	getExoticTokenPrice(chain: string, exoticToken: string): Decimal | null
+	/** Tears down background polling (price refresh interval). */
+	destroy?(): void
 }
 
 export interface FundingPlanResult {

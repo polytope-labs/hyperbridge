@@ -83,6 +83,7 @@
 		"chainId": "97",
 		"startBlock": 44742412,
 		"stateMachineId": "EVM-97",
+		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
 			"handlerV1": "0xb45A4078A2D0B036C324A0046C2845aD59e769F6",

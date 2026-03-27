@@ -96,7 +96,7 @@ When **`[strategies.outputFunding.uniswapV4]`** lists at least one position, Hyp
 - You must configure **at least one** of: static curves (as above), **or** `[strategies.outputFunding.uniswapV4].positions` (non-empty).
 - **Aerodrome-only** auto-funding (no Uniswap V4 positions) does **not** supply live USD/exotic rates — you still need full bid/ask curves in that case.
 
-The optional **`spreadBps`** field (basis points) sets a symmetric spread around the Uniswap V4 mid: for example, `spreadBps = 50` applies a 0.5% spread (bid is 0.5% above mid in exotic-per-USD terms, ask 0.5% below). Defaults to `0` if omitted.
+The optional **`spreadBps`** field (basis points) sets the slippage tolerance for on-chain LP redemptions (both Uniswap V4 and Aerodrome). For example, `spreadBps = 50` applies a 0.50% slippage tolerance on remove-liquidity operations and buffers the withdrawal target by the same amount. Defaults to `50` if omitted.
 
 When both static curves **and** Uniswap V4 positions are configured, **Uniswap V4 pool prices take precedence** for bid/ask once the first price refresh completes. The static curves act as a fallback until then, and each 6-second poll updates bid/ask from the pool.
 
@@ -170,7 +170,7 @@ When the solver's wallet balance on the destination chain is insufficient to fil
 
 Configured under `[strategies.outputFunding]` within the HyperFX strategy block:
 
-**Uniswap V4** — Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. Roughly **0.10%** slippage tolerance on the remove-liquidity path, 30-minute deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
+**Uniswap V4** — Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. Slippage tolerance is set by `spreadBps` (default 50 bps / 0.50%), 30-minute deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
 
 ```toml lineNumbers
 [strategies.outputFunding.uniswapV4]
@@ -179,7 +179,7 @@ positions = [
 ]
 ```
 
-**Aerodrome** — Withdraws LP from Aerodrome pools on Base. Supports both volatile and stable pools. 0.3% slippage tolerance. The `gauge` field is optional — if provided, staked LP is withdrawn from the gauge before burning.
+**Aerodrome** — Withdraws LP from Aerodrome pools on Base. Supports both volatile and stable pools. Slippage tolerance is set by `spreadBps` (default 50 bps / 0.50%). The `gauge` field is optional — if provided, staked LP is withdrawn from the gauge before burning.
 
 ```toml lineNumbers
 [strategies.outputFunding.aerodrome]

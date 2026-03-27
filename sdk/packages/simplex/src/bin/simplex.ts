@@ -465,12 +465,14 @@ program
 							configService,
 							chainClientManager,
 							contractService,
-							bidPricePolicy,
-							askPricePolicy,
 							strategyConfig.maxOrderUsd,
 							strategyConfig.exoticTokenAddresses,
-							fxConfirmationPolicy,
-							fundingVenues,
+							{
+								bidPricePolicy,
+								askPricePolicy,
+								confirmationPolicy: fxConfirmationPolicy,
+								fundingVenues,
+							},
 						)
 					}
 					default:

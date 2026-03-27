@@ -531,12 +531,13 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			chainConfigService,
 			chainClientManager,
 			contractService,
-			bidPricePolicy,
-			askPricePolicy,
 			"5000",
 			exoticTokenAddresses,
-			undefined,
-			fundingVenues,
+			{
+				bidPricePolicy,
+				askPricePolicy,
+				fundingVenues,
+			},
 		)
 		await fxStrategy.initialise()
 
@@ -1243,11 +1244,13 @@ function createCrossChainFxIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		bidPricePolicy,
-		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
-		confirmationPolicy,
+		{
+			bidPricePolicy,
+			askPricePolicy,
+			confirmationPolicy,
+		},
 	)
 
 	const strategies = [fxStrategy]
@@ -1301,10 +1304,12 @@ function createFxOnlyIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		bidPricePolicy,
-		askPricePolicy,
 		"5000",
 		exoticTokenAddresses,
+		{
+			bidPricePolicy,
+			askPricePolicy,
+		},
 	)
 
 	const strategies = [fxStrategy]

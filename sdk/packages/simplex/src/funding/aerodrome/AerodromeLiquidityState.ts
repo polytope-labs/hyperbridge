@@ -20,6 +20,8 @@ export class AerodromeLiquidityState {
 	/** Keyed by `pair` address (lower-cased). */
 	private pools = new Map<string, HydratedPool>()
 	private hydrated = false
+	private consumed = new Map<string, bigint>()
+	private lastOnChainLp = new Map<string, bigint>()
 
 	constructor(
 		private readonly chain: string,
@@ -145,7 +147,16 @@ export class AerodromeLiquidityState {
 
 		pool.walletLp = walletLp
 		pool.gaugeLp = gaugeLp
-		pool.remainingLp = walletLp + gaugeLp
+
+		const key = pool.pair.toLowerCase()
+		const onChain = walletLp + gaugeLp
+		const prevOnChain = this.lastOnChainLp.get(key) ?? onChain
+		const decrease = prevOnChain > onChain ? prevOnChain - onChain : 0n
+		const prevConsumed = this.consumed.get(key) ?? 0n
+		const newConsumed = prevConsumed > decrease ? prevConsumed - decrease : 0n
+		this.consumed.set(key, newConsumed)
+		this.lastOnChainLp.set(key, onChain)
+		pool.remainingLp = onChain > newConsumed ? onChain - newConsumed : 0n
 	}
 
 	// =========================================================================
@@ -174,5 +185,14 @@ export class AerodromeLiquidityState {
 	/** Remaining LP available for a given pair. */
 	remaining(pair: HexString): bigint {
 		return this.pools.get(pair.toLowerCase())?.remainingLp ?? 0n
+	}
+
+	consume(pair: HexString, amount: bigint): void {
+		const key = pair.toLowerCase()
+		const pool = this.pools.get(key)
+		if (pool) {
+			pool.remainingLp = pool.remainingLp > amount ? pool.remainingLp - amount : 0n
+		}
+		this.consumed.set(key, (this.consumed.get(key) ?? 0n) + amount)
 	}
 }

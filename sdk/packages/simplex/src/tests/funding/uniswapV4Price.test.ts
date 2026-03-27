@@ -32,16 +32,12 @@ describe.skip("UniswapV4 FundingVenue — cNGN price on Base", () => {
 			throw new Error("cNGN asset not found")
 		}
 
-		try {
-			await venue.initialise(solver)
+		await venue.initialise(solver)
 
-			const price = venue.getExoticTokenPrice(BASE_CHAIN, cNGN)
-			console.log("cNGN/USD price:", price?.toString())
+		const price = await venue.getExoticTokenPrice(BASE_CHAIN, cNGN)
+		console.log("cNGN/USD price:", price?.toString())
 
-			expect(price).not.toBeNull()
-			expect(price!.isPositive()).toBe(true)
-		} finally {
-			venue.destroy()
-		}
+		expect(price).not.toBeNull()
+		expect(price!.isPositive()).toBe(true)
 	})
 })

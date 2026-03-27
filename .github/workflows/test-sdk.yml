@@ -82,6 +82,9 @@ jobs:
                   sudo apt-get install -y docker-compose
                   docker compose version
 
+            - name: Clear Docker credentials
+              run: docker logout
+
             - name: Start local indexer (in background)
               env:
                   DB_USER: "postgres"

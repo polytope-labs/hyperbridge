@@ -94,7 +94,7 @@ With venue pricing enabled, the `bidPriceCurve` and `askPriceCurve` fields becom
 
 When both static curves and funding venues are configured, **venue prices always take precedence**. The static curves serve as the initial fallback until the first venue price refresh completes. After that, each 6-second poll overwrites the bid/ask policies with the latest pool price.
 
-Pricing supports pools paired with USDC, USDT, or WETH. For WETH-paired pools, the venue chains the pool price with a WETH→USDC quote to derive the USD price. When multiple positions exist for the same exotic token on a chain, the most-liquid pool's price is used.
+Uniswap V4 venue pricing uses pools that pair the exotic token with **USDC or USDT** (addresses from your chain config). Pools quoted in other assets (for example WETH) are not used for live USD pricing. When multiple positions exist for the same exotic token on a chain, the most-liquid pool's price is used.
 
 **Venue-only mode** — no static curves, prices derived entirely from the pool:
 
@@ -395,6 +395,6 @@ Confirm the LP position or pool has sufficient liquidity and that the token addr
 
 **Venue price returns null / bid-ask not updating**
 --
-Confirm the configured positions contain a pool that pairs the exotic token with USDC, USDT, or WETH. Pools with other quote tokens cannot derive a USD price. Check that the position's `tokenId` is valid and owned by the solver. Aerodrome venues do not support live pricing yet.
+Confirm the configured positions contain a pool that pairs the exotic token with **USDC or USDT**. Pools with other quote tokens cannot derive a USD price from the Uniswap V4 venue. Check that the position's `tokenId` is valid and owned by the solver. Aerodrome venues do not support live pricing yet.
 
 For verbose output, set `level = "debug"` in `[simplex.logging]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).

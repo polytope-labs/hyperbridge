@@ -21,8 +21,8 @@ import { encodeFunctionData } from "viem"
 
 const logger = getLogger("uniswapv4-funding")
 
-/** Slippage tolerance for remove-liquidity operations (0.10%). */
-const SLIPPAGE_TOLERANCE = new Percent(50, 10_000) // 0.50%
+/** Default slippage tolerance for remove-liquidity operations. */
+const DEFAULT_SLIPPAGE_BPS = 50
 
 /**
  * Funding venue that sources output tokens by removing liquidity from
@@ -42,11 +42,17 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	private stateByChain = new Map<string, UniswapV4LiquidityState>()
 	/** Per-chain mutex serialising planWithdrawalForToken to prevent concurrent state races. */
 	private mutexByChain = new Map<string, Mutex>()
+	/** Slippage tolerance for remove-liquidity operations, derived from spreadBps. */
+	private readonly slippageTolerance: Percent
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly config: UniswapV4OutputFundingConfig,
 		private readonly configService: FillerConfigService,
-	) {}
+		spreadBps?: number,
+	) {
+		const bps = spreadBps ?? DEFAULT_SLIPPAGE_BPS
+		this.slippageTolerance = new Percent(bps, 10_000)
+	}
 
 	/**
 	 * Validates raw TOML position entries before constructing the planner.
@@ -315,7 +321,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				// that even in the worst-case slippage scenario the credited
 				// tokens still cover the fill requirement, avoiding a wasted
 				// revert on the entire ERC-7821 batch.
-				const slippageBps = BigInt(SLIPPAGE_TOLERANCE.numerator.toString()) * 10_000n / BigInt(SLIPPAGE_TOLERANCE.denominator.toString())
+				const slippageBps = BigInt(this.slippageTolerance.numerator.toString()) * 10_000n / BigInt(this.slippageTolerance.denominator.toString())
 				const bufferedRemaining = remaining + (remaining * slippageBps) / 10_000n
 
 				// Use binary search to find the minimal liquidity that covers the buffered target
@@ -486,7 +492,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		const deadline = deadlineTimestamp ? Number(deadlineTimestamp) : Math.floor(Date.now() / 1000) + 30 * 60
 
 		const removeOptions: RemoveLiquidityOptions = {
-			slippageTolerance: SLIPPAGE_TOLERANCE,
+			slippageTolerance: this.slippageTolerance,
 			deadline: deadline.toString(),
 			hookData: "0x",
 			tokenId: pos.tokenId.toString(),

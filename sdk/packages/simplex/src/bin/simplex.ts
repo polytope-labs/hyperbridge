@@ -338,7 +338,7 @@ program
 								})
 							}
 							fundingVenues.push(
-								new AerodromeFundingPlanner(chainClientManager, { poolsByChain }, configService),
+								new AerodromeFundingPlanner(chainClientManager, { poolsByChain }, configService, strategyConfig.spreadBps),
 							)
 						}
 						if (strategyConfig.outputFunding?.uniswapV4?.positions?.length) {
@@ -351,7 +351,7 @@ program
 								})
 							}
 							fundingVenues.push(
-								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService),
+								new UniswapV4FundingPlanner(chainClientManager, { positionsByChain }, configService, strategyConfig.spreadBps),
 							)
 						}
 						return new FXFiller(

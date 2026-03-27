@@ -1,5 +1,5 @@
 # Dockerfile for simplex
-FROM node:22
+FROM node:24
 
 # Install dependencies required for builds
 RUN apt-get update && apt-get install -y python3 make g++ git curl protobuf-compiler libprotobuf-dev --no-install-recommends && rm -rf /var/lib/apt/lists/*

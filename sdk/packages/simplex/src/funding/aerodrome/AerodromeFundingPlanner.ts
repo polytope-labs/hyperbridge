@@ -13,8 +13,8 @@ import { getLogger } from "@/services/Logger"
 
 const logger = getLogger("aerodrome-funding")
 
-/** Slippage for `amount0Min` / `amount1Min` (99.90 % of quote ≈ 0.10 % slip). */
-const MIN_AMOUNT_OUT_BPS = 9950
+/** Default slippage for `amount0Min` / `amount1Min` (50 bps). */
+const DEFAULT_MIN_AMOUNT_OUT_BPS = 9950
 const MAX_BS_ITER = 48
 
 // ============================================================================
@@ -80,7 +80,12 @@ export class AerodromeFundingPlanner implements FundingVenue {
 		private readonly clientManager: ChainClientManager,
 		private readonly config: AerodromeOutputFundingConfig,
 		private readonly configService: FillerConfigService,
-	) {}
+		spreadBps?: number,
+	) {
+		this._minAmountOutBps = spreadBps !== undefined ? 10000 - spreadBps : DEFAULT_MIN_AMOUNT_OUT_BPS
+	}
+
+	private readonly _minAmountOutBps: number
 
 	/**
 	 * Validates raw TOML pool entries before constructing the planner.
@@ -99,7 +104,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	}
 
 	get minAmountOutBps(): number {
-		return MIN_AMOUNT_OUT_BPS
+		return this._minAmountOutBps
 	}
 
 	// =========================================================================

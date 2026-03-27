@@ -109,6 +109,14 @@ export class EventMonitor extends EventEmitter {
 		}
 	}
 
+	private isBlockRangeError(error: any): boolean {
+		const message = String(error?.message || error?.details || "")
+		return (
+			message.includes("block range extends beyond current head block") ||
+			message.includes("invalid block range params")
+		)
+	}
+
 	private async scanBlocks(
 		chainId: number,
 		chain: IEvmChain,
@@ -126,33 +134,74 @@ export class EventMonitor extends EventEmitter {
 
 		if (currentBlock > lastScanned) {
 			const fromBlock = lastScanned + 1n
-			const toBlock = currentBlock
 
 			const maxBlockRange = 1000n
-			const actualToBlock = fromBlock + maxBlockRange > toBlock ? toBlock : fromBlock + maxBlockRange
+			const clampedToBlock =
+				fromBlock + maxBlockRange > currentBlock ? currentBlock : fromBlock + maxBlockRange
 
 			this.logger.debug(
-				{ chainId, fromBlock, toBlock: actualToBlock, gap: Number(actualToBlock - fromBlock) },
+				{ chainId, fromBlock, toBlock: clampedToBlock, gap: Number(clampedToBlock - fromBlock) },
 				"Scanning blocks",
 			)
 
-			const logs = await retryPromise(
-				() =>
-					chain.client.getLogs({
+			let logs: any[]
+			let actualToBlock = clampedToBlock
+
+			try {
+				logs = await retryPromise(
+					() =>
+						chain.client.getLogs({
+							address: intentGatewayAddress,
+							events: gatewayEvents,
+							fromBlock,
+							toBlock: clampedToBlock,
+						}),
+					{
+						maxRetries: 3,
+						backoffMs: 250,
+						logMessage: "Failed to get gateway event logs",
+					},
+				)
+			} catch (error: any) {
+				if (!this.isBlockRangeError(error)) throw error
+
+				// RPC node is behind the reported head block — fall back to "latest" tag
+				this.logger.warn(
+					{ chainId, fromBlock, toBlock: clampedToBlock },
+					"Block range ahead of RPC head, retrying with 'latest'",
+				)
+
+				try {
+					logs = await chain.client.getLogs({
 						address: intentGatewayAddress,
 						events: gatewayEvents,
 						fromBlock,
-						toBlock: actualToBlock,
-					}),
-				{
-					maxRetries: 3,
-					backoffMs: 250,
-					logMessage: "Failed to get gateway event logs",
-				},
-			)
+					})
+
+					// Determine actual toBlock from log results or re-fetch head
+					if (logs.length > 0) {
+						actualToBlock = logs.reduce(
+							(max: bigint, log: any) =>
+								log.blockNumber > max ? log.blockNumber : max,
+							fromBlock,
+						)
+					} else {
+						const latestBlock = await chain.client.getBlockNumber()
+						actualToBlock = latestBlock >= fromBlock ? latestBlock : fromBlock
+					}
+				} catch (fallbackError) {
+					this.logger.warn(
+						{ chainId, fromBlock, err: fallbackError },
+						"Fallback scan with 'latest' also failed, will retry next interval",
+					)
+					return
+				}
+			}
 
 			const placedLogs = logs.filter((l: any) => l.eventName === "OrderPlaced")
-			const filledLogs = logs.filter((l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill")
+			const filledLogs = logs.filter(
+				(l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill",
+			)
 
 			if (placedLogs.length > 0) {
 				this.logger.info(

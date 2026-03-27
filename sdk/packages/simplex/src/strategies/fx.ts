@@ -79,7 +79,7 @@ export class FXFiller implements FillerStrategy {
 	 * @param options.askPricePolicy Optional price curve for selling exotic. Required if no fundingVenues.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing and live pricing.
-	 * @param options.spreadBps      Spread in basis points applied around venue price (default 0).
+	 * @param options.spreadBps      Spread in basis points applied when redeeming from the pool (default 50).
 	 */
 	constructor(
 		signer: SigningAccount,
@@ -101,7 +101,7 @@ export class FXFiller implements FillerStrategy {
 			askPricePolicy,
 			confirmationPolicy,
 			fundingVenues = [],
-			spreadBps = 0,
+			spreadBps = 50,
 		} = options ?? {}
 
 		const hasPolicies = bidPricePolicy && askPricePolicy
@@ -153,8 +153,8 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Queries funding venues for the exotic token's USD price on a given chain.
-	 * Uniswap V4 is preferred; falls back to other venues. Returns bid/ask
-	 * with spread applied, or null if no venue has a price.
+	 * Uniswap V4 is preferred; falls back to other venues. Returns the raw
+	 * pool price as both bid and ask, or null if no venue has a price.
 	 */
 	private async getVenuePrice(chain: string): Promise<{ bid: Decimal; ask: Decimal } | null> {
 		const exoticAddr = this.exoticTokenAddresses[chain]
@@ -168,10 +168,9 @@ export class FXFiller implements FillerStrategy {
 			const usdPrice = await venue.getExoticTokenPrice(chain, exoticAddr)
 			if (usdPrice && usdPrice.isPositive()) {
 				const exoticPerUsd = new Decimal(1).div(usdPrice)
-				const spread = new Decimal(this.spreadBps).div(10000)
 				return {
-					bid: exoticPerUsd.mul(new Decimal(1).plus(spread)),
-					ask: exoticPerUsd.mul(new Decimal(1).minus(spread)),
+					bid: exoticPerUsd,
+					ask: exoticPerUsd,
 				}
 			}
 		}

@@ -86,6 +86,63 @@ askPriceCurve = [
 "EVM-137" = "0xExoticTokenAddressOnPolygon"
 ```
 
+#### Live DEX Pricing
+
+When funding venues (Uniswap V4) are configured, HyperFX can derive bid/ask prices directly from on-chain pool state instead of relying on static price curves. Prices are read from the pool's current tick every 6 seconds and cached in memory.
+
+With venue pricing enabled, the `bidPriceCurve` and `askPriceCurve` fields become **optional**. The `spreadBps` field controls the symmetric spread applied around the venue-derived mid price — for example, `spreadBps = 50` applies a 0.5% spread (bid is 0.5% above mid, ask is 0.5% below mid).
+
+When both static curves and funding venues are configured, **venue prices always take precedence**. The static curves serve as the initial fallback until the first venue price refresh completes. After that, each 6-second poll overwrites the bid/ask policies with the latest pool price.
+
+Pricing supports pools paired with USDC, USDT, or WETH. For WETH-paired pools, the venue chains the pool price with a WETH→USDC quote to derive the USD price. When multiple positions exist for the same exotic token on a chain, the most-liquid pool's price is used.
+
+**Venue-only mode** — no static curves, prices derived entirely from the pool:
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = "5000"
+spreadBps = 50  # 0.5% spread around live DEX price
+
+[strategies.exoticTokenAddresses]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.outputFunding.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+```
+
+**Hybrid mode** — static curves as fallback, venue prices override when available:
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = "5000"
+spreadBps = 30
+
+bidPriceCurve = [
+    { amount = "100",  price = "1580" },
+    { amount = "5000", price = "1570" },
+]
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "5000", price = "1550" },
+]
+
+[strategies.exoticTokenAddresses]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.outputFunding.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+```
+
+<Callout type="info">
+At least one of bid/ask price curves or funding venues must be configured. If neither is provided, Simplex will fail at startup with a validation error.
+</Callout>
+
 #### Example profit calculation
 
 For a \$1000 USDC → cNGN order, the curve interpolates to bid 1575, ask 1555 at the $1000 size:
@@ -124,7 +181,7 @@ pools = [
 ```
 
 <Callout type="info">
-Both funding venues can be configured simultaneously. They are initialized at startup and refreshed on-demand — state is fetched fresh from the chain immediately before each withdrawal plan, ensuring calculations use the latest liquidity and price data. Simplex queries all configured venues and aggregates liquidity across multiple positions or pools if needed.
+Both funding venues can be configured simultaneously. They are initialized at startup and refreshed on-demand — state is fetched fresh from the chain immediately before each withdrawal plan, ensuring calculations use the latest liquidity and price data. Simplex queries all configured venues and aggregates liquidity across multiple positions or pools if needed. Funding venues also provide live exotic token prices derived from pool state, which HyperFX uses to set bid/ask rates automatically (see **Live DEX Pricing** above).
 </Callout>
 
 ## Configuration
@@ -335,5 +392,9 @@ Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `
 **Funding venue withdrawal failed**
 --
 Confirm the LP position or pool has sufficient liquidity and that the token addresses match the exotic token configured in HyperFX. For Aerodrome, verify the `pair` and `gauge` addresses are correct. For Uniswap V4, verify the `tokenId` exists and is owned by the solver account. Check logs for specific revert reasons.
+
+**Venue price returns null / bid-ask not updating**
+--
+Confirm the configured positions contain a pool that pairs the exotic token with USDC, USDT, or WETH. Pools with other quote tokens cannot derive a USD price. Check that the position's `tokenId` is valid and owned by the solver. Aerodrome venues do not support live pricing yet.
 
 For verbose output, set `level = "debug"` in `[simplex.logging]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).

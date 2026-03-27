@@ -510,20 +510,6 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		)
 		const fundingVenues: FundingVenue[] = [v4Planner]
 
-		// Price policy: 1 USDC = 1550 cNGN (approximate NGN rate)
-		const bidPricePolicy = new FillerPricePolicy({
-			points: [
-				{ amount: "1", price: "1550" },
-				{ amount: "10000", price: "1550" },
-			],
-		})
-		const askPricePolicy = new FillerPricePolicy({
-			points: [
-				{ amount: "1", price: "1550" },
-				{ amount: "10000", price: "1550" },
-			],
-		})
-
 		const exoticTokenAddresses: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
 		const fxStrategy = new FXFiller(
@@ -534,8 +520,6 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			"5000",
 			exoticTokenAddresses,
 			{
-				bidPricePolicy,
-				askPricePolicy,
 				fundingVenues,
 			},
 		)
@@ -561,7 +545,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		// ─── Phase 7: Place USDC→cNGN order ───
 		const sourceUsdc = chainConfigService.getUsdcAsset(baseMainnetId)
 		const amountIn = parseUnits("0.01", 6) // 0.01 USDC
-		const requestedCngnOut = parseUnits("15", 6) // ~15 cNGN (at ~1550 rate, 0.01 USD ≈ 15.5 cNGN)
+		const requestedCngnOut = parseUnits("14", 6)
 
 		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
 		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(cNGN), amount: requestedCngnOut }]

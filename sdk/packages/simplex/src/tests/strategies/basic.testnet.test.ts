@@ -40,6 +40,7 @@ import {
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
+import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { TronWeb } from "tronweb"
 
@@ -471,12 +472,6 @@ async function pollForOrderFilled(
 // ============================================================================
 // EVM Setup
 // ============================================================================
-
-function bundlerUrl(chainId: number): string | undefined {
-	const apiKey = process.env.BUNDLER_API_KEY
-
-	return `https://api.pimlico.io/v2/${chainId}/rpc?apikey=${apiKey}`
-}
 
 async function setUp() {
 	const bscChapelId = "EVM-97"

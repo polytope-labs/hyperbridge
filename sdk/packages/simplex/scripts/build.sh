@@ -2,6 +2,8 @@
 # @hyperbridge/simplex: submodule protos → protoc → src/proto, then tsup (unless --codegen-only).
 #
 # Requires: git (optional), protoc, pnpm install (ts-proto in node_modules).
+# For DTS, @hyperbridge/sdk must be built first so dist/node/index.d.ts includes latest
+# ChainConfigService (run from repo sdk root: pnpm --filter=@hyperbridge/sdk build).
 #
 # Usage:
 #   ./scripts/build.sh              # full build (codegen + tsup)

@@ -89,8 +89,11 @@ interface FxStrategyConfig {
 	 * Bid price curve: exotic tokens per 1 USD when the filler *buys* exotic from a user
 	 * (exotic→stable leg). Should have a higher exotic-per-USD rate than the ask curve so
 	 * the filler pays out fewer stablecoins per exotic token received.
+	 *
+	 * Optional when `[strategies.outputFunding.uniswapV4]` lists at least one position — bid/ask
+	 * are then derived from the Uniswap V4 pool after startup.
 	 */
-	bidPriceCurve: Array<{
+	bidPriceCurve?: Array<{
 		amount: string
 		price: string
 	}>
@@ -98,11 +101,19 @@ interface FxStrategyConfig {
 	 * Ask price curve: exotic tokens per 1 USD when the filler *sells* exotic to a user
 	 * (stable→exotic leg). Should have a lower exotic-per-USD rate than the bid curve so
 	 * the filler sends fewer exotic tokens per stablecoin received.
+	 *
+	 * Optional when `[strategies.outputFunding.uniswapV4]` lists at least one position — bid/ask
+	 * are then derived from the Uniswap V4 pool after startup.
 	 */
-	askPriceCurve: Array<{
+	askPriceCurve?: Array<{
 		amount: string
 		price: string
 	}>
+	/**
+	 * Symmetric spread (basis points) around Uniswap V4 pool mid when venue pricing is used.
+	 * Ignored when only static bid/ask curves apply.
+	 */
+	spreadBps?: number
 	/** Maximum USD value per order */
 	maxOrderUsd: string
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
@@ -211,9 +222,13 @@ function getStrategyBanner(config: StrategyConfig): string {
 		title = "BASIC STRATEGY  ACTIVE"
 		subtitle = "adaptive BPS spread curve"
 	} else {
-		const bidPoints = config.bidPriceCurve.map((p) => ({ x: parseFloat(p.amount), y: parseFloat(p.price) }))
-		const askPoints = config.askPriceCurve.map((p) => ({ x: parseFloat(p.amount), y: parseFloat(p.price) }))
-		chartRows = [...renderCurveAscii(bidPoints, " bid"), "", ...renderCurveAscii(askPoints, " ask")]
+		if (config.bidPriceCurve?.length && config.askPriceCurve?.length) {
+			const bidPoints = config.bidPriceCurve.map((p) => ({ x: parseFloat(p.amount), y: parseFloat(p.price) }))
+			const askPoints = config.askPriceCurve.map((p) => ({ x: parseFloat(p.amount), y: parseFloat(p.price) }))
+			chartRows = [...renderCurveAscii(bidPoints, " bid"), "", ...renderCurveAscii(askPoints, " ask")]
+		} else {
+			chartRows = ["  (venue pricing — add bid/ask curves to plot static rails)"]
+		}
 		title = "HYPERFX STRATEGY  ACTIVE"
 		subtitle = "adaptive bid/ask FX price curve routing"
 	}
@@ -422,8 +437,12 @@ program
 						)
 					}
 					case "hyperfx": {
-						const bidPricePolicy = new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
-						const askPricePolicy = new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
+						const bidPricePolicy = strategyConfig.bidPriceCurve?.length
+							? new FillerPricePolicy({ points: strategyConfig.bidPriceCurve })
+							: undefined
+						const askPricePolicy = strategyConfig.askPriceCurve?.length
+							? new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
+							: undefined
 						const fxConfirmationPolicy = strategyConfig.confirmationPolicies
 							? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
 							: undefined
@@ -472,6 +491,7 @@ program
 								askPricePolicy,
 								confirmationPolicy: fxConfirmationPolicy,
 								fundingVenues,
+								spreadBps: strategyConfig.spreadBps,
 							},
 						)
 					}
@@ -688,33 +708,42 @@ function validateConfig(config: FillerTomlConfig): void {
 				UniswapV4FundingPlanner.validateConfig(strategy.outputFunding.uniswapV4.positions)
 			}
 
-			// Validate bid price curve
-			if (
-				!strategy.bidPriceCurve ||
-				!Array.isArray(strategy.bidPriceCurve) ||
-				strategy.bidPriceCurve.length < 2
-			) {
-				throw new Error("FX strategy must have a 'bidPriceCurve' array with at least 2 points")
+			const bidLen = strategy.bidPriceCurve?.length ?? 0
+			const askLen = strategy.askPriceCurve?.length ?? 0
+			if (bidLen > 0 !== askLen > 0) {
+				throw new Error(
+					"hyperfx: set both 'bidPriceCurve' and 'askPriceCurve', or omit both when using outputFunding.uniswapV4 for pricing",
+				)
 			}
 
-			for (const point of strategy.bidPriceCurve) {
-				if (point.amount === undefined || point.price === undefined) {
-					throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
+			const hasStaticCurves = bidLen >= 2 && askLen >= 2
+			const hasUniswapV4Positions = (strategy.outputFunding?.uniswapV4?.positions?.length ?? 0) > 0
+
+			if (!hasStaticCurves && !hasUniswapV4Positions) {
+				throw new Error(
+					"hyperfx: provide bid+ask price curves (≥2 points each) or configure [strategies.outputFunding.uniswapV4].positions for pool-based pricing",
+				)
+			}
+
+			if (strategy.spreadBps !== undefined) {
+				if (!Number.isFinite(strategy.spreadBps) || strategy.spreadBps < 0 || strategy.spreadBps > 10_000) {
+					throw new Error("hyperfx: 'spreadBps' must be a number between 0 and 10000")
 				}
 			}
 
-			// Validate ask price curve
-			if (
-				!strategy.askPriceCurve ||
-				!Array.isArray(strategy.askPriceCurve) ||
-				strategy.askPriceCurve.length < 2
-			) {
-				throw new Error("FX strategy must have an 'askPriceCurve' array with at least 2 points")
-			}
-
-			for (const point of strategy.askPriceCurve) {
-				if (point.amount === undefined || point.price === undefined) {
-					throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
+			if (bidLen > 0) {
+				if (!hasStaticCurves) {
+					throw new Error("hyperfx: bid and ask price curves must each have at least 2 points when provided")
+				}
+				for (const point of strategy.bidPriceCurve!) {
+					if (point.amount === undefined || point.price === undefined) {
+						throw new Error("Each FX bidPriceCurve point must have 'amount' and 'price'")
+					}
+				}
+				for (const point of strategy.askPriceCurve!) {
+					if (point.amount === undefined || point.price === undefined) {
+						throw new Error("Each FX askPriceCurve point must have 'amount' and 'price'")
+					}
 				}
 			}
 

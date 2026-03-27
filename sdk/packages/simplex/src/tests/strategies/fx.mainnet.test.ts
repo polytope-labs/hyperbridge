@@ -4,6 +4,7 @@ import {
 	CacheService,
 	ChainClientManager,
 	ContractInteractionService,
+	DelegationService,
 	FillerConfigService,
 	type UserProvidedChainConfig,
 	type FillerConfig as FillerServiceConfig,
@@ -25,6 +26,7 @@ import {
 } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
 import {
+	decodeEventLog,
 	getContract,
 	maxUint256,
 	parseUnits,
@@ -33,6 +35,7 @@ import {
 	encodePacked,
 	keccak256,
 	toHex,
+	zeroAddress,
 } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
@@ -346,6 +349,11 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			throw new Error("Base wallet client has no account (set PRIVATE_KEY for this test)")
 		}
 
+		const delegationService = new DelegationService(chainClientManager, chainConfigService, signer)
+		const delegationOk = await delegationService.setupDelegation(baseMainnetId)
+		expect(delegationOk).toBe(true)
+		await waitForTxPoolDrained(basePublicClient, baseAccount.address as HexString)
+
 		const privateKey = process.env.PRIVATE_KEY as HexString
 		const user = privateKeyToAccount(privateKey).address
 
@@ -444,7 +452,10 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			console.log("V4 position: using existing mint tx from FX_TEST_V4_MINT_TX:", mintTxHash)
 		} else {
 			await approveTokens(baseWalletClient, basePublicClient, cNGN, permit2Addr)
+			await waitForTxPoolDrained(basePublicClient, user)
+
 			await approveTokens(baseWalletClient, basePublicClient, USDC, permit2Addr)
+			await waitForTxPoolDrained(basePublicClient, user)
 
 			const maxAmount160 = (1n << 160n) - 1n
 			const farFutureExpiration = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365
@@ -459,6 +470,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 					account: baseAccount,
 				})
 				await basePublicClient.waitForTransactionReceipt({ hash: txPermit, confirmations: 1 })
+				await waitForTxPoolDrained(basePublicClient, user)
 			}
 
 			const deadline = Math.floor(Date.now() / 1000) + 30 * 60
@@ -471,6 +483,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 			const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(position, mintOptions)
 
+			await waitForTxPoolDrained(basePublicClient, user)
+
 			mintTxHash = await baseWalletClient.sendTransaction({
 				to: positionManagerAddr,
 				data: mintCalldata as HexString,
@@ -482,19 +496,42 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 			console.log("V4 position minted, tx:", mintTxHash)
 		}
 
-		const transferTopic = keccak256(encodePacked(["string"], ["Transfer(address,address,uint256)"]))
-		const transferLog = mintReceipt.logs.find(
-			(log) =>
-				log.address.toLowerCase() === positionManagerAddr.toLowerCase() &&
-				log.topics[0] === transferTopic &&
-				log.topics[1] === "0x0000000000000000000000000000000000000000000000000000000000000000",
-		)
-		expect(transferLog).toBeDefined()
-		const tokenIdTopic = transferLog?.topics[3]
-		if (!tokenIdTopic) {
-			throw new Error("V4 mint receipt: missing ERC-721 Transfer tokenId topic")
+		// ERC-721 Transfer has 4 topics; ERC-20 uses the same signature with 3 topics only.
+		// Decode mint (from == 0) events from the Position Manager — use the last match
+		// in case the receipt contains other Transfer logs from the same contract.
+		const erc721TransferAbi = [
+			{
+				type: "event",
+				name: "Transfer",
+				inputs: [
+					{ name: "from", type: "address", indexed: true },
+					{ name: "to", type: "address", indexed: true },
+					{ name: "tokenId", type: "uint256", indexed: true },
+				],
+			},
+		] as const
+
+		let tokenId: bigint | undefined
+		for (const log of mintReceipt.logs) {
+			if (log.address.toLowerCase() !== positionManagerAddr.toLowerCase()) continue
+			if (log.topics.length !== 4) continue
+			try {
+				const decoded = decodeEventLog({
+					abi: erc721TransferAbi,
+					data: log.data,
+					topics: log.topics,
+				})
+				if (decoded.eventName !== "Transfer") continue
+				if (decoded.args.from.toLowerCase() !== zeroAddress.toLowerCase()) continue
+				tokenId = decoded.args.tokenId as bigint
+			} catch {
+				// not an ERC-721 Transfer shape
+			}
 		}
-		const tokenId = BigInt(tokenIdTopic)
+		expect(tokenId).toBeDefined()
+		if (tokenId === undefined) {
+			throw new Error("V4 mint receipt: no ERC-721 Transfer (mint) from Position Manager")
+		}
 		console.log("Minted tokenId:", tokenId.toString())
 
 		const nftOwner = (await basePublicClient.readContract({
@@ -1356,6 +1393,29 @@ async function checkIfOrderFilled(
 		console.error("Error checking if order filled:", error)
 		return false
 	}
+}
+
+/**
+ * Waits until `latest` and `pending` tx counts match for `address`, so the RPC
+ * mempool has no extra in-flight txs. Mitigates Alchemy "in-flight transaction
+ * limit reached for delegated accounts" (EIP-7702) when sending txs back-to-back.
+ */
+async function waitForTxPoolDrained(
+	publicClient: PublicClient,
+	address: HexString,
+	options?: { maxAttempts?: number; intervalMs?: number },
+): Promise<void> {
+	const maxAttempts = options?.maxAttempts ?? 60
+	const intervalMs = options?.intervalMs ?? 500
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		const latest = await publicClient.getTransactionCount({ address, blockTag: "latest" })
+		const pending = await publicClient.getTransactionCount({ address, blockTag: "pending" })
+		if (latest === pending) {
+			return
+		}
+		await new Promise((resolve) => setTimeout(resolve, intervalMs))
+	}
+	throw new Error(`Timeout waiting for pending txs to clear for ${address}`)
 }
 
 async function approveTokens(

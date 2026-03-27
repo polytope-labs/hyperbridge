@@ -88,13 +88,21 @@ askPriceCurve = [
 
 #### Live DEX Pricing
 
-When funding venues (Uniswap V4) are configured, HyperFX can derive bid/ask prices directly from on-chain pool state instead of relying on static price curves. Prices are read from the pool's current tick every 6 seconds and cached in memory.
+When **`[strategies.outputFunding.uniswapV4]`** lists at least one position, HyperFX can derive bid/ask prices from **Uniswap V4 pool state** (current tick). Prices are refreshed every 6 seconds and cached in memory.
 
-With venue pricing enabled, the `bidPriceCurve` and `askPriceCurve` fields become **optional**. The `spreadBps` field controls the symmetric spread applied around the venue-derived mid price — for example, `spreadBps = 50` applies a 0.5% spread (bid is 0.5% above mid, ask is 0.5% below mid).
+**Optional static curves:** If Uniswap V4 positions are configured, you may **omit** `bidPriceCurve` and `askPriceCurve` entirely and rely on pool pricing. You must still satisfy startup validation:
 
-When both static curves and funding venues are configured, **venue prices always take precedence**. The static curves serve as the initial fallback until the first venue price refresh completes. After that, each 6-second poll overwrites the bid/ask policies with the latest pool price.
+- Either **both** `bidPriceCurve` and `askPriceCurve` are present, each with **at least two points**, or **both** are omitted.
+- You must configure **at least one** of: static curves (as above), **or** `[strategies.outputFunding.uniswapV4].positions` (non-empty).
+- **Aerodrome-only** auto-funding (no Uniswap V4 positions) does **not** supply live USD/exotic rates — you still need full bid/ask curves in that case.
 
-Uniswap V4 venue pricing uses pools that pair the exotic token with **USDC or USDT** (addresses from your chain config). Pools quoted in other assets (for example WETH) are not used for live USD pricing. When multiple positions exist for the same exotic token on a chain, the most-liquid pool's price is used.
+The optional **`spreadBps`** field (basis points) sets a symmetric spread around the Uniswap V4 mid: for example, `spreadBps = 50` applies a 0.5% spread (bid is 0.5% above mid in exotic-per-USD terms, ask 0.5% below). Defaults to `0` if omitted.
+
+When both static curves **and** Uniswap V4 positions are configured, **Uniswap V4 pool prices take precedence** for bid/ask once the first price refresh completes. The static curves act as a fallback until then, and each 6-second poll updates bid/ask from the pool.
+
+**Exclusive Uniswap V4 rates:** If Uniswap V4 is configured alongside other funding venues (for example Aerodrome), **only Uniswap V4** is used to compute live USD/exotic rates. Aerodrome can still be used for LP withdrawal to fund fills; it does not set bid/ask.
+
+Uniswap V4 venue pricing uses pools that pair the exotic token with **USDC or USDT** (addresses from your chain config). Pools quoted in other assets (for example WETH) are not used for live USD pricing. When multiple positions exist for the same exotic token on a chain, the most-liquid qualifying pool’s price is used.
 
 **Venue-only mode** — no static curves, prices derived entirely from the pool:
 
@@ -140,7 +148,7 @@ positions = [
 ```
 
 <Callout type="info">
-At least one of bid/ask price curves or funding venues must be configured. If neither is provided, Simplex will fail at startup with a validation error.
+Startup validation requires a pricing source: **either** full static `bidPriceCurve` and `askPriceCurve` (≥2 points each), **or** at least one `[strategies.outputFunding.uniswapV4]` position. Omitting both curves without Uniswap V4 positions fails validation.
 </Callout>
 
 #### Example profit calculation
@@ -162,7 +170,7 @@ When the solver's wallet balance on the destination chain is insufficient to fil
 
 Configured under `[strategies.outputFunding]` within the HyperFX strategy block:
 
-**Uniswap V4** — Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. 0.30% slippage tolerance, 30-minute deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
+**Uniswap V4** — Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. Roughly **0.10%** slippage tolerance on the remove-liquidity path, 30-minute deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
 
 ```toml lineNumbers
 [strategies.outputFunding.uniswapV4]
@@ -181,7 +189,7 @@ pools = [
 ```
 
 <Callout type="info">
-Both funding venues can be configured simultaneously. They are initialized at startup and refreshed on-demand — state is fetched fresh from the chain immediately before each withdrawal plan, ensuring calculations use the latest liquidity and price data. Simplex queries all configured venues and aggregates liquidity across multiple positions or pools if needed. Funding venues also provide live exotic token prices derived from pool state, which HyperFX uses to set bid/ask rates automatically (see **Live DEX Pricing** above).
+Both funding venues can be configured simultaneously. They are initialized at startup; on-demand **refresh** runs before each withdrawal plan so calculations use current on-chain reserves. Simplex can aggregate withdrawals across multiple positions or pools if needed. **Live bid/ask USD rates** come only from **Uniswap V4** pool state when V4 positions are configured (see **Live DEX Pricing**). Aerodrome is for liquidity sourcing only and does not set HyperFX prices.
 </Callout>
 
 ## Configuration

@@ -109,7 +109,10 @@ bpsCurve = [
 # [[strategies]]
 # type = "hyperfx"
 # maxOrderUsd = "5000"
+# # Optional spread (basis points) around Uniswap V4 mid when using outputFunding.uniswapV4 for pricing
+# spreadBps = 50
 #
+# # Bid/ask curves: omit both when [strategies.outputFunding.uniswapV4].positions is set (pool-based pricing).
 # # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
 # bidPriceCurve = [
 #     { amount = "100",  price = "1580" },

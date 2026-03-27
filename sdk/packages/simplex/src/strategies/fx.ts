@@ -164,11 +164,17 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Queries funding venues for live exotic token prices and updates
-	 * the bid/ask policies accordingly. First venue with a valid price wins.
+	 * the bid/ask policies accordingly.
+	 *
+	 * When Uniswap V4 is configured, rates are taken **only** from its pool
+	 * cache (not from other venues). Otherwise the first venue with a valid
+	 * price wins.
 	 */
 	private updatePricesFromVenues(): void {
+		const venues = this.venuesForLivePricing()
+
 		for (const [chain, exoticAddr] of Object.entries(this.exoticTokenAddresses)) {
-			for (const venue of this.fundingVenues) {
+			for (const venue of venues) {
 				const usdPrice = venue.getExoticTokenPrice(chain, exoticAddr)
 				if (usdPrice && usdPrice.isPositive()) {
 					const exoticPerUsd = new Decimal(1).div(usdPrice)
@@ -186,6 +192,7 @@ export class FXFiller implements FillerStrategy {
 							usdPrice: usdPrice.toString(),
 							bidPrice: this.bidPricePolicy.getPrice(new Decimal(0)).toString(),
 							askPrice: this.askPricePolicy.getPrice(new Decimal(0)).toString(),
+							pricingSource: venue.name,
 						},
 						"Updated bid/ask prices from funding venue",
 					)
@@ -193,6 +200,16 @@ export class FXFiller implements FillerStrategy {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Venues that may supply USD/exotic rates for bid/ask. Uniswap V4 is
+	 * exclusive: if any V4 planner is present, only V4 is queried for pricing.
+	 */
+	private venuesForLivePricing(): FundingVenue[] {
+		const uniswapV4 = this.fundingVenues.filter((v) => v.name === "UniswapV4")
+		if (uniswapV4.length > 0) return uniswapV4
+		return this.fundingVenues
 	}
 
 	async canFill(order: Order): Promise<boolean> {

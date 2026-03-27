@@ -1,5 +1,5 @@
 import type { HexString } from "@hyperbridge/sdk"
-import type { ERC7821Call } from "@hyperbridge/sdk"
+import { type ERC7821Call, encodeERC7821ExecuteBatch } from "@hyperbridge/sdk"
 import { encodeFunctionData, maxUint256 } from "viem"
 import { Mutex } from "async-mutex"
 import type { Decimal } from "decimal.js"
@@ -14,7 +14,7 @@ import { getLogger } from "@/services/Logger"
 const logger = getLogger("aerodrome-funding")
 
 /** Slippage for `amount0Min` / `amount1Min` (99.90 % of quote ≈ 0.10 % slip). */
-const MIN_AMOUNT_OUT_BPS = 9990
+const MIN_AMOUNT_OUT_BPS = 9950
 const MAX_BS_ITER = 48
 
 // ============================================================================
@@ -112,6 +112,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	 * and LP balances).  Replaces the old `validateAerodromePoolsOnChain`.
 	 */
 	async initialise(solver: HexString): Promise<void> {
+		const approvalsByChain = new Map<string, ERC7821Call[]>()
 		for (const [chain, pools] of Object.entries(this.config.poolsByChain)) {
 			const router = this.configService.getAerodromeRouterAddress(chain)
 			const z = router.toLowerCase()
@@ -122,6 +123,42 @@ export class AerodromeFundingPlanner implements FundingVenue {
 			await state.hydrate()
 			this.stateByChain.set(chain, state)
 			this.mutexByChain.set(chain, new Mutex())
+
+			const client = this.clientManager.getPublicClient(chain)
+			const calls: ERC7821Call[] = []
+			for (const pool of state.allPools()) {
+				const allowance = (await client.readContract({
+					address: pool.pair,
+					abi: ERC20_ABI,
+					functionName: "allowance",
+					args: [solver, pool.router],
+				})) as bigint
+				if (allowance < maxUint256 / 2n) {
+					calls.push({
+						target: pool.pair,
+						value: 0n,
+						data: encodeFunctionData({
+							abi: ERC20_ABI,
+							functionName: "approve",
+							args: [pool.router, maxUint256],
+						}) as HexString,
+					})
+				}
+			}
+			if (calls.length > 0) {
+				approvalsByChain.set(chain, calls)
+			}
+		}
+		for (const [chain, calls] of approvalsByChain) {
+			const walletClient = this.clientManager.getWalletClient(chain)
+			const callData = encodeERC7821ExecuteBatch(calls)
+			await walletClient.sendTransaction({
+				to: solver,
+				data: callData,
+				value: 0n,
+				chain: walletClient.chain,
+			})
+			logger.info({ chain, approvalCount: calls.length }, "Batched LP token approvals via ERC-7821")
 		}
 	}
 
@@ -144,8 +181,8 @@ export class AerodromeFundingPlanner implements FundingVenue {
 		return this.stateByChain.get(chain)
 	}
 
-	getExoticTokenPrice(_chain: string, _exoticToken: string): Decimal | null {
-		throw new Error("unimplemented")
+	async getExoticTokenPrice(_chain: string, _exoticToken: string): Promise<Decimal | null> {
+		return null
 	}
 
 	// =========================================================================
@@ -166,6 +203,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 		solver: HexString,
 		tokenOutLower: string,
 		amountNeeded: bigint,
+		deadlineTimestamp?: bigint,
 	): Promise<FundingPlanResult> {
 		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
 
@@ -183,6 +221,9 @@ export class AerodromeFundingPlanner implements FundingVenue {
 			const tokenNeed = tokenOutLower.toLowerCase()
 			const candidatePools = state.poolsForToken(tokenNeed)
 
+			const slippageBps = 10000n - BigInt(this.minAmountOutBps)
+			const bufferedAmount = amountNeeded + (amountNeeded * slippageBps) / 10000n
+
 			for (const pool of candidatePools) {
 				const lpAvail = state.remaining(pool.pair)
 				if (lpAvail === 0n) continue
@@ -191,14 +232,14 @@ export class AerodromeFundingPlanner implements FundingVenue {
 
 				// --- solve LP amount ---
 				const liquidity =
-					this.solveLiquidityForDeficit(pool, tokenNeed, amountNeeded, lpAvail) ??
+					this.solveLiquidityForDeficit(pool, tokenNeed, bufferedAmount, lpAvail) ??
 					(await this.solveLiquidityForDeficitStable(
 						destChain,
 						pool,
 						tokenA,
 						tokenB,
 						tokenNeed,
-						amountNeeded,
+						bufferedAmount,
 						lpAvail,
 					))
 				if (liquidity <= 0n) continue
@@ -226,7 +267,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 				const { amountAMin, amountBMin } = mapToken01MinsToRouter(pool.token0, tokenA, amount0Min, amount1Min)
 
 				// --- build ERC-7821 calls ---
-				const deadline = BigInt(Math.floor(Date.now() / 1000) + 30 * 60)
+				const deadline = deadlineTimestamp ?? BigInt(Math.floor(Date.now() / 1000) + 30 * 60)
 				const calls: ERC7821Call[] = []
 
 				// 1. Gauge withdraw (if needed)
@@ -247,18 +288,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 					}
 				}
 
-				// 2. Approve LP token to router
-				calls.push({
-					target: pool.pair,
-					value: 0n,
-					data: encodeFunctionData({
-						abi: ERC20_ABI,
-						functionName: "approve",
-						args: [pool.router, maxUint256],
-					}) as HexString,
-				})
-
-				// 3. Remove liquidity
+				// 2. Remove liquidity
 				calls.push({
 					target: pool.router,
 					value: 0n,
@@ -279,6 +309,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 					"Aerodrome funding planned",
 				)
 
+				state.consume(pool.pair, cappedL)
 				return { calls, credited: credit }
 			}
 

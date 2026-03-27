@@ -67,6 +67,7 @@ export class FXFiller implements FillerStrategy {
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
+	private venuePricesByChain = new Map<string, { bid: Decimal; ask: Decimal }>()
 
 	/**
 	 * @param signer                 Filler's signing account for UserOp signatures.
@@ -151,14 +152,7 @@ export class FXFiller implements FillerStrategy {
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
 
 		if (this.fundingVenues.length > 0) {
-			this.updatePricesFromVenues()
-		}
-	}
-
-	/** Tears down background polling on all funding venues. */
-	destroy(): void {
-		for (const venue of this.fundingVenues) {
-			venue.destroy?.()
+			await this.updatePricesFromVenues()
 		}
 	}
 
@@ -170,28 +164,29 @@ export class FXFiller implements FillerStrategy {
 	 * cache (not from other venues). Otherwise the first venue with a valid
 	 * price wins.
 	 */
-	private updatePricesFromVenues(): void {
+	private async updatePricesFromVenues(): Promise<void> {
 		const venues = this.venuesForLivePricing()
 
 		for (const [chain, exoticAddr] of Object.entries(this.exoticTokenAddresses)) {
 			for (const venue of venues) {
-				const usdPrice = venue.getExoticTokenPrice(chain, exoticAddr)
+				const usdPrice = await venue.getExoticTokenPrice(chain, exoticAddr)
 				if (usdPrice && usdPrice.isPositive()) {
 					const exoticPerUsd = new Decimal(1).div(usdPrice)
 					const spread = new Decimal(this.spreadBps).div(10000)
 
 					// bid: filler buys exotic → wants MORE exotic per USD (higher rate)
-					this.bidPricePolicy.updatePrice(exoticPerUsd.mul(new Decimal(1).plus(spread)))
+					const bid = exoticPerUsd.mul(new Decimal(1).plus(spread))
 					// ask: filler sells exotic → gives LESS exotic per USD (lower rate)
-					this.askPricePolicy.updatePrice(exoticPerUsd.mul(new Decimal(1).minus(spread)))
+					const ask = exoticPerUsd.mul(new Decimal(1).minus(spread))
+					this.venuePricesByChain.set(chain, { bid, ask })
 
-					this.logger.info(
+					this.logger.debug(
 						{
 							chain,
 							token: exoticAddr,
 							usdPrice: usdPrice.toString(),
-							bidPrice: this.bidPricePolicy.getPrice(new Decimal(0)).toString(),
-							askPrice: this.askPricePolicy.getPrice(new Decimal(0)).toString(),
+							bidPrice: bid.toString(),
+							askPrice: ask.toString(),
 							pricingSource: venue.name,
 						},
 						"Updated bid/ask prices from funding venue",
@@ -254,9 +249,9 @@ export class FXFiller implements FillerStrategy {
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		try {
-			// Pick up latest venue prices (cheap — reads cached Decimals, no RPC)
+			// Pick up latest venue prices from on-chain pool state
 			if (this.fundingVenues.length > 0) {
-				this.updatePricesFromVenues()
+				await this.updatePricesFromVenues()
 			}
 
 			const sourceChain = order.source
@@ -298,12 +293,23 @@ export class FXFiller implements FillerStrategy {
 			// Compute bid and ask prices at the capped order size once, then pick per leg.
 			// - askPrice: used when filler sells exotic (stable->exotic). Lower rate = fewer exotic sent.
 			// - bidPrice: used when filler buys exotic (exotic->stable). Higher rate = fewer USD paid out.
-			const bidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
-			const askPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
+			const policyBidPrice = this.bidPricePolicy.getPrice(cappedOrderUsd)
+			const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
 			const fillerOutputs: TokenInfo[] = []
 			let remainingUsd = cappedOrderUsd
 
 			const fundingCalls: ERC7821Call[] = []
+
+			let deadlineTimestamp: bigint | undefined
+			try {
+				const latestBlock = await destClient.getBlock()
+				const blockTimeMs = destClient.chain?.blockTime
+				const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+				const remainingBlocks = order.deadline > latestBlock.number ? Number(order.deadline - latestBlock.number) : 0
+				deadlineTimestamp = BigInt(Math.floor(Number(latestBlock.timestamp) + remainingBlocks * blockTimeSec))
+			} catch (err) {
+				this.logger.warn({ err, destChain }, "Failed to estimate deadline timestamp, using fallback")
+			}
 
 			for (let i = 0; i < order.inputs.length; i++) {
 				const input = order.inputs[i]
@@ -321,6 +327,11 @@ export class FXFiller implements FillerStrategy {
 
 				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
 				const exoticTokenDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
+
+				const exoticChain = pair.inputIsStable ? destChain : sourceChain
+				const venuePrice = this.venuePricesByChain.get(exoticChain)
+				const bidPrice = venuePrice?.bid ?? policyBidPrice
+				const askPrice = venuePrice?.ask ?? policyAskPrice
 
 				const legResult = this.computeLegPolicyOutput(
 					input.amount,
@@ -346,7 +357,7 @@ export class FXFiller implements FillerStrategy {
 				let deficit = policyMaxOutput > balance ? policyMaxOutput - balance : 0n
 				for (const venue of this.fundingVenues) {
 					if (deficit <= 0n) break
-					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, deficit)
+					const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, deficit, deadlineTimestamp)
 					if (planned.calls.length > 0) {
 						fundingCalls.push(...planned.calls)
 						effectiveBalance += planned.credited
@@ -447,6 +458,12 @@ export class FXFiller implements FillerStrategy {
 				)
 				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
 				const exoticDecimalsLeg = pair.inputIsStable ? outputDecimals : inputDecimals
+
+				const exoticChain = pair.inputIsStable ? destChain : sourceChain
+				const venuePrice = this.venuePricesByChain.get(exoticChain)
+				const bidPrice = venuePrice?.bid ?? policyBidPrice
+				const askPrice = venuePrice?.ask ?? policyAskPrice
+
 				if (pair.inputIsStable) {
 					// Filler sells exotic (stable→exotic): receives stable, gives exotic. Value exotic at bid (acquisition cost).
 					const inputUsd = new Decimal(formatUnits(input.amount, stableDecimals))
@@ -476,8 +493,8 @@ export class FXFiller implements FillerStrategy {
 					orderValueUsdFull: totalInputUsd.toString(),
 					orderValueUsdCapped: cappedOrderUsd.toString(),
 					maxOrderUsd: this.maxOrderUsd.toString(),
-					bidPrice: bidPrice.toString(),
-					askPrice: askPrice.toString(),
+					bidPrice: policyBidPrice.toString(),
+					askPrice: policyAskPrice.toString(),
 					orderFees: formatUnits(order.fees, feeTokenDecimals),
 					estimatedFees: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 					feeProfit: formatUnits(feeProfit, feeTokenDecimals),
@@ -744,7 +761,9 @@ export class FXFiller implements FillerStrategy {
 					sourceChain,
 				)
 				const normalized = new Decimal(formatUnits(order.inputs[j].amount, exoticDecimals))
-				totalInputUsd = totalInputUsd.plus(normalized.div(this.bidPricePolicy.getPrice(new Decimal(0))))
+				const venuePrice = this.venuePricesByChain.get(sourceChain)
+				const bidPriceForChain = venuePrice?.bid ?? this.bidPricePolicy.getPrice(new Decimal(0))
+				totalInputUsd = totalInputUsd.plus(normalized.div(bidPriceForChain))
 			}
 		}
 

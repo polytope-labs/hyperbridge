@@ -1,4 +1,4 @@
-import { UNISWAP_V4_POSITION_MANAGER_ABI, UNISWAP_V4_STATE_VIEW_ABI } from "@/config/abis/UniswapV4"
+import { UNISWAP_V4_POSITION_MANAGER_ABI, UNISWAP_V4_STATE_VIEW_ABI, decodeTickLower, decodeTickUpper } from "@/config/abis/UniswapV4"
 import type { HydratedV4Position, UniswapV4PositionInit } from "@/funding/types"
 import { chainIdFromIdentifier, currencyFromHydratedDecimals } from "@/funding/uniswapV4/v4PoolCurrency"
 import type { ChainClientManager } from "@/services/ChainClientManager"
@@ -25,6 +25,8 @@ export class UniswapV4LiquidityState {
 	/** Maps tokenId → poolId for quick lookup. */
 	private tokenIdToPoolId = new Map<string, string>()
 	private hydrated = false
+	private consumed = new Map<string, bigint>()
+	private lastOnChainLiquidity = new Map<string, bigint>()
 
 	constructor(
 		private readonly chain: string,
@@ -184,7 +186,13 @@ export class UniswapV4LiquidityState {
 			})) as bigint
 
 			pos.liquidity = liquidity
-			pos.remainingLiquidity = liquidity
+			const prevOnChain = this.lastOnChainLiquidity.get(key) ?? liquidity
+			const decrease = prevOnChain > liquidity ? prevOnChain - liquidity : 0n
+			const prevConsumed = this.consumed.get(key) ?? 0n
+			const newConsumed = prevConsumed > decrease ? prevConsumed - decrease : 0n
+			this.consumed.set(key, newConsumed)
+			this.lastOnChainLiquidity.set(key, liquidity)
+			pos.remainingLiquidity = liquidity > newConsumed ? liquidity - newConsumed : 0n
 			pos.sqrtPriceX96 = poolState.sqrtPriceX96
 			pos.currentTick = poolState.tick
 
@@ -205,10 +213,11 @@ export class UniswapV4LiquidityState {
 
 			this.sdkPools.set(poolId, sdkPool)
 
-			logger.info(
+			logger.debug(
 				{
 					tokenId: pos.tokenId.toString(),
 					liquidity: liquidity.toString(),
+					remainingLiquidity: pos.remainingLiquidity.toString(),
 					sqrtPriceX96: poolState.sqrtPriceX96.toString(),
 					currentTick: poolState.tick,
 				},
@@ -272,6 +281,15 @@ export class UniswapV4LiquidityState {
 		return this.positions.get(tokenId.toString())?.remainingLiquidity ?? 0n
 	}
 
+	consume(tokenId: bigint, amount: bigint): void {
+		const key = tokenId.toString()
+		const pos = this.positions.get(key)
+		if (pos) {
+			pos.remainingLiquidity = pos.remainingLiquidity > amount ? pos.remainingLiquidity - amount : 0n
+		}
+		this.consumed.set(key, (this.consumed.get(key) ?? 0n) + amount)
+	}
+
 	/** Returns the SDK Pool's total active liquidity for sorting by depth. */
 	getPoolLiquidity(tokenId: bigint): bigint {
 		const poolId = this.tokenIdToPoolId.get(tokenId.toString())
@@ -280,33 +298,3 @@ export class UniswapV4LiquidityState {
 	}
 }
 
-// =========================================================================
-// Packed positionInfo decoding helpers
-// =========================================================================
-
-/**
- * Decode tickLower from the packed positionInfo uint256.
- *
- * Layout (from LSB): 8 bits hasSubscriber | 24 bits tickLower | 24 bits tickUpper | 200 bits poolId
- *
- * Solidity reference (PositionInfoLibrary.sol):
- *   TICK_LOWER_OFFSET = 8
- *   tickLower = signextend(2, shr(8, info))
- */
-function decodeTickLower(info: bigint): number {
-	const raw = Number((info >> 8n) & 0xffffffn)
-	// Sign-extend 24-bit int24
-	return raw >= 0x800000 ? raw - 0x1000000 : raw
-}
-
-/**
- * Decode tickUpper from the packed positionInfo uint256.
- *
- * Solidity reference (PositionInfoLibrary.sol):
- *   TICK_UPPER_OFFSET = 32
- *   tickUpper = signextend(2, shr(32, info))
- */
-function decodeTickUpper(info: bigint): number {
-	const raw = Number((info >> 32n) & 0xffffffn)
-	return raw >= 0x800000 ? raw - 0x1000000 : raw
-}

@@ -22,7 +22,7 @@ import { encodeFunctionData } from "viem"
 const logger = getLogger("uniswapv4-funding")
 
 /** Slippage tolerance for remove-liquidity operations (0.10%). */
-const SLIPPAGE_TOLERANCE = new Percent(10, 10_000) // 0.10%
+const SLIPPAGE_TOLERANCE = new Percent(50, 10_000) // 0.50%
 
 /**
  * Funding venue that sources output tokens by removing liquidity from
@@ -42,11 +42,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	private stateByChain = new Map<string, UniswapV4LiquidityState>()
 	/** Per-chain mutex serialising planWithdrawalForToken to prevent concurrent state races. */
 	private mutexByChain = new Map<string, Mutex>()
-	/** Cached USD prices for exotic tokens, keyed by `${chain}:${tokenLower}`. */
-	private priceCache = new Map<string, Decimal>()
-	/** Interval handle for 6-second price polling. */
-	private pricePollingInterval: ReturnType<typeof setInterval> | null = null
-
 	constructor(
 		private readonly clientManager: ChainClientManager,
 		private readonly config: UniswapV4OutputFundingConfig,
@@ -143,11 +138,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 			this.mutexByChain.set(chain, new Mutex())
 		}
 
-		// Compute initial prices and start 6-second polling
-		await this.refreshPrices()
-		this.pricePollingInterval = setInterval(() => {
-			this.refreshPrices().catch((err) => logger.error({ err }, "Price refresh failed"))
-		}, 6_000)
 	}
 
 	/**
@@ -166,71 +156,40 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	// Pricing (FundingVenue)
 	// =========================================================================
 
-	getExoticTokenPrice(chain: string, exoticToken: string): Decimal | null {
-		return this.priceCache.get(`${chain}:${exoticToken.toLowerCase()}`) ?? null
-	}
+	async getExoticTokenPrice(chain: string, exoticToken: string): Promise<Decimal | null> {
+		const state = this.stateByChain.get(chain)
+		if (!state || !state.isHydrated()) return null
 
-	destroy(): void {
-		if (this.pricePollingInterval) {
-			clearInterval(this.pricePollingInterval)
-			this.pricePollingInterval = null
+		try {
+			await state.refresh()
+		} catch (err) {
+			logger.error({ err, chain }, "Failed to refresh state for price query")
+			return null
 		}
-	}
 
-	// =========================================================================
-	// Private — Price computation
-	// =========================================================================
+		const tokenLower = exoticToken.toLowerCase()
+		let bestPrice: Decimal | null = null
+		let bestLiquidity = 0n
 
-	/**
-	 * Refreshes pool state for all chains and recomputes cached USD prices
-	 * for every exotic token. For tokens with multiple qualifying pools,
-	 * the price from the most-liquid pool is used.
-	 */
-	private async refreshPrices(): Promise<void> {
-		for (const [chain, state] of this.stateByChain) {
-			try {
-				await state.refresh()
-			} catch (err) {
-				logger.error({ err, chain }, "Failed to refresh state for price update")
-				continue
-			}
+		for (const pos of state.allPositions()) {
+			if (pos.currency0.toLowerCase() !== tokenLower && pos.currency1.toLowerCase() !== tokenLower) continue
+			const sdkPool = state.getSdkPool(pos.tokenId)
+			if (!sdkPool) continue
 
-			// Collect { exoticToken, priceUsd, poolLiquidity } for each position
-			const priceEntries: { exoticToken: string; priceUsd: Decimal; poolLiquidity: bigint }[] = []
-
-			for (const pos of state.allPositions()) {
-				const sdkPool = state.getSdkPool(pos.tokenId)
-				if (!sdkPool) continue
-
-				const result = this.computeDirectPoolPriceUsd(pos, sdkPool, chain)
-				if (result) {
-					priceEntries.push({
-						exoticToken: result.exoticToken,
-						priceUsd: result.priceUsd,
-						poolLiquidity: state.getPoolLiquidity(pos.tokenId),
-					})
+			const result = this.computeDirectPoolPriceUsd(pos, sdkPool, chain)
+			if (result && result.exoticToken.toLowerCase() === tokenLower) {
+				const poolLiquidity = state.getPoolLiquidity(pos.tokenId)
+				if (poolLiquidity > bestLiquidity) {
+					bestPrice = result.priceUsd
+					bestLiquidity = poolLiquidity
 				}
 			}
-
-			// Group by exotic token, pick price from most-liquid pool
-			const byToken = new Map<string, { priceUsd: Decimal; poolLiquidity: bigint }>()
-			for (const entry of priceEntries) {
-				const key = entry.exoticToken.toLowerCase()
-				const existing = byToken.get(key)
-				if (!existing || entry.poolLiquidity > existing.poolLiquidity) {
-					byToken.set(key, { priceUsd: entry.priceUsd, poolLiquidity: entry.poolLiquidity })
-				}
-			}
-
-			for (const [tokenLower, { priceUsd }] of byToken) {
-				const cacheKey = `${chain}:${tokenLower}`
-				this.priceCache.set(cacheKey, priceUsd)
-				logger.info(
-					{ chain, token: tokenLower, priceUsd: priceUsd.toString() },
-					"Exotic token price updated",
-				)
-			}
 		}
+
+		if (bestPrice) {
+			logger.debug({ chain, token: tokenLower, priceUsd: bestPrice.toString() }, "Exotic token price computed")
+		}
+		return bestPrice
 	}
 
 	/**
@@ -289,10 +248,11 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		solver: HexString,
 		tokenOutLower: string,
 		amountNeeded: bigint,
+		deadlineTimestamp?: bigint,
 	): Promise<FundingPlanResult> {
 		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
 
-		logger.info(
+		logger.debug(
 			{
 				destChain,
 				solver,
@@ -306,7 +266,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 		const state = this.stateByChain.get(destChain)
 		if (!state || !state.isHydrated()) {
-			logger.info(
+			logger.debug(
 				{ destChain, hasState: !!state, isHydrated: state?.isHydrated() },
 				"UniswapV4 no state or not hydrated",
 			)
@@ -324,7 +284,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				.positionsForToken(tokenNeed)
 				.sort((a, b) => (b.remainingLiquidity > a.remainingLiquidity ? 1 : -1))
 
-			logger.info(
+			logger.debug(
 				{
 					tokenNeed,
 					candidateCount: candidates.length,
@@ -355,7 +315,8 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				// that even in the worst-case slippage scenario the credited
 				// tokens still cover the fill requirement, avoiding a wasted
 				// revert on the entire ERC-7821 batch.
-				const bufferedRemaining = remaining + (remaining * 10n) / 10_000n
+				const slippageBps = BigInt(SLIPPAGE_TOLERANCE.numerator.toString()) * 10_000n / BigInt(SLIPPAGE_TOLERANCE.denominator.toString())
+				const bufferedRemaining = remaining + (remaining * slippageBps) / 10_000n
 
 				// Use binary search to find the minimal liquidity that covers the buffered target
 				const neededLiq = this.findLiquidityForDeficit(state, pos, isToken0, bufferedRemaining)
@@ -372,7 +333,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				const amount1 = BigInt(sdkPosition.amount1.quotient.toString())
 				const credit = isToken0 ? amount0 : amount1
 
-				logger.info(
+				logger.debug(
 					{
 						tokenId: pos.tokenId.toString(),
 						isToken0,
@@ -393,12 +354,13 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 				// Use V4PositionManager.removeCallParameters to generate the calldata
 				// This encodes DECREASE_LIQUIDITY + TAKE_PAIR actions internally
-				const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq)
+				const call = this.buildRemoveLiquidityCall(state, pos, cappedLiq, deadlineTimestamp)
 				if (!call) continue
 
 				allCalls.push(call)
 				totalCredited += credit
 				remaining -= credit
+				state.consume(pos.tokenId, cappedLiq)
 
 				logger.debug(
 					{
@@ -411,7 +373,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 				)
 			}
 
-			logger.info(
+			logger.debug(
 				{
 					callCount: allCalls.length,
 					totalCredited: totalCredited.toString(),
@@ -497,6 +459,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		state: UniswapV4LiquidityState,
 		pos: HydratedV4Position,
 		liquidity: bigint,
+		deadlineTimestamp?: bigint,
 	): ERC7821Call | null {
 		// Build an SDK Position representing what we want to remove
 		const sdkPosition = state.buildSdkPosition(pos.tokenId, liquidity)
@@ -520,7 +483,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 		const fullPosition = state.buildSdkPosition(pos.tokenId, totalLiq)
 		if (!fullPosition) return null
 
-		const deadline = Math.floor(Date.now() / 1000) + 30 * 60 // 30 min
+		const deadline = deadlineTimestamp ? Number(deadlineTimestamp) : Math.floor(Date.now() / 1000) + 30 * 60
 
 		const removeOptions: RemoveLiquidityOptions = {
 			slippageTolerance: SLIPPAGE_TOLERANCE,

@@ -27,7 +27,6 @@ import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
-import { Decimal } from "decimal.js"
 import type { SigningAccount } from "@/services/wallet"
 
 // ASCII art header
@@ -133,128 +132,6 @@ interface FxStrategyConfig {
 
 type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
 
-// Compact number formatter for axis labels
-function fmtNum(v: number): string {
-	if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M"
-	if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "k"
-	if (Number.isInteger(v)) return String(v)
-	if (Math.abs(v) < 0.01) return v.toExponential(1)
-	return parseFloat(v.toFixed(2)).toString()
-}
-
-// Render a 2D point set as ASCII chart rows (chart body + axis row)
-// Axes: vertical = amount ($, high at top), horizontal = price/bps (low left, high right)
-function renderCurveAscii(
-	points: Array<{ x: number; y: number }>,
-	yLabel: string,
-	chartWidth = 30,
-	chartHeight = 5,
-): string[] {
-	const sorted = [...points].sort((a, b) => a.x - b.x)
-	// After flipping: horizontal = y (price/bps), vertical = x (amount)
-	const minH = Math.min(...sorted.map((p) => p.y))
-	const maxH = Math.max(...sorted.map((p) => p.y))
-	const minV = sorted[0].x
-	const maxV = sorted[sorted.length - 1].x
-	const hRange = maxH - minH || 1
-	const vRange = maxV - minV || 1
-
-	const grid: string[][] = Array.from({ length: chartHeight }, () => Array(chartWidth).fill(" "))
-	const plotted: Array<{ col: number; row: number }> = []
-
-	for (const p of sorted) {
-		const col = Math.round(((p.y - minH) / hRange) * (chartWidth - 1))
-		const row = Math.round((1 - (p.x - minV) / vRange) * (chartHeight - 1))
-		grid[row][col] = "●"
-		plotted.push({ col, row })
-	}
-
-	// Connect consecutive points with vertical connectors (sorted by row now)
-	const byRow = [...plotted].sort((a, b) => a.row - b.row)
-	for (let i = 0; i < byRow.length - 1; i++) {
-		const a = byRow[i],
-			b = byRow[i + 1]
-		for (let r = a.row + 1; r < b.row; r++) {
-			const col = Math.round(a.col + ((r - a.row) / (b.row - a.row)) * (b.col - a.col))
-			if (grid[r][col] === " ") grid[r][col] = "│"
-		}
-	}
-
-	// Extend top point flat to left edge (lowest price, highest amount extends left)
-	const top = byRow[0]
-	for (let c = 0; c < top.col; c++) {
-		if (grid[top.row][c] === " ") grid[top.row][c] = "─"
-	}
-
-	// Y-axis prefix: vertical axis = amount ($), show maxV at top, label at mid, minV at bottom
-	const maxVStr = ("$" + fmtNum(maxV)).padStart(5)
-	const minVStr = ("$" + fmtNum(minV)).padStart(5)
-	const midLabel = ` ${yLabel.trim().slice(0, 4).padEnd(4)}`
-	const midRow = Math.floor(chartHeight / 2)
-	const rows: string[] = grid.map((row, i) => {
-		let prefix: string
-		if (i === 0) prefix = `${maxVStr}│`
-		else if (i === chartHeight - 1) prefix = minV !== maxV ? `${minVStr}│` : `     │`
-		else if (i === midRow) prefix = `${midLabel}│`
-		else prefix = `     │`
-		return prefix + row.join("")
-	})
-
-	// X-axis row: horizontal axis = price/bps, show min left and max right
-	const minHStr = fmtNum(minH)
-	const maxHStr = fmtNum(maxH)
-	const dashes = chartWidth - minHStr.length - maxHStr.length
-	const axisContent = dashes >= 1 ? minHStr + "─".repeat(dashes) + maxHStr : "─".repeat(chartWidth)
-	rows.push(`     └${axisContent}`)
-	rows.push(`     ${" ".repeat(Math.floor(chartWidth / 2) - 1)}${yLabel.trim()}`)
-	return rows
-}
-
-// Build a boxed banner with the actual curve plotted inside
-function getStrategyBanner(config: StrategyConfig): string {
-	let chartRows: string[]
-	let title: string
-	let subtitle: string
-
-	if (config.type === "basic") {
-		const points = config.bpsCurve.map((p) => ({ x: parseFloat(p.amount), y: p.value }))
-		chartRows = renderCurveAscii(points, " bps")
-		title = "BASIC STRATEGY  ACTIVE"
-		subtitle = "adaptive BPS spread curve"
-	} else {
-		if (config.bidPriceCurve?.length && config.askPriceCurve?.length) {
-			const bidPoints = config.bidPriceCurve.map((p) => ({ x: parseFloat(p.amount), y: parseFloat(p.price) }))
-			const askPoints = config.askPriceCurve.map((p) => ({ x: parseFloat(p.amount), y: parseFloat(p.price) }))
-			chartRows = [...renderCurveAscii(bidPoints, " bid"), "", ...renderCurveAscii(askPoints, " ask")]
-		} else {
-			chartRows = ["  (venue pricing — add bid/ask curves to plot static rails)"]
-		}
-		title = "HYPERFX STRATEGY  ACTIVE"
-		subtitle = "adaptive bid/ask FX price curve routing"
-	}
-
-	// innerWidth = 44 accommodates the longest chart row: "    └" + 30×"─" + " order($)" = 44 chars
-	const innerWidth = 44
-	const border = "═".repeat(innerWidth + 2)
-	const pad = (s: string) => `  ║ ${s.padEnd(innerWidth)} ║`
-	const center = (s: string) => {
-		const pad = Math.max(0, innerWidth - s.length)
-		return " ".repeat(Math.floor(pad / 2)) + s + " ".repeat(Math.ceil(pad / 2))
-	}
-
-	return [
-		``,
-		`  ╔${border}╗`,
-		pad(center(title)),
-		pad(""),
-		...chartRows.map(pad),
-		pad(""),
-		pad(center(subtitle)),
-		`  ╚${border}╝`,
-		``,
-	].join("\n")
-}
-
 interface PendingQueueConfig {
 	maxRechecks: number
 	recheckDelayMs: number
@@ -326,11 +203,6 @@ program
 			const config = parse(tomlContent) as FillerTomlConfig
 
 			validateConfig(config)
-
-			// Print strategy banners immediately after the header
-			for (const strategyConfig of config.strategies) {
-				process.stdout.write(getStrategyBanner(strategyConfig))
-			}
 
 			// Configure logger based on config BEFORE creating any services
 			if (config.simplex.logging) {

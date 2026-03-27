@@ -30,6 +30,7 @@ export interface FundingVenue {
 		solver: HexString,
 		tokenOutLower: string,
 		amountNeeded: bigint,
+		deadlineTimestamp?: bigint,
 	): Promise<FundingPlanResult>
 	/**
 	 * Returns the USD price (USDC/USDT) of the given exotic token on the
@@ -37,12 +38,9 @@ export interface FundingVenue {
 	 * pools only. Uses the most-liquid qualifying pool. Returns null when
 	 * no qualifying pool exists or prices have not yet been fetched.
 	 *
-	 * Prices are refreshed automatically every 6 seconds from on-chain
-	 * pool state and cached in the venue's internal state.
+	 * Computed on-demand from the venue's current pool state.
 	 */
-	getExoticTokenPrice(chain: string, exoticToken: string): Decimal | null
-	/** Tears down background polling (price refresh interval). */
-	destroy?(): void
+	getExoticTokenPrice(chain: string, exoticToken: string): Promise<Decimal | null>
 }
 
 export interface FundingPlanResult {

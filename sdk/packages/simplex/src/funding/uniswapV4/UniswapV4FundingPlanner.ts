@@ -11,13 +11,13 @@ import { chainIdFromIdentifier, fetchPoolCurrencyDecimals } from "@/funding/unis
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
-import { Swap, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
+import { type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { Mutex } from "async-mutex"
 import { Decimal } from "decimal.js"
 import { Percent } from "@uniswap/sdk-core"
 import { V4PositionManager, type Pool as V4Pool } from "@uniswap/v4-sdk"
 import type { RemoveLiquidityOptions } from "@uniswap/v4-sdk"
-import { encodeFunctionData, formatUnits, parseUnits } from "viem"
+import { encodeFunctionData } from "viem"
 
 const logger = getLogger("uniswapv4-funding")
 
@@ -46,8 +46,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	private priceCache = new Map<string, Decimal>()
 	/** Interval handle for 6-second price polling. */
 	private pricePollingInterval: ReturnType<typeof setInterval> | null = null
-	/** Swap instance for WETH→USDC on-chain quotes. */
-	private swap = new Swap()
 
 	constructor(
 		private readonly clientManager: ChainClientManager,
@@ -189,9 +187,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	 * the price from the most-liquid pool is used.
 	 */
 	private async refreshPrices(): Promise<void> {
-		// Per-chain WETH→USDC price cache to avoid redundant RPC calls within a single tick
-		const wethUsdCache = new Map<string, Decimal>()
-
 		for (const [chain, state] of this.stateByChain) {
 			try {
 				await state.refresh()
@@ -212,16 +207,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 					priceEntries.push({
 						exoticToken: result.exoticToken,
 						priceUsd: result.priceUsd,
-						poolLiquidity: state.getPoolLiquidity(pos.tokenId),
-					})
-					continue
-				}
-
-				const wethResult = await this.computeWethRoutedPoolPriceUsd(pos, sdkPool, chain, wethUsdCache)
-				if (wethResult) {
-					priceEntries.push({
-						exoticToken: wethResult.exoticToken,
-						priceUsd: wethResult.priceUsd,
 						poolLiquidity: state.getPoolLiquidity(pos.tokenId),
 					})
 				}
@@ -282,77 +267,6 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 
 		return null
 	}
-
-	/**
-	 * For pools that pair an exotic token with WETH: computes the exotic price
-	 * in WETH from the pool, then fetches a WETH→USDC on-chain quote to derive
-	 * the USD price. Returns null if neither currency is WETH or the quote fails.
-	 */
-	private async computeWethRoutedPoolPriceUsd(
-		pos: HydratedV4Position,
-		sdkPool: V4Pool,
-		chain: string,
-		wethUsdCache: Map<string, Decimal>,
-	): Promise<{ exoticToken: string; priceUsd: Decimal } | null> {
-		const { asset: wethAddr, decimals: wethDecimals } = this.configService.getWrappedNativeAssetWithDecimals(chain)
-		const wethLower = wethAddr.toLowerCase()
-		const c0 = pos.currency0.toLowerCase()
-		const c1 = pos.currency1.toLowerCase()
-
-		// Skip if this is already a direct-stable pair (handled by computeDirectPoolPriceUsd)
-		const usdc = this.configService.getUsdcAsset(chain).toLowerCase()
-		const usdt = this.configService.getUsdtAsset(chain).toLowerCase()
-		if (c0 === usdc || c0 === usdt || c1 === usdc || c1 === usdt) {
-			return null
-		}
-
-		let exoticToken: string
-		let exoticPriceInWeth: Decimal
-
-		if (c0 === wethLower) {
-			// currency0 is WETH → exotic is currency1
-			// token1Price = "token0 per token1" = WETH per exotic
-			exoticToken = c1
-			exoticPriceInWeth = new Decimal(sdkPool.token1Price.toFixed(18))
-		} else if (c1 === wethLower) {
-			// currency1 is WETH → exotic is currency0
-			// token0Price = "token1 per token0" = WETH per exotic
-			exoticToken = c0
-			exoticPriceInWeth = new Decimal(sdkPool.token0Price.toFixed(18))
-		} else {
-			return null
-		}
-
-		// Get WETH→USDC price (cached per chain within this polling tick)
-		let wethPriceUsd = wethUsdCache.get(chain)
-		if (!wethPriceUsd) {
-			try {
-				const client = this.clientManager.getPublicClient(chain)
-				const usdcAddr = this.configService.getUsdcAsset(chain) as HexString
-				const usdcDecimals = this.configService.getUsdcDecimals(chain)
-				const oneWeth = parseUnits("1", wethDecimals)
-				const { amountOut } = await this.swap.findBestProtocolWithAmountIn(
-					client,
-					wethAddr,
-					usdcAddr,
-					oneWeth,
-					chain,
-				)
-				if (amountOut === 0n) return null
-				wethPriceUsd = new Decimal(formatUnits(amountOut, usdcDecimals))
-				wethUsdCache.set(chain, wethPriceUsd)
-			} catch (err) {
-				logger.warn({ err, chain }, "Failed to fetch WETH→USDC quote for price routing")
-				return null
-			}
-		}
-
-		return {
-			exoticToken,
-			priceUsd: exoticPriceInWeth.mul(wethPriceUsd),
-		}
-	}
-
 
 	// =========================================================================
 	// Planning (FundingVenue)

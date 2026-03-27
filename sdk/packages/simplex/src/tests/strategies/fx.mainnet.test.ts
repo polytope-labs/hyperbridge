@@ -27,6 +27,7 @@ import {
 import { describe, it, expect } from "vitest"
 import {
 	decodeEventLog,
+	formatUnits,
 	getContract,
 	maxUint256,
 	parseUnits,
@@ -43,7 +44,7 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { UNISWAP_V4_POSITION_MANAGER_ABI, UNISWAP_V4_STATE_VIEW_ABI } from "@/config/abis/UniswapV4"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import type { FundingVenue } from "@/funding/types"
-import { Token, Percent } from "@uniswap/sdk-core"
+import { CurrencyAmount, Token, Percent } from "@uniswap/sdk-core"
 import { Pool as V4Pool, Position as V4Position, V4PositionManager } from "@uniswap/v4-sdk"
 import type { MintOptions } from "@uniswap/v4-sdk"
 import "../setup"
@@ -184,7 +185,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 })
 
 describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
-	it("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
+	it.skip("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
 			basePublicClient,
@@ -310,6 +311,247 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		await new Promise((resolve) => setTimeout(resolve, 10000000))
 
 		await intentFiller.stop()
+		await intentsCoprocessor.disconnect()
+	}, 600_000)
+
+	/** USDC/cNGN V4 pool on Base mainnet (0.15% fee, tickSpacing 30, no hooks). */
+	const BASE_USDC_CNGN_V4_POOL_ID =
+		"0x84fa97768196067f0e5aa157709039a3897e219cba3002d9ad38bf44e300fe93" as HexString
+
+	it.skip("Should place USDC→cNGN order on Base from V4 pool price minus 5 bps and wait for fill", async () => {
+		const tlog = (...args: unknown[]) => console.log("[USDC→cNGN]", ...args)
+
+		const {
+			baseIntentGatewayV2,
+			basePublicClient,
+			baseWalletClient,
+			chainConfigService,
+			baseMainnetId,
+			contractService,
+		} = await setUpMainnetFxBase()
+
+		const cNGN =
+			chainConfigService.getCNgnAsset(baseMainnetId) ??
+			("0x46C85152bFe9f96829aA94755D9f915F9B10EF5F" as HexString)
+		const sourceUsdc = chainConfigService.getUsdcAsset(baseMainnetId)
+		const stateViewAddr = chainConfigService.getUniswapV4StateViewAddress(baseMainnetId)
+
+		const chainId = chainConfigService.getChainId(baseMainnetId)
+		const cNGNDecimals = chainConfigService.getCNgnDecimals(baseMainnetId) ?? 6
+		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, baseMainnetId)
+
+		const [slot0Result, poolLiquidity] = await Promise.all([
+			basePublicClient.readContract({
+				address: stateViewAddr,
+				abi: UNISWAP_V4_STATE_VIEW_ABI,
+				functionName: "getSlot0",
+				args: [BASE_USDC_CNGN_V4_POOL_ID],
+			}) as Promise<[bigint, number, number, number]>,
+			basePublicClient.readContract({
+				address: stateViewAddr,
+				abi: UNISWAP_V4_STATE_VIEW_ABI,
+				functionName: "getLiquidity",
+				args: [BASE_USDC_CNGN_V4_POOL_ID],
+			}) as Promise<bigint>,
+		])
+
+		const sqrtPriceX96 = slot0Result[0]
+		const currentTick = slot0Result[1]
+		const poolFee = 1500
+		const poolTickSpacing = 30
+		const poolHooks = "0x0000000000000000000000000000000000000000" as HexString
+
+		const cNGNToken = new Token(chainId, cNGN, cNGNDecimals, "cNGN")
+		const USDCToken = new Token(chainId, sourceUsdc, sourceUsdcDecimals, "USDC")
+
+		const sdkPool = new V4Pool(
+			cNGNToken,
+			USDCToken,
+			poolFee,
+			poolTickSpacing,
+			poolHooks,
+			sqrtPriceX96.toString(),
+			poolLiquidity.toString(),
+			currentTick,
+		)
+
+		const computedPoolId = V4Pool.getPoolId(cNGNToken, USDCToken, poolFee, poolTickSpacing, poolHooks)
+		expect(computedPoolId.toLowerCase()).toBe(BASE_USDC_CNGN_V4_POOL_ID.toLowerCase())
+
+		const amountIn = parseUnits("1", sourceUsdcDecimals)
+		const usdcIn = CurrencyAmount.fromRawAmount(USDCToken, amountIn.toString())
+		const cngnMidFromPool = sdkPool.token1Price.quote(usdcIn)
+		const expectedCngnRaw = BigInt(cngnMidFromPool.quotient.toString())
+		const requestedCngnOut = (expectedCngnRaw * 9995n) / 10000n
+		expect(requestedCngnOut).toBeGreaterThan(0n)
+
+		tlog("pool & sizing", {
+			poolId: BASE_USDC_CNGN_V4_POOL_ID,
+			tick: currentTick,
+			liquidity: poolLiquidity.toString(),
+			amountIn: `${formatUnits(amountIn, sourceUsdcDecimals)} USDC`,
+			cngnMidFromPoolRaw: expectedCngnRaw.toString(),
+			requestedCngnOutRaw: requestedCngnOut.toString(),
+			discountBps: 5,
+		})
+
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(cNGN), amount: requestedCngnOut }]
+
+		const beneficiaryAddress = "0x9C97B15c361e390a46a6a920538508Dc3a37c5e9"
+		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+
+		let order: Order = {
+			user: bytes20ToBytes32(user),
+			source: toHex(baseMainnetId),
+			destination: toHex(baseMainnetId),
+			deadline: 12545151568145n,
+			nonce: 0n,
+			fees: 0n,
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs,
+			output: { beneficiary, assets: outputs, call: "0x" as HexString },
+		}
+
+		tlog("order params", {
+			user,
+			beneficiary: beneficiaryAddress,
+			source: order.source,
+			destination: order.destination,
+		})
+
+		const intentsCoprocessor = await IntentsCoprocessor.connect(
+			process.env.HYPERBRIDGE_NEXUS!,
+			process.env.SECRET_PHRASE!,
+		)
+		tlog("IntentsCoprocessor connected")
+
+		const destBundlerUrl = chainConfigService.getBundlerUrl(baseMainnetId)
+		const baseEvmChain = EvmChain.fromParams({
+			chainId: 8453,
+			host: chainConfigService.getHostAddress(baseMainnetId),
+			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+			bundlerUrl: destBundlerUrl,
+		})
+
+		const feeToken = await contractService.getFeeTokenWithDecimals(baseMainnetId)
+		await approveTokens(baseWalletClient, basePublicClient, feeToken.address, baseIntentGatewayV2.address)
+		await approveTokens(baseWalletClient, basePublicClient, sourceUsdc, baseIntentGatewayV2.address)
+
+		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
+		tlog("IntentGateway ready", { chainId: 8453, bundlerUrl: destBundlerUrl })
+
+		// `execute()` handles placement, then the same bid/fill pipeline as OrderExecutor (no local IntentFiller).
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+			bidTimeoutMs: 600_000,
+			pollIntervalMs: 5_000,
+		})
+
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data, value } = result.value
+			tlog("AWAITING_PLACE_ORDER", {
+				to,
+				valueWei: (value ?? 0n).toString(),
+				calldataBytes: data.length,
+			})
+
+			// Prefer broadcasting here and passing the tx hash to `gen.next`. OrderPlacer treats a
+			// 66-char hex string as an existing tx hash and only waits for the receipt (see SDK
+			// OrderPlacer). The previous pattern (`prepareTransactionRequest` + `signTransaction`
+			// + raw tx to `gen.next`) could appear to hang when public `eth_estimateGas` / fill
+			// simulation stalls, or when the wallet signs but the SDK rebroadcast path misbehaves.
+			tlog("sending place tx (sendTransaction)…")
+			const placeTxHash = await baseWalletClient.sendTransaction({
+				account: baseWalletClient.account!,
+				chain: baseWalletClient.chain,
+				to,
+				data,
+				value: value ?? 0n,
+			})
+			tlog("place tx submitted", { placeTxHash })
+			result = await gen.next(placeTxHash)
+			tlog("SDK observed placement receipt; continuing execute()")
+		} else {
+			throw new Error(
+				`Expected first yield to be AWAITING_PLACE_ORDER, got ${result.done ? "done" : JSON.stringify(result.value)}`,
+			)
+		}
+
+		let userOpHash: HexString | undefined
+		let selectedSolver: HexString | undefined
+		let sawFilled = false
+
+		while (!result.done) {
+			if (result.value && "status" in result.value) {
+				const status = result.value
+
+				switch (status.status) {
+					case "ORDER_PLACED":
+						tlog("ORDER_PLACED", {
+							orderId: status.order.id,
+							placementTxHash: status.receipt.transactionHash,
+							blockNumber: status.receipt.blockNumber.toString(),
+						})
+						break
+					case "AWAITING_BIDS":
+						tlog("AWAITING_BIDS", { commitment: status.commitment })
+						break
+					case "BIDS_RECEIVED":
+						tlog("BIDS_RECEIVED", { commitment: status.commitment, bidCount: status.bidCount })
+						break
+					case "BID_SELECTED":
+						selectedSolver = status.selectedSolver
+						userOpHash = status.userOpHash
+						tlog("BID_SELECTED", {
+							commitment: status.commitment,
+							selectedSolver: status.selectedSolver,
+							userOpHash: status.userOpHash,
+						})
+						break
+					case "USEROP_SUBMITTED":
+						tlog("USEROP_SUBMITTED", {
+							commitment: status.commitment,
+							userOpHash: status.userOpHash,
+							txHash: status.transactionHash,
+						})
+						break
+					case "FILLED":
+						sawFilled = true
+						tlog("FILLED", {
+							commitment: status.commitment,
+							userOpHash: status.userOpHash,
+							txHash: status.transactionHash,
+							selectedSolver: status.selectedSolver,
+						})
+						break
+					case "PARTIAL_FILL":
+						tlog("PARTIAL_FILL", {
+							commitment: status.commitment,
+							userOpHash: status.userOpHash,
+							txHash: status.transactionHash,
+						})
+						break
+					case "PARTIAL_FILL_EXHAUSTED":
+						tlog("PARTIAL_FILL_EXHAUSTED", { commitment: status.commitment, error: status.error })
+						break
+					case "FAILED":
+						tlog("FAILED", status)
+						throw new Error(`Order execution failed: ${status.error}`)
+					default:
+						tlog("status", status)
+				}
+			}
+			result = await gen.next()
+		}
+
+		tlog("execute() generator finished", { sawFilled, userOpHash, selectedSolver })
+		expect(sawFilled).toBe(true)
+		expect(userOpHash).toBeDefined()
+		expect(selectedSolver).toBeDefined()
+
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 })
@@ -1306,6 +1548,7 @@ function createFxOnlyIntentFiller(
 	chainConfigService: FillerConfigService,
 	contractService: ContractInteractionService,
 	mainnetId: string,
+	exoticTokenOverride?: HexString,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
@@ -1327,7 +1570,7 @@ function createFxOnlyIntentFiller(
 		],
 	})
 
-	const extAsset = chainConfigService.getExtAsset(mainnetId)
+	const extAsset = exoticTokenOverride ?? chainConfigService.getExtAsset(mainnetId)
 	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
 	const fxStrategy = new FXFiller(

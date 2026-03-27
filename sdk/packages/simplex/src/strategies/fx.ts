@@ -67,7 +67,6 @@ export class FXFiller implements FillerStrategy {
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
-	private venuePricesByChain = new Map<string, { bid: Decimal; ask: Decimal }>()
 
 	/**
 	 * @param signer                 Filler's signing account for UserOp signatures.
@@ -150,61 +149,33 @@ export class FXFiller implements FillerStrategy {
 	async initialise(): Promise<void> {
 		const solver = this.signer.account.address as HexString
 		await Promise.all(this.fundingVenues.map((v) => v.initialise(solver)))
-
-		if (this.fundingVenues.length > 0) {
-			await this.updatePricesFromVenues()
-		}
 	}
 
 	/**
-	 * Queries funding venues for live exotic token prices and updates
-	 * the bid/ask policies accordingly.
-	 *
-	 * When Uniswap V4 is configured, rates are taken **only** from its pool
-	 * cache (not from other venues). Otherwise the first venue with a valid
-	 * price wins.
+	 * Queries funding venues for the exotic token's USD price on a given chain.
+	 * Uniswap V4 is preferred; falls back to other venues. Returns bid/ask
+	 * with spread applied, or null if no venue has a price.
 	 */
-	private async updatePricesFromVenues(): Promise<void> {
-		const venues = this.venuesForLivePricing()
+	private async getVenuePrice(chain: string): Promise<{ bid: Decimal; ask: Decimal } | null> {
+		const exoticAddr = this.exoticTokenAddresses[chain]
+		if (!exoticAddr) return null
 
-		for (const [chain, exoticAddr] of Object.entries(this.exoticTokenAddresses)) {
-			for (const venue of venues) {
-				const usdPrice = await venue.getExoticTokenPrice(chain, exoticAddr)
-				if (usdPrice && usdPrice.isPositive()) {
-					const exoticPerUsd = new Decimal(1).div(usdPrice)
-					const spread = new Decimal(this.spreadBps).div(10000)
+		// Prefer V4, fall back to others
+		const v4 = this.fundingVenues.filter((v) => v.name === "UniswapV4")
+		const venues = v4.length > 0 ? v4 : this.fundingVenues
 
-					// bid: filler buys exotic → wants MORE exotic per USD (higher rate)
-					const bid = exoticPerUsd.mul(new Decimal(1).plus(spread))
-					// ask: filler sells exotic → gives LESS exotic per USD (lower rate)
-					const ask = exoticPerUsd.mul(new Decimal(1).minus(spread))
-					this.venuePricesByChain.set(chain, { bid, ask })
-
-					this.logger.debug(
-						{
-							chain,
-							token: exoticAddr,
-							usdPrice: usdPrice.toString(),
-							bidPrice: bid.toString(),
-							askPrice: ask.toString(),
-							pricingSource: venue.name,
-						},
-						"Updated bid/ask prices from funding venue",
-					)
-					break
+		for (const venue of venues) {
+			const usdPrice = await venue.getExoticTokenPrice(chain, exoticAddr)
+			if (usdPrice && usdPrice.isPositive()) {
+				const exoticPerUsd = new Decimal(1).div(usdPrice)
+				const spread = new Decimal(this.spreadBps).div(10000)
+				return {
+					bid: exoticPerUsd.mul(new Decimal(1).plus(spread)),
+					ask: exoticPerUsd.mul(new Decimal(1).minus(spread)),
 				}
 			}
 		}
-	}
-
-	/**
-	 * Venues that may supply USD/exotic rates for bid/ask. Uniswap V4 is
-	 * exclusive: if any V4 planner is present, only V4 is queried for pricing.
-	 */
-	private venuesForLivePricing(): FundingVenue[] {
-		const uniswapV4 = this.fundingVenues.filter((v) => v.name === "UniswapV4")
-		if (uniswapV4.length > 0) return uniswapV4
-		return this.fundingVenues
+		return null
 	}
 
 	async canFill(order: Order): Promise<boolean> {
@@ -249,11 +220,6 @@ export class FXFiller implements FillerStrategy {
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
 		try {
-			// Pick up latest venue prices from on-chain pool state
-			if (this.fundingVenues.length > 0) {
-				await this.updatePricesFromVenues()
-			}
-
 			const sourceChain = order.source
 			const destChain = order.destination
 			const { decimals: feeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(sourceChain)
@@ -300,6 +266,11 @@ export class FXFiller implements FillerStrategy {
 
 			const fundingCalls: ERC7821Call[] = []
 
+			// Fetch venue prices once per chain (avoids redundant RPC per leg)
+			const sourceVenuePrice = this.fundingVenues.length > 0 ? await this.getVenuePrice(sourceChain) : null
+			const destVenuePrice = sourceChain !== destChain && this.fundingVenues.length > 0
+				? await this.getVenuePrice(destChain) : sourceVenuePrice
+
 			let deadlineTimestamp: bigint | undefined
 			try {
 				const latestBlock = await destClient.getBlock()
@@ -328,8 +299,7 @@ export class FXFiller implements FillerStrategy {
 				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
 				const exoticTokenDecimals = pair.inputIsStable ? outputDecimals : inputDecimals
 
-				const exoticChain = pair.inputIsStable ? destChain : sourceChain
-				const venuePrice = this.venuePricesByChain.get(exoticChain)
+				const venuePrice = pair.inputIsStable ? destVenuePrice : sourceVenuePrice
 				const bidPrice = venuePrice?.bid ?? policyBidPrice
 				const askPrice = venuePrice?.ask ?? policyAskPrice
 
@@ -459,10 +429,9 @@ export class FXFiller implements FillerStrategy {
 				const stableDecimals = pair.inputIsStable ? inputDecimals : outputDecimals
 				const exoticDecimalsLeg = pair.inputIsStable ? outputDecimals : inputDecimals
 
-				const exoticChain = pair.inputIsStable ? destChain : sourceChain
-				const venuePrice = this.venuePricesByChain.get(exoticChain)
-				const bidPrice = venuePrice?.bid ?? policyBidPrice
-				const askPrice = venuePrice?.ask ?? policyAskPrice
+				const venuePriceProfit = pair.inputIsStable ? destVenuePrice : sourceVenuePrice
+				const bidPrice = venuePriceProfit?.bid ?? policyBidPrice
+				const askPrice = venuePriceProfit?.ask ?? policyAskPrice
 
 				if (pair.inputIsStable) {
 					// Filler sells exotic (stable→exotic): receives stable, gives exotic. Value exotic at bid (acquisition cost).
@@ -761,8 +730,8 @@ export class FXFiller implements FillerStrategy {
 					sourceChain,
 				)
 				const normalized = new Decimal(formatUnits(order.inputs[j].amount, exoticDecimals))
-				const venuePrice = this.venuePricesByChain.get(sourceChain)
-				const bidPriceForChain = venuePrice?.bid ?? this.bidPricePolicy.getPrice(new Decimal(0))
+				const vp = this.fundingVenues.length > 0 ? await this.getVenuePrice(sourceChain) : null
+				const bidPriceForChain = vp?.bid ?? this.bidPricePolicy.getPrice(new Decimal(0))
 				totalInputUsd = totalInputUsd.plus(normalized.div(bidPriceForChain))
 			}
 		}

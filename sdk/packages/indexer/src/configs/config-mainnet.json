@@ -97,6 +97,7 @@
 		"chainId": "56",
 		"startBlock": 43654810,
 		"stateMachineId": "EVM-56",
+		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7",
 			"erc6160ext20": "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3",

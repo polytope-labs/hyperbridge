@@ -272,26 +272,36 @@ Confirmation policies are configured per strategy. Both BasicFiller and HyperFX 
 
 Before processing a cross-chain order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer. Same-chain orders always proceed without additional confirmation delay.
 
+#### Built-in Defaults
+
+Simplex ships with default confirmation policies for common chains. These apply automatically when no user-configured policy exists for a chain. User-configured policies override the default for that chain.
+
+| Chain | Chain ID | Min ($1,000) | Max ($100,000) | Block Time |
+|---|---|---|---|---|
+| Ethereum | 1 | 2 blocks (~24s) | 15 blocks (~3m) | ~12s |
+| BNB Chain | 56 | 2 blocks (~6s) | 3 blocks (~9s) | ~3s |
+| Polygon | 137 | 2 blocks (~4s) | 32 blocks (~1m) | ~2s |
+| Base | 8453 | 2 blocks (~4s) | 90 blocks (~3m) | ~2s |
+| Arbitrum | 42161 | 8 blocks (~2s) | 720 blocks (~3m) | ~0.25s |
+
+Values between the min and max order amounts are linearly interpolated.
+
+#### Custom Overrides
+
+To override the defaults for specific chains, add a `confirmationPolicies` section to your strategy. Unlisted chains keep their defaults:
+
 ```toml lineNumbers
 [confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
 points = [
-    { amount = "5",    value = 3  },   # $5 → 3 blocks (~36s)
-    { amount = "500",  value = 6  },   # $500 → 6 blocks (~72s)
-    { amount = "5000", value = 12 },   # $5000 → 12 blocks (~2.5m)
+    { amount = "1000",   value = 3  },   # $1k → 3 blocks (~36s)
+    { amount = "50000",  value = 15 },   # $50k → 15 blocks (~3m)
+    { amount = "100000", value = 20 },   # $100k → 20 blocks (~4m)
 ]
 
-[confirmationPolicies."56"]    # BSC (~1s blocks)
+[confirmationPolicies."56"]    # BSC (~3s blocks)
 points = [
-    { amount = "1",    value = 3  },
-    { amount = "500",  value = 6  },
-    { amount = "5000", value = 15 },
-]
-
-[confirmationPolicies."42161"] # Arbitrum (~0.25s blocks)
-points = [
-    { amount = "2",    value = 2  },
-    { amount = "1000", value = 5  },
-    { amount = "8000", value = 10 },
+    { amount = "1000",   value = 2  },
+    { amount = "100000", value = 5  },
 ]
 ```
 
@@ -323,8 +333,8 @@ points = [
 ]
 ```
 
-<Callout type="warning">
-If HyperFX is configured without <code>[strategies.confirmationPolicies]</code>, Simplex logs a warning at startup and skips cross-chain orders for that strategy. Only same-chain HyperFX orders will be processed in that case.
+<Callout type="info">
+Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, and Arbitrum. Custom <code>[strategies.confirmationPolicies]</code> entries override the defaults for those chains only.
 </Callout>
 
 ### Auto-Rebalancing

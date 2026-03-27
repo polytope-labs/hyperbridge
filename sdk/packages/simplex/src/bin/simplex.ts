@@ -67,8 +67,8 @@ interface BasicStrategyConfig {
 		amount: string
 		value: number
 	}>
-	/** Per-chain confirmation policies keyed by chain ID string */
-	confirmationPolicies: Record<string, ChainConfirmationPolicy>
+	/** Per-chain confirmation policies keyed by chain ID string. Defaults provided for ETH, BSC, Base, Arbitrum. */
+	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 }
 
 /** TOML row for an Aerodrome pool; `chain` is the state machine id e.g. `EVM-8453`. */
@@ -131,6 +131,15 @@ interface FxStrategyConfig {
 }
 
 type StrategyConfig = BasicStrategyConfig | FxStrategyConfig
+
+/** Sensible defaults based on chain finality characteristics. User config overrides per-chain. */
+const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
+	"1":     { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 15 }] },   // Ethereum (~12s blocks, ~24s–3min)
+	"56":    { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 3 }] },    // BNB Chain (~3s blocks, fast finality)
+	"137":   { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 32 }] },   // Polygon (~2s blocks, milestone finality)
+	"8453":  { points: [{ amount: "1000", value: 2 },  { amount: "100000", value: 90 }] },   // Base (~2s blocks, L2)
+	"42161": { points: [{ amount: "1000", value: 8 },  { amount: "100000", value: 720 }] },  // Arbitrum (~0.25s blocks, L2)
+}
 
 interface PendingQueueConfig {
 	maxRechecks: number
@@ -301,7 +310,11 @@ program
 				switch (strategyConfig.type) {
 					case "basic": {
 						const bpsPolicy = new FillerBpsPolicy({ points: strategyConfig.bpsCurve })
-						const confirmationPolicy = new ConfirmationPolicy(strategyConfig.confirmationPolicies)
+						const mergedBasicPolicies = {
+							...DEFAULT_CONFIRMATION_POLICIES,
+							...(strategyConfig.confirmationPolicies ?? {}),
+						}
+						const confirmationPolicy = new ConfirmationPolicy(mergedBasicPolicies)
 						return new BasicFiller(
 							runtimeSigner,
 							configService,
@@ -318,14 +331,11 @@ program
 						const askPricePolicy = strategyConfig.askPriceCurve?.length
 							? new FillerPricePolicy({ points: strategyConfig.askPriceCurve })
 							: undefined
-						const fxConfirmationPolicy = strategyConfig.confirmationPolicies
-							? new ConfirmationPolicy(strategyConfig.confirmationPolicies)
-							: undefined
-						if (!fxConfirmationPolicy) {
-							logger.warn(
-								"No confirmationPolicies configured for hyperfx strategy; cross-chain orders will be skipped",
-							)
+						const mergedFxPolicies = {
+							...DEFAULT_CONFIRMATION_POLICIES,
+							...(strategyConfig.confirmationPolicies ?? {}),
 						}
+						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
 						const fundingVenues: FundingVenue[] = []
 						if (strategyConfig.outputFunding?.aerodrome?.pools?.length) {
 							const poolsByChain: Record<string, AerodromePoolConfig[]> = {}
@@ -563,12 +573,8 @@ function validateConfig(config: FillerTomlConfig): void {
 				}
 			}
 
-			// Validate confirmation policies
-			if (!strategy.confirmationPolicies || Object.keys(strategy.confirmationPolicies).length === 0) {
-				throw new Error("Basic strategy must have at least one confirmation policy")
-			}
-
-			for (const [chainId, policy] of Object.entries(strategy.confirmationPolicies)) {
+			// Validate user-provided confirmation policies (defaults are always present)
+			for (const [chainId, policy] of Object.entries(strategy.confirmationPolicies ?? {})) {
 				if (!policy.points || !Array.isArray(policy.points) || policy.points.length < 2) {
 					throw new Error(
 						`Confirmation policy for chain ${chainId} must have a 'points' array with at least 2 points`,

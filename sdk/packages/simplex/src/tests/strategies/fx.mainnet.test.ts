@@ -6,7 +6,7 @@ import {
 	ContractInteractionService,
 	DelegationService,
 	FillerConfigService,
-	type UserProvidedChainConfig,
+	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType, type SigningAccount } from "@/services/wallet"
@@ -803,15 +803,15 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		)
 		const fundingVenues: FundingVenue[] = [v4Planner]
 
-		const exoticTokenAddresses: Record<string, HexString> = { [baseMainnetId]: cNGN }
+		const token1: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
 		const fxStrategy = new FXFiller(
 			signer,
 			chainConfigService,
 			chainClientManager,
 			contractService,
-			"5000",
-			exoticTokenAddresses,
+			5000,
+			token1,
 			{
 				fundingVenues,
 			},
@@ -935,20 +935,6 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 	}, 600_000)
 })
 
-const PERMIT2_TOKEN_APPROVE_ABI = [
-	{
-		name: "approve",
-		type: "function",
-		stateMutability: "nonpayable",
-		inputs: [
-			{ name: "token", type: "address" },
-			{ name: "spender", type: "address" },
-			{ name: "amount", type: "uint160" },
-			{ name: "expiration", type: "uint48" },
-		],
-		outputs: [],
-	},
-] as const
 
 describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 funding", () => {
 	it("mints a USDC/cNGN V4 LP NFT (or uses FX_TEST_V4_MINT_TX), then fills a USDC→cNGN order via V4 funding", async () => {
@@ -1148,15 +1134,15 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		)
 		const fundingVenues: FundingVenue[] = [v4Planner]
 
-		const exoticTokenAddresses: Record<string, HexString> = { [baseMainnetId]: cNGN }
+		const token1: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
 		const fxStrategy = new FXFiller(
 			signer,
 			chainConfigService,
 			chainClientManager,
 			contractService,
-			"5000",
-			exoticTokenAddresses,
+			5000,
+			token1,
 			{
 				fundingVenues,
 			},
@@ -1575,12 +1561,10 @@ function hasMpcVaultFillCredentials(): boolean {
 function createMpcVaultFillSigner() {
 	return createSimplexSigner({
 		type: SignerType.MpcVault,
-		mpcVault: {
-			apiToken: process.env.MPCVAULT_API_TOKEN!,
-			vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
-			accountAddress: process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString,
-			callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY!,
-		},
+		apiToken: process.env.MPCVAULT_API_TOKEN!,
+		vaultUuid: process.env.MPCVAULT_VAULT_UUID!,
+		accountAddress: process.env.MPCVAULT_ACCOUNT_ADDRESS as HexString,
+		callbackClientSignerPublicKey: process.env.MPCVAULT_CALLBACK_CLIENT_SIGNER_PUBLIC_KEY!,
 	})
 }
 
@@ -1588,7 +1572,7 @@ async function setUpMainnetFx() {
 	const polygonMainnetId = "EVM-137"
 	const chains = [polygonMainnetId]
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{ chainId: 137, rpcUrl: process.env.POLYGON_MAINNET!, bundlerUrl: bundlerUrl(137) },
 	]
 
@@ -1610,7 +1594,7 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1640,7 +1624,7 @@ async function setUpMainnetFxBase() {
 	const baseMainnetId = "EVM-8453"
 	const chains = [baseMainnetId]
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET!, bundlerUrl: bundlerUrl(8453) },
 	]
 
@@ -1662,7 +1646,7 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1694,7 +1678,7 @@ async function setUpMainnetFxArbitrum() {
 	const arbitrumMainnetId = "EVM-42161"
 	const chains = [arbitrumMainnetId]
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{ chainId: 42161, rpcUrl: process.env.ARBITRUM_MAINNET!, bundlerUrl: bundlerUrl(42161) },
 	]
 
@@ -1716,7 +1700,7 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1747,7 +1731,7 @@ async function setUpMainnetFxArbitrumToBase() {
 	const baseMainnetId = "EVM-8453"
 	const chains = [arbitrumMainnetId, baseMainnetId]
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{ chainId: 42161, rpcUrl: process.env.ARBITRUM_MAINNET!, bundlerUrl: bundlerUrl(42161) },
 		{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET!, bundlerUrl: bundlerUrl(8453) },
 	]
@@ -1771,7 +1755,7 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	// User EOA (PRIVATE_KEY): Arbitrum wallet for approvals and placing the order.
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const userSigner = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const userSigner = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, userSigner)
 	const contractService = new ContractInteractionService(
@@ -1834,11 +1818,11 @@ function createCrossChainFxIntentFiller(
 		],
 	})
 
-	const exoticTokenAddresses: Record<string, HexString> = {}
+	const token1: Record<string, HexString> = {}
 	for (const id of chainIds) {
 		const extAsset = chainConfigService.getExtAsset(id)
 		if (extAsset) {
-			exoticTokenAddresses[id] = extAsset as HexString
+			token1[id] = extAsset as HexString
 		}
 	}
 
@@ -1862,8 +1846,8 @@ function createCrossChainFxIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		"5000",
-		exoticTokenAddresses,
+		5000,
+		token1,
 		{
 			bidPricePolicy,
 			askPricePolicy,
@@ -1896,7 +1880,7 @@ function createFxOnlyIntentFiller(
 	exoticTokenOverride?: HexString,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
@@ -1916,15 +1900,15 @@ function createFxOnlyIntentFiller(
 	})
 
 	const extAsset = exoticTokenOverride ?? chainConfigService.getExtAsset(mainnetId)
-	const exoticTokenAddresses: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
+	const token1: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
 	const fxStrategy = new FXFiller(
 		signer,
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		"5000",
-		exoticTokenAddresses,
+		5000,
+		token1,
 		{
 			bidPricePolicy,
 			askPricePolicy,

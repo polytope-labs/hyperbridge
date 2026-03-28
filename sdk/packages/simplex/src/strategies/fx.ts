@@ -60,7 +60,7 @@ export class FXFiller implements FillerStrategy {
 	/** Ask price policy: exotic tokens per USD when the filler is *selling* exotic to a user */
 	private askPricePolicy: FillerPricePolicy
 	/** Maps chain identifier → exotic token address (e.g. cNGN on each supported chain) */
-	private exoticTokenAddresses: Record<string, HexString>
+	private token1: Record<string, HexString>
 	private maxOrderUsd: Decimal
 	private signer: SigningAccount
 	private logger = getLogger("fx-simplex")
@@ -73,8 +73,8 @@ export class FXFiller implements FillerStrategy {
 	 * @param configService          Network/config provider for addresses and decimals.
 	 * @param clientManager          Used to get viem PublicClients for chains.
 	 * @param contractService        Shared contract interaction service.
-	 * @param maxOrderUsdStr         Maximum USD value this filler is willing to fill per order.
-	 * @param exoticTokenAddresses   Map of chain identifier → exotic token address.
+	 * @param maxOrderUsd             Maximum USD value this filler is willing to fill per order.
+	 * @param token1   Map of chain identifier → exotic token address.
 	 * @param options.bidPricePolicy Optional price curve for buying exotic. Required if no fundingVenues.
 	 * @param options.askPricePolicy Optional price curve for selling exotic. Required if no fundingVenues.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
@@ -86,8 +86,8 @@ export class FXFiller implements FillerStrategy {
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		maxOrderUsdStr: string,
-		exoticTokenAddresses: Record<string, HexString>,
+		maxOrderUsd: number,
+		token1: Record<string, HexString>,
 		options?: {
 			bidPricePolicy?: FillerPricePolicy
 			askPricePolicy?: FillerPricePolicy
@@ -117,7 +117,7 @@ export class FXFiller implements FillerStrategy {
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
-		this.exoticTokenAddresses = exoticTokenAddresses
+		this.token1 = token1
 		this.fundingVenues = fundingVenues
 		this.spreadBps = spreadBps
 
@@ -125,7 +125,7 @@ export class FXFiller implements FillerStrategy {
 		this.bidPricePolicy = bidPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
 		this.askPricePolicy = askPricePolicy ?? new FillerPricePolicy({ points: [{ amount: "0", price: "1" }] })
 
-		this.maxOrderUsd = new Decimal(maxOrderUsdStr)
+		this.maxOrderUsd = new Decimal(maxOrderUsd)
 		if (this.maxOrderUsd.lte(0)) {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
@@ -157,7 +157,7 @@ export class FXFiller implements FillerStrategy {
 	 * pool price as both bid and ask, or null if no venue has a price.
 	 */
 	private async getVenuePrice(chain: string): Promise<{ bid: Decimal; ask: Decimal } | null> {
-		const exoticAddr = this.exoticTokenAddresses[chain]
+		const exoticAddr = this.token1[chain]
 		if (!exoticAddr) return null
 
 		// Prefer V4, fall back to others
@@ -658,8 +658,8 @@ export class FXFiller implements FillerStrategy {
 
 		const sourceChain = order.source
 		const destChain = order.destination
-		const sourceExotic = this.exoticTokenAddresses[sourceChain]
-		const destExotic = this.exoticTokenAddresses[destChain]
+		const sourceExotic = this.token1[sourceChain]
+		const destExotic = this.token1[destChain]
 		if (!sourceExotic && !destExotic) {
 			throw new Error(`Exotic token address not configured for chains ${sourceChain} / ${destChain}`)
 		}
@@ -725,7 +725,7 @@ export class FXFiller implements FillerStrategy {
 				totalInputUsd = totalInputUsd.plus(new Decimal(formatUnits(order.inputs[j].amount, decimals)))
 			} else {
 				const exoticDecimals = await this.contractService.getTokenDecimals(
-					this.exoticTokenAddresses[sourceChain],
+					this.token1[sourceChain],
 					sourceChain,
 				)
 				const normalized = new Decimal(formatUnits(order.inputs[j].amount, exoticDecimals))

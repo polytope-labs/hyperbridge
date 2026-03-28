@@ -4,7 +4,7 @@ import {
 	ChainClientManager,
 	ContractInteractionService,
 	FillerConfigService,
-	type UserProvidedChainConfig,
+	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
@@ -398,7 +398,7 @@ function createIntentFiller(
 	chainConfigService: FillerConfigService,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
@@ -478,7 +478,7 @@ async function setUp() {
 	const polygonAmoyId = "EVM-80002"
 	const chains = [bscChapelId, polygonAmoyId]
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{ chainId: 97, rpcUrl: process.env.BSC_CHAPEL!, bundlerUrl: bundlerUrl(97) },
 		{ chainId: 80002, rpcUrl: process.env.POLYGON_AMOY!, bundlerUrl: bundlerUrl(80002) },
 	]
@@ -501,7 +501,7 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
@@ -544,7 +544,7 @@ async function setUpTron() {
 	const polygonAmoyId = "EVM-80002"
 	const chains = [tronNileId, polygonAmoyId]
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{ chainId: 3448148188, rpcUrl: process.env.TRON_NILE! },
 		{ chainId: 80002, rpcUrl: process.env.POLYGON_AMOY!, bundlerUrl: bundlerUrl(80002) },
 	]
@@ -567,7 +567,7 @@ async function setUpTron() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(

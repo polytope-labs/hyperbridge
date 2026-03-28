@@ -84,7 +84,7 @@ export class ChainClientManager {
 			signer ??
 			createSimplexSigner({
 				type: SignerType.PrivateKey,
-				privateKey: generatePrivateKey(),
+				key: generatePrivateKey(),
 			})
 	}
 

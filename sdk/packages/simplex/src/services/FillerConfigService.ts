@@ -3,14 +3,47 @@ import { ChainConfigService } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
+	rpcUrl: string
+	bundlerUrl: string
+}
+
+export interface ResolvedChainConfig {
 	chainId: number
 	rpcUrl: string
 	bundlerUrl?: string
 }
 
-export interface LoggingConfig {
-	level?: LogLevel
+/**
+ * Fetches the chain ID from an RPC endpoint using eth_chainId.
+ */
+export async function fetchChainId(rpcUrl: string): Promise<number> {
+	const response = await fetch(rpcUrl, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+	})
+	if (!response.ok) {
+		throw new Error(`Failed to fetch chainId from ${rpcUrl}: HTTP ${response.status}`)
+	}
+	const json = (await response.json()) as { result?: string; error?: { message: string } }
+	if (json.error) {
+		throw new Error(`eth_chainId error from ${rpcUrl}: ${json.error.message}`)
+	}
+	return Number(json.result)
 }
+
+/**
+ * Resolves chain IDs for all user-provided chain configs by querying each RPC.
+ */
+export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Promise<ResolvedChainConfig[]> {
+	return Promise.all(
+		chains.map(async (chain) => {
+			const chainId = await fetchChainId(chain.rpcUrl)
+			return { chainId, rpcUrl: chain.rpcUrl, bundlerUrl: chain.bundlerUrl }
+		}),
+	)
+}
+
 
 export interface GasFeeBumpConfig {
 	maxPriorityFeePerGasBumpPercent?: number
@@ -27,7 +60,7 @@ export interface RebalancingConfig {
 
 export interface FillerConfig {
 	maxConcurrentOrders: number
-	logging?: LoggingConfig
+	logging?: LogLevel
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	entryPointAddress?: string
@@ -55,7 +88,7 @@ export class FillerConfigService {
 	private bundlerUrls: Map<number, string> = new Map()
 	private fillerConfig?: FillerConfig
 
-	constructor(chainConfigs: UserProvidedChainConfig[], fillerConfig?: FillerConfig) {
+	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
 		chainConfigs.forEach((config) => {
 			if (config.rpcUrl) {
 				this.rpcOverrides.set(config.chainId, config.rpcUrl)
@@ -215,7 +248,7 @@ export class FillerConfigService {
 		return Array.from(this.rpcOverrides.keys())
 	}
 
-	getLoggingConfig(): LoggingConfig | undefined {
+	getLoggingConfig(): LogLevel | undefined {
 		return this.fillerConfig?.logging
 	}
 

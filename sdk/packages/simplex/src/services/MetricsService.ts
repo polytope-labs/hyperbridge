@@ -45,7 +45,7 @@ export interface MetricsServiceOptions {
 	configService: FillerConfigService
 	fillerAddress: string
 	chains: number[]
-	exoticTokenAddresses: Record<string, string>
+	token1: Record<string, string>
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	dataDir?: string
@@ -453,7 +453,7 @@ export class MetricsService {
 
 		// Collect FX strategy exotic token addresses keyed by chain ID
 		const fxExoticByChain = new Map<number, string>()
-		for (const [chainKey, addr] of Object.entries(this.options.exoticTokenAddresses)) {
+		for (const [chainKey, addr] of Object.entries(this.options.token1)) {
 			const id = parseInt(chainKey.replace("EVM-", ""), 10)
 			if (!isNaN(id)) fxExoticByChain.set(id, addr)
 		}

@@ -61,7 +61,7 @@ export class UniswapV4FundingPlanner implements FundingVenue {
 	static validateConfig(positions: { chain?: string; tokenId?: string }[]): void {
 		for (const pos of positions) {
 			if (!pos.chain?.trim()) {
-				throw new Error("Each UniswapV4 outputFunding position must have a non-empty 'chain' (e.g. EVM-8453)")
+				throw new Error("Each UniswapV4 vault position must have a non-empty 'chain' (e.g. EVM-8453)")
 			}
 			if (!pos.tokenId) {
 				throw new Error("Each UniswapV4 position must include a 'tokenId'")

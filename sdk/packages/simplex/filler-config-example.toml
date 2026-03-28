@@ -4,16 +4,16 @@
 
 # Filler configuration
 [simplex]
-# Choose ONE signer mode via [simplex.signer]:
+# Signer is a tagged union — set type, then add the variant's fields directly.
+#
 # 1) Private key signer:
 # [simplex.signer]
 # type = "privateKey"
-# privateKey = "0x..."  # Not required if all chains are watchOnly
+# key = "0x..."
 #
 # 2) MPCVault signer:
 # [simplex.signer]
 # type = "mpcVault"
-# [simplex.signer.mpcVault]
 # apiToken = ""
 # vaultUuid = ""
 # accountAddress = "0x0000000000000000000000000000000000000000"
@@ -33,9 +33,6 @@ substratePrivateKey = ""
 # Hyperbridge WebSocket URL
 hyperbridgeWsUrl = ""
 
-# ERC-4337 bundler URL for UserOperation gas estimation
-bundlerUrl = ""
-
 # Gas fee bump configuration (optional)
 # These values control how much to bump gas fees for UserOperation submission
 # Both are percentages added ON TOP of the base gasPrice
@@ -44,22 +41,12 @@ bundlerUrl = ""
 # maxPriorityFeePerGasBumpPercent = 8   # Percentage added to gasPrice for priority fee (default: 8)
 # maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
 
-# Watch-only mode configuration
-# Option 1: Global watch-only (all chains)
-# watchOnly = true
 
-# Option 2: Per-chain watch-only configuration
-# [simplex.watchOnly]
-# "1" = true   # Ethereum Mainnet - watch only
-# "56" = false  # BSC Mainnet - normal execution
-# "137" = true  # Polygon Mainnet - watch only
+# Logging level: trace, debug, info, warn, error
+logging = "debug"
 
-# Logging configuration
-[simplex.logging]
-level = "debug"  # Options: trace, debug, info, warn, error
-
-# Pending queue configuration
-[simplex.pendingQueue]
+# Queue configuration
+[simplex.queue]
 maxRechecks = 10
 recheckDelayMs = 30000  # 30 seconds
 
@@ -108,11 +95,11 @@ bpsCurve = [
 # Uncomment and configure to enable
 # [[strategies]]
 # type = "hyperfx"
-# maxOrderUsd = "5000"
-# # Optional spread (basis points) around Uniswap V4 mid when using outputFunding.uniswapV4 for pricing
+# maxOrderUsd = 5000
+# # Optional spread (basis points) around Uniswap V4 mid when using vault.uniswapV4 for pricing
 # spreadBps = 50
 #
-# # Bid/ask curves: omit both when [strategies.outputFunding.uniswapV4].positions is set (pool-based pricing).
+# # Bid/ask curves: omit both when [strategies.vault.uniswapV4].positions is set (pool-based pricing).
 # # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
 # bidPriceCurve = [
 #     { amount = "100",  price = "1580" },
@@ -127,45 +114,46 @@ bpsCurve = [
 #     { amount = "5000", price = "1550" },
 # ]
 #
-# [strategies.exoticTokenAddresses]
+# [strategies.token1]
 # "EVM-56"  = "0xExoticTokenAddressOnBsc"
 # "EVM-137" = "0xExoticTokenAddressOnPolygon"
 #
 # # Auto-funding from on-chain liquidity (optional)
 # # When wallet balance is insufficient, Simplex withdraws from these positions atomically
 #
-# [strategies.outputFunding.uniswapV4]
+# [strategies.vault.uniswapV4]
 # positions = [
 #     { chain = "EVM-8453", tokenId = "123456789" },
 # ]
 #
 
 
-# Chain configuration - RPC URLs are required
+# Chain configuration - RPC and bundler URLs are required
+# Chain IDs are resolved automatically from the RPC endpoint
 # All other chain data (addresses, assets, etc.) comes from the SDK automatically
 [[chains]]
-chainId = 1  # Ethereum Mainnet
-rpcUrl = ""  # Required: your RPC URL
+rpcUrl = ""      # Ethereum Mainnet
+bundlerUrl = ""  # ERC-4337 bundler (e.g. Pimlico)
 
 [[chains]]
-chainId = 56  # BSC Mainnet
-rpcUrl = ""  # Required: your RPC URL
+rpcUrl = ""      # BSC Mainnet
+bundlerUrl = ""
 
 [[chains]]
-chainId = 42161  # Arbitrum Mainnet
-rpcUrl = ""  # Required: your RPC URL
+rpcUrl = ""      # Arbitrum Mainnet
+bundlerUrl = ""
 
 [[chains]]
-chainId = 8453  # Base Mainnet
-rpcUrl = ""  # Required: your RPC URL
+rpcUrl = ""      # Base Mainnet
+bundlerUrl = ""
 
 [[chains]]
-chainId = 137  # Polygon Mainnet
-rpcUrl = ""  # Required: your RPC URL
+rpcUrl = ""      # Polygon Mainnet
+bundlerUrl = ""
 
 [[chains]]
-chainId = 130  # Unichain Mainnet
-rpcUrl = ""  # Required: your RPC URL
+rpcUrl = ""      # Unichain Mainnet
+bundlerUrl = ""
 
 
 # Confirmation policies per chain

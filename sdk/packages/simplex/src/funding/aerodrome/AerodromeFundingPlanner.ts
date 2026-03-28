@@ -95,7 +95,7 @@ export class AerodromeFundingPlanner implements FundingVenue {
 	static validateConfig(pools: { chain?: string; pair?: string; gauge?: string }[]): void {
 		for (const pool of pools) {
 			if (!pool.chain?.trim()) {
-				throw new Error("Each Aerodrome outputFunding pool must have a non-empty 'chain' (e.g. EVM-8453)")
+				throw new Error("Each Aerodrome vault pool must have a non-empty 'chain' (e.g. EVM-8453)")
 			}
 			if (!pool.pair) {
 				throw new Error("Each Aerodrome pool must include a 'pair' address")

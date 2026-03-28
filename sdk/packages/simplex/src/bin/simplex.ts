@@ -14,14 +14,15 @@ import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
-	UserProvidedChainConfig,
+	type UserProvidedChainConfig,
+	type ResolvedChainConfig,
 	FillerConfig as FillerServiceConfig,
-	LoggingConfig,
+	resolveChainConfigs,
 } from "@/services/FillerConfigService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { RebalancingService } from "@/services/RebalancingService"
-import { getLogger, configureLogger } from "@/services/Logger"
+import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
@@ -89,7 +90,7 @@ interface FxStrategyConfig {
 	 * (exotic→stable leg). Should have a higher exotic-per-USD rate than the ask curve so
 	 * the filler pays out fewer stablecoins per exotic token received.
 	 *
-	 * Optional when `[strategies.outputFunding.uniswapV4]` lists at least one position — bid/ask
+	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
 	 * are then derived from the Uniswap V4 pool after startup.
 	 */
 	bidPriceCurve?: Array<{
@@ -101,7 +102,7 @@ interface FxStrategyConfig {
 	 * (stable→exotic leg). Should have a lower exotic-per-USD rate than the bid curve so
 	 * the filler sends fewer exotic tokens per stablecoin received.
 	 *
-	 * Optional when `[strategies.outputFunding.uniswapV4]` lists at least one position — bid/ask
+	 * Optional when `[strategies.vault.uniswapV4]` lists at least one position — bid/ask
 	 * are then derived from the Uniswap V4 pool after startup.
 	 */
 	askPriceCurve?: Array<{
@@ -114,13 +115,13 @@ interface FxStrategyConfig {
 	 */
 	spreadBps?: number
 	/** Maximum USD value per order */
-	maxOrderUsd: string
+	maxOrderUsd: number
 	/** Map of chain identifier (e.g. "EVM-97") to exotic token contract address */
-	exoticTokenAddresses: Record<string, HexString>
+	token1: Record<string, HexString>
 	/** Optional per-chain confirmation policies for cross-chain orders */
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	/** Optional on-chain liquidity funding for destination-chain outputs */
-	outputFunding?: {
+	vault?: {
 		aerodrome?: {
 			pools?: AerodromePoolToml[]
 		}
@@ -141,7 +142,7 @@ const DEFAULT_CONFIRMATION_POLICIES: Record<string, ChainConfirmationPolicy> = {
 	"42161": { points: [{ amount: "1000", value: 8 },  { amount: "100000", value: 720 }] },  // Arbitrum (~0.25s blocks, L2)
 }
 
-interface PendingQueueConfig {
+interface QueueConfig {
 	maxRechecks: number
 	recheckDelayMs: number
 }
@@ -169,8 +170,8 @@ interface FillerTomlConfig {
 		// The signer is optional to keep the watch-only mode compatible
 		signer?: SignerConfig
 		maxConcurrentOrders: number
-		pendingQueue: PendingQueueConfig
-		logging?: LoggingConfig
+		queue: QueueConfig
+		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
 		substratePrivateKey: string
 		hyperbridgeWsUrl: string
@@ -180,7 +181,7 @@ interface FillerTomlConfig {
 		targetGasUnits?: number
 	}
 	strategies: StrategyConfig[]
-	chains: (UserProvidedChainConfig & { bundlerUrl?: string })[]
+	chains: UserProvidedChainConfig[]
 	rebalancing?: RebalancingConfig
 	binance?: BinanceConfig
 }
@@ -215,7 +216,7 @@ program
 
 			// Configure logger based on config BEFORE creating any services
 			if (config.simplex.logging) {
-				configureLogger(config.simplex.logging)
+				configureLogger(config.simplex.logging as LogLevel)
 			}
 
 			const logger = getLogger("cli")
@@ -224,15 +225,16 @@ program
 
 			logger.info("Initializing services...")
 
-			const fillerChainConfigs: UserProvidedChainConfig[] = config.chains.map((chain) => ({
-				chainId: chain.chainId,
-				rpcUrl: chain.rpcUrl,
-				bundlerUrl: chain.bundlerUrl,
-			}))
+			logger.info("Resolving chain IDs from RPC endpoints...")
+			const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains)
+			logger.info(
+				{ chains: resolvedChains.map((c) => c.chainId) },
+				"Chain IDs resolved",
+			)
 
 			const fillerConfigForService: FillerServiceConfig = {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
-				logging: config.simplex.logging,
+				logging: config.simplex.logging as LogLevel | undefined,
 				substratePrivateKey: config.simplex.substratePrivateKey,
 				hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 				entryPointAddress: config.simplex.entryPointAddress,
@@ -241,10 +243,9 @@ program
 				targetGasUnits: config.simplex.targetGasUnits,
 			}
 
-			const configService = new FillerConfigService(fillerChainConfigs, fillerConfigForService)
+			const configService = new FillerConfigService(resolvedChains, fillerConfigForService)
 
-			const chainConfigs: ChainConfig[] = config.chains.map((chain) => {
-				// Get the chain name from chain ID for SDK compatibility
+			const chainConfigs: ChainConfig[] = resolvedChains.map((chain) => {
 				const chainName = `EVM-${chain.chainId}`
 				return configService.getChainConfig(chainName)
 			})
@@ -255,14 +256,14 @@ program
 			if (options.watchOnly) {
 				// CLI flag overrides config - apply to all chains
 				watchOnlyConfig = {}
-				config.chains.forEach((chain) => {
+				resolvedChains.forEach((chain) => {
 					watchOnlyConfig![chain.chainId] = true
 				})
 			} else if (config.simplex.watchOnly !== undefined) {
 				if (typeof config.simplex.watchOnly === "boolean") {
 					// Global watch-only mode
 					watchOnlyConfig = {}
-					config.chains.forEach((chain) => {
+					resolvedChains.forEach((chain) => {
 						watchOnlyConfig![chain.chainId] = config.simplex.watchOnly as boolean
 					})
 				} else {
@@ -279,7 +280,7 @@ program
 
 			const fillerConfig: FillerConfig = {
 				maxConcurrentOrders: config.simplex.maxConcurrentOrders,
-				pendingQueueConfig: config.simplex.pendingQueue,
+				pendingQueueConfig: config.simplex.queue,
 				watchOnly: watchOnlyConfig,
 			} as FillerConfig
 
@@ -337,9 +338,9 @@ program
 						}
 						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
 						const fundingVenues: FundingVenue[] = []
-						if (strategyConfig.outputFunding?.aerodrome?.pools?.length) {
+						if (strategyConfig.vault?.aerodrome?.pools?.length) {
 							const poolsByChain: Record<string, AerodromePoolConfig[]> = {}
-							for (const row of strategyConfig.outputFunding.aerodrome.pools) {
+							for (const row of strategyConfig.vault.aerodrome.pools) {
 								const chain = row.chain
 								if (!poolsByChain[chain]) poolsByChain[chain] = []
 								poolsByChain[chain].push({
@@ -351,9 +352,9 @@ program
 								new AerodromeFundingPlanner(chainClientManager, { poolsByChain }, configService, strategyConfig.spreadBps),
 							)
 						}
-						if (strategyConfig.outputFunding?.uniswapV4?.positions?.length) {
+						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
 							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
-							for (const row of strategyConfig.outputFunding.uniswapV4.positions) {
+							for (const row of strategyConfig.vault.uniswapV4.positions) {
 								const chain = row.chain
 								if (!positionsByChain[chain]) positionsByChain[chain] = []
 								positionsByChain[chain].push({
@@ -370,7 +371,7 @@ program
 							chainClientManager,
 							contractService,
 							strategyConfig.maxOrderUsd,
-							strategyConfig.exoticTokenAddresses,
+							strategyConfig.token1,
 							{
 								bidPricePolicy,
 								askPricePolicy,
@@ -441,10 +442,10 @@ program
 					logger.warn({ bind: options.port }, "Invalid metrics address, skipping")
 				} else {
 					// Collect exotic token addresses from FX strategies
-					const exoticTokenAddresses: Record<string, string> = {}
+					const token1: Record<string, string> = {}
 					for (const s of config.strategies) {
-						if (s.type === "hyperfx" && s.exoticTokenAddresses) {
-							Object.assign(exoticTokenAddresses, s.exoticTokenAddresses)
+						if (s.type === "hyperfx" && s.token1) {
+							Object.assign(token1, s.token1)
 						}
 					}
 					metrics = new MetricsService({
@@ -453,8 +454,8 @@ program
 						chainClientManager,
 						configService,
 						fillerAddress: runtimeSigner.account.address,
-						chains: config.chains.map((c) => c.chainId),
-						exoticTokenAddresses,
+						chains: resolvedChains.map((c) => c.chainId),
+						token1,
 						hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 						substratePrivateKey: config.simplex.substratePrivateKey,
 						dataDir: options.dataDir,
@@ -474,7 +475,7 @@ program
 
 			logger.info(
 				{
-					chains: config.chains.map((c) => c.chainId),
+					chains: resolvedChains.map((c) => c.chainId),
 					strategies: config.strategies.map((s) => s.type),
 					maxConcurrentOrders: config.simplex.maxConcurrentOrders,
 					watchOnlyChains: watchOnlyChains.length > 0 ? watchOnlyChains : undefined,
@@ -505,16 +506,7 @@ function validateConfig(config: FillerTomlConfig): void {
 	// Validate required fields
 	// Private key is only required if not all chains are in watch-only mode
 	const isWatchOnlyGlobal = config.simplex?.watchOnly === true
-	const isWatchOnlyPerChain =
-		config.simplex?.watchOnly !== undefined &&
-		typeof config.simplex.watchOnly === "object" &&
-		config.simplex.watchOnly !== null &&
-		config.chains.every((chain) => {
-			const chainIdStr = String(chain.chainId)
-			const watchOnlyObj = config.simplex.watchOnly as Record<string, boolean>
-			return chainIdStr in watchOnlyObj && watchOnlyObj[chainIdStr] === true
-		})
-	const allChainsWatchOnly = isWatchOnlyGlobal || isWatchOnlyPerChain
+	const allChainsWatchOnly = isWatchOnlyGlobal
 
 	const signer = config.simplex?.signer
 
@@ -540,14 +532,11 @@ function validateConfig(config: FillerTomlConfig): void {
 
 	// Validate chain configurations
 	for (const chain of config.chains) {
-		if (!chain.chainId) {
-			throw new Error(`Chain configuration must have chainId`)
-		}
-		if (typeof chain.chainId !== "number") {
-			throw new Error(`Chain ${chain.chainId} chainId must be a number`)
-		}
 		if (!chain.rpcUrl) {
-			throw new Error(`Chain ${chain.chainId} must have rpcUrl`)
+			throw new Error("Each chain configuration must have rpcUrl")
+		}
+		if (!chain.bundlerUrl) {
+			throw new Error("Each chain configuration must have bundlerUrl")
 		}
 	}
 
@@ -591,27 +580,27 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 
 		if (strategy.type === "hyperfx") {
-			if (strategy.outputFunding?.aerodrome?.pools?.length) {
-				AerodromeFundingPlanner.validateConfig(strategy.outputFunding.aerodrome.pools)
+			if (strategy.vault?.aerodrome?.pools?.length) {
+				AerodromeFundingPlanner.validateConfig(strategy.vault.aerodrome.pools)
 			}
-			if (strategy.outputFunding?.uniswapV4?.positions?.length) {
-				UniswapV4FundingPlanner.validateConfig(strategy.outputFunding.uniswapV4.positions)
+			if (strategy.vault?.uniswapV4?.positions?.length) {
+				UniswapV4FundingPlanner.validateConfig(strategy.vault.uniswapV4.positions)
 			}
 
 			const bidLen = strategy.bidPriceCurve?.length ?? 0
 			const askLen = strategy.askPriceCurve?.length ?? 0
 			if (bidLen > 0 !== askLen > 0) {
 				throw new Error(
-					"hyperfx: set both 'bidPriceCurve' and 'askPriceCurve', or omit both when using outputFunding.uniswapV4 for pricing",
+					"hyperfx: set both 'bidPriceCurve' and 'askPriceCurve', or omit both when using vault.uniswapV4 for pricing",
 				)
 			}
 
 			const hasStaticCurves = bidLen >= 2 && askLen >= 2
-			const hasUniswapV4Positions = (strategy.outputFunding?.uniswapV4?.positions?.length ?? 0) > 0
+			const hasUniswapV4Positions = (strategy.vault?.uniswapV4?.positions?.length ?? 0) > 0
 
 			if (!hasStaticCurves && !hasUniswapV4Positions) {
 				throw new Error(
-					"hyperfx: provide bid+ask price curves (≥2 points each) or configure [strategies.outputFunding.uniswapV4].positions for pool-based pricing",
+					"hyperfx: provide bid+ask price curves (≥2 points each) or configure [strategies.vault.uniswapV4].positions for pool-based pricing",
 				)
 			}
 
@@ -641,8 +630,8 @@ function validateConfig(config: FillerTomlConfig): void {
 				throw new Error("FX strategy must have 'maxOrderUsd'")
 			}
 
-			if (!strategy.exoticTokenAddresses || Object.keys(strategy.exoticTokenAddresses).length === 0) {
-				throw new Error("FX strategy must have at least one entry in 'exoticTokenAddresses'")
+			if (!strategy.token1 || Object.keys(strategy.token1).length === 0) {
+				throw new Error("FX strategy must have at least one entry in 'token1'")
 			}
 
 			if (strategy.confirmationPolicies) {

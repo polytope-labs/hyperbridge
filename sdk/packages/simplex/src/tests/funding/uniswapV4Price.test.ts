@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { ChainClientManager, FillerConfigService, type UserProvidedChainConfig } from "@/services"
+import { ChainClientManager, FillerConfigService, type ResolvedChainConfig } from "@/services"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import type { UniswapV4OutputFundingConfig } from "@/funding/types"
@@ -14,10 +14,10 @@ describe.skip("UniswapV4 FundingVenue — cNGN price on Base", () => {
 		const privateKey = process.env.PRIVATE_KEY as HexString
 		const solver = privateKeyToAccount(privateKey).address as HexString
 
-		const chainConfigs: UserProvidedChainConfig[] = [{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET! }]
+		const chainConfigs: ResolvedChainConfig[] = [{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET! }]
 
 		const configService = new FillerConfigService(chainConfigs)
-		const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+		const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 		const clientManager = new ChainClientManager(configService, signer)
 
 		const fundingConfig: UniswapV4OutputFundingConfig = {

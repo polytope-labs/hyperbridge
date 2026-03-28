@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
-import { ChainClientManager, FillerConfigService, type UserProvidedChainConfig } from "@/services"
+import { ChainClientManager, FillerConfigService, type ResolvedChainConfig } from "@/services"
 import { BinanceRebalancer, type UnifiedRebalanceOptions } from "@/services/rebalancers"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import "../setup"
@@ -14,7 +14,7 @@ describe("BinanceRebalancer - CEX integration", () => {
 		throw new Error("BINANCE_API_KEY and BINANCE_API_SECRET env vars are required for this test")
 	}
 
-	const chainConfigs: UserProvidedChainConfig[] = [
+	const chainConfigs: ResolvedChainConfig[] = [
 		{
 			chainId: 56, // BSC mainnet
 			rpcUrl: process.env.BSC_MAINNET!,
@@ -26,7 +26,7 @@ describe("BinanceRebalancer - CEX integration", () => {
 	]
 
 	const configService = new FillerConfigService(chainConfigs)
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(configService, signer)
 
 	// Travel rule questionnaire for self-transfer to own unhosted wallet (e.g. UAE)

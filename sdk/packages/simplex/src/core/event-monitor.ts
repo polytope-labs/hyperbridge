@@ -132,97 +132,62 @@ export class EventMonitor extends EventEmitter {
 			logMessage: "Failed to get current block number",
 		})
 
-		if (currentBlock > lastScanned) {
-			const fromBlock = lastScanned + 1n
+		if (currentBlock <= lastScanned) return
 
-			const maxBlockRange = 1000n
-			const clampedToBlock =
-				fromBlock + maxBlockRange > currentBlock ? currentBlock : fromBlock + maxBlockRange
+		const fromBlock = lastScanned + 1n
+		const maxBlockRange = 1000n
+		const toBlock = fromBlock + maxBlockRange > currentBlock ? currentBlock : fromBlock + maxBlockRange
 
-			this.logger.debug(
-				{ chainId, fromBlock, toBlock: clampedToBlock, gap: Number(clampedToBlock - fromBlock) },
-				"Scanning blocks",
-			)
+		this.logger.debug(
+			{ chainId, fromBlock, toBlock, gap: Number(toBlock - fromBlock) },
+			"Scanning blocks",
+		)
 
-			let logs: any[]
-			let actualToBlock = clampedToBlock
-
-			try {
-				logs = await retryPromise(
-					() =>
-						chain.client.getLogs({
-							address: intentGatewayAddress,
-							events: gatewayEvents,
-							fromBlock,
-							toBlock: clampedToBlock,
-						}),
-					{
-						maxRetries: 3,
-						backoffMs: 250,
-						logMessage: "Failed to get gateway event logs",
-					},
-				)
-			} catch (error: any) {
-				if (!this.isBlockRangeError(error)) throw error
-
-				// RPC node is behind the reported head block — fall back to "latest" tag
-				this.logger.warn(
-					{ chainId, fromBlock, toBlock: clampedToBlock },
-					"Block range ahead of RPC head, retrying with 'latest'",
-				)
-
-				try {
-					logs = await chain.client.getLogs({
+		let logs: any[]
+		try {
+			logs = await retryPromise(
+				() =>
+					chain.client.getLogs({
 						address: intentGatewayAddress,
 						events: gatewayEvents,
 						fromBlock,
-					})
-
-					// Determine actual toBlock from log results or re-fetch head
-					if (logs.length > 0) {
-						actualToBlock = logs.reduce(
-							(max: bigint, log: any) =>
-								log.blockNumber > max ? log.blockNumber : max,
-							fromBlock,
-						)
-					} else {
-						const latestBlock = await chain.client.getBlockNumber()
-						actualToBlock = latestBlock >= fromBlock ? latestBlock : fromBlock
-					}
-				} catch (fallbackError) {
-					this.logger.warn(
-						{ chainId, fromBlock, err: fallbackError },
-						"Fallback scan with 'latest' also failed, will retry next interval",
-					)
-					return
-				}
-			}
-
-			const placedLogs = logs.filter((l: any) => l.eventName === "OrderPlaced")
-			const filledLogs = logs.filter(
-				(l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill",
+						toBlock,
+					}),
+				{
+					maxRetries: 3,
+					backoffMs: 250,
+					logMessage: "Failed to get gateway event logs",
+				},
 			)
-
-			if (placedLogs.length > 0) {
-				this.logger.info(
-					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: placedLogs.length },
-					"Found OrderPlaced events in block scan",
-				)
-				await this.processOrderPlacedLogs(chainId, chain, placedLogs)
-			}
-
-			if (filledLogs.length > 0) {
-				this.logger.info(
-					{ chainId, fromBlock, toBlock: actualToBlock, eventCount: filledLogs.length },
-					"Found OrderFilled events in block scan",
-				)
-				this.processOrderFilledLogs(chainId, filledLogs)
-			}
-
-			// Update lastScannedBlock only after successful processing
-			// This is protected by the mutex, so no race condition
-			this.lastScannedBlock.set(chainId, actualToBlock)
+		} catch (error: any) {
+			// RPC hasn't indexed these blocks yet — don't advance the cursor,
+			// just wait for the next tick to retry.
+			if (this.isBlockRangeError(error)) return
+			throw error
 		}
+
+		const placedLogs = logs.filter((l: any) => l.eventName === "OrderPlaced")
+		const filledLogs = logs.filter(
+			(l: any) => l.eventName === "OrderFilled" || l.eventName === "PartialFill",
+		)
+
+		if (placedLogs.length > 0) {
+			this.logger.info(
+				{ chainId, fromBlock, toBlock, eventCount: placedLogs.length },
+				"Found OrderPlaced events in block scan",
+			)
+			await this.processOrderPlacedLogs(chainId, chain, placedLogs)
+		}
+
+		if (filledLogs.length > 0) {
+			this.logger.info(
+				{ chainId, fromBlock, toBlock, eventCount: filledLogs.length },
+				"Found OrderFilled events in block scan",
+			)
+			this.processOrderFilledLogs(chainId, filledLogs)
+		}
+
+		this.lastScannedBlock.set(chainId, toBlock)
 	}
 
 	private async processOrderPlacedLogs(chainId: number, chain: IEvmChain, logs: any[]): Promise<void> {

@@ -147,6 +147,15 @@ pub struct HyperbridgeHostConfig {
 }
 
 impl HyperbridgeHostConfig {
+	pub fn substrate_config(&self) -> SubstrateConfig {
+		match &self.host {
+			ConsensusHost::Beefy { substrate, .. } => substrate.clone(),
+			ConsensusHost::Grandpa(grandpa) => grandpa.substrate.clone(),
+		}
+	}
+}
+
+impl HyperbridgeHostConfig {
 	/// Constructs an instance of the [`IsmpHost`] from the provided configs
 	pub async fn into_client<R, P>(self) -> Result<AnyHost<R, P>, anyhow::Error>
 	where

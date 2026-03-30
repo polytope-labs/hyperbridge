@@ -28333,6 +28333,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-relayer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "clap",
+ "futures",
+ "ismp",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "proof-indexer",
+ "serde",
+ "sp-consensus-beefy",
+ "subxt 0.42.1",
+ "subxt-utils",
+ "tesseract-beefy",
+ "tesseract-config",
+ "tesseract-consensus",
+ "tesseract-evm",
+ "tesseract-messaging",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "toml 0.7.8",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+ "transaction-fees",
+]
+
+[[package]]
 name = "tesseract-substrate"
 version = "0.1.0"
 dependencies = [

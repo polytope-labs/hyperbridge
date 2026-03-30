@@ -120,6 +120,7 @@ members = [
     "tesseract/consensus/tendermint",
     "tesseract/consensus/proof-indexer",
 
+    "tesseract/relayer",
 
     # Airdrop
     "modules/pallets/bridge-drop",

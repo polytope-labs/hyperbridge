@@ -39,8 +39,10 @@ import { CryptoUtils } from "./CryptoUtils"
  * `eth_estimateUserOperationGas` with realistic state overrides (token
  * balances, allowances, EntryPoint deposits, and optional solver account
  * bytecode). Without a bundler, it falls back to `estimateContractGas`.
- * Pimlico-specific gas-price refinement is applied automatically when the
- * bundler URL contains `pimlico.io`.
+ * Bundler-specific gas-price refinement is applied automatically:
+ * Pimlico (`pimlico_getUserOperationGasPrice`) when the URL contains
+ * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
+ * URL contains `alchemy.com`.
  */
 export class GasEstimator {
 	/**
@@ -92,11 +94,13 @@ export class GasEstimator {
 			.filter((output) => bytes32ToBytes20(output.token) === ADDRESS_ZERO)
 			.reduce((sum, output) => sum + output.amount, 0n)
 
-		const [sourceFeeToken, destFeeToken, gasPrice] = await Promise.all([
+		const [sourceFeeToken, destFeeToken, gasPrice, latestBlock] = await Promise.all([
 			getFeeToken(this.ctx, this.ctx.source.config.stateMachineId, this.ctx.source),
 			getFeeToken(this.ctx, this.ctx.dest.config.stateMachineId, this.ctx.dest),
 			this.ctx.dest.client.getGasPrice(),
+			this.ctx.dest.client.getBlock({ blockTag: "latest" }),
 		])
+		const baseFeePerGas = latestBlock.baseFeePerGas ?? gasPrice
 
 		const feeTokenAsBytes32 = bytes20ToBytes32(destFeeToken.address)
 		const assetsForOverrides = [...order.output.assets]
@@ -206,7 +210,9 @@ export class GasEstimator {
 				]) as HexString
 
 				const bundlerUserOp = this.crypto.prepareBundlerCall(preliminaryUserOp)
-				const isPimlico = this.ctx.bundlerUrl.toLowerCase().includes("pimlico.io")
+				const bundlerUrlLower = this.ctx.bundlerUrl.toLowerCase()
+				const isPimlico = bundlerUrlLower.includes("pimlico.io")
+				const isAlchemy = bundlerUrlLower.includes("alchemy.com")
 
 				const bundlerRequests: { method: BundlerMethod; params: unknown[] }[] = [
 					{
@@ -220,15 +226,25 @@ export class GasEstimator {
 						params: [],
 					})
 				}
+				if (isAlchemy) {
+					bundlerRequests.push({
+						method: BundlerMethod.RUNDLER_MAX_PRIORITY_FEE_PER_GAS,
+						params: [],
+					})
+				}
 
 				let gasEstimate: BundlerGasEstimate
 				let pimlicoGasPrices: PimlicoGasPriceEstimate | null = null
+				let alchemyMaxPriorityFee: HexString | null = null
 
 				try {
 					const batchResults = await this.crypto.sendBundlerBatch<unknown[]>(bundlerRequests)
 					gasEstimate = batchResults[0] as BundlerGasEstimate
 					if (isPimlico && batchResults.length > 1) {
 						pimlicoGasPrices = batchResults[1] as PimlicoGasPriceEstimate
+					}
+					if (isAlchemy && batchResults.length > 1) {
+						alchemyMaxPriorityFee = batchResults[1] as HexString
 					}
 				} catch {
 					gasEstimate = await this.crypto.sendBundler<BundlerGasEstimate>(
@@ -252,6 +268,18 @@ export class GasEstimator {
 						maxPriorityFeePerGas =
 							pimMaxPriorityFeePerGas + (pimMaxPriorityFeePerGas * BigInt(priorityFeeBumpPercent)) / 100n
 					}
+				}
+
+				if (alchemyMaxPriorityFee) {
+					const rundlerPriorityFee = BigInt(alchemyMaxPriorityFee)
+					// Alchemy requires 25% priority fee buffer (0% for Arbitrum)
+					const isArbitrum = chainId === 42161n
+					const alchemyPrioBump = isArbitrum ? 0n : 25n
+					maxPriorityFeePerGas =
+						rundlerPriorityFee + (rundlerPriorityFee * alchemyPrioBump) / 100n
+					// Alchemy recommends 50% base fee buffer
+					const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
+					maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
 				}
 			} catch (e) {
 				console.warn("Bundler gas estimation failed, using fallback values:", e)

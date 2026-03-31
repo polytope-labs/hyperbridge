@@ -1,0 +1,14 @@
+{{#each handlers}}
+  - handler: {{this.handler}}
+    kind: {{../handlerKind}}
+    filter:
+    {{#if this.module}}
+      module: '{{this.module}}'
+      method: '{{this.method}}'
+    {{else}}
+      topics:
+      {{#each this.topics}}
+        - '{{this}}'
+      {{/each}}
+    {{/if}}
+{{/each}}

@@ -401,7 +401,7 @@ impl IsmpProvider for EvmClient {
 			},
 		};
 
-		let (tx_requests, _) = generate_contract_calls(self, msg.clone(), true).await?;
+		let (tx_requests, _) = generate_contract_calls(self, &msg, true).await?;
 
 		// Setup debug trace call options with the call tracer
 		let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };

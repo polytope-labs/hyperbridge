@@ -160,7 +160,7 @@ pub async fn submit_messages(
 	log::trace!("submit_messages called with {} messages", messages.len());
 
 	log::trace!("Calling generate_contract_calls");
-	let (calls, _gas_price) = generate_contract_calls(&client.evm, messages.clone(), false).await?;
+	let (calls, _gas_price) = generate_contract_calls(&client.evm, &messages, false).await?;
 	log::trace!("generate_contract_calls returned {} calls", calls.len());
 
 	let mut events = BTreeSet::new();

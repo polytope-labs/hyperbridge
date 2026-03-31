@@ -41,7 +41,7 @@ contract VWAPOracleTest is Test {
         admin = makeAddr("admin");
         host = makeAddr("host");
         user = makeAddr("user");
-        oracle = new VWAPOracle(admin);
+        oracle = new VWAPOracle(admin, address(this));
         hyperChain = StateMachine.kusama(2000);
         usdc = new MockERC20("USDC", "USDC", 6);
         dai = new MockERC20("DAI", "DAI", 18);

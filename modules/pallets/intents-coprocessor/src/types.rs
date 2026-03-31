@@ -285,12 +285,27 @@ impl From<TokenDecimal> for sol_types::TokenDecimal {
 	}
 }
 
+/// Mirrors the `RequestKind` enum in `IntentsBase.sol`.
+#[repr(u8)]
+enum IntentGatewayRequestKind {
+	RedeemEscrow = 0,
+	NewDeployment = 1,
+	UpdateParams = 2,
+	SweepDust = 3,
+	RefundEscrow = 4,
+}
+
+/// Mirrors the `RequestKind` enum in `VWAPOracle.sol`.
+#[repr(u8)]
+enum VWAPOracleRequestKind {
+	UpdateTokenDecimals = 0,
+}
+
 impl RequestKind {
 	/// Encode the request kind for cross-chain dispatch
 	pub fn encode_body(&self) -> Vec<u8> {
 		match self {
 			RequestKind::UpdateParams(update) => {
-				// Convert complete params to Solidity format
 				let params_sol: sol_types::Params = update.params.clone().into();
 				let dest_fees_sol: Vec<sol_types::DestinationFee> =
 					update.destination_fees.iter().cloned().map(Into::into).collect();
@@ -298,8 +313,7 @@ impl RequestKind {
 				let params_update_sol =
 					sol_types::ParamsUpdate { params: params_sol, destinationFees: dest_fees_sol };
 
-				// Prepend request kind identifier (0 for UpdateParams)
-				let mut body = vec![0u8];
+				let mut body = vec![IntentGatewayRequestKind::UpdateParams as u8];
 				body.extend_from_slice(&params_update_sol.abi_encode());
 				body
 			},
@@ -310,8 +324,7 @@ impl RequestKind {
 					gateway: Address::from_slice(&deployment.gateway.0),
 				};
 
-				// Prepend request kind identifier (1 for AddDeployment)
-				let mut body = vec![1u8];
+				let mut body = vec![IntentGatewayRequestKind::NewDeployment as u8];
 				body.extend_from_slice(&deployment_sol.abi_encode());
 				body
 			},
@@ -325,8 +338,7 @@ impl RequestKind {
 					outputs: outputs_sol,
 				};
 
-				// Prepend request kind identifier (2 for SweepDust)
-				let mut body = vec![2u8];
+				let mut body = vec![IntentGatewayRequestKind::SweepDust as u8];
 				body.extend_from_slice(&sweep_sol.abi_encode());
 				body
 			},
@@ -343,8 +355,7 @@ impl RequestKind {
 					})
 					.collect();
 
-				// Prepend request kind identifier (0 for UpdateTokenDecimals in VWAPOracle)
-				let mut body = vec![0u8];
+				let mut body = vec![VWAPOracleRequestKind::UpdateTokenDecimals as u8];
 				body.extend_from_slice(&updates_sol.abi_encode());
 				body
 			},

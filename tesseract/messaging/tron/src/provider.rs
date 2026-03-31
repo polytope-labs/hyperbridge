@@ -155,7 +155,7 @@ impl IsmpProvider for TronClient {
 		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
 		// We can't use debug trace call, only estimate gas
-		let (calls, _gas) = generate_contract_calls(&self.evm, msg, true).await?;
+		let (calls, _gas) = generate_contract_calls(&self.evm, &msg, true).await?;
 		let result = calls
 			.into_iter()
 			.map(|_| EstimateGasReturnParams {

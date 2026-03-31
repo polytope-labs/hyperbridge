@@ -33,6 +33,14 @@ export interface MpcVaultSignerConfig {
 export enum SignerType {
 	PrivateKey = "privateKey",
 	MpcVault = "mpcVault",
+	Turnkey = "turnkey",
+}
+
+export interface TurnkeySignerConfig {
+	organizationId: string
+	apiPublicKey: string
+	apiPrivateKey: string
+	signWith: string
 }
 
 export interface PrivateKeySignerConfig {
@@ -46,6 +54,9 @@ export type SignerConfig =
 	| ({
 			type: SignerType.MpcVault
 	  } & MpcVaultSignerConfig)
+	| ({
+			type: SignerType.Turnkey
+	  } & TurnkeySignerConfig)
 
 /** EIP-7702 authorization tuple used for set-code (delegation) transactions. */
 export interface Eip7702Authorization {
@@ -69,6 +80,6 @@ export interface Eip7702DelegationTxArgs {
 
 export interface SigningAccount extends SdkSigningAccount {
 	account: Account
-	mode: "privateKey" | "mpcVault"
+	mode: "privateKey" | "mpcVault" | "turnkey"
 	sendEip7702DelegationTransaction: (args: Eip7702DelegationTxArgs) => Promise<HexString>
 }

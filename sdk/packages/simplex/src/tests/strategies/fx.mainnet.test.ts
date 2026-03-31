@@ -66,7 +66,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 			contractService,
 		} = await setUpMainnetFx()
 
-		const intentFiller = createFxOnlyIntentFiller(
+		const intentFiller = await createFxOnlyIntentFiller(
 			chainConfigs,
 			fillerConfig,
 			chainConfigService,
@@ -197,7 +197,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 			contractService,
 		} = await setUpMainnetFxBase()
 
-		const intentFiller = createFxOnlyIntentFiller(
+		const intentFiller = await createFxOnlyIntentFiller(
 			chainConfigs,
 			fillerConfig,
 			chainConfigService,
@@ -1279,7 +1279,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 			contractService,
 		} = await setUpMainnetFxArbitrum()
 
-		const intentFiller = createFxOnlyIntentFiller(
+		const intentFiller = await createFxOnlyIntentFiller(
 			chainConfigs,
 			fillerConfig,
 			chainConfigService,
@@ -1420,7 +1420,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			} = await setUpMainnetFxArbitrumToBase()
 
 			const fillSigner = await createMpcVaultFillSigner()
-			const intentFiller = createCrossChainFxIntentFiller(
+			const intentFiller = await createCrossChainFxIntentFiller(
 				chainConfigs,
 				fillerConfig,
 				chainConfigService,
@@ -1789,7 +1789,7 @@ async function setUpMainnetFxArbitrumToBase() {
 	}
 }
 
-function createCrossChainFxIntentFiller(
+async function createCrossChainFxIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
@@ -1871,7 +1871,7 @@ function createCrossChainFxIntentFiller(
 	)
 }
 
-function createFxOnlyIntentFiller(
+async function createFxOnlyIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,

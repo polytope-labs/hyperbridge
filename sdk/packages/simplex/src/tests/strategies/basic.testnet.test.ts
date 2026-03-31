@@ -63,7 +63,7 @@ describe("Filler V2 - Solver Selection ON", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
+		const intentFiller = await createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -288,7 +288,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 			tronIntentGatewayAddress,
 		} = await setUpTron()
 
-		const intentFiller = createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
+		const intentFiller = await createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -392,11 +392,11 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 // Shared Helpers
 // ============================================================================
 
-function createIntentFiller(
+async function createIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
-): IntentFiller {
+): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()

@@ -14,6 +14,7 @@
 // limitations under the License.
 
 mod error;
+pub mod sp1;
 #[cfg(test)]
 mod test;
 
@@ -192,7 +193,7 @@ fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 }
 
 /// Verifies the inclusion of parachain headers in the parachain heads root via a merkle multi proof
-fn verify_parachain_headers<H: Keccak256>(
+pub fn verify_parachain_headers<H: Keccak256>(
 	heads_root: H256,
 	parachain_proof: ParachainProof,
 ) -> Result<Vec<ParachainHeader>, Error> {

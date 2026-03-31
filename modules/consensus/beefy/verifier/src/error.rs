@@ -21,4 +21,6 @@ pub enum Error {
 	InvalidMmrProof,
 	#[error("Invalid parachain header proof: merkle proof verification failed")]
 	InvalidParachainProof,
+	#[error("SP1 proof verification failed")]
+	Sp1VerificationFailed,
 }

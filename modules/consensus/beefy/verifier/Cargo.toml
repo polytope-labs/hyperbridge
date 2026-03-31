@@ -25,6 +25,7 @@ subxt-utils = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
+sp1-verifier = { version = "6.0.2", default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true

@@ -174,6 +174,35 @@ pub struct BeefyConsensusProof {
 	pub parachain: ParachainProof,
 }
 
+/// Proof type identifier for naive proofs
+pub const PROOF_TYPE_NAIVE: u8 = 0x00;
+
+/// Proof type identifier for SP1 ZK proofs
+pub const PROOF_TYPE_SP1: u8 = 0x01;
+
+/// SP1 BEEFY proof
+/// The proof bytes are prefixed with PROOF_TYPE_SP1 (0x01) by the prover.
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct Sp1BeefyProof {
+	/// BEEFY commitment (block number + validator set ID)
+	pub commitment: Sp1MiniCommitment,
+	/// Latest MMR leaf data
+	pub mmr_leaf: BeefyMmrLeaf,
+	/// Parachain headers finalized by this proof
+	pub parachain: ParachainProof,
+	/// SP1 proof bytes
+	pub proof: Vec<u8>,
+}
+
+/// Minimal BEEFY commitment for SP1 proofs
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct Sp1MiniCommitment {
+	/// Relay chain block number
+	pub block_number: u32,
+	/// Validator set ID that signed the commitment
+	pub validator_set_id: u64,
+}
+
 #[cfg(feature = "std")]
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// finality proof

@@ -200,7 +200,8 @@ export class OrderExecutor {
 						remainingAssets,
 						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
 					}
-					// Retry: loop back to poll for new bids
+					// Back off before retrying
+					await sleep(pollIntervalMs)
 					continue
 				}
 
@@ -258,7 +259,10 @@ export class OrderExecutor {
 					remainingAssets = targetAssets.map((target) => {
 						const filled = totalFilledAssets.find((a) => a.token === target.token)
 						const filledAmt = filled?.amount ?? 0n
-						return { token: target.token, amount: filledAmt >= target.amount ? 0n : target.amount - filledAmt }
+						return {
+							token: target.token,
+							amount: filledAmt >= target.amount ? 0n : target.amount - filledAmt,
+						}
 					})
 
 					const fullyFilled = remainingAssets.every((a) => a.amount === 0n)

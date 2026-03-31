@@ -1419,7 +1419,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 				contractService,
 			} = await setUpMainnetFxArbitrumToBase()
 
-			const fillSigner = createMpcVaultFillSigner()
+			const fillSigner = await createMpcVaultFillSigner()
 			const intentFiller = createCrossChainFxIntentFiller(
 				chainConfigs,
 				fillerConfig,
@@ -1594,7 +1594,7 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1646,7 +1646,7 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1700,7 +1700,7 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1755,7 +1755,7 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	// User EOA (PRIVATE_KEY): Arbitrum wallet for approvals and placing the order.
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const userSigner = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const userSigner = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, userSigner)
 	const contractService = new ContractInteractionService(
@@ -1880,7 +1880,7 @@ function createFxOnlyIntentFiller(
 	exoticTokenOverride?: HexString,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 

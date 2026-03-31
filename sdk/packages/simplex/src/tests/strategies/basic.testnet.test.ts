@@ -398,7 +398,7 @@ function createIntentFiller(
 	chainConfigService: FillerConfigService,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
@@ -501,7 +501,7 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
@@ -567,7 +567,7 @@ async function setUpTron() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(

@@ -26,7 +26,7 @@ describe("BinanceRebalancer - CEX integration", () => {
 	]
 
 	const configService = new FillerConfigService(chainConfigs)
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(configService, signer)
 
 	// Travel rule questionnaire for self-transfer to own unhosted wallet (e.g. UAE)

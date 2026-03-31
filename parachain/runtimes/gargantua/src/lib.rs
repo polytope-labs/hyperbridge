@@ -713,12 +713,6 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
-pub struct OutboundProofsWeights;
-impl pallet_outbound_proofs::pallet::WeightInfo for OutboundProofsWeights {
-	fn submit_proof() -> Weight {
-		Weight::from_parts(100_000_000, 0)
-	}
-}
 
 #[cfg(not(feature = "sp1-verifier"))]
 pub struct DummyProofVerifier;
@@ -742,7 +736,7 @@ impl pallet_outbound_proofs::pallet::Config for Runtime {
 	type TreasuryPalletId = TreasuryPalletId;
 	type MaxProofSize = ConstU32<100_000>;
 	type MaxStoredProofs = ConstU32<100>;
-	type WeightInfo = OutboundProofsWeights;
+	type WeightInfo = crate::weights::pallet_outbound_proofs::WeightInfo<Runtime>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -899,6 +893,7 @@ mod benches {
 		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
+		[pallet_outbound_proofs, OutboundProofs]
 	);
 }
 

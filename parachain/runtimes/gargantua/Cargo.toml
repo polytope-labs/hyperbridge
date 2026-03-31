@@ -169,6 +169,7 @@ runtime-benchmarks = [
     "ismp-parachain/runtime-benchmarks",
     "pallet-messaging-fees/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
+    "pallet-outbound-proofs/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

@@ -131,6 +131,7 @@ impl pallet_ismp::Config for Test {
 	type ConsensusClients = ();
 	type OffchainDB = ();
 	type FeeHandler = ();
+	type OnDispatch = ();
 }
 
 parameter_types! {

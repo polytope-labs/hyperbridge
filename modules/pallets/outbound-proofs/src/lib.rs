@@ -20,6 +20,8 @@ extern crate alloc;
 pub mod types;
 pub mod verifier;
 
+mod benchmarking;
+
 use polkadot_sdk::*;
 
 pub use pallet::*;
@@ -100,6 +102,8 @@ pub mod pallet {
 
 	pub trait WeightInfo {
 		fn submit_proof() -> Weight;
+		fn set_proof_reward() -> Weight;
+		fn set_sp1_vkey_hash() -> Weight;
 	}
 
 	#[pallet::storage]
@@ -256,7 +260,7 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(1)]
-		#[pallet::weight(Weight::from_parts(10_000, 0))]
+		#[pallet::weight(T::WeightInfo::set_proof_reward())]
 		pub fn set_proof_reward(
 			origin: OriginFor<T>,
 			reward: <T::Currency as Inspect<T::AccountId>>::Balance,
@@ -268,7 +272,7 @@ pub mod pallet {
 		}
 
 		#[pallet::call_index(2)]
-		#[pallet::weight(Weight::from_parts(10_000, 0))]
+		#[pallet::weight(T::WeightInfo::set_sp1_vkey_hash())]
 		pub fn set_sp1_vkey_hash(
 			origin: OriginFor<T>,
 			vkey_hash: alloc::vec::Vec<u8>,

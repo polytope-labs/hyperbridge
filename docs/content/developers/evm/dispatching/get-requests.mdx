@@ -366,14 +366,12 @@ Contracts can only read storage items at heights that have been processed by the
 ```typescript lineNumbers title="fetchHeight.ts" icon="typescript"
 import { SubstrateChain } from "@hyperbridge/sdk"
 
-const hyperbridge = new SubstrateChain({
+const hyperbridge = await SubstrateChain.connect({
   stateMachineId: "POLKADOT-3367",
   wsUrl: "wss://nexus.ibp.network",
   consensusStateId: "DOT0",
   hasher: "Keccak"
 })
-
-await hyperbridge.connect()
 
 // Get latest Ethereum height known to Hyperbridge
 const latestHeight = await hyperbridge.latestStateMachineHeight({

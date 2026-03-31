@@ -76,7 +76,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-		host::StateMachine,
+		host::{IsmpHost, StateMachine},
 	};
 
 	#[pallet::pallet]
@@ -354,9 +354,19 @@ pub mod pallet {
 				},
 			};
 
+			let host = <pallet_ismp::Pallet<T>>::default();
+			let is_hyperbridge = <T as pallet_ismp::Config>::Coprocessor::get()
+				.ok_or_else(|| Error::<T>::CoprocessorNotConfigured)? ==
+				host.host_state_machine();
+			let from = if is_hyperbridge {
+				TokenGatewayAddresses::<T>::get(params.destination)
+					.ok_or_else(|| Error::<T>::NotInitialized)?
+			} else {
+				PALLET_TOKEN_GATEWAY_ID.to_vec()
+			};
 			let dispatch_post = DispatchPost {
 				dest: params.destination,
-				from: PALLET_TOKEN_GATEWAY_ID.to_vec(),
+				from,
 				to: params.token_gateway,
 				timeout: params.timeout,
 				body,

@@ -1,0 +1,221 @@
+# Hyperbridge Intent Filler Simplified Configuration
+# This is a minimal configuration file that leverages the SDK's built-in chain configurations
+# Copy this file to filler-config.toml and update with your actual values
+
+# Filler configuration
+[simplex]
+# Signer is a tagged union — set type, then add the variant's fields directly.
+#
+# 1) Private key signer:
+# [simplex.signer]
+# type = "privateKey"
+# key = "0x..."
+#
+# 2) MPCVault signer:
+# [simplex.signer]
+# type = "mpcVault"
+# apiToken = ""
+# vaultUuid = ""
+# accountAddress = "0x0000000000000000000000000000000000000000"
+# callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+# grpcTarget = "api.mpcvault.com:443" # optional; default when omitted
+
+maxConcurrentOrders = 5
+
+# ===== Solver Selection Mode Configuration =====
+# Required when solver selection is active on any chain
+
+# Substrate private key for signing Hyperbridge extrinsics
+# Can be a hex seed (without 0x prefix) or mnemonic phrase
+# Note: Submitting bids to Hyperbridge requires BRIDGE tokens for transaction fees
+substratePrivateKey = ""
+
+# Hyperbridge WebSocket URL
+hyperbridgeWsUrl = ""
+
+# Gas fee bump configuration (optional)
+# These values control how much to bump gas fees for UserOperation submission
+# Both are percentages added ON TOP of the base gasPrice
+# If not provided, defaults will be used (8% for priority fee, 10% for max fee)
+# [simplex.gasFeeBump]
+# maxPriorityFeePerGasBumpPercent = 8   # Percentage added to gasPrice for priority fee (default: 8)
+# maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
+
+
+# Logging level: trace, debug, info, warn, error
+logging = "debug"
+
+# Queue configuration
+[simplex.queue]
+maxRechecks = 10
+recheckDelayMs = 30000  # 30 seconds
+
+# Rebalancing configuration
+# Trigger percentage: rebalancing triggers when balance falls to (1 - triggerPercentage) * baseBalance
+# Example: triggerPercentage = 0.5 means trigger when balance <= 50% of base
+[rebalancing]
+triggerPercentage = 0.5
+
+# Base balances per chain and per asset (in USD value, treated as $1 per token)
+# Format: [rebalancing.baseBalances."USDC"] or [rebalancing.baseBalances."USDT"]
+# Then specify per chainId as string keys
+[rebalancing.baseBalances."USDC"]
+"1" = "10000"      # Ethereum Mainnet: $10k USDC base
+"56" = "10000"     # BSC Mainnet: $10k USDC base
+"42161" = "10000"  # Arbitrum: $10k USDC base
+"8453" = "10000"   # Base: $10k USDC base
+"137" = "10000"    # Polygon: $10k USDC base
+"130" = "10000"    # Unichain: $10k USDC base
+
+[rebalancing.baseBalances."USDT"]
+"1" = "10000"      # Ethereum Mainnet: $10k USDT base
+"56" = "10000"     # BSC Mainnet: $10k USDT base
+"42161" = "10000"  # Arbitrum: $10k USDT base
+"8453" = "10000"   # Base: $10k USDT base
+"137" = "10000"    # Polygon: $10k USDT base
+"130" = "10000"    # Unichain: $10k USDT base
+
+# Strategy configuration
+# You can configure multiple strategies
+# All strategies use the configured simplex signer (privateKey or mpcVault)
+[[strategies]]
+type = "basic"
+# Filler BPS (basis points) curve based on order value
+# Uses polynomial interpolation to create a smooth curve through all points
+# - Small orders: Higher BPS to make filling worthwhile  
+# - Large orders: Lower BPS to be more competitive
+bpsCurve = [
+    { amount = "100", value = 100 },      # $100 orders: 1% margin
+    { amount = "1000", value = 50 },      # $1000 orders: 0.5% margin
+    { amount = "10000", value = 25 },     # $10000 orders: 0.25% margin
+    { amount = "100000", value = 10 },    # $100000 orders: 0.1% margin
+]
+
+# HyperFX strategy for exotic token swaps (e.g. stablecoin <-> cNGN)
+# Uncomment and configure to enable
+# [[strategies]]
+# type = "hyperfx"
+# maxOrderUsd = 5000
+# # Optional spread (basis points) around Uniswap V4 mid when using vault.uniswapV4 for pricing
+# spreadBps = 50
+#
+# # Bid/ask curves: omit both when [strategies.vault.uniswapV4].positions is set (pool-based pricing).
+# # Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg)
+# bidPriceCurve = [
+#     { amount = "100",  price = "1580" },
+#     { amount = "1000", price = "1575" },
+#     { amount = "5000", price = "1570" },
+# ]
+#
+# # Ask price curve: exotic per USD when *selling* exotic to a user (stable→exotic leg)
+# askPriceCurve = [
+#     { amount = "100",  price = "1560" },
+#     { amount = "1000", price = "1555" },
+#     { amount = "5000", price = "1550" },
+# ]
+#
+# [strategies.token1]
+# "EVM-56"  = "0xExoticTokenAddressOnBsc"
+# "EVM-137" = "0xExoticTokenAddressOnPolygon"
+#
+# # Auto-funding from on-chain liquidity (optional)
+# # When wallet balance is insufficient, Simplex withdraws from these positions atomically
+#
+# [strategies.vault.uniswapV4]
+# positions = [
+#     { chain = "EVM-8453", tokenId = "123456789" },
+# ]
+#
+
+
+# Chain configuration - RPC and bundler URLs are required
+# Chain IDs are resolved automatically from the RPC endpoint
+# All other chain data (addresses, assets, etc.) comes from the SDK automatically
+[[chains]]
+rpcUrl = ""      # Ethereum Mainnet
+bundlerUrl = ""  # ERC-4337 bundler (e.g. Pimlico)
+
+[[chains]]
+rpcUrl = ""      # BSC Mainnet
+bundlerUrl = ""
+
+[[chains]]
+rpcUrl = ""      # Arbitrum Mainnet
+bundlerUrl = ""
+
+[[chains]]
+rpcUrl = ""      # Base Mainnet
+bundlerUrl = ""
+
+[[chains]]
+rpcUrl = ""      # Polygon Mainnet
+bundlerUrl = ""
+
+[[chains]]
+rpcUrl = ""      # Unichain Mainnet
+bundlerUrl = ""
+
+
+# Confirmation policies per chain
+# Uses polynomial interpolation to create a smooth curve through all points
+# The chain ID should match the numeric ID from the chain configuration
+
+[confirmationPolicies."97"]  # BSC Testnet
+points = [
+    { amount = "1", value = 1 },
+    { amount = "1000", value = 5 },
+]
+
+[confirmationPolicies."10200"]  # Gnosis Chiado
+points = [
+    { amount = "1", value = 1 },
+    { amount = "1000", value = 5 },
+]
+
+[confirmationPolicies."1"]  # Ethereum Mainnet
+points = [
+    { amount = "5", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 12 },
+]
+
+[confirmationPolicies."56"]  # BSC Mainnet
+points = [
+    { amount = "1", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 15 },
+]
+
+[confirmationPolicies."11155111"]  # Sepolia
+points = [
+    { amount = "1", value = 1 },
+    { amount = "1000", value = 5 },
+]
+
+[confirmationPolicies."42161"]  # Arbitrum Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
+
+[confirmationPolicies."8453"]  # Base Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
+
+[confirmationPolicies."137"]  # Polygon Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
+
+[confirmationPolicies."130"]  # Unichain Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]

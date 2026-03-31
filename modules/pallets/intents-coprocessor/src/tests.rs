@@ -160,7 +160,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	.assimilate_storage(&mut t)
 	.unwrap();
 
-	t.into()
+	let mut ext: sp_io::TestExternalities = t.into();
+	ext.execute_with(|| {
+		pallet_intents::StorageDepositFee::<Test>::put(200u64);
+	});
+	ext
 }
 
 #[test]
@@ -179,10 +183,10 @@ fn place_bid_works() {
 
 		// Verify bid was stored (deposit amount for discoverability and refunds)
 		assert!(Bids::<Test>::contains_key(&commitment, &filler));
-		assert_eq!(Bids::<Test>::get(&commitment, &filler), Some(StorageDepositFee::get()));
+		assert_eq!(Bids::<Test>::get(&commitment, &filler), Some(Intents::storage_deposit_fee()));
 
 		// Verify deposit was reserved
-		assert_eq!(Balances::reserved_balance(&filler), StorageDepositFee::get());
+		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 	});
 }
 
@@ -217,7 +221,7 @@ fn filler_can_update_own_bid() {
 
 		// Verify bid exists
 		assert!(Bids::<Test>::contains_key(&commitment, &filler));
-		assert_eq!(Balances::reserved_balance(&filler), StorageDepositFee::get());
+		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 
 		// Update the bid with new user_op
 		assert_ok!(Intents::place_bid(
@@ -228,7 +232,7 @@ fn filler_can_update_own_bid() {
 
 		// Verify bid still exists and deposit is still reserved (only once)
 		assert!(Bids::<Test>::contains_key(&commitment, &filler));
-		assert_eq!(Balances::reserved_balance(&filler), StorageDepositFee::get());
+		assert_eq!(Balances::reserved_balance(&filler), Intents::storage_deposit_fee());
 	});
 }
 

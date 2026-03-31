@@ -14,7 +14,7 @@ use beefy_prover::{
 };
 use beefy_verifier_primitives::{
 	BeefyConsensusProof, BeefyMmrLeaf, ConsensusState, Node, ParachainHeader, ParachainProof,
-	RelaychainProof, SignatureWithAuthorityIndex,
+	RelaychainProof, SignatureWithAuthorityIndex, PROOF_TYPE_NAIVE,
 };
 use ismp::{
 	consensus::{ConsensusClient, StateMachineId},
@@ -215,7 +215,7 @@ async fn test_verify_consensus() {
 		let consensus_client = host.consensus_client(BEEFY_CONSENSUS_ID).unwrap();
 		let consensus_state_id = b"BEEF".to_vec();
 		let trusted_consensus_state = initial_state.encode();
-		let proof = beefy_consensus_proof.encode();
+		let proof = [&[PROOF_TYPE_NAIVE], beefy_consensus_proof.encode().as_slice()].concat();
 
 		let result = consensus_client.verify_consensus(
 			&host,
@@ -243,5 +243,57 @@ async fn test_verify_consensus() {
 		assert!(!state_commitments.is_empty());
 		dbg!(state_commitments);
 		println!("Successfully verified beefy justification and extracted parachain commitments");
+	});
+}
+
+#[test]
+fn test_unknown_proof_type_rejected() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let consensus_client = host.consensus_client(BEEFY_CONSENSUS_ID).unwrap();
+		let consensus_state = ConsensusState {
+			latest_beefy_height: 0,
+			beefy_activation_block: 0,
+			mmr_root_hash: H256::default(),
+			current_authorities: Default::default(),
+			next_authorities: Default::default(),
+		};
+
+		// Prefix with 0xFF — unknown proof type
+		let proof = [&[0xFF], &[0u8; 32][..]].concat();
+
+		let result =
+			consensus_client.verify_consensus(&host, *b"BEEF", consensus_state.encode(), proof);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert!(
+			err.contains("Unknown proof type"),
+			"Expected unknown proof type error, got: {err}"
+		);
+	});
+}
+
+#[test]
+fn test_empty_proof_rejected() {
+	let mut ext = new_test_ext();
+	ext.execute_with(|| {
+		let host = Ismp::default();
+		let consensus_client = host.consensus_client(BEEFY_CONSENSUS_ID).unwrap();
+		let consensus_state = ConsensusState {
+			latest_beefy_height: 0,
+			beefy_activation_block: 0,
+			mmr_root_hash: H256::default(),
+			current_authorities: Default::default(),
+			next_authorities: Default::default(),
+		};
+
+		let result =
+			consensus_client.verify_consensus(&host, *b"BEEF", consensus_state.encode(), vec![]);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err().to_string();
+		assert!(err.contains("Empty proof"), "Expected empty proof error, got: {err}");
 	});
 }

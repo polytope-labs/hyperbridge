@@ -40,6 +40,7 @@ impl beefy_verifier::EcdsaRecover for SubstrateCrypto {
 pub mod pallet {
 	use super::*;
 	use frame_support::pallet_prelude::*;
+	use frame_system::pallet_prelude::*;
 	use ismp::host::IsmpHost;
 
 	#[pallet::pallet]
@@ -54,4 +55,22 @@ pub mod pallet {
 	/// Parachains tracked by this consensus client
 	#[pallet::storage]
 	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, ()>;
+
+	/// SP1 verification key hash which identifies which SP1 program generated the proof
+	#[pallet::storage]
+	pub type Sp1VkeyHash<T: Config> = StorageValue<_, alloc::vec::Vec<u8>, ValueQuery>;
+
+	#[pallet::call]
+	impl<T: Config> Pallet<T> {
+		#[pallet::call_index(0)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn set_sp1_vkey_hash(
+			origin: OriginFor<T>,
+			vkey_hash: alloc::vec::Vec<u8>,
+		) -> DispatchResult {
+			T::AdminOrigin::ensure_origin(origin)?;
+			Sp1VkeyHash::<T>::put(vkey_hash);
+			Ok(())
+		}
+	}
 }

@@ -16,7 +16,8 @@
 use alloc::collections::BTreeMap;
 use beefy_verifier::verify_consensus;
 use beefy_verifier_primitives::{
-	BeefyConsensusProof, ConsensusState, ParachainProof, RelaychainProof,
+	BeefyConsensusProof, ConsensusState, PROOF_TYPE_NAIVE, PROOF_TYPE_SP1, ParachainProof,
+	RelaychainProof, Sp1BeefyProof,
 };
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
@@ -70,11 +71,6 @@ where
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
-		let consensus_proof: BeefyConsensusProof =
-			codec::Decode::decode(&mut &proof[..]).map_err(|e| {
-				Error::Custom(format!("Cannot decode consensus message from proof: {e:?}"))
-			})?;
-
 		let consensus_state: ConsensusState =
 			codec::Decode::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
 				Error::Custom(format!(
@@ -82,10 +78,34 @@ where
 				))
 			})?;
 
-		let (new_state, verified_parachains) =
-			verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof).map_err(|e| {
-				Error::Custom(format!("Error verifying Beefy consensus update: {e:?}"))
-			})?;
+		let proof_type = proof.first().ok_or_else(|| Error::Custom("Empty proof".into()))?;
+		let payload = &proof[1..];
+
+		let (new_state, verified_parachains) = match *proof_type {
+			PROOF_TYPE_NAIVE => {
+				let consensus_proof: BeefyConsensusProof = codec::Decode::decode(&mut &payload[..])
+					.map_err(|e| Error::Custom(format!("Cannot decode naive proof: {e:?}")))?;
+				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof).map_err(
+					|e| Error::Custom(format!("Error verifying naive consensus update: {e:?}")),
+				)?
+			},
+			PROOF_TYPE_SP1 => {
+				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])
+					.map_err(|e| Error::Custom(format!("Cannot decode SP1 proof: {e:?}")))?;
+				let vkey_bytes = crate::Sp1VkeyHash::<T>::get();
+				let vkey_hash = core::str::from_utf8(&vkey_bytes)
+					.map_err(|_| Error::Custom("Invalid SP1 vkey hash encoding".into()))?;
+				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
+					consensus_state,
+					sp1_proof,
+					vkey_hash,
+				)
+				.map_err(|e| {
+					Error::Custom(format!("Error verifying SP1 consensus update: {e:?}"))
+				})?
+			},
+			_ => return Err(Error::Custom(format!("Unknown proof type: {proof_type}"))),
+		};
 
 		if verified_parachains.is_empty() {
 			return Ok((new_state, BTreeMap::new()));

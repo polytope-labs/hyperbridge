@@ -8199,6 +8199,7 @@ dependencies = [
  "pallet-messaging-fees",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
+ "pallet-outbound-proofs",
  "pallet-state-coprocessor",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
@@ -15260,6 +15261,7 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-messaging-fees",
  "pallet-mmr-tree",
+ "pallet-outbound-proofs",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -15694,6 +15696,17 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-outbound-proofs"
+version = "0.1.0"
+dependencies = [
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-info",
+ "sp1-verifier",
 ]
 
 [[package]]

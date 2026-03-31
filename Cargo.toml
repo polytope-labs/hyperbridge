@@ -71,6 +71,7 @@ members = [
     "modules/ismp/state-machines/hyperbridge",
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-fees",
+    "modules/pallets/outbound-proofs",
 
     # evm stuff
     # "evm/integration-tests",
@@ -304,6 +305,7 @@ pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-
 pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
 pallet-consensus-incentives = { path = "modules/pallets/consensus-incentives", default-features = false }
 pallet-messaging-fees= { path = "modules/pallets/messaging-fees", default-features = false }
+pallet-outbound-proofs = { path = "modules/pallets/outbound-proofs", default-features = false }
 pallet-collator-manager = { path = "modules/pallets/collator-manager", default-features = false }
 pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }

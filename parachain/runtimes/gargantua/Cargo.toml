@@ -27,6 +27,7 @@ ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-ismp-demo = { workspace = true }
+pallet-outbound-proofs = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
@@ -129,6 +130,7 @@ std = [
     "pallet-ismp/std",
     "pallet-ismp-runtime-api/std",
     "pallet-ismp-demo/std",
+    "pallet-outbound-proofs/std",
     "ismp-sync-committee/std",
     "ismp-bsc/std",
     "ismp-grandpa/std",
@@ -174,10 +176,12 @@ try-runtime = [
     "pallet-ismp/try-runtime",
     "ismp-sync-committee/try-runtime",
     "pallet-ismp-demo/try-runtime",
+    "pallet-outbound-proofs/try-runtime",
     "pallet-ismp-relayer/try-runtime",
     "pallet-ismp-host-executive/try-runtime",
     "pallet-mmr-tree/try-runtime",
     "cumulus-pallet-parachain-system/try-runtime",
 ]
+sp1-verifier = ["pallet-outbound-proofs/sp1"]
 # This must be used when buiding for a runtime upgrade so metadata hash verification is possible
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]

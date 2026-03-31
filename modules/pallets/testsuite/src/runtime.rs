@@ -112,6 +112,7 @@ frame_support::construct_runtime!(
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
+		OutboundProofs: pallet_outbound_proofs,
 	}
 );
 
@@ -271,6 +272,7 @@ impl pallet_ismp::Config for Test {
 			true,
 		>,
 	);
+	type OnDispatch = pallet_outbound_proofs::Pallet<Test>;
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -496,6 +498,33 @@ impl pallet_vesting::Config for Test {
 	type WeightInfo = ();
 	type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
 	type BlockNumberProvider = System;
+}
+
+pub struct DummyProofVerifier;
+impl pallet_outbound_proofs::ProofVerifier for DummyProofVerifier {
+	fn verify(
+		trusted_state: &pallet_outbound_proofs::BeefyConsensusState,
+		_proof: &[u8],
+	) -> Result<pallet_outbound_proofs::BeefyConsensusState, frame_support::pallet_prelude::DispatchError> {
+		Ok(trusted_state.clone())
+	}
+}
+
+pub struct OutboundProofsWeights;
+impl pallet_outbound_proofs::WeightInfo for OutboundProofsWeights {
+	fn submit_proof() -> Weight {
+		Weight::zero()
+	}
+}
+
+impl pallet_outbound_proofs::Config for Test {
+	type AdminOrigin = EnsureRoot<AccountId32>;
+	type ProofVerifier = DummyProofVerifier;
+	type Currency = Balances;
+	type TreasuryPalletId = TreasuryAccount;
+	type MaxProofSize = ConstU32<100_000>;
+	type MaxStoredProofs = ConstU32<3>;
+	type WeightInfo = OutboundProofsWeights;
 }
 
 #[derive(Default)]

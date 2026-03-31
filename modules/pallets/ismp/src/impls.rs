@@ -21,7 +21,7 @@ use crate::{
 	dispatcher::{FeeMetadata, RequestMetadata},
 	fee_handler::FeeHandler,
 	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider},
-	Config, Error, Event, Pallet, Responded,
+	Config, Error, Event, OnDispatch, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
@@ -117,6 +117,8 @@ impl<T: Config> Pallet<T> {
 			},
 		);
 
+		T::OnDispatch::on_dispatch();
+
 		Ok(commitment)
 	}
 
@@ -157,6 +159,9 @@ impl<T: Config> Pallet<T> {
 			},
 		);
 		Responded::<T>::insert(req_commitment, true);
+
+		T::OnDispatch::on_dispatch();
+
 		Ok(commitment)
 	}
 

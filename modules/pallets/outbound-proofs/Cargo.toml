@@ -1,0 +1,29 @@
+[package]
+name = "pallet-outbound-proofs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+description = "Pallet for storing and rewarding outbound consensus proofs on Hyperbridge"
+publish = false
+
+[dependencies]
+codec = { workspace = true }
+pallet-ismp = { workspace = true }
+scale-info = { workspace = true }
+sp1-verifier = { version = "6.0.2", default-features = false, optional = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-io", "sp-runtime"]
+
+[features]
+default = ["std"]
+std = [
+    "polkadot-sdk/std",
+    "codec/std",
+    "pallet-ismp/std",
+    "scale-info/std",
+]
+sp1 = ["sp1-verifier"]
+try-runtime = ["polkadot-sdk/try-runtime"]

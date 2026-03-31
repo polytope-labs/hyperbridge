@@ -79,6 +79,15 @@ pub mod pallet {
 	use sp_std::prelude::*;
 	pub use utils::*;
 
+	/// Hook called when an outgoing message is dispatched
+	pub trait OnDispatch {
+		fn on_dispatch();
+	}
+
+	impl OnDispatch for () {
+		fn on_dispatch() {}
+	}
+
 	/// [`PalletId`] where relayer fees will be collected
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
@@ -160,6 +169,10 @@ pub mod pallet {
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
 		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
+
+		/// Hook called when an outgoing request is dispatched.
+		/// Use `()` for a no-op implementation.
+		type OnDispatch: OnDispatch;
 	}
 
 	// Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and

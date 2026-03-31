@@ -172,6 +172,7 @@ impl pallet_ismp::Config for Runtime {
 		TreasuryPalletId,
 		false,
 	>;
+	type OnDispatch = pallet_outbound_proofs::Pallet<Runtime>;
 }
 
 impl ismp_grandpa::Config for Runtime {

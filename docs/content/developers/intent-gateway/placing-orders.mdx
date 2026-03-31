@@ -223,7 +223,7 @@ The generator is bidirectional — it pauses at two points to hand control back 
 
 **Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, receipt }` where `order` is the finalized `Order` (with `nonce`, `id`, and `inputs` populated from the `OrderPlaced` event) and `receipt` is the full viem `TransactionReceipt` of the placement transaction.
 
-**Subsequent yields** — status updates. The generator then yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `FAILED`, `PARTIAL_FILL_EXHAUSTED`). Call `gen.next()` with no arguments to advance after each update.
+**Subsequent yields** — status updates. The generator then yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `EXPIRED`). `FAILED` events are informational — the executor automatically retries by looping back to bid polling. Call `gen.next()` with no arguments to advance after each update.
 
 ```typescript lineNumbers title="execute.ts" icon="typescript"
 import { IntentOrderStatus, DEFAULT_GRAFFITI } from "@hyperbridge/sdk"
@@ -282,19 +282,20 @@ async function runOrder(order: Order) {
         console.log("Partial fill:", filledAssets, "| total filled:", totalFilledAssets, "| remaining:", remainingAssets)
         break
       }
-      case IntentOrderStatus.PARTIAL_FILL_EXHAUSTED:
-        // Order deadline reached, or no new bids arrived for the remaining amount
-        // The order is still live on-chain — cancel it or wait for a solver to fill the rest manually
-        console.warn("Could not fully fill order after max attempts. Remaining:", update.remainingAssets)
-        return
       case IntentOrderStatus.FILLED:
         // Order fully filled; escrow released to the solver
         console.log("Order fully filled! tx:", update.transactionHash)
         return
-      case IntentOrderStatus.FAILED:
-        // Unrecoverable error (e.g. bundler rejection, RPC failure)
-        console.error("Order failed:", update.error)
+      case IntentOrderStatus.EXPIRED:
+        // Order deadline reached, or no new bids arrived for the remaining amount
+        // The order is still live on-chain — cancel it or wait for a solver to fill the rest manually
+        console.warn("Order expired:", update.error, "Remaining:", update.remainingAssets)
         return
+      case IntentOrderStatus.FAILED:
+        // Retryable error (e.g. bundler rejection, simulation failure)
+        // The executor automatically retries — this is informational only
+        console.warn("Retryable error, retrying:", update.error)
+        break
     }
   }
 }
@@ -312,9 +313,9 @@ async function runOrder(order: Order) {
 | `BID_SELECTED` | Best bid chosen | `commitment`, `selectedSolver`, `userOpHash` |
 | `USEROP_SUBMITTED` | UserOp sent to bundler | `commitment`, `userOpHash`, `transactionHash` |
 | `PARTIAL_FILL` | Same-chain partial fill confirmed; loop restarts | `commitment`, `filledAssets`, `totalFilledAssets`, `remainingAssets` |
-| `PARTIAL_FILL_EXHAUSTED` | Deadline reached or no new bids for remainder | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
 | `FILLED` | Order fully filled | `commitment`, `userOpHash`, `transactionHash` |
-| `FAILED` | Unrecoverable error | `error` |
+| `EXPIRED` | Deadline reached or no new bids available — terminal | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
+| `FAILED` | Retryable error (e.g. bundler rejection) — executor retries automatically | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
 
 ### `execute()` options
 
@@ -324,9 +325,13 @@ async function runOrder(order: Order) {
 | `bidTimeoutMs` | `number` | `60000` | Max time (ms) to wait for bids before proceeding with whatever has arrived |
 | `pollIntervalMs` | `number` | SDK default | How frequently (ms) to poll the coprocessor for new bids |
 
-### `PARTIAL_FILL_EXHAUSTED`
+### `EXPIRED`
 
-When `PARTIAL_FILL_EXHAUSTED` fires, the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+When `EXPIRED` fires, the order deadline has been reached or no new bids are available. The user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+
+### `FAILED` (retryable)
+
+`FAILED` events are informational — the executor automatically retries by looping back to bid polling. Common causes include bundler gas price rejections or bid simulation failures. The retry continues until the order reaches `FILLED` or `EXPIRED`.
 
 ---
 

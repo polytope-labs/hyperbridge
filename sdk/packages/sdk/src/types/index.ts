@@ -1321,7 +1321,7 @@ export const IntentOrderStatus = Object.freeze({
 	USEROP_SUBMITTED: "USEROP_SUBMITTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
-	PARTIAL_FILL_EXHAUSTED: "PARTIAL_FILL_EXHAUSTED",
+	EXPIRED: "EXPIRED",
 	FAILED: "FAILED",
 })
 
@@ -1368,7 +1368,7 @@ export type IntentOrderStatusUpdate =
 			remainingAssets: TokenInfo[]
 	  }
 	| {
-			status: "PARTIAL_FILL_EXHAUSTED"
+			status: "EXPIRED"
 			commitment: HexString
 			totalFilledAssets?: TokenInfo[]
 			remainingAssets?: TokenInfo[]

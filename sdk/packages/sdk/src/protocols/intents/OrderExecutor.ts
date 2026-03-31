@@ -50,10 +50,11 @@ export class OrderExecutor {
 	 *
 	 * **Status progression (same-chain orders):**
 	 * `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED` → `USEROP_SUBMITTED`
-	 * → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `PARTIAL_FILL_EXHAUSTED`)
+	 * → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
 	 *
-	 * **Error statuses:** `FAILED` (fatal, no fills) or `PARTIAL_FILL_EXHAUSTED`
-	 * (deadline reached or no new bids after at least one partial fill).
+	 * **Error statuses:** `FAILED` (retryable error during bid selection/submission,
+	 * triggers automatic retry) or `EXPIRED` (deadline reached or no new bids —
+	 * terminal, no further retries).
 	 *
 	 * @param options - Execution parameters including the placed order, its
 	 *   session private key, bid collection settings, and poll interval.
@@ -121,18 +122,13 @@ export class OrderExecutor {
 			while (true) {
 				const currentBlock = await this.ctx.dest.client.getBlockNumber()
 				if (currentBlock >= order.deadline) {
-					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
 					const deadlineError = `Order deadline reached (block ${currentBlock} >= ${order.deadline})`
-					if (isPartiallyFilled) {
-						yield {
-							status: "PARTIAL_FILL_EXHAUSTED",
-							commitment,
-							totalFilledAssets,
-							remainingAssets,
-							error: deadlineError,
-						}
-					} else {
-						yield { status: "FAILED", commitment, error: deadlineError }
+					yield {
+						status: "EXPIRED",
+						commitment,
+						totalFilledAssets,
+						remainingAssets,
+						error: deadlineError,
 					}
 					return
 				}
@@ -175,22 +171,18 @@ export class OrderExecutor {
 				})
 
 				if (freshBids.length === 0) {
-					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
 					const solverClause = solver && !solverLockExpired ? ` for requested solver ${solver.address}` : ""
+					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
 					const noBidsError = isPartiallyFilled
 						? `No new bids${solverClause} after partial fill`
 						: `No new bids${solverClause} available within ${bidTimeoutMs}ms timeout`
 
-					if (isPartiallyFilled) {
-						yield {
-							status: "PARTIAL_FILL_EXHAUSTED",
-							commitment,
-							totalFilledAssets,
-							remainingAssets,
-							error: noBidsError,
-						}
-					} else {
-						yield { status: "FAILED", commitment, error: noBidsError }
+					yield {
+						status: "EXPIRED",
+						commitment,
+						totalFilledAssets,
+						remainingAssets,
+						error: noBidsError,
 					}
 					return
 				}
@@ -208,7 +200,8 @@ export class OrderExecutor {
 						remainingAssets,
 						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
 					}
-					return
+					// Retry: loop back to poll for new bids
+					continue
 				}
 
 				const usedKey = userOpHashKey(result.userOp)

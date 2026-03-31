@@ -534,8 +534,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 							txHash: status.transactionHash,
 						})
 						break
-					case "PARTIAL_FILL_EXHAUSTED":
-						tlog("PARTIAL_FILL_EXHAUSTED", { commitment: status.commitment, error: status.error })
+					case "EXPIRED":
+						tlog("EXPIRED", { commitment: status.commitment, error: status.error })
 						break
 					case "FAILED":
 						tlog("FAILED", status)

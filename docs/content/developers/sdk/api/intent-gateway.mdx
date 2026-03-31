@@ -345,7 +345,7 @@ type IntentOrderStatusUpdate =
   | { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
   | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
-  | { status: "PARTIAL_FILL_EXHAUSTED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
+  | { status: "EXPIRED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
   | { status: "FAILED"; commitment?: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
 ```
 
@@ -359,8 +359,8 @@ type IntentOrderStatusUpdate =
 | `USEROP_SUBMITTED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?` | UserOperation sent to the bundler |
 | `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
 | `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
-| `PARTIAL_FILL_EXHAUSTED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | No further fills expected for a partially filled order |
-| `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order execution failed unrecoverably |
+| `EXPIRED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order deadline reached or no new bids available — terminal |
+| `FAILED` | `commitment?`, `totalFilledAssets?`, `remainingAssets?`, `error` | Retryable error (e.g. bundler rejection, simulation failure) — executor retries automatically |
 
 ---
 

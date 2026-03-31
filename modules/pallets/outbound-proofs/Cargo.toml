@@ -26,4 +26,8 @@ std = [
     "scale-info/std",
 ]
 sp1 = ["sp1-verifier"]
+runtime-benchmarks = [
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
+]
 try-runtime = ["polkadot-sdk/try-runtime"]

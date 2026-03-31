@@ -515,6 +515,12 @@ impl pallet_outbound_proofs::WeightInfo for OutboundProofsWeights {
 	fn submit_proof() -> Weight {
 		Weight::zero()
 	}
+	fn set_proof_reward() -> Weight {
+		Weight::zero()
+	}
+	fn set_sp1_vkey_hash() -> Weight {
+		Weight::zero()
+	}
 }
 
 impl pallet_outbound_proofs::Config for Test {

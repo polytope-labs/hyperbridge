@@ -1,4 +1,6 @@
+use alloc::string::String;
 use thiserror::Error;
+
 #[derive(Error, Debug)]
 pub enum Error {
 	#[error("Stale height: trusted height {trusted_height} >= current_height {current_height}")]

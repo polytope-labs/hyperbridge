@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = { workspace = true }
-codec = { workspace = true, features = ["derive"] }
-primitive-types = { workspace = true }
+anyhow = { workspace = true, default-features = false }
+codec = { workspace = true, features = ["derive"], default-features = false }
+primitive-types = { workspace = true, default-features = false }
 
-ismp = { workspace = true }
-beefy-verifier = { workspace = true }
-pallet-ismp = { workspace = true }
-substrate-state-machine = { workspace = true }
-beefy-verifier-primitives = { workspace = true }
+ismp = { workspace = true, default-features = false }
+beefy-verifier = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
+substrate-state-machine = { workspace = true, default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false }
 
 [dependencies.scale-info]
 version = "2.1.1"
@@ -35,7 +35,9 @@ features = [
 
 [features]
 default = ["std"]
+sp1 = ["beefy-verifier/sp1"]
 std = [
+    "anyhow/std",
     "scale-info/std",
     "codec/std",
     "ismp/std",
@@ -46,4 +48,3 @@ std = [
     "beefy-verifier/std",
     "substrate-state-machine/std",
 ]
-

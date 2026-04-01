@@ -13,11 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 mod error;
 pub mod sp1;
 #[cfg(test)]
 mod test;
 
+use alloc::{format, string::{String, ToString}, vec, vec::Vec};
 use core::marker::PhantomData;
 
 use crate::error::Error;

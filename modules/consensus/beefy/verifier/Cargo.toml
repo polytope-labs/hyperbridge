@@ -12,35 +12,35 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 log = { workspace = true }
 anyhow = { workspace = true, default-features = false }
-primitive-types = { workspace = true, features = ["codec"] }
-codec = { workspace = true, features = ["derive"], default-features = true }
-beefy-verifier-primitives = { workspace = true }
+primitive-types = { workspace = true, default-features = false, features = ["codec"] }
+codec = { workspace = true, features = ["derive"], default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 merkle-mountain-range = {workspace = true, default-features = false}
-rs_merkle = {workspace = true}
-beefy-prover = { workspace = true}
-subxt = { workspace = true, default-features = true }
-subxt-core = { workspace = true, default-features = true }
-subxt-utils = { workspace = true, default-features = true }
-futures = { workspace = true }
-tokio = { workspace = true }
+rs_merkle = {workspace = true, default-features = false}
 thiserror = { workspace = true }
-sp1-verifier = { version = "6.0.2", default-features = false }
+sp1-verifier = { version = "6.0.2", default-features = false, optional = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
 features = [
     "sp-core",
-    "sp-io",
     "sp-runtime"
 ]
 
 [dev-dependencies]
 k256 = { workspace = true }
+beefy-prover = { workspace = true }
+subxt = { workspace = true, default-features = true }
+subxt-core = { workspace = true, default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+futures = { workspace = true }
+tokio = { workspace = true }
 
 
 [features]
 default = ["std"]
+sp1 = ["sp1-verifier"]
 std = [
     "log/std",
     "anyhow/std",

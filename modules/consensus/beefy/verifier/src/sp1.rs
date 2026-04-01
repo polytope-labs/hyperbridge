@@ -15,7 +15,8 @@
 
 //! SP1 BEEFY proof verification
 
-use crate::{MerkleHasher, error::Error, verify_parachain_headers};
+use alloc::vec::Vec;
+use crate::{error::Error, verify_parachain_headers};
 use beefy_verifier_primitives::{ConsensusState, ParachainHeader, Sp1BeefyProof};
 use codec::Encode;
 use ismp::messaging::Keccak256;
@@ -51,6 +52,7 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 	let public_inputs =
 		build_sp1_public_inputs::<H>(&sp1_proof, authority.keyset_commitment.into(), authority.len);
 
+	#[cfg(feature = "sp1")]
 	sp1_verifier::PlonkVerifier::verify(
 		&sp1_proof.proof,
 		&public_inputs,

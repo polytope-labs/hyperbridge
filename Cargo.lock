@@ -2862,7 +2862,7 @@ dependencies = [
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "rs_merkle 1.5.0",
- "sp1-verifier",
+ "sp1-verifier 6.0.2 (git+https://github.com/dharjeezy/sp1.git?branch=dami%2Fsp1-verifier-wasm-compatible)",
  "subxt 0.42.1",
  "subxt-core 0.42.1",
  "subxt-utils",
@@ -26018,7 +26018,7 @@ dependencies = [
  "sp1-recursion-executor",
  "sp1-recursion-gnark-ffi",
  "sp1-recursion-machine",
- "sp1-verifier",
+ "sp1-verifier 6.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "static_assertions",
  "sysinfo",
  "tempfile",
@@ -26156,7 +26156,7 @@ dependencies = [
  "sp1-hypercube",
  "sp1-primitives",
  "sp1-recursion-compiler",
- "sp1-verifier",
+ "sp1-verifier 6.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile",
  "tracing",
 ]
@@ -26235,7 +26235,7 @@ dependencies = [
  "sp1-prover-types",
  "sp1-recursion-executor",
  "sp1-recursion-gnark-ffi",
- "sp1-verifier",
+ "sp1-verifier 6.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "strum 0.27.2",
  "tempfile",
  "thiserror 1.0.69",
@@ -26269,6 +26269,20 @@ dependencies = [
  "sp1-recursion-executor",
  "sp1-recursion-machine",
  "strum 0.27.2",
+ "substrate-bn-succinct-rs",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "sp1-verifier"
+version = "6.0.2"
+source = "git+https://github.com/dharjeezy/sp1.git?branch=dami%2Fsp1-verifier-wasm-compatible#a204a91d335571009800f2ead92e0fce79391cb0"
+dependencies = [
+ "blake3",
+ "cfg-if",
+ "dirs",
+ "hex",
+ "sha2 0.10.9",
  "substrate-bn-succinct-rs",
  "thiserror 2.0.18",
 ]

@@ -35,7 +35,6 @@ features = [
 
 [features]
 default = ["std"]
-sp1 = ["beefy-verifier/sp1"]
 std = [
     "anyhow/std",
     "scale-info/std",

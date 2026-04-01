@@ -52,12 +52,11 @@ pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
 	let public_inputs =
 		build_sp1_public_inputs::<H>(&sp1_proof, authority.keyset_commitment.into(), authority.len);
 
-	#[cfg(feature = "sp1")]
 	sp1_verifier::PlonkVerifier::verify(
 		&sp1_proof.proof,
 		&public_inputs,
 		vkey_hash,
-		&sp1_verifier::PLONK_VK_BYTES,
+		sp1_verifier::PLONK_VK_BYTES,
 	)
 	.map_err(|_| Error::Sp1VerificationFailed)?;
 

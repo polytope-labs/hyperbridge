@@ -371,7 +371,7 @@ impl pallet_collator_selection::Config for Test {
 	type KickThreshold = ConstU64<1>;
 	type ValidatorId = AccountId32;
 	type ValidatorIdOf = ConvertInto;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
 	type MinEligibleCollators = DesiredCollators;
 	type WeightInfo = ();
 }

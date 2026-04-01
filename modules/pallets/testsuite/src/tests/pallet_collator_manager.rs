@@ -54,7 +54,6 @@ fn set_reputation_balance(who: &<Test as frame_system::Config>::AccountId, amoun
 fn register_candidate(who: <Test as frame_system::Config>::AccountId) {
 	let bond = 10 * UNIT;
 	set_reputation_balance(&who, bond);
-	set_session_keys(who.clone());
 	assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(who.clone())));
 }
 
@@ -91,19 +90,22 @@ fn test_new_collators_are_selected_based_on_reputation() {
 			),
 		]);
 
+		assert_ok!(CollatorManager::register(
+			RuntimeOrigin::signed(charlie_stash.clone()),
+			CHARLIE
+		));
+
+		assert_ok!(CollatorManager::register(RuntimeOrigin::signed(dave_stash.clone()), DAVE));
+
 		set_session_keys(CHARLIE);
 		set_session_keys(DAVE);
 		register_candidate(charlie_stash.clone());
 		register_candidate(dave_stash.clone());
 
 		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
-		assert_ok!(CollatorManager::register(
-			RuntimeOrigin::signed(charlie_stash.clone()),
-			CHARLIE
-		));
+
 
 		assert_ok!(CollatorManager::reserve(&dave_stash, 100 * UNIT));
-		assert_ok!(CollatorManager::register(RuntimeOrigin::signed(dave_stash.clone()), DAVE));
 
 		set_reputation_balance(&CHARLIE, 20 * UNIT);
 		set_reputation_balance(&DAVE, 20 * UNIT);
@@ -147,14 +149,15 @@ fn test_reuse_previous_collators_if_not_enough_candidates() {
 		set_reputation_balance(&BOB, 30 * UNIT);
 		set_reputation_balance(&CHARLIE, 40 * UNIT);
 
-		set_session_keys(CHARLIE);
-		register_candidate(charlie_stash.clone());
-
-		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
 		assert_ok!(CollatorManager::register(
 			RuntimeOrigin::signed(charlie_stash.clone()),
 			CHARLIE
 		));
+
+		set_session_keys(CHARLIE);
+		register_candidate(charlie_stash.clone());
+
+		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
 
 		Session::on_initialize(2);
 		Session::on_initialize(3);
@@ -256,7 +259,8 @@ fn test_collator_candidate_bonding_works_with_vesting_tokens() {
 		set_vesting_schedule(&CHARLIE, bond_amount * 2);
 		assert_eq!(pallet_collator_selection::CandidateList::<Test>::get().len(), 0);
 
-		set_session_keys(CHARLIE);
+		assert_ok!(CollatorManager::register(RuntimeOrigin::signed(CHARLIE), DAVE));
+		set_session_keys(DAVE);
 		assert_ok!(CollatorSelection::register_as_candidate(RuntimeOrigin::signed(CHARLIE)));
 		assert_eq!(pallet_collator_selection::CandidateList::<Test>::get().len(), 1);
 		assert_eq!(CollatorManager::reserved_balance(&CHARLIE), bond_amount);

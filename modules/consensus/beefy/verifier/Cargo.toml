@@ -19,7 +19,7 @@ ismp = { workspace = true, default-features = false }
 merkle-mountain-range = {workspace = true, default-features = false}
 rs_merkle = {workspace = true, default-features = false}
 thiserror = { workspace = true }
-sp1-verifier = { version = "6.0.2", default-features = false, optional = true }
+sp1-verifier = { git = "https://github.com/dharjeezy/sp1.git", branch = "dami/sp1-verifier-wasm-compatible", default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -40,7 +40,6 @@ tokio = { workspace = true }
 
 [features]
 default = ["std"]
-sp1 = ["sp1-verifier"]
 std = [
     "log/std",
     "anyhow/std",
@@ -51,4 +50,5 @@ std = [
     "polkadot-sdk/std",
     "merkle-mountain-range/std",
     "rs_merkle/std",
+    "sp1-verifier/std",
 ]

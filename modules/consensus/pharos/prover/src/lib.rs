@@ -21,13 +21,14 @@ pub mod rpc;
 pub use error::ProverError;
 
 use pharos_primitives::{
-	BlockProof, BlsPublicKey, Config, PharosProofNode, ValidatorInfo, ValidatorSet,
-	ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
+	BlockProof, BlsPublicKey, Config, PharosProofNode, SiblingLeftmostLeafProof, ValidatorInfo,
+	ValidatorSet, ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
 };
 use pharos_verifier::state_proof::StakingContractLayout;
 use primitive_types::{H160, H256, U256};
 use rpc::{
-	hex_to_bytes, hex_to_u64, PharosRpcClient, RpcBlockProof, RpcProofNode, RpcValidatorInfo,
+	hex_to_bytes, hex_to_u64, PharosRpcClient, RpcBlockProof, RpcProofNode, RpcSiblingProof,
+	RpcValidatorInfo,
 };
 use std::{collections::BTreeMap, marker::PhantomData, sync::Arc};
 
@@ -140,10 +141,10 @@ impl<C: Config> PharosProver<C> {
 	/// This fetches the storage proof from the staking contract at the
 	/// given block, which contains the validator set for the next epoch.
 	///
-	/// The storage layout follows the Pharos staking contract (V1):
+	/// The storage layout follows the Pharos staking contract (V2):
 	/// - Slot 6: totalStake
-	/// - Slot 1: activePoolIds (bytes32[] array length)
-	/// - keccak256(1): array elements (pool IDs)
+	/// - Slot 21: activePoolSets (EnumerableSet._inner._values array length)
+	/// - keccak256(21): array elements (pool IDs)
 	/// - For each pool ID: validator data via mapping at slot 0
 	pub async fn fetch_validator_set_proof(
 		&self,
@@ -159,7 +160,7 @@ impl<C: Config> PharosProver<C> {
 
 		let base_proof = self.rpc.get_proof(address, base_keys.clone(), block_number).await?;
 
-		// Get validator count from activePoolIds length (slot 1)
+		// Get validator count from activePoolSets length (slot 21)
 		let validator_count = if base_proof.storage_proof.len() >= 2 {
 			hex_to_u64(&base_proof.storage_proof[1].value)?
 		} else {
@@ -346,6 +347,21 @@ pub fn rpc_to_proof_nodes(nodes: &[RpcProofNode]) -> Result<Vec<PharosProofNode>
 				proof_node: hex_to_bytes(&n.proof_node)?,
 				next_begin_offset: n.next_begin_offset,
 				next_end_offset: n.next_end_offset,
+			})
+		})
+		.collect()
+}
+
+pub fn rpc_to_sibling_proofs(
+	siblings: &[RpcSiblingProof],
+) -> Result<Vec<SiblingLeftmostLeafProof>, ProverError> {
+	siblings
+		.iter()
+		.map(|s| {
+			Ok(SiblingLeftmostLeafProof {
+				slot_index: s.slot_index,
+				leftmost_leaf_key: hex_to_bytes(&s.leftmost_leaf_key)?,
+				proof_path: rpc_to_proof_nodes(&s.proof_path)?,
 			})
 		})
 		.collect()

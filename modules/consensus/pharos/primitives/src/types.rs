@@ -165,6 +165,25 @@ pub struct PharosProofNode {
 	pub next_end_offset: u32,
 }
 
+/// Sibling proof for non-existence verification — proves a non-empty sibling slot
+/// is genuine by providing a path to its leftmost leaf.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct SiblingLeftmostLeafProof {
+	pub slot_index: u8,
+	pub leftmost_leaf_key: Vec<u8>,
+	pub proof_path: Vec<PharosProofNode>,
+}
+
+/// Non-existence proof: either a leaf key mismatch (empty sibling_proofs) or
+/// an empty slot in an internal node (sibling_proofs pin non-empty slots to root).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct NonExistenceProof {
+	pub proof_nodes: Vec<PharosProofNode>,
+	pub sibling_proofs: Vec<SiblingLeftmostLeafProof>,
+}
+
 /// State proof for validator set stored in the staking contract.
 ///
 /// This proof is required when the validator set changes at epoch boundaries.

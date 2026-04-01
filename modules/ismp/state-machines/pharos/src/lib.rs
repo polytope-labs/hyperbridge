@@ -33,7 +33,7 @@ use ismp::{
 	router::RequestResponse,
 };
 use pallet_ismp_host_executive::EvmHosts;
-use pharos_primitives::{spv, PharosProofNode};
+use pharos_primitives::{spv, NonExistenceProof, PharosProofNode};
 use primitive_types::{H160, H256};
 
 /// Pharos-specific state proof (replaces EvmStateProof).
@@ -47,6 +47,8 @@ pub struct PharosStateProof {
 	pub storage_proof: BTreeMap<Vec<u8>, Vec<PharosProofNode>>,
 	/// Map of storage key (slot hash) to the 32-byte padded storage value
 	pub storage_values: BTreeMap<Vec<u8>, Vec<u8>>,
+	/// Map of storage key (slot hash) to non-existence proof for absent keys
+	pub non_existence_proofs: BTreeMap<Vec<u8>, NonExistenceProof>,
 }
 
 /// Pharos state machine client for ISMP state proof verification.
@@ -178,8 +180,24 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			Error::Custom("Invalid slot hash length: expected 32 bytes".to_string())
 		})?;
 
-		// Pharos does not support non-membership proofs, so all keys must have
-		// a proof and value. Missing entries indicate an incomplete proof.
+		// Check if this is a non-existence proof
+		if let Some(non_existence) = pharos_proof.non_existence_proofs.get(slot_key.as_slice()) {
+			if !spv::verify_storage_non_existence_proof(
+				&non_existence.proof_nodes,
+				&contract_address,
+				&slot_key,
+				&state_root.0,
+				&non_existence.sibling_proofs,
+			) {
+				return Err(Error::Custom(
+					"Storage non-existence proof verification failed".to_string(),
+				));
+			}
+			map.insert(key, None);
+			continue;
+		}
+
+		// Otherwise verify existence proof
 		let storage_proof_nodes = pharos_proof
 			.storage_proof
 			.get(slot_key.as_slice())

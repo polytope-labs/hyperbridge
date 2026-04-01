@@ -90,6 +90,14 @@ pub struct RpcProofNode {
 	pub next_end_offset: u32,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcSiblingProof {
+	pub slot_index: u8,
+	pub leftmost_leaf_key: String,
+	pub proof_path: Vec<RpcProofNode>,
+}
+
 /// Account proof response from `eth_getProof`.
 ///
 /// Uses a custom response format (Pharos hexary hash tree nodes instead of
@@ -106,6 +114,9 @@ pub struct RpcAccountProof {
 	/// RLP-encoded account value (rawValue)
 	pub raw_value: String,
 	pub storage_proof: Vec<RpcStorageProof>,
+	pub is_exist: bool,
+	#[serde(default)]
+	pub sibling_leftmost_leaf_proofs: Vec<RpcSiblingProof>,
 }
 
 /// Storage proof entry from `eth_getProof`.
@@ -115,6 +126,9 @@ pub struct RpcStorageProof {
 	pub key: String,
 	pub value: String,
 	pub proof: Vec<RpcProofNode>,
+	pub is_exist: bool,
+	#[serde(default)]
+	pub sibling_leftmost_leaf_proofs: Vec<RpcSiblingProof>,
 }
 
 /// Validator info from `debug_getValidatorInfo`.
@@ -289,5 +303,8 @@ pub fn hex_to_h256(hex: &str) -> Result<H256, ProverError> {
 /// Parse a hex string to u64.
 pub fn hex_to_u64(hex: &str) -> Result<u64, ProverError> {
 	let hex = hex.trim_start_matches("0x");
+	if hex.is_empty() {
+		return Ok(0);
+	}
 	u64::from_str_radix(hex, 16).map_err(|_| ProverError::InvalidNumber)
 }

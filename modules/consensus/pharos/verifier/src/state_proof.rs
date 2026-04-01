@@ -407,15 +407,15 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 /// mapping(bytes32 => uint256) commissionRates;                   // slot 18
 /// mapping(bytes32 => bool) delegationEnabledMapping;             // slot 19
 /// mapping(bytes32 => uint256) delegatorCounts;                   // slot 20
-/// PendingUndelegation[] pendingUndelegations;                    // slot 21
-/// EnumerableSet.Bytes32Set activePoolSets;                       // slot 22-23
+/// EnumerableSet.Bytes32Set activePoolSets;                       // slot 21-22
 /// EnumerableSet.Bytes32Set pendingAddPoolSets;                   // slot 24-25
 /// EnumerableSet.Bytes32Set pendingUpdatePoolSets;                // slot 26-27
 /// EnumerableSet.Bytes32Set pendingExitPoolSets;                  // slot 28-29
 /// ```
 ///
-/// The contract currently uses the V1 layout. Active pool IDs are stored
-/// in `activePoolIds` at slot 1 as a simple `bytes32[]` array.
+/// The contract currently uses the V2 layout. Active pool IDs are stored
+/// in `activePoolSets` at slot 21 as an `EnumerableSet.Bytes32Set`
+/// (slot 21 = `_inner._values` array, slot 22 = `_inner._positions` mapping).
 ///
 /// ## Validator Struct
 ///
@@ -499,7 +499,7 @@ impl Default for ValidatorStructOffsets {
 
 impl Default for StakingContractLayout {
 	fn default() -> Self {
-		Self { validators_mapping_slot: 0, active_pool_set_slot: 1, total_stake_slot: 6 }
+		Self { validators_mapping_slot: 0, active_pool_set_slot: 21, total_stake_slot: 6 }
 	}
 }
 

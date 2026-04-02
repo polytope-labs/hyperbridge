@@ -3,6 +3,7 @@
 - --db-schema=app
 - --workers=${SUBQL_WORKERS:-16}
 - --batch-size=${SUBQL_BATCH_SIZE:-100}
+- --timeout=${SUBQL_TIMEOUT:-1800}
 - --multi-chain
 - --disable-multichain-rewind-lock
 - --unsafe
@@ -15,5 +16,7 @@
 - --block-confirmations=0
 {{/if}}
 - --unfinalized-blocks
+{{else}}
+- --unfinalized-blocks=false
 {{/if}}
 - --store-cache-async=true

@@ -61,7 +61,8 @@
 			"esbuild"
 		],
 		"overrides": {
-			"viem": "2.47.6"
+			"viem": "2.47.6",
+			"axios": "1.13.6"
 		}
 	},
 	"engines": {

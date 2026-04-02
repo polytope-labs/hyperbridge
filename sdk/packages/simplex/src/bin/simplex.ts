@@ -26,6 +26,7 @@ import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
 import { LimitOrderStorageService } from "@/services/LimitOrderStorageService"
+import { MissedOrderRecoveryService } from "@/services/MissedOrderRecoveryService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
@@ -180,6 +181,8 @@ interface FillerTomlConfig {
 		solverAccountContractAddress?: string
 		/** Target gas units for EntryPoint deposits per chain. Defaults to 3,000,000. */
 		targetGasUnits?: number
+		/** Hyperbridge indexer GraphQL endpoint for missed order recovery on startup. */
+		indexerUrl?: string
 	}
 	strategies: StrategyConfig[]
 	chains: UserProvidedChainConfig[]
@@ -419,6 +422,18 @@ program
 				logger.info("Rebalancing service initialized")
 			}
 
+			// Initialize missed order recovery service if indexer URL is configured
+			let missedOrderRecovery: MissedOrderRecoveryService | undefined
+			if (config.simplex.indexerUrl) {
+				missedOrderRecovery = new MissedOrderRecoveryService(
+					config.simplex.indexerUrl,
+					limitOrderStorage,
+					strategies,
+					chainClientManager,
+				)
+				logger.info({ indexerUrl: config.simplex.indexerUrl }, "Missed order recovery service initialized")
+			}
+
 			// Initialize and start the intent filler
 			logger.info("Starting intent filler...")
 			const intentFiller = new IntentFiller(
@@ -432,6 +447,7 @@ program
 				rebalancingService,
 				bidStorageService,
 				limitOrderStorage,
+				missedOrderRecovery,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)

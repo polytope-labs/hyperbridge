@@ -68,6 +68,11 @@ export class LimitOrderStorageService {
 				deadline_block TEXT NOT NULL,
 				created_at TEXT NOT NULL DEFAULT (datetime('now'))
 			);
+
+			CREATE TABLE IF NOT EXISTS filler_metadata (
+				key TEXT PRIMARY KEY NOT NULL,
+				value TEXT NOT NULL
+			);
 		`)
 
 		this.logger.debug("Limit order storage schema initialized")
@@ -137,6 +142,26 @@ export class LimitOrderStorageService {
 	 */
 	deserializeOrder(json: string): Order {
 		return JSON.parse(json, bigintReviver) as Order
+	}
+
+	/**
+	 * Returns the last recorded shutdown timestamp, or null if never recorded.
+	 */
+	getLastShutdownTime(): string | null {
+		const stmt = this.db.prepare(`SELECT value FROM filler_metadata WHERE key = ?`)
+		const row = stmt.get("last_shutdown_at") as { value: string } | undefined
+		return row?.value ?? null
+	}
+
+	/**
+	 * Records the filler shutdown timestamp for missed order recovery on next startup.
+	 */
+	setLastShutdownTime(isoTimestamp: string): void {
+		const stmt = this.db.prepare(`
+			INSERT INTO filler_metadata (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value
+		`)
+		stmt.run("last_shutdown_at", isoTimestamp)
 	}
 
 	close(): void {

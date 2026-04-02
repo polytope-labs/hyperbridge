@@ -26,4 +26,10 @@ export interface FillerStrategy {
 	confirmationPolicy?: {
 		getConfirmationBlocks: (chainId: number, amountUsd: number) => number
 	}
+
+	/**
+	 * Optional hook that returns the destination chain identifiers this strategy operates on.
+	 * Used by the missed order recovery service to query only relevant orders from the indexer.
+	 */
+	getDestinationChains?(): string[]
 }

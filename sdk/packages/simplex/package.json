@@ -81,6 +81,8 @@
 		"decimal.js": "^10.5.0",
 		"dotenv": "^16.4.7",
 		"ethers": "^5.7.2",
+		"graphql": "^16.13.1",
+		"graphql-request": "^7.4.0",
 		"jsbi": "^4.3.2",
 		"p-queue": "^8.1.0",
 		"pino": "^9.9.5",

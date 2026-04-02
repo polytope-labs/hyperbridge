@@ -16,6 +16,7 @@ import {
 	ContractInteractionService,
 	DelegationService,
 	LimitOrderStorageService,
+	MissedOrderRecoveryService,
 	RebalancingService,
 } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -34,6 +35,7 @@ export class IntentFiller {
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStorageService
 	private limitOrderStorage?: LimitOrderStorageService
+	private missedOrderRecovery?: MissedOrderRecoveryService
 	private retractionQueue: pQueue
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
@@ -57,6 +59,7 @@ export class IntentFiller {
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
 		limitOrderStorage?: LimitOrderStorageService,
+		missedOrderRecovery?: MissedOrderRecoveryService,
 	) {
 		this.configService = configService
 		this.signer = signer
@@ -66,6 +69,7 @@ export class IntentFiller {
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
 		this.limitOrderStorage = limitOrderStorage
+		this.missedOrderRecovery = missedOrderRecovery
 		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
@@ -139,6 +143,14 @@ export class IntentFiller {
 					this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
 				}
 			}
+		}
+
+		// Recover orders placed while the filler was offline (non-blocking)
+		if (this.missedOrderRecovery) {
+			this.missedOrderRecovery.recover().then(
+				(recovered) => this.logger.info({ recovered }, "Missed order recovery complete"),
+				(err) => this.logger.error({ err }, "Missed order recovery failed"),
+			)
 		}
 	}
 
@@ -345,6 +357,9 @@ export class IntentFiller {
 
 	public async stop(): Promise<void> {
 		this.monitor.stopListening()
+
+		// Record shutdown time for missed order recovery on next startup
+		this.limitOrderStorage?.setLastShutdownTime(new Date().toISOString())
 
 		// Stop rebalancing interval
 		if (this.rebalancingInterval) {

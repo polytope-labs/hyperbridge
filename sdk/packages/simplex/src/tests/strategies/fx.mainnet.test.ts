@@ -7,6 +7,7 @@ import {
 	DelegationService,
 	FillerConfigService,
 	LimitOrderStorageService,
+	MissedOrderRecoveryService,
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
@@ -459,6 +460,192 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		expect(remaining).toHaveLength(0)
 
 		await profitableIntentFiller.stop()
+		await intentsCoprocessor.disconnect()
+		limitOrderStorage.close()
+	}, 600_000)
+
+	it.skip("Should recover a missed order from the indexer after filler restart and submit a bid", async () => {
+		const INDEXER_URL = "https://nexus.indexer.polytope.technology"
+
+		const {
+			baseIntentGatewayV2,
+			basePublicClient,
+			baseWalletClient,
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			baseMainnetId,
+			contractService,
+			chainClientManager,
+		} = await setUpMainnetFxBase()
+
+		const sourceUsdc = chainConfigService.getUsdcAsset(baseMainnetId)
+		const destExt = chainConfigService.getExtAsset(baseMainnetId)!
+
+		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, baseMainnetId)
+		const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
+		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
+
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+
+		const requestedExtOut = parseUnits("0.006", destExtDecimals)
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+
+		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
+		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+
+		// Set deadline to ~10 minutes in the future (Base has ~2s blocks → ~300 blocks)
+		const currentBlock = await basePublicClient.getBlockNumber()
+		const deadlineBlock = currentBlock + 300n
+
+		let order: Order = {
+			user: bytes20ToBytes32(user),
+			source: toHex(baseMainnetId),
+			destination: toHex(baseMainnetId),
+			deadline: deadlineBlock,
+			nonce: 0n,
+			fees: 0n,
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs,
+			output: { beneficiary, assets: outputs, call: "0x" as HexString },
+		}
+
+		const intentsCoprocessor = await IntentsCoprocessor.connect(
+			process.env.HYPERBRIDGE_NEXUS!,
+			process.env.SECRET_PHRASE!,
+		)
+
+		const destBundlerUrl = chainConfigService.getBundlerUrl(baseMainnetId)
+		const baseEvmChain = EvmChain.fromParams({
+			chainId: 8453,
+			host: chainConfigService.getHostAddress(baseMainnetId),
+			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+			bundlerUrl: destBundlerUrl,
+		})
+
+		const feeToken = await contractService.getFeeTokenWithDecimals(baseMainnetId)
+		await approveTokens(baseWalletClient, basePublicClient, feeToken.address, baseIntentGatewayV2.address)
+		await approveTokens(baseWalletClient, basePublicClient, sourceUsdc, baseIntentGatewayV2.address)
+
+		// ── Phase 1: Start filler briefly, then shut it down ─────────────
+		const limitOrderStorage = new LimitOrderStorageService(chainConfigService.getDataDir())
+
+		const initialFiller = await createFxOnlyIntentFillerWithPrices(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			contractService,
+			baseMainnetId,
+			"10000", // profitable prices — doesn't matter, we're just recording a shutdown time
+			"10000",
+			limitOrderStorage,
+		)
+		await initialFiller.initialize()
+		initialFiller.start()
+
+		console.log("Phase 1: Filler started, shutting down to record shutdown timestamp...")
+		await initialFiller.stop()
+
+		const shutdownTime = limitOrderStorage.getLastShutdownTime()
+		console.log("Shutdown recorded at:", shutdownTime)
+		expect(shutdownTime).not.toBeNull()
+
+		// ── Phase 2: Place order while filler is offline ──────────────────
+		console.log("Phase 2: Placing order while filler is offline...")
+
+		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
+
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+			bidTimeoutMs: 60_000,
+			pollIntervalMs: 5_000,
+		})
+
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data, value } = result.value
+
+			const signedTx = (await baseWalletClient.signTransaction(
+				(await basePublicClient.prepareTransactionRequest({
+					to,
+					data,
+					value: value ?? 0n,
+					account: baseWalletClient.account!,
+					chain: baseWalletClient.chain,
+				})) as any,
+			)) as HexString
+			result = await gen.next(signedTx)
+		}
+
+		// Don't wait for bid selection — we know no filler is running.
+		// Just confirm the order was placed on-chain.
+		console.log("Order placed on-chain, waiting 2 minutes for indexer to index it...")
+
+		// ── Phase 3: Wait for indexer to pick up the order ───────────────
+		await new Promise((resolve) => setTimeout(resolve, 2 * 60 * 1000))
+
+		// ── Phase 4: Restart filler with missed order recovery ───────────
+		console.log("Phase 4: Restarting filler with missed order recovery service...")
+
+		const recoveryService = new MissedOrderRecoveryService(
+			INDEXER_URL,
+			limitOrderStorage,
+			// Create the same FX strategy for canFill checks inside recovery
+			await (async () => {
+				const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: process.env.PRIVATE_KEY as HexString })
+				const cm = new ChainClientManager(chainConfigService, signer)
+				const extAsset = chainConfigService.getExtAsset(baseMainnetId)
+				const token1: Record<string, HexString> = extAsset ? { [baseMainnetId]: extAsset as HexString } : {}
+				return [new FXFiller(
+					signer,
+					chainConfigService,
+					cm,
+					contractService,
+					5000,
+					token1,
+					{
+						bidPricePolicy: new FillerPricePolicy({ points: [{ amount: "1", price: "10000" }, { amount: "10000", price: "10000" }] }),
+						askPricePolicy: new FillerPricePolicy({ points: [{ amount: "1", price: "10000" }, { amount: "10000", price: "10000" }] }),
+					},
+				)]
+			})(),
+			chainClientManager,
+		)
+
+		const restartedFiller = await createFxOnlyIntentFillerWithPrices(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			contractService,
+			baseMainnetId,
+			"10000",
+			"10000",
+			limitOrderStorage,
+			recoveryService,
+		)
+		await restartedFiller.initialize()
+		restartedFiller.start()
+
+		// Wait for the background recovery + limit order sweep to process
+		// Recovery runs in the background during initialize(), sweep runs every 60s
+		console.log("Waiting for missed order recovery and limit order sweep...")
+
+		let orderRecovered = false
+		for (let i = 0; i < 30; i++) {
+			// Check if the order was stored as a limit order by the recovery service
+			const pending = limitOrderStorage.getPendingLimitOrders()
+			if (pending.length > 0) {
+				console.log("Missed order recovered into limit_orders table:", pending[0].orderId)
+				orderRecovered = true
+				break
+			}
+			await new Promise((resolve) => setTimeout(resolve, 5_000))
+		}
+
+		expect(orderRecovered).toBe(true)
+
+		await restartedFiller.stop()
 		await intentsCoprocessor.disconnect()
 		limitOrderStorage.close()
 	}, 600_000)
@@ -2089,6 +2276,7 @@ async function createFxOnlyIntentFillerWithPrices(
 	askPrice: string,
 	bidPrice: string,
 	limitOrderStorage: LimitOrderStorageService,
+	missedOrderRecovery?: MissedOrderRecoveryService,
 ): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
@@ -2138,6 +2326,7 @@ async function createFxOnlyIntentFillerWithPrices(
 		undefined,
 		bidStorage,
 		limitOrderStorage,
+		missedOrderRecovery,
 	)
 }
 

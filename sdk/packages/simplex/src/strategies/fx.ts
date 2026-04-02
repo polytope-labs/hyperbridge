@@ -143,6 +143,14 @@ export class FXFiller implements FillerStrategy {
 	// =========================================================================
 
 	/**
+	 * Returns the destination chain identifiers this strategy is configured for,
+	 * derived from the `token1` mapping keys.
+	 */
+	getDestinationChains(): string[] {
+		return Object.keys(this.token1)
+	}
+
+	/**
 	 * Call once at startup after construction.
 	 * Hydrates all funding venue state and derives initial bid/ask prices from venue data.
 	 */

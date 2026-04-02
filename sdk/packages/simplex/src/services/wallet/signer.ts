@@ -4,11 +4,11 @@ import { createPrivateKeySigningAccount } from "./accounts/privatekey"
 
 export function createSimplexSigner(config: SignerConfig): SigningAccount {
 	if (config.type === SignerType.PrivateKey) {
-		return createPrivateKeySigningAccount(config.privateKey)
+		return createPrivateKeySigningAccount(config.key)
 	}
 
 	if (config.type === SignerType.MpcVault) {
-		return createMpcVaultSigningAccount(config.mpcVault)
+		return createMpcVaultSigningAccount(config)
 	}
 
 	throw new Error(`Unsupported signer mode: ${(config as { type?: string }).type ?? "unknown"}`)
@@ -16,19 +16,18 @@ export function createSimplexSigner(config: SignerConfig): SigningAccount {
 
 export function validateSignerConfig(config: SignerConfig): void {
 	if (config.type === SignerType.PrivateKey) {
-		if (!config.privateKey) {
-			throw new Error("simplex.signer.privateKey is required when simplex.signer.type=privateKey")
+		if (!config.key) {
+			throw new Error("simplex.signer.key is required when simplex.signer.type=privateKey")
 		}
 		return
 	}
 
 	if (config.type === SignerType.MpcVault) {
-		const mpcVault = config.mpcVault
-		if (!mpcVault?.apiToken) throw new Error("simplex.signer.mpcVault.apiToken is required")
-		if (!mpcVault?.vaultUuid) throw new Error("simplex.signer.mpcVault.vaultUuid is required")
-		if (!mpcVault?.accountAddress) throw new Error("simplex.signer.mpcVault.accountAddress is required")
-		if (!mpcVault?.callbackClientSignerPublicKey) {
-			throw new Error("simplex.signer.mpcVault.callbackClientSignerPublicKey is required")
+		if (!config.apiToken) throw new Error("simplex.signer.apiToken is required")
+		if (!config.vaultUuid) throw new Error("simplex.signer.vaultUuid is required")
+		if (!config.accountAddress) throw new Error("simplex.signer.accountAddress is required")
+		if (!config.callbackClientSignerPublicKey) {
+			throw new Error("simplex.signer.callbackClientSignerPublicKey is required")
 		}
 		return
 	}

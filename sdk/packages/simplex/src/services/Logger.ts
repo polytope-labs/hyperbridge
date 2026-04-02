@@ -1,11 +1,9 @@
 import pino, { stdSerializers } from "pino"
-import { LoggingConfig } from "./FillerConfigService"
+export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 
 type LoggerOptions = {
 	module?: string
 }
-
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 
 let logLevel: LogLevel = "info"
 
@@ -33,11 +31,9 @@ function initializeLogger() {
 
 initializeLogger()
 
-export function configureLogger(config: LoggingConfig) {
-	if (config.level) {
-		logLevel = config.level
-		initializeLogger()
-	}
+export function configureLogger(level: LogLevel) {
+	logLevel = level
+	initializeLogger()
 }
 
 export function getLogger(moduleOrOptions?: string | LoggerOptions) {

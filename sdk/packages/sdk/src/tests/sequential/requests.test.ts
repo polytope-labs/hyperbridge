@@ -12,7 +12,7 @@ import {
 	toHex,
 } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { arbitrumSepolia, bscTestnet, polygonAmoy, sepolia } from "viem/chains"
+import { baseSepolia, bscTestnet, polygonAmoy, sepolia } from "viem/chains"
 
 import { IndexerClient } from "@/client"
 import { type HexString, RequestStatus, TimeoutStatus } from "@/types"
@@ -32,7 +32,7 @@ describe.sequential("Get and Post Requests", () => {
 	let timeoutIndexer: IndexerClient
 
 	beforeAll(async () => {
-		const { arbitrumSepoliaHost, bscIsmpHost, hyperbridge, polygonAmoyHost } = await setUp()
+		const { baseSepoliaHost, bscIsmpHost, hyperbridge, polygonAmoyHost } = await setUp()
 
 		const query_client = createQueryClient({
 			url: process.env.INDEXER_URL!,
@@ -47,9 +47,9 @@ describe.sequential("Get and Post Requests", () => {
 		})
 
 		const destChain = EvmChain.fromParams({
-			chainId: 421614,
-			rpcUrl: process.env.ARBITRUM_SEPOLIA!,
-			host: arbitrumSepoliaHost.address,
+			chainId: 84532,
+			rpcUrl: process.env.BASE_SEPOLIA!,
+			host: baseSepoliaHost.address,
 			consensusStateId: "ETH0",
 		})
 
@@ -198,6 +198,7 @@ describe.sequential("Get and Post Requests", () => {
 		}, 1200_000)
 
 		it("Should scale encode the ISMP message correctly", async () => {
+			// Proof bytes and state machine labels below are from Arbitrum Sepolia; they must stay aligned.
 			const tx = hyperbridgeInstance.encode({
 				kind: "TimeoutPostRequest",
 				proof: {
@@ -220,9 +221,9 @@ describe.sequential("Get and Post Requests", () => {
 			})
 
 			const evmChain = new EvmChain({
-				rpcUrl: process.env.ARBITRUM_SEPOLIA!,
-				chainId: 421614,
-				host: "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
+				rpcUrl: process.env.BASE_SEPOLIA!,
+				chainId: 84532,
+				host: "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
 			})
 
 			const receipt = await evmChain.queryRequestReceipt(
@@ -236,13 +237,13 @@ describe.sequential("Get and Post Requests", () => {
 		})
 
 		it("should successfully stream and query the post request status", async () => {
-			const { bscTestnetClient, arbitrumSepoliaHandler, bscPing, arbitrumSepoliaClient, arbitrumSepoliaHost } =
+			const { bscTestnetClient, baseSepoliaHandler, bscPing, baseSepoliaClient, baseSepoliaHost } =
 				await setUp()
 			console.log("\n\nSending Post Request\n\n")
 
 			const hash = await bscPing.write.ping([
 				{
-					dest: await arbitrumSepoliaHost.read.host(),
+					dest: await baseSepoliaHost.read.host(),
 					count: BigInt(1),
 					fee: BigInt(0),
 					module: process.env.PING_MODULE_ADDRESS! as HexString,
@@ -286,7 +287,7 @@ describe.sequential("Get and Post Requests", () => {
 					}
 					case RequestStatus.HYPERBRIDGE_FINALIZED: {
 						console.log(
-							`Status ${status.status}, Transaction: https://sepolia.arbiscan.io/tx/${status.metadata.transactionHash}`,
+							`Status ${status.status}, Transaction: https://sepolia.basescan.org/tx/${status.metadata.transactionHash}`,
 						)
 						const { args, functionName } = decodeFunctionData({
 							abi: HANDLER.ABI,
@@ -296,13 +297,13 @@ describe.sequential("Get and Post Requests", () => {
 						expect(functionName).toBe("handlePostRequests")
 
 						try {
-							const hash = await arbitrumSepoliaHandler.write.handlePostRequests(args as any)
-							await arbitrumSepoliaClient.waitForTransactionReceipt({
+							const hash = await baseSepoliaHandler.write.handlePostRequests(args as any)
+							await baseSepoliaClient.waitForTransactionReceipt({
 								hash,
 								confirmations: 1,
 							})
 
-							console.log(`Transaction submitted: https://sepolia.arbiscan.io/tx/${hash}`)
+							console.log(`Transaction submitted: https://sepolia.basescan.org/tx/${hash}`)
 						} catch (e) {
 							console.error("Error self-relaying: ", e)
 						}
@@ -311,7 +312,7 @@ describe.sequential("Get and Post Requests", () => {
 					}
 					case RequestStatus.DESTINATION: {
 						console.log(
-							`Status ${status.status}, Transaction: https://sepolia.arbiscan.io/tx/${status.metadata.transactionHash}`,
+							`Status ${status.status}, Transaction: https://sepolia.basescan.org/tx/${status.metadata.transactionHash}`,
 						)
 						break
 					}
@@ -506,10 +507,10 @@ async function setUp() {
 		transport: http(process.env.BSC_CHAPEL),
 	})
 
-	const arbitrumSepoliaWallet = createWalletClient({
-		chain: arbitrumSepolia,
+	const baseSepoliaWallet = createWalletClient({
+		chain: baseSepolia,
 		account,
-		transport: http(process.env.ARBITRUM_SEPOLIA),
+		transport: http(process.env.BASE_SEPOLIA),
 	})
 
 	const bscTestnetClient = createPublicClient({
@@ -517,9 +518,9 @@ async function setUp() {
 		transport: http(process.env.BSC_CHAPEL),
 	})
 
-	const arbitrumSepoliaClient = createPublicClient({
-		chain: arbitrumSepolia,
-		transport: http(process.env.ARBITRUM_SEPOLIA),
+	const baseSepoliaClient = createPublicClient({
+		chain: baseSepolia,
+		transport: http(process.env.BASE_SEPOLIA),
 	})
 
 	const polygonAmoyClient = createPublicClient({
@@ -560,10 +561,10 @@ async function setUp() {
 		client: { public: bscTestnetClient, wallet: bscWalletClient },
 	})
 
-	const arbitrumSepoliaPing = getContract({
+	const baseSepoliaPing = getContract({
 		address: process.env.PING_MODULE_ADDRESS! as HexString,
 		abi: PING_MODULE.ABI,
-		client: { public: arbitrumSepoliaClient, wallet: arbitrumSepoliaWallet },
+		client: { public: baseSepoliaClient, wallet: baseSepoliaWallet },
 	})
 
 	const ethSepoliaPing = getContract({
@@ -574,12 +575,12 @@ async function setUp() {
 
 	const ethSepoliaHostAddress = await ethSepoliaPing.read.host()
 
-	const arbitrumSepoliaHostAddress = await arbitrumSepoliaPing.read.host()
+	const baseSepoliaHostAddress = await baseSepoliaPing.read.host()
 
-	const arbitrumSepoliaHost = getContract({
-		address: arbitrumSepoliaHostAddress,
+	const baseSepoliaHost = getContract({
+		address: baseSepoliaHostAddress,
 		abi: EVM_HOST.ABI,
-		client: arbitrumSepoliaClient,
+		client: baseSepoliaClient,
 	})
 
 	const ethSepoliaHost = getContract({
@@ -594,12 +595,12 @@ async function setUp() {
 		client: polygonAmoyClient,
 	})
 
-	const arbitrumSepoliaHostParams = await arbitrumSepoliaHost.read.hostParams()
+	const baseSepoliaHostParams = await baseSepoliaHost.read.hostParams()
 
-	const arbitrumSepoliaHandler = getContract({
-		address: arbitrumSepoliaHostParams.handler,
+	const baseSepoliaHandler = getContract({
+		address: baseSepoliaHostParams.handler,
 		abi: HANDLER.ABI,
-		client: { public: arbitrumSepoliaClient, wallet: arbitrumSepoliaWallet },
+		client: { public: baseSepoliaClient, wallet: baseSepoliaWallet },
 	})
 
 	const tokenFaucet = getContract({
@@ -622,12 +623,12 @@ async function setUp() {
 		bscFeeToken,
 		account,
 		tokenFaucet,
-		arbitrumSepoliaHandler,
+		baseSepoliaHandler,
 		bscHandler,
 		bscPing,
-		arbitrumSepoliaPing,
-		arbitrumSepoliaClient,
-		arbitrumSepoliaHost,
+		baseSepoliaPing,
+		baseSepoliaClient,
+		baseSepoliaHost,
 		bscIsmpHost,
 		hyperbridge,
 		polygonAmoyHost,

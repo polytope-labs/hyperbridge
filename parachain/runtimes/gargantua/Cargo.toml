@@ -33,6 +33,7 @@ ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
 ismp-parachain = { workspace = true }
 ismp-grandpa = { workspace = true }
+ismp-beefy = { workspace = true }
 ismp-parachain-runtime-api = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
@@ -134,6 +135,7 @@ std = [
     "ismp-sync-committee/std",
     "ismp-bsc/std",
     "ismp-grandpa/std",
+    "ismp-beefy/std",
     "ismp-parachain/std",
     "ismp-parachain-runtime-api/std",
     "pallet-ismp-relayer/std",

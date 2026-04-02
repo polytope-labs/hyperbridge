@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { ChainClientManager, FillerConfigService, RebalancingService, type UserProvidedChainConfig } from "@/services"
+import { ChainClientManager, FillerConfigService, RebalancingService, type ResolvedChainConfig } from "@/services"
 import type { HexString } from "@hyperbridge/sdk"
 import { createSimplexSigner, SignerType } from "@/services/wallet"
 import "../setup"
@@ -54,7 +54,7 @@ async function setUp() {
 	const polygonAmoyId = "EVM-80002"
 	const arbitrumSepoliaId = "EVM-421614"
 
-	const testChainConfigs: UserProvidedChainConfig[] = [
+	const testChainConfigs: ResolvedChainConfig[] = [
 		{
 			chainId: 80002, // Polygon Amoy
 			rpcUrl: process.env.POLYGON_AMOY!,
@@ -67,7 +67,7 @@ async function setUp() {
 
 	const chainConfigService = new FillerConfigService(testChainConfigs)
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, privateKey })
+	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
 	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService)

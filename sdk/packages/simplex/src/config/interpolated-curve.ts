@@ -176,6 +176,11 @@ export class FillerPricePolicy {
 		}
 	}
 
+	/** Replaces all curve points with a single flat price. */
+	updatePrice(newPrice: Decimal): void {
+		this.points = [{ amount: new Decimal(0), price: newPrice }]
+	}
+
 	getPrice(orderValueUsd: Decimal): Decimal {
 		const amount = orderValueUsd
 

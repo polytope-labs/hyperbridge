@@ -95,8 +95,9 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Initializes the filler, including setting up EIP-7702 delegation if solver selection is active on any chain.
-	 * This should be called before start().
+	 * Initializes the filler, including setting up EIP-7702 delegation and
+	 * depositing the target amount to the EntryPoint on chains where solver
+	 * selection is active. This should be called before start().
 	 */
 	public async initialize(): Promise<void> {
 		// Check which chains have solver selection active
@@ -122,6 +123,16 @@ export class IntentFiller {
 			const result = await this.delegationService.setupDelegationOnChains(chainsWithSolverSelection)
 			if (!result.success) {
 				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
+			}
+
+			// Ensure EntryPoint deposit covers target gas units on each chain
+			const targetGasUnits = this.configService.getTargetGasUnits()
+			for (const chain of chainsWithSolverSelection) {
+				try {
+					await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
+				} catch (err) {
+					this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
+				}
 			}
 		}
 	}
@@ -256,9 +267,6 @@ export class IntentFiller {
 		promises.push(this.retractionQueue.onIdle())
 
 		await Promise.all(promises)
-
-		// Withdraw any remaining EntryPoint deposits back to the solver EOA
-		await this.contractService.withdrawAllEntryPointDeposits()
 
 		// Disconnect shared Hyperbridge connection
 		if (this.hyperbridge) {
@@ -500,18 +508,13 @@ export class IntentFiller {
 			)
 
 			try {
-				if (solverSelectionActive) {
-					this.contractService.ensureEntryPointDeposit(order).catch((err) => {
-						this.logger.error({ orderId: order.id, err }, "Background EntryPoint deposit top-up failed")
-					})
-				}
-
 				const execStartMs = Date.now()
 				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
 				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
 				const execDurationSec = (Date.now() - execStartMs) / 1000
 				this.monitor.emit("orderTiming", { orderId: order.id, phase: "execution", durationSec: execDurationSec })
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
+
 				if (result.success) {
 					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash, volumeUsd: inputUsdValue.toNumber(), profitUsd, chainId: getChainId(order.source) })
 				}
@@ -548,6 +551,15 @@ export class IntentFiller {
 	}
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
+		// Top up EntryPoint deposit if we were the filler
+		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
+			const chain = `EVM-${chainId}`
+			const targetGasUnits = this.configService.getTargetGasUnits()
+			this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
+				this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
+			})
+		}
+
 		if (!this.bidStorage || !this.hyperbridge) {
 			return
 		}

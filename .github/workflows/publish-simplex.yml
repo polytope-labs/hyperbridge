@@ -59,8 +59,8 @@ jobs:
                   file: sdk/packages/simplex/scripts/Dockerfile
                   push: true
                   tags: |
-                      polytopelabs/hyperbridge-simplex:v${{ env.VERSION }}
-                      polytopelabs/hyperbridge-simplex:latest
+                      polytopelabs/simplex:v${{ env.VERSION }}
+                      polytopelabs/simplex:latest
                   platforms: linux/amd64
                   cache-from: type=gha
                   cache-to: type=gha,mode=max

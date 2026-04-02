@@ -860,6 +860,10 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
+
+	#[runtime::pallet_index(86)]
+	pub type IsmpBeefy = ismp_beefy;
+
 	#[runtime::pallet_index(90)]
 	pub type OutboundProofs = pallet_outbound_proofs;
 }

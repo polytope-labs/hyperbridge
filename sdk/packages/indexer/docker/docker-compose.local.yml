@@ -109,7 +109,7 @@ services:
             timeout: 5s
             retries: 10
 
-    subquery-node-arbitrum-sepolia-local:
+    subquery-node-base-sepolia-local:
         image: polytopelabs/subql-node-ethereum:latest
         restart: always
         environment:
@@ -128,7 +128,7 @@ services:
             - ../dist:/app/dist
         command:
             - ${SUB_COMMAND:-}
-            - -f=/app/arbitrum-sepolia.yaml
+            - -f=/app/base-sepolia.yaml
             - --db-schema=app
             - --workers=${SUBQL_WORKERS:-6}
             - --batch-size=${SUBQL_BATCH_SIZE:-10}
@@ -142,7 +142,7 @@ services:
             - --store-cache-async=false
             - --store-cache-threshold=1
         healthcheck:
-            test: ["CMD", "curl", "-f", "http://subquery-node-arbitrum-sepolia-local:3000/ready"]
+            test: ["CMD", "curl", "-f", "http://subquery-node-base-sepolia-local:3000/ready"]
             interval: 3s
             timeout: 5s
             retries: 10

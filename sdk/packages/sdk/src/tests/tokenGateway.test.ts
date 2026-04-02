@@ -25,7 +25,7 @@ import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
 import { createQueryClient } from "@/query-client"
 import { IndexerClient } from "@/client"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
-import { arbitrumSepolia, bscTestnet } from "viem/chains"
+import { baseSepolia, bscTestnet } from "viem/chains"
 import tokenGateway from "@/abis/tokenGateway"
 import { keccakAsU8a } from "@polkadot/util-crypto"
 import erc6160 from "@/abis/erc6160"
@@ -194,7 +194,7 @@ describe("teleport function", () => {
 	it("should query the order status", async () => {
 		const { bscTokenGateway, bscPublicClient, bscWalletClient } = await setUp()
 		const bscIsmpHostAddress = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as HexString
-		const arbitrumSepoliaIsmpHostAddress = "0x3435bD7e5895356535459D6087D1eB982DAd90e7" as HexString
+		const baseSepoliaIsmpHostAddress = "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a" as HexString
 		const query_client = createQueryClient({
 			url: process.env.INDEXER_URL!,
 		})
@@ -208,9 +208,9 @@ describe("teleport function", () => {
 		})
 
 		const destChain = EvmChain.fromParams({
-			chainId: 421614,
-			rpcUrl: process.env.ARBITRUM_SEPOLIA!,
-			host: arbitrumSepoliaIsmpHostAddress,
+			chainId: 84532,
+			rpcUrl: process.env.BASE_SEPOLIA!,
+			host: baseSepoliaIsmpHostAddress,
 			consensusStateId: "ETH0",
 		})
 
@@ -237,7 +237,7 @@ describe("teleport function", () => {
 			assetId: u8aToHex(keccakAsU8a("USD.h")),
 			redeem: false,
 			to: bytes20ToBytes32(privateKeyToAddress(process.env.PRIVATE_KEY as any) as HexString),
-			dest: stringToHex("EVM-421614"),
+			dest: stringToHex("EVM-84532"),
 			timeout: 65337297n,
 			nativeCost: BigInt(0),
 			data: "0x" as HexString,
@@ -267,7 +267,7 @@ describe("teleport function", () => {
 			confirmations: 1,
 		})
 
-		console.log("Teleported to Arbitrum Sepolia:", receipt.transactionHash)
+		console.log("Teleported to Base Sepolia:", receipt.transactionHash)
 
 		const postRequest = await getPostRequestEventFromTx(bscPublicClient, tx)
 
@@ -299,7 +299,7 @@ describe("teleport function", () => {
 				}
 				case "RECEIVED": {
 					console.log(
-						`Status ${status.status}, Transaction: https://sepolia.arbiscan.io/tx/${status.metadata.transactionHash}`,
+						`Status ${status.status}, Transaction: https://sepolia.basescan.org/tx/${status.metadata.transactionHash}`,
 					)
 					break
 				}
@@ -550,10 +550,10 @@ async function setUp() {
 		transport: http(process.env.BSC_CHAPEL),
 	})
 
-	const arbitrumSepoliaWalletClient = createWalletClient({
-		chain: arbitrumSepolia,
+	const baseSepoliaWalletClient = createWalletClient({
+		chain: baseSepolia,
 		account,
-		transport: http(process.env.ARBITRUM_SEPOLIA),
+		transport: http(process.env.BASE_SEPOLIA),
 	})
 
 	const bscPublicClient = createPublicClient({
@@ -561,9 +561,9 @@ async function setUp() {
 		transport: http(process.env.BSC_CHAPEL),
 	})
 
-	const arbitrumSepoliaPublicClient = createPublicClient({
-		chain: arbitrumSepolia,
-		transport: http(process.env.ARBITRUM_SEPOLIA),
+	const baseSepoliaPublicClient = createPublicClient({
+		chain: baseSepolia,
+		transport: http(process.env.BASE_SEPOLIA),
 	})
 
 	const bscTokenGateway = getContract({
@@ -572,19 +572,19 @@ async function setUp() {
 		client: { public: bscPublicClient, wallet: bscWalletClient },
 	})
 
-	const arbitrumSepoliaTokenGateway = getContract({
+	const baseSepoliaTokenGateway = getContract({
 		address: process.env.TOKEN_GATEWAY_ADDRESS! as HexString,
 		abi: tokenGateway.ABI,
-		client: { public: arbitrumSepoliaPublicClient, wallet: arbitrumSepoliaWalletClient },
+		client: { public: baseSepoliaPublicClient, wallet: baseSepoliaWalletClient },
 	})
 
 	return {
 		bscTokenGateway,
-		arbitrumSepoliaTokenGateway,
+		baseSepoliaTokenGateway,
 		bscPublicClient,
-		arbitrumSepoliaPublicClient,
+		baseSepoliaPublicClient,
 		bscWalletClient,
-		arbitrumSepoliaWalletClient,
+		baseSepoliaWalletClient,
 	}
 }
 

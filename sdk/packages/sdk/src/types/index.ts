@@ -1213,6 +1213,12 @@ export interface SubmitBidOptions {
 export interface EstimateFillOrderParams {
 	order: Order
 	/**
+	 * Optional ERC-7821 calls to prepend before the fillOrder call in the
+	 * simulated UserOp. Used for funding calls (e.g. LP withdrawal) so the
+	 * bundler estimates gas for the complete atomic batch.
+	 */
+	prependCalls?: ERC7821Call[]
+	/**
 	 * Optional percentage to bump maxPriorityFeePerGas.
 	 * This is added on top of the base gasPrice.
 	 * Default: 8 (8%)

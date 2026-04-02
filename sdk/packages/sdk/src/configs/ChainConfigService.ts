@@ -103,6 +103,10 @@ export class ChainConfigService {
 		return (this.getConfig(chain)?.addresses.UniswapRouter02 ?? "0x") as HexString
 	}
 
+	getAerodromeRouterAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.AerodromeRouter ?? "0x") as HexString
+	}
+
 	getUniswapV2FactoryAddress(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.UniswapV2Factory ?? "0x") as HexString
 	}
@@ -121,6 +125,18 @@ export class ChainConfigService {
 
 	getUniswapV4QuoterAddress(chain: string): HexString {
 		return (this.getConfig(chain)?.addresses.UniswapV4Quoter ?? "0x") as HexString
+	}
+
+	getUniswapV4PositionManagerAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.UniswapV4PositionManager ?? "0x") as HexString
+	}
+
+	getUniswapV4PoolManagerAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.UniswapV4PoolManager ?? "0x") as HexString
+	}
+
+	getUniswapV4StateViewAddress(chain: string): HexString {
+		return (this.getConfig(chain)?.addresses.UniswapV4StateView ?? "0x") as HexString
 	}
 
 	getPermit2Address(chain: string): HexString {

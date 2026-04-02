@@ -525,7 +525,7 @@ export class IntentFiller {
 				} else if (this.limitOrderStorage) {
 					// Store as limit order if any FXFiller strategy could fill but wasn't profitable
 					for (const [strategy, canFill] of canFillCache) {
-						if (canFill && strategy.name === "hyperfx") {
+						if (canFill && strategy.name === "FXFiller") {
 							this.limitOrderStorage.storeLimitOrder(order, strategy.name)
 							this.logger.info({ orderId: order.id }, "Order stored as limit order for future re-evaluation")
 							break

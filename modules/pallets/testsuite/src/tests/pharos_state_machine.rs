@@ -345,3 +345,48 @@ async fn test_pharos_non_existence_storage_proof() {
 		println!("Storage slot exists (unexpected), skipping non-existence test");
 	}
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_pharos_account_proof_with_raw_value() {
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let rpc = PharosRpcClient::new(&rpc_url).expect("Failed to create RPC client");
+
+	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
+	let target_block = block_number.saturating_sub(5);
+	println!("Testing at block: {}", target_block);
+
+	let header = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
+	let state_root = header.state_root;
+
+	// Fetch account proof for staking contract with no storage keys
+	let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
+	let proof = rpc
+		.get_proof(address, vec![], target_block)
+		.await
+		.expect("Failed to get proof");
+
+	assert!(proof.is_exist, "Staking contract should exist");
+
+	let proof_nodes =
+		rpc_to_proof_nodes(&proof.account_proof).expect("Failed to convert proof nodes");
+	let raw_value = hex_to_bytes(&proof.raw_value).expect("Failed to parse raw_value");
+
+	assert!(!raw_value.is_empty(), "Account raw value should not be empty");
+
+	let address_bytes: [u8; 20] = address.0;
+	let is_valid = spv::verify_account_proof(&proof_nodes, &address_bytes, &raw_value, &state_root.0);
+	assert!(is_valid, "Account proof should verify against state root");
+	println!("Account proof with raw value: PASSED");
+
+	// Verify a non-existent account returns isExist: false
+	let fake_address = H160::from_slice(&[0xde, 0xad, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+	let fake_proof = rpc
+		.get_proof(fake_address, vec![], target_block)
+		.await
+		.expect("Failed to get proof for fake address");
+
+	assert!(!fake_proof.is_exist, "Fake account should not exist");
+	println!("Non-existent account isExist=false: PASSED");
+}

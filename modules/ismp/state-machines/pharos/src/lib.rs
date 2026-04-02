@@ -36,11 +36,20 @@ use pallet_ismp_host_executive::EvmHosts;
 use pharos_primitives::{spv, NonExistenceProof, PharosProofNode};
 use primitive_types::{H160, H256};
 
+/// Account proof data for a 20-byte address query.
+#[derive(Encode, Decode, Clone)]
+pub struct AccountProofData {
+	/// Proof nodes from MSU root to the account leaf
+	pub proof_nodes: Vec<PharosProofNode>,
+	/// RLP-encoded account value (nonce, balance, storage_root, code_hash)
+	pub raw_value: Vec<u8>,
+}
+
 /// Pharos-specific state proof (replaces EvmStateProof).
 ///
 /// Contains Pharos hexary hash tree proof data with SHA-256 hashing.
 /// Pharos uses a flat trie where storage proofs verify directly against
-/// the state_root, so no separate account proof is needed.
+/// the state_root, so no separate account proof is needed for storage queries.
 #[derive(Encode, Decode, Clone)]
 pub struct PharosStateProof {
 	/// Map of storage key (slot hash) to storage proof nodes
@@ -49,6 +58,8 @@ pub struct PharosStateProof {
 	pub storage_values: BTreeMap<Vec<u8>, Vec<u8>>,
 	/// Map of storage key (slot hash) to non-existence proof for absent keys
 	pub non_existence_proofs: BTreeMap<Vec<u8>, NonExistenceProof>,
+	/// Map of account address (20 bytes) to account proof data
+	pub account_proofs: BTreeMap<Vec<u8>, AccountProofData>,
 }
 
 /// Pharos state machine client for ISMP state proof verification.
@@ -165,6 +176,26 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		} else if key.len() == 32 {
 			// Direct slot hash for the ISMP host contract
 			(ismp_address, key.clone())
+		} else if key.len() == 20 {
+			// Account query which verifies account proof and return raw account value
+			let address: [u8; 20] =
+				key.clone().try_into().map_err(|_| Error::Custom("Invalid address".to_string()))?;
+			let account_data = pharos_proof
+				.account_proofs
+				.get(&key)
+				.ok_or_else(|| Error::Custom("Missing account proof".to_string()))?;
+
+			if !spv::verify_account_proof(
+				&account_data.proof_nodes,
+				&address,
+				&account_data.raw_value,
+				&state_root.0,
+			) {
+				return Err(Error::Custom("Account proof verification failed".to_string()));
+			}
+
+			map.insert(key, Some(account_data.raw_value.clone()));
+			continue;
 		} else {
 			return Err(Error::Custom(
 				"Unsupported key type: expected length 20, 32, or 52".to_string(),

@@ -29,6 +29,7 @@ use pharos_prover::{
 	rpc::{PharosRpcClient, RpcAccountProof, hex_to_bytes},
 	rpc_to_proof_nodes, rpc_to_sibling_proofs,
 };
+use pharos_state_machine::AccountProofData;
 use primitive_types::{H160, H256, U256};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_primitives::{
@@ -105,8 +106,28 @@ impl PharosEvmClient {
 			}
 		}
 
-		let pharos_proof = PharosStateProof { storage_proof, storage_values, non_existence_proofs };
+		let pharos_proof = PharosStateProof {
+			storage_proof,
+			storage_values,
+			non_existence_proofs,
+			account_proofs: BTreeMap::new(),
+		};
 		Ok(pharos_proof.encode())
+	}
+
+	async fn fetch_account_proof(&self, at: u64, address: H160) -> Result<AccountProofData, Error> {
+		let rpc_proof = self
+			.rpc
+			.get_proof(address, vec![], at)
+			.await
+			.map_err(|e| anyhow::anyhow!("eth_getProof failed: {e:?}"))?;
+
+		let proof_nodes = rpc_to_proof_nodes(&rpc_proof.account_proof)
+			.map_err(|e| anyhow::anyhow!("account proof conversion: {e:?}"))?;
+		let raw_value =
+			hex_to_bytes(&rpc_proof.raw_value).map_err(|e| anyhow::anyhow!("hex decode: {e:?}"))?;
+
+		Ok(AccountProofData { proof_nodes, raw_value })
 	}
 }
 
@@ -193,17 +214,23 @@ impl IsmpProvider for PharosEvmClient {
 				let mut storage_proof = BTreeMap::new();
 				let mut storage_values = BTreeMap::new();
 				let mut non_existence_proofs = BTreeMap::new();
+				let mut account_proofs = BTreeMap::new();
 
 				let mut groups: BTreeMap<H160, Vec<H256>> = BTreeMap::new();
+				let mut account_queries: Vec<H160> = Vec::new();
 				for key in &keys {
 					if key.len() == 52 {
 						let address = H160::from_slice(&key[..20]);
 						let slot = H256::from_slice(&key[20..]);
 						groups.entry(address).or_default().push(slot);
 					} else if key.len() == 20 {
-						// Account query — no storage slots
-						continue;
+						account_queries.push(H160::from_slice(key));
 					}
+				}
+
+				for address in account_queries {
+					let data = self.fetch_account_proof(at, address).await?;
+					account_proofs.insert(address.0.to_vec(), data);
 				}
 
 				for (address, slots) in groups {
@@ -246,8 +273,12 @@ impl IsmpProvider for PharosEvmClient {
 					}
 				}
 
-				let pharos_proof =
-					PharosStateProof { storage_proof, storage_values, non_existence_proofs };
+				let pharos_proof = PharosStateProof {
+					storage_proof,
+					storage_values,
+					non_existence_proofs,
+					account_proofs,
+				};
 				Ok(pharos_proof.encode())
 			},
 		}

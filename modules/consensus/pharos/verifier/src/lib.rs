@@ -120,14 +120,13 @@ fn verify_validator_membership(
 	validator_set: &ValidatorSet,
 	participants: &[BlsPublicKey],
 ) -> Result<(), Error> {
-	let mut seen = alloc::collections::BTreeSet::new();
-	for key in participants {
-		if !validator_set.contains(key) {
-			return Err(Error::UnknownValidator { key: key.clone() });
-		}
-		if !seen.insert(key.as_ref()) {
-			return Err(Error::DuplicateParticipant);
-		}
+	let deduped: alloc::collections::BTreeSet<&[u8]> =
+		participants.iter().map(|k| k.as_ref()).collect();
+	if deduped.len() != participants.len() {
+		return Err(Error::DuplicateParticipant);
+	}
+	if let Some(key) = participants.iter().find(|key| !validator_set.contains(key)) {
+		return Err(Error::UnknownValidator { key: key.clone() });
 	}
 	Ok(())
 }

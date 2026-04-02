@@ -299,7 +299,7 @@ export class IntentGateway {
 	 * @yields {@link IntentOrderStatusUpdate} at each execution stage.
 	 * @throws If the order is missing required fields for resumption.
 	 */
-	async *resumeExecute(
+	async *resume(
 		order: Order,
 		options?: ResumeIntentOrderOptions,
 	): AsyncGenerator<IntentOrderStatusUpdate, void> {

@@ -713,25 +713,9 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
-
-#[cfg(not(feature = "sp1-verifier"))]
-pub struct DummyProofVerifier;
-#[cfg(not(feature = "sp1-verifier"))]
-impl pallet_outbound_proofs::ProofVerifier for DummyProofVerifier {
-	fn verify(
-		trusted_state: &pallet_outbound_proofs::BeefyConsensusState,
-		_proof: &[u8],
-	) -> Result<pallet_outbound_proofs::BeefyConsensusState, frame_support::pallet_prelude::DispatchError> {
-		Ok(trusted_state.clone())
-	}
-}
-
 impl pallet_outbound_proofs::pallet::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
-	#[cfg(feature = "sp1-verifier")]
-	type ProofVerifier = pallet_outbound_proofs::Sp1ProofVerifier<Runtime>;
-	#[cfg(not(feature = "sp1-verifier"))]
-	type ProofVerifier = DummyProofVerifier;
+	type ProofVerifier = pallet_outbound_proofs::BeefyProofVerifier<Runtime>;
 	type Currency = Balances;
 	type TreasuryPalletId = TreasuryPalletId;
 	type MaxProofSize = ConstU32<100_000>;

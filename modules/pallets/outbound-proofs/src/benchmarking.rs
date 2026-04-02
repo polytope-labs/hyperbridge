@@ -24,7 +24,6 @@ use pallet::{
 	ConsensusState, CurrentEpoch, LatestMessageBlock, LatestProvenParachainHeight, ProvenHeights,
 	Sp1VkeyHash,
 };
-use types::BeefyConsensusState;
 
 #[benchmarks(
 	where
@@ -39,7 +38,8 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 
 		CurrentEpoch::<T>::put(0u64);
-		ConsensusState::<T>::put(BeefyConsensusState::default());
+		// Initialize consensus state with dummy encoded bytes
+		ConsensusState::<T>::put(vec![0u8; 32]);
 
 		let proof: BoundedVec<u8, T::MaxProofSize> =
 			vec![0u8; 100].try_into().expect("fits in bounds");
@@ -68,7 +68,6 @@ mod benchmarks {
 
 		assert_eq!(Sp1VkeyHash::<T>::get(), vkey);
 	}
-
 }
 
 // Minimal test runtime for benchmark tests
@@ -105,10 +104,10 @@ pub struct DummyVerifier;
 #[cfg(test)]
 impl ProofVerifier for DummyVerifier {
 	fn verify(
-		trusted_state: &BeefyConsensusState,
+		trusted_state: &[u8],
 		_proof: &[u8],
-	) -> Result<BeefyConsensusState, frame_support::pallet_prelude::DispatchError> {
-		Ok(trusted_state.clone())
+	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError> {
+		Ok(trusted_state.to_vec())
 	}
 }
 
@@ -155,6 +154,10 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	use sp_runtime::BuildStorage;
 	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 	let mut ext = sp_io::TestExternalities::new(t);
-	ext.execute_with(|| frame_system::Pallet::<Test>::set_block_number(1));
+	ext.execute_with(|| {
+		frame_system::Pallet::<Test>::set_block_number(1);
+		// Initialize consensus state with dummy bytes so submit_proof doesn't fail
+		ConsensusState::<Test>::put(alloc::vec![0u8; 32]);
+	});
 	ext
 }

@@ -47,6 +47,7 @@ async fn pharos_consensus_updates() -> anyhow::Result<()> {
 		gas_price_buffer: None,
 		client_type: Default::default(),
 		initial_height: None,
+		transport: Default::default(),
 	};
 
 	let host_config = PharosHostConfig {

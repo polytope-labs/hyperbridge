@@ -18,6 +18,8 @@
 //! Node types: MSU Root (8192 bytes), Internal (515 bytes), Leaf (65 bytes).
 //! Internal nodes use SkipEmpty hashing: `sha256(header || non-zero child slots)`.
 
+use alloc::vec::Vec;
+
 use crate::types::{PharosProofNode, SiblingLeftmostLeafProof};
 
 const INTERNAL_NODE_HEADER: usize = 3;

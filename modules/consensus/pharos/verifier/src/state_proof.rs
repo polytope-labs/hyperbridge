@@ -76,7 +76,7 @@ pub fn verify_validator_set_proof<H: Keccak256 + Send + Sync>(
 /// The contract at `0x4100000000000000000000000000000000000000` uses:
 /// - Slot 0: validators mapping (mapping(bytes32 => Validator))
 /// - Slot 6: totalStake (uint256)
-/// - Slot 1: activePoolIds (bytes32[] array)
+/// - Slot 21: activePoolSets (EnumerableSet.Bytes32Set)
 ///
 /// Values are ordered: [totalStake, poolCount, poolId_0..poolId_n,
 ///   validator_0_bls_header, validator_0_bls_data_0..N_0, validator_0_stake, ...]
@@ -87,7 +87,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	values: &[Vec<u8>],
 	epoch: u64,
 ) -> Result<ValidatorSet, Error> {
-	// We need 2 values at minimum: totalStake, activePoolIds length
+	// We need 2 values at minimum: totalStake, activePoolSets length
 	if values.len() < 2 {
 		return Err(Error::InsufficientStorageValues { expected: 2, got: values.len() });
 	}
@@ -96,7 +96,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 	// Index 0: totalStake
 	let _total_stake = decode_u256_from_storage(&values[0])?;
 
-	// Index 1: activePoolIds array length (slot 1)
+	// Index 1: activePoolSets array length
 	let validator_count = decode_u256_from_storage(&values[1])?;
 
 	let count = validator_count.low_u64() as usize;
@@ -117,7 +117,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 
 	let mut idx = pool_ids_end;
 	for i in 0..count {
-		// Pool ID from activePoolIds array
+		// Pool ID from activePoolSets array
 		let pool_id = {
 			let v = &values[pool_set_start + i];
 			let mut bytes = [0u8; 32];
@@ -254,7 +254,7 @@ fn decode_bls_key_from_string_slot(
 /// Recompute the expected storage keys in the same order as `storage_values`.
 ///
 /// The order matches the prover's output:
-/// [totalStake, activePoolIds length, pool_id_0..n,
+/// [totalStake, activePoolSets length, pool_id_0..n,
 ///  validator_0_bls_header, validator_0_bls_data_0..N_0, validator_0_stake, ...]
 ///
 /// The number of BLS data slots per validator is dynamically determined from
@@ -272,7 +272,7 @@ fn compute_all_storage_keys<H: Keccak256>(
 	// Index 0: totalStake
 	keys.push(layout.raw_slot_key(layout.total_stake_slot));
 
-	// Index 1: activePoolIds length
+	// Index 1: activePoolSets length
 	keys.push(layout.raw_slot_key(layout.active_pool_set_slot));
 
 	// Parse validator count from storage_values[1]
@@ -382,7 +382,7 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 ///
 /// ```solidity
 /// mapping(bytes32 => Validator) public validators;               // slot 0
-/// bytes32[] public activePoolIds;                                // slot 1
+/// bytes32[] public activePoolIds;                                 // slot 1
 /// bytes32[] public pendingAddPoolIds;                            // slot 2
 /// bytes32[] public pendingUpdatePoolIds;                         // slot 3
 /// bytes32[] public pendingExitPoolIds;                           // slot 4
@@ -440,7 +440,7 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 pub struct StakingContractLayout {
 	/// Storage slot for the validators mapping
 	pub validators_mapping_slot: u64,
-	/// Storage slot for activePoolIds (bytes32[] array)
+	/// Storage slot for activePoolSets (EnumerableSet._inner._values)
 	pub active_pool_set_slot: u64,
 	/// Storage slot for totalStake
 	pub total_stake_slot: u64,

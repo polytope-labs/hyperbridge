@@ -195,7 +195,7 @@ pub struct NonExistenceProof {
 pub struct ValidatorSetProof {
 	/// Per-key storage proof nodes (storage key -> proof path, verified against state_root)
 	pub storage_proof: BTreeMap<H256, Vec<PharosProofNode>>,
-	/// Raw storage values in order: [totalStake, activePoolIds length,
+	/// Raw storage values in order: [totalStake, activePoolSets length,
 	/// pool_id_0..pool_id_n, validator_0_bls_header, validator_0_bls_data_0..2,
 	/// validator_0_stake, ...]
 	pub storage_values: Vec<Vec<u8>>,

@@ -152,7 +152,7 @@ impl<C: Config> PharosProver<C> {
 	) -> Result<ValidatorSetProof, ProverError> {
 		let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
 
-		// Fetch base slots (totalStake, activePoolIds length)
+		// Fetch base slots (totalStake, activePoolSets length)
 		let base_keys = vec![
 			self.storage_layout.raw_slot_key(self.storage_layout.total_stake_slot),
 			self.storage_layout.raw_slot_key(self.storage_layout.active_pool_set_slot),
@@ -164,17 +164,17 @@ impl<C: Config> PharosProver<C> {
 		let validator_count = if base_proof.storage_proof.len() >= 2 {
 			hex_to_u64(&base_proof.storage_proof[1].value)?
 		} else {
-			return Err(ProverError::MissingStorageProof("activePoolIds length"));
+			return Err(ProverError::MissingStorageProof("activePoolSets length"));
 		};
 
-		// Fetch pool IDs from the activePoolIds array
+		// Fetch pool IDs from the activePoolSets array
 		let mut pool_id_keys = Vec::new();
 		for i in 0..validator_count {
 			pool_id_keys.push(self.array_element_key(self.storage_layout.active_pool_set_slot, i));
 		}
 
 		if pool_id_keys.is_empty() {
-			return Err(ProverError::MissingStorageProof("activePoolIds array is empty"));
+			return Err(ProverError::MissingStorageProof("activePoolSets array is empty"));
 		}
 
 		let pool_id_proof = self.rpc.get_proof(address, pool_id_keys.clone(), block_number).await?;

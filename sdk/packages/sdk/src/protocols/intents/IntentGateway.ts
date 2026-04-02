@@ -11,6 +11,7 @@ import type {
 	SelectBidResult,
 	FillerBid,
 } from "@/types"
+import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IndexerClient } from "@/client"
@@ -24,7 +25,7 @@ import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI } from "@/utils"
+import { DEFAULT_GRAFFITI, ADDRESS_ZERO } from "@/utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -196,7 +197,6 @@ export class IntentGateway {
 	 *   - `maxPriorityFeePerGasBumpPercent` — bump % for the priority fee estimate (default 8).
 	 *   - `maxFeePerGasBumpPercent` — bump % for the max fee estimate (default 10).
 	 *   - `minBids` — minimum bids to collect before selecting (default 1).
-	 *   - `bidTimeoutMs` — how long to poll for bids before giving up (default 60 000 ms).
 	 *   - `pollIntervalMs` — interval between bid-polling attempts.
 	 * @yields {@link IntentOrderStatusUpdate} at each lifecycle stage.
 	 * @throws If the `placeOrder` generator behaves unexpectedly, or if gas
@@ -209,7 +209,6 @@ export class IntentGateway {
 			maxPriorityFeePerGasBumpPercent?: number
 			maxFeePerGasBumpPercent?: number
 			minBids?: number
-			bidTimeoutMs?: number
 			pollIntervalMs?: number
 			solver?: { address: HexString; timeoutMs: number }
 		},
@@ -256,7 +255,6 @@ export class IntentGateway {
 			order: finalizedOrder,
 			sessionPrivateKey,
 			minBids: options?.minBids,
-			bidTimeoutMs: options?.bidTimeoutMs,
 			pollIntervalMs: options?.pollIntervalMs,
 			solver: options?.solver,
 		})) {
@@ -264,6 +262,58 @@ export class IntentGateway {
 		}
 
 		return
+	}
+
+	/**
+	 * Validates that an order has the minimum fields required for post-placement
+	 * resume (i.e. it was previously placed and has an on-chain identity).
+	 *
+	 * @throws If `order.id` or `order.session` is missing or zero-valued.
+	 */
+	private assertOrderCanResume(order: Order): void {
+		if (!order.id) {
+			throw new Error("Cannot resume execution without order.id")
+		}
+		if (!order.session || order.session === ADDRESS_ZERO) {
+			throw new Error("Cannot resume execution without order.session")
+		}
+	}
+
+	/**
+	 * Resumes execution of a previously placed order.
+	 *
+	 * Use this method after an app restart or crash to pick up where
+	 * {@link execute} left off. The order must already be placed on-chain
+	 * (i.e. it must have a valid `id` and `session`).
+	 *
+	 * Internally delegates to {@link OrderExecutor.executeIntentOrder} and
+	 * yields the same status updates as the execution phase of {@link execute}:
+	 * `AWAITING_BIDS`, `BIDS_RECEIVED`, `BID_SELECTED`, `USEROP_SUBMITTED`,
+	 * `FILLED`, `PARTIAL_FILL`, `EXPIRED`, or `FAILED`.
+	 *
+	 * Callers may check {@link isOrderFilled} or {@link isOrderRefunded} before
+	 * calling this method to avoid resuming an already-terminal order.
+	 *
+	 * @param order - A previously placed order with a valid `id` and `session`.
+	 * @param options - Optional tuning parameters for bid collection and execution.
+	 * @yields {@link IntentOrderStatusUpdate} at each execution stage.
+	 * @throws If the order is missing required fields for resumption.
+	 */
+	async *resumeExecute(
+		order: Order,
+		options?: ResumeIntentOrderOptions,
+	): AsyncGenerator<IntentOrderStatusUpdate, void> {
+		this.assertOrderCanResume(order)
+
+		for await (const status of this.orderExecutor.executeIntentOrder({
+			order,
+			sessionPrivateKey: options?.sessionPrivateKey,
+			minBids: options?.minBids,
+			pollIntervalMs: options?.pollIntervalMs,
+			solver: options?.solver,
+		})) {
+			yield status
+		}
 	}
 
 	/**

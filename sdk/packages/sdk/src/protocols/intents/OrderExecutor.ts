@@ -19,7 +19,9 @@ const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${comm
  * After an order is placed on the source chain, `OrderExecutor` polls the
  * Hyperbridge coprocessor for solver bids, selects and validates the best
  * bid, submits the corresponding ERC-4337 UserOperation via the bundler, and
- * tracks partial fills until the order is fully satisfied or exhausted.
+ * tracks partial fills until the order is fully satisfied or its on-chain
+ * block deadline is reached. Polling is bounded solely by the order's
+ * deadline — there is no separate wall-clock timeout.
  *
  * Deduplication of UserOperations is persisted across restarts using
  * `usedUserOpsStorage` so that the executor can resume safely after a crash.
@@ -42,7 +44,12 @@ export class OrderExecutor {
 	/**
 	 * Async generator that executes an intent order by polling for bids and
 	 * submitting UserOperations until the order is filled, partially exhausted,
-	 * or an unrecoverable error occurs.
+	 * or the on-chain deadline is reached.
+	 *
+	 * Bid polling is bounded by the order's block deadline (`order.deadline`),
+	 * which is checked before every poll iteration. There is no separate
+	 * wall-clock timeout — the order's on-chain lifetime is the single
+	 * source of truth for expiry.
 	 *
 	 * **Status progression (cross-chain orders):**
 	 * `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED` → `USEROP_SUBMITTED`
@@ -62,14 +69,7 @@ export class OrderExecutor {
 	 * @throws Never throws directly; all errors are reported as `FAILED` yields.
 	 */
 	async *executeIntentOrder(options: ExecuteIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
-		const {
-			order,
-			sessionPrivateKey,
-			minBids = 1,
-			bidTimeoutMs = 60_000,
-			pollIntervalMs = DEFAULT_POLL_INTERVAL,
-			solver,
-		} = options
+		const { order, sessionPrivateKey, minBids = 1, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
 
 		const commitment = order.id as HexString
 		const isSameChain = order.source === order.destination
@@ -139,7 +139,12 @@ export class OrderExecutor {
 				let bids: FillerBid[] = []
 				let solverLockExpired = false
 
-				while (Date.now() - startTime < bidTimeoutMs) {
+				while (true) {
+					const pollBlock = await this.ctx.dest.client.getBlockNumber()
+					if (pollBlock >= order.deadline) {
+						break
+					}
+
 					try {
 						const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
 
@@ -175,7 +180,7 @@ export class OrderExecutor {
 					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
 					const noBidsError = isPartiallyFilled
 						? `No new bids${solverClause} after partial fill`
-						: `No new bids${solverClause} available within ${bidTimeoutMs}ms timeout`
+						: `No new bids${solverClause} for order`
 
 					yield {
 						status: "EXPIRED",

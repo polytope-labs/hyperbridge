@@ -94,7 +94,7 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 
 	// Parse global state
 	// Index 0: totalStake
-	let _total_stake = decode_u256_from_storage(&values[0])?;
+	let on_chain_total_stake = decode_u256_from_storage(&values[0])?;
 
 	// Index 1: activePoolSets array length
 	let validator_count = decode_u256_from_storage(&values[1])?;
@@ -163,12 +163,12 @@ fn decode_validator_set_from_storage<H: Keccak256>(
 		}
 	}
 
-	log::debug!(
-		"Decoded validator set: {} validators, epoch {}, total stake {}",
-		validator_set.len(),
-		validator_set.epoch,
-		validator_set.total_stake
-	);
+	if validator_set.total_stake != on_chain_total_stake {
+		return Err(Error::TotalStakeMismatch {
+			computed: validator_set.total_stake,
+			on_chain: on_chain_total_stake,
+		});
+	}
 
 	Ok(validator_set)
 }
@@ -340,9 +340,10 @@ fn verify_all_storage_proofs(
 	let address: [u8; 20] = STAKING_CONTRACT_ADDRESS.0 .0;
 
 	for (key, value) in keys.iter().zip(values.iter()) {
-		let proof_nodes = storage_proof.get(key).ok_or(Error::StorageProofLookupFailed)?;
+		let proof_nodes = storage_proof
+			.get(key)
+			.ok_or(Error::MissingStorageValue { field: "storage proof for key" })?;
 
-		// Pad value to 32 bytes (left-padded, big-endian) as stored in the trie
 		let mut padded_value = [0u8; 32];
 		if value.len() <= 32 {
 			padded_value[32 - value.len()..].copy_from_slice(value);
@@ -352,7 +353,7 @@ fn verify_all_storage_proofs(
 
 		if !spv::verify_storage_proof(proof_nodes, &address, &key.0, &padded_value, &storage_hash.0)
 		{
-			return Err(Error::StorageProofLookupFailed);
+			return Err(Error::StorageProofVerificationFailed);
 		}
 	}
 

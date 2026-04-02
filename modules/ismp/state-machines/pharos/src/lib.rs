@@ -165,9 +165,6 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 		} else if key.len() == 32 {
 			// Direct slot hash for the ISMP host contract
 			(ismp_address, key.clone())
-		} else if key.len() == 20 {
-			map.insert(key, None);
-			continue;
 		} else {
 			return Err(Error::Custom(
 				"Unsupported key type: expected length 20, 32, or 52".to_string(),

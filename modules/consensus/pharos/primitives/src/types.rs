@@ -141,6 +141,8 @@ pub struct BlockProof {
 	pub aggregate_signature: Vec<u8>,
 	/// List of BLS public keys of validators who participated in signing
 	pub participant_keys: Vec<BlsPublicKey>,
+	/// The block proof hash from the RPC, the message validators actually signed
+	pub block_proof_hash: H256,
 }
 
 impl BlockProof {

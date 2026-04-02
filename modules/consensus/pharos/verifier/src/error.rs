@@ -60,9 +60,17 @@ pub enum Error {
 		total: U256,
 	},
 
+	/// Block proof hash from RPC doesn't match computed header hash
+	#[error("Block proof hash mismatch: computed {computed}, provided {provided}")]
+	BlockProofHashMismatch { computed: primitive_types::H256, provided: primitive_types::H256 },
+
 	/// No validators participated in signing
 	#[error("No validators participated in signing")]
 	NoParticipants,
+
+	/// Duplicate participant key in block proof
+	#[error("Duplicate participant key in block proof")]
+	DuplicateParticipant,
 
 	/// BLS signature verification failed
 	#[error("BLS signature verification failed")]
@@ -89,6 +97,10 @@ pub enum Error {
 	/// Storage proof lookup failed
 	#[error("Storage proof lookup failed")]
 	StorageProofLookupFailed,
+
+	/// Storage proof verification failed against the state root
+	#[error("Storage proof verification failed")]
+	StorageProofVerificationFailed,
 
 	/// Storage value exceeds maximum size for U256
 	#[error("Storage value too large for U256")]
@@ -145,6 +157,10 @@ pub enum Error {
 	/// Computed total stake doesn't match claimed total
 	#[error("Total stake mismatch: computed {computed}, claimed {claimed}")]
 	ComputedStakeMismatch { computed: U256, claimed: U256 },
+
+	/// On-chain totalStake doesn't match sum of individual validator stakes
+	#[error("Total stake mismatch: computed {computed}, on-chain {on_chain}")]
+	TotalStakeMismatch { computed: U256, on_chain: U256 },
 
 	/// Duplicate validator detected in the set
 	#[error("Duplicate validator in set")]

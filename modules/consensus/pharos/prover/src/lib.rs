@@ -353,7 +353,15 @@ impl<C: Config> PharosProver<C> {
 			.collect::<Result<Vec<_>, _>>()?;
 		participant_keys.dedup();
 
-		Ok(BlockProof { aggregate_signature, participant_keys })
+		let block_proof_hash = {
+			let bytes = hex_to_bytes(&rpc_proof.block_proof_hash)?;
+			if bytes.len() != 32 {
+				return Err(ProverError::InvalidH256Length(bytes.len()));
+			}
+			H256::from_slice(&bytes)
+		};
+
+		Ok(BlockProof { aggregate_signature, participant_keys, block_proof_hash })
 	}
 }
 

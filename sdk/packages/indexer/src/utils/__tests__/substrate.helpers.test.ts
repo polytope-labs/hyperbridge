@@ -11,6 +11,13 @@ describe("decodeRelayerAddress", () => {
 		})
 	})
 
+	describe("raw 20-byte EVM addresses", () => {
+		it("should return hex for a raw 20-byte EVM relayer (not SS58)", () => {
+			const evm = "0xd19651565559e361e984640ce5f69f1575149e63"
+			expect(decodeRelayerAddress(evm).toLowerCase()).toBe(evm.toLowerCase())
+		})
+	})
+
 	describe("SCALE-encoded Signature enum", () => {
 		it("should decode EVM variant (index 0) with 20-byte address", () => {
 			// Construct a SCALE-encoded EVM signature:

@@ -123,6 +123,14 @@ export interface ChainConfigData {
 		Usdt0Oft?: `0x${string}`
 		/** SolverAccount contract address used for EIP-7702 delegation */
 		SolverAccount?: `0x${string}`
+		/** Aerodrome (Solidly-style) router for LP removal / swaps on chains where Aerodrome is deployed */
+		AerodromeRouter?: `0x${string}`
+		/** Uniswap V4 PositionManager (canonical CREATE2 address) for LP position management */
+		UniswapV4PositionManager?: `0x${string}`
+		/** Uniswap V4 PoolManager (canonical CREATE2 address) for pool state reads via extsload */
+		UniswapV4PoolManager?: `0x${string}`
+		/** Uniswap V4 StateView (canonical CREATE2 address) for pool state reads via extsload */
+		UniswapV4StateView?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -284,6 +292,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniversalRouter: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
 			UniswapV3Quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
 			UniswapV4Quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
+			UniswapV4PositionManager: "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
+			UniswapV4PoolManager: "0x000000000004444c5dc75cB358380D2e3dE08A90",
+			UniswapV4StateView: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -336,6 +347,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniversalRouter: "0xd9C500DfF816a1Da21A48A732d3498Bf09dc9AEB",
 			UniswapV3Quoter: "0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997",
 			UniswapV4Quoter: "0xd0737C9762912dD34c3271197E362Aa736Df0926",
+			UniswapV4PositionManager: "0x7a4a5c919ae2541aed11041a1aeee68f1287f95b",
+			UniswapV4PoolManager: "0x28e2ea090877bf75740558f6bfb36a5ffee9e9df",
+			UniswapV4StateView: "0xd13dd3d6e93f276fafc9db9e6bb47c1180aee0c4",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -390,6 +404,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniversalRouter: "0xa51afafe0263b40edaef0df8781ea9aa03e381a3",
 			UniswapV3Quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
 			UniswapV4Quoter: "0x3972c00f7ed4885e145823eb7c655375d275a1c5",
+			UniswapV4PositionManager: "0xd88f38f930b7952f2db2432cb002e7abbf3dd869",
+			UniswapV4PoolManager: "0x360e68faccca8ca495c1b759fd9eee466db9fb32",
+			UniswapV4StateView: "0x76fd297e2d437cd7f76d50f01afe6160f86e9990",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -447,6 +464,10 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			AerodromeRouter: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
+			UniswapV4PositionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
+			UniswapV4PoolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
+			UniswapV4StateView: "0xa3c0c9b65bad0b08107aa264b0f3db444b867a71",
 			// Usdt0Oft: Not available on Base
 		},
 		rpcEnvKey: "BASE_MAINNET",
@@ -498,6 +519,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniversalRouter: "0x1095692a6237d83c6a72f3f5efedb9a670c49223",
 			UniswapV3Quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
 			UniswapV4Quoter: "0xb3d5c3dfc3a7aebff71895a7191796bffc2c81b9",
+			UniswapV4PositionManager: "0x1ec2ebf4f37e7363fdfe3551602425af0b3ceef9",
+			UniswapV4PoolManager: "0x67366782805870060151383f4bbff9dab53e5cd6",
+			UniswapV4StateView: "0x5ea1bd7974c8a611cbab0bdcafcb1d9cc9b3ba5a",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -542,6 +566,9 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniversalRouter: "0xef740bf23acae26f6492b10de645d6b98dc8eaf3",
 			UniswapV3Quoter: "0x385a5cf5f83e99f7bb2852b6a19c3538b9fa7658",
 			UniswapV4Quoter: "0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203",
+			UniswapV4PositionManager: "0x4529a01c7a0410167c5740c487a8de60232617bf",
+			UniswapV4PoolManager: "0x1f98400000000000000000000000000000000004",
+			UniswapV4StateView: "0x86e8631a016f9068c3f085faf484ee3f5fdee8f2",
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
@@ -648,6 +675,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xC71251c8b3e7B02697A84363Eef6DcE8DfBdF333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			UniswapV4PositionManager: "0x3c3ea4b57a46241e54610e5f022e5c45859a1017",
+			UniswapV4PoolManager: "0x9a13f98cb987694c9f086b1f5eb990eea8264ec3",
 		},
 		defaultRpcUrl: "https://mainnet.optimism.io",
 		consensusStateId: "ETH0",
@@ -701,6 +730,8 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			TokenGateway: "0xCe304770236f39F9911BfCC51afBdfF3b8635718",
 			Host: "0x7F0165140D0f3251c8f6465e94E9d12C7FD40711",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
+			UniswapV4PositionManager: "0x1b35d13a2e2528f192637f14b05f0dc0e7deb566",
+			UniswapV4PoolManager: "0x360e68faccca8ca495c1b759fd9eee466db9fb32",
 		},
 		defaultRpcUrl: "https://rpc.soneium.org",
 		consensusStateId: "ETH0",

@@ -224,12 +224,16 @@ const Signature = Enum({
 	Ed25519: Struct({ public_key: Bytes(), signature: Bytes() }),
 })
 
+/** Byte lengths Polkadot `encodeAddress` accepts for raw public keys / AccountIds */
+const SS58_RAW_KEY_LENGTHS = new Set([1, 2, 4, 8, 32, 33])
+
 /**
  * Decodes a relayer address from potentially SCALE-encoded Signature bytes.
  *
  * The relayer field in Substrate events can be either:
  * 1. A raw 32-byte public key/address (for direct submissions)
- * 2. A SCALE-encoded Signature enum (signed by relayers)
+ * 2. A raw 20-byte EVM address (not valid for SS58 — return as hex)
+ * 3. A SCALE-encoded Signature enum (signed by relayers)
  *
  * @param relayerHex The hex-encoded relayer bytes from the event
  * @returns The decoded relayer address (SS58 for Substrate, hex for EVM)
@@ -237,9 +241,22 @@ const Signature = Enum({
 export function decodeRelayerAddress(relayerHex: string): string {
 	const bytes = hexToU8a(relayerHex)
 
-	if (bytes.length <= 32) {
-		// Raw address bytes - encode as SS58
+	if (bytes.length === 0) {
+		return ""
+	}
+
+	// Standard EVM account id — must not pass through encodeAddress (rejects 20-byte keys)
+	if (bytes.length === 20) {
+		return u8aToHex(bytes)
+	}
+
+	if (bytes.length <= 32 && SS58_RAW_KEY_LENGTHS.has(bytes.length)) {
 		return encodeAddress(relayerHex)
+	}
+
+	if (bytes.length <= 32) {
+		// Other short raw buffers (e.g. odd lengths): expose as hex rather than failing SS58 encode
+		return u8aToHex(bytes)
 	}
 
 	// Decode SCALE-encoded Signature enum

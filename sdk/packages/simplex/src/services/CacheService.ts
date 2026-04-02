@@ -1,3 +1,4 @@
+import type { ERC7821Call } from "@hyperbridge/sdk"
 import { HexString } from "@hyperbridge/sdk"
 import { getLogger } from "./Logger"
 
@@ -48,11 +49,23 @@ interface PairClassificationsCache {
 	timestamp: number
 }
 
+interface FundingCallCache {
+	target: string
+	value: string
+	data: string
+}
+
+interface FundingPrependsCache {
+	calls: FundingCallCache[]
+	timestamp: number
+}
+
 interface CacheData {
 	gasEstimates: Record<string, GasEstimateCache>
 	swapOperations: Record<string, SwapOperationsCache>
 	fillerOutputs: Record<string, FillerOutputsCache>
 	pairClassifications: Record<string, PairClassificationsCache>
+	fundingPrepends: Record<string, FundingPrependsCache>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
 	perByteFees: Record<string, Record<string, bigint>>
 	tokenDecimals: Record<string, Record<HexString, number>>
@@ -70,6 +83,7 @@ export class CacheService {
 			swapOperations: {},
 			fillerOutputs: {},
 			pairClassifications: {},
+			fundingPrepends: {},
 			feeTokens: {},
 			perByteFees: {},
 			tokenDecimals: {},
@@ -116,6 +130,14 @@ export class CacheService {
 
 		stalePairIds.forEach((orderId) => {
 			delete this.cacheData.pairClassifications[orderId]
+		})
+
+		const staleFundingIds = Object.entries(this.cacheData.fundingPrepends)
+			.filter(([_, data]) => !this.isCacheValid(data.timestamp))
+			.map(([orderId]) => orderId)
+
+		staleFundingIds.forEach((orderId) => {
+			delete this.cacheData.fundingPrepends[orderId]
 		})
 	}
 
@@ -276,6 +298,46 @@ export class CacheService {
 			this.logger.error({ err: error }, "Error setting pair classifications")
 			throw error
 		}
+	}
+
+	getFundingPrepends(orderId: string): { calls: ERC7821Call[] } | null {
+		try {
+			const cache = this.cacheData.fundingPrepends[orderId]
+			if (cache && this.isCacheValid(cache.timestamp)) {
+				return {
+					calls: cache.calls.map((c) => ({
+						target: c.target as HexString,
+						value: BigInt(c.value),
+						data: c.data as HexString,
+					})),
+				}
+			}
+			return null
+		} catch (error) {
+			this.logger.error({ err: error }, "Error getting funding prepends")
+			return null
+		}
+	}
+
+	setFundingPrepends(orderId: string, calls: ERC7821Call[]): void {
+		try {
+			this.cleanupStaleData()
+			this.cacheData.fundingPrepends[orderId] = {
+				calls: calls.map((c) => ({
+					target: c.target.toLowerCase(),
+					value: c.value.toString(),
+					data: c.data,
+				})),
+				timestamp: Date.now(),
+			}
+		} catch (error) {
+			this.logger.error({ err: error }, "Error setting funding prepends")
+			throw error
+		}
+	}
+
+	clearFundingPrepends(orderId: string): void {
+		delete this.cacheData.fundingPrepends[orderId]
 	}
 
 	getFeeTokenWithDecimals(chain: string): { address: HexString; decimals: number } | null {

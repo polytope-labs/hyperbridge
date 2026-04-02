@@ -191,7 +191,7 @@
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
       "targets": [
         {
-          "expr": "sum by (chain_id) (increase(simplex_order_volume_usd_total[$__range]))",
+          "expr": "sum by (chain_id) (simplex_order_volume_usd_total)",
           "legendFormat": "chain {{chain_id}}",
           "instant": false,
           "range": true,
@@ -214,7 +214,7 @@
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "targets": [
         {
-          "expr": "sum by (chain_id) (increase(simplex_order_profit_usd_total[$__range]))",
+          "expr": "sum by (chain_id) (simplex_order_profit_usd_total)",
           "legendFormat": "chain {{chain_id}}",
           "instant": false,
           "range": true,

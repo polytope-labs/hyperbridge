@@ -157,6 +157,7 @@ export class GasEstimator {
 		if (this.ctx.bundlerUrl) {
 			try {
 				const callData = this.crypto.encodeERC7821Execute([
+					...(params.prependCalls ?? []),
 					{ target: intentGatewayV2Address, value: totalNativeValue, data: fillOrderCalldata },
 				])
 

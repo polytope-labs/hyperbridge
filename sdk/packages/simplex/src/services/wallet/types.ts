@@ -35,15 +35,17 @@ export enum SignerType {
 	MpcVault = "mpcVault",
 }
 
+export interface PrivateKeySignerConfig {
+	key: HexString
+}
+
 export type SignerConfig =
-	| {
+	| ({
 			type: SignerType.PrivateKey
-			privateKey: HexString
-	  }
-	| {
+	  } & PrivateKeySignerConfig)
+	| ({
 			type: SignerType.MpcVault
-			mpcVault: MpcVaultSignerConfig
-	  }
+	  } & MpcVaultSignerConfig)
 
 /** EIP-7702 authorization tuple used for set-code (delegation) transactions. */
 export interface Eip7702Authorization {

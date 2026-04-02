@@ -33,8 +33,8 @@ pub const PHAROS_CONSENSUS_ID: [u8; 4] = *b"PHAR";
 /// Mainnet epoch length in seconds (4 hours)
 pub const MAINNET_EPOCH_LENGTH_SECS: u64 = 4 * 60 * 60; // 14400 seconds
 
-/// Testnet (Atlantic) epoch length in seconds (~93.8 minutes)
-pub const TESTNET_EPOCH_LENGTH_SECS: u64 = 5628;
+/// Testnet (Atlantic) epoch length in seconds.
+pub const TESTNET_EPOCH_LENGTH_SECS: u64 = 7828;
 
 /// Pharos Mainnet chain ID
 pub const PHAROS_MAINNET_CHAIN_ID: u32 = 688600;
@@ -112,8 +112,7 @@ impl Config for Testnet {
 	/// ~93.8 minutes epoch length
 	const EPOCH_LENGTH_SECS: u64 = TESTNET_EPOCH_LENGTH_SECS;
 
-	/// Updated to match on-chain value from staking contract slot 5 (February 2026)
-	const EPOCH_LENGTH_BLOCKS: u64 = 5628;
+	const EPOCH_LENGTH_BLOCKS: u64 = 7828;
 
 	/// Pharos Testnet chain ID
 	const CHAIN_ID: u64 = 688689;

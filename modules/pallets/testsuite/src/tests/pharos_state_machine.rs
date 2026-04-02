@@ -18,7 +18,7 @@
 use pharos_primitives::{spv, Config, Testnet, STAKING_CONTRACT_ADDRESS};
 use pharos_prover::{
 	rpc::{hex_to_bytes, PharosRpcClient},
-	rpc_to_proof_nodes, PharosProver,
+	rpc_to_proof_nodes, rpc_to_sibling_proofs, PharosProver,
 };
 use primitive_types::{H160, H256, U256};
 use std::sync::Arc;
@@ -245,4 +245,103 @@ async fn test_pharos_multiple_storage_proofs() {
 	);
 	assert!(epoch_valid, "Storage proof for epochLength should pass");
 	println!("Storage proof [epochLength] verification: PASSED");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pharos_non_existence_account_proof() {
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let rpc = PharosRpcClient::new(&rpc_url).expect("Failed to create RPC client");
+
+	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
+	let target_block = block_number.saturating_sub(5);
+	println!("Testing at block: {}", target_block);
+
+	let header = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
+	let state_root = header.state_root;
+
+	// Query a non-existent account
+	let fake_address = H160::from_slice(&[0xde, 0xad, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+	let dummy_slot = H256::zero();
+	let proof = rpc
+		.get_proof(fake_address, vec![dummy_slot], target_block)
+		.await
+		.expect("Failed to get proof");
+
+	assert!(!proof.is_exist, "Account should not exist");
+
+	let proof_nodes = rpc_to_proof_nodes(&proof.account_proof)
+		.expect("Failed to convert proof nodes");
+	let sibling_proofs = rpc_to_sibling_proofs(&proof.sibling_leftmost_leaf_proofs)
+		.expect("Failed to convert sibling proofs");
+
+	let address_bytes: [u8; 20] = fake_address.0;
+	let is_valid = spv::verify_non_existence_proof(
+		&proof_nodes,
+		&address_bytes,
+		&state_root.0,
+		&sibling_proofs,
+	);
+	assert!(is_valid, "Non-existence proof should be valid for fake account");
+	println!("Non-existence account proof: PASSED");
+
+	// Sanity check: the same proof must NOT pass as an existence proof
+	let exists = spv::verify_pharos_proof_membership(&proof_nodes, &address_bytes, &state_root.0);
+	assert!(exists.is_none(), "Membership check should return None for non-existent account");
+	println!("Membership returns None as expected: PASSED");
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pharos_non_existence_storage_proof() {
+	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
+		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
+	let rpc = PharosRpcClient::new(&rpc_url).expect("Failed to create RPC client");
+
+	let block_number = rpc.get_block_number().await.expect("Failed to get block number");
+	let target_block = block_number.saturating_sub(5);
+	println!("Testing at block: {}", target_block);
+
+	let header = rpc.get_block_by_number(target_block).await.expect("Failed to get block");
+	let state_root = header.state_root;
+
+	// Use the real staking contract but query a non-existent storage slot
+	let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
+	let fake_slot = H256::from_low_u64_be(999999);
+	let proof = rpc
+		.get_proof(address, vec![fake_slot], target_block)
+		.await
+		.expect("Failed to get proof");
+
+	assert!(!proof.storage_proof.is_empty(), "Should have a storage proof entry");
+	let storage_entry = &proof.storage_proof[0];
+	println!("Storage isExist: {}", storage_entry.is_exist);
+	println!("Storage proof nodes: {}", storage_entry.proof.len());
+	println!("Storage sibling proofs: {}", storage_entry.sibling_leftmost_leaf_proofs.len());
+
+	if !storage_entry.is_exist {
+		let proof_nodes = rpc_to_proof_nodes(&storage_entry.proof)
+			.expect("Failed to convert storage proof nodes");
+		let sibling_proofs = rpc_to_sibling_proofs(&storage_entry.sibling_leftmost_leaf_proofs)
+			.expect("Failed to convert sibling proofs");
+
+		let address_bytes: [u8; 20] = address.0;
+		let mut slot_key = [0u8; 32];
+		slot_key.copy_from_slice(fake_slot.as_bytes());
+
+		let is_valid = spv::verify_storage_non_existence_proof(
+			&proof_nodes,
+			&address_bytes,
+			&slot_key,
+			&state_root.0,
+			&sibling_proofs,
+		);
+
+		assert!(is_valid, "Storage non-existence proof should be valid for fake slot");
+		println!("Non-existence storage proof: PASSED");
+	} else {
+		// Slot 999999 might actually exist if so, just verify the existence proof works
+		println!("Storage slot exists (unexpected), skipping non-existence test");
+	}
 }

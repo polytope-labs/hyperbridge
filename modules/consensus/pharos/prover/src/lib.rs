@@ -37,29 +37,47 @@ use std::{collections::BTreeMap, marker::PhantomData, sync::Arc};
 pub struct PharosProver<C: Config> {
 	pub rpc: Arc<PharosRpcClient>,
 	storage_layout: StakingContractLayout,
+	/// Epoch length in blocks, read from staking contract slot 5 at init.
+	/// Falls back to `C::EPOCH_LENGTH_BLOCKS` if the RPC call fails.
+	pub epoch_length: u64,
 	_config: PhantomData<C>,
 }
 
 impl<C: Config> PharosProver<C> {
 	/// Create a new prover with the given RPC endpoint.
-	pub fn new(endpoint: impl Into<String>) -> Result<Self, ProverError> {
+	/// Reads `epochLength` from the staking contract at the latest block.
+	pub async fn new(endpoint: impl Into<String>) -> Result<Self, ProverError> {
+		let rpc = Arc::new(PharosRpcClient::new(endpoint)?);
+		let epoch_length = Self::fetch_epoch_length(&rpc).await;
 		Ok(Self {
-			rpc: Arc::new(PharosRpcClient::new(endpoint)?),
+			rpc,
 			storage_layout: StakingContractLayout::default(),
+			epoch_length,
 			_config: PhantomData,
 		})
 	}
 
 	/// Create a new prover with a custom storage layout.
-	pub fn with_storage_layout(
+	pub async fn with_storage_layout(
 		endpoint: impl Into<String>,
 		layout: StakingContractLayout,
 	) -> Result<Self, ProverError> {
-		Ok(Self {
-			rpc: Arc::new(PharosRpcClient::new(endpoint)?),
-			storage_layout: layout,
-			_config: PhantomData,
-		})
+		let rpc = Arc::new(PharosRpcClient::new(endpoint)?);
+		let epoch_length = Self::fetch_epoch_length(&rpc).await;
+		Ok(Self { rpc, storage_layout: layout, epoch_length, _config: PhantomData })
+	}
+
+	async fn fetch_epoch_length(rpc: &PharosRpcClient) -> u64 {
+		let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
+		let latest = rpc.get_block_number().await.unwrap_or(0);
+		if latest == 0 {
+			return C::EPOCH_LENGTH_BLOCKS;
+		}
+		// Slot 5 = epochLength
+		match rpc.get_storage_at(address, U256::from(5), latest).await {
+			Ok(val) if !val.is_zero() => val.low_u64(),
+			_ => C::EPOCH_LENGTH_BLOCKS,
+		}
 	}
 
 	/// Fetch the latest block number from the node.

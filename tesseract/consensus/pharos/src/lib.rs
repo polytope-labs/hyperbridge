@@ -87,7 +87,7 @@ impl<C: Config> PharosHost<C> {
 			.rpc_urls
 			.first()
 			.ok_or_else(|| anyhow::anyhow!("No RPC URL configured in EVM config"))?;
-		let prover = PharosProver::new(rpc_url)?;
+		let prover = PharosProver::new(rpc_url).await?;
 
 		Ok(Self {
 			consensus_state_id: {
@@ -123,7 +123,7 @@ impl<C: Config> PharosHost<C> {
 			)?
 		} else {
 			// For initial state, fetch from an epoch boundary block
-			let epoch_start = current_epoch * C::EPOCH_LENGTH_BLOCKS;
+			let epoch_start = current_epoch * self.prover.epoch_length;
 			let epoch_boundary = if epoch_start > 0 { epoch_start - 1 } else { 0 };
 			let boundary_update = self.prover.fetch_block_update(epoch_boundary).await?;
 

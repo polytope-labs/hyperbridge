@@ -64,7 +64,7 @@ pub async fn consensus_notification<C: Config>(
 	let target_block = if latest_epoch > current_epoch {
 		// We've crossed epoch boundaries — sync the first epoch boundary block.
 		// Since latest_block is in a later epoch, this boundary is always <= latest_block.
-		let next_epoch_boundary = (current_epoch + 1) * C::EPOCH_LENGTH_BLOCKS - 1;
+		let next_epoch_boundary = (current_epoch + 1) * client.prover.epoch_length - 1;
 		log::trace!(
 			target: "tesseract-pharos",
 			"Syncing epoch boundary block {} for epoch transition {} -> {}",

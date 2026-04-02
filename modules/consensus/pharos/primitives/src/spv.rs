@@ -87,6 +87,7 @@ fn is_leaf(node: &[u8]) -> bool {
 }
 
 /// Bottom-up hash chain walk from last node to root.
+/// Uses `nextBeginOffset` from each node to locate the child hash slot.
 fn verify_proof_walk(proof_nodes: &[PharosProofNode], root: &[u8; 32]) -> bool {
 	let Some(last) = proof_nodes.last() else { return false };
 	let Some(mut current_hash) = compute_node_hash(&last.proof_node) else { return false };
@@ -101,6 +102,48 @@ fn verify_proof_walk(proof_nodes: &[PharosProofNode], root: &[u8; 32]) -> bool {
 		}
 
 		if parent.proof_node[begin..end] != current_hash {
+			return false;
+		}
+
+		current_hash = match compute_node_hash(&parent.proof_node) {
+			Some(h) => h,
+			None => return false,
+		};
+	}
+
+	current_hash == *root
+}
+
+/// Key-aware bottom-up hash chain walk. Uses nibble_at_depth to locate child slots
+/// in internal nodes instead of relying on nextBeginOffset. Required for sibling
+/// proof verification where the offsets in the main chain don't apply to the
+/// sibling's key path.
+fn verify_proof_walk_with_key(
+	proof_nodes: &[PharosProofNode],
+	key: &[u8],
+	root: &[u8; 32],
+) -> bool {
+	let Some(last) = proof_nodes.last() else { return false };
+	let Some(mut current_hash) = compute_node_hash(&last.proof_node) else { return false };
+	let key_hash = sha256(key);
+
+	for i in (0..proof_nodes.len() - 1).rev() {
+		let parent = &proof_nodes[i];
+
+		// MSU root (index 0): use begin_offset; internal nodes: use nibble-based lookup
+		let start = if i == 0 {
+			parent.next_begin_offset as usize
+		} else {
+			let trie_depth = i - 1;
+			let nibble = nibble_at_depth(&key_hash, trie_depth) as usize;
+			INTERNAL_NODE_HEADER + nibble * INTERNAL_NODE_SLOT_SIZE
+		};
+
+		if start + INTERNAL_NODE_SLOT_SIZE > parent.proof_node.len() {
+			return false;
+		}
+
+		if parent.proof_node[start..start + INTERNAL_NODE_SLOT_SIZE] != current_hash {
 			return false;
 		}
 
@@ -237,7 +280,9 @@ pub fn verify_non_existence_proof(
 		return false;
 	}
 
-	// Each sibling proves a non-empty slot is genuine by walking to a real leaf
+	// Each sibling proves a non-empty slot is genuine by walking to a real leaf.
+	// Uses key-aware walk since the main chain's nextBeginOffsets follow the query
+	// key's nibble path, not the sibling's.
 	let parent_nodes = &proof_nodes[..proof_nodes.len() - 1];
 	for sib in sibling_proofs {
 		if sib.proof_path.is_empty() {
@@ -247,7 +292,7 @@ pub fn verify_non_existence_proof(
 		let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
 		combined.extend_from_slice(&sib.proof_path);
 
-		if !verify_proof_walk(&combined, root) ||
+		if !verify_proof_walk_with_key(&combined, &sib.leftmost_leaf_key, root) ||
 			!is_existence_proof(&combined, &sib.leftmost_leaf_key)
 		{
 			return false;

@@ -31,7 +31,7 @@ use primitive_types::H256;
 async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
 	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
 		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
-	let prover = PharosProver::<Testnet>::new(&rpc_url).expect("Failed to create prover");
+	let prover = PharosProver::<Testnet>::new(&rpc_url).await.expect("Failed to create prover");
 
 	let latest_block_num = prover.get_latest_block().await.expect("Failed to get block number");
 	println!("Latest block: {}", latest_block_num);
@@ -124,7 +124,7 @@ async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
 async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
 	let rpc_url = std::env::var("PHAROS_ATLANTIC_RPC")
 		.expect("PHAROS_ATLANTIC_RPC env variable must be set");
-	let prover = PharosProver::<Testnet>::new(&rpc_url).expect("Failed to create prover");
+	let prover = PharosProver::<Testnet>::new(&rpc_url).await.expect("Failed to create prover");
 
 	let latest_block_num = prover.get_latest_block().await.expect("Failed to get block number");
 	println!("Latest block: {}", latest_block_num);

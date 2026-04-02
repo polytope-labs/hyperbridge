@@ -202,6 +202,25 @@ impl PharosRpcClient {
 	}
 
 	/// Fetch the latest block number.
+	pub async fn get_storage_at(
+		&self,
+		address: H160,
+		slot: U256,
+		block_number: u64,
+	) -> Result<U256, ProverError> {
+		let address_hex = format!("0x{:x}", address);
+		let slot_hex = format!("0x{:064x}", slot);
+		let block_hex = format!("0x{:x}", block_number);
+		let value: String =
+			self.call("eth_getStorageAt", (address_hex, slot_hex, block_hex)).await?;
+		let bytes = hex_to_bytes(&value)?;
+		let mut padded = [0u8; 32];
+		if bytes.len() <= 32 {
+			padded[32 - bytes.len()..].copy_from_slice(&bytes);
+		}
+		Ok(U256::from_big_endian(&padded))
+	}
+
 	pub async fn get_block_number(&self) -> Result<u64, ProverError> {
 		self.provider
 			.get_block_number()

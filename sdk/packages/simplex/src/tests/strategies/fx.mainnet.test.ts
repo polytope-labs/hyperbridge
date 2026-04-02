@@ -6,6 +6,7 @@ import {
 	ContractInteractionService,
 	DelegationService,
 	FillerConfigService,
+	LimitOrderStorageService,
 	type ResolvedChainConfig,
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
@@ -184,7 +185,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
+describe("Filler V2 FX - Base mainnet same-chain swap", () => {
 	it.skip("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
@@ -312,6 +313,154 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 
 		await intentFiller.stop()
 		await intentsCoprocessor.disconnect()
+	}, 600_000)
+
+	it("Should store unprofitable USDC->EXT order as limit order and fill when rates improve", async () => {
+		const {
+			baseIntentGatewayV2,
+			basePublicClient,
+			baseWalletClient,
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			baseMainnetId,
+			contractService,
+			signer,
+		} = await setUpMainnetFxBase()
+
+		const sourceUsdc = chainConfigService.getUsdcAsset(baseMainnetId)
+		const destExt = chainConfigService.getExtAsset(baseMainnetId)!
+
+		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, baseMainnetId)
+		const destExtDecimals = await contractService.getTokenDecimals(destExt, baseMainnetId)
+		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
+
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+
+		// Request a large amount of EXT that is unprofitable at the low ask price
+		const requestedExtOut = parseUnits("0.006", destExtDecimals)
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+
+		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
+		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+
+		let order: Order = {
+			user: bytes20ToBytes32(user),
+			source: toHex(baseMainnetId),
+			destination: toHex(baseMainnetId),
+			deadline: 12545151568145n,
+			nonce: 0n,
+			fees: 0n,
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs,
+			output: { beneficiary, assets: outputs, call: "0x" as HexString },
+		}
+
+		const intentsCoprocessor = await IntentsCoprocessor.connect(
+			process.env.HYPERBRIDGE_NEXUS!,
+			process.env.SECRET_PHRASE!,
+		)
+
+		const destBundlerUrl = chainConfigService.getBundlerUrl(baseMainnetId)
+		const baseEvmChain = EvmChain.fromParams({
+			chainId: 8453,
+			host: chainConfigService.getHostAddress(baseMainnetId),
+			rpcUrl: chainConfigService.getRpcUrl(baseMainnetId),
+			bundlerUrl: destBundlerUrl,
+		})
+
+		const feeToken = await contractService.getFeeTokenWithDecimals(baseMainnetId)
+		await approveTokens(baseWalletClient, basePublicClient, feeToken.address, baseIntentGatewayV2.address)
+		await approveTokens(baseWalletClient, basePublicClient, sourceUsdc, baseIntentGatewayV2.address)
+
+		// ── Phase 1: Start filler with unfavorable ask price ─────────────
+		// Ask price = 1 EXT/USD → filler would output 0.01 EXT for 0.01 USDC
+		// But user wants 0.006 EXT (which at 10000 EXT/USD would be fine, but at 1 EXT/USD is too much)
+		// Actually at 1 EXT/USD: policy output = 0.01 * 1 = 0.01 EXT (> 0.006), so we need a lower price
+		// At 0.1 EXT/USD: policy output = 0.01 * 0.1 = 0.001 EXT (< 0.006) → unprofitable
+		const limitOrderStorage = new LimitOrderStorageService(chainConfigService.getDataDir())
+
+		const unprofitableIntentFiller = await createFxOnlyIntentFillerWithPrices(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			contractService,
+			baseMainnetId,
+			"0.1", // askPrice: 0.1 EXT per USD → too low, won't meet user's requested output
+			"0.1", // bidPrice
+			limitOrderStorage,
+		)
+		await unprofitableIntentFiller.initialize()
+		unprofitableIntentFiller.start()
+
+		// Place the order on-chain
+		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
+
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+			bidTimeoutMs: 60_000,
+			pollIntervalMs: 5_000,
+		})
+
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data, value } = result.value
+
+			const signedTx = (await baseWalletClient.signTransaction(
+				(await basePublicClient.prepareTransactionRequest({
+					to,
+					data,
+					value: value ?? 0n,
+					account: baseWalletClient.account!,
+					chain: baseWalletClient.chain,
+				})) as any,
+			)) as HexString
+			result = await gen.next(signedTx)
+		}
+
+		// Wait for the filler to detect the order and store it as a limit order
+		let stored = false
+		for (let i = 0; i < 60; i++) {
+			const pending = limitOrderStorage.getPendingLimitOrders()
+			if (pending.length > 0) {
+				stored = true
+				console.log("Limit order stored in DB:", pending[0].orderId)
+				break
+			}
+			await new Promise((resolve) => setTimeout(resolve, 2_000))
+		}
+		expect(stored).toBe(true)
+
+		// Stop the first filler
+		await unprofitableIntentFiller.stop()
+
+		// ── Phase 2: Restart filler with favorable ask price ─────────────
+		// Ask price = 10000 EXT/USD → filler would output 0.01 * 10000 = 100 EXT for 0.01 USDC
+		// User wants 0.006 EXT → easily profitable
+		const profitableIntentFiller = await createFxOnlyIntentFillerWithPrices(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			contractService,
+			baseMainnetId,
+			"10000", // askPrice: 10000 EXT per USD → very profitable
+			"10000", // bidPrice
+			limitOrderStorage,
+		)
+		await profitableIntentFiller.initialize()
+		profitableIntentFiller.start()
+
+		// Wait for the sweep to pick up the limit order (runs every 60s, but we also trigger directly)
+		await (profitableIntentFiller as any).sweepLimitOrders()
+
+		// The limit order should have been deleted from the DB (submitted for execution)
+		const remaining = limitOrderStorage.getPendingLimitOrders()
+		expect(remaining).toHaveLength(0)
+
+		await profitableIntentFiller.stop()
+		await intentsCoprocessor.disconnect()
+		limitOrderStorage.close()
 	}, 600_000)
 
 	/** USDC/cNGN V4 pool on Base mainnet (0.15% fee, tickSpacing 30, no hooks). */
@@ -1928,6 +2077,67 @@ async function createFxOnlyIntentFiller(
 		signer,
 		undefined,
 		bidStorage,
+	)
+}
+
+async function createFxOnlyIntentFillerWithPrices(
+	chainConfigs: ChainConfig[],
+	fillerConfig: FillerConfig,
+	chainConfigService: FillerConfigService,
+	contractService: ContractInteractionService,
+	mainnetId: string,
+	askPrice: string,
+	bidPrice: string,
+	limitOrderStorage: LimitOrderStorageService,
+): Promise<IntentFiller> {
+	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const cacheService = new CacheService()
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
+
+	const bidPricePolicy = new FillerPricePolicy({
+		points: [
+			{ amount: "1", price: bidPrice },
+			{ amount: "10000", price: bidPrice },
+		],
+	})
+	const askPricePolicy = new FillerPricePolicy({
+		points: [
+			{ amount: "1", price: askPrice },
+			{ amount: "10000", price: askPrice },
+		],
+	})
+
+	const extAsset = chainConfigService.getExtAsset(mainnetId)
+	const token1: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
+
+	const fxStrategy = new FXFiller(
+		signer,
+		chainConfigService,
+		chainClientManager,
+		contractService,
+		5000,
+		token1,
+		{
+			bidPricePolicy,
+			askPricePolicy,
+		},
+	)
+
+	const strategies = [fxStrategy]
+	const bidStorage = new BidStorageService(chainConfigService.getDataDir())
+
+	return new IntentFiller(
+		chainConfigs,
+		strategies,
+		fillerConfig,
+		chainConfigService,
+		chainClientManager,
+		contractService,
+		signer,
+		undefined,
+		bidStorage,
+		limitOrderStorage,
 	)
 }
 

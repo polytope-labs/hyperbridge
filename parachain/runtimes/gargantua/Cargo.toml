@@ -185,6 +185,5 @@ try-runtime = [
     "pallet-mmr-tree/try-runtime",
     "cumulus-pallet-parachain-system/try-runtime",
 ]
-sp1-verifier = ["pallet-outbound-proofs/sp1"]
 # This must be used when buiding for a runtime upgrade so metadata hash verification is possible
 metadata-hash = ["substrate-wasm-builder/metadata-hash"]

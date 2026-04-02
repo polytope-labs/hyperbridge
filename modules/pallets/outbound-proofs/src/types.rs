@@ -36,20 +36,3 @@ pub struct ProofMetadata<AccountId, BlockNumber> {
 	pub prover: AccountId,
 	pub created_at: BlockNumber,
 }
-
-/// On-chain BEEFY authority set commitment
-#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq, Default)]
-pub struct BeefyAuthoritySet {
-	pub id: u64,
-	pub len: u32,
-	pub root: [u8; 32],
-}
-
-/// On-chain BEEFY consensus state
-#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq, Default)]
-pub struct BeefyConsensusState {
-	pub latest_height: u32,
-	pub beefy_activation_block: u32,
-	pub current_authority_set: BeefyAuthoritySet,
-	pub next_authority_set: BeefyAuthoritySet,
-}

@@ -18,53 +18,90 @@
 extern crate alloc;
 
 pub mod types;
-pub mod verifier;
 
 mod benchmarking;
 
 use polkadot_sdk::*;
 
 pub use pallet::*;
-pub use types::{BeefyAuthoritySet, BeefyConsensusState, EpochInfo, PendingProofInfo, ProofMetadata};
+pub use types::{EpochInfo, PendingProofInfo, ProofMetadata};
 
+/// Verifies BEEFY consensus proofs. The trusted state and proof are raw bytes.
 pub trait ProofVerifier {
 	fn verify(
-		trusted_state: &BeefyConsensusState,
+		trusted_state: &[u8],
 		proof: &[u8],
-	) -> Result<BeefyConsensusState, frame_support::pallet_prelude::DispatchError>;
+	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError>;
 }
 
-/// Production SP1 BEEFY proof verifier.
-/// Reads the verification key hash from pallet storage and performs
-/// full verification mirroring SP1Beefy.sol.
-#[cfg(feature = "sp1")]
-pub struct Sp1ProofVerifier<T>(core::marker::PhantomData<T>);
+/// Crypto implementation using substrate host functions for BEEFY proof verification.
+pub struct SubstrateCrypto;
 
-#[cfg(feature = "sp1")]
-impl<T: pallet::Config> ProofVerifier for Sp1ProofVerifier<T> {
+impl ismp::messaging::Keccak256 for SubstrateCrypto {
+	fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
+		sp_io::hashing::keccak_256(bytes).into()
+	}
+}
+
+impl beefy_verifier::EcdsaRecover for SubstrateCrypto {
+	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
+		sp_io::crypto::secp256k1_ecdsa_recover(signature, prehash)
+			.map_err(|_| anyhow::anyhow!("Failed to recover secp256k1 public key"))
+	}
+}
+
+/// Production BEEFY proof verifier that routes by proof type byte:
+/// - `0x00` (PROOF_TYPE_NAIVE): naive verification with ECDSA signature recovery
+/// - `0x01` (PROOF_TYPE_SP1): SP1 PLONK ZK proof verification
+pub struct BeefyProofVerifier<T>(core::marker::PhantomData<T>);
+
+impl<T: pallet::Config> ProofVerifier for BeefyProofVerifier<T> {
 	fn verify(
-		trusted_state: &BeefyConsensusState,
+		trusted_state_bytes: &[u8],
 		proof: &[u8],
-	) -> Result<BeefyConsensusState, frame_support::pallet_prelude::DispatchError> {
-		let vkey_bytes = pallet::Sp1VkeyHash::<T>::get();
-		let vkey_hash = core::str::from_utf8(&vkey_bytes)
-			.map_err(|_| frame_support::pallet_prelude::DispatchError::Other("invalid vkey hash encoding"))?;
+	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError> {
+		use frame_support::pallet_prelude::DispatchError;
 
-		let result = verifier::verify_beefy_proof(trusted_state, proof, vkey_hash)
-			.map_err(|e| frame_support::pallet_prelude::DispatchError::Other(match e {
-				verifier::VerificationError::DecodeFailed => "proof decode failed",
-				verifier::VerificationError::StaleHeight => "stale proof height",
-				verifier::VerificationError::UnknownAuthoritySet => "unknown authority set",
-				verifier::VerificationError::InvalidProof => "SP1 proof verification failed",
-			}))?;
+		let proof_type = proof.first().ok_or(DispatchError::Other("Empty proof"))?;
+		let payload = &proof[1..];
 
-		Ok(result.new_state)
+		let trusted_state: beefy_verifier_primitives::ConsensusState =
+			codec::Decode::decode(&mut &trusted_state_bytes[..])
+				.map_err(|_| DispatchError::Other("Failed to decode consensus state"))?;
+
+		let (new_state_bytes, _headers) = match *proof_type {
+			beefy_verifier_primitives::PROOF_TYPE_NAIVE => {
+				let consensus_proof: beefy_verifier_primitives::BeefyConsensusProof =
+					codec::Decode::decode(&mut &payload[..])
+						.map_err(|_| DispatchError::Other("Failed to decode naive proof"))?;
+				beefy_verifier::verify_consensus::<SubstrateCrypto>(trusted_state, consensus_proof)
+					.map_err(|_| DispatchError::Other("Naive proof verification failed"))?
+			},
+			beefy_verifier_primitives::PROOF_TYPE_SP1 => {
+				let sp1_proof: beefy_verifier_primitives::Sp1BeefyProof =
+					codec::Decode::decode(&mut &payload[..])
+						.map_err(|_| DispatchError::Other("Failed to decode SP1 proof"))?;
+				let vkey_bytes = pallet::Sp1VkeyHash::<T>::get();
+				let vkey_hash = core::str::from_utf8(&vkey_bytes)
+					.map_err(|_| DispatchError::Other("Invalid SP1 vkey hash encoding"))?;
+				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
+					trusted_state,
+					sp1_proof,
+					vkey_hash,
+				)
+				.map_err(|_| DispatchError::Other("SP1 proof verification failed"))?
+			},
+			_ => return Err(DispatchError::Other("Unknown proof type")),
+		};
+
+		Ok(new_state_bytes)
 	}
 }
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
+	use alloc::vec::Vec;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
@@ -142,9 +179,10 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type CurrentEpoch<T: Config> = StorageValue<_, u64, ValueQuery>;
 
-	/// BEEFY consensus state — tracks authority sets and latest proven relay height
+	/// BEEFY consensus state — stored as SCALE-encoded bytes of
+	/// `beefy_verifier_primitives::ConsensusState`
 	#[pallet::storage]
-	pub type ConsensusState<T: Config> = StorageValue<_, BeefyConsensusState, ValueQuery>;
+	pub type ConsensusState<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
 	/// Reward amount per valid proof — updatable via governance
 	#[pallet::storage]
@@ -153,8 +191,7 @@ pub mod pallet {
 
 	/// SP1 verification key hash — updatable via governance when the SP1 program changes
 	#[pallet::storage]
-	pub type Sp1VkeyHash<T: Config> =
-		StorageValue<_, alloc::vec::Vec<u8>, ValueQuery>;
+	pub type Sp1VkeyHash<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -210,9 +247,14 @@ pub mod pallet {
 				Error::<T>::AlreadyProven,
 			);
 
-			let trusted_state = ConsensusState::<T>::get();
-			let new_state = T::ProofVerifier::verify(&trusted_state, &consensus_proof)?;
-			ConsensusState::<T>::put(new_state);
+			let trusted_bytes = ConsensusState::<T>::get();
+			ensure!(
+				!trusted_bytes.is_empty(),
+				DispatchError::Other("Consensus state not initialized"),
+			);
+
+			let new_state_bytes = T::ProofVerifier::verify(&trusted_bytes, &consensus_proof)?;
+			ConsensusState::<T>::put(&new_state_bytes);
 
 			let offchain_key = Self::offchain_proof_key(relay_chain_height, validator_set_id);
 			sp_io::offchain_index::set(&offchain_key, &consensus_proof);

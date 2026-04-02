@@ -9,9 +9,13 @@ publish = false
 
 [dependencies]
 codec = { workspace = true }
+ismp = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true }
+beefy-verifier = { workspace = true, default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false }
 scale-info = { workspace = true }
-sp1-verifier = { version = "6.0.2", default-features = false, optional = true }
+anyhow = { workspace = true, default-features = false }
+primitive-types = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -22,10 +26,14 @@ default = ["std"]
 std = [
     "polkadot-sdk/std",
     "codec/std",
+    "ismp/std",
     "pallet-ismp/std",
+    "beefy-verifier/std",
+    "beefy-verifier-primitives/std",
     "scale-info/std",
+    "anyhow/std",
+    "primitive-types/std",
 ]
-sp1 = ["sp1-verifier"]
 runtime-benchmarks = [
     "polkadot-sdk/frame-benchmarking",
     "polkadot-sdk/runtime-benchmarks",

@@ -3,7 +3,7 @@ name: CI
 on:
     push:
         branches:
-            - dami/pharos-network
+            - main
         paths:
             - "**/*.rs"
             - "**/Cargo.toml"
@@ -11,23 +11,23 @@ on:
             - ".github/workflows/ci.yml"
             - "!sdk/**"
 
-    pull_request_target:
-        types: [opened, synchronize]
+#    pull_request_target:
+#        types: [opened, synchronize]
+#        paths:
+#            - "**/*.rs"
+#            - "**/Cargo.toml"
+#            - "**/Cargo.lock"
+#            - ".github/workflows/ci.yml"
+#            - "!sdk/**"
+
+    pull_request:
+        branches:
+            - main
         paths:
             - "**/*.rs"
             - "**/Cargo.toml"
             - "**/Cargo.lock"
             - ".github/workflows/ci.yml"
-            - "!sdk/**"
-
-    # pull_request:
-    #     branches:
-    #         - main
-    #     paths:
-    #         - "**/*.rs"
-    #         - "**/Cargo.toml"
-    #         - "**/Cargo.lock"
-    #         - ".github/workflows/ci.yml"
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}

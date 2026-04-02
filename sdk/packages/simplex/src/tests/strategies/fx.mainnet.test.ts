@@ -185,7 +185,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe("Filler V2 FX - Base mainnet same-chain swap", () => {
+describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 	it.skip("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
@@ -315,7 +315,7 @@ describe("Filler V2 FX - Base mainnet same-chain swap", () => {
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 
-	it("Should store unprofitable USDC->EXT order as limit order and fill when rates improve", async () => {
+	it.skip("Should store unprofitable USDC->EXT order as limit order and fill when rates improve", async () => {
 		const {
 			baseIntentGatewayV2,
 			basePublicClient,

@@ -15,6 +15,7 @@ import {
 	ChainClientManager,
 	ContractInteractionService,
 	DelegationService,
+	LimitOrderStorageService,
 	RebalancingService,
 } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
@@ -32,10 +33,12 @@ export class IntentFiller {
 	private delegationService?: DelegationService
 	private rebalancingService?: RebalancingService
 	private bidStorage?: BidStorageService
+	private limitOrderStorage?: LimitOrderStorageService
 	private retractionQueue: pQueue
 	private pendingRetractions = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private retractionSweepInterval?: NodeJS.Timeout
+	private limitOrderSweepInterval?: NodeJS.Timeout
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private config: FillerConfig
 	private configService: FillerConfigService
@@ -53,6 +56,7 @@ export class IntentFiller {
 		signer: SigningAccount,
 		rebalancingService?: RebalancingService,
 		bidStorage?: BidStorageService,
+		limitOrderStorage?: LimitOrderStorageService,
 	) {
 		this.configService = configService
 		this.signer = signer
@@ -61,6 +65,7 @@ export class IntentFiller {
 		this.contractService = contractService
 		this.rebalancingService = rebalancingService
 		this.bidStorage = bidStorage
+		this.limitOrderStorage = limitOrderStorage
 		this.monitor = new EventMonitor(chainConfigs, configService, this.chainClientManager, this.fillerAddress)
 		this.strategies = strategies
 		this.config = config
@@ -159,6 +164,10 @@ export class IntentFiller {
 		if (this.bidStorage && this.hyperbridge) {
 			this.startRetractionSweep()
 		}
+
+		if (this.limitOrderStorage) {
+			this.startLimitOrderSweep()
+		}
 	}
 
 	/**
@@ -242,6 +251,98 @@ export class IntentFiller {
 		}
 	}
 
+	private startLimitOrderSweep(): void {
+		const SWEEP_INTERVAL_MS = 60_000 // 1 minute
+
+		this.limitOrderSweepInterval = setInterval(() => {
+			this.sweepLimitOrders().catch((error) => {
+				this.logger.error({ error }, "Error in limit order sweep")
+			})
+		}, SWEEP_INTERVAL_MS)
+
+		this.logger.info("Periodic limit order sweep started (every 60 seconds)")
+	}
+
+	private async sweepLimitOrders(): Promise<void> {
+		if (!this.limitOrderStorage) return
+
+		const pendingOrders = this.limitOrderStorage.getPendingLimitOrders()
+		if (pendingOrders.length === 0) return
+
+		this.logger.debug({ count: pendingOrders.length }, "Checking pending limit orders")
+
+		// Batch getBlockNumber calls per destination chain
+		const blockNumberCache = new Map<string, bigint>()
+
+		for (const stored of pendingOrders) {
+			try {
+				// Check deadline using cached block numbers per chain
+				let currentBlock = blockNumberCache.get(stored.destinationChain)
+				if (currentBlock === undefined) {
+					const destClient = this.chainClientManager.getPublicClient(stored.destinationChain)
+					currentBlock = await destClient.getBlockNumber()
+					blockNumberCache.set(stored.destinationChain, currentBlock)
+				}
+
+				const deadlineBlock = BigInt(stored.deadlineBlock)
+				if (currentBlock >= deadlineBlock) {
+					this.limitOrderStorage.deleteLimitOrder(stored.orderId)
+					this.logger.info(
+						{ orderId: stored.orderId, currentBlock: currentBlock.toString(), deadline: stored.deadlineBlock },
+						"Limit order expired (deadline passed)",
+					)
+					continue
+				}
+
+				// Find the matching strategy
+				const strategy = this.strategies.find((s) => s.name === stored.strategyName)
+				if (!strategy) {
+					this.limitOrderStorage.deleteLimitOrder(stored.orderId)
+					this.logger.warn(
+						{ orderId: stored.orderId, strategyName: stored.strategyName },
+						"Limit order strategy no longer available, removing",
+					)
+					continue
+				}
+
+				const order = this.limitOrderStorage.deserializeOrder(stored.orderJson)
+
+				// Re-evaluate profitability
+				const profitability = await strategy.calculateProfitability(order)
+				if (profitability <= 0) {
+					continue // Still not profitable, keep for next sweep
+				}
+
+				this.logger.info(
+					{ orderId: stored.orderId, profitability },
+					"Limit order now profitable, submitting for execution",
+				)
+
+				this.limitOrderStorage.deleteLimitOrder(stored.orderId)
+
+				// Determine solver selection state and input USD value
+				const solverSelectionActive = this.contractService.getCache().getSolverSelection(order.destination)
+				if (solverSelectionActive && !this.hyperbridge) {
+					this.logger.warn({ orderId: stored.orderId }, "Solver selection active but no Hyperbridge, skipping")
+					continue
+				}
+
+				const baseInputUsd = await this.contractService.getInputUsdValue(order)
+				let inputUsdValue = baseInputUsd
+				if (typeof strategy.getOrderUsdValue === "function") {
+					const stratValue = await strategy.getOrderUsdValue(order)
+					if (stratValue) {
+						inputUsdValue = Decimal.max(baseInputUsd, stratValue.inputUsd)
+					}
+				}
+
+				this.executeOrder(order, strategy, solverSelectionActive ?? false, inputUsdValue, profitability)
+			} catch (error) {
+				this.logger.error({ orderId: stored.orderId, err: error }, "Error processing limit order")
+			}
+		}
+	}
+
 	public async stop(): Promise<void> {
 		this.monitor.stopListening()
 
@@ -256,6 +357,12 @@ export class IntentFiller {
 			clearInterval(this.retractionSweepInterval)
 			this.retractionSweepInterval = undefined
 			this.logger.info("Periodic retraction sweep stopped")
+		}
+
+		if (this.limitOrderSweepInterval) {
+			clearInterval(this.limitOrderSweepInterval)
+			this.limitOrderSweepInterval = undefined
+			this.logger.info("Periodic limit order sweep stopped")
 		}
 
 		// Wait for all queues to complete
@@ -415,6 +522,15 @@ export class IntentFiller {
 				// Execute immediately
 				if (evaluationResult) {
 					this.executeOrder(order, evaluationResult.strategy, solverSelectionActive, inputUsdValue, evaluationResult.profitability)
+				} else if (this.limitOrderStorage) {
+					// Store as limit order if any FXFiller strategy could fill but wasn't profitable
+					for (const [strategy, canFill] of canFillCache) {
+						if (canFill && strategy.name === "hyperfx") {
+							this.limitOrderStorage.storeLimitOrder(order, strategy.name)
+							this.logger.info({ orderId: order.id }, "Order stored as limit order for future re-evaluation")
+							break
+						}
+					}
 				}
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")

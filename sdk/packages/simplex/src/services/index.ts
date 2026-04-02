@@ -1,4 +1,5 @@
 export * from "./BidStorageService"
+export * from "./LimitOrderStorageService"
 export * from "./CacheService"
 export * from "./ChainClientManager"
 export * from "./ContractInteractionService"

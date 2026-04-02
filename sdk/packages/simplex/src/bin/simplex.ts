@@ -25,6 +25,7 @@ import { RebalancingService } from "@/services/RebalancingService"
 import { getLogger, configureLogger, type LogLevel } from "@/services/Logger"
 import { CacheService } from "@/services/CacheService"
 import { BidStorageService } from "@/services/BidStorageService"
+import { LimitOrderStorageService } from "@/services/LimitOrderStorageService"
 import { initializeSignerFromToml, type SignerConfig } from "@/services/wallet"
 import { MetricsService } from "@/services/MetricsService"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
@@ -305,6 +306,10 @@ program
 				"Bid storage initialized for fund recovery tracking",
 			)
 
+			// Initialize limit order storage for deferred order tracking
+			const limitOrderStorage = new LimitOrderStorageService(configService.getDataDir())
+			logger.info("Limit order storage initialized for deferred order tracking")
+
 			// Initialize strategies with shared services
 			logger.info("Initializing strategies...")
 			const strategies = config.strategies.map((strategyConfig) => {
@@ -426,6 +431,7 @@ program
 				runtimeSigner,
 				rebalancingService,
 				bidStorageService,
+				limitOrderStorage,
 			)
 
 			// Initialize (sets up EIP-7702 delegation if solver selection is configured)

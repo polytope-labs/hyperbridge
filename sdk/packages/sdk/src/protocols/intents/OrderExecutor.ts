@@ -1,4 +1,4 @@
-import type { HexString } from "@/types"
+import type { HexString, TokenInfo, Order } from "@/types"
 import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, SelectBidResult } from "@/types"
 import { sleep, DEFAULT_POLL_INTERVAL, hexToString } from "@/utils"
 import type { IntentGatewayContext } from "./types"
@@ -12,6 +12,14 @@ import { BidManager } from "./BidManager"
  * @returns A namespaced string key safe to use with the `usedUserOpsStorage` adapter.
  */
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
+
+/**
+ * Estimated average block time in milliseconds, used to decide whether the
+ * deadline is far enough away that a `getBlockNumber` RPC call can be skipped
+ * on a given poll iteration. Conservative (low) so that the check fires
+ * before the actual deadline rather than after.
+ */
+const ESTIMATED_BLOCK_TIME_MS = 2_000
 
 /**
  * Drives the post-placement execution lifecycle of an IntentGatewayV2 order.
@@ -40,6 +48,247 @@ export class OrderExecutor {
 		private readonly bidManager: BidManager,
 		private readonly crypto: import("./CryptoUtils").CryptoUtils,
 	) {}
+
+	/**
+	 * Cached block number and the wall-clock time it was fetched, used by
+	 * {@link isDeadlineReached} to skip redundant `getBlockNumber` RPC calls
+	 * when the deadline is estimated to be far away.
+	 */
+	private lastBlockCheck: { block: bigint; checkedAt: number } | undefined
+
+	/**
+	 * Checks whether the order's block deadline has been reached. Caches the
+	 * last-seen block number and skips the RPC call when the deadline is
+	 * estimated to be more than 10 blocks away based on wall-clock time
+	 * elapsed since the last check.
+	 */
+	private async isDeadlineReached(deadline: bigint): Promise<boolean> {
+		const now = Date.now()
+
+		if (this.lastBlockCheck) {
+			const elapsed = now - this.lastBlockCheck.checkedAt
+			const estimatedBlocksElapsed = BigInt(Math.floor(elapsed / ESTIMATED_BLOCK_TIME_MS))
+			const estimatedCurrentBlock = this.lastBlockCheck.block + estimatedBlocksElapsed
+			if (estimatedCurrentBlock + 10n < deadline) {
+				return false
+			}
+		}
+
+		const currentBlock = await this.ctx.dest.client.getBlockNumber()
+		this.lastBlockCheck = { block: currentBlock, checkedAt: now }
+		return currentBlock >= deadline
+	}
+
+	/**
+	 * Loads the persisted deduplication set of already-submitted UserOp hashes
+	 * for a given order commitment.
+	 */
+	private async loadUsedUserOps(commitment: HexString): Promise<Set<string>> {
+		const usedUserOps = new Set<string>()
+		const persisted = await this.ctx.usedUserOpsStorage.getItem(USED_USEROPS_STORAGE_KEY(commitment))
+		if (persisted) {
+			try {
+				const parsed = JSON.parse(persisted) as string[]
+				for (const key of parsed) {
+					usedUserOps.add(key)
+				}
+			} catch {
+				// Ignore corrupt entries and start fresh
+			}
+		}
+		return usedUserOps
+	}
+
+	/** Persists the deduplication set of UserOp hashes to storage. */
+	private async persistUsedUserOps(commitment: HexString, usedUserOps: Set<string>): Promise<void> {
+		await this.ctx.usedUserOpsStorage.setItem(
+			USED_USEROPS_STORAGE_KEY(commitment),
+			JSON.stringify([...usedUserOps]),
+		)
+	}
+
+	/**
+	 * Creates a closure that computes the deduplication hash key for a
+	 * UserOperation, pre-bound to the order's destination chain and entry point.
+	 */
+	private createUserOpHasher(order: {
+		destination: HexString
+	}): (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string {
+		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(hexToString(order.destination))
+		const chainId = BigInt(
+			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
+		)
+		return (userOp) => this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
+	}
+
+	/**
+	 * Polls the coprocessor for bids until either enough bids are collected
+	 * or the order's block deadline is reached.
+	 */
+	private async pollForBids(params: {
+		commitment: HexString
+		isOrderExpired: () => Promise<boolean>
+		minBids: number
+		pollIntervalMs: number
+		solver?: { address: HexString; timeoutMs: number }
+	}): Promise<{ bids: FillerBid[]; solverLockExpired: boolean }> {
+		const { commitment, isOrderExpired, minBids, pollIntervalMs, solver } = params
+		const startTime = Date.now()
+		let bids: FillerBid[] = []
+		let solverLockExpired = false
+
+		while (!(await isOrderExpired())) {
+			try {
+				const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
+
+				if (solver) {
+					const { address, timeoutMs } = solver
+					const solverLockActive = Date.now() - startTime < timeoutMs
+					if (!solverLockActive) solverLockExpired = true
+
+					bids = solverLockActive
+						? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === address.toLowerCase())
+						: fetchedBids
+				} else {
+					bids = fetchedBids
+				}
+
+				if (bids.length >= minBids) {
+					break
+				}
+			} catch {
+				// Continue polling on errors
+			}
+
+			await sleep(pollIntervalMs)
+		}
+
+		return { bids, solverLockExpired }
+	}
+
+	/**
+	 * Selects the best bid, submits the UserOp, and persists the dedup entry.
+	 * Yields `BID_SELECTED` and `USEROP_SUBMITTED` status updates.
+	 */
+	private async *submitBid(params: {
+		order: Order
+		freshBids: FillerBid[]
+		sessionPrivateKey?: HexString
+		commitment: HexString
+		usedUserOps: Set<string>
+		userOpHashKey: (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string
+	}): AsyncGenerator<IntentOrderStatusUpdate, SelectBidResult> {
+		const { order, freshBids, sessionPrivateKey, commitment, usedUserOps, userOpHashKey } = params
+
+		const result = await this.bidManager.selectBid(order, freshBids, sessionPrivateKey)
+
+		usedUserOps.add(userOpHashKey(result.userOp))
+		await this.persistUsedUserOps(commitment, usedUserOps)
+
+		yield {
+			status: "BID_SELECTED",
+			commitment,
+			selectedSolver: result.solverAddress,
+			userOpHash: result.userOpHash,
+			userOp: result.userOp,
+		}
+
+		yield {
+			status: "USEROP_SUBMITTED",
+			commitment,
+			userOpHash: result.userOpHash,
+			selectedSolver: result.solverAddress,
+			transactionHash: result.txnHash,
+		}
+
+		return result
+	}
+
+	/**
+	 * Processes a fill result, updating the fill accumulators in-place and
+	 * returning the status update to yield (if any) and whether the order
+	 * is fully satisfied.
+	 */
+	private processFillResult(
+		result: SelectBidResult,
+		commitment: HexString,
+		targetAssets: TokenInfo[],
+		totalFilledAssets: TokenInfo[],
+		remainingAssets: TokenInfo[],
+	): {
+		update: IntentOrderStatusUpdate | null
+		done: boolean
+		totalFilledAssets: TokenInfo[]
+		remainingAssets: TokenInfo[]
+	} {
+		if (result.fillStatus === "full") {
+			totalFilledAssets = targetAssets.map((a) => ({ token: a.token, amount: a.amount }))
+			remainingAssets = targetAssets.map((a) => ({ token: a.token, amount: 0n }))
+
+			return {
+				update: {
+					status: "FILLED",
+					commitment,
+					userOpHash: result.userOpHash,
+					selectedSolver: result.solverAddress,
+					transactionHash: result.txnHash,
+					totalFilledAssets,
+					remainingAssets,
+				},
+				done: true,
+				totalFilledAssets,
+				remainingAssets,
+			}
+		}
+
+		if (result.fillStatus === "partial") {
+			const filledAssets = result.filledAssets ?? []
+
+			for (const filled of filledAssets) {
+				const entry = totalFilledAssets.find((a) => a.token === filled.token)
+				if (entry) entry.amount += filled.amount
+			}
+
+			remainingAssets = targetAssets.map((target) => {
+				const filled = totalFilledAssets.find((a) => a.token === target.token)
+				const filledAmt = filled?.amount ?? 0n
+				return {
+					token: target.token,
+					amount: filledAmt >= target.amount ? 0n : target.amount - filledAmt,
+				}
+			})
+
+			const fullyFilled = remainingAssets.every((a) => a.amount === 0n)
+
+			return {
+				update: fullyFilled
+					? {
+							status: "FILLED",
+							commitment,
+							userOpHash: result.userOpHash,
+							selectedSolver: result.solverAddress,
+							transactionHash: result.txnHash,
+							totalFilledAssets,
+							remainingAssets,
+						}
+					: {
+							status: "PARTIAL_FILL",
+							commitment,
+							userOpHash: result.userOpHash,
+							selectedSolver: result.solverAddress,
+							transactionHash: result.txnHash,
+							filledAssets,
+							totalFilledAssets,
+							remainingAssets,
+						},
+				done: fullyFilled,
+				totalFilledAssets,
+				remainingAssets,
+			}
+		}
+
+		return { update: null, done: false, totalFilledAssets, remainingAssets }
+	}
 
 	/**
 	 * Async generator that executes an intent order by polling for bids and
@@ -84,96 +333,30 @@ export class OrderExecutor {
 			return
 		}
 
-		// Load or initialize persistent dedup set for this commitment from storage
-		const usedUserOps = new Set<string>()
-		const storageKey = USED_USEROPS_STORAGE_KEY(commitment)
-		const persisted = await this.ctx.usedUserOpsStorage.getItem(storageKey)
-		if (persisted) {
-			try {
-				const parsed = JSON.parse(persisted) as string[]
-				for (const key of parsed) {
-					usedUserOps.add(key)
-				}
-			} catch {
-				// Ignore corrupt entries and start fresh
-			}
-		}
-
-		const persistUsedUserOps = async () => {
-			await this.ctx.usedUserOpsStorage.setItem(storageKey, JSON.stringify([...usedUserOps]))
-		}
-
-		// Precompute UserOp hashing context for this order
-		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(hexToString(order.destination))
-		const chainId = BigInt(
-			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
-		)
-
-		const userOpHashKey = (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]): string =>
-			this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
+		const usedUserOps = await this.loadUsedUserOps(commitment)
+		const userOpHashKey = this.createUserOpHasher(order)
 
 		// For partial fill tracking, initialise per-token accumulators from order.output.assets
 		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
-
 		let totalFilledAssets = order.output.assets.map((a) => ({ token: a.token, amount: 0n }))
 		let remainingAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 
-		try {
-			while (true) {
-				const currentBlock = await this.ctx.dest.client.getBlockNumber()
-				if (currentBlock >= order.deadline) {
-					const deadlineError = `Order deadline reached (block ${currentBlock} >= ${order.deadline})`
-					yield {
-						status: "EXPIRED",
-						commitment,
-						totalFilledAssets,
-						remainingAssets,
-						error: deadlineError,
-					}
-					return
-				}
+		this.lastBlockCheck = undefined
+		const isOrderExpired = () => this.isDeadlineReached(order.deadline)
 
+		try {
+			while (!(await isOrderExpired())) {
 				yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
-				const startTime = Date.now()
-				let bids: FillerBid[] = []
-				let solverLockExpired = false
-
-				while (true) {
-					const pollBlock = await this.ctx.dest.client.getBlockNumber()
-					if (pollBlock >= order.deadline) {
-						break
-					}
-
-					try {
-						const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
-
-						if (solver) {
-							const { address, timeoutMs } = solver
-							const solverLockActive = Date.now() - startTime < timeoutMs
-							if (!solverLockActive) solverLockExpired = true
-
-							bids = solverLockActive
-								? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === address.toLowerCase())
-								: fetchedBids
-						} else {
-							bids = fetchedBids
-						}
-
-						if (bids.length >= minBids) {
-							break
-						}
-					} catch {
-						// Continue polling on errors
-					}
-
-					await sleep(pollIntervalMs)
-				}
-
-				const freshBids = bids.filter((bid) => {
-					const key = userOpHashKey(bid.userOp)
-					return !usedUserOps.has(key)
+				const { bids, solverLockExpired } = await this.pollForBids({
+					commitment,
+					isOrderExpired,
+					minBids,
+					pollIntervalMs,
+					solver,
 				})
+
+				const freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
 
 				if (freshBids.length === 0) {
 					const solverClause = solver && !solverLockExpired ? ` for requested solver ${solver.address}` : ""
@@ -196,7 +379,20 @@ export class OrderExecutor {
 
 				let result: SelectBidResult
 				try {
-					result = await this.bidManager.selectBid(order, freshBids, sessionPrivateKey)
+					const gen = this.submitBid({
+						order,
+						freshBids,
+						sessionPrivateKey,
+						commitment,
+						usedUserOps,
+						userOpHashKey,
+					})
+					let step = await gen.next()
+					while (!step.done) {
+						yield step.value
+						step = await gen.next()
+					}
+					result = step.value
 				} catch (err) {
 					yield {
 						status: "FAILED",
@@ -205,96 +401,36 @@ export class OrderExecutor {
 						remainingAssets,
 						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
 					}
-					// Back off before retrying
 					await sleep(pollIntervalMs)
 					continue
-				}
-
-				const usedKey = userOpHashKey(result.userOp)
-				usedUserOps.add(usedKey)
-				await persistUsedUserOps()
-
-				yield {
-					status: "BID_SELECTED",
-					commitment,
-					selectedSolver: result.solverAddress,
-					userOpHash: result.userOpHash,
-					userOp: result.userOp,
-				}
-
-				yield {
-					status: "USEROP_SUBMITTED",
-					commitment,
-					userOpHash: result.userOpHash,
-					selectedSolver: result.solverAddress,
-					transactionHash: result.txnHash,
 				}
 
 				if (!isSameChain) {
 					return
 				}
 
-				if (result.fillStatus === "full") {
-					// On a full fill, treat the order as completely satisfied
-					totalFilledAssets = targetAssets.map((a) => ({ token: a.token, amount: a.amount }))
-					remainingAssets = targetAssets.map((a) => ({ token: a.token, amount: 0n }))
+				const fill = this.processFillResult(
+					result,
+					commitment,
+					targetAssets,
+					totalFilledAssets,
+					remainingAssets,
+				)
+				totalFilledAssets = fill.totalFilledAssets
+				remainingAssets = fill.remainingAssets
 
-					yield {
-						status: "FILLED",
-						commitment,
-						userOpHash: result.userOpHash,
-						selectedSolver: result.solverAddress,
-						transactionHash: result.txnHash,
-						totalFilledAssets,
-						remainingAssets,
-					}
-					return
+				if (fill.update) {
+					yield fill.update
+					if (fill.done) return
 				}
+			}
 
-				if (result.fillStatus === "partial") {
-					const filledAssets = result.filledAssets ?? []
-
-					// Accumulate per-token filled amounts
-					for (const filled of filledAssets) {
-						const entry = totalFilledAssets.find((a) => a.token === filled.token)
-						if (entry) entry.amount += filled.amount
-					}
-
-					// Recompute remaining per-token
-					remainingAssets = targetAssets.map((target) => {
-						const filled = totalFilledAssets.find((a) => a.token === target.token)
-						const filledAmt = filled?.amount ?? 0n
-						return {
-							token: target.token,
-							amount: filledAmt >= target.amount ? 0n : target.amount - filledAmt,
-						}
-					})
-
-					const fullyFilled = remainingAssets.every((a) => a.amount === 0n)
-					if (fullyFilled) {
-						yield {
-							status: "FILLED",
-							commitment,
-							userOpHash: result.userOpHash,
-							selectedSolver: result.solverAddress,
-							transactionHash: result.txnHash,
-							totalFilledAssets,
-							remainingAssets,
-						}
-						return
-					}
-
-					yield {
-						status: "PARTIAL_FILL",
-						commitment,
-						userOpHash: result.userOpHash,
-						selectedSolver: result.solverAddress,
-						transactionHash: result.txnHash,
-						filledAssets,
-						totalFilledAssets,
-						remainingAssets,
-					}
-				}
+			yield {
+				status: "EXPIRED",
+				commitment,
+				totalFilledAssets,
+				remainingAssets,
+				error: "Order deadline reached",
 			}
 		} catch (err) {
 			yield {

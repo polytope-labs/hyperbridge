@@ -111,7 +111,7 @@ struct Parachain {
 }
 
 struct ParachainProof {
-    Parachain parachain;
+    Parachain[] parachains;
     Node[][] proof;
 }
 

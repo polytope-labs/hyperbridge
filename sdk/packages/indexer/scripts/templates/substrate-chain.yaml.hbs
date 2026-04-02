@@ -1,0 +1,62 @@
+{{> metadata}}
+{{> network-config}}
+{{#if chainTypesConfig}}
+  chaintypes:
+    file: {{chainTypesConfig}}
+{{/if}}
+dataSources:
+  - kind: substrate/Runtime
+    startBlock: {{blockNumber}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+      {{> handlers}}
+{{#if isHyperbridgeChain}}
+        - handler: handleRelayerRewardedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: consensusIncentives
+            method: RelayerRewarded
+        - handler: handleFeeRewardedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: messagingFees
+            method: FeeRewarded
+        - handler: handleTreasuryTransferEvent
+          kind: substrate/EventHandler
+          filter:
+           module: balances
+           method: Transfer
+        - handler: handleAccumulateFeesEvent
+          kind: substrate/EventHandler
+          filter:
+           module: relayer
+           method: AccumulateFees
+        - handler: handleRelayerWithdrawEvent
+          kind: substrate/EventHandler
+          filter:
+            module: relayer
+            method: Withdraw
+        - handler: handleCollatorRewardedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: collatorManager
+            method: CollatorRewarded
+        - handler: handleSubstrateAssetTeleportedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: xcmGateway
+            method: AssetTeleported
+        - handler: handleBridgeTokenSupplyIndexing
+          kind: substrate/BlockHandler
+          filter:
+            modulo: 3600 # Indexings 1 block every 6 hours (6 seconds per block indexing).
+{{/if}}
+{{#if enablePriceIndexing}}
+        - handler: handlePriceIndexing
+          kind: substrate/BlockHandler
+          filter:
+            modulo: 10 # Indexings 1 block every minute (6 seconds per block indexing).
+{{/if}}
+
+repository: 'https://github.com/polytope-labs/hyperbridge'

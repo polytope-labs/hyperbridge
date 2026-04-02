@@ -32,6 +32,7 @@ import {
     WithdrawalRequest,
     SelectOptions
 } from "../src/apps/IntentGatewayV2.sol";
+import {IntentsBase} from "../src/apps/intentsv2/IntentsBase.sol";
 import {ICallDispatcher, Call} from "../src/interfaces/ICallDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
@@ -622,7 +623,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         vm.startPrank(user);
-        vm.expectRevert(IntentGatewayV2.InvalidInput.selector);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.placeOrder{value: ethAmount}(order, bytes32(0));
         vm.stopPrank();
     }
@@ -653,7 +654,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
             to: abi.encodePacked(address(intentGateway)),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
+            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -703,7 +704,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
             to: abi.encodePacked(address(intentGateway)),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
+            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -747,7 +748,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             nonce: 0,
             from: abi.encodePacked(address(intentGateway)),
             to: abi.encodePacked(address(intentGateway)),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
+            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
@@ -1104,12 +1105,12 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             nonce: 0,
             from: abi.encodePacked(address(0x1234)),
             to: abi.encodePacked(address(intentGateway)),
-            body: bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.SweepDust)), data),
+            body: bytes.concat(bytes1(uint8(IntentsBase.RequestKind.SweepDust)), data),
             timeoutTimestamp: 0
         });
 
         vm.prank(address(host));
-        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
     }
 
@@ -1503,7 +1504,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
         gatewayWithSelection.fillOrder(
             order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
@@ -1554,7 +1555,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        vm.expectRevert(IntentGatewayV2.Expired.selector);
+        vm.expectRevert(IntentsBase.Expired.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
     }
@@ -1600,7 +1601,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
 
         // Try to fill again - should revert
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
     }
@@ -1642,19 +1643,21 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        vm.expectRevert(IntentGatewayV2.WrongChain.selector);
+        vm.expectRevert(IntentsBase.WrongChain.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
     }
 
-    function testFillOrderInsufficientSolverAmount() public {
+    function testFillOrderPartialAmount_IsValidPartialFill() public {
         uint256 inputAmount = 1000 * 1e6;
+        uint256 outputAmount = 1000 * 1e18;
+        uint256 partialAmount = 500 * 1e18;
 
         TokenInfo[] memory inputs = new TokenInfo[](1);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
 
         PaymentInfo memory output =
             PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
@@ -1677,16 +1680,26 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
+        uint256 userDaiBefore = dai.balanceOf(user);
+        uint256 fillerUsdcBefore = usdc.balanceOf(filler);
+
         vm.startPrank(filler);
-        dai.approve(address(intentGateway), 500 * 1e18);
-        dai.approve(address(intentGateway), type(uint256).max);
+        dai.approve(address(intentGateway), partialAmount);
 
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18}); // Less than requested
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: partialAmount});
 
-        vm.expectRevert(IntentGatewayV2.InvalidInput.selector);
         intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
         vm.stopPrank();
+
+        // User receives partial output
+        assertEq(dai.balanceOf(user), userDaiBefore + partialAmount, "User should receive partial DAI");
+
+        // Filler receives proportional input: 1000 * 500 / 1000 = 500 USDC
+        uint256 expectedInputRelease = (inputAmount * partialAmount) / outputAmount;
+        assertEq(
+            usdc.balanceOf(filler), fillerUsdcBefore + expectedInputRelease, "Filler should receive proportional USDC"
+        );
     }
 
     function testFillOrderInsufficientNativeToken() public {
@@ -1725,7 +1738,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory solverOutputs = new TokenInfo[](1);
         solverOutputs[0] = TokenInfo({token: bytes32(0), amount: 1 ether});
 
-        vm.expectRevert(IntentGatewayV2.InsufficientNativeToken.selector);
+        vm.expectRevert(IntentsBase.InsufficientNativeToken.selector);
         intentGateway.fillOrder{value: 0.5 ether}(
             order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
         );
@@ -1814,7 +1827,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Different user tries to cancel
         vm.startPrank(filler);
         dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
     }
@@ -1854,7 +1867,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectRevert(IntentGatewayV2.NotExpired.selector);
+        vm.expectRevert(IntentsBase.NotExpired.selector);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
     }
@@ -1919,7 +1932,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         vm.startPrank(user);
-        vm.expectRevert(IntentGatewayV2.InvalidInput.selector);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
         intentGateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
     }
@@ -1964,7 +1977,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Simulate RedeemEscrow request from IntentGateway on another chain
         bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
+            bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
             abi.encode(
                 WithdrawalRequest({
                     commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(filler)))
@@ -2024,7 +2037,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Simulate RedeemEscrow request
         bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
+            bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
             abi.encode(
                 WithdrawalRequest({
                     commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
@@ -2164,7 +2177,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.startPrank(filler);
         dai.approve(address(intentGateway), 1000 * 1e18);
-        vm.expectRevert(IntentGatewayV2.Filled.selector);
+        vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.fillOrder(order, fillOptions);
         vm.stopPrank();
     }
@@ -2198,7 +2211,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: 0});
 
         vm.startPrank(user);
-        vm.expectRevert(IntentGatewayV2.WrongChain.selector);
+        vm.expectRevert(IntentsBase.WrongChain.selector);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
     }
@@ -2238,7 +2251,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Simulate RefundEscrow request from destination chain
         bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.RefundEscrow)),
+            bytes1(uint8(IntentsBase.RequestKind.RefundEscrow)),
             abi.encode(
                 WithdrawalRequest({
                     commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))
@@ -2259,7 +2272,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         uint256 userBalanceBefore = usdc.balanceOf(user);
 
         vm.expectEmit(true, false, false, true);
-        emit IntentGatewayV2.EscrowRefunded(commitment);
+        emit IntentsBase.EscrowRefunded(commitment);
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
@@ -2299,7 +2312,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Non-owner (filler) tries to cancel before expiry - should fail
         vm.startPrank(filler);
         dai.approve(address(intentGateway), type(uint256).max);
-        vm.expectRevert(IntentGatewayV2.Unauthorized.selector);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.cancelOrder(order, cancelOptions);
         vm.stopPrank();
     }
@@ -2353,8 +2366,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
-        bytes memory body =
-            bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)), abi.encode(deployment));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.NewDeployment)), abi.encode(deployment));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2401,7 +2413,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         DestinationFee[] memory emptyFees = new DestinationFee[](0);
         ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: emptyFees});
 
-        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2464,7 +2476,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
 
-        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2525,7 +2537,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: emptyFees});
 
-        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2578,7 +2590,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         ParamsUpdate memory update = ParamsUpdate({params: newParams, destinationFees: destinationFees});
 
-        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2591,7 +2603,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         });
 
         vm.expectEmit(true, false, false, true);
-        emit IntentGatewayV2.DestinationProtocolFeeUpdated(hashedStateMachineId, feeBps);
+        emit IntentsBase.DestinationProtocolFeeUpdated(hashedStateMachineId, feeBps);
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
@@ -2622,7 +2634,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         ParamsUpdate memory update = ParamsUpdate({params: customParams, destinationFees: destinationFees});
 
-        bytes memory body = bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.UpdateParams)), abi.encode(update));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2764,8 +2776,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         address gateway = address(0xABCD);
         NewDeployment memory deployment = NewDeployment({stateMachineId: stateMachineId, gateway: gateway});
 
-        bytes memory body =
-            bytes.concat(bytes1(uint8(IntentGatewayV2.RequestKind.NewDeployment)), abi.encode(deployment));
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.NewDeployment)), abi.encode(deployment));
 
         PostRequest memory request = PostRequest({
             source: host.hyperbridge(),
@@ -2981,7 +2992,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         redeemInputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: expectedAmountAfterFee});
 
         bytes memory body = bytes.concat(
-            bytes1(uint8(IntentGatewayV2.RequestKind.RedeemEscrow)),
+            bytes1(uint8(IntentsBase.RequestKind.RedeemEscrow)),
             abi.encode(
                 WithdrawalRequest({
                     commitment: expectedCommitment, tokens: redeemInputs, beneficiary: bytes32(uint256(uint160(filler)))

@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
+use alloy::providers::Provider;
 use anyhow::{anyhow, Error};
-use ethers::providers::Middleware;
 use futures::FutureExt;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
@@ -28,7 +28,7 @@ impl ByzantineHandler for EvmClient {
 			height: event.latest_height,
 		};
 
-		let Some(header) = self.client.get_block(event.latest_height).await? else {
+		let Some(header) = self.client.get_block(event.latest_height.into()).await? else {
 			// If block header is not found veto the state commitment
 			log::info!(
 				"Vetoing State Machine Update for {} on {}",
@@ -40,7 +40,7 @@ impl ByzantineHandler for EvmClient {
 		};
 
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
-		if header.state_root.0 != state_machine_commitment.state_root.0 {
+		if header.header.state_root.0 != state_machine_commitment.state_root.0 {
 			log::info!(
 				"Vetoing State Machine Update for {} on {}",
 				self.state_machine,
@@ -59,7 +59,7 @@ impl ByzantineHandler for EvmClient {
 		use futures::StreamExt;
 		let (tx, recv) = tokio::sync::broadcast::channel(512);
 
-		let initial_height = self.client.get_block_number().await?.low_u64();
+		let initial_height = self.client.get_block_number().await?;
 		let client = self.clone();
 		let poll_interval = 5;
 		tokio::spawn(async move {
@@ -69,7 +69,7 @@ impl ByzantineHandler for EvmClient {
 					tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 					// wait for an update with a greater height
 					let block_number = match client.client.get_block_number().await {
-						Ok(number) => number.low_u64(),
+						Ok(number) => number,
 						Err(err) => {
 							if let Err(err) = tx
 								.send(Err(anyhow!(

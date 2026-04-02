@@ -1,0 +1,43 @@
+{
+	"name": "@hyperbridge/core",
+	"version": "1.6.0",
+	"description": "Hyperbridge Solidity SDK for dispatching & receiving cross-chain messages",
+	"author": "Polytope Labs <hello@polytope.technology>",
+	"license": "Apache-2.0",
+	"bugs": {
+		"url": "https://github.com/polytope-labs/hyperbridge-sdk/issues"
+	},
+	"homepage": "https://github.com/polytope-labs/hyperbridge-sdk/tree/main/packages/core#readme",
+	"directories": {
+		"lib": "contracts"
+	},
+	"files": [
+		"./contracts/**/*.sol"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "forge build --contracts contracts/ --skip test --skip script",
+		"format": "forge fmt contracts/",
+		"format:check": "forge fmt --check contracts/"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/polytope-labs/hyperbridge-sdk.git"
+	},
+	"keywords": [
+		"hyperbridge",
+		"ethereum",
+		"polkadot",
+		"interoperability",
+		"cross-chain",
+		"bridges"
+	],
+	"dependencies": {
+		"@openzeppelin/contracts": "^5.4.0",
+		"@polytope-labs/solidity-merkle-trees": "^0.3.3",
+		"prettier": "^3.3.3",
+		"prettier-plugin-solidity": "^1.3.1"
+	}
+}

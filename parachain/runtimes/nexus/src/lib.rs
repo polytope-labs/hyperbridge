@@ -227,7 +227,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 6_300,
+	spec_version: 6_700,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1013,6 +1013,10 @@ mod runtime {
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(62)]
 	pub type IsmpBsc = ismp_bsc::pallet;
+	#[runtime::pallet_index(63)]
+	pub type Hyperbridge = pallet_hyperbridge;
+	#[runtime::pallet_index(64)]
+	pub type TokenGateway = pallet_token_gateway;
 
 	// Governance
 	#[runtime::pallet_index(80)]
@@ -1089,6 +1093,7 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
+		[pallet_token_gateway, TokenGateway]
 	);
 }
 
@@ -1412,6 +1417,7 @@ impl_runtime_apis! {
 			Ok(batches)
 		}
 	}
+
 
 	impl<RuntimeCall, AccountId> simnode_runtime_api::CreateTransactionApi<Block, RuntimeCall, AccountId> for Runtime
 		where

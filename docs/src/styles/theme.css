@@ -1,7 +1,6 @@
 @theme {
     --font-math: "LatinModern1959";
-    --font-mono:
-        "BerkeleyMono", "BerkeleyMonoVariable", ui-monospace, monospace;
+    --font-mono: "AeonikMono", ui-monospace, monospace;
 }
 
 @theme inline {

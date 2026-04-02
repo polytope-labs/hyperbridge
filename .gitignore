@@ -12,6 +12,7 @@ dist/
 /pallet-ismp/evm/solidity/cache
 .env*
 .vscode
+.cursor
 
 evm/out/
 evm/cache/
@@ -53,6 +54,7 @@ evm/subgraph/generated
 .vscode/*
 .env
 .uuid
+.claude
 
 **/proofs/*
 /fees/prisma/dev.db

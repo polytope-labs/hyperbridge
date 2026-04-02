@@ -17,13 +17,18 @@
 mod test;
 use polkadot_sdk::*;
 
+use alloy::{
+	eips::BlockId,
+	primitives::B256,
+	providers::{Provider, RootProvider},
+	rpc::client::RpcClient,
+	transports::{
+		http::{reqwest::Url, Http},
+		layers::FallbackService,
+	},
+};
 use anyhow::anyhow;
 use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config};
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-	types::BlockId,
-};
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use sp_core::H256;
@@ -33,9 +38,9 @@ use tracing::{instrument, trace};
 
 #[derive(Clone)]
 pub struct BscPosProver<C: Config> {
-	/// Execution Rpc client
-	pub client: Arc<Provider<Http>>,
-	/// Phamtom data
+	/// Execution RPC client with fallback support for multiple URLs
+	pub client: Arc<RootProvider>,
+	/// Phantom data
 	_phantom_data: PhantomData<C>,
 }
 
@@ -50,15 +55,31 @@ pub struct UpdateParams {
 	pub fetch_val_set_change: bool,
 }
 impl<C: Config> BscPosProver<C> {
-	pub fn new(client: Provider<Http>) -> Self {
-		Self { client: Arc::new(client), _phantom_data: PhantomData }
+	pub fn new(urls: Vec<Url>) -> Result<Self, anyhow::Error> {
+		if urls.is_empty() {
+			return Err(anyhow!("At least one RPC URL must be provided"));
+		}
+
+		let client = if urls.len() == 1 {
+			let url =
+				urls.into_iter().next().ok_or_else(|| anyhow!("Expected at least one URL"))?;
+			RootProvider::new_http(url)
+		} else {
+			let transports: Vec<Http<_>> = urls.into_iter().map(|url| Http::new(url)).collect();
+			let active_count = transports.len();
+			let service = FallbackService::new(transports, active_count);
+			let rpc_client = RpcClient::builder().transport(service, false);
+			RootProvider::new(rpc_client)
+		};
+
+		Ok(Self { client: Arc::new(client), _phantom_data: PhantomData })
 	}
 
 	pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(
 		&self,
 		block: T,
 	) -> Result<Option<CodecHeader>, anyhow::Error> {
-		let block = self.client.get_block(block).await?.map(|header| header.into());
+		let block = self.client.get_block(block.into()).await?.map(|b| b.into());
 
 		Ok(block)
 	}
@@ -68,7 +89,7 @@ impl<C: Config> BscPosProver<C> {
 		trace!(target: "bsc-prover", "fetching latest header");
 		let block_number = self.client.get_block_number().await?;
 		let header = self
-			.fetch_header(block_number.as_u64())
+			.fetch_header(block_number)
 			.await?
 			.ok_or_else(|| anyhow!("Latest header block could not be fetched {block_number}"))?;
 		Ok(header)
@@ -91,11 +112,11 @@ impl<C: Config> BscPosProver<C> {
 		}
 
 		let source_header = self
-			.fetch_header(ethers::core::types::H256::from(source_hash.0))
+			.fetch_header(B256::from(source_hash.0))
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {source_hash}"))?;
 		let target_header = self
-			.fetch_header(ethers::core::types::H256::from(target_hash.0))
+			.fetch_header(B256::from(target_hash.0))
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
@@ -113,20 +134,15 @@ impl<C: Config> BscPosProver<C> {
             // We will skip such updates.
             (params.fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
 		{
-			let mut header = self
-				.fetch_header(ethers::core::types::H256::from(source_header.parent_hash.0))
-				.await?
-				.ok_or_else(|| {
-					anyhow!("header block could not be fetched {}", source_header.parent_hash)
-				})?;
+			let mut header =
+				self.fetch_header(B256::from(source_header.parent_hash.0)).await?.ok_or_else(
+					|| anyhow!("header block could not be fetched {}", source_header.parent_hash),
+				)?;
 			epoch_header_ancestry.insert(0, header.clone());
 			while header.number.low_u64() > epoch_header_number {
-				header = self
-					.fetch_header(ethers::core::types::H256::from(header.parent_hash.0))
-					.await?
-					.ok_or_else(|| {
-						anyhow!("header block could not be fetched {}", header.parent_hash)
-					})?;
+				header = self.fetch_header(B256::from(header.parent_hash.0)).await?.ok_or_else(
+					|| anyhow!("header block could not be fetched {}", header.parent_hash),
+				)?;
 				epoch_header_ancestry.insert(0, header.clone());
 			}
 		}

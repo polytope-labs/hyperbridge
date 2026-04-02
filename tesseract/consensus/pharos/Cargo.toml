@@ -25,4 +25,3 @@ sp-core = { workspace = true }
 
 tesseract-primitives = { workspace = true }
 tesseract-evm = { workspace = true }
-ethers = { workspace = true, features = ["rustls"] }

@@ -74,12 +74,12 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * the worst case where exactly 2/3+1 validators sign and all adversarial
  * validators participate, the adversarial fraction in the bitmap is at most
  * f/(2/3+1/N) ≈ f/(2/3). With f approaching 1/3, this gives at most ~1/2
- * adversarial signers. The probability that all SAMPLE_SIZE=10 randomly sampled
- * signers are adversarial is at most (1/2)^10 ≈ 0.098%.
+ * adversarial signers. The probability that all SAMPLE_SIZE=5 randomly sampled
+ * signers are adversarial is at most (1/2)^5 ≈ 3.125%.
  *
  * ## Gas savings
  *
- * Only 10 ecrecover calls (30,000 gas) instead of ~200+ (600,000+ gas), and a
+ * Only 5 ecrecover calls (15,000 gas) instead of ~200+ (600,000+ gas), and a
  * proportionally smaller merkle multi-proof. The bitmap verification and
  * transcript construction add negligible overhead.
  */
@@ -154,24 +154,21 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
         (RelayChainProof memory relay, ParachainProof memory parachain, uint256[4] memory signersBitmap) =
             abi.decode(encodedProof, (RelayChainProof, ParachainProof, uint256[4]));
 
-        (BeefyConsensusState memory newState, IntermediateState memory intermediate) =
-            verifyConsensusInner(consensusState, relay, parachain, signersBitmap);
-
-        IntermediateState[] memory intermediates = new IntermediateState[](1);
-        intermediates[0] = intermediate;
+        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
+            verifyConsensus(consensusState, relay, parachain, signersBitmap);
 
         return (abi.encode(newState), intermediates);
     }
 
-    function verifyConsensusInner(
+    function verifyConsensus(
         BeefyConsensusState memory trustedState,
         RelayChainProof memory relay,
         ParachainProof memory parachain,
         uint256[4] memory signersBitmap
-    ) internal pure returns (BeefyConsensusState memory, IntermediateState memory) {
+    ) internal pure returns (BeefyConsensusState memory, IntermediateState[] memory) {
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, relay, signersBitmap);
-        IntermediateState memory intermediate = verifyParachainHeaderProof(headsRoot, parachain);
-        return (state, intermediate);
+        IntermediateState[] memory intermediates = verifyParachainHeaderProof(headsRoot, parachain);
+        return (state, intermediates);
     }
 
     /**
@@ -431,24 +428,33 @@ contract BeefyV1FiatShamir is IConsensus, ERC165 {
     function verifyParachainHeaderProof(bytes32 headsRoot, ParachainProof memory proof)
         internal
         pure
-        returns (IntermediateState memory)
+        returns (IntermediateState[] memory)
     {
-        Node[] memory leaves = new Node[](1);
-        Parachain memory para = proof.parachain;
+        uint256 len = proof.parachains.length;
+        Node[] memory leaves = new Node[](len);
+        IntermediateState[] memory intermediates = new IntermediateState[](len);
 
-        Header memory header = Codec.DecodeHeader(para.header);
-        if (header.number == 0) revert IllegalGenesisBlock();
+        for (uint256 i = 0; i < len; i++) {
+            Parachain memory para = proof.parachains[i];
+            Header memory header = Codec.DecodeHeader(para.header);
+            if (header.number == 0) revert IllegalGenesisBlock();
 
-        leaves[0] = Node(
-            para.index,
-            keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
-        );
+            leaves[i] = Node(
+                para.index,
+                keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
+            );
 
-        bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
-        if (!valid) revert InvalidMmrProof();
+            StateCommitment memory commitment = header.stateCommitment();
+            intermediates[i] =
+                IntermediateState({stateMachineId: para.id, height: header.number, commitment: commitment});
+        }
 
-        StateCommitment memory stateCommitment = header.stateCommitment();
-        return IntermediateState({stateMachineId: para.id, height: header.number, commitment: stateCommitment});
+        if (len > 0) {
+            bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
+            if (!valid) revert InvalidMmrProof();
+        }
+
+        return intermediates;
     }
 
     function extractMmrRoot(Commitment memory commitment) internal pure returns (bytes32 mmrRoot) {

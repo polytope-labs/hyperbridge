@@ -11,11 +11,11 @@ anyhow = { workspace = true, default-features = false }
 alloy-rlp = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp-derive.workspace = true
+alloy-rpc-types-eth = { workspace = true, optional = true }
 codec = { workspace = true }
 ethabi = { workspace = true }
 ismp = { workspace = true }
 scale-info = { workspace = true }
-ethers-core = { workspace = true, optional = true }
 primitive-types = { workspace = true }
 
 [features]
@@ -28,6 +28,6 @@ std = [
     "alloy-rlp/std",
     "ethabi/std",
     "scale-info/std",
-    "ethers-core",
-    "primitive-types/std"
+    "alloy-rpc-types-eth",
+    "primitive-types/std",
 ]

@@ -30,10 +30,11 @@ print_usage() {
     echo "                  (e.g., testnet, mainnet, sepolia,base-sepolia,arbitrum-sepolia)"
     echo ""
     echo "Options:"
-    echo "  -m, --mode MODE        Deployment mode: simulate, full, or verify (default: simulate)"
+    echo "  -m, --mode MODE        Deployment mode: simulate, full, resume, or verify (default: simulate)"
     echo "                         - simulate: Dry run without broadcasting transactions"
     echo "                         - full: Broadcast and verify contracts"
-    echo "                         - verify: Verify existing deployment using broadcast artifacts"
+    echo "                         - resume: Resume broadcasting pending transactions and verify"
+    echo "                         - verify: Verify already-deployed contracts using broadcast artifacts (no broadcast)"
     echo "  -n, --network NET      Network type: testnet or mainnet (sources .env.testnet or .env.mainnet)"
     echo "  -c, --config FILE      Config file to use (default: from CONFIG env var)"
 
@@ -55,8 +56,11 @@ print_usage() {
     echo "  # Deploy to specific chains"
     echo "  $0 --mode full DeployHostUpdates sepolia,base-sepolia,arbitrum-sepolia"
     echo ""
-    echo "  # Verify existing deployment"
-    echo "  $0 --mode verify --network testnet DeployHostUpdates sepolia,base-sepolia"
+    echo "  # Resume pending broadcast and verify"
+    echo "  $0 --mode resume --network mainnet DeployHostUpdates base"
+    echo ""
+    echo "  # Verify already-deployed contracts (no broadcast)"
+    echo "  $0 --mode verify --network mainnet DeployHostUpdates gnosis"
     echo ""
 
     echo ""
@@ -73,8 +77,8 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         -m|--mode)
             MODE="$2"
-            if [[ ! "$MODE" =~ ^(simulate|full|verify)$ ]]; then
-                echo -e "${RED}Error: Invalid mode '$MODE'. Must be 'simulate', 'full', or 'verify'${NC}"
+            if [[ ! "$MODE" =~ ^(simulate|full|resume|verify)$ ]]; then
+                echo -e "${RED}Error: Invalid mode '$MODE'. Must be 'simulate', 'full', 'resume', or 'verify'${NC}"
                 exit 1
             fi
             shift 2
@@ -153,11 +157,11 @@ fi
 
 # Expand "testnet" or "mainnet" to actual chain lists
 if [ "$CHAINS" = "testnet" ]; then
-    CHAINS="sepolia,optimism-sepolia,arbitrum-sepolia,base-sepolia,polygon-amoy,bsc-testnet,gnosis-chiado,sei-testnet"
+    CHAINS="sepolia,optimism-sepolia,arbitrum-sepolia,base-sepolia,polygon-amoy,bsc-testnet,polkadot-testnet"
     echo -e "${GREEN}Deploying to all testnet chains: ${YELLOW}${CHAINS}${NC}"
     echo ""
 elif [ "$CHAINS" = "mainnet" ]; then
-    CHAINS="ethereum,optimism,arbitrum,base,bsc,gnosis,soneium,polygon,unichain,inkchain,sei"
+    CHAINS="ethereum,optimism,arbitrum,base,bsc,gnosis,soneium,polygon,unichain"
     echo -e "${GREEN}Deploying to all mainnet chains: ${YELLOW}${CHAINS}${NC}"
     echo ""
 fi
@@ -226,8 +230,8 @@ for chain in "${CHAIN_ARRAY[@]}"; do
 done
 echo ""
 
-# Confirm for full mode
-if [ "$MODE" = "full" ]; then
+# Confirm for full/resume mode
+if [ "$MODE" = "full" ] || [ "$MODE" = "resume" ]; then
     CHAIN_COUNT=${#CHAIN_ARRAY[@]}
     echo -e "${YELLOW}⚠️  WARNING: This will broadcast transactions to ${CHAIN_COUNT} chain(s) using real funds.${NC}"
     echo ""
@@ -240,9 +244,12 @@ if [ "$MODE" = "full" ]; then
     fi
 fi
 
-# Info for verify mode
+# Info for verify/resume mode
 if [ "$MODE" = "verify" ]; then
-    echo -e "${BLUE}Verifying existing deployments using broadcast artifacts...${NC}"
+    echo -e "${BLUE}Verifying existing deployments using broadcast artifacts (no broadcast)...${NC}"
+    echo ""
+elif [ "$MODE" = "resume" ]; then
+    echo -e "${BLUE}Resuming pending broadcasts and verifying contracts...${NC}"
     echo ""
 fi
 
@@ -251,7 +258,9 @@ echo -e "${BLUE}═════════════════════�
 if [ "$MODE" = "simulate" ]; then
     echo -e "${GREEN}Starting simulation (no transactions will be broadcast)...${NC}"
 elif [ "$MODE" = "verify" ]; then
-    echo -e "${GREEN}Starting verification...${NC}"
+    echo -e "${GREEN}Starting verification (no broadcast)...${NC}"
+elif [ "$MODE" = "resume" ]; then
+    echo -e "${GREEN}Resuming pending broadcasts...${NC}"
 else
     echo -e "${GREEN}Starting deployment...${NC}"
 fi
@@ -269,27 +278,101 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     echo ""
 
     # Build forge command for this chain (using single-chain run())
-    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 200"
+    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 300"
+
+    # Detect blockscout chains for verification
+    VERIFIER_FLAGS=""
+    case $chain in
+        soneium)
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://soneium.blockscout.com/api/ --verifier-api-key $SONEIUM_BLOCKSCOUT_API_KEY"
+            ;;
+        gnosis-chiado)
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://gnosis-chiado.blockscout.com/api/ --verifier-api-key $GNOSIS_BLOCKSCOUT_API_KEY"
+            ;;
+    esac
 
     # Add flags based on mode
     if [ "$MODE" = "full" ]; then
-        FORGE_CMD="$FORGE_CMD --broadcast --verify --sender $ADMIN"
-
-    elif [ "$MODE" = "verify" ]; then
-        FORGE_CMD="$FORGE_CMD --verify --resume --broadcast --private-key $PRIVATE_KEY"
+        FORGE_CMD="$FORGE_CMD --broadcast --verify $VERIFIER_FLAGS --sender $ADMIN"
+    elif [ "$MODE" = "resume" ]; then
+        FORGE_CMD="$FORGE_CMD --broadcast --verify $VERIFIER_FLAGS --resume --sender $ADMIN"
     fi
 
-    # Execute the command
-    if eval $FORGE_CMD; then
-        SUCCESSFUL_CHAINS+=("$chain")
-        echo ""
-        echo -e "${GREEN}✓ Deployment to ${chain} completed${NC}"
-        echo ""
+    if [ "$MODE" = "verify" ]; then
+        # Verify mode: use forge verify-contract directly from broadcast artifacts
+        # Resolve chain ID from RPC
+        CHAIN_ID=$(cast chain-id --rpc-url $chain 2>/dev/null)
+        if [ -z "$CHAIN_ID" ]; then
+            echo -e "${RED}Failed to resolve chain ID for $chain${NC}"
+            FAILED_CHAINS+=("$chain")
+            continue
+        fi
+
+        BROADCAST_FILE="broadcast/${SCRIPT_NAME}/${CHAIN_ID}/run-latest.json"
+        if [ ! -f "$BROADCAST_FILE" ]; then
+            echo -e "${RED}No broadcast artifacts found: $BROADCAST_FILE${NC}"
+            FAILED_CHAINS+=("$chain")
+            continue
+        fi
+
+        echo -e "${GREEN}Verifying contracts from: $BROADCAST_FILE${NC}"
+
+        # Extract CREATE2 transactions and verify each contract
+        VERIFY_FAILED=false
+        CONTRACTS=$(python3 -c "
+import json
+with open('$BROADCAST_FILE') as f:
+    data = json.load(f)
+for tx in data.get('transactions', []):
+    if tx.get('transactionType') == 'CREATE2' and tx.get('contractName') and tx.get('contractAddress'):
+        print(f\"{tx['contractName']}|{tx['contractAddress']}\")
+" 2>/dev/null)
+
+        # Map RPC alias names to forge --chain names
+        FORGE_CHAIN_NAME="$chain"
+        case $chain in
+            ethereum) FORGE_CHAIN_NAME="mainnet" ;;
+            gnosis) FORGE_CHAIN_NAME="xdai" ;;
+            inkchain) FORGE_CHAIN_NAME="ink" ;;
+        esac
+
+        while IFS='|' read -r contract_name contract_address; do
+            [ -z "$contract_name" ] && continue
+            echo -e "  ${YELLOW}Verifying $contract_name at $contract_address...${NC}"
+
+            if forge verify-contract "$contract_address" "$contract_name" \
+                --rpc-url "$chain" --chain "$FORGE_CHAIN_NAME" --watch --guess-constructor-args $VERIFIER_FLAGS 2>&1; then
+                echo -e "  ${GREEN}✓ $contract_name verified${NC}"
+            else
+                echo -e "  ${RED}✗ $contract_name verification failed${NC}"
+                VERIFY_FAILED=true
+            fi
+        done <<< "$CONTRACTS"
+
+        if [ "$VERIFY_FAILED" = false ]; then
+            SUCCESSFUL_CHAINS+=("$chain")
+            echo ""
+            echo -e "${GREEN}✓ Verification for ${chain} completed${NC}"
+            echo ""
+        else
+            FAILED_CHAINS+=("$chain")
+            echo ""
+            echo -e "${RED}✗ Verification for ${chain} had failures${NC}"
+            echo ""
+        fi
     else
-        FAILED_CHAINS+=("$chain")
-        echo ""
-        echo -e "${RED}✗ Deployment to ${chain} failed${NC}"
-        echo ""
+        # Execute the forge script command (full/resume/simulate modes)
+        if eval $FORGE_CMD; then
+            SUCCESSFUL_CHAINS+=("$chain")
+            echo ""
+            echo -e "${GREEN}✓ Deployment to ${chain} completed${NC}"
+            echo ""
+        else
+            FAILED_CHAINS+=("$chain")
+            echo ""
+            echo -e "${RED}✗ Deployment to ${chain} failed${NC}"
+            echo ""
+        fi
     fi
 done
 

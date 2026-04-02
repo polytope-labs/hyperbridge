@@ -43,16 +43,8 @@ pub struct ConsensusProof {
 /// Combines queue operations, state storage, and notification mechanisms.
 #[async_trait::async_trait]
 pub trait ProofBackend: Send + Sync {
-	// ============================================================================
-	// Queue Operations (used by both prover and host)
-	// ============================================================================
-
 	/// Initialize the queues for the given state machines
 	async fn init_queues(&self, state_machines: &[StateMachine]) -> Result<(), anyhow::Error>;
-
-	// ============================================================================
-	// Prover Operations (sending proofs and managing state)
-	// ============================================================================
 
 	/// Send a mandatory consensus proof (authority set changes)
 	async fn send_mandatory_proof(
@@ -76,10 +68,6 @@ pub trait ProofBackend: Send + Sync {
 
 	/// Load the prover's consensus state
 	async fn load_state(&self) -> Result<crate::prover::ProverConsensusState, anyhow::Error>;
-
-	// ============================================================================
-	// Host Operations (consuming proofs)
-	// ============================================================================
 
 	/// Subscribe to queue notifications for a specific state machine
 	async fn queue_notifications(

@@ -169,7 +169,7 @@ where
 ///
 /// This is the actual implementation that is abstract over the executor and the runtime api.
 #[sc_tracing::logging::prefix_logs_with("Parachain")]
-async fn start_node_impl<Runtime>(
+async fn start_node_impl<Runtime, T, Extra>(
 	parachain_config: Configuration,
 	polkadot_config: Configuration,
 	collator_options: CollatorOptions,
@@ -181,6 +181,11 @@ where
 	Runtime::RuntimeApi: BaseHostRuntimeApis,
 	sc_client_api::StateBackendFor<FullBackend, opaque::Block>:
 		sc_client_api::StateBackend<Keccak256>,
+	T: pallet_intents_rpc::pallet_intents_coprocessor::Config + Send + 'static,
+	T::RuntimeCall: frame_support::traits::IsSubType<pallet_intents_rpc::pallet_intents_coprocessor::Call<T>>
+		+ codec::Decode,
+	T::AccountId: codec::Encode + From<[u8; 32]>,
+	Extra: codec::Decode + Send + 'static,
 {
 	let parachain_config = prepare_node_config(parachain_config);
 	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config.executor);
@@ -254,16 +259,34 @@ where
 		);
 	}
 
+	let bid_cache = Arc::new(pallet_intents_rpc::BidCache::new(Duration::from_secs(300)));
+	let (bid_sender, _) = tokio::sync::broadcast::channel::<pallet_intents_rpc::RpcBidInfo>(256);
+
+	task_manager.spawn_handle().spawn(
+		"intents-bid-watcher",
+		"intents",
+		pallet_intents_rpc::run_bid_watcher::<_, _, T, Extra>(
+			transaction_pool.clone(),
+			bid_cache.clone(),
+			bid_sender.clone(),
+			Duration::from_secs(60),
+		),
+	);
+
 	let rpc_builder = {
 		let client = client.clone();
 		let backend = backend.clone();
 		let transaction_pool = transaction_pool.clone();
+		let bid_cache = bid_cache.clone();
+		let bid_sender = bid_sender.clone();
 
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
 				client: client.clone(),
 				pool: transaction_pool.clone(),
 				backend: backend.clone(),
+				bid_cache: bid_cache.clone(),
+				bid_sender: bid_sender.clone(),
 			};
 
 			crate::rpc::create_full(deps).map_err(Into::into)
@@ -516,22 +539,18 @@ pub async fn start_parachain_node(
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
-			start_node_impl::<gargantua_runtime::RuntimeApi>(
-				parachain_config,
-				polkadot_config,
-				collator_options,
-				para_id,
-				hwbench,
-			)
+			start_node_impl::<
+				gargantua_runtime::RuntimeApi,
+				gargantua_runtime::Runtime,
+				gargantua_runtime::SignedExtra,
+			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
 			.await,
 		chain if chain.contains("nexus") =>
-			start_node_impl::<nexus_runtime::RuntimeApi>(
-				parachain_config,
-				polkadot_config,
-				collator_options,
-				para_id,
-				hwbench,
-			)
+			start_node_impl::<
+				nexus_runtime::RuntimeApi,
+				nexus_runtime::Runtime,
+				nexus_runtime::SignedExtra,
+			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),
 	}

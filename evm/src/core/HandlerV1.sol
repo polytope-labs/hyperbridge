@@ -288,7 +288,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             if (meta.sender == address(0)) revert UnknownMessage();
 
             bytes[] memory keys = new bytes[](1);
-            keys[i] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(requestCommitment));
+            keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(requestCommitment));
 
             // verify state trie non-membership proofs
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
@@ -327,7 +327,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             if (meta.sender == address(0)) revert UnknownMessage();
 
             bytes[] memory keys = new bytes[](1);
-            keys[i] = bytes.concat(RESPONSE_RECEIPTS_STORAGE_PREFIX, bytes.concat(responseCommitment));
+            keys[0] = bytes.concat(RESPONSE_RECEIPTS_STORAGE_PREFIX, bytes.concat(responseCommitment));
 
             // verify state trie non-membership proofs
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
@@ -362,7 +362,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             if (meta.sender == address(0)) revert UnknownMessage();
 
             bytes[] memory keys = new bytes[](1);
-            keys[i] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(commitment));
+            keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(commitment));
 
             // verify state trie non-membership proofs
             StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];

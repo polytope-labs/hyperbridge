@@ -1,4 +1,4 @@
 {
     "title": "API Reference",
-    "pages": ["indexer-client", "evm-chain", "substrate-chain"]
+    "pages": ["indexer-client", "evm-chain", "substrate-chain", "intent-gateway"]
 }

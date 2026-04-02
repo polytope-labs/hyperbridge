@@ -1,6 +1,28 @@
-#![allow(clippy::all, ambiguous_glob_reexports)]
+#![allow(clippy::all)]
 #![allow(non_snake_case)]
 
-pub mod dispute_game_factory;
-pub mod fault_dispute_game;
-pub mod l2_output_oracle;
+use alloy_sol_macro::sol;
+
+sol!(
+	#[allow(missing_docs)]
+	#[sol(rpc)]
+	#[derive(Debug)]
+	L2OutputOracle,
+	"abis/L2OutputOracle.json"
+);
+
+sol!(
+	#[allow(missing_docs)]
+	#[sol(rpc)]
+	#[derive(Debug)]
+	DisputeGameFactory,
+	"abis/DisputeGameFactory.json"
+);
+
+sol!(
+	#[allow(missing_docs)]
+	#[sol(rpc)]
+	#[derive(Debug)]
+	FaultDisputeGame,
+	"abis/FaultDisputeGame.json"
+);

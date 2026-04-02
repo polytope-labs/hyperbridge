@@ -342,7 +342,7 @@ impl<C: Config> PharosProver<C> {
 	) -> Result<BlockProof, ProverError> {
 		let aggregate_signature = hex_to_bytes(&rpc_proof.bls_aggregated_signature)?;
 
-		let participant_keys: Result<Vec<_>, _> = rpc_proof
+		let mut participant_keys: Vec<BlsPublicKey> = rpc_proof
 			.signed_bls_keys
 			.iter()
 			.map(|k| {
@@ -350,9 +350,10 @@ impl<C: Config> PharosProver<C> {
 				let len = bytes.len();
 				bytes.try_into().map_err(|_| ProverError::InvalidBlsKeyLength(len))
 			})
-			.collect();
+			.collect::<Result<Vec<_>, _>>()?;
+		participant_keys.dedup();
 
-		Ok(BlockProof { aggregate_signature, participant_keys: participant_keys? })
+		Ok(BlockProof { aggregate_signature, participant_keys })
 	}
 }
 

@@ -104,6 +104,7 @@ members = [
     "tesseract/messaging/tron",
     "tesseract/messaging/evm-tendermint",
     "tesseract/messaging/substrate-evm",
+    "tesseract/messaging/pharos-evm",
     "tesseract/messaging/fees",
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
@@ -341,6 +342,7 @@ tesseract-messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
+tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }

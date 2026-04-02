@@ -28050,6 +28050,7 @@ dependencies = [
  "tendermint-primitives",
  "tesseract-evm",
  "tesseract-evm-tendermint",
+ "tesseract-pharos-evm",
  "tesseract-primitives",
  "tesseract-substrate",
  "tesseract-substrate-evm",
@@ -28322,6 +28323,26 @@ dependencies = [
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",
+]
+
+[[package]]
+name = "tesseract-pharos-evm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ismp",
+ "log",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-prover",
+ "pharos-state-machine",
+ "primitive-types 0.13.1",
+ "serde",
+ "sp-core",
+ "tesseract-evm",
+ "tesseract-primitives",
 ]
 
 [[package]]

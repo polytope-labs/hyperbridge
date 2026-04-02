@@ -144,7 +144,6 @@ pub struct BlockProof {
 }
 
 impl BlockProof {
-	/// Get the number of participants who signed this block
 	pub fn participant_count(&self) -> usize {
 		self.participant_keys.len()
 	}

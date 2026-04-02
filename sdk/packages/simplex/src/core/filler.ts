@@ -319,6 +319,19 @@ export class IntentFiller {
 
 				const order = this.limitOrderStorage.deserializeOrder(stored.orderJson)
 
+				// Check if the order has already been filled on-chain
+				try {
+					const gateway = await this.contractService.getIntentGateway(order.source, order.destination)
+					const isFilled = await gateway.isOrderFilled(order)
+					if (isFilled) {
+						this.limitOrderStorage.deleteLimitOrder(stored.orderId)
+						this.logger.info({ orderId: stored.orderId }, "Limit order already filled on-chain, removing")
+						continue
+					}
+				} catch (err) {
+					this.logger.warn({ orderId: stored.orderId, err }, "Failed to check if order is filled, proceeding with re-evaluation")
+				}
+
 				// Re-evaluate profitability
 				const profitability = await strategy.calculateProfitability(order)
 				if (profitability <= 0) {

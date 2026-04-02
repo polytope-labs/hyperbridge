@@ -1,8 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
 
-// Mock modules with missing optional dependencies before any imports that pull them in
-vi.mock("@turnkey/sdk-server", () => ({ Turnkey: class {} }))
-vi.mock("@turnkey/viem", () => ({ createAccount: vi.fn() }))
 
 import { IntentFiller } from "@/core/filler"
 import { FXFiller } from "@/strategies/fx"

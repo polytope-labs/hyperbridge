@@ -1391,7 +1391,8 @@ export interface SelectBidResult {
 export interface ExecuteIntentOrderOptions {
 	order: Order
 	sessionPrivateKey?: HexString
-	minBids?: number
+	/** Duration in ms to collect bids before selecting the best one. */
+	auctionTimeMs: number
 	pollIntervalMs?: number
 	/**
 	 * If set, bids are restricted to the given solver until `timeoutMs` elapses,
@@ -1408,7 +1409,8 @@ export interface ExecuteIntentOrderOptions {
 /** Options for resuming execution of a previously placed intent order */
 export interface ResumeIntentOrderOptions {
 	sessionPrivateKey?: HexString
-	minBids?: number
+	/** Duration in ms to collect bids before selecting the best one. */
+	auctionTimeMs: number
 	pollIntervalMs?: number
 	solver?: {
 		address: HexString

@@ -222,82 +222,102 @@ impl<C: Config> PharosProver<C> {
 			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
 
-		// Fetch validator data concurrently with two-phase fetching per validator.
-		// Phase 1: fetch BLS string header + stake to determine BLS data slot count.
-		// Phase 2: fetch the dynamically-computed BLS data slots.
-		// All validators run concurrently, with sequential phases per validator.
-		let validator_futures: Vec<_> = pool_ids
-			.iter()
-			.map(|pool_id| {
-				let (bls_string_slot, stake_slot) =
-					self.get_validator_header_and_stake_keys(pool_id);
-				let rpc = self.rpc.clone();
-				async move {
-					// fetch BLS header + stake
-					let phase1_keys = vec![bls_string_slot, stake_slot];
-					let phase1_proof = rpc.get_proof(address, phase1_keys, block_number).await?;
+		// Fetch validator data in two batched RPC calls (instead of 2 per validator):
+		// Phase 1: batch all validators' BLS string headers + stakes into one call.
+		// Phase 2: use phase 1 results to compute BLS data slot keys, batch into one call.
 
-					if phase1_proof.storage_proof.len() < 2 {
-						return Err(ProverError::MissingStorageProof(
-							"BLS header or stake in phase 1",
-						));
-					}
+		// Build phase 1 keys: [bls_header_0, stake_0, bls_header_1, stake_1, ...]
+		let mut phase1_all_keys = Vec::new();
+		let mut validator_slots: Vec<(H256, H256)> = Vec::new(); // (bls_string_slot, stake_slot)
+		for pool_id in &pool_ids {
+			let (bls_string_slot, stake_slot) = self.get_validator_header_and_stake_keys(pool_id);
+			phase1_all_keys.push(bls_string_slot);
+			phase1_all_keys.push(stake_slot);
+			validator_slots.push((bls_string_slot, stake_slot));
+		}
 
-					// Determine BLS data slot count from the string header value
-					let header_hex = &phase1_proof.storage_proof[0].value;
-					let data_slot_count = bls_data_slots_from_hex(header_hex)?;
+		let phase1_proof =
+			self.rpc.get_proof(address, phase1_all_keys, block_number).await?;
 
-					// fetch BLS data slots
-					let bls_data_base = H256::from(keccak256(bls_string_slot.as_bytes()));
-					let bls_data_base_pos = U256::from_big_endian(bls_data_base.as_bytes());
-					let mut data_keys = Vec::new();
-					for i in 0..data_slot_count {
-						data_keys.push(H256((bls_data_base_pos + U256::from(i)).to_big_endian()));
-					}
+		if phase1_proof.storage_proof.len() < pool_ids.len() * 2 {
+			return Err(ProverError::MissingStorageProof("BLS header or stake in phase 1"));
+		}
 
-					let phase2_proof = if !data_keys.is_empty() {
-						Some(rpc.get_proof(address, data_keys.clone(), block_number).await?)
-					} else {
-						None
-					};
+		// Process phase 1 results and build phase 2 keys
+		let mut phase2_all_keys = Vec::new();
+		// Track per-validator: (bls_string_slot, stake_slot, phase1_header_idx, phase1_stake_idx, data_keys)
+		struct ValidatorPhaseInfo {
+			bls_string_slot: H256,
+			stake_slot: H256,
+			phase1_header_idx: usize,
+			phase1_stake_idx: usize,
+			data_keys: Vec<H256>,
+		}
+		let mut validator_info = Vec::new();
 
-					// Assemble in order: [header, data_0..N, stake]
-					let mut all_keys = Vec::new();
-					let mut all_proofs = Vec::new();
-					let mut all_values = Vec::new();
+		for (v_idx, (bls_string_slot, stake_slot)) in validator_slots.iter().enumerate() {
+			let header_idx = v_idx * 2;
+			let stake_idx = v_idx * 2 + 1;
 
-					// Header
-					all_keys.push(bls_string_slot);
-					all_proofs.push(rpc_to_proof_nodes(&phase1_proof.storage_proof[0].proof)?);
-					all_values.push(hex_to_bytes(&phase1_proof.storage_proof[0].value)?);
+			let header_hex = &phase1_proof.storage_proof[header_idx].value;
+			let data_slot_count = bls_data_slots_from_hex(header_hex)?;
 
-					// Data slots
-					if let Some(p2) = phase2_proof {
-						for (j, sp) in p2.storage_proof.iter().enumerate() {
-							all_keys.push(data_keys[j]);
-							all_proofs.push(rpc_to_proof_nodes(&sp.proof)?);
-							all_values.push(hex_to_bytes(&sp.value)?);
-						}
-					}
-
-					// Stake
-					all_keys.push(stake_slot);
-					all_proofs.push(rpc_to_proof_nodes(&phase1_proof.storage_proof[1].proof)?);
-					all_values.push(hex_to_bytes(&phase1_proof.storage_proof[1].value)?);
-
-					Ok::<_, ProverError>((all_keys, all_proofs, all_values))
-				}
-			})
-			.collect();
-
-		let validator_results = futures::future::join_all(validator_futures).await;
-
-		for result in validator_results {
-			let (keys, proofs, values) = result?;
-			for (j, key) in keys.iter().enumerate() {
-				storage_proof.insert(*key, proofs[j].clone());
-				storage_values.push(values[j].clone());
+			let bls_data_base = H256::from(keccak256(bls_string_slot.as_bytes()));
+			let bls_data_base_pos = U256::from_big_endian(bls_data_base.as_bytes());
+			let mut data_keys = Vec::new();
+			for i in 0..data_slot_count {
+				let key = H256((bls_data_base_pos + U256::from(i)).to_big_endian());
+				phase2_all_keys.push(key);
+				data_keys.push(key);
 			}
+
+			validator_info.push(ValidatorPhaseInfo {
+				bls_string_slot: *bls_string_slot,
+				stake_slot: *stake_slot,
+				phase1_header_idx: header_idx,
+				phase1_stake_idx: stake_idx,
+				data_keys,
+			});
+		}
+
+		// Phase 2: fetch all BLS data slots in one call
+		let phase2_proof = if !phase2_all_keys.is_empty() {
+			Some(self.rpc.get_proof(address, phase2_all_keys, block_number).await?)
+		} else {
+			None
+		};
+
+		// Assemble results per validator in order: [header, data_0..N, stake]
+		let mut phase2_offset = 0;
+		for vi in &validator_info {
+			// Header
+			storage_proof.insert(
+				vi.bls_string_slot,
+				rpc_to_proof_nodes(&phase1_proof.storage_proof[vi.phase1_header_idx].proof)?,
+			);
+			storage_values
+				.push(hex_to_bytes(&phase1_proof.storage_proof[vi.phase1_header_idx].value)?);
+
+			// Data slots
+			if let Some(ref p2) = phase2_proof {
+				for (j, key) in vi.data_keys.iter().enumerate() {
+					storage_proof.insert(
+						*key,
+						rpc_to_proof_nodes(&p2.storage_proof[phase2_offset + j].proof)?,
+					);
+					storage_values
+						.push(hex_to_bytes(&p2.storage_proof[phase2_offset + j].value)?);
+				}
+			}
+			phase2_offset += vi.data_keys.len();
+
+			// Stake
+			storage_proof.insert(
+				vi.stake_slot,
+				rpc_to_proof_nodes(&phase1_proof.storage_proof[vi.phase1_stake_idx].proof)?,
+			);
+			storage_values
+				.push(hex_to_bytes(&phase1_proof.storage_proof[vi.phase1_stake_idx].value)?);
 		}
 
 		Ok(ValidatorSetProof { storage_proof, storage_values })

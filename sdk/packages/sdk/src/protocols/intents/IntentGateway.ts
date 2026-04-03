@@ -196,7 +196,7 @@ export class IntentGateway {
 	 * @param options - Optional tuning parameters:
 	 *   - `maxPriorityFeePerGasBumpPercent` — bump % for the priority fee estimate (default 8).
 	 *   - `maxFeePerGasBumpPercent` — bump % for the max fee estimate (default 10).
-	 *   - `minBids` — minimum bids to collect before selecting (default 1).
+	 *   - `auctionTimeMs` — duration in ms to collect bids before selecting the best one.
 	 *   - `pollIntervalMs` — interval between bid-polling attempts.
 	 * @yields {@link IntentOrderStatusUpdate} at each lifecycle stage.
 	 * @throws If the `placeOrder` generator behaves unexpectedly, or if gas
@@ -205,10 +205,10 @@ export class IntentGateway {
 	async *execute(
 		order: Order,
 		graffiti: HexString = DEFAULT_GRAFFITI,
-		options?: {
+		options: {
+			auctionTimeMs: number
 			maxPriorityFeePerGasBumpPercent?: number
 			maxFeePerGasBumpPercent?: number
-			minBids?: number
 			pollIntervalMs?: number
 			solver?: { address: HexString; timeoutMs: number }
 		},
@@ -254,9 +254,9 @@ export class IntentGateway {
 		for await (const status of this.orderExecutor.executeOrder({
 			order: finalizedOrder,
 			sessionPrivateKey,
-			minBids: options?.minBids,
-			pollIntervalMs: options?.pollIntervalMs,
-			solver: options?.solver,
+			auctionTimeMs: options.auctionTimeMs,
+			pollIntervalMs: options.pollIntervalMs,
+			solver: options.solver,
 		})) {
 			yield status
 		}
@@ -301,16 +301,16 @@ export class IntentGateway {
 	 */
 	async *resume(
 		order: Order,
-		options?: ResumeIntentOrderOptions,
+		options: ResumeIntentOrderOptions,
 	): AsyncGenerator<IntentOrderStatusUpdate, void> {
 		this.assertOrderCanResume(order)
 
 		for await (const status of this.orderExecutor.executeOrder({
 			order,
-			sessionPrivateKey: options?.sessionPrivateKey,
-			minBids: options?.minBids,
-			pollIntervalMs: options?.pollIntervalMs,
-			solver: options?.solver,
+			sessionPrivateKey: options.sessionPrivateKey,
+			auctionTimeMs: options.auctionTimeMs,
+			pollIntervalMs: options.pollIntervalMs,
+			solver: options.solver,
 		})) {
 			yield status
 		}

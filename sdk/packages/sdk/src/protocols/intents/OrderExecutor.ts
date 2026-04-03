@@ -41,14 +41,14 @@ export class OrderExecutor {
 		commitment: HexString,
 	): AsyncGenerator<IntentOrderStatusUpdate, void> {
 		const client = this.ctx.dest.client
-		const blockTimeSeconds = client.chain?.blockTime ?? 2
+		const blockTimeMs = client.chain?.blockTime ?? 2_000
 
 		while (true) {
 			const currentBlock = await client.getBlockNumber()
 			if (currentBlock >= deadline) break
 
 			const blocksRemaining = Number(deadline - currentBlock)
-			const sleepMs = blocksRemaining * blockTimeSeconds * 1_000
+			const sleepMs = blocksRemaining * blockTimeMs
 			await sleep(sleepMs)
 		}
 
@@ -243,7 +243,7 @@ export class OrderExecutor {
 	 *   (terminates — settlement is confirmed async via Hyperbridge)
 	 */
 	async *executeOrder(options: ExecuteIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
-		const { order, sessionPrivateKey, minBids = 1, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
+		const { order, sessionPrivateKey, auctionTimeMs, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
 
 		const commitment = order.id as HexString
 		const isSameChain = order.source === order.destination
@@ -269,7 +269,7 @@ export class OrderExecutor {
 			order,
 			sessionPrivateKey,
 			commitment,
-			minBids,
+			auctionTimeMs,
 			pollIntervalMs,
 			solver,
 			usedUserOps,
@@ -301,7 +301,7 @@ export class OrderExecutor {
 		order: Order
 		sessionPrivateKey?: HexString
 		commitment: HexString
-		minBids: number
+		auctionTimeMs: number
 		pollIntervalMs: number
 		solver?: { address: HexString; timeoutMs: number }
 		usedUserOps: Set<string>
@@ -314,7 +314,7 @@ export class OrderExecutor {
 			order,
 			sessionPrivateKey,
 			commitment,
-			minBids,
+			auctionTimeMs,
 			pollIntervalMs,
 			solver,
 			usedUserOps,
@@ -327,6 +327,12 @@ export class OrderExecutor {
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
 		try {
+			// Wait for auction time to collect bids
+			const auctionEnd = Date.now() + auctionTimeMs
+			while (Date.now() < auctionEnd) {
+				await sleep(Math.min(pollIntervalMs, auctionEnd - Date.now()))
+			}
+
 			while (true) {
 				let freshBids: FillerBid[]
 				try {
@@ -337,7 +343,7 @@ export class OrderExecutor {
 					continue
 				}
 
-				if (freshBids.length < minBids) {
+				if (freshBids.length === 0) {
 					await sleep(pollIntervalMs)
 					continue
 				}

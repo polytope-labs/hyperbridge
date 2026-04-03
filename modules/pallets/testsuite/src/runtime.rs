@@ -521,10 +521,10 @@ impl pallet_vesting::Config for Test {
 pub struct DummyProofVerifier;
 impl pallet_outbound_proofs::ProofVerifier for DummyProofVerifier {
 	fn verify(
-		trusted_state: &[u8],
+		_trusted_state: &[u8],
 		_proof: &[u8],
-	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError> {
-		Ok(trusted_state.to_vec())
+	) -> Result<(), frame_support::pallet_prelude::DispatchError> {
+		Ok(())
 	}
 }
 
@@ -796,8 +796,8 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		};
 		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
 
-		// Initialize outbound proofs consensus state with dummy bytes
-		pallet_outbound_proofs::pallet::ConsensusState::<Test>::put(vec![0u8; 32]);
+		// Initialize BEEFY consensus state in pallet-ismp storage for outbound proofs
+		pallet_ismp::ConsensusStates::<Test>::insert(*b"BEEF", vec![0u8; 32]);
 	});
 	ext
 }

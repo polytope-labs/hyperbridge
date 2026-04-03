@@ -166,7 +166,7 @@ export class ResponseService {
 			let statusMetadata = ResponseStatusMetadata.create({
 				id: `${commitment}.${pending.status}`,
 				responseId: commitment,
-				status: pending.status,
+				status: pending.status as Status,
 				chain: pending.chain,
 				timestamp: pending.timestamp,
 				blockNumber: pending.blockNumber,

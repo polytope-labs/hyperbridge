@@ -547,9 +547,9 @@ type PendingStatusMetadata @entity {
 	entityType: String! @index
 
 	"""
-	The status of the request/response
+	The status of the request/response/order
 	"""
-	status: Status!
+	status: String!
 
 	"""
 	The chain on which the event occurred
@@ -575,6 +575,11 @@ type PendingStatusMetadata @entity {
 	The hash of the transaction in which the event occurred
 	"""
 	transactionHash: String!
+
+	"""
+	The filler of the order (only for order status metadata)
+	"""
+	filler: String
 
 	"""
 	The timestamp when this record was created

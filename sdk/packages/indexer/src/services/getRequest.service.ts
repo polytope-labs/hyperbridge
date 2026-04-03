@@ -189,7 +189,7 @@ export class GetRequestService {
 			let statusMetadata = GetRequestStatusMetadata.create({
 				id: `${commitment}.${pending.status}`,
 				requestId: commitment,
-				status: pending.status,
+				status: pending.status as Status,
 				chain: pending.chain,
 				timestamp: pending.timestamp,
 				blockNumber: pending.blockNumber,

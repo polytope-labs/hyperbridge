@@ -21,8 +21,7 @@ use frame_benchmarking::v2::*;
 use frame_support::BoundedVec;
 use frame_system::RawOrigin;
 use pallet::{
-	ConsensusState, CurrentEpoch, LatestMessageBlock, LatestProvenParachainHeight, ProvenHeights,
-	Sp1VkeyHash,
+	BEEFY_CONSENSUS_ID, CurrentEpoch, ProvenHeights, Sp1VkeyHash,
 };
 
 #[benchmarks(
@@ -38,8 +37,7 @@ mod benchmarks {
 		let caller: T::AccountId = whitelisted_caller();
 
 		CurrentEpoch::<T>::put(0u64);
-		// Initialize consensus state with dummy encoded bytes
-		ConsensusState::<T>::put(vec![0u8; 32]);
+		pallet_ismp::ConsensusStates::<T>::insert(BEEFY_CONSENSUS_ID, vec![0u8; 32]);
 
 		let proof: BoundedVec<u8, T::MaxProofSize> =
 			vec![0u8; 100].try_into().expect("fits in bounds");
@@ -68,96 +66,4 @@ mod benchmarks {
 
 		assert_eq!(Sp1VkeyHash::<T>::get(), vkey);
 	}
-}
-
-// Minimal test runtime for benchmark tests
-#[cfg(test)]
-use polkadot_sdk::*;
-
-#[cfg(test)]
-type Block = frame_system::mocking::MockBlock<Test>;
-
-#[cfg(test)]
-frame_support::construct_runtime!(
-	pub enum Test {
-		System: frame_system,
-		Balances: pallet_balances,
-		OutboundProofs: crate::pallet,
-	}
-);
-
-#[cfg(test)]
-#[frame_support::derive_impl(frame_system::config_preludes::TestDefaultConfig)]
-impl frame_system::Config for Test {
-	type Block = Block;
-	type AccountData = pallet_balances::AccountData<u128>;
-}
-
-#[cfg(test)]
-#[frame_support::derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
-impl pallet_balances::Config for Test {
-	type AccountStore = System;
-}
-
-#[cfg(test)]
-pub struct DummyVerifier;
-#[cfg(test)]
-impl ProofVerifier for DummyVerifier {
-	fn verify(
-		trusted_state: &[u8],
-		_proof: &[u8],
-	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError> {
-		Ok(trusted_state.to_vec())
-	}
-}
-
-#[cfg(test)]
-pub struct DummyOnDispatch;
-#[cfg(test)]
-impl pallet_ismp::OnDispatch for DummyOnDispatch {
-	fn on_dispatch() {}
-}
-
-#[cfg(test)]
-frame_support::parameter_types! {
-	pub const TreasuryId: frame_support::PalletId = frame_support::PalletId(*b"hb/trsry");
-}
-
-#[cfg(test)]
-pub struct TestWeights;
-#[cfg(test)]
-impl pallet::WeightInfo for TestWeights {
-	fn submit_proof() -> frame_support::weights::Weight {
-		frame_support::weights::Weight::zero()
-	}
-	fn set_proof_reward() -> frame_support::weights::Weight {
-		frame_support::weights::Weight::zero()
-	}
-	fn set_sp1_vkey_hash() -> frame_support::weights::Weight {
-		frame_support::weights::Weight::zero()
-	}
-}
-
-#[cfg(test)]
-impl crate::pallet::Config for Test {
-	type AdminOrigin = frame_system::EnsureRoot<u64>;
-	type ProofVerifier = DummyVerifier;
-	type Currency = Balances;
-	type TreasuryPalletId = TreasuryId;
-	type MaxProofSize = frame_support::traits::ConstU32<100_000>;
-	type MaxStoredProofs = frame_support::traits::ConstU32<100>;
-	type WeightInfo = TestWeights;
-}
-
-#[cfg(test)]
-pub fn new_test_ext() -> sp_io::TestExternalities {
-	use sp_runtime::BuildStorage;
-	let t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
-	let mut ext = sp_io::TestExternalities::new(t);
-	ext.execute_with(|| {
-		frame_system::Pallet::<Test>::set_block_number(1);
-		// Initialize consensus state with dummy bytes so submit_proof doesn't fail
-		ConsensusState::<Test>::put(alloc::vec![0u8; 32]);
-	});
-	ext
 }

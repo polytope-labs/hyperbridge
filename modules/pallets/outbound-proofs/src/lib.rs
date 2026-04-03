@@ -31,7 +31,7 @@ pub trait ProofVerifier {
 	fn verify(
 		trusted_state: &[u8],
 		proof: &[u8],
-	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError>;
+	) -> Result<(), frame_support::pallet_prelude::DispatchError>;
 }
 
 /// Crypto implementation using substrate host functions for BEEFY proof verification.
@@ -59,7 +59,7 @@ impl<T: pallet::Config> ProofVerifier for BeefyProofVerifier<T> {
 	fn verify(
 		trusted_state_bytes: &[u8],
 		proof: &[u8],
-	) -> Result<alloc::vec::Vec<u8>, frame_support::pallet_prelude::DispatchError> {
+	) -> Result<(), frame_support::pallet_prelude::DispatchError> {
 		use frame_support::pallet_prelude::DispatchError;
 
 		let proof_type = proof.first().ok_or(DispatchError::Other("Empty proof"))?;
@@ -69,13 +69,13 @@ impl<T: pallet::Config> ProofVerifier for BeefyProofVerifier<T> {
 			codec::Decode::decode(&mut &trusted_state_bytes[..])
 				.map_err(|_| DispatchError::Other("Failed to decode consensus state"))?;
 
-		let (new_state_bytes, _headers) = match *proof_type {
+		match *proof_type {
 			beefy_verifier_primitives::PROOF_TYPE_NAIVE => {
 				let consensus_proof: beefy_verifier_primitives::BeefyConsensusProof =
 					codec::Decode::decode(&mut &payload[..])
 						.map_err(|_| DispatchError::Other("Failed to decode naive proof"))?;
 				beefy_verifier::verify_consensus::<SubstrateCrypto>(trusted_state, consensus_proof)
-					.map_err(|_| DispatchError::Other("Naive proof verification failed"))?
+					.map_err(|_| DispatchError::Other("Naive proof verification failed"))?;
 			},
 			beefy_verifier_primitives::PROOF_TYPE_SP1 => {
 				let sp1_proof: beefy_verifier_primitives::Sp1BeefyProof =
@@ -89,12 +89,12 @@ impl<T: pallet::Config> ProofVerifier for BeefyProofVerifier<T> {
 					sp1_proof,
 					vkey_hash,
 				)
-				.map_err(|_| DispatchError::Other("SP1 proof verification failed"))?
+				.map_err(|_| DispatchError::Other("SP1 proof verification failed"))?;
 			},
 			_ => return Err(DispatchError::Other("Unknown proof type")),
 		};
 
-		Ok(new_state_bytes)
+		Ok(())
 	}
 }
 
@@ -117,8 +117,11 @@ pub mod pallet {
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
+	/// BEEFY consensus client ID for reading state from pallet-ismp
+	pub const BEEFY_CONSENSUS_ID: ismp::consensus::ConsensusClientId = *b"BEEF";
+
 	#[pallet::config]
-	pub trait Config: polkadot_sdk::frame_system::Config {
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
 		type ProofVerifier: ProofVerifier;
@@ -178,11 +181,6 @@ pub mod pallet {
 	/// Current BEEFY authority set epoch
 	#[pallet::storage]
 	pub type CurrentEpoch<T: Config> = StorageValue<_, u64, ValueQuery>;
-
-	/// BEEFY consensus state — stored as SCALE-encoded bytes of
-	/// `beefy_verifier_primitives::ConsensusState`
-	#[pallet::storage]
-	pub type ConsensusState<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
 	/// Reward amount per valid proof — updatable via governance
 	#[pallet::storage]
@@ -247,14 +245,10 @@ pub mod pallet {
 				Error::<T>::AlreadyProven,
 			);
 
-			let trusted_bytes = ConsensusState::<T>::get();
-			ensure!(
-				!trusted_bytes.is_empty(),
-				DispatchError::Other("Consensus state not initialized"),
-			);
+			let trusted_bytes = pallet_ismp::ConsensusStates::<T>::get(BEEFY_CONSENSUS_ID)
+				.ok_or(DispatchError::Other("BEEFY consensus state not initialized"))?;
 
-			let new_state_bytes = T::ProofVerifier::verify(&trusted_bytes, &consensus_proof)?;
-			ConsensusState::<T>::put(&new_state_bytes);
+			T::ProofVerifier::verify(&trusted_bytes, &consensus_proof)?;
 
 			let offchain_key = Self::offchain_proof_key(relay_chain_height, validator_set_id);
 			sp_io::offchain_index::set(&offchain_key, &consensus_proof);

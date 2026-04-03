@@ -17145,7 +17145,6 @@ dependencies = [
  "alloy-eips",
  "alloy-provider",
  "ethabi",
- "futures",
  "geth-primitives",
  "hex",
  "pharos-primitives",

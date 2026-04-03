@@ -20,4 +20,3 @@ hex = { workspace = true }
 ethabi = { workspace = true }
 alloy-provider = { workspace = true }
 alloy-eips = { workspace = true }
-futures = { workspace = true }

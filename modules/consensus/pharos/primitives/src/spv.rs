@@ -258,7 +258,12 @@ pub fn verify_non_existence_proof(
 		if last[1..33] == key_hash {
 			return false; // key matches, this is an existence proof
 		}
-		return verify_proof_walk(proof_nodes, root);
+		// Use key-aware walk to validate the proof path follows key's nibbles.
+		// Without this, an attacker could route to any unrelated leaf in the trie
+		// (via attacker-controlled next_begin_offset) and falsely claim the target
+		// key doesn't exist. The key-aware walk ensures every intermediate node is
+		// traversed at the nibble position dictated by the query key's hash.
+		return verify_proof_walk_with_key(proof_nodes, key, root);
 	}
 
 	// Case 2: internal node with empty target slot
@@ -276,7 +281,12 @@ pub fn verify_non_existence_proof(
 		return false;
 	}
 
-	if !verify_proof_walk(proof_nodes, root) {
+	// Use key-aware walk to validate the proof path follows key's nibbles.
+	// Without this, an attacker could route (via next_begin_offset) to a different
+	// internal node in the trie that happens to have an empty slot at the target
+	// nibble position. The sibling proofs would pass because that node's non-empty
+	// slots are genuinely occupied — they just belong to a different subtree.
+	if !verify_proof_walk_with_key(proof_nodes, key, root) {
 		return false;
 	}
 
@@ -300,6 +310,8 @@ pub fn verify_non_existence_proof(
 		}
 
 		let parent_nodes = &proof_nodes[..proof_nodes.len() - 1];
+		let mut proven_slots = [false; INTERNAL_NODE_SLOTS];
+
 		for sib in sibling_proofs {
 			let idx = sib.slot_index as usize;
 			if idx >= INTERNAL_NODE_SLOTS || idx == nibble {
@@ -310,7 +322,25 @@ pub fn verify_non_existence_proof(
 				return false;
 			}
 
+			// Reject duplicate slot_index values. Without this, an attacker can
+			// provide two siblings claiming different slot_index values while both
+			// actually proving the same slot, leaving another slot unproven.
+			if proven_slots[idx] {
+				return false;
+			}
+			proven_slots[idx] = true;
+
 			if sib.proof_path.is_empty() {
+				return false;
+			}
+
+			// The sibling leaf's nibble at the terminal node's depth must route
+			// through the declared slot_index. verify_proof_walk_with_key pins the
+			// slot at the leaf's actual nibble position — if slot_index differs from
+			// that nibble, the accounting would credit the wrong slot while the walk
+			// actually proves a different one.
+			let sib_key_hash = sha256(&sib.leftmost_leaf_key);
+			if nibble_at_depth(&sib_key_hash, depth) as usize != idx {
 				return false;
 			}
 
@@ -474,16 +504,24 @@ mod tests {
 
 	#[test]
 	fn test_non_existence_case1_leaf_mismatch() {
-		// Proof ends at a leaf with a different key
+		// Proof ends at a leaf with a different key. For Case 1 to be valid,
+		// the query key and the leaf key must share the same nibble path through
+		// the trie (they collide at the leaf level but have different key_hashes).
 		let other_key = b"other_key";
 		let other_value = b"other_value";
+		let query_key = b"missing_key";
 
 		let leaf_data = make_leaf(other_key, other_value);
 		let leaf_hash = sha256(&leaf_data);
 
-		let internal = make_internal_with_child(3, &leaf_hash);
+		// Place the leaf at the slot matching the QUERY key's nibble at depth 0.
+		// This ensures verify_proof_walk_with_key (which uses the query key's
+		// nibble path) finds the leaf hash at the correct slot.
+		let query_key_hash = sha256(query_key);
+		let query_nibble = nibble_at_depth(&query_key_hash, 0) as usize;
+
+		let internal = make_internal_with_child(query_nibble, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
-		let internal_offset = (INTERNAL_NODE_HEADER + 3 * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let msu_root = make_msu_root_with_child(7, &internal_hash);
 		let root = sha256(&msu_root);
@@ -491,15 +529,50 @@ mod tests {
 
 		let proof = vec![
 			node(msu_root, msu_offset, msu_offset + 32),
-			node(internal, internal_offset, internal_offset + 32),
+			node(internal, 0, 0), // offsets unused by key-aware walk for i > 0
 			node(leaf_data, 0, 0),
 		];
 
-		// Non-existence for a different key succeeds
-		assert!(verify_non_existence_proof(&proof, b"missing_key", &root, &[]));
+		// Non-existence for query key succeeds (leaf has different key_hash)
+		assert!(verify_non_existence_proof(&proof, query_key, &root, &[]));
 
 		// Non-existence for the actual key fails (it exists!)
 		assert!(!verify_non_existence_proof(&proof, other_key, &root, &[]));
+	}
+
+	#[test]
+	fn test_non_existence_case1_wrong_path_rejected() {
+		// A leaf exists in the trie, but the proof path does NOT follow the
+		// query key's nibbles. This should be rejected — it was the exact
+		// vulnerability that verify_proof_walk_with_key prevents.
+		let other_key = b"other_key";
+		let other_value = b"other_value";
+		let query_key = b"missing_key";
+
+		let leaf_data = make_leaf(other_key, other_value);
+		let leaf_hash = sha256(&leaf_data);
+
+		// Place the leaf at a DIFFERENT slot than the query key's nibble.
+		let query_key_hash = sha256(query_key);
+		let query_nibble = nibble_at_depth(&query_key_hash, 0) as usize;
+		let wrong_slot = (query_nibble + 1) % INTERNAL_NODE_SLOTS;
+
+		let internal = make_internal_with_child(wrong_slot, &leaf_hash);
+		let internal_hash = hash_internal_node(&internal);
+		let wrong_offset = (INTERNAL_NODE_HEADER + wrong_slot * INTERNAL_NODE_SLOT_SIZE) as u32;
+
+		let msu_root = make_msu_root_with_child(7, &internal_hash);
+		let root = sha256(&msu_root);
+		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
+
+		let proof = vec![
+			node(msu_root, msu_offset, msu_offset + 32),
+			node(internal, wrong_offset, wrong_offset + 32),
+			node(leaf_data, 0, 0),
+		];
+
+		// This MUST be rejected: the proof routes through the wrong slot
+		assert!(!verify_non_existence_proof(&proof, query_key, &root, &[]));
 	}
 
 	#[test]

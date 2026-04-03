@@ -186,7 +186,7 @@ export class IntentGateway {
 	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
 	 *    the `OrderPlaced` event is confirmed.
-	 * 4. Delegates to {@link OrderExecutor.executeIntentOrder} and forwards all
+	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
 	 *    subsequent status updates until the order is filled, exhausted, or fails.
 	 *
 	 * @param order - The order to place and execute. `order.fees` may be 0; it
@@ -251,7 +251,7 @@ export class IntentGateway {
 
 		yield { status: "ORDER_PLACED", order: finalizedOrder, receipt: placementReceipt }
 
-		for await (const status of this.orderExecutor.executeIntentOrder({
+		for await (const status of this.orderExecutor.executeOrder({
 			order: finalizedOrder,
 			sessionPrivateKey,
 			minBids: options?.minBids,
@@ -286,9 +286,9 @@ export class IntentGateway {
 	 * {@link execute} left off. The order must already be placed on-chain
 	 * (i.e. it must have a valid `id` and `session`).
 	 *
-	 * Internally delegates to {@link OrderExecutor.executeIntentOrder} and
+	 * Internally delegates to {@link OrderExecutor.executeOrder} and
 	 * yields the same status updates as the execution phase of {@link execute}:
-	 * `AWAITING_BIDS`, `BIDS_RECEIVED`, `BID_SELECTED`, `USEROP_SUBMITTED`,
+	 * `AWAITING_BIDS`, `BIDS_RECEIVED`, `BID_SELECTED`,
 	 * `FILLED`, `PARTIAL_FILL`, `EXPIRED`, or `FAILED`.
 	 *
 	 * Callers may check {@link isOrderFilled} or {@link isOrderRefunded} before
@@ -305,7 +305,7 @@ export class IntentGateway {
 	): AsyncGenerator<IntentOrderStatusUpdate, void> {
 		this.assertOrderCanResume(order)
 
-		for await (const status of this.orderExecutor.executeIntentOrder({
+		for await (const status of this.orderExecutor.executeOrder({
 			order,
 			sessionPrivateKey: options?.sessionPrivateKey,
 			minBids: options?.minBids,

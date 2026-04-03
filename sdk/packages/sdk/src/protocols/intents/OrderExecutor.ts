@@ -3,46 +3,29 @@ import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, Sel
 import { sleep, DEFAULT_POLL_INTERVAL, hexToString } from "@/utils"
 import type { IntentGatewayContext } from "./types"
 import { BidManager } from "./BidManager"
+// @ts-ignore
+import mergeRace from "@async-generator/merge-race"
 
-/**
- * Returns the storage key used to persist the deduplication set of already-
- * submitted UserOperation hashes for a given order commitment.
- *
- * @param commitment - The order commitment hash (bytes32).
- * @returns A namespaced string key safe to use with the `usedUserOpsStorage` adapter.
- */
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
 
 /**
- * Estimated average block time in milliseconds, used to decide whether the
- * deadline is far enough away that a `getBlockNumber` RPC call can be skipped
- * on a given poll iteration. Conservative (low) so that the check fires
- * before the actual deadline rather than after.
- */
-const ESTIMATED_BLOCK_TIME_MS = 2_000
-
-/**
- * Drives the post-placement execution lifecycle of an IntentGatewayV2 order.
+ * Drives the post-placement execution lifecycle of an intent order.
  *
  * After an order is placed on the source chain, `OrderExecutor` polls the
- * Hyperbridge coprocessor for solver bids, selects and validates the best
- * bid, submits the corresponding ERC-4337 UserOperation via the bundler, and
- * tracks partial fills until the order is fully satisfied or its on-chain
- * block deadline is reached. Polling is bounded solely by the order's
- * deadline — there is no separate wall-clock timeout.
+ * Hyperbridge coprocessor for solver bids, selects the best bid, submits
+ * the corresponding ERC-4337 UserOperation via the bundler, and tracks
+ * partial fills until the order is fully satisfied or its on-chain block
+ * deadline is reached.
+ *
+ * Execution is structured as two racing async generators combined via
+ * `mergeRace`: an `executionStream` that polls for bids and submits
+ * UserOperations, and a `deadlineStream` that sleeps until the order's
+ * block deadline and yields `EXPIRED`. Whichever yields first wins.
  *
  * Deduplication of UserOperations is persisted across restarts using
  * `usedUserOpsStorage` so that the executor can resume safely after a crash.
  */
 export class OrderExecutor {
-	/**
-	 * @param ctx - Shared IntentsV2 context providing the destination chain
-	 *   client, coprocessor, bundler URL, and storage adapters.
-	 * @param bidManager - Handles bid validation, sorting, simulation, and
-	 *   UserOperation submission.
-	 * @param crypto - Crypto utilities used to compute UserOperation hashes for
-	 *   deduplication.
-	 */
 	constructor(
 		private readonly ctx: IntentGatewayContext,
 		private readonly bidManager: BidManager,
@@ -50,39 +33,33 @@ export class OrderExecutor {
 	) {}
 
 	/**
-	 * Cached block number and the wall-clock time it was fetched, used by
-	 * {@link isDeadlineReached} to skip redundant `getBlockNumber` RPC calls
-	 * when the deadline is estimated to be far away.
+	 * Sleeps until the order's block deadline is reached, then yields EXPIRED.
+	 * Uses the chain's block time to calculate the sleep duration.
 	 */
-	private lastBlockCheck: { block: bigint; checkedAt: number } | undefined
+	private async *deadlineStream(
+		deadline: bigint,
+		commitment: HexString,
+	): AsyncGenerator<IntentOrderStatusUpdate, void> {
+		const client = this.ctx.dest.client
+		const blockTimeSeconds = client.chain?.blockTime ?? 2
 
-	/**
-	 * Checks whether the order's block deadline has been reached. Caches the
-	 * last-seen block number and skips the RPC call when the deadline is
-	 * estimated to be more than 10 blocks away based on wall-clock time
-	 * elapsed since the last check.
-	 */
-	private async isDeadlineReached(deadline: bigint): Promise<boolean> {
-		const now = Date.now()
+		while (true) {
+			const currentBlock = await client.getBlockNumber()
+			if (currentBlock >= deadline) break
 
-		if (this.lastBlockCheck) {
-			const elapsed = now - this.lastBlockCheck.checkedAt
-			const estimatedBlocksElapsed = BigInt(Math.floor(elapsed / ESTIMATED_BLOCK_TIME_MS))
-			const estimatedCurrentBlock = this.lastBlockCheck.block + estimatedBlocksElapsed
-			if (estimatedCurrentBlock + 10n < deadline) {
-				return false
-			}
+			const blocksRemaining = Number(deadline - currentBlock)
+			const sleepMs = blocksRemaining * blockTimeSeconds * 1_000
+			await sleep(sleepMs)
 		}
 
-		const currentBlock = await this.ctx.dest.client.getBlockNumber()
-		this.lastBlockCheck = { block: currentBlock, checkedAt: now }
-		return currentBlock >= deadline
+		yield {
+			status: "EXPIRED",
+			commitment,
+			error: "Order deadline reached",
+		}
 	}
 
-	/**
-	 * Loads the persisted deduplication set of already-submitted UserOp hashes
-	 * for a given order commitment.
-	 */
+	/** Loads the persisted deduplication set of already-submitted UserOp hashes for a given order commitment. */
 	private async loadUsedUserOps(commitment: HexString): Promise<Set<string>> {
 		const usedUserOps = new Set<string>()
 		const persisted = await this.ctx.usedUserOpsStorage.getItem(USED_USEROPS_STORAGE_KEY(commitment))
@@ -122,62 +99,43 @@ export class OrderExecutor {
 	}
 
 	/**
-	 * Polls the coprocessor for bids until either enough bids are collected
-	 * or the order's block deadline is reached.
+	 * Fetches bids from the coprocessor for a given order commitment.
+	 * If a preferred solver is configured and the solver lock has not expired,
+	 * only bids from that solver are returned.
 	 */
-	private async pollForBids(params: {
+	private async fetchBids(params: {
 		commitment: HexString
-		isOrderExpired: () => Promise<boolean>
-		minBids: number
-		pollIntervalMs: number
 		solver?: { address: HexString; timeoutMs: number }
-	}): Promise<{ bids: FillerBid[]; solverLockExpired: boolean }> {
-		const { commitment, isOrderExpired, minBids, pollIntervalMs, solver } = params
-		const startTime = Date.now()
-		let bids: FillerBid[] = []
-		let solverLockExpired = false
+		solverLockStartTime: number
+	}): Promise<FillerBid[]> {
+		const { commitment, solver, solverLockStartTime } = params
 
-		while (!(await isOrderExpired())) {
-			try {
-				const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
+		const fetchedBids = await this.ctx.intentsCoprocessor!.getBidsForOrder(commitment)
 
-				if (solver) {
-					const { address, timeoutMs } = solver
-					const solverLockActive = Date.now() - startTime < timeoutMs
-					if (!solverLockActive) solverLockExpired = true
+		if (solver) {
+			const { address, timeoutMs } = solver
+			const solverLockActive = Date.now() - solverLockStartTime < timeoutMs
 
-					bids = solverLockActive
-						? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === address.toLowerCase())
-						: fetchedBids
-				} else {
-					bids = fetchedBids
-				}
-
-				if (bids.length >= minBids) {
-					break
-				}
-			} catch {
-				// Continue polling on errors
-			}
-
-			await sleep(pollIntervalMs)
+			return solverLockActive
+				? fetchedBids.filter((bid) => bid.userOp.sender.toLowerCase() === address.toLowerCase())
+				: fetchedBids
 		}
 
-		return { bids, solverLockExpired }
+		return fetchedBids
 	}
 
 	/**
-	 * Selects the best bid, submits the UserOp, and persists the dedup entry.
-	 * Yields `BID_SELECTED` and `USEROP_SUBMITTED` status updates.
+	 * Selects the best bid from the provided candidates, submits the
+	 * UserOperation, and persists the dedup entry to prevent resubmission.
 	 */
-	private async *submitBid(params: {
+	private async submitBid(params: {
 		order: Order
 		freshBids: FillerBid[]
 		sessionPrivateKey?: HexString
 		commitment: HexString
 		usedUserOps: Set<string>
 		userOpHashKey: (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string
-	}): AsyncGenerator<IntentOrderStatusUpdate, SelectBidResult> {
+	}): Promise<SelectBidResult> {
 		const { order, freshBids, sessionPrivateKey, commitment, usedUserOps, userOpHashKey } = params
 
 		const result = await this.bidManager.selectBid(order, freshBids, sessionPrivateKey)
@@ -185,29 +143,13 @@ export class OrderExecutor {
 		usedUserOps.add(userOpHashKey(result.userOp))
 		await this.persistUsedUserOps(commitment, usedUserOps)
 
-		yield {
-			status: "BID_SELECTED",
-			commitment,
-			selectedSolver: result.solverAddress,
-			userOpHash: result.userOpHash,
-			userOp: result.userOp,
-		}
-
-		yield {
-			status: "USEROP_SUBMITTED",
-			commitment,
-			userOpHash: result.userOpHash,
-			selectedSolver: result.solverAddress,
-			transactionHash: result.txnHash,
-		}
-
 		return result
 	}
 
 	/**
-	 * Processes a fill result, updating the fill accumulators in-place and
-	 * returning the status update to yield (if any) and whether the order
-	 * is fully satisfied.
+	 * Processes a fill result and returns updated fill accumulators,
+	 * the status update to yield (if any), and whether the order is
+	 * fully satisfied.
 	 */
 	private processFillResult(
 		result: SelectBidResult,
@@ -244,10 +186,10 @@ export class OrderExecutor {
 		if (result.fillStatus === "partial") {
 			const filledAssets = result.filledAssets ?? []
 
-			for (const filled of filledAssets) {
-				const entry = totalFilledAssets.find((a) => a.token === filled.token)
-				if (entry) entry.amount += filled.amount
-			}
+			totalFilledAssets = totalFilledAssets.map((a) => {
+				const filled = filledAssets.find((f) => f.token === a.token)
+				return filled ? { token: a.token, amount: a.amount + filled.amount } : { ...a }
+			})
 
 			remainingAssets = targetAssets.map((target) => {
 				const filled = totalFilledAssets.find((a) => a.token === target.token)
@@ -291,33 +233,16 @@ export class OrderExecutor {
 	}
 
 	/**
-	 * Async generator that executes an intent order by polling for bids and
-	 * submitting UserOperations until the order is filled, partially exhausted,
-	 * or the on-chain deadline is reached.
+	 * Executes an intent order by racing bid polling against the order's
+	 * block deadline. Yields status updates at each lifecycle stage.
 	 *
-	 * Bid polling is bounded by the order's block deadline (`order.deadline`),
-	 * which is checked before every poll iteration. There is no separate
-	 * wall-clock timeout — the order's on-chain lifetime is the single
-	 * source of truth for expiry.
+	 * **Same-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
+	 *   → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
 	 *
-	 * **Status progression (cross-chain orders):**
-	 * `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED` → `USEROP_SUBMITTED`
-	 * then terminates (settlement is confirmed off-chain via Hyperbridge).
-	 *
-	 * **Status progression (same-chain orders):**
-	 * `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED` → `USEROP_SUBMITTED`
-	 * → (`FILLED` | `PARTIAL_FILL`)* → (`FILLED` | `EXPIRED`)
-	 *
-	 * **Error statuses:** `FAILED` (retryable error during bid selection/submission,
-	 * triggers automatic retry) or `EXPIRED` (deadline reached or no new bids —
-	 * terminal, no further retries).
-	 *
-	 * @param options - Execution parameters including the placed order, its
-	 *   session private key, bid collection settings, and poll interval.
-	 * @yields {@link IntentOrderStatusUpdate} objects describing each stage.
-	 * @throws Never throws directly; all errors are reported as `FAILED` yields.
+	 * **Cross-chain:** `AWAITING_BIDS` → `BIDS_RECEIVED` → `BID_SELECTED`
+	 *   (terminates — settlement is confirmed async via Hyperbridge)
 	 */
-	async *executeIntentOrder(options: ExecuteIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
+	async *executeOrder(options: ExecuteIntentOrderOptions): AsyncGenerator<IntentOrderStatusUpdate, void> {
 		const { order, sessionPrivateKey, minBids = 1, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
 
 		const commitment = order.id as HexString
@@ -336,50 +261,92 @@ export class OrderExecutor {
 		const usedUserOps = await this.loadUsedUserOps(commitment)
 		const userOpHashKey = this.createUserOpHasher(order)
 
-		// For partial fill tracking, initialise per-token accumulators from order.output.assets
 		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 		let totalFilledAssets = order.output.assets.map((a) => ({ token: a.token, amount: 0n }))
 		let remainingAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 
-		this.lastBlockCheck = undefined
-		const isOrderExpired = () => this.isDeadlineReached(order.deadline)
+		const executionStream = this.executionStream({
+			order,
+			sessionPrivateKey,
+			commitment,
+			minBids,
+			pollIntervalMs,
+			solver,
+			usedUserOps,
+			userOpHashKey,
+			targetAssets,
+			totalFilledAssets,
+			remainingAssets,
+		})
+
+		const deadlineTimeout = this.deadlineStream(order.deadline, commitment)
+		const combined = mergeRace(deadlineTimeout, executionStream)
+
+		for await (const update of combined) {
+			yield update
+
+			if (update.status === "EXPIRED" || update.status === "FILLED") return
+
+			// Cross-chain orders terminate after submission
+			if (update.status === "BID_SELECTED" && !isSameChain) return
+		}
+	}
+
+	/**
+	 * Core execution loop that polls for bids, submits UserOperations,
+	 * and tracks fill progress. Yields between each poll iteration so
+	 * that `mergeRace` can interleave the deadline stream.
+	 */
+	private async *executionStream(params: {
+		order: Order
+		sessionPrivateKey?: HexString
+		commitment: HexString
+		minBids: number
+		pollIntervalMs: number
+		solver?: { address: HexString; timeoutMs: number }
+		usedUserOps: Set<string>
+		userOpHashKey: (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string
+		targetAssets: TokenInfo[]
+		totalFilledAssets: TokenInfo[]
+		remainingAssets: TokenInfo[]
+	}): AsyncGenerator<IntentOrderStatusUpdate, void> {
+		const {
+			order,
+			sessionPrivateKey,
+			commitment,
+			minBids,
+			pollIntervalMs,
+			solver,
+			usedUserOps,
+			userOpHashKey,
+			targetAssets,
+		} = params
+		let { totalFilledAssets, remainingAssets } = params
+
+		const solverLockStartTime = Date.now()
+		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
 		try {
-			while (!(await isOrderExpired())) {
-				yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
+			while (true) {
+				let freshBids: FillerBid[]
+				try {
+					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
+					freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
+				} catch {
+					await sleep(pollIntervalMs)
+					continue
+				}
 
-				const { bids, solverLockExpired } = await this.pollForBids({
-					commitment,
-					isOrderExpired,
-					minBids,
-					pollIntervalMs,
-					solver,
-				})
-
-				const freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
-
-				if (freshBids.length === 0) {
-					const solverClause = solver && !solverLockExpired ? ` for requested solver ${solver.address}` : ""
-					const isPartiallyFilled = totalFilledAssets.some((a) => a.amount > 0n)
-					const noBidsError = isPartiallyFilled
-						? `No new bids${solverClause} after partial fill`
-						: `No new bids${solverClause} for order`
-
-					yield {
-						status: "EXPIRED",
-						commitment,
-						totalFilledAssets,
-						remainingAssets,
-						error: noBidsError,
-					}
-					return
+				if (freshBids.length < minBids) {
+					await sleep(pollIntervalMs)
+					continue
 				}
 
 				yield { status: "BIDS_RECEIVED", commitment, bidCount: freshBids.length, bids: freshBids }
 
-				let result: SelectBidResult
+				let submitResult: SelectBidResult
 				try {
-					const gen = this.submitBid({
+					submitResult = await this.submitBid({
 						order,
 						freshBids,
 						sessionPrivateKey,
@@ -387,12 +354,6 @@ export class OrderExecutor {
 						usedUserOps,
 						userOpHashKey,
 					})
-					let step = await gen.next()
-					while (!step.done) {
-						yield step.value
-						step = await gen.next()
-					}
-					result = step.value
 				} catch (err) {
 					yield {
 						status: "FAILED",
@@ -405,12 +366,17 @@ export class OrderExecutor {
 					continue
 				}
 
-				if (!isSameChain) {
-					return
+				yield {
+					status: "BID_SELECTED",
+					commitment,
+					selectedSolver: submitResult.solverAddress,
+					userOpHash: submitResult.userOpHash,
+					userOp: submitResult.userOp,
+					transactionHash: submitResult.txnHash,
 				}
 
 				const fill = this.processFillResult(
-					result,
+					submitResult,
 					commitment,
 					targetAssets,
 					totalFilledAssets,
@@ -423,14 +389,6 @@ export class OrderExecutor {
 					yield fill.update
 					if (fill.done) return
 				}
-			}
-
-			yield {
-				status: "EXPIRED",
-				commitment,
-				totalFilledAssets,
-				remainingAssets,
-				error: "Order deadline reached",
 			}
 		} catch (err) {
 			yield {

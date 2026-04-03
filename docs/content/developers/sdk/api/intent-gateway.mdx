@@ -341,8 +341,7 @@ type IntentOrderStatusUpdate =
   | { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
   | { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
-  | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation }
-  | { status: "USEROP_SUBMITTED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString }
+  | { status: "BID_SELECTED"; commitment: HexString; selectedSolver: HexString; userOpHash: HexString; userOp: PackedUserOperation; transactionHash?: HexString }
   | { status: "FILLED"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "PARTIAL_FILL"; commitment: HexString; userOpHash: HexString; selectedSolver: HexString; transactionHash?: HexString; filledAssets: TokenInfo[]; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
   | { status: "EXPIRED"; commitment: HexString; totalFilledAssets?: TokenInfo[]; remainingAssets?: TokenInfo[]; error: string }
@@ -355,8 +354,7 @@ type IntentOrderStatusUpdate =
 | `ORDER_PLACED` | `order`, `receipt` | Order confirmed on-chain; `receipt` is the full viem `TransactionReceipt` of the placement transaction |
 | `AWAITING_BIDS` | `commitment`, `totalFilledAssets`, `remainingAssets` | Polling the coprocessor for solver bids |
 | `BIDS_RECEIVED` | `commitment`, `bidCount`, `bids` | One or more bids collected |
-| `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp` | Best bid selected and UserOperation submitted to the bundler |
-| `USEROP_SUBMITTED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?` | UserOperation sent to the bundler |
+| `BID_SELECTED` | `commitment`, `selectedSolver`, `userOpHash`, `userOp`, `transactionHash?` | Best bid selected and UserOperation submitted to the bundler |
 | `FILLED` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `totalFilledAssets`, `remainingAssets` | Order fully filled on the destination chain |
 | `PARTIAL_FILL` | `commitment`, `userOpHash`, `selectedSolver`, `transactionHash?`, `filledAssets`, `totalFilledAssets`, `remainingAssets` | Order partially filled; more fills may follow |
 | `EXPIRED` | `commitment`, `totalFilledAssets?`, `remainingAssets?`, `error` | Order deadline reached or no new bids available — terminal |

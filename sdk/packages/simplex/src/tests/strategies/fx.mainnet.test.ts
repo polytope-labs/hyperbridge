@@ -158,9 +158,9 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -287,9 +287,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -508,12 +508,6 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 						tlog("BID_SELECTED", {
 							commitment: status.commitment,
 							selectedSolver: status.selectedSolver,
-							userOpHash: status.userOpHash,
-						})
-						break
-					case "USEROP_SUBMITTED":
-						tlog("USEROP_SUBMITTED", {
-							commitment: status.commitment,
 							userOpHash: status.userOpHash,
 							txHash: status.transactionHash,
 						})
@@ -909,9 +903,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -1240,9 +1234,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -1374,9 +1368,9 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -1521,9 +1515,9 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 					if (status.status === "BID_SELECTED") {
 						selectedSolver = status.selectedSolver as HexString
 						userOpHash = status.userOpHash as HexString
-					}
-					if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-						console.log("Transaction hash:", status.transactionHash)
+						if (status.transactionHash) {
+							console.log("Transaction hash:", status.transactionHash)
+						}
 					}
 					if (status.status === "FAILED") {
 						throw new Error(`Order execution failed: ${status.error}`)

@@ -147,9 +147,9 @@ describe("Filler V2 - Solver Selection ON", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -362,9 +362,9 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)

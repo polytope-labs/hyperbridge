@@ -72,7 +72,7 @@ const walletClient = createWalletClient({
 ```
 
 <Callout type="warn">
-The `bundlerUrl` on the destination chain is **required** for cross-chain orders. `IntentGateway` uses it to submit the solver's `UserOperation` to the ERC-4337 bundler on the destination chain. Without it, solver selection will fail at the `BID_SELECTED` stage.
+The `bundlerUrl` on the destination chain is **required** for cross-chain orders. `IntentGateway` uses it to submit the solver's `UserOperation` to the ERC-4337 bundler on the destination chain. Without it, bid submission will fail at the `BID_SELECTED` stage.
 </Callout>
 
 ### Same-Chain Orders
@@ -266,14 +266,10 @@ async function runOrder(order: Order) {
         console.log(`${update.bidCount} bids received`)
         break
       case IntentOrderStatus.BID_SELECTED:
-        // Best bid chosen; SDK is encoding the SelectSolver UserOperation
-        console.log("Best bid selected, solver:", update.selectedSolver)
-        break
-      case IntentOrderStatus.USEROP_SUBMITTED:
-        // UserOp submitted to the ERC-4337 bundler
+        // Best bid chosen and UserOp submitted to the ERC-4337 bundler
         // Cross-chain: execute() exits here — Hyperbridge finalisation is async
         // Same-chain: SDK waits for the fill tx, then moves to FILLED or PARTIAL_FILL
-        console.log("UserOp submitted to bundler:", update.userOpHash)
+        console.log("Bid selected, solver:", update.selectedSolver, "tx:", update.transactionHash)
         break
       case IntentOrderStatus.PARTIAL_FILL: {
         // Same-chain only: a solver partially filled the output
@@ -310,8 +306,7 @@ async function runOrder(order: Order) {
 | `ORDER_PLACED` | `placeOrder` tx confirmed on-chain | `order` (finalized `Order`), `receipt` |
 | `AWAITING_BIDS` | Polling coprocessor for bids | `commitment`, `totalFilledAssets`, `remainingAssets` |
 | `BIDS_RECEIVED` | `minBids` collected or `bidTimeoutMs` elapsed | `commitment`, `bidCount`, `bids` |
-| `BID_SELECTED` | Best bid chosen | `commitment`, `selectedSolver`, `userOpHash` |
-| `USEROP_SUBMITTED` | UserOp sent to bundler | `commitment`, `userOpHash`, `transactionHash` |
+| `BID_SELECTED` | Best bid chosen and UserOp sent to bundler | `commitment`, `selectedSolver`, `userOpHash`, `userOp`, `transactionHash` |
 | `PARTIAL_FILL` | Same-chain partial fill confirmed; loop restarts | `commitment`, `filledAssets`, `totalFilledAssets`, `remainingAssets` |
 | `FILLED` | Order fully filled | `commitment`, `userOpHash`, `transactionHash` |
 | `EXPIRED` | Deadline reached or no new bids available — terminal | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
@@ -387,7 +382,7 @@ Set `destination` to the target chain's state machine ID. The contract verifies 
 
 Cross-chain fills are **all-or-nothing** — the solver must provide the full required amount for every output asset in a single transaction. Partial fills are not supported for cross-chain orders. On fill, the contract dispatches a `RedeemEscrow` POST request via Hyperbridge back to the source chain, which releases escrowed tokens to the solver on receipt.
 
-`execute()` exits after `USEROP_SUBMITTED` for cross-chain orders — it does not wait for Hyperbridge finalisation. To track cross-chain settlement, monitor the `EscrowReleased` event on the source chain or use the indexer.
+`execute()` exits after `BID_SELECTED` for cross-chain orders — it does not wait for Hyperbridge finalisation. To track cross-chain settlement, monitor the `EscrowReleased` event on the source chain or use the indexer.
 
 ```typescript lineNumbers title="cross-chain-order.ts" icon="typescript"
 import { toHex, parseUnits } from "viem"

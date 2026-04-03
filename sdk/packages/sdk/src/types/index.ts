@@ -1318,7 +1318,6 @@ export const IntentOrderStatus = Object.freeze({
 	AWAITING_BIDS: "AWAITING_BIDS",
 	BIDS_RECEIVED: "BIDS_RECEIVED",
 	BID_SELECTED: "BID_SELECTED",
-	USEROP_SUBMITTED: "USEROP_SUBMITTED",
 	FILLED: "FILLED",
 	PARTIAL_FILL: "PARTIAL_FILL",
 	EXPIRED: "EXPIRED",
@@ -1340,12 +1339,6 @@ export type IntentOrderStatusUpdate =
 			selectedSolver: HexString
 			userOpHash: HexString
 			userOp: PackedUserOperation
-	  }
-	| {
-			status: "USEROP_SUBMITTED"
-			commitment: HexString
-			userOpHash: HexString
-			selectedSolver: HexString
 			transactionHash?: HexString
 	  }
 	| {

@@ -512,8 +512,18 @@ impl StakingContractLayout {
 
 	/// Calculate the storage key for a dynamic array element.
 	pub fn array_element_key<H: Keccak256>(&self, base_slot: u64, index: u64) -> H256 {
+		self.array_element_key_with(base_slot, index, H::keccak256)
+	}
+
+	/// Non-generic variant that accepts a concrete hash function.
+	pub fn array_element_key_with(
+		&self,
+		base_slot: u64,
+		index: u64,
+		keccak: impl FnOnce(&[u8]) -> H256,
+	) -> H256 {
 		let slot_bytes = U256::from(base_slot).to_big_endian();
-		let base_key = H::keccak256(&slot_bytes);
+		let base_key = keccak(&slot_bytes);
 		let base_pos = U256::from_big_endian(&base_key.0);
 		let element_pos = base_pos + U256::from(index);
 		H256(element_pos.to_big_endian())

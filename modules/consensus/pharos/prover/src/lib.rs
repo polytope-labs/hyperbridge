@@ -188,7 +188,13 @@ impl<C: Config> PharosProver<C> {
 		// Fetch pool IDs from the activePoolSets array
 		let mut pool_id_keys = Vec::new();
 		for i in 0..validator_count {
-			pool_id_keys.push(self.array_element_key(self.storage_layout.active_pool_set_slot, i));
+			pool_id_keys.push(
+				self.storage_layout.array_element_key_with(
+					self.storage_layout.active_pool_set_slot,
+					i,
+					|data| H256::from(keccak256(data)),
+				),
+			);
 		}
 
 		if pool_id_keys.is_empty() {
@@ -321,15 +327,6 @@ impl<C: Config> PharosProver<C> {
 		}
 
 		Ok(ValidatorSetProof { storage_proof, storage_values })
-	}
-
-	/// Calculate the storage key for a dynamic array element.
-	fn array_element_key(&self, base_slot: u64, index: u64) -> H256 {
-		let slot_bytes = U256::from(base_slot).to_big_endian();
-		let base_key = keccak256(&slot_bytes);
-		let base_pos = U256::from_big_endian(&base_key);
-		let element_pos = base_pos + U256::from(index);
-		H256(element_pos.to_big_endian())
 	}
 
 	/// Get the BLS string header slot and stake slot for a validator.

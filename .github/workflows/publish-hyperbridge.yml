@@ -381,7 +381,7 @@ jobs:
                     COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
                   fi
 
-                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "node")
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "node" || true)
 
                   echo "changelog<<EOF" >> $GITHUB_OUTPUT
                   echo "## What's Changed" >> $GITHUB_OUTPUT

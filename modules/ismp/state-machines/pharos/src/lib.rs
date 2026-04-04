@@ -142,13 +142,12 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 			.try_into()
 			.map_err(|_| Error::Custom("Invalid slot hash length".to_string()))?;
 
-		spv::verify_storage_membership_proof(
+		spv::verify_membership_proof(
 			storage_proof_nodes,
-			&address,
-			&slot_key,
+			&spv::build_storage_key(&address, &slot_key),
 			&state_root.0,
 		)
-		.ok_or_else(|| Error::Custom("Storage membership proof verification failed".to_string()))?;
+		.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
 	}
 
 	Ok(())
@@ -178,21 +177,22 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			(ismp_address, key.clone())
 		} else if key.len() == 20 {
 			// Account query which verifies account proof and return raw account value
-			let address: [u8; 20] =
-				key.clone().try_into().map_err(|_| Error::Custom("Invalid address".to_string()))?;
+			let address: [u8; 20] = key
+				.clone()
+				.try_into()
+				.map_err(|_| Error::Custom("Invalid address".to_string()))?;
 			let account_data = pharos_proof
 				.account_proofs
 				.get(&key)
 				.ok_or_else(|| Error::Custom("Missing account proof".to_string()))?;
 
-			if !spv::verify_account_proof(
+			spv::verify_proof(
 				&account_data.proof_nodes,
 				&address,
 				&account_data.raw_value,
 				&state_root.0,
-			) {
-				return Err(Error::Custom("Account proof verification failed".to_string()));
-			}
+			)
+			.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
 
 			map.insert(key, Some(account_data.raw_value.clone()));
 			continue;
@@ -210,17 +210,13 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 
 		// Check if this is a non-existence proof
 		if let Some(non_existence) = pharos_proof.non_existence_proofs.get(slot_key.as_slice()) {
-			if !spv::verify_storage_non_existence_proof(
+			spv::verify_non_existence_proof(
 				&non_existence.proof_nodes,
-				&contract_address,
-				&slot_key,
+				&spv::build_storage_key(&contract_address, &slot_key),
 				&state_root.0,
 				&non_existence.sibling_proofs,
-			) {
-				return Err(Error::Custom(
-					"Storage non-existence proof verification failed".to_string(),
-				));
-			}
+			)
+			.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
 			map.insert(key, None);
 			continue;
 		}
@@ -244,16 +240,13 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			return Err(Error::Custom("Storage value exceeds 32 bytes".to_string()));
 		}
 
-		// Verify the proof with the actual value
-		if !spv::verify_storage_proof(
+		spv::verify_proof(
 			storage_proof_nodes,
-			&contract_address,
-			&slot_key,
+			&spv::build_storage_key(&contract_address, &slot_key),
 			&padded_value,
 			&state_root.0,
-		) {
-			return Err(Error::Custom("Storage proof verification failed".to_string()));
-		}
+		)
+		.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
 
 		map.insert(key, Some(storage_value.clone()));
 	}

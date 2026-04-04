@@ -18,13 +18,13 @@ use substrate_state_machine::HashAlgorithm;
 use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};
 use tesseract_evm::{EvmClient, EvmConfig};
 use tesseract_evm_tendermint::{TendermintEvmClient, TendermintEvmClientConfig};
+use tesseract_pharos_evm::PharosEvmClient;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient, SubstrateConfig,
 };
 use tesseract_substrate_evm::{SubstrateEvmClient, SubstrateEvmClientConfig};
-use tesseract_pharos_evm::PharosEvmClient;
 use tesseract_tron::{TronClient, TronConfig};
 
 /// The AnyConfig wraps the configuration options for all supported chains

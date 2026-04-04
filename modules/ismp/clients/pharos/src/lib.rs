@@ -22,7 +22,6 @@ extern crate alloc;
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec};
 use codec::{Decode, Encode};
 use core::marker::PhantomData;
-use pharos_state_machine::PharosStateMachine;
 use geth_primitives::Header;
 use ismp::{
 	consensus::{
@@ -34,7 +33,11 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 pub use pharos_primitives::{Mainnet, Testnet};
-use pharos_primitives::{PHAROS_ATLANTIC_CHAIN_ID, PHAROS_MAINNET_CHAIN_ID, ValidatorSet, VerifierState, VerifierStateUpdate};
+use pharos_primitives::{
+	ValidatorSet, VerifierState, VerifierStateUpdate, PHAROS_ATLANTIC_CHAIN_ID,
+	PHAROS_MAINNET_CHAIN_ID,
+};
+use pharos_state_machine::PharosStateMachine;
 use pharos_verifier::verify_pharos_block;
 use polkadot_sdk::*;
 use sp_core::H256;
@@ -102,19 +105,14 @@ impl<
 		let update = VerifierStateUpdate::decode(&mut &proof[..])
 			.map_err(|e| Error::AnyHow(anyhow::anyhow!("{:?}", e).into()))?;
 
-		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+		let consensus_state =
+			ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
+				Error::AnyHow(
+					anyhow::anyhow!("Cannot decode trusted consensus state: {:?}", e).into(),
+				)
+			})?;
 
-		if consensus_state.finalized_height >= update.block_number() {
-			return Err(Error::Custom("Expired update".to_string()));
-		}
-
-		let trusted_state = VerifierState {
-			current_validator_set: consensus_state.current_validators.clone(),
-			finalized_block_number: consensus_state.finalized_height,
-			finalized_hash: consensus_state.finalized_hash,
-			current_epoch: consensus_state.current_epoch,
-		};
+		let trusted_state: VerifierState = consensus_state.clone().into();
 
 		let new_state = verify_pharos_block::<C, H>(trusted_state, update.clone())
 			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
@@ -156,11 +154,17 @@ impl<
 		proof_1: Vec<u8>,
 		proof_2: Vec<u8>,
 	) -> Result<(), Error> {
-		let update_1 = VerifierStateUpdate::decode(&mut &proof_1[..])
-			.map_err(|_| Error::Custom("Cannot decode pharos update for proof 1".to_string()))?;
+		let update_1 = VerifierStateUpdate::decode(&mut &proof_1[..]).map_err(|e| {
+			Error::AnyHow(
+				anyhow::anyhow!("Cannot decode pharos update for proof 1: {:?}", e).into(),
+			)
+		})?;
 
-		let update_2 = VerifierStateUpdate::decode(&mut &proof_2[..])
-			.map_err(|_| Error::Custom("Cannot decode pharos update for proof 2".to_string()))?;
+		let update_2 = VerifierStateUpdate::decode(&mut &proof_2[..]).map_err(|e| {
+			Error::AnyHow(
+				anyhow::anyhow!("Cannot decode pharos update for proof 2: {:?}", e).into(),
+			)
+		})?;
 
 		let header_1 = &update_1.header;
 		let header_2 = &update_2.header;
@@ -176,15 +180,14 @@ impl<
 			return Err(Error::Custom("Invalid fraud proof: identical headers".to_string()));
 		}
 
-		let consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
-			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
+		let consensus_state =
+			ConsensusState::decode(&mut &trusted_consensus_state[..]).map_err(|e| {
+				Error::AnyHow(
+					anyhow::anyhow!("Cannot decode trusted consensus state: {:?}", e).into(),
+				)
+			})?;
 
-		let trusted_state = VerifierState {
-			current_validator_set: consensus_state.current_validators.clone(),
-			finalized_block_number: consensus_state.finalized_height,
-			finalized_hash: consensus_state.finalized_hash,
-			current_epoch: consensus_state.current_epoch,
-		};
+		let trusted_state: VerifierState = consensus_state.into();
 
 		verify_pharos_block::<C, H>(trusted_state.clone(), update_1)
 			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
@@ -199,14 +202,10 @@ impl<
 		PHAROS_CONSENSUS_CLIENT_ID
 	}
 
-	fn state_machine(
-		&self,
-		id: StateMachine,
-	) -> Result<Box<dyn StateMachineClient>, Error> {
+	fn state_machine(&self, id: StateMachine) -> Result<Box<dyn StateMachineClient>, Error> {
 		match id {
 			StateMachine::Evm(chain_id)
-				if chain_id == PHAROS_MAINNET_CHAIN_ID ||
-					chain_id == PHAROS_ATLANTIC_CHAIN_ID =>
+				if chain_id == PHAROS_MAINNET_CHAIN_ID || chain_id == PHAROS_ATLANTIC_CHAIN_ID =>
 				Ok(Box::new(<PharosStateMachine<H, T>>::default())),
 			state_machine =>
 				Err(Error::Custom(alloc::format!("Unsupported state machine: {state_machine:?}"))),

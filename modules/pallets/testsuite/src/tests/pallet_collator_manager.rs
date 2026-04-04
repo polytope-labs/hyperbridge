@@ -104,7 +104,6 @@ fn test_new_collators_are_selected_based_on_reputation() {
 
 		assert_ok!(CollatorManager::reserve(&charlie_stash, 100 * UNIT));
 
-
 		assert_ok!(CollatorManager::reserve(&dave_stash, 100 * UNIT));
 
 		set_reputation_balance(&CHARLIE, 20 * UNIT);

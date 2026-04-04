@@ -16,10 +16,7 @@
 //! Type definitions for Pharos consensus.
 
 use crate::constants::BlsPublicKey;
-use alloc::{
-	collections::{BTreeMap, BTreeSet},
-	vec::Vec,
-};
+use alloc::{collections::BTreeMap, vec::Vec};
 use codec::{Decode, Encode};
 use core::cmp::Ordering;
 use geth_primitives::CodecHeader;
@@ -33,8 +30,7 @@ pub type PoolId = H256;
 /// Each validator has a BLS public key for signing blocks and a stake amount
 /// that determines their voting power in consensus.
 ///
-/// Validators are ordered by their BLS public key to enable use in BTreeSet,
-/// which automatically prevents duplicates.
+/// Validators are keyed by their BLS public key in the ValidatorSet BTreeMap.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValidatorInfo {
@@ -64,12 +60,12 @@ impl Ord for ValidatorInfo {
 /// during a specific epoch. The validator set is updated at epoch boundaries(last block of an
 /// epoch).
 ///
-/// Uses `BTreeSet` to automatically prevent duplicate validators (by BLS public key).
+/// Uses `BTreeMap` keyed by BLS public key for O(log n) lookups.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct ValidatorSet {
-	/// Set of all validators
-	pub validators: BTreeSet<ValidatorInfo>,
+	/// Validators keyed by BLS public key
+	pub validators: BTreeMap<BlsPublicKey, ValidatorInfo>,
 	/// Total stake across all validators
 	pub total_stake: U256,
 	/// The epoch this validator set is valid for
@@ -79,29 +75,31 @@ pub struct ValidatorSet {
 impl ValidatorSet {
 	/// Create a new empty validator set
 	pub fn new(epoch: u64) -> Self {
-		Self { validators: BTreeSet::new(), total_stake: U256::zero(), epoch }
+		Self { validators: BTreeMap::new(), total_stake: U256::zero(), epoch }
 	}
 
 	/// Add a validator to the set.
 	/// Returns true if the validator was added, false if it was a duplicate.
 	pub fn add_validator(&mut self, validator: ValidatorInfo) -> bool {
+		let key = validator.bls_public_key.clone();
 		let stake = validator.stake;
-		if self.validators.insert(validator) {
+		if self.validators.contains_key(&key) {
+			false
+		} else {
+			self.validators.insert(key, validator);
 			self.total_stake = self.total_stake.saturating_add(stake);
 			true
-		} else {
-			false
 		}
 	}
 
 	/// Check if a validator is in the set by their BLS public key
 	pub fn contains(&self, bls_key: &BlsPublicKey) -> bool {
-		self.validators.iter().any(|v| &v.bls_public_key == bls_key)
+		self.validators.contains_key(bls_key)
 	}
 
 	/// Get a validator by their BLS public key
 	pub fn get_validator(&self, bls_key: &BlsPublicKey) -> Option<&ValidatorInfo> {
-		self.validators.iter().find(|v| &v.bls_public_key == bls_key)
+		self.validators.get(bls_key)
 	}
 
 	/// Calculate the stake of participating validators

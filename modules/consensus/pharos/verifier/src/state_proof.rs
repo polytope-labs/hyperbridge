@@ -351,10 +351,12 @@ fn verify_all_storage_proofs(
 			return Err(Error::StorageValueTooLarge);
 		}
 
-		if !spv::verify_storage_proof(proof_nodes, &address, &key.0, &padded_value, &storage_hash.0)
-		{
-			return Err(Error::StorageProofVerificationFailed);
-		}
+		spv::verify_proof(
+			proof_nodes,
+			&spv::build_storage_key(&address, &key.0),
+			&padded_value,
+			&storage_hash.0,
+		)?;
 	}
 
 	Ok(())
@@ -366,7 +368,7 @@ pub fn validate_validator_set(validator_set: &ValidatorSet) -> Result<(), Error>
 		return Err(Error::EmptyValidatorSet);
 	}
 
-	for validator in &validator_set.validators {
+	for validator in validator_set.validators.values() {
 		if validator.stake.is_zero() {
 			return Err(Error::ZeroStakeValidator);
 		}
@@ -613,14 +615,12 @@ pub fn bls_data_slots_from_header(header_value: &[u8]) -> Result<usize, Error> {
 	}
 }
 
-/// Decode a U256 value from RLP-encoded storage value.
+/// Decode a U256 value from raw big-endian storage bytes.
 pub fn decode_u256_from_storage(value: &[u8]) -> Result<U256, Error> {
 	if value.is_empty() {
 		return Ok(U256::zero());
 	}
 
-	// Storage values are RLP encoded
-	// integers are stored as big-endian bytes
 	if value.len() <= 32 {
 		let mut padded = [0u8; 32];
 		padded[32 - value.len()..].copy_from_slice(value);

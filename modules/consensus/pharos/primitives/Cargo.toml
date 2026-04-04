@@ -15,6 +15,7 @@ hex-literal = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 sp-io = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
+thiserror = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 
@@ -30,4 +31,5 @@ std = [
     "serde",
     "geth-primitives/std",
     "ismp/std",
+    "thiserror/std",
 ]

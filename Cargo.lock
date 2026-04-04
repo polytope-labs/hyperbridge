@@ -17136,6 +17136,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "serde",
  "sp-io",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -99,8 +99,8 @@ pub enum Error {
 	StorageProofLookupFailed,
 
 	/// Storage proof verification failed against the state root
-	#[error("Storage proof verification failed")]
-	StorageProofVerificationFailed,
+	#[error("Storage proof verification failed: {0}")]
+	StorageProofVerificationFailed(#[from] pharos_primitives::spv::Error),
 
 	/// Storage value exceeds maximum size for U256
 	#[error("Storage value too large for U256")]

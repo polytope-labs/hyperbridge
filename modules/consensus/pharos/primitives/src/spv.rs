@@ -22,6 +22,45 @@ use alloc::vec::Vec;
 
 use crate::types::{PharosProofNode, SiblingLeftmostLeafProof};
 
+/// Errors returned by SPV proof verification.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+	#[error("Proof contains no nodes")]
+	EmptyProof,
+	#[error("Terminal proof node is not a valid leaf")]
+	InvalidLeaf,
+	#[error("Leaf key hash does not match the expected key")]
+	KeyMismatch,
+	#[error("Leaf value hash does not match the expected value")]
+	ValueMismatch,
+	#[error("Proof node has an unrecognized length")]
+	InvalidNodeLength,
+	#[error("Child hash in parent does not match computed child hash")]
+	HashChainBroken,
+	#[error("Slot offset is out of bounds for the parent node")]
+	SlotOutOfBounds,
+	#[error("Computed root hash does not match the expected root")]
+	RootMismatch,
+	#[error("Terminal node is not a valid internal node")]
+	InvalidTerminalNode,
+	#[error("Target nibble slot is not empty")]
+	TargetSlotNotEmpty,
+	#[error("Key exists in the trie")]
+	KeyExists,
+	#[error("Sibling proof count does not match non-empty slot count")]
+	SiblingCountMismatch,
+	#[error("Sibling proof references an invalid or disallowed slot index")]
+	InvalidSiblingSlot,
+	#[error("Duplicate sibling proof for the same slot")]
+	DuplicateSiblingSlot,
+	#[error("Sibling proof has an empty proof path")]
+	EmptySiblingPath,
+	#[error("Sibling leaf nibble does not route through declared slot index")]
+	SiblingNibbleMismatch,
+	#[error("Sibling proof failed verification: {0}")]
+	SiblingProofInvalid(alloc::boxed::Box<Error>),
+}
+
 const INTERNAL_NODE_HEADER: usize = 3;
 const INTERNAL_NODE_SLOTS: usize = 16;
 const INTERNAL_NODE_SLOT_SIZE: usize = 32;
@@ -47,7 +86,7 @@ pub fn nibble_at_depth(key_hash: &[u8], depth: usize) -> u8 {
 }
 
 fn is_zero_slot(slot: &[u8]) -> bool {
-	slot.iter().all(|&b| b == 0)
+	slot == ZERO_HASH
 }
 
 /// SkipEmpty: `sha256(3-byte header || non-zero slots)`. All-zero node hashes to `[0; 32]`.
@@ -97,21 +136,14 @@ fn verify_proof_walk(
 	proof_nodes: &[PharosProofNode],
 	key: &[u8],
 	root: &[u8; 32],
-) -> bool {
-	let Some(last) = proof_nodes.last() else { return false };
-	let Some(mut current_hash) = compute_node_hash(&last.proof_node) else { return false };
+) -> Result<(), Error> {
+	let last = proof_nodes.last().ok_or(Error::EmptyProof)?;
+	let mut current_hash = compute_node_hash(&last.proof_node).ok_or(Error::InvalidNodeLength)?;
 	let key_hash = sha256(key);
 
-	for i in (0..proof_nodes.len() - 1).rev() {
+	for i in (0..proof_nodes.len()).rev().skip(1) {
 		let parent = &proof_nodes[i];
 
-		// MSU root (index 0): 256 slots with Pharos-specific addressing.
-		// The MSU root content is pinned to the state root via its hash, so an
-		// attacker cannot substitute a different MSU root — they can only select
-		// which of the 256 slots to enter, but the hash chain ensures the subtree
-		// is genuine. We rely on next_begin_offset for the MSU root because its
-		// addressing scheme is opaque (not a simple key_hash[0] mapping).
-		// Internal nodes (index > 0): 16 slots indexed by nibble at trie depth.
 		let start = if i == 0 {
 			parent.next_begin_offset as usize
 		} else {
@@ -120,106 +152,82 @@ fn verify_proof_walk(
 			INTERNAL_NODE_HEADER + nibble * INTERNAL_NODE_SLOT_SIZE
 		};
 
-		let Some(slot) = parent.proof_node.get(start..start + INTERNAL_NODE_SLOT_SIZE) else {
-			return false;
-		};
+		let slot = parent
+			.proof_node
+			.get(start..start + INTERNAL_NODE_SLOT_SIZE)
+			.ok_or(Error::SlotOutOfBounds)?;
 
 		if slot != current_hash {
-			return false;
+			return Err(Error::HashChainBroken);
 		}
 
-		current_hash = match compute_node_hash(&parent.proof_node) {
-			Some(h) => h,
-			None => return false,
-		};
+		current_hash = compute_node_hash(&parent.proof_node).ok_or(Error::InvalidNodeLength)?;
 	}
 
-	current_hash == *root
+	if current_hash == *root {
+		Ok(())
+	} else {
+		Err(Error::RootMismatch)
+	}
 }
 
-fn build_storage_key(address: &[u8; 20], slot_hash: &[u8; 32]) -> [u8; 52] {
+/// Builds a storage trie key by concatenating address and slot hash.
+pub fn build_storage_key(address: &[u8; 20], slot_hash: &[u8; 32]) -> [u8; 52] {
 	let mut key = [0u8; 52];
 	key[..20].copy_from_slice(address);
 	key[20..].copy_from_slice(slot_hash);
 	key
 }
 
-/// Verify existence of a key-value pair in the trie.
-pub fn verify_pharos_proof(
+/// Verify that a key-value pair exists in the trie.
+pub fn verify_proof(
 	proof_nodes: &[PharosProofNode],
 	key: &[u8],
 	value: &[u8],
 	root: &[u8; 32],
-) -> bool {
-	let Some(last) = proof_nodes.last() else { return false };
+) -> Result<(), Error> {
+	let last = proof_nodes.last().ok_or(Error::EmptyProof)?;
 
 	if !is_leaf(&last.proof_node) {
-		return false;
+		return Err(Error::InvalidLeaf);
 	}
 
-	if last.proof_node[1..33] != sha256(key) || last.proof_node[33..65] != sha256(value) {
-		return false;
+	if last.proof_node[1..33] != sha256(key) {
+		return Err(Error::KeyMismatch);
+	}
+
+	if last.proof_node[33..65] != sha256(value) {
+		return Err(Error::ValueMismatch);
 	}
 
 	verify_proof_walk(proof_nodes, key, root)
 }
 
-pub fn verify_account_proof(
-	proof_nodes: &[PharosProofNode],
-	address: &[u8; 20],
-	raw_value: &[u8],
-	state_root: &[u8; 32],
-) -> bool {
-	verify_pharos_proof(proof_nodes, address, raw_value, state_root)
-}
-
-pub fn verify_storage_proof(
-	proof_nodes: &[PharosProofNode],
-	address: &[u8; 20],
-	slot_hash: &[u8; 32],
-	storage_value: &[u8; 32],
-	storage_root: &[u8; 32],
-) -> bool {
-	let key = build_storage_key(address, slot_hash);
-	verify_pharos_proof(proof_nodes, &key, storage_value, storage_root)
-}
-
-/// Verify key membership without the raw value. Returns `Some(value_hash)` from the leaf.
-pub fn verify_pharos_proof_membership(
+/// Verify that a key exists in the trie (inclusion proof).
+/// Returns the value hash from the leaf on success.
+pub fn verify_membership_proof(
 	proof_nodes: &[PharosProofNode],
 	key: &[u8],
 	root: &[u8; 32],
-) -> Option<[u8; 32]> {
-	let Some(last) = proof_nodes.last() else { return None };
+) -> Result<[u8; 32], Error> {
+	let last = proof_nodes.last().ok_or(Error::EmptyProof)?;
 
-	if !is_leaf(&last.proof_node) || last.proof_node[1..33] != sha256(key) {
-		return None;
+	if !is_leaf(&last.proof_node) {
+		return Err(Error::InvalidLeaf);
+	}
+
+	if last.proof_node[1..33] != sha256(key) {
+		return Err(Error::KeyMismatch);
 	}
 
 	let mut value_hash = [0u8; 32];
 	value_hash.copy_from_slice(&last.proof_node[33..65]);
 
-	verify_proof_walk(proof_nodes, key, root).then_some(value_hash)
+	verify_proof_walk(proof_nodes, key, root)?;
+	Ok(value_hash)
 }
 
-pub fn verify_storage_membership_proof(
-	proof_nodes: &[PharosProofNode],
-	address: &[u8; 20],
-	slot_hash: &[u8; 32],
-	storage_root: &[u8; 32],
-) -> Option<[u8; 32]> {
-	let key = build_storage_key(address, slot_hash);
-	verify_pharos_proof_membership(proof_nodes, &key, storage_root)
-}
-
-fn is_existence_proof(proof_nodes: &[PharosProofNode], key: &[u8]) -> bool {
-	match proof_nodes.last() {
-		Some(last) => is_leaf(&last.proof_node) && last.proof_node[1..33] == sha256(key),
-		None => false,
-	}
-}
-
-/// Verify that `key` does NOT exist in the trie.
+/// Verify that a key does NOT exist in the trie (non-inclusion proof).
 ///
 /// Case 1: Proof ends at a leaf with a different key_hash (path collision).
 /// Case 2: Proof ends at an internal node where the target nibble slot is empty.
@@ -229,53 +237,38 @@ pub fn verify_non_existence_proof(
 	key: &[u8],
 	root: &[u8; 32],
 	sibling_proofs: &[SiblingLeftmostLeafProof],
-) -> bool {
-	let Some(last_node) = proof_nodes.last() else { return false };
+) -> Result<(), Error> {
+	let last_node = proof_nodes.last().ok_or(Error::EmptyProof)?;
 	let last = &last_node.proof_node;
 	let key_hash = sha256(key);
 
 	// Case 1: leaf with different key
 	if is_leaf(last) {
 		if last[1..33] == key_hash {
-			return false; // key matches, this is an existence proof
+			return Err(Error::KeyExists);
 		}
-		// Use key-aware walk to validate the proof path follows key's nibbles.
-		// Without this, an attacker could route to any unrelated leaf in the trie
-		// (via attacker-controlled next_begin_offset) and falsely claim the target
-		// key doesn't exist. The key-aware walk ensures every intermediate node is
-		// traversed at the nibble position dictated by the query key's hash.
 		return verify_proof_walk(proof_nodes, key, root);
 	}
 
 	// Case 2: internal node with empty target slot
 	if last.len() != INTERNAL_NODE_LEN {
-		return false;
+		return Err(Error::InvalidTerminalNode);
 	}
 
 	let depth = proof_nodes.len().saturating_sub(2);
 	let nibble = nibble_at_depth(&key_hash, depth) as usize;
 	let slot_start = INTERNAL_NODE_HEADER + nibble * INTERNAL_NODE_SLOT_SIZE;
 
-	if slot_start + INTERNAL_NODE_SLOT_SIZE > last.len() ||
-		!is_zero_slot(&last[slot_start..slot_start + INTERNAL_NODE_SLOT_SIZE])
-	{
-		return false;
+	if slot_start + INTERNAL_NODE_SLOT_SIZE > last.len() {
+		return Err(Error::SlotOutOfBounds);
 	}
 
-	// Use key-aware walk to validate the proof path follows key's nibbles.
-	// Without this, an attacker could route (via next_begin_offset) to a different
-	// internal node in the trie that happens to have an empty slot at the target
-	// nibble position. The sibling proofs would pass because that node's non-empty
-	// slots are genuinely occupied — they just belong to a different subtree.
-	if !verify_proof_walk(proof_nodes, key, root) {
-		return false;
+	if !is_zero_slot(&last[slot_start..slot_start + INTERNAL_NODE_SLOT_SIZE]) {
+		return Err(Error::TargetSlotNotEmpty);
 	}
 
-	// Count non-empty slots excluding the target.
-	// When non-empty slots exist, every one must have a sibling proof to prevent the
-	// SkipEmpty attack (moving a hash to a different slot without changing the node hash).
-	// When the terminal node is entirely empty, the hash chain to root is sufficient,
-	// the parent already commits to this empty subtree via the zero hash.
+	verify_proof_walk(proof_nodes, key, root)?;
+
 	let non_empty_count = (0..INTERNAL_NODE_SLOTS)
 		.filter(|&i| {
 			i != nibble && {
@@ -287,7 +280,7 @@ pub fn verify_non_existence_proof(
 
 	if non_empty_count > 0 {
 		if sibling_proofs.len() != non_empty_count {
-			return false;
+			return Err(Error::SiblingCountMismatch);
 		}
 
 		let parent_nodes = &proof_nodes[..proof_nodes.len() - 1];
@@ -296,58 +289,45 @@ pub fn verify_non_existence_proof(
 		for sib in sibling_proofs {
 			let idx = sib.slot_index as usize;
 			if idx >= INTERNAL_NODE_SLOTS || idx == nibble {
-				return false;
+				return Err(Error::InvalidSiblingSlot);
 			}
 			let s = INTERNAL_NODE_HEADER + idx * INTERNAL_NODE_SLOT_SIZE;
 			if is_zero_slot(&last[s..s + INTERNAL_NODE_SLOT_SIZE]) {
-				return false;
+				return Err(Error::InvalidSiblingSlot);
 			}
 
-			// Reject duplicate slot_index values. Without this, an attacker can
-			// provide two siblings claiming different slot_index values while both
-			// actually proving the same slot, leaving another slot unproven.
 			if proven_slots[idx] {
-				return false;
+				return Err(Error::DuplicateSiblingSlot);
 			}
 			proven_slots[idx] = true;
 
 			if sib.proof_path.is_empty() {
-				return false;
+				return Err(Error::EmptySiblingPath);
 			}
 
-			// The sibling leaf's nibble at the terminal node's depth must route
-			// through the declared slot_index. verify_proof_walk_with_key pins the
-			// slot at the leaf's actual nibble position — if slot_index differs from
-			// that nibble, the accounting would credit the wrong slot while the walk
-			// actually proves a different one.
 			let sib_key_hash = sha256(&sib.leftmost_leaf_key);
 			if nibble_at_depth(&sib_key_hash, depth) as usize != idx {
-				return false;
+				return Err(Error::SiblingNibbleMismatch);
 			}
 
 			let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
 			combined.extend_from_slice(&sib.proof_path);
 
-			if !verify_proof_walk(&combined, &sib.leftmost_leaf_key, root) ||
-				!is_existence_proof(&combined, &sib.leftmost_leaf_key)
-			{
-				return false;
+			let is_valid_leaf = combined.last().map_or(false, |last| {
+				is_leaf(&last.proof_node) &&
+					last.proof_node[1..33] == sha256(&sib.leftmost_leaf_key)
+			});
+
+			if !is_valid_leaf {
+				return Err(Error::SiblingProofInvalid(alloc::boxed::Box::new(Error::InvalidLeaf)));
 			}
+
+			verify_proof_walk(&combined, &sib.leftmost_leaf_key, root)
+				.map_err(|e| Error::SiblingProofInvalid(alloc::boxed::Box::new(e)))?;
 		}
 	}
 
-	true
-}
-
-pub fn verify_storage_non_existence_proof(
-	proof_nodes: &[PharosProofNode],
-	address: &[u8; 20],
-	slot_hash: &[u8; 32],
-	storage_root: &[u8; 32],
-	sibling_proofs: &[SiblingLeftmostLeafProof],
-) -> bool {
-	let key = build_storage_key(address, slot_hash);
-	verify_non_existence_proof(proof_nodes, &key, storage_root, sibling_proofs)
+	Ok(())
 }
 
 #[cfg(test)]
@@ -431,7 +411,7 @@ mod tests {
 		let key = b"test_key";
 		let value = b"test_value";
 		let (proof, root) = build_proof_for_key(key, value);
-		assert!(verify_pharos_proof(&proof, key, value, &root));
+		assert!(verify_proof(&proof, key, value, &root).is_ok());
 	}
 
 	#[test]
@@ -440,8 +420,8 @@ mod tests {
 		let value = b"test_value";
 		let (proof, root) = build_proof_for_key(key, value);
 
-		assert!(!verify_pharos_proof(&proof, key, b"wrong_value", &root));
-		assert!(!verify_pharos_proof(&proof, b"wrong_key", value, &root));
+		assert!(verify_proof(&proof, key, b"wrong_value", &root).is_err());
+		assert!(verify_proof(&proof, b"wrong_key", value, &root).is_err());
 	}
 
 	#[test]
@@ -450,11 +430,11 @@ mod tests {
 		let value = b"test_value";
 		let (proof, root) = build_proof_for_key(key, value);
 
-		let result = verify_pharos_proof_membership(&proof, key, &root);
-		assert_eq!(result, Some(sha256(value)));
+		let result = verify_membership_proof(&proof, key, &root);
+		assert_eq!(result.unwrap(), sha256(value));
 
-		// Wrong key returns None
-		assert!(verify_pharos_proof_membership(&proof, b"wrong", &root).is_none());
+		// Wrong key returns error
+		assert!(verify_membership_proof(&proof, b"wrong", &root).is_err());
 	}
 
 	#[test]
@@ -487,10 +467,10 @@ mod tests {
 		];
 
 		// Non-existence for query key succeeds (leaf has different key_hash)
-		assert!(verify_non_existence_proof(&proof, query_key, &root, &[]));
+		assert!(verify_non_existence_proof(&proof, query_key, &root, &[]).is_ok());
 
 		// Non-existence for the actual key fails (it exists!)
-		assert!(!verify_non_existence_proof(&proof, other_key, &root, &[]));
+		assert!(verify_non_existence_proof(&proof, other_key, &root, &[]).is_err());
 	}
 
 	#[test]
@@ -524,7 +504,7 @@ mod tests {
 		];
 
 		// Rejected: the internal node has the leaf at the wrong nibble slot
-		assert!(!verify_non_existence_proof(&proof, query_key, &root, &[]));
+		assert!(verify_non_existence_proof(&proof, query_key, &root, &[]).is_err());
 	}
 
 	#[test]
@@ -547,7 +527,7 @@ mod tests {
 			node(empty_internal, 0, 0),
 		];
 
-		assert!(verify_non_existence_proof(&proof, b"any_key", &root, &[]));
+		assert!(verify_non_existence_proof(&proof, b"any_key", &root, &[]).is_ok());
 	}
 
 	#[test]
@@ -572,7 +552,7 @@ mod tests {
 
 		// Terminal has 1 non-empty slot (slot 5) but 0 sibling proofs
 		// This must fail, attacker could have moved a hash via SkipEmpty
-		assert!(!verify_non_existence_proof(&proof, b"any_key", &root, &[]));
+		assert!(verify_non_existence_proof(&proof, b"any_key", &root, &[]).is_err());
 	}
 
 	#[test]
@@ -589,9 +569,9 @@ mod tests {
 
 	#[test]
 	fn test_empty_proof_rejected() {
-		assert!(!verify_pharos_proof(&[], b"key", b"value", &[0; 32]));
-		assert!(verify_pharos_proof_membership(&[], b"key", &[0; 32]).is_none());
-		assert!(!verify_non_existence_proof(&[], b"key", &[0; 32], &[]));
+		assert!(verify_proof(&[], b"key", b"value", &[0; 32]).is_err());
+		assert!(verify_membership_proof(&[], b"key", &[0; 32]).is_err());
+		assert!(verify_non_existence_proof(&[], b"key", &[0; 32], &[]).is_err());
 	}
 
 	#[test]

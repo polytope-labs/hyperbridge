@@ -16,6 +16,7 @@
 use super::write_bytes_to_lower_hex;
 use alloc::{vec, vec::Vec};
 use core::{
+	cmp::Ordering,
 	fmt,
 	hash::{Hash, Hasher},
 	ops::{Deref, DerefMut},
@@ -48,6 +49,18 @@ impl<const N: usize> TryFrom<Vec<u8>> for ByteVector<N> {
 impl<const N: usize> PartialEq for ByteVector<N> {
 	fn eq(&self, other: &Self) -> bool {
 		self.0 == other.0
+	}
+}
+
+impl<const N: usize> PartialOrd for ByteVector<N> {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		Some(self.cmp(other))
+	}
+}
+
+impl<const N: usize> Ord for ByteVector<N> {
+	fn cmp(&self, other: &Self) -> Ordering {
+		self.as_ref().cmp(other.as_ref())
 	}
 }
 

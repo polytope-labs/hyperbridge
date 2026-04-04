@@ -188,13 +188,11 @@ impl<C: Config> PharosProver<C> {
 		// Fetch pool IDs from the activePoolSets array
 		let mut pool_id_keys = Vec::new();
 		for i in 0..validator_count {
-			pool_id_keys.push(
-				self.storage_layout.array_element_key_with(
-					self.storage_layout.active_pool_set_slot,
-					i,
-					|data| H256::from(keccak256(data)),
-				),
-			);
+			pool_id_keys.push(self.storage_layout.array_element_key_with(
+				self.storage_layout.active_pool_set_slot,
+				i,
+				|data| H256::from(keccak256(data)),
+			));
 		}
 
 		if pool_id_keys.is_empty() {
@@ -242,8 +240,7 @@ impl<C: Config> PharosProver<C> {
 			validator_slots.push((bls_string_slot, stake_slot));
 		}
 
-		let phase1_proof =
-			self.rpc.get_proof(address, phase1_all_keys, block_number).await?;
+		let phase1_proof = self.rpc.get_proof(address, phase1_all_keys, block_number).await?;
 
 		if phase1_proof.storage_proof.len() < pool_ids.len() * 2 {
 			return Err(ProverError::MissingStorageProof("BLS header or stake in phase 1"));
@@ -251,7 +248,8 @@ impl<C: Config> PharosProver<C> {
 
 		// Process phase 1 results and build phase 2 keys
 		let mut phase2_all_keys = Vec::new();
-		// Track per-validator: (bls_string_slot, stake_slot, phase1_header_idx, phase1_stake_idx, data_keys)
+		// Track per-validator: (bls_string_slot, stake_slot, phase1_header_idx, phase1_stake_idx,
+		// data_keys)
 		struct ValidatorPhaseInfo {
 			bls_string_slot: H256,
 			stake_slot: H256,
@@ -311,8 +309,7 @@ impl<C: Config> PharosProver<C> {
 						*key,
 						rpc_to_proof_nodes(&p2.storage_proof[phase2_offset + j].proof)?,
 					);
-					storage_values
-						.push(hex_to_bytes(&p2.storage_proof[phase2_offset + j].value)?);
+					storage_values.push(hex_to_bytes(&p2.storage_proof[phase2_offset + j].value)?);
 				}
 			}
 			phase2_offset += vi.data_keys.len();

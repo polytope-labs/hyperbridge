@@ -91,17 +91,9 @@ fn is_zero_slot(slot: &[u8]) -> bool {
 
 /// SkipEmpty: `sha256(3-byte header || non-zero slots)`. All-zero node hashes to `[0; 32]`.
 fn hash_internal_node(proof_node: &[u8]) -> [u8; 32] {
-	let all_empty = (0..INTERNAL_NODE_SLOTS).all(|i| {
-		let start = INTERNAL_NODE_HEADER + i * INTERNAL_NODE_SLOT_SIZE;
-		is_zero_slot(&proof_node[start..start + INTERNAL_NODE_SLOT_SIZE])
-	});
-
-	if all_empty {
-		return ZERO_HASH;
-	}
-
 	let mut data = Vec::with_capacity(INTERNAL_NODE_LEN);
 	data.extend_from_slice(&proof_node[..INTERNAL_NODE_HEADER]);
+
 	for i in 0..INTERNAL_NODE_SLOTS {
 		let start = INTERNAL_NODE_HEADER + i * INTERNAL_NODE_SLOT_SIZE;
 		let slot = &proof_node[start..start + INTERNAL_NODE_SLOT_SIZE];
@@ -109,7 +101,12 @@ fn hash_internal_node(proof_node: &[u8]) -> [u8; 32] {
 			data.extend_from_slice(slot);
 		}
 	}
-	sha256(&data)
+
+	if data.len() == INTERNAL_NODE_HEADER {
+		ZERO_HASH
+	} else {
+		sha256(&data)
+	}
 }
 
 fn compute_node_hash(proof_node: &[u8]) -> Option<[u8; 32]> {

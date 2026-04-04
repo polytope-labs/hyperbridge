@@ -87,38 +87,13 @@ fn is_leaf(node: &[u8]) -> bool {
 }
 
 /// Bottom-up hash chain walk from last node to root.
-/// Uses `nextBeginOffset` from each node to locate the child hash slot.
-fn verify_proof_walk(proof_nodes: &[PharosProofNode], root: &[u8; 32]) -> bool {
-	let Some(last) = proof_nodes.last() else { return false };
-	let Some(mut current_hash) = compute_node_hash(&last.proof_node) else { return false };
-
-	for i in (0..proof_nodes.len() - 1).rev() {
-		let parent = &proof_nodes[i];
-		let begin = parent.next_begin_offset as usize;
-		let end = parent.next_end_offset as usize;
-
-		if end > parent.proof_node.len() || begin >= end || (end - begin) != 32 {
-			return false;
-		}
-
-		if parent.proof_node[begin..end] != current_hash {
-			return false;
-		}
-
-		current_hash = match compute_node_hash(&parent.proof_node) {
-			Some(h) => h,
-			None => return false,
-		};
-	}
-
-	current_hash == *root
-}
-
-/// Key-aware bottom-up hash chain walk. Uses nibble_at_depth to locate child slots
-/// in internal nodes instead of relying on nextBeginOffset. Required for sibling
-/// proof verification where the offsets in the main chain don't apply to the
-/// sibling's key path.
-fn verify_proof_walk_with_key(
+///
+/// Uses `nibble_at_depth(sha256(key))` to locate child slots in internal nodes
+/// (index > 0), ensuring the proof path follows the key's trie path. The MSU root
+/// (index 0) uses `next_begin_offset` because its 256-slot addressing scheme is
+/// Pharos-specific and opaque; the MSU root content is pinned to the state root
+/// via its hash, so an attacker cannot substitute a different MSU root.
+fn verify_proof_walk(
 	proof_nodes: &[PharosProofNode],
 	key: &[u8],
 	root: &[u8; 32],
@@ -145,11 +120,11 @@ fn verify_proof_walk_with_key(
 			INTERNAL_NODE_HEADER + nibble * INTERNAL_NODE_SLOT_SIZE
 		};
 
-		if start + INTERNAL_NODE_SLOT_SIZE > parent.proof_node.len() {
+		let Some(slot) = parent.proof_node.get(start..start + INTERNAL_NODE_SLOT_SIZE) else {
 			return false;
-		}
+		};
 
-		if parent.proof_node[start..start + INTERNAL_NODE_SLOT_SIZE] != current_hash {
+		if slot != current_hash {
 			return false;
 		}
 
@@ -186,7 +161,7 @@ pub fn verify_pharos_proof(
 		return false;
 	}
 
-	verify_proof_walk(proof_nodes, root)
+	verify_proof_walk(proof_nodes, key, root)
 }
 
 pub fn verify_account_proof(
@@ -224,7 +199,7 @@ pub fn verify_pharos_proof_membership(
 	let mut value_hash = [0u8; 32];
 	value_hash.copy_from_slice(&last.proof_node[33..65]);
 
-	verify_proof_walk(proof_nodes, root).then_some(value_hash)
+	verify_proof_walk(proof_nodes, key, root).then_some(value_hash)
 }
 
 pub fn verify_storage_membership_proof(
@@ -269,7 +244,7 @@ pub fn verify_non_existence_proof(
 		// (via attacker-controlled next_begin_offset) and falsely claim the target
 		// key doesn't exist. The key-aware walk ensures every intermediate node is
 		// traversed at the nibble position dictated by the query key's hash.
-		return verify_proof_walk_with_key(proof_nodes, key, root);
+		return verify_proof_walk(proof_nodes, key, root);
 	}
 
 	// Case 2: internal node with empty target slot
@@ -292,7 +267,7 @@ pub fn verify_non_existence_proof(
 	// internal node in the trie that happens to have an empty slot at the target
 	// nibble position. The sibling proofs would pass because that node's non-empty
 	// slots are genuinely occupied — they just belong to a different subtree.
-	if !verify_proof_walk_with_key(proof_nodes, key, root) {
+	if !verify_proof_walk(proof_nodes, key, root) {
 		return false;
 	}
 
@@ -353,7 +328,7 @@ pub fn verify_non_existence_proof(
 			let mut combined: Vec<PharosProofNode> = parent_nodes.to_vec();
 			combined.extend_from_slice(&sib.proof_path);
 
-			if !verify_proof_walk_with_key(&combined, &sib.leftmost_leaf_key, root) ||
+			if !verify_proof_walk(&combined, &sib.leftmost_leaf_key, root) ||
 				!is_existence_proof(&combined, &sib.leftmost_leaf_key)
 			{
 				return false;
@@ -426,30 +401,36 @@ mod tests {
 		// This proves why sibling proofs are necessary for non-existence!
 	}
 
-	#[test]
-	fn test_existence_proof_valid() {
-		let key = b"test_key";
-		let value = b"test_value";
-
+	/// Build a 3-node proof (MSU root → internal → leaf) that follows the
+	/// key's nibble path. The internal node slot is derived from the key.
+	fn build_proof_for_key(key: &[u8], value: &[u8]) -> (Vec<PharosProofNode>, [u8; 32]) {
 		let leaf_data = make_leaf(key, value);
 		let leaf_hash = sha256(&leaf_data);
 
-		// Internal node with leaf at slot 3
-		let internal = make_internal_with_child(3, &leaf_hash);
+		// Internal node slot must match key's nibble at depth 0
+		let key_hash = sha256(key);
+		let nibble = nibble_at_depth(&key_hash, 0) as usize;
+		let internal = make_internal_with_child(nibble, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
-		let internal_offset = (INTERNAL_NODE_HEADER + 3 * INTERNAL_NODE_SLOT_SIZE) as u32;
 
-		// MSU root with internal at slot 7
+		// MSU root — slot is arbitrary (uses next_begin_offset)
 		let msu_root = make_msu_root_with_child(7, &internal_hash);
 		let root = sha256(&msu_root);
 		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
 
 		let proof = vec![
 			node(msu_root, msu_offset, msu_offset + 32),
-			node(internal, internal_offset, internal_offset + 32),
+			node(internal, 0, 0), // offsets unused for i > 0
 			node(leaf_data, 0, 0),
 		];
+		(proof, root)
+	}
 
+	#[test]
+	fn test_existence_proof_valid() {
+		let key = b"test_key";
+		let value = b"test_value";
+		let (proof, root) = build_proof_for_key(key, value);
 		assert!(verify_pharos_proof(&proof, key, value, &root));
 	}
 
@@ -457,23 +438,7 @@ mod tests {
 	fn test_existence_proof_wrong_value_rejected() {
 		let key = b"test_key";
 		let value = b"test_value";
-
-		let leaf_data = make_leaf(key, value);
-		let leaf_hash = sha256(&leaf_data);
-
-		let internal = make_internal_with_child(3, &leaf_hash);
-		let internal_hash = hash_internal_node(&internal);
-		let internal_offset = (INTERNAL_NODE_HEADER + 3 * INTERNAL_NODE_SLOT_SIZE) as u32;
-
-		let msu_root = make_msu_root_with_child(7, &internal_hash);
-		let root = sha256(&msu_root);
-		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
-
-		let proof = vec![
-			node(msu_root, msu_offset, msu_offset + 32),
-			node(internal, internal_offset, internal_offset + 32),
-			node(leaf_data, 0, 0),
-		];
+		let (proof, root) = build_proof_for_key(key, value);
 
 		assert!(!verify_pharos_proof(&proof, key, b"wrong_value", &root));
 		assert!(!verify_pharos_proof(&proof, b"wrong_key", value, &root));
@@ -483,23 +448,7 @@ mod tests {
 	fn test_membership_proof_returns_value_hash() {
 		let key = b"test_key";
 		let value = b"test_value";
-
-		let leaf_data = make_leaf(key, value);
-		let leaf_hash = sha256(&leaf_data);
-
-		let internal = make_internal_with_child(3, &leaf_hash);
-		let internal_hash = hash_internal_node(&internal);
-		let internal_offset = (INTERNAL_NODE_HEADER + 3 * INTERNAL_NODE_SLOT_SIZE) as u32;
-
-		let msu_root = make_msu_root_with_child(7, &internal_hash);
-		let root = sha256(&msu_root);
-		let msu_offset = (7 * INTERNAL_NODE_SLOT_SIZE) as u32;
-
-		let proof = vec![
-			node(msu_root, msu_offset, msu_offset + 32),
-			node(internal, internal_offset, internal_offset + 32),
-			node(leaf_data, 0, 0),
-		];
+		let (proof, root) = build_proof_for_key(key, value);
 
 		let result = verify_pharos_proof_membership(&proof, key, &root);
 		assert_eq!(result, Some(sha256(value)));

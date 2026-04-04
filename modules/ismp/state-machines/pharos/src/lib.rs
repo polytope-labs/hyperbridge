@@ -22,7 +22,7 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format, string::ToString, vec::Vec};
+use alloc::{collections::BTreeMap, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
 use evm_state_machine::{req_res_commitment_key, req_res_receipt_keys};
 use ismp::{
@@ -113,8 +113,9 @@ impl<H: IsmpHost + Send + Sync, T: pallet_ismp_host_executive::Config> StateMach
 
 /// Decode a PharosStateProof from the proof bytes.
 fn decode_pharos_state_proof(proof: &Proof) -> Result<PharosStateProof, Error> {
-	PharosStateProof::decode(&mut &proof.proof[..])
-		.map_err(|_| Error::Custom(format!("Cannot decode pharos state proof")))
+	PharosStateProof::decode(&mut &proof.proof[..]).map_err(|e| {
+		Error::AnyHow(anyhow::anyhow!("Cannot decode pharos state proof: {:?}", e).into())
+	})
 }
 
 /// Verify membership of ISMP commitments in the Pharos state.
@@ -138,16 +139,16 @@ pub fn verify_membership<H: Keccak256 + Send + Sync>(
 			.get(&slot_hash)
 			.ok_or_else(|| Error::Custom("Missing storage proof for commitment key".to_string()))?;
 
-		let slot_key: [u8; 32] = slot_hash
-			.try_into()
-			.map_err(|_| Error::Custom("Invalid slot hash length".to_string()))?;
+		let slot_key: [u8; 32] = slot_hash.try_into().map_err(|e: Vec<u8>| {
+			Error::Custom(alloc::format!("Invalid slot hash length: expected 32, got {}", e.len()))
+		})?;
 
 		spv::verify_membership_proof(
 			storage_proof_nodes,
 			&spv::build_storage_key(&address, &slot_key),
 			&state_root.0,
 		)
-		.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
+		.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 	}
 
 	Ok(())
@@ -177,10 +178,9 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			(ismp_address, key.clone())
 		} else if key.len() == 20 {
 			// Account query which verifies account proof and return raw account value
-			let address: [u8; 20] = key
-				.clone()
-				.try_into()
-				.map_err(|_| Error::Custom("Invalid address".to_string()))?;
+			let address: [u8; 20] = key.clone().try_into().map_err(|e: Vec<u8>| {
+				Error::Custom(alloc::format!("Invalid address: expected 20 bytes, got {}", e.len()))
+			})?;
 			let account_data = pharos_proof
 				.account_proofs
 				.get(&key)
@@ -192,7 +192,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 				&account_data.raw_value,
 				&state_root.0,
 			)
-			.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
+			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 
 			map.insert(key, Some(account_data.raw_value.clone()));
 			continue;
@@ -204,8 +204,10 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 
 		let contract_address: [u8; 20] = contract_addr.0;
 
-		let slot_key: [u8; 32] = slot_hash.clone().try_into().map_err(|_| {
-			Error::Custom("Invalid slot hash length: expected 32 bytes".to_string())
+		let slot_key: [u8; 32] = slot_hash.clone().try_into().map_err(|e: Vec<u8>| {
+			Error::AnyHow(
+				anyhow::anyhow!("Invalid slot hash length: expected 32, got {}", e.len()).into(),
+			)
 		})?;
 
 		// Check if this is a non-existence proof
@@ -216,7 +218,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 				&state_root.0,
 				&non_existence.sibling_proofs,
 			)
-			.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
+			.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 			map.insert(key, None);
 			continue;
 		}
@@ -246,7 +248,7 @@ pub fn verify_state_proof<H: Keccak256 + Send + Sync>(
 			&padded_value,
 			&state_root.0,
 		)
-		.map_err(|e| Error::Custom(alloc::format!("{e}")))?;
+		.map_err(|e| Error::AnyHow(anyhow::Error::from(e).into()))?;
 
 		map.insert(key, Some(storage_value.clone()));
 	}

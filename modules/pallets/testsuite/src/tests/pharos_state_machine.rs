@@ -57,10 +57,8 @@ async fn test_pharos_account_proof_verification() {
 	assert!(!raw_value.is_empty(), "Raw account value should not be empty");
 
 	let address_bytes: [u8; 20] = address.0;
-	let is_valid =
-		spv::verify_proof(&account_proof_nodes, &address_bytes, &raw_value, &state_root.0);
-
-	assert!(is_valid, "Account proof verification should pass for staking contract");
+	spv::verify_proof(&account_proof_nodes, &address_bytes, &raw_value, &state_root.0)
+		.expect("Account proof verification should pass for staking contract");
 	println!("Account proof verification: PASSED");
 }
 
@@ -95,9 +93,8 @@ async fn test_pharos_storage_proof_verification() {
 	let raw_value = hex_to_bytes(&proof.raw_value).expect("Failed to parse raw_value");
 	let address_bytes: [u8; 20] = address.0;
 
-	let account_valid =
-		spv::verify_proof(&account_proof_nodes, &address_bytes, &raw_value, &state_root.0);
-	assert!(account_valid, "Account proof verification should pass");
+	spv::verify_proof(&account_proof_nodes, &address_bytes, &raw_value, &state_root.0)
+		.expect("Account proof verification should pass");
 	println!("Account proof verification: PASSED");
 
 	assert!(!proof.storage_proof.is_empty(), "Should have at least one storage proof");
@@ -128,14 +125,13 @@ async fn test_pharos_storage_proof_verification() {
 	}
 
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
-	let storage_valid = spv::verify_proof(
+	spv::verify_proof(
 		&storage_proof_nodes,
 		&spv::build_storage_key(&address_bytes, &storage_key),
 		&padded_value,
 		&state_root.0,
-	);
-
-	assert!(storage_valid, "Storage proof verification should pass for totalStake");
+	)
+	.expect("Storage proof verification should pass for totalStake");
 	println!("Storage proof verification: PASSED");
 }
 
@@ -172,9 +168,8 @@ async fn test_pharos_multiple_storage_proofs() {
 	let raw_value = hex_to_bytes(&proof_stake.raw_value).expect("Failed to parse raw_value");
 	let address_bytes: [u8; 20] = address.0;
 
-	let account_valid =
-		spv::verify_proof(&account_proof_nodes, &address_bytes, &raw_value, &state_root.0);
-	assert!(account_valid, "Account proof verification should pass");
+	spv::verify_proof(&account_proof_nodes, &address_bytes, &raw_value, &state_root.0)
+		.expect("Account proof verification should pass");
 	println!("Account proof verification: PASSED");
 
 	// Pharos uses a flat trie — storage proofs verify directly against state_root.
@@ -200,13 +195,13 @@ async fn test_pharos_multiple_storage_proofs() {
 	println!("Storage proof [totalStake]: key={}, value={}", stake_entry.key, total_stake);
 	assert!(total_stake > U256::zero(), "Total stake should be non-zero");
 
-	let stake_valid = spv::verify_proof(
+	spv::verify_proof(
 		&stake_proof_nodes,
 		&spv::build_storage_key(&address_bytes, &stake_key),
 		&stake_padded,
 		&state_root.0,
-	);
-	assert!(stake_valid, "Storage proof for totalStake should pass");
+	)
+	.expect("Storage proof for totalStake should pass");
 	println!("Storage proof [totalStake] verification: PASSED");
 
 	assert!(!proof_epoch.storage_proof.is_empty(), "Should have storage proof for epochLength");
@@ -231,13 +226,13 @@ async fn test_pharos_multiple_storage_proofs() {
 	println!("Storage proof [epochLength]: key={}, value={}", epoch_entry.key, epoch_length);
 	assert!(epoch_length > U256::zero(), "Epoch length should be non-zero");
 
-	let epoch_valid = spv::verify_proof(
+	spv::verify_proof(
 		&epoch_proof_nodes,
 		&spv::build_storage_key(&address_bytes, &epoch_key),
 		&epoch_padded,
 		&state_root.0,
-	);
-	assert!(epoch_valid, "Storage proof for epochLength should pass");
+	)
+	.expect("Storage proof for epochLength should pass");
 	println!("Storage proof [epochLength] verification: PASSED");
 }
 
@@ -272,18 +267,15 @@ async fn test_pharos_non_existence_account_proof() {
 		.expect("Failed to convert sibling proofs");
 
 	let address_bytes: [u8; 20] = fake_address.0;
-	let is_valid = spv::verify_non_existence_proof(
-		&proof_nodes,
-		&address_bytes,
-		&state_root.0,
-		&sibling_proofs,
-	);
-	assert!(is_valid, "Non-existence proof should be valid for fake account");
+	spv::verify_non_existence_proof(&proof_nodes, &address_bytes, &state_root.0, &sibling_proofs)
+		.expect("Non-existence proof should be valid for fake account");
 	println!("Non-existence account proof: PASSED");
 
 	// Sanity check: the same proof must NOT pass as an existence proof
-	let exists = spv::verify_membership_proof(&proof_nodes, &address_bytes, &state_root.0);
-	assert!(exists.is_none(), "Membership check should return None for non-existent account");
+	assert!(
+		spv::verify_membership_proof(&proof_nodes, &address_bytes, &state_root.0).is_err(),
+		"Membership check should fail for non-existent account"
+	);
 	println!("Membership returns None as expected: PASSED");
 }
 
@@ -325,14 +317,13 @@ async fn test_pharos_non_existence_storage_proof() {
 		let mut slot_key = [0u8; 32];
 		slot_key.copy_from_slice(fake_slot.as_bytes());
 
-		let is_valid = spv::verify_non_existence_proof(
+		spv::verify_non_existence_proof(
 			&proof_nodes,
 			&spv::build_storage_key(&address_bytes, &slot_key),
 			&state_root.0,
 			&sibling_proofs,
-		);
-
-		assert!(is_valid, "Storage non-existence proof should be valid for fake slot");
+		)
+		.expect("Storage non-existence proof should be valid for fake slot");
 		println!("Non-existence storage proof: PASSED");
 	} else {
 		// Slot 999999 might actually exist if so, just verify the existence proof works
@@ -367,8 +358,8 @@ async fn test_pharos_account_proof_with_raw_value() {
 	assert!(!raw_value.is_empty(), "Account raw value should not be empty");
 
 	let address_bytes: [u8; 20] = address.0;
-	let is_valid = spv::verify_proof(&proof_nodes, &address_bytes, &raw_value, &state_root.0);
-	assert!(is_valid, "Account proof should verify against state root");
+	spv::verify_proof(&proof_nodes, &address_bytes, &raw_value, &state_root.0)
+		.expect("Account proof should verify against state root");
 	println!("Account proof with raw value: PASSED");
 
 	// Verify a non-existent account returns isExist: false

@@ -13,6 +13,7 @@ pallet-ismp-host-executive = { workspace = true }
 geth-primitives = { workspace = true }
 evm-state-machine = { path = "../evm", default-features = false }
 
+anyhow = { workspace = true, default-features = false }
 codec = { workspace = true, default-features = false }
 primitive-types = { workspace = true }
 ethabi = { workspace = true }
@@ -35,5 +36,6 @@ std = [
     "primitive-types/std",
     "ethabi/std",
     "alloy-rlp/std",
+    "anyhow/std",
     "polkadot-sdk/std",
 ]

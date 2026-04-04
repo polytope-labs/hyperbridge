@@ -17163,6 +17163,7 @@ name = "pharos-state-machine"
 version = "0.1.0"
 dependencies = [
  "alloy-rlp",
+ "anyhow",
  "ethabi",
  "evm-state-machine",
  "geth-primitives",

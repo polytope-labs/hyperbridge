@@ -17,21 +17,8 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
 #[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq)]
-pub struct EpochInfo {
-	pub validator_set_id: u64,
-	pub relay_block_number: u32,
-}
-
-#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq)]
-pub struct PendingProofInfo<BlockNumber> {
-	pub finalized_height: u64,
-	pub request_count: u32,
-	pub created_at: BlockNumber,
-}
-
-#[derive(Encode, Decode, TypeInfo, MaxEncodedLen, Clone, Debug, PartialEq, Eq)]
 pub struct ProofMetadata<AccountId, BlockNumber> {
-	pub finalized_height: u64,
+	pub finalized_height: u32,
 	pub validator_set_id: u64,
 	pub prover: AccountId,
 	pub created_at: BlockNumber,

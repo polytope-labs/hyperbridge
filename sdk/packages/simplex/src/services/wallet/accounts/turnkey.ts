@@ -23,10 +23,13 @@ export async function createTurnkeySigningAccount(config: TurnkeySignerConfig): 
 		account,
 		signMessage: (messageHash: HexString, _chainId: number) =>
 			account.signMessage({ message: { raw: messageHash } }),
+		signTypedData: (typedData: unknown, _chainId?: number) =>
+			account.signTypedData(typedData as Parameters<typeof account.signTypedData>[0]) as Promise<HexString>,
 		signRawHash: async (hash: HexString) => {
 			const raw = await account.sign!({ hash })
 			const sig = parseSignature(raw)
-			const yParity = sig.yParity ?? (sig.v !== undefined ? Number(sig.v >= 27n ? sig.v - 27n : sig.v) : undefined)
+			const yParity =
+				sig.yParity ?? (sig.v !== undefined ? Number(sig.v >= 27n ? sig.v - 27n : sig.v) : undefined)
 			if (yParity !== 0 && yParity !== 1) {
 				throw new Error("Failed to derive yParity from Turnkey signature")
 			}

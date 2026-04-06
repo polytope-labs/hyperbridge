@@ -11,6 +11,8 @@ export function createMpcVaultSigningAccount(config: MpcVaultSignerConfig): Sign
 		account,
 		signMessage: (messageHash: HexString, chainId: number) => service.signPersonalMessage(messageHash, chainId),
 		signRawHash,
+		signTypedData: (typedData: unknown, chainId?: number) =>
+			service.signTypedData(JSON.stringify(typedData), chainId ?? 1),
 		sendEip7702DelegationTransaction: async (args) => {
 			const chainNonce = await args.publicClient.getTransactionCount({
 				address: args.authorityAddress,

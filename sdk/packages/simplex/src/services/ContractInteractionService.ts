@@ -27,6 +27,7 @@ import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { SigningAccount } from "@/services/wallet"
+import { buildCirclePaymasterData, packPaymasterAndData } from "@/services/paymaster/circle"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
@@ -307,7 +308,11 @@ export class ContractInteractionService {
 	 * @param targetGasUnits - Gas units the deposit should cover (default 3M)
 	 * @param thresholdGasUnits - Only top up if deposit is below this many gas units (defaults to targetGasUnits)
 	 */
-	async topUpEntryPointDeposit(chain: string, targetGasUnits: bigint = 3_000_000n, thresholdGasUnits?: bigint): Promise<void> {
+	async topUpEntryPointDeposit(
+		chain: string,
+		targetGasUnits: bigint = 3_000_000n,
+		thresholdGasUnits?: bigint,
+	): Promise<void> {
 		const effectiveThreshold = thresholdGasUnits ?? targetGasUnits
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		if (!entryPointAddress) {
@@ -605,6 +610,26 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
+		// Build paymasterAndData when the destination chain has a Circle Paymaster configured.
+		// Chains without a paymaster address (e.g. BSC) fall through to "0x",
+		// retaining the existing EntryPoint deposit behaviour.
+		let paymasterAndData: HexString = "0x" as HexString
+		const paymasterAddress = this.configService.getCirclePaymasterV08Address(order.destination)
+		if (paymasterAddress) {
+			const chainId = getChainId(order.destination)!
+			const usdcAddress = this.configService.getUsdcAsset(order.destination)
+			const usdcDecimals = this.configService.getUsdcDecimals(order.destination)
+			const publicClient = this.clientManager.getPublicClient(order.destination)
+			const pm = await buildCirclePaymasterData(publicClient, this.signer, solverAccountAddress, {
+				usdcAddress,
+				paymasterAddress,
+				chainId,
+				usdcDecimals,
+			})
+			paymasterAndData = packPaymasterAndData(pm)
+			this.logger.info({ chainId, paymaster: pm.paymaster }, "Using Circle Paymaster for bid UserOp")
+		}
+
 		const userOp = await sdkHelper.prepareSubmitBid({
 			order,
 			fillOptions,
@@ -618,6 +643,7 @@ export class ContractInteractionService {
 			maxFeePerGas: cachedEstimate.maxFeePerGas,
 			maxPriorityFeePerGas: cachedEstimate.maxPriorityFeePerGas,
 			callData,
+			paymasterAndData,
 		})
 
 		// Encode the UserOp as bytes for submission to Hyperbridge

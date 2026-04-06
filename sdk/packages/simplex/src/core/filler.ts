@@ -125,9 +125,15 @@ export class IntentFiller {
 				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
 			}
 
-			// Ensure EntryPoint deposit covers target gas units on each chain
+			// Ensure EntryPoint deposit covers target gas units on chains
+			// that do NOT have a Circle Paymaster configured (e.g. BSC).
+			// Chains with a paymaster address pay gas in USDC instead.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
+				if (this.configService.getCirclePaymasterV08Address(chain)) {
+					this.logger.info({ chain }, "Skipping EntryPoint deposit — Circle Paymaster available")
+					continue
+				}
 				try {
 					await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
 				} catch (err) {
@@ -551,13 +557,16 @@ export class IntentFiller {
 	}
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
-		// Top up EntryPoint deposit if we were the filler
+		// Top up EntryPoint deposit if we were the filler, but only on chains
+		// without Circle Paymaster (paymaster chains pay gas in USDC).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
-			const targetGasUnits = this.configService.getTargetGasUnits()
-			this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
-				this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
-			})
+			if (!this.configService.getCirclePaymasterV08Address(chain)) {
+				const targetGasUnits = this.configService.getTargetGasUnits()
+				this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
+					this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
+				})
+			}
 		}
 
 		if (!this.bidStorage || !this.hyperbridge) {

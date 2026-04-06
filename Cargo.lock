@@ -9218,7 +9218,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "clap",
  "futures",
@@ -28060,7 +28060,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.6.4"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "arb-host",
@@ -28075,6 +28075,7 @@ dependencies = [
  "log",
  "op-host",
  "parity-scale-codec",
+ "pharos-primitives",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "rustls 0.23.36",
@@ -28087,6 +28088,7 @@ dependencies = [
  "tesseract-beefy",
  "tesseract-bsc",
  "tesseract-grandpa",
+ "tesseract-pharos",
  "tesseract-polygon",
  "tesseract-primitives",
  "tesseract-substrate",

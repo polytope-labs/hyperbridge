@@ -85,6 +85,16 @@ FEE_TOKEN = "0x1452D37b4B0d28dd2fa77b2F0bC784274db7b3F7"
 is_mainnet = false
 7702 = false
 
+[688689]
+endpoint_url = "${PHAROS_ATLANTIC_RPC}"
+
+[688689.address]
+HOST = ""
+
+[688689.bool]
+is_mainnet = false
+7702 = false
+
 [420420417]
 endpoint_url = "${POLKADOT_TESTNET_URL}"
 

@@ -19,6 +19,7 @@ use tesseract_beefy::{
 };
 use tesseract_bsc::BscPosConfig;
 use tesseract_grandpa::{GrandpaConfig, GrandpaHost};
+use tesseract_pharos::PharosConfig;
 use tesseract_polygon::PolygonPosConfig;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
@@ -54,6 +55,10 @@ pub enum AnyConfig {
 	Tendermint(TendermintConfig),
 	/// EVM Host chain config
 	EvmHost(EvmHostConfig),
+	/// Pharos testnet chain config
+	PharosTestnet(PharosConfig),
+	/// Pharos mainnet chain config
+	PharosMainnet(PharosConfig),
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
@@ -205,6 +210,8 @@ impl AnyConfig {
 			AnyConfig::Polygon(config) => config.evm_config.state_machine,
 			AnyConfig::Tendermint(config) => config.evm_config.state_machine,
 			AnyConfig::EvmHost(config) => config.evm_config.state_machine,
+			AnyConfig::PharosTestnet(config) => config.state_machine(),
+			AnyConfig::PharosMainnet(config) => config.state_machine(),
 		}
 	}
 
@@ -223,6 +230,8 @@ impl AnyConfig {
 			AnyConfig::Polygon(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::Tendermint(c) => Some(c.evm_config.ismp_host.clone()),
 			AnyConfig::EvmHost(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::PharosTestnet(c) => Some(c.evm_config.ismp_host.clone()),
+			AnyConfig::PharosMainnet(c) => Some(c.evm_config.ismp_host.clone()),
 		}
 	}
 }

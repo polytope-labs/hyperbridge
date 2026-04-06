@@ -35,7 +35,6 @@ use merkle_mountain_range::{
 	Error as MmrError, Merge as MmrMerge, MerkleProof as MmrMerkleProof, leaf_index_to_mmr_size,
 	leaf_index_to_pos,
 };
-use polkadot_sdk::sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeafVersion};
 use primitive_types::H256;
 use rs_merkle::{Hasher, MerkleProof};
 
@@ -239,21 +238,15 @@ fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
 	relay: &RelaychainProof,
 	mmr_root: H256,
 ) -> Result<(), Error> {
-	#[derive(Encode)]
-	struct CanonicalMmrLeaf {
-		version: MmrLeafVersion,
-		parent_number_and_hash: (u32, H256),
-		beefy_next_authority_set: BeefyAuthoritySet<H256>,
-		leaf_extra: H256,
-	}
+	use polkadot_sdk::sp_consensus_beefy::mmr::MmrLeaf;
 
-	let canonical_leaf = CanonicalMmrLeaf {
+	let mmr_leaf = MmrLeaf::<u32, H256, H256, H256> {
 		version: relay.latest_mmr_leaf.version.clone(),
 		parent_number_and_hash: relay.latest_mmr_leaf.parent_block_and_hash,
 		beefy_next_authority_set: relay.latest_mmr_leaf.beefy_next_authority_set.clone(),
 		leaf_extra: relay.latest_mmr_leaf.extra,
 	};
-	let leaf_hash = H::keccak256(&canonical_leaf.encode());
+	let leaf_hash = H::keccak256(&mmr_leaf.encode());
 	let mmr_size = leaf_index_to_mmr_size(relay.latest_mmr_leaf.leaf_index as u64);
 
 	let mmr_proof = MmrMerkleProof::<[u8; 32], KeccakMerge<H>>::new(

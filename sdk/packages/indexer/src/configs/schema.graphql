@@ -529,6 +529,65 @@ type ResponseStatusMetadata @entity {
 }
 
 """
+Temporary storage for status metadata when the parent entity (Request, Response, GetRequest)
+has not yet been created due to multichain indexing race conditions.
+Once the parent entity is created, pending entries are flushed to the real status metadata tables.
+"""
+type PendingStatusMetadata @entity {
+	id: ID!
+
+	"""
+	The commitment of the parent entity
+	"""
+	commitment: String! @index
+
+	"""
+	The type of parent entity: RequestV2, ResponseV2, or GetRequestV2
+	"""
+	entityType: String! @index
+
+	"""
+	The status of the request/response/order
+	"""
+	status: String!
+
+	"""
+	The chain on which the event occurred
+	"""
+	chain: String!
+
+	"""
+	The timestamp of the event
+	"""
+	timestamp: BigInt!
+
+	"""
+	The number of the block in which the event occurred
+	"""
+	blockNumber: String!
+
+	"""
+	The hash of the block in which the event occurred
+	"""
+	blockHash: String!
+
+	"""
+	The hash of the transaction in which the event occurred
+	"""
+	transactionHash: String!
+
+	"""
+	The filler of the order (only for order status metadata)
+	"""
+	filler: String
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date!
+}
+
+"""
 Reward points earned by participants in the hyperbridge protocol
 """
 type Rewards @entity @compositeIndexes(fields: [["address", "chain"], ["earnerType", "chain"]]) {

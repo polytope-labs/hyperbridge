@@ -1,8 +1,10 @@
 import { solidityKeccak256 } from "ethers/lib/utils"
 import { Status } from "@/configs/src/types/enums"
-import { RequestV2, RequestStatusMetadata } from "@/configs/src/types/models"
+import { RequestV2, RequestStatusMetadata, PendingStatusMetadata } from "@/configs/src/types/models"
 import { ethers } from "ethers"
 import { timestampToDate } from "@/utils/date.helpers"
+
+const ENTITY_TYPE = "RequestV2"
 
 export interface ICreateRequestArgs {
 	chain: string
@@ -97,6 +99,8 @@ export class RequestService {
 					transactionHash,
 				})}`,
 			)
+
+			await this.flushPendingStatuses(commitment)
 		} else {
 			// Update existing request with new details if provided
 			if (body !== undefined) request.body = body
@@ -124,6 +128,7 @@ export class RequestService {
 	/**
 	 * Update the status of a request
 	 * Also adds a new entry to the request status metadata
+	 * If the request doesn't exist, stores in PendingStatusMetadata until the entity is created
 	 */
 	static async updateStatus(args: IUpdateRequestStatusArgs): Promise<void> {
 		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
@@ -139,33 +144,25 @@ export class RequestService {
 		let request = await RequestV2.get(commitment)
 
 		if (!request) {
-			// Create new request and request status metadata
+			logger.warn(
+				`RequestV2 not found for commitment ${commitment}, storing in PendingStatusMetadata for status ${status}`,
+			)
 
-			await this.createOrUpdate({
+			let pending = PendingStatusMetadata.create({
+				id: `${commitment}.${ENTITY_TYPE}.${status}`,
 				commitment,
+				entityType: ENTITY_TYPE,
+				status,
 				chain,
-				body: undefined,
-				dest: undefined,
-				fee: undefined,
-				from: undefined,
-				nonce: undefined,
-				source: undefined,
-				timeoutTimestamp: undefined,
-				to: undefined,
-				blockNumber: "",
-				blockHash: "",
-				blockTimestamp: 0n,
-				transactionHash: "",
-				createdAt: timestampToDate(Date.now()),
+				timestamp: blockTimestamp,
+				blockNumber,
+				blockHash,
+				transactionHash,
+				createdAt: timestampToDate(blockTimestamp),
 			})
 
-			logger.info(
-				`Created new request while attempting request update with details ${JSON.stringify({
-					commitment,
-					transactionHash,
-					status,
-				})}`,
-			)
+			await pending.save()
+			return
 		}
 
 		let requestStatusMetadata = RequestStatusMetadata.create({
@@ -181,6 +178,38 @@ export class RequestService {
 		})
 
 		await requestStatusMetadata.save()
+	}
+
+	/**
+	 * Flush any pending status metadata entries for a request that was just created
+	 */
+	static async flushPendingStatuses(commitment: string): Promise<void> {
+		const pendingStatuses = await PendingStatusMetadata.getByCommitment(commitment, {
+			limit: 10,
+		})
+
+		const matching = pendingStatuses.filter((p) => p.entityType === ENTITY_TYPE)
+
+		for (const pending of matching) {
+			let statusMetadata = RequestStatusMetadata.create({
+				id: `${commitment}.${pending.status}`,
+				requestId: commitment,
+				status: pending.status as Status,
+				chain: pending.chain,
+				timestamp: pending.timestamp,
+				blockNumber: pending.blockNumber,
+				blockHash: pending.blockHash,
+				transactionHash: pending.transactionHash,
+				createdAt: pending.createdAt,
+			})
+
+			await statusMetadata.save()
+			await PendingStatusMetadata.remove(pending.id)
+
+			logger.info(
+				`Flushed pending status ${pending.status} for RequestV2 ${commitment}`,
+			)
+		}
 	}
 
 	/**

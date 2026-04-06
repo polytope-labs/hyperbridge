@@ -31,6 +31,7 @@ jobs:
     outputs:
       package: ${{ steps.runtime.outputs.package }}
       name: ${{ steps.runtime.outputs.name }}
+      display_name: ${{ steps.runtime.outputs.display_name }}
       path: ${{ steps.runtime.outputs.path }}
     steps:
       - id: runtime
@@ -47,13 +48,17 @@ jobs:
           fi
 
           NAME="${PACKAGE%-runtime}"
+          DISPLAY_NAME="$(echo "${NAME}" | sed 's/./\U&/')"
           echo "package=${PACKAGE}" >> "$GITHUB_OUTPUT"
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "display_name=${DISPLAY_NAME}" >> "$GITHUB_OUTPUT"
           echo "path=parachain/runtimes/${NAME}" >> "$GITHUB_OUTPUT"
 
   build-runtime:
     needs: [determine-runtime]
     runs-on: arc-runner-set
+    outputs:
+      spec_version: ${{ steps.info.outputs.spec_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -188,7 +193,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           tag: ${{ inputs.ref || github.ref_name }}
-          name: "${{ needs.determine-runtime.outputs.name }} runtime v${{ needs.build-runtime.outputs.spec_version || 'latest' }}"
+          name: "${{ needs.determine-runtime.outputs.display_name }} v${{ needs.build-runtime.outputs.spec_version }}"
           bodyFile: RELEASE_NOTES.md
           artifacts: "${{ needs.determine-runtime.outputs.name }}_runtime-v*.compact.compressed.wasm"
           allowUpdates: true

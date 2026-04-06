@@ -220,7 +220,6 @@ pub mod pallet {
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::register())]
 		pub fn register(origin: OriginFor<T>, controller: T::AccountId) -> DispatchResult {
 			let stash = ensure_signed(origin)?;
-			ensure!(Bonded::<T>::contains_key(&stash), Error::<T>::NoBond);
 			ensure!(!Controller::<T>::contains_key(&stash), Error::<T>::AlreadyRegistered);
 			ensure!(!Stash::<T>::contains_key(&controller), Error::<T>::AlreadyPaired);
 

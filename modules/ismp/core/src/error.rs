@@ -20,7 +20,10 @@ use crate::{
 	consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
 	events::Meta,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::{
+	string::{String, ToString},
+	vec::Vec,
+};
 use codec::{Decode, Encode};
 use core::time::Duration;
 use scale_info::TypeInfo;
@@ -214,4 +217,51 @@ pub enum Error {
 	},
 	/// Error decoding signature
 	SignatureDecodingFailed,
+	/// Anyhow error: {0}
+	AnyHow(AnyhowError),
+}
+
+/// SCALE-compatible wrapper around [`anyhow::Error`].
+#[derive(Debug)]
+pub struct AnyhowError(pub anyhow::Error);
+
+impl core::fmt::Display for AnyhowError {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		core::fmt::Display::fmt(&self.0, f)
+	}
+}
+
+impl PartialEq for AnyhowError {
+	fn eq(&self, other: &Self) -> bool {
+		self.0.to_string() == other.0.to_string()
+	}
+}
+
+impl Eq for AnyhowError {}
+
+impl Encode for AnyhowError {
+	fn encode_to<W: codec::Output + ?Sized>(&self, dest: &mut W) {
+		self.0.to_string().encode_to(dest)
+	}
+}
+
+impl Decode for AnyhowError {
+	fn decode<I: codec::Input>(input: &mut I) -> Result<Self, codec::Error> {
+		let s = String::decode(input)?;
+		Ok(Self(anyhow::Error::msg(s)))
+	}
+}
+
+impl TypeInfo for AnyhowError {
+	type Identity = String;
+
+	fn type_info() -> scale_info::Type {
+		String::type_info()
+	}
+}
+
+impl From<anyhow::Error> for AnyhowError {
+	fn from(e: anyhow::Error) -> Self {
+		Self(e)
+	}
 }

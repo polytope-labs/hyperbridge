@@ -286,7 +286,7 @@ program
 
 			// Create shared services to avoid duplicate RPC calls and reuse connections
 			const sharedCacheService = new CacheService()
-			const configuredSigner = initializeSignerFromToml(config.simplex.signer)
+			const configuredSigner = await initializeSignerFromToml(config.simplex.signer)
 			const chainClientManager = new ChainClientManager(configService, configuredSigner)
 			const runtimeSigner: SigningAccount = chainClientManager.getSigner()
 

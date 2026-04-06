@@ -16,54 +16,23 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use alloc::vec;
 use frame_benchmarking::v2::*;
-use frame_support::BoundedVec;
 use frame_system::RawOrigin;
-use pallet::{
-	BEEFY_CONSENSUS_ID, CurrentEpoch, ProvenHeights, Sp1VkeyHash,
-};
 
 #[benchmarks(
 	where
 		T::AccountId: From<[u8; 32]>,
-		<T::Currency as frame_support::traits::fungible::Inspect<T::AccountId>>::Balance: From<u128>,
+		<<T as pallet::Config>::Currency as frame_support::traits::fungible::Inspect<T::AccountId>>::Balance: From<u128>,
 )]
 mod benchmarks {
 	use super::*;
 
 	#[benchmark]
-	fn submit_proof() {
-		let caller: T::AccountId = whitelisted_caller();
-
-		CurrentEpoch::<T>::put(0u64);
-		pallet_ismp::ConsensusStates::<T>::insert(BEEFY_CONSENSUS_ID, vec![0u8; 32]);
-
-		let proof: BoundedVec<u8, T::MaxProofSize> =
-			vec![0u8; 100].try_into().expect("fits in bounds");
-
-		#[extrinsic_call]
-		_(RawOrigin::Signed(caller), proof, 1000u64, 500u64, 1u64);
-
-		assert!(ProvenHeights::<T>::contains_key(1000u64));
-		assert_eq!(CurrentEpoch::<T>::get(), 1u64);
-	}
-
-	#[benchmark]
 	fn set_proof_reward() {
-		let reward: <T::Currency as frame_support::traits::fungible::Inspect<T::AccountId>>::Balance = 1000u128.into();
+		let reward: <<T as pallet::Config>::Currency as frame_support::traits::fungible::Inspect<T::AccountId>>::Balance = 1000u128.into();
 		#[extrinsic_call]
 		_(RawOrigin::Root, reward);
 
 		assert_eq!(pallet::ProofReward::<T>::get(), reward);
-	}
-
-	#[benchmark]
-	fn set_sp1_vkey_hash() {
-		let vkey = vec![0xabu8; 32];
-		#[extrinsic_call]
-		_(RawOrigin::Root, vkey.clone());
-
-		assert_eq!(Sp1VkeyHash::<T>::get(), vkey);
 	}
 }

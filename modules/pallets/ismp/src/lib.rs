@@ -276,7 +276,14 @@ pub mod pallet {
 				storage::child::root(&ChildInfo::new_default(CHILD_TRIE_PREFIX), state_version);
 
 			let child_trie_root = H256::from_slice(&child_trie_root);
-			ChildTrieRoot::<T>::put::<T::Hash>(child_trie_root.into());
+			let previous_root = ChildTrieRoot::<T>::get();
+			let new_root: T::Hash = child_trie_root.into();
+			ChildTrieRoot::<T>::put::<T::Hash>(new_root);
+
+			if previous_root != new_root {
+				T::OnDispatch::on_dispatch();
+			}
+
 			let root = match T::OffchainDB::finalize() {
 				Ok(root) => root,
 				Err(e) => {

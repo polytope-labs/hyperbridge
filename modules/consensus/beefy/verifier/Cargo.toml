@@ -24,6 +24,7 @@ sp1-verifier = { git = "https://github.com/dharjeezy/sp1.git", branch = "dami/sp
 [dependencies.polkadot-sdk]
 workspace = true
 features = [
+    "sp-consensus-beefy",
     "sp-core",
     "sp-runtime"
 ]

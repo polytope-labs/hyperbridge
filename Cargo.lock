@@ -8206,7 +8206,6 @@ dependencies = [
  "hyperbridge-client-machine",
  "ismp",
  "ismp-arbitrum",
- "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-optimism",
@@ -9243,7 +9242,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "clap",
  "futures",
@@ -10368,22 +10367,6 @@ dependencies = [
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "scale-info",
-]
-
-[[package]]
-name = "ismp-beefy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beefy-verifier",
- "beefy-verifier-primitives",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk",
- "primitive-types 0.13.1",
- "scale-info",
- "substrate-state-machine",
 ]
 
 [[package]]
@@ -15278,9 +15261,9 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
- "bls_on_arkworks",
  "beefy-prover",
  "beefy-verifier-primitives",
+ "bls_on_arkworks",
  "ckb-merkle-mountain-range",
  "crypto-utils",
  "dotenv",
@@ -15293,11 +15276,10 @@ dependencies = [
  "hex",
  "hyperbridge-client-machine",
  "ismp",
- "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
- "ismp-pharos",
  "ismp-parachain",
+ "ismp-pharos",
  "ismp-solidity-abi",
  "ismp-sync-committee",
  "ismp-testsuite",

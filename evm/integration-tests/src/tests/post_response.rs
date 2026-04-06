@@ -61,7 +61,6 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
 	}
 
 	let pos = mmr.push(response)?;
-	let k_index = mmr_primitives::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
 
 	let proof = mmr.gen_proof(vec![pos])?;
 	let overlay_root = mmr.get_root()?.hash().0;
@@ -87,7 +86,6 @@ async fn test_post_response_proof() -> Result<(), anyhow::Error> {
 		responses: vec![PostResponseLeaf {
 			response: post_response.into(),
 			index: leaf_count.into(),
-			k_index: k_index.into(),
 		}],
 	};
 
@@ -123,7 +121,7 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
 		body: vec![],
 	};
 	let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
-	let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;
+	let (overlay_root, proof) = initialize_mmr_tree(request, 10)?;
 
 	// create intermediate state 1
 	let consensus_proof_1 = IntermediateState {
@@ -143,7 +141,6 @@ async fn test_post_response_timeout() -> Result<(), anyhow::Error> {
 		requests: vec![PostRequestLeaf {
 			request: post.clone().into(),
 			index: 30.into(),
-			k_index: k_index.into(),
 		}],
 	};
 
@@ -211,7 +208,7 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
 		body: vec![],
 	};
 	let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
-	let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;
+	let (overlay_root, proof) = initialize_mmr_tree(request, 10)?;
 
 	// create intermediate state 1
 	let consensus_proof_1 = IntermediateState {
@@ -231,7 +228,6 @@ async fn test_post_response_malicious_timeout() -> Result<(), anyhow::Error> {
 		requests: vec![PostRequestLeaf {
 			request: post.clone().into(),
 			index: 30.into(),
-			k_index: k_index.into(),
 		}],
 	};
 

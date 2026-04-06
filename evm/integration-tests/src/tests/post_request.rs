@@ -36,7 +36,7 @@ async fn test_post_request_proof() -> Result<(), anyhow::Error> {
 		body: vec![],
 	};
 	let request = DataOrHash::Data(Leaf::Request(Request::Post(post.clone())));
-	let (overlay_root, proof, k_index) = initialize_mmr_tree(request, 10)?;
+	let (overlay_root, proof) = initialize_mmr_tree(request, 10)?;
 
 	// create intermediate state
 	let consensus_proof = IntermediateState {
@@ -55,7 +55,6 @@ async fn test_post_request_proof() -> Result<(), anyhow::Error> {
 		requests: vec![PostRequestLeaf {
 			request: post.into(),
 			index: 30.into(),
-			k_index: k_index.into(),
 		}],
 	};
 

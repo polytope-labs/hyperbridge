@@ -28,7 +28,7 @@ use pharos_verifier::state_proof::StakingContractLayout;
 use primitive_types::{H160, H256, U256};
 use rpc::{
 	hex_to_bytes, hex_to_u64, PharosRpcClient, RpcBlockProof, RpcProofNode, RpcSiblingProof,
-	RpcValidatorInfo,
+	RpcStorageProof, RpcValidatorInfo,
 };
 use std::{collections::BTreeMap, marker::PhantomData, sync::Arc};
 
@@ -154,6 +154,61 @@ impl<C: Config> PharosProver<C> {
 		U256::from_str_radix(hex, 16).map_err(|_| ProverError::InvalidNumber)
 	}
 
+	/// Maximum number of storage keys per `eth_getProof` call to avoid
+	/// Pharos RPC rate limits ("batch keys too large").
+	const MAX_PROOF_KEYS_PER_BATCH: usize = 3;
+
+	/// Delay between batched `eth_getProof` calls to respect QPS limits.
+	const BATCH_DELAY_MS: u64 = 1000;
+
+	/// Fetch storage proofs in batches to avoid Pharos RPC rate limits.
+	///
+	/// Splits a large set of storage keys into smaller batches of
+	/// `MAX_PROOF_KEYS_PER_BATCH` keys each, with a delay between calls.
+	/// Returns all storage proofs in order.
+	async fn batched_get_proof(
+		&self,
+		address: H160,
+		storage_keys: Vec<H256>,
+		block_number: u64,
+	) -> Result<Vec<RpcStorageProof>, ProverError> {
+		if storage_keys.len() <= Self::MAX_PROOF_KEYS_PER_BATCH {
+			let proof = self.rpc.get_proof(address, storage_keys, block_number).await?;
+			return Ok(proof.storage_proof);
+		}
+
+		let mut merged_storage_proof = Vec::new();
+		let chunks: Vec<Vec<H256>> = storage_keys
+			.chunks(Self::MAX_PROOF_KEYS_PER_BATCH)
+			.map(|c| c.to_vec())
+			.collect();
+
+		log::trace!(
+			target: "pharos-prover",
+			"Fetching {} storage keys in {} batches of up to {} keys each",
+			storage_keys.len(),
+			chunks.len(),
+			Self::MAX_PROOF_KEYS_PER_BATCH,
+		);
+
+		for (i, chunk) in chunks.iter().enumerate() {
+			if i > 0 {
+				tokio::time::sleep(std::time::Duration::from_millis(Self::BATCH_DELAY_MS)).await;
+			}
+
+			log::trace!(
+				target: "pharos-prover",
+				"Batch {}/{}: fetching {} keys",
+				i + 1, chunks.len(), chunk.len(),
+			);
+
+			let proof = self.rpc.get_proof(address, chunk.clone(), block_number).await?;
+			merged_storage_proof.extend(proof.storage_proof);
+		}
+
+		Ok(merged_storage_proof)
+	}
+
 	/// Fetch validator set proof for an epoch boundary block.
 	///
 	/// This fetches the storage proof from the staking contract at the
@@ -164,6 +219,9 @@ impl<C: Config> PharosProver<C> {
 	/// - Slot 21: activePoolSets (EnumerableSet._inner._values array length)
 	/// - keccak256(21): array elements (pool IDs)
 	/// - For each pool ID: validator data via mapping at slot 0
+	///
+	/// All `eth_getProof` calls are batched into smaller chunks to avoid
+	/// Pharos RPC rate limits.
 	pub async fn fetch_validator_set_proof(
 		&self,
 		block_number: u64,
@@ -185,6 +243,12 @@ impl<C: Config> PharosProver<C> {
 			return Err(ProverError::MissingStorageProof("activePoolSets length"));
 		};
 
+		log::trace!(
+			target: "pharos-prover",
+			"Epoch boundary at block {}: {} validators to prove",
+			block_number, validator_count,
+		);
+
 		// Fetch pool IDs from the activePoolSets array
 		let mut pool_id_keys = Vec::new();
 		for i in 0..validator_count {
@@ -199,11 +263,12 @@ impl<C: Config> PharosProver<C> {
 			return Err(ProverError::MissingStorageProof("activePoolSets array is empty"));
 		}
 
-		let pool_id_proof = self.rpc.get_proof(address, pool_id_keys.clone(), block_number).await?;
+		let pool_id_proofs =
+			self.batched_get_proof(address, pool_id_keys.clone(), block_number).await?;
 
 		// Extract pool IDs
 		let mut pool_ids = Vec::new();
-		for sp in &pool_id_proof.storage_proof {
+		for sp in &pool_id_proofs {
 			let bytes = hex_to_bytes(&sp.value)?;
 			let mut padded = [0u8; 32];
 			if bytes.len() <= 32 {
@@ -221,14 +286,14 @@ impl<C: Config> PharosProver<C> {
 			storage_proof.insert(base_keys[i], rpc_to_proof_nodes(&sp.proof)?);
 			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
-		for (i, sp) in pool_id_proof.storage_proof.iter().enumerate() {
+		for (i, sp) in pool_id_proofs.iter().enumerate() {
 			storage_proof.insert(pool_id_keys[i], rpc_to_proof_nodes(&sp.proof)?);
 			storage_values.push(hex_to_bytes(&sp.value)?);
 		}
 
-		// Fetch validator data in two batched RPC calls (instead of 2 per validator):
-		// Phase 1: batch all validators' BLS string headers + stakes into one call.
-		// Phase 2: use phase 1 results to compute BLS data slot keys, batch into one call.
+		// Fetch validator data in two batched phases:
+		// Phase 1: batch all validators' BLS string headers + stakes.
+		// Phase 2: use phase 1 results to compute BLS data slot keys, batch fetch.
 
 		// Build phase 1 keys: [bls_header_0, stake_0, bls_header_1, stake_1, ...]
 		let mut phase1_all_keys = Vec::new();
@@ -240,16 +305,14 @@ impl<C: Config> PharosProver<C> {
 			validator_slots.push((bls_string_slot, stake_slot));
 		}
 
-		let phase1_proof = self.rpc.get_proof(address, phase1_all_keys, block_number).await?;
+		let phase1_proofs = self.batched_get_proof(address, phase1_all_keys, block_number).await?;
 
-		if phase1_proof.storage_proof.len() < pool_ids.len() * 2 {
+		if phase1_proofs.len() < pool_ids.len() * 2 {
 			return Err(ProverError::MissingStorageProof("BLS header or stake in phase 1"));
 		}
 
 		// Process phase 1 results and build phase 2 keys
 		let mut phase2_all_keys = Vec::new();
-		// Track per-validator: (bls_string_slot, stake_slot, phase1_header_idx, phase1_stake_idx,
-		// data_keys)
 		struct ValidatorPhaseInfo {
 			bls_string_slot: H256,
 			stake_slot: H256,
@@ -263,7 +326,7 @@ impl<C: Config> PharosProver<C> {
 			let header_idx = v_idx * 2;
 			let stake_idx = v_idx * 2 + 1;
 
-			let header_hex = &phase1_proof.storage_proof[header_idx].value;
+			let header_hex = &phase1_proofs[header_idx].value;
 			let data_slot_count = bls_data_slots_from_hex(header_hex)?;
 
 			let bls_data_base = H256::from(keccak256(bls_string_slot.as_bytes()));
@@ -284,9 +347,9 @@ impl<C: Config> PharosProver<C> {
 			});
 		}
 
-		// Phase 2: fetch all BLS data slots in one call
-		let phase2_proof = if !phase2_all_keys.is_empty() {
-			Some(self.rpc.get_proof(address, phase2_all_keys, block_number).await?)
+		// Phase 2: fetch all BLS data slots in batches
+		let phase2_proofs = if !phase2_all_keys.is_empty() {
+			Some(self.batched_get_proof(address, phase2_all_keys, block_number).await?)
 		} else {
 			None
 		};
@@ -297,19 +360,15 @@ impl<C: Config> PharosProver<C> {
 			// Header
 			storage_proof.insert(
 				vi.bls_string_slot,
-				rpc_to_proof_nodes(&phase1_proof.storage_proof[vi.phase1_header_idx].proof)?,
+				rpc_to_proof_nodes(&phase1_proofs[vi.phase1_header_idx].proof)?,
 			);
-			storage_values
-				.push(hex_to_bytes(&phase1_proof.storage_proof[vi.phase1_header_idx].value)?);
+			storage_values.push(hex_to_bytes(&phase1_proofs[vi.phase1_header_idx].value)?);
 
 			// Data slots
-			if let Some(ref p2) = phase2_proof {
+			if let Some(ref p2) = phase2_proofs {
 				for (j, key) in vi.data_keys.iter().enumerate() {
-					storage_proof.insert(
-						*key,
-						rpc_to_proof_nodes(&p2.storage_proof[phase2_offset + j].proof)?,
-					);
-					storage_values.push(hex_to_bytes(&p2.storage_proof[phase2_offset + j].value)?);
+					storage_proof.insert(*key, rpc_to_proof_nodes(&p2[phase2_offset + j].proof)?);
+					storage_values.push(hex_to_bytes(&p2[phase2_offset + j].value)?);
 				}
 			}
 			phase2_offset += vi.data_keys.len();
@@ -317,11 +376,16 @@ impl<C: Config> PharosProver<C> {
 			// Stake
 			storage_proof.insert(
 				vi.stake_slot,
-				rpc_to_proof_nodes(&phase1_proof.storage_proof[vi.phase1_stake_idx].proof)?,
+				rpc_to_proof_nodes(&phase1_proofs[vi.phase1_stake_idx].proof)?,
 			);
-			storage_values
-				.push(hex_to_bytes(&phase1_proof.storage_proof[vi.phase1_stake_idx].value)?);
+			storage_values.push(hex_to_bytes(&phase1_proofs[vi.phase1_stake_idx].value)?);
 		}
+
+		log::trace!(
+			target: "pharos-prover",
+			"Validator set proof complete: {} storage keys, {} proof paths",
+			storage_values.len(), storage_proof.len(),
+		);
 
 		Ok(ValidatorSetProof { storage_proof, storage_values })
 	}

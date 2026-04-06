@@ -24,8 +24,8 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		HandlerInstance, PostRequestLeaf, PostRequestMessage,
-		PostResponseLeaf, PostResponseMessage, Proof, StateMachineHeight,
+		HandlerInstance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
 use mmr_primitives::mmr_position_to_k_index;
@@ -135,20 +135,17 @@ fn build_tx_request(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) => {
-			32_000_000
-		},
+		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
+			32_000_000,
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
 		// Gas limit is 10_000_000, we set our transaction gas limit to 40% of that
 		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 4_000_000,
 		// Gas limit is 60_000_000, we set our transaction gas limit to 30% of that
-		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) => {
-			18_000_000
-		},
+		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) =>
+			18_000_000,
 		// Gas limit is 50_000_000, we set our transaction gas limit to 30% of that
-		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) => {
-			15_000_000
-		},
+		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) =>
+			15_000_000,
 		// Ethereum L1 max's gas limit per transaction will be reduced to 16m soon.
 		StateMachine::Evm(_) => 16_000_000,
 		_ => Default::default(),
@@ -294,9 +291,7 @@ pub async fn generate_contract_calls(
 				datagram: RequestResponse::Request(..), ..
 			}) => return Err(anyhow!("Get requests are not supported by relayer")),
 
-			Message::Timeout(_) => {
-				return Err(anyhow!("Timeout messages not supported by relayer"))
-			},
+			Message::Timeout(_) => return Err(anyhow!("Timeout messages not supported by relayer")),
 
 			Message::FraudProof(_) => return Err(anyhow!("Unexpected fraud proof message")),
 		};
@@ -410,7 +405,7 @@ pub async fn wait_for_success(
 	tx_hash: H256,
 ) -> anyhow::Result<Option<BTreeSet<H256>>> {
 	match wait_for_transaction_receipt(tx_hash, client).await? {
-		Some(receipt) => {
+		Some(receipt) =>
 			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
 				tracing::info!("Tx for {:?} succeeded", client.state_machine);
 				Ok(Some(extract_event_commitments(&receipt)))
@@ -421,8 +416,7 @@ pub async fn wait_for_success(
 					client.state_machine
 				);
 				Err(anyhow!("Transaction reverted"))
-			}
-		},
+			},
 		None => Ok(None),
 	}
 }
@@ -437,7 +431,7 @@ pub async fn handle_message_submission(
 
 	for msg in messages {
 		match msg {
-			Message::Request(req_msg) => {
+			Message::Request(req_msg) =>
 				for post in req_msg.requests {
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
@@ -452,12 +446,11 @@ pub async fn handle_message_submission(
 							height,
 						});
 					}
-				}
-			},
+				},
 			Message::Response(ResponseMessage {
 				datagram: RequestResponse::Response(resp),
 				..
-			}) => {
+			}) =>
 				for res in resp {
 					let commitment = hash_response::<Hasher>(&res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
@@ -473,8 +466,7 @@ pub async fn handle_message_submission(
 							height,
 						});
 					}
-				}
-			},
+				},
 			_ => {},
 		}
 	}

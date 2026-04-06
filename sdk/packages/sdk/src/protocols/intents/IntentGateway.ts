@@ -11,6 +11,7 @@ import type {
 	SelectBidResult,
 	FillerBid,
 } from "@/types"
+import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IndexerClient } from "@/client"
@@ -24,7 +25,7 @@ import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI } from "@/utils"
+import { DEFAULT_GRAFFITI, ADDRESS_ZERO } from "@/utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -185,7 +186,7 @@ export class IntentGateway {
 	 *    The caller must sign the transaction and pass it back via `gen.next(signedTx)`.
 	 * 3. Yields `ORDER_PLACED` with the finalised order and transaction hash once
 	 *    the `OrderPlaced` event is confirmed.
-	 * 4. Delegates to {@link OrderExecutor.executeIntentOrder} and forwards all
+	 * 4. Delegates to {@link OrderExecutor.executeOrder} and forwards all
 	 *    subsequent status updates until the order is filled, exhausted, or fails.
 	 *
 	 * @param order - The order to place and execute. `order.fees` may be 0; it
@@ -195,8 +196,7 @@ export class IntentGateway {
 	 * @param options - Optional tuning parameters:
 	 *   - `maxPriorityFeePerGasBumpPercent` — bump % for the priority fee estimate (default 8).
 	 *   - `maxFeePerGasBumpPercent` — bump % for the max fee estimate (default 10).
-	 *   - `minBids` — minimum bids to collect before selecting (default 1).
-	 *   - `bidTimeoutMs` — how long to poll for bids before giving up (default 60 000 ms).
+	 *   - `auctionTimeMs` — duration in ms to collect bids before selecting the best one.
 	 *   - `pollIntervalMs` — interval between bid-polling attempts.
 	 * @yields {@link IntentOrderStatusUpdate} at each lifecycle stage.
 	 * @throws If the `placeOrder` generator behaves unexpectedly, or if gas
@@ -205,11 +205,10 @@ export class IntentGateway {
 	async *execute(
 		order: Order,
 		graffiti: HexString = DEFAULT_GRAFFITI,
-		options?: {
+		options: {
+			auctionTimeMs: number
 			maxPriorityFeePerGasBumpPercent?: number
 			maxFeePerGasBumpPercent?: number
-			minBids?: number
-			bidTimeoutMs?: number
 			pollIntervalMs?: number
 			solver?: { address: HexString; timeoutMs: number }
 		},
@@ -252,18 +251,69 @@ export class IntentGateway {
 
 		yield { status: "ORDER_PLACED", order: finalizedOrder, receipt: placementReceipt }
 
-		for await (const status of this.orderExecutor.executeIntentOrder({
+		for await (const status of this.orderExecutor.executeOrder({
 			order: finalizedOrder,
 			sessionPrivateKey,
-			minBids: options?.minBids,
-			bidTimeoutMs: options?.bidTimeoutMs,
-			pollIntervalMs: options?.pollIntervalMs,
-			solver: options?.solver,
+			auctionTimeMs: options.auctionTimeMs,
+			pollIntervalMs: options.pollIntervalMs,
+			solver: options.solver,
 		})) {
 			yield status
 		}
 
 		return
+	}
+
+	/**
+	 * Validates that an order has the minimum fields required for post-placement
+	 * resume (i.e. it was previously placed and has an on-chain identity).
+	 *
+	 * @throws If `order.id` or `order.session` is missing or zero-valued.
+	 */
+	private assertOrderCanResume(order: Order): void {
+		if (!order.id) {
+			throw new Error("Cannot resume execution without order.id")
+		}
+		if (!order.session || order.session === ADDRESS_ZERO) {
+			throw new Error("Cannot resume execution without order.session")
+		}
+	}
+
+	/**
+	 * Resumes execution of a previously placed order.
+	 *
+	 * Use this method after an app restart or crash to pick up where
+	 * {@link execute} left off. The order must already be placed on-chain
+	 * (i.e. it must have a valid `id` and `session`).
+	 *
+	 * Internally delegates to {@link OrderExecutor.executeOrder} and
+	 * yields the same status updates as the execution phase of {@link execute}:
+	 * `AWAITING_BIDS`, `BIDS_RECEIVED`, `BID_SELECTED`,
+	 * `FILLED`, `PARTIAL_FILL`, `EXPIRED`, or `FAILED`.
+	 *
+	 * Callers may check {@link isOrderFilled} or {@link isOrderRefunded} before
+	 * calling this method to avoid resuming an already-terminal order.
+	 *
+	 * @param order - A previously placed order with a valid `id` and `session`.
+	 * @param options - Optional tuning parameters for bid collection and execution.
+	 * @yields {@link IntentOrderStatusUpdate} at each execution stage.
+	 * @throws If the order is missing required fields for resumption.
+	 */
+	async *resume(
+		order: Order,
+		options: ResumeIntentOrderOptions,
+	): AsyncGenerator<IntentOrderStatusUpdate, void> {
+		this.assertOrderCanResume(order)
+
+		for await (const status of this.orderExecutor.executeOrder({
+			order,
+			sessionPrivateKey: options.sessionPrivateKey,
+			auctionTimeMs: options.auctionTimeMs,
+			pollIntervalMs: options.pollIntervalMs,
+			solver: options.solver,
+		})) {
+			yield status
+		}
 	}
 
 	/**

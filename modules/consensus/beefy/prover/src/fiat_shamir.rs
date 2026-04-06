@@ -351,8 +351,7 @@ pub fn filter_signatures_for_challenge(
 		let last = temp.last_mut().unwrap();
 		*last += 27;
 
-		filtered
-			.push(SignatureWithAuthorityIndex { index: authority_index, signature: temp });
+		filtered.push(SignatureWithAuthorityIndex { index: authority_index, signature: temp });
 	}
 
 	Ok(filtered)

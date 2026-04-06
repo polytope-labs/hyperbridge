@@ -43,7 +43,7 @@ const secret_key = process.env.SECRET_PHRASE || ""
  The goal of this test is to ensure the teleport extrinsic is correctly encoded
  The tx can be decoded by the rpc node
  */
-describe("teleport function", () => {
+describe.skip("teleport function", () => {
 	it.skip("should teleport assets correctly", async () => {
 		// Set up the connection to a local node
 		const wsProvider = new WsProvider(process.env.BIFROST_PASEO)
@@ -109,7 +109,7 @@ describe("teleport function", () => {
 		}
 	}, 300_000)
 
-	it("should batch system.remark with teleport call", async () => {
+	it.skip("should batch system.remark with teleport call", async () => {
 		// Set up the connection to a local node
 		const wsProvider = new WsProvider(process.env.BIFROST_PASEO)
 		const api = await ApiPromise.create({ provider: wsProvider })

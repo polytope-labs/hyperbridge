@@ -33,7 +33,6 @@ ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
 ismp-parachain = { workspace = true }
 ismp-grandpa = { workspace = true }
-ismp-beefy = { workspace = true }
 ismp-parachain-runtime-api = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
@@ -52,6 +51,7 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-pharos = { workspace =  true }
 ismp-tendermint = { workspace = true }
 pallet-messaging-fees = { workspace = true }
 evm-state-machine = { workspace = true }
@@ -135,7 +135,6 @@ std = [
     "ismp-sync-committee/std",
     "ismp-bsc/std",
     "ismp-grandpa/std",
-    "ismp-beefy/std",
     "ismp-parachain/std",
     "ismp-parachain-runtime-api/std",
     "pallet-ismp-relayer/std",
@@ -160,7 +159,8 @@ std = [
     "ismp-tendermint/std",
     "pallet-messaging-fees/std",
     "evm-state-machine/std",
-    "substrate-state-machine/std"
+    "substrate-state-machine/std",
+    "ismp-pharos/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

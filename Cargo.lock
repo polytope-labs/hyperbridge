@@ -3545,8 +3545,8 @@ dependencies = [
  "alloy-rlp",
  "alloy-rlp-derive",
  "anyhow",
- "ark-ec 0.4.2",
  "bls_on_arkworks",
+ "crypto-utils",
  "geth-primitives",
  "ismp",
  "log",
@@ -3555,7 +3555,6 @@ dependencies = [
  "primitive-types 0.13.1",
  "ssz-rs",
  "sync-committee-primitives",
- "sync-committee-verifier",
 ]
 
 [[package]]
@@ -4781,10 +4780,15 @@ name = "crypto-utils"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "bls_on_arkworks",
+ "hex",
  "parity-scale-codec",
  "scale-info",
+ "serde",
+ "serde-hex-utils",
  "sp-core",
  "sp-io",
+ "ssz-rs",
 ]
 
 [[package]]
@@ -8202,12 +8206,12 @@ dependencies = [
  "hyperbridge-client-machine",
  "ismp",
  "ismp-arbitrum",
- "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-optimism",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
+ "ismp-pharos",
  "ismp-polygon",
  "ismp-sync-committee",
  "ismp-tendermint",
@@ -9239,7 +9243,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.2"
+version = "1.4.3"
 dependencies = [
  "clap",
  "futures",
@@ -10367,22 +10371,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ismp-beefy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beefy-verifier",
- "beefy-verifier-primitives",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk",
- "primitive-types 0.13.1",
- "scale-info",
- "substrate-state-machine",
-]
-
-[[package]]
 name = "ismp-bsc"
 version = "0.1.1"
 dependencies = [
@@ -10483,6 +10471,25 @@ name = "ismp-parachain-runtime-api"
 version = "2512.0.0"
 dependencies = [
  "polkadot-sdk",
+]
+
+[[package]]
+name = "ismp-pharos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "geth-primitives",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-state-machine",
+ "pharos-verifier",
+ "polkadot-sdk",
+ "scale-info",
+ "sync-committee-primitives",
 ]
 
 [[package]]
@@ -15257,20 +15264,23 @@ dependencies = [
  "anyhow",
  "beefy-prover",
  "beefy-verifier-primitives",
+ "bls_on_arkworks",
  "ckb-merkle-mountain-range",
+ "crypto-utils",
  "dotenv",
  "env_logger 0.11.9",
  "ethereum-triedb",
  "evm-state-machine",
  "futures",
+ "geth-primitives",
  "hash-db",
  "hex",
  "hyperbridge-client-machine",
  "ismp",
- "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-parachain",
+ "ismp-pharos",
  "ismp-solidity-abi",
  "ismp-sync-committee",
  "ismp-testsuite",
@@ -15294,6 +15304,8 @@ dependencies = [
  "pallet-token-governor",
  "pallet-xcm-gateway",
  "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-prover",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
@@ -17152,6 +17164,77 @@ dependencies = [
  "fixedbitset 0.5.7",
  "hashbrown 0.15.5",
  "indexmap 2.13.0",
+]
+
+[[package]]
+name = "pharos-primitives"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "anyhow",
+ "crypto-utils",
+ "geth-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "parity-scale-codec",
+ "primitive-types 0.13.1",
+ "serde",
+ "sp-io",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pharos-prover"
+version = "0.1.0"
+dependencies = [
+ "alloy-eips",
+ "alloy-provider",
+ "ethabi",
+ "geth-primitives",
+ "hex",
+ "pharos-primitives",
+ "pharos-verifier",
+ "primitive-types 0.13.1",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pharos-state-machine"
+version = "0.1.0"
+dependencies = [
+ "alloy-rlp",
+ "anyhow",
+ "ethabi",
+ "evm-state-machine",
+ "geth-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+]
+
+[[package]]
+name = "pharos-verifier"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bls_on_arkworks",
+ "crypto-utils",
+ "geth-primitives",
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "log",
+ "pharos-primitives",
+ "primitive-types 0.13.1",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -20470,6 +20553,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+ "webpki-roots 0.25.4",
  "winreg",
 ]
 
@@ -27490,6 +27574,7 @@ name = "sync-committee-primitives"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "crypto-utils",
  "hex",
  "hex-literal 0.4.1",
  "parity-scale-codec",
@@ -28024,6 +28109,7 @@ dependencies = [
  "tendermint-primitives",
  "tesseract-evm",
  "tesseract-evm-tendermint",
+ "tesseract-pharos-evm",
  "tesseract-primitives",
  "tesseract-substrate",
  "tesseract-substrate-evm",
@@ -28218,6 +28304,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-grandpa",
+ "ismp-pharos",
  "ismp-solidity-abi",
  "log",
  "mmr-primitives",
@@ -28226,6 +28313,7 @@ dependencies = [
  "pallet-ismp-demo",
  "pallet-ismp-rpc",
  "parity-scale-codec",
+ "pharos-primitives",
  "polkadot-sdk",
  "primitive-types 0.12.2",
  "sp-core",
@@ -28240,6 +28328,7 @@ dependencies = [
  "tesseract-evm",
  "tesseract-grandpa",
  "tesseract-messaging",
+ "tesseract-pharos",
  "tesseract-polygon",
  "tesseract-primitives",
  "tesseract-substrate",
@@ -28270,6 +28359,49 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "transaction-fees",
+]
+
+[[package]]
+name = "tesseract-pharos"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "geth-primitives",
+ "ismp",
+ "ismp-pharos",
+ "log",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-prover",
+ "pharos-verifier",
+ "primitive-types 0.13.1",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
+]
+
+[[package]]
+name = "tesseract-pharos-evm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "ismp",
+ "log",
+ "pallet-ismp-host-executive",
+ "parity-scale-codec",
+ "pharos-primitives",
+ "pharos-prover",
+ "pharos-state-machine",
+ "primitive-types 0.13.1",
+ "serde",
+ "sp-core",
+ "tesseract-evm",
+ "tesseract-primitives",
 ]
 
 [[package]]

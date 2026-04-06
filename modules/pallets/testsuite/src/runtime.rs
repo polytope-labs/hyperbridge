@@ -113,7 +113,6 @@ frame_support::construct_runtime!(
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
-		IsmpBeefy: ismp_beefy,
 		OutboundProofs: pallet_outbound_proofs,
 	}
 );
@@ -262,11 +261,7 @@ impl pallet_ismp::Config for Test {
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
-		ismp_beefy::consensus::BeefyConsensusClient<
-			Ismp,
-			Test,
-			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
-		>,
+		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = (
@@ -381,7 +376,7 @@ impl pallet_collator_selection::Config for Test {
 	type KickThreshold = ConstU64<1>;
 	type ValidatorId = AccountId32;
 	type ValidatorIdOf = ConvertInto;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
 	type MinEligibleCollators = DesiredCollators;
 	type WeightInfo = ();
 }

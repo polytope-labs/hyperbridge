@@ -66,7 +66,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 			contractService,
 		} = await setUpMainnetFx()
 
-		const intentFiller = createFxOnlyIntentFiller(
+		const intentFiller = await createFxOnlyIntentFiller(
 			chainConfigs,
 			fillerConfig,
 			chainConfigService,
@@ -158,9 +158,9 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -197,7 +197,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 			contractService,
 		} = await setUpMainnetFxBase()
 
-		const intentFiller = createFxOnlyIntentFiller(
+		const intentFiller = await createFxOnlyIntentFiller(
 			chainConfigs,
 			fillerConfig,
 			chainConfigService,
@@ -287,9 +287,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -509,12 +509,6 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 							commitment: status.commitment,
 							selectedSolver: status.selectedSolver,
 							userOpHash: status.userOpHash,
-						})
-						break
-					case "USEROP_SUBMITTED":
-						tlog("USEROP_SUBMITTED", {
-							commitment: status.commitment,
-							userOpHash: status.userOpHash,
 							txHash: status.transactionHash,
 						})
 						break
@@ -534,8 +528,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 							txHash: status.transactionHash,
 						})
 						break
-					case "PARTIAL_FILL_EXHAUSTED":
-						tlog("PARTIAL_FILL_EXHAUSTED", { commitment: status.commitment, error: status.error })
+					case "EXPIRED":
+						tlog("EXPIRED", { commitment: status.commitment, error: status.error })
 						break
 					case "FAILED":
 						tlog("FAILED", status)
@@ -909,9 +903,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -1240,9 +1234,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -1279,7 +1273,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 			contractService,
 		} = await setUpMainnetFxArbitrum()
 
-		const intentFiller = createFxOnlyIntentFiller(
+		const intentFiller = await createFxOnlyIntentFiller(
 			chainConfigs,
 			fillerConfig,
 			chainConfigService,
@@ -1374,9 +1368,9 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -1419,8 +1413,8 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 				contractService,
 			} = await setUpMainnetFxArbitrumToBase()
 
-			const fillSigner = createMpcVaultFillSigner()
-			const intentFiller = createCrossChainFxIntentFiller(
+			const fillSigner = await createMpcVaultFillSigner()
+			const intentFiller = await createCrossChainFxIntentFiller(
 				chainConfigs,
 				fillerConfig,
 				chainConfigService,
@@ -1521,9 +1515,9 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 					if (status.status === "BID_SELECTED") {
 						selectedSolver = status.selectedSolver as HexString
 						userOpHash = status.userOpHash as HexString
-					}
-					if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-						console.log("Transaction hash:", status.transactionHash)
+						if (status.transactionHash) {
+							console.log("Transaction hash:", status.transactionHash)
+						}
 					}
 					if (status.status === "FAILED") {
 						throw new Error(`Order execution failed: ${status.error}`)
@@ -1594,7 +1588,7 @@ async function setUpMainnetFx() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1646,7 +1640,7 @@ async function setUpMainnetFxBase() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1700,7 +1694,7 @@ async function setUpMainnetFxArbitrum() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
@@ -1755,7 +1749,7 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	// User EOA (PRIVATE_KEY): Arbitrum wallet for approvals and placing the order.
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const userSigner = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const userSigner = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, userSigner)
 	const contractService = new ContractInteractionService(
@@ -1789,7 +1783,7 @@ async function setUpMainnetFxArbitrumToBase() {
 	}
 }
 
-function createCrossChainFxIntentFiller(
+async function createCrossChainFxIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
@@ -1871,7 +1865,7 @@ function createCrossChainFxIntentFiller(
 	)
 }
 
-function createFxOnlyIntentFiller(
+async function createFxOnlyIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
@@ -1880,7 +1874,7 @@ function createFxOnlyIntentFiller(
 	exoticTokenOverride?: HexString,
 ): IntentFiller {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 

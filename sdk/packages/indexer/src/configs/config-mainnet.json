@@ -40,7 +40,7 @@
 		"chainId": "1",
 		"startBlock": 21099382,
 		"stateMachineId": "EVM-1",
-		"blockConfirmations": 2,
+		"blockConfirmations": 5,
 		"contracts": {
 			"ethereumHost": "0x792A6236AF69787C40cF76b69B4c8c7B28c4cA20",
 			"erc6160ext20": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
@@ -112,6 +112,7 @@
 		"chainId": "100",
 		"startBlock": 36816861,
 		"stateMachineId": "EVM-100",
+		"blockConfirmations": 5,
 		"contracts": {
 			"ethereumHost": "0x50c236247447B9d4Ee0561054ee596fbDa7791b1",
 			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",

@@ -1,7 +1,9 @@
 import { solidityKeccak256 } from "ethers/lib/utils"
-import { RequestV2, ResponseV2, ResponseStatusMetadata, Status } from "@/configs/src/types"
+import { RequestV2, ResponseV2, ResponseStatusMetadata, PendingStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
 import { timestampToDate } from "@/utils/date.helpers"
+
+const ENTITY_TYPE = "ResponseV2"
 
 export interface ICreateResponseArgs {
 	chain: string
@@ -96,6 +98,8 @@ export class ResponseService {
 			})
 
 			await responseStatusMetadata.save()
+
+			await this.flushPendingStatuses(commitment)
 		}
 
 		return response
@@ -104,16 +108,22 @@ export class ResponseService {
 	/**
 	 * Update the status of a response
 	 * Also adds a new entry to the response status metadata
+	 * If the response doesn't exist, stores in PendingStatusMetadata until the entity is created
 	 */
 	static async updateStatus(args: IUpdateResponseStatusArgs): Promise<void> {
 		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
 
 		let response = await ResponseV2.get(commitment)
 
-		if (response) {
-			let responseStatusMetadata = ResponseStatusMetadata.create({
-				id: `${commitment}.${status}`,
-				responseId: commitment,
+		if (!response) {
+			logger.warn(
+				`ResponseV2 not found for commitment ${commitment}, storing in PendingStatusMetadata for status ${status}`,
+			)
+
+			let pending = PendingStatusMetadata.create({
+				id: `${commitment}.${ENTITY_TYPE}.${status}`,
+				commitment,
+				entityType: ENTITY_TYPE,
 				status,
 				chain,
 				timestamp: blockTimestamp,
@@ -123,31 +133,53 @@ export class ResponseService {
 				createdAt: timestampToDate(blockTimestamp),
 			})
 
-			await responseStatusMetadata.save()
-		} else {
-			await this.findOrCreate({
-				chain,
-				commitment,
-				blockHash,
-				blockNumber,
-				blockTimestamp,
-				status,
-				transactionHash,
-				request: undefined,
-				responseTimeoutTimestamp: undefined,
-				response_message: undefined,
+			await pending.save()
+			return
+		}
+
+		let responseStatusMetadata = ResponseStatusMetadata.create({
+			id: `${commitment}.${status}`,
+			responseId: commitment,
+			status,
+			chain,
+			timestamp: blockTimestamp,
+			blockNumber,
+			blockHash,
+			transactionHash,
+			createdAt: timestampToDate(blockTimestamp),
+		})
+
+		await responseStatusMetadata.save()
+	}
+
+	/**
+	 * Flush any pending status metadata entries for a response that was just created
+	 */
+	static async flushPendingStatuses(commitment: string): Promise<void> {
+		const pendingStatuses = await PendingStatusMetadata.getByCommitment(commitment, {
+			limit: 10,
+		})
+
+		const matching = pendingStatuses.filter((p) => p.entityType === ENTITY_TYPE)
+
+		for (const pending of matching) {
+			let statusMetadata = ResponseStatusMetadata.create({
+				id: `${commitment}.${pending.status}`,
+				responseId: commitment,
+				status: pending.status as Status,
+				chain: pending.chain,
+				timestamp: pending.timestamp,
+				blockNumber: pending.blockNumber,
+				blockHash: pending.blockHash,
+				transactionHash: pending.transactionHash,
+				createdAt: pending.createdAt,
 			})
 
-			logger.error(
-				`Attempted to update status of non-existent response with commitment: ${commitment} in transaction: ${transactionHash}`,
-			)
+			await statusMetadata.save()
+			await PendingStatusMetadata.remove(pending.id)
 
 			logger.info(
-				`Created new response while attempting response update with details: ${JSON.stringify({
-					commitment,
-					transactionHash,
-					status,
-				})}`,
+				`Flushed pending status ${pending.status} for ResponseV2 ${commitment}`,
 			)
 		}
 	}

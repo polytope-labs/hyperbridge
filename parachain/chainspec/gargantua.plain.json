@@ -4,7 +4,8 @@
   "chainType": "Live",
   "bootNodes": [
     "/ip4/34.78.130.110/tcp/30333/p2p/12D3KooWMRRsnAgJ1hjxCj3uJXPkauHqhP2BbbP4M5XF8xVJpeLX",
-    "/ip4/34.22.173.252/tcp/30333/p2p/12D3KooWGuMWMXSj7GUGMRdJAceRHoSuSkWW53b6nebzybUEoauB"
+    "/ip4/34.22.173.252/tcp/30333/p2p/12D3KooWGuMWMXSj7GUGMRdJAceRHoSuSkWW53b6nebzybUEoauB",
+    "/dns4/gargantua.bootnode.polytope.technology/tcp/30433/p2p/12D3KooWLC6HJsjfegUYib3L7p1RfybmNMkj8R9dLJ9cv8tyDNdx"
   ],
   "telemetryEndpoints": [
     [

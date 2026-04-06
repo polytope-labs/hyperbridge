@@ -17,7 +17,7 @@ describe.skip("UniswapV4 FundingVenue — cNGN price on Base", () => {
 		const chainConfigs: ResolvedChainConfig[] = [{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET! }]
 
 		const configService = new FillerConfigService(chainConfigs)
-		const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+		const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 		const clientManager = new ChainClientManager(configService, signer)
 
 		const fundingConfig: UniswapV4OutputFundingConfig = {

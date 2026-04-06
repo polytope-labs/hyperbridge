@@ -63,7 +63,7 @@ describe("Filler V2 - Solver Selection ON", () => {
 			contractService,
 		} = await setUp()
 
-		const intentFiller = createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
+		const intentFiller = await createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -147,9 +147,9 @@ describe("Filler V2 - Solver Selection ON", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -288,7 +288,7 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 			tronIntentGatewayAddress,
 		} = await setUpTron()
 
-		const intentFiller = createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
+		const intentFiller = await createIntentFiller(chainConfigs, fillerConfig, chainConfigService)
 		await intentFiller.initialize()
 		intentFiller.start()
 
@@ -362,9 +362,9 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 				if (status.status === "BID_SELECTED") {
 					selectedSolver = status.selectedSolver as HexString
 					userOpHash = status.userOpHash as HexString
-				}
-				if (status.status === "USEROP_SUBMITTED" && status.transactionHash) {
-					console.log("Transaction hash:", status.transactionHash)
+					if (status.transactionHash) {
+						console.log("Transaction hash:", status.transactionHash)
+					}
 				}
 				if (status.status === "FAILED") {
 					throw new Error(`Order execution failed: ${status.error}`)
@@ -392,13 +392,13 @@ describe.skip("Filler V2 - Tron Source Chain", () => {
 // Shared Helpers
 // ============================================================================
 
-function createIntentFiller(
+async function createIntentFiller(
 	chainConfigs: ChainConfig[],
 	fillerConfig: FillerConfig,
 	chainConfigService: FillerConfigService,
-): IntentFiller {
+): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
@@ -501,7 +501,7 @@ async function setUp() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(
@@ -567,7 +567,7 @@ async function setUpTron() {
 	}
 
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 	const contractService = new ContractInteractionService(

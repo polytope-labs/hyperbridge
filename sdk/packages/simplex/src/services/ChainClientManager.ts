@@ -12,7 +12,7 @@ import { Order, ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account } from "viem/accounts"
 import { FillerConfigService } from "./FillerConfigService"
 import type { SigningAccount } from "./wallet"
-import { createSimplexSigner, SignerType } from "./wallet"
+import { createPrivateKeySigningAccount } from "./wallet/accounts/privatekey"
 
 function walletClientCacheKey(chainId: number, accountAddress: string): string {
 	return `${chainId}:${accountAddress.toLowerCase()}`
@@ -80,12 +80,7 @@ export class ChainClientManager {
 	constructor(configService: FillerConfigService, signer?: SigningAccount) {
 		this.configService = configService
 		this.clientFactory = ViemClientFactory
-		this.signer =
-			signer ??
-			createSimplexSigner({
-				type: SignerType.PrivateKey,
-				key: generatePrivateKey(),
-			})
+		this.signer = signer ?? createPrivateKeySigningAccount(generatePrivateKey())
 	}
 
 	getPublicClient(chain: string): PublicClient {

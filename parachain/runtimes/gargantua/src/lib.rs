@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 5_100,
+	spec_version: 5_200,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -844,10 +844,6 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
-
-	#[runtime::pallet_index(86)]
-	pub type IsmpBeefy = ismp_beefy;
-
 	#[runtime::pallet_index(90)]
 	pub type OutboundProofs = pallet_outbound_proofs;
 }

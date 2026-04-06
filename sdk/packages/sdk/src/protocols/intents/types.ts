@@ -48,6 +48,8 @@ export const BundlerMethod = {
 	ETH_ESTIMATE_USER_OPERATION_GAS: "eth_estimateUserOperationGas",
 	/** Pimlico-specific method to fetch recommended EIP-1559 gas prices for UserOperations. */
 	PIMLICO_GET_USER_OPERATION_GAS_PRICE: "pimlico_getUserOperationGasPrice",
+	/** Alchemy (Rundler) method to fetch recommended priority fee for UserOperations. */
+	RUNDLER_MAX_PRIORITY_FEE_PER_GAS: "rundler_maxPriorityFeePerGas",
 } as const
 
 /** Union of all valid bundler RPC method name strings. */

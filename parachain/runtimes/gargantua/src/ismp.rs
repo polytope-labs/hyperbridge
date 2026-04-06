@@ -163,11 +163,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
-		ismp_beefy::consensus::BeefyConsensusClient<
-			Ismp,
-			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
-		>,
+		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Testnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = pallet_ismp::fee_handler::WeightFeeHandler<
@@ -184,10 +180,6 @@ impl ismp_grandpa::Config for Runtime {
 	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
 	type RootOrigin = EnsureRoot<AccountId>;
-}
-
-impl ismp_beefy::Config for Runtime {
-	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 }
 
 impl pallet_token_governor::Config for Runtime {

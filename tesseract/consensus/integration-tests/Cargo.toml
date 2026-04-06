@@ -51,6 +51,9 @@ substrate-state-machine = { workspace = true }
 arb-host = { workspace = true }
 op-host = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
+tesseract-pharos = { workspace = true }
+ismp-pharos = { workspace = true }
+pharos-primitives = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

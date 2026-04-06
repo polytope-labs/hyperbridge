@@ -1,6 +1,6 @@
 # Hyperbridge SDK
 
-![CI](https://github.com/polytope-labs/hyperbridge-sdk/actions/workflows/test-sdk.yml/badge.svg)
+![CI](https://github.com/polytope-labs/hyperbridge/actions/workflows/test-sdk.yml/badge.svg)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Hyperbridge SDK is a monorepo containing packages for building on Hyperbridge — a cross-chain interoperability protocol. It includes a Solidity SDK, a JavaScript/TypeScript SDK, a cross-chain message indexer, and the Intent Gateway filler.

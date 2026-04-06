@@ -30,5 +30,8 @@ mod simnode;
 use polkadot_sdk::*;
 
 fn main() -> sc_cli::Result<()> {
+	rustls::crypto::ring::default_provider()
+		.install_default()
+		.expect("Failed to install default CryptoProvider");
 	command::run()
 }

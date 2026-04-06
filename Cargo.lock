@@ -9218,7 +9218,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.2"
+version = "1.4.4"
 dependencies = [
  "clap",
  "futures",
@@ -9240,6 +9240,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "rocksdb",
+ "rustls 0.23.36",
  "sc-simnode",
  "sc-tracing",
  "serde",

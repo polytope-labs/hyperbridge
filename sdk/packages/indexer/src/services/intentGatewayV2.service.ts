@@ -4,7 +4,7 @@ import type { Hex } from "viem"
 import { keccak256, encodeAbiParameters, toHex } from "viem"
 import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 
-import { OrderStatus, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
+import { OrderStatus, PendingStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
 import { IOrderV2 as OrderV2Placed } from "@/configs/src/types/models/IOrderV2"
 import { IOrderV2StatusMetadata } from "@/configs/src/types/models/IOrderV2StatusMetadata"
@@ -23,6 +23,8 @@ import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
 import { TokenInfo } from "./intentGateway.service"
+
+const ENTITY_TYPE = "IOrderV2"
 
 export interface DispatchInfo {
 	assets: TokenInfo[]
@@ -182,6 +184,8 @@ export class IntentGatewayV2Service {
 				})}`,
 			)
 
+			await this.flushPendingStatuses(order.id!)
+
 			logger.info("Now awarding points for the OrderV2 Placed Event")
 
 			// Award points for order placement - using USD value directly
@@ -338,107 +342,96 @@ export class IntentGatewayV2Service {
 
 		let orderPlaced = await OrderV2Placed.get(commitment)
 
-		// For race conditions, we create a placeholder order that will be updated when the PLACED event arrives
-		if (!orderPlaced && status != OrderStatus.PLACED) {
+		if (!orderPlaced) {
 			logger.warn(
-				`OrderV2 ${stringify({ commitment })} does not exist yet but FILLED event received. Creating placeholder order.`,
+				`OrderV2 ${stringify({ commitment })} does not exist yet, storing in PendingStatusMetadata for status ${status}`,
 			)
 
-			orderPlaced = await OrderV2Placed.create({
-				id: commitment,
-				user: "0x0000000000000000000000000000000000000000" as Hex,
-				sourceChain: "",
-				destChain: "",
-				commitment: commitment,
-				deadline: BigInt(0),
-				nonce: BigInt(0),
-				fees: BigInt(0),
-				session: "0x0000000000000000000000000000000000000000" as Hex,
-				inputUSD: BigInt(0),
-				status: OrderStatus.FILLED,
-				referrer: DEFAULT_REFERRER,
-				predispatchCalldata: "",
-				postDispatchCalldata: "",
-				createdAt: timestampToDate(timestamp),
-				blockNumber: BigInt(blockNumber),
-				blockTimestamp: timestamp,
+			let pending = PendingStatusMetadata.create({
+				id: `${commitment}.${ENTITY_TYPE}.${status}`,
+				commitment,
+				entityType: ENTITY_TYPE,
+				status,
+				chain: chainId,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				blockHash: "",
 				transactionHash,
+				filler,
+				createdAt: timestampToDate(timestamp),
 			})
-			await orderPlaced.save()
 
-			logger.info(`Placeholder orderV2 with status FILLED created for commitment ${stringify({ commitment })}`)
+			await pending.save()
+			return
 		}
 
-		if (orderPlaced) {
-			orderPlaced.status = status === OrderStatus.PLACED ? orderPlaced.status : status
-			await orderPlaced.save()
+		orderPlaced.status = status === OrderStatus.PLACED ? orderPlaced.status : status
+		await orderPlaced.save()
 
-			// Award points for order filling - using USD value directly
-			if (status === OrderStatus.FILLED && filler) {
-				// Get output assets from the new entity relationships
-				// Query output assets by constructing IDs (we'll query up to a reasonable limit)
-				const outputAssets: TokenInfo[] = []
-				for (let index = 0; index < 100; index++) {
-					const assetId = `${commitment}-output-${index}`
-					const asset = await IOrderV2OutputAsset.get(assetId)
-					if (!asset) break
-					outputAssets.push({
-						token: asset.token as Hex,
-						amount: asset.amount,
-					})
-				}
+		// Award points for order filling - using USD value directly
+		if (status === OrderStatus.FILLED && filler) {
+			// Get output assets from the new entity relationships
+			const outputAssets: TokenInfo[] = []
+			for (let index = 0; index < 100; index++) {
+				const assetId = `${commitment}-output-${index}`
+				const asset = await IOrderV2OutputAsset.get(assetId)
+				if (!asset) break
+				outputAssets.push({
+					token: asset.token as Hex,
+					amount: asset.amount,
+				})
+			}
 
-				if (outputAssets.length > 0) {
-					// Volume
-					let outputUSD = await this.getOutputValuesUSD(outputAssets)
+			if (outputAssets.length > 0) {
+				// Volume
+				let outputUSD = await this.getOutputValuesUSD(outputAssets)
 
-					await VolumeService.updateVolume(`IntentGatewayV2.FILLER.${filler}`, outputUSD.total, timestamp)
+				await VolumeService.updateVolume(`IntentGatewayV2.FILLER.${filler}`, outputUSD.total, timestamp)
 
-					const orderValue = new Decimal(orderPlaced.inputUSD.toString())
-					const pointsToAward = orderValue.floor().toNumber()
+				const orderValue = new Decimal(orderPlaced.inputUSD.toString())
+				const pointsToAward = orderValue.floor().toNumber()
 
-					// Rewards
+				// Rewards
+				await PointsService.awardPoints(
+					filler,
+					ethers.utils.toUtf8String(orderPlaced.destChain),
+					BigInt(pointsToAward),
+					ProtocolParticipantType.FILLER,
+					PointsActivityType.ORDER_FILLED_POINTS,
+					transactionHash,
+					`Points awarded for filling orderV2 ${commitment} with value ${orderPlaced.inputUSD} USD`,
+					timestamp,
+				)
+
+				// User - convert to 20 bytes for UserActivity ID, referrer is already 32 bytes
+				const userAddress20 = bytes32ToBytes20(orderPlaced.user)
+				let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
+				user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
+					.plus(new Decimal(orderPlaced.inputUSD.toString()))
+					.toString()
+				user.totalFilledOrders = user.totalFilledOrders + BigInt(1)
+				await user.save()
+
+				// Referrer
+				if (user.referrer) {
+					const referrerPointsToAward = Math.floor(pointsToAward / 2)
 					await PointsService.awardPoints(
-						filler,
-						ethers.utils.toUtf8String(orderPlaced.destChain),
-						BigInt(pointsToAward),
-						ProtocolParticipantType.FILLER,
-						PointsActivityType.ORDER_FILLED_POINTS,
+						user.referrer,
+						ethers.utils.toUtf8String(orderPlaced.sourceChain),
+						BigInt(referrerPointsToAward),
+						ProtocolParticipantType.REFERRER,
+						PointsActivityType.ORDER_REFERRED_POINTS,
 						transactionHash,
 						`Points awarded for filling orderV2 ${commitment} with value ${orderPlaced.inputUSD} USD`,
 						timestamp,
 					)
-
-					// User - convert to 20 bytes for UserActivity ID, referrer is already 32 bytes
-					const userAddress20 = bytes32ToBytes20(orderPlaced.user)
-					let user = await getOrCreateUser(userAddress20, orderPlaced.referrer)
-					user.totalOrderFilledVolumeUSD = new Decimal(user.totalOrderFilledVolumeUSD)
-						.plus(new Decimal(orderPlaced.inputUSD.toString()))
-						.toString()
-					user.totalFilledOrders = user.totalFilledOrders + BigInt(1)
-					await user.save()
-
-					// Referrer
-					if (user.referrer) {
-						const referrerPointsToAward = Math.floor(pointsToAward / 2)
-						await PointsService.awardPoints(
-							user.referrer,
-							ethers.utils.toUtf8String(orderPlaced.sourceChain),
-							BigInt(referrerPointsToAward),
-							ProtocolParticipantType.REFERRER,
-							PointsActivityType.ORDER_REFERRED_POINTS,
-							transactionHash,
-							`Points awarded for filling orderV2 ${commitment} with value ${orderPlaced.inputUSD} USD`,
-							timestamp,
-						)
-					}
 				}
 			}
 		}
 
 		const orderStatusMetadata = await IOrderV2StatusMetadata.create({
 			id: `${commitment}.${status}`,
-			orderId: orderPlaced?.id,
+			orderId: commitment,
 			status,
 			chain: chainId,
 			timestamp,
@@ -449,6 +442,38 @@ export class IntentGatewayV2Service {
 		})
 
 		await orderStatusMetadata.save()
+	}
+
+	/**
+	 * Flush any pending status metadata entries for an order that was just created
+	 */
+	static async flushPendingStatuses(commitment: string): Promise<void> {
+		const pendingStatuses = await PendingStatusMetadata.getByCommitment(commitment, {
+			limit: 10,
+		})
+
+		const matching = pendingStatuses.filter((p) => p.entityType === ENTITY_TYPE)
+
+		for (const pending of matching) {
+			const orderStatusMetadata = IOrderV2StatusMetadata.create({
+				id: `${commitment}.${pending.status}`,
+				orderId: commitment,
+				status: pending.status as OrderStatus,
+				chain: pending.chain,
+				timestamp: pending.timestamp,
+				blockNumber: pending.blockNumber,
+				filler: pending.filler,
+				transactionHash: pending.transactionHash,
+				createdAt: pending.createdAt,
+			})
+
+			await orderStatusMetadata.save()
+			await PendingStatusMetadata.remove(pending.id)
+
+			logger.info(
+				`Flushed pending status ${pending.status} for IOrderV2 ${commitment}`,
+			)
+		}
 	}
 
 	static async recordPartialFill(

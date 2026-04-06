@@ -1,7 +1,9 @@
-import { GetRequestV2, GetRequestStatusMetadata, Status } from "@/configs/src/types"
+import { GetRequestV2, GetRequestStatusMetadata, PendingStatusMetadata, Status } from "@/configs/src/types"
 import { ethers } from "ethers"
 import { solidityKeccak256 } from "ethers/lib/utils"
 import { timestampToDate } from "@/utils/date.helpers"
+
+const ENTITY_TYPE = "GetRequestV2"
 
 export interface IGetRequestArgs {
 	id: string
@@ -88,6 +90,8 @@ export class GetRequestService {
 					id: getRequest.id,
 				})}`,
 			)
+
+			await this.flushPendingStatuses(id)
 		} else {
 			if (source !== undefined) getRequest.source = source
 			if (dest !== undefined) getRequest.dest = dest
@@ -119,6 +123,7 @@ export class GetRequestService {
 	/**
 	 * Update the status of a get request
 	 * Also adds a new entry to the get request status metadata
+	 * If the get request doesn't exist, stores in PendingStatusMetadata until the entity is created
 	 */
 	static async updateStatus(args: IUpdateGetRequestStatusArgs): Promise<void> {
 		const { commitment, blockNumber, blockHash, blockTimestamp, status, transactionHash, chain } = args
@@ -131,19 +136,29 @@ export class GetRequestService {
 			})}`,
 		)
 
-		let getRequest = await this.createOrUpdate({
-			id: commitment
-		})
+		let getRequest = await GetRequestV2.get(commitment)
 
-		await getRequest.save()
+		if (!getRequest) {
+			logger.warn(
+				`GetRequestV2 not found for commitment ${commitment}, storing in PendingStatusMetadata for status ${status}`,
+			)
 
-		logger.info(
-			`Created new get request while attempting get request update with details ${JSON.stringify({
+			let pending = PendingStatusMetadata.create({
+				id: `${commitment}.${ENTITY_TYPE}.${status}`,
 				commitment,
-				transactionHash,
+				entityType: ENTITY_TYPE,
 				status,
-			})}`,
-		)
+				chain,
+				timestamp: blockTimestamp,
+				blockNumber,
+				blockHash,
+				transactionHash,
+				createdAt: timestampToDate(blockTimestamp),
+			})
+
+			await pending.save()
+			return
+		}
 
 		let getRequestStatusMetadata = GetRequestStatusMetadata.create({
 			id: `${commitment}.${status}`,
@@ -158,6 +173,38 @@ export class GetRequestService {
 		})
 
 		await getRequestStatusMetadata.save()
+	}
+
+	/**
+	 * Flush any pending status metadata entries for a get request that was just created
+	 */
+	static async flushPendingStatuses(commitment: string): Promise<void> {
+		const pendingStatuses = await PendingStatusMetadata.getByCommitment(commitment, {
+			limit: 10,
+		})
+
+		const matching = pendingStatuses.filter((p) => p.entityType === ENTITY_TYPE)
+
+		for (const pending of matching) {
+			let statusMetadata = GetRequestStatusMetadata.create({
+				id: `${commitment}.${pending.status}`,
+				requestId: commitment,
+				status: pending.status as Status,
+				chain: pending.chain,
+				timestamp: pending.timestamp,
+				blockNumber: pending.blockNumber,
+				blockHash: pending.blockHash,
+				transactionHash: pending.transactionHash,
+				createdAt: pending.createdAt,
+			})
+
+			await statusMetadata.save()
+			await PendingStatusMetadata.remove(pending.id)
+
+			logger.info(
+				`Flushed pending status ${pending.status} for GetRequestV2 ${commitment}`,
+			)
+		}
 	}
 
 	/**

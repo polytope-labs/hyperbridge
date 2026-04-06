@@ -19,6 +19,14 @@
 # accountAddress = "0x0000000000000000000000000000000000000000"
 # callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 # grpcTarget = "api.mpcvault.com:443" # optional; default when omitted
+#
+# 3) Turnkey signer:
+# [simplex.signer]
+# type = "turnkey"
+# organizationId = ""
+# apiPublicKey = ""
+# apiPrivateKey = ""
+# signWith = "0xYourWalletAddress"
 
 maxConcurrentOrders = 5
 

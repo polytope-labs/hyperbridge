@@ -266,6 +266,7 @@ impl pallet_ismp::Config for Test {
 			Test,
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
+		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = (
@@ -379,7 +380,7 @@ impl pallet_collator_selection::Config for Test {
 	type KickThreshold = ConstU64<1>;
 	type ValidatorId = AccountId32;
 	type ValidatorIdOf = ConvertInto;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
 	type MinEligibleCollators = DesiredCollators;
 	type WeightInfo = ();
 }

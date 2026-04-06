@@ -69,6 +69,10 @@ jobs:
                   COIN_GECKGO_API_KEY=${{secrets.COINGECKO}}
                   PING_MODULE_ADDRESS: "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
                   TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
+                  TURNKEY_ORG_ID=${{ secrets.TURNKEY_ORG_ID }}
+                  TURNKEY_API_PUBLIC_KEY=${{ secrets.TURNKEY_API_PUBLIC_KEY }}
+                  TURNKEY_API_PRIVATE_KEY=${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+                  TURNKEY_SIGN_WITH=${{ secrets.TURNKEY_SIGN_WITH }}
                   EOF
 
             - name: Build packages

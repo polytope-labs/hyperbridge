@@ -11,14 +11,14 @@ on:
             - ".github/workflows/ci.yml"
             - "!sdk/**"
 
-    pull_request_target:
-        types: [opened, synchronize]
-        paths:
-            - "**/*.rs"
-            - "**/Cargo.toml"
-            - "**/Cargo.lock"
-            - ".github/workflows/ci.yml"
-            - "!sdk/**"
+   pull_request_target:
+       types: [opened, synchronize]
+       paths:
+           - "**/*.rs"
+           - "**/Cargo.toml"
+           - "**/Cargo.lock"
+           - ".github/workflows/ci.yml"
+           - "!sdk/**"
 
     # pull_request:
     #     branches:
@@ -28,6 +28,7 @@ on:
     #         - "**/Cargo.toml"
     #         - "**/Cargo.lock"
     #         - ".github/workflows/ci.yml"
+    #         - "!sdk/**"
 
 concurrency:
     group: ci-${{ github.head_ref || github.ref_name }}
@@ -51,6 +52,7 @@ env:
     POLYGON_EXECUTION_RPC: ${{secrets.POLYGON_EXECUTION_RPC}}
     SEI_RPC_URL: ${{secrets.SEI_RPC_URL}}
     KAVA_RPC_URL: ${{secrets.KAVA_RPC_URL}}
+    PHAROS_ATLANTIC_RPC: ${{secrets.PHAROS_ATLANTIC_RPC}}
 
 jobs:
     check-wasm:
@@ -766,3 +768,86 @@ jobs:
             - name: Run Tendermint Tests
               run: |
                   RUST_LOG=tendermint_prover=trace,tesseract=trace,tendermint_verifier=trace cargo test -p tendermint-prover -- --nocapture --ignored
+
+    pharos-tests:
+        name: Pharos Tests
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true
+        steps:
+            - name: Get User Permission
+              id: checkAccess
+              uses: actions-cool/check-user-permission@v2
+              with:
+                  require: write
+                  username: ${{ github.triggering_actor }}
+
+            - name: Check User Permission
+              if: steps.checkAccess.outputs.require-result == 'false'
+              run: |
+                  echo "${{ github.triggering_actor }} does not have permissions on this repo."
+                  echo "Current permission level is ${{ steps.checkAccess.outputs.user-permission }}"
+                  echo "Job originally triggered by ${{ github.actor }}"
+                  exit 1
+
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{  github.event.pull_request.head.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  submodules: recursive
+
+            - name: Install toolchain
+              uses: dtolnay/rust-toolchain@nightly
+              with:
+                  toolchain: stable
+
+            - name: Add wasm toolchain
+              run: |
+                  rustup update nightly
+                  rustup target add wasm32-unknown-unknown --toolchain nightly
+                  rustup target add wasm32-unknown-unknown
+                  rustup component add rust-src
+
+            - name: Install Dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
+                  echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
+
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10
+
+            - name: Set up Node
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 22
+                  cache-dependency-path: "evm/pnpm-lock.yaml"
+                  cache: "pnpm"
+
+            - name: Install npm dependencies
+              working-directory: evm
+              run: |
+                  pnpm install
+
+            - name: Install Foundry
+              uses: foundry-rs/foundry-toolchain@v1
+              with:
+                  version: nightly
+
+            - name: Build Foundry artifacts
+              working-directory: evm
+              run: forge build
+
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Run Pharos unit tests
+              run: |
+                  cargo test -p pharos-primitives -p pharos-verifier -- --nocapture
+
+            - name: Run Pharos integration tests
+              run: |
+                  PHAROS_ATLANTIC_RPC=${{ secrets.PHAROS_ATLANTIC_RPC }} cargo test -p pallet-ismp-testsuite "pharos" -- --nocapture --ignored

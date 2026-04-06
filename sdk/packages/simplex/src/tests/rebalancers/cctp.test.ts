@@ -67,7 +67,7 @@ async function setUp() {
 
 	const chainConfigService = new FillerConfigService(testChainConfigs)
 	const privateKey = process.env.PRIVATE_KEY as HexString
-	const signer = createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
 	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService)

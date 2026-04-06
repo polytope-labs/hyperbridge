@@ -194,6 +194,21 @@ callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 MPC Vault requires an Ed25519 keypair registered in the MPC Vault console and a running client-signer container (<code>ghcr.io/mpcvault/client-signer:latest</code>). See the <a href="https://docs.mpcvault.com">MPC Vault documentation</a> for setup instructions.
 </Callout>
 
+**Turnkey** — Signs transactions via [Turnkey](https://turnkey.com), a key management platform with HD wallet support. Create a wallet in the Turnkey Dashboard and use `signWith` to reference your existing Ethereum address:
+
+```toml lineNumbers
+[simplex.signer]
+type             = "turnkey"
+organizationId   = "your-org-id"
+apiPublicKey     = "your-api-public-key"
+apiPrivateKey    = "your-api-private-key"
+signWith         = "0xYourWalletAddress"
+```
+
+<Callout type="info">
+Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
+</Callout>
+
 ### Confirmation Policy
 
 <Callout type="info">

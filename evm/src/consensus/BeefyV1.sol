@@ -174,11 +174,16 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
         MerkleMultiProof.Node[] memory authorities = new MerkleMultiProof.Node[](signatures_length);
 
+        uint256 authoritySetLen = is_current_authorities
+            ? trustedState.currentAuthoritySet.len
+            : trustedState.nextAuthoritySet.len;
+        uint256 leafOffset = _nextPowerOfTwo(authoritySetLen);
+
         // verify authorities' votes
         for (uint256 i = 0; i < signatures_length; i++) {
             Vote memory vote = relayProof.signedCommitment.votes[i];
             address authority = ECDSA.recover(commitment_hash, vote.signature);
-            authorities[i] = MerkleMultiProof.Node(vote.authorityIndex, keccak256(abi.encodePacked(authority)));
+            authorities[i] = MerkleMultiProof.Node(leafOffset + vote.authorityIndex, keccak256(abi.encodePacked(authority)));
         }
 
         bool valid;
@@ -237,6 +242,7 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         uint256 len = proof.parachains.length;
         MerkleMultiProof.Node[] memory leaves = new MerkleMultiProof.Node[](len);
         IntermediateState[] memory intermediates = new IntermediateState[](len);
+        uint256 leafOffset = _nextPowerOfTwo(proof.leafCount);
 
         for (uint256 i = 0; i < len; i++) {
             Parachain memory para = proof.parachains[i];
@@ -244,7 +250,7 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
             if (header.number == 0) revert IllegalGenesisBlock();
 
             leaves[i] = MerkleMultiProof.Node(
-                para.index,
+                leafOffset + para.index,
                 keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
             );
 
@@ -273,6 +279,17 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
     // @dev Check for supermajority participation.
     function checkParticipationThreshold(uint256 len, uint256 total) internal pure returns (bool) {
         return len >= ((2 * total) / 3) + 1;
+    }
+
+    // @dev Returns the next power of two >= x. Used to compute the leaf offset
+    // in a balanced merkle tree: leaves start at position nextPowerOfTwo(leafCount).
+    function _nextPowerOfTwo(uint256 x) internal pure returns (uint256) {
+        if (x <= 1) return 1;
+        uint256 p = 1;
+        while (p < x) {
+            p <<= 1;
+        }
+        return p;
     }
 
     // @dev so these structs are included in the abi

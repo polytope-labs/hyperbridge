@@ -223,11 +223,12 @@ async fn test_verify_consensus() {
 	};
 
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-	let proof: Vec<(u32, [u8; 32])> = merkle_proof(&leaves, &indices)
-		.into_iter()
-		.flatten()
-		.map(|(idx, hash)| (idx as u32, hash))
-		.collect();
+	let para_proof_2d = merkle_proof(&leaves, &indices);
+	let proof: Vec<(u32, [u8; 32])> =
+		beefy_prover::util::flatten_proof_with_positions(para_proof_2d, leaves.len())
+			.into_iter()
+			.map(|(pos, hash)| (pos as u32, hash))
+			.collect();
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
 	println!("Assembling final proof for verification");

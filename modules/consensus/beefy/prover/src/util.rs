@@ -140,3 +140,36 @@ pub fn merkle_proof(leaves: &[Hash], indices: &[usize]) -> Vec<Vec<(usize, Hash)
 
 	tree.proof_2d(indices)
 }
+
+/// Compute ceil(log2(x)). Returns 0 for x <= 1.
+pub fn ceil_log2(x: usize) -> usize {
+	if x <= 1 {
+		return 0;
+	}
+	usize::BITS as usize - (x - 1).leading_zeros() as usize
+}
+
+/// Flatten a 2D merkle proof into a list of (tree_position, hash) pairs.
+///
+/// The 2D proof has layers from bottom (leaf level) to top. Each node's k-index
+/// (position within its layer) is converted to a 1-based tree position:
+///   position = (1 << (height - layer)) + k_index
+///
+/// where height = ceil_log2(leaf_count).
+pub fn flatten_proof_with_positions(
+	proof_2d: Vec<Vec<(usize, Hash)>>,
+	leaf_count: usize,
+) -> Vec<(usize, Hash)> {
+	let height = ceil_log2(leaf_count);
+	proof_2d
+		.into_iter()
+		.enumerate()
+		.flat_map(|(layer, nodes)| {
+			let tree_depth = height - layer;
+			nodes.into_iter().map(move |(k_index, hash)| {
+				let position = (1 << tree_depth) + k_index;
+				(position, hash)
+			})
+		})
+		.collect()
+}

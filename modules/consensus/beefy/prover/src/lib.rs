@@ -236,10 +236,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
 		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices)
-			.into_iter()
-			.flatten()
-			.collect();
+		let authority_proof_2d = util::merkle_proof(&authority_address_hashes, &indices);
+		let authority_proof =
+			util::flatten_proof_with_positions(authority_proof_2d, authority_address_hashes.len());
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -275,11 +274,12 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.unzip();
 
 		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let proof: Vec<(u32, [u8; 32])> = util::merkle_proof(&leaves, &indices)
-			.into_iter()
-			.flatten()
-			.map(|(idx, hash)| (idx as u32, hash))
-			.collect();
+		let para_proof_2d = util::merkle_proof(&leaves, &indices);
+		let proof: Vec<(u32, [u8; 32])> =
+			util::flatten_proof_with_positions(para_proof_2d, leaves.len())
+				.into_iter()
+				.map(|(pos, hash)| (pos as u32, hash))
+				.collect();
 
 		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
@@ -331,10 +331,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
 		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices)
-			.into_iter()
-			.flatten()
-			.collect();
+		let authority_proof_2d = util::merkle_proof(&authority_address_hashes, &indices);
+		let authority_proof =
+			util::flatten_proof_with_positions(authority_proof_2d, authority_address_hashes.len());
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -369,11 +368,12 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.unzip();
 
 		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let proof: Vec<(u32, [u8; 32])> = util::merkle_proof(&leaves, &indices)
-			.into_iter()
-			.flatten()
-			.map(|(idx, hash)| (idx as u32, hash))
-			.collect();
+		let para_proof_2d = util::merkle_proof(&leaves, &indices);
+		let proof: Vec<(u32, [u8; 32])> =
+			util::flatten_proof_with_positions(para_proof_2d, leaves.len())
+				.into_iter()
+				.map(|(pos, hash)| (pos as u32, hash))
+				.collect();
 
 		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 

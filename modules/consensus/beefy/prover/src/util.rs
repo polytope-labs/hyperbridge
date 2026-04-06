@@ -39,8 +39,8 @@ pub struct TimeStampExtWithProof {
 /// This holds the signatures of a BEEFY commitment, along side a merkle multi-proof of the
 /// existence of the ethereum addresses associated with the signatures.
 pub struct AuthorityProofWithSignatures {
-	/// Merkle multi-proof
-	pub authority_proof: Vec<Vec<(usize, Hash)>>,
+	/// Merkle multi-proof (flattened with positions)
+	pub authority_proof: Vec<(usize, Hash)>,
 	/// The actual signatures alongside the authority index, used in verifying the merkle proof.
 	pub signatures: Vec<SignatureWithAuthorityIndex>,
 }

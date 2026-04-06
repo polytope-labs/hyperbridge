@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
 import {StateMachineHeight} from "../interfaces/IConsensus.sol";
 
 /**
@@ -87,7 +87,7 @@ struct GetResponse {
     /// @notice The original GET request being responded to
     GetRequest request;
     /// @notice Retrieved storage values from the queried chain
-    StorageValue[] values;
+    MerklePatricia.StorageValue[] values;
 }
 
 /**
@@ -114,8 +114,6 @@ struct PostRequestLeaf {
     PostRequest request;
     /// @notice Position in the MMR leaves array
     uint256 index;
-    /// @notice K-index for MMR proof generation
-    uint256 kIndex;
 }
 
 /**
@@ -128,8 +126,6 @@ struct PostResponseLeaf {
     PostResponse response;
     /// @notice Position in the MMR leaves array
     uint256 index;
-    /// @notice K-index for MMR proof generation
-    uint256 kIndex;
 }
 
 // A get response as a leaf in a merkle mountain range tree
@@ -143,8 +139,6 @@ struct GetResponseLeaf {
     GetResponse response;
     /// @notice Position in the MMR leaves array
     uint256 index;
-    /// @notice K-index for MMR proof generation
-    uint256 kIndex;
 }
 
 /**

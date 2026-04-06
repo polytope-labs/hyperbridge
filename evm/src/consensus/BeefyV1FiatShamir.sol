@@ -34,7 +34,6 @@ import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
-import {Node, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
@@ -248,7 +247,8 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
             relayProof.signedCommitment.votes,
             challengedAuthorities,
             authoritySet.root,
-            relayProof.proof
+            relayProof.proof,
+            authoritySet.len
         );
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
@@ -393,7 +393,8 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         Vote[] memory votes,
         uint256[] memory challengedAuthorities,
         bytes32 authorityRoot,
-        Node[][] memory proof
+        MerkleMultiProof.Node[] memory proof,
+        uint256 authoritySetLen
     ) internal pure {
         uint256 sampleSize = challengedAuthorities.length;
 
@@ -401,7 +402,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
             revert WrongSampleCount(sampleSize, votes.length);
         }
 
-        Node[] memory authorities = new Node[](sampleSize);
+        MerkleMultiProof.Node[] memory authorities = new MerkleMultiProof.Node[](sampleSize);
 
         unchecked {
             for (uint256 i = 0; i < sampleSize; ++i) {
@@ -410,11 +411,11 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
                 }
 
                 address signer = ECDSA.recover(commitmentHash, votes[i].signature);
-                authorities[i] = Node(votes[i].authorityIndex, keccak256(abi.encodePacked(signer)));
+                authorities[i] = MerkleMultiProof.Node(votes[i].authorityIndex, keccak256(abi.encodePacked(signer)));
             }
         }
 
-        bool valid = MerkleMultiProof.VerifyProof(authorityRoot, proof, authorities);
+        bool valid = MerkleMultiProof.VerifyProof(authorityRoot, proof, authorities, authoritySetLen);
         if (!valid) revert InvalidAuthoritiesProof();
     }
 
@@ -435,8 +436,8 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         );
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
 
-        MmrLeaf[] memory leaves = new MmrLeaf[](1);
-        leaves[0] = MmrLeaf(relay.latestMmrLeaf.kIndex, relay.latestMmrLeaf.leafIndex, hash);
+        MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](1);
+        leaves[0] = MerkleMountainRange.Leaf(relay.latestMmrLeaf.leafIndex, hash);
 
         bool valid = MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount);
         if (!valid) revert InvalidMmrProof();
@@ -448,7 +449,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         returns (IntermediateState[] memory)
     {
         uint256 len = proof.parachains.length;
-        Node[] memory leaves = new Node[](len);
+        MerkleMultiProof.Node[] memory leaves = new MerkleMultiProof.Node[](len);
         IntermediateState[] memory intermediates = new IntermediateState[](len);
 
         for (uint256 i = 0; i < len; i++) {
@@ -456,7 +457,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
             Header memory header = Codec.DecodeHeader(para.header);
             if (header.number == 0) revert IllegalGenesisBlock();
 
-            leaves[i] = Node(
+            leaves[i] = MerkleMultiProof.Node(
                 para.index,
                 keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
             );
@@ -467,7 +468,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         }
 
         if (len > 0) {
-            bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
+            bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves, proof.leafCount);
             if (!valid) revert InvalidMmrProof();
         }
 

@@ -219,7 +219,7 @@ pub fn verify_parachain_headers<H: Keccak256>(
 	let (leaf_indices, leaf_hashes): (Vec<usize>, Vec<[u8; 32]>) =
 		indexed_leaf_hashes.into_iter().unzip();
 	let proof_hashes: Vec<[u8; 32]> =
-		parachain_proof.proof.iter().map(|node| (*node).into()).collect();
+		parachain_proof.proof.iter().map(|(_, hash)| *hash).collect();
 	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(proof_hashes);
 	let valid = merkle_proof.verify(
 		heads_root.0,

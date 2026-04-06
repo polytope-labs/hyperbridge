@@ -153,7 +153,6 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 			latest_leaf.parent_number_and_hash.1,
 		),
 		beefy_next_authority_set: latest_leaf.beefy_next_authority_set.clone(),
-		k_index: 0,
 		leaf_index: mmr_leaf_proof.leaf_indices[0] as u32,
 		extra: latest_leaf.leaf_extra,
 	};
@@ -193,8 +192,11 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 		.unzip();
 
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-	let proof_2d = merkle_proof(&leaves, &indices);
-	let proof = proof_2d.into_iter().flatten().map(|level| level.1).collect();
+	let proof: Vec<(u32, [u8; 32])> = merkle_proof(&leaves, &indices)
+		.into_iter()
+		.flatten()
+		.map(|(idx, hash)| (idx as u32, hash))
+		.collect();
 	dbg!(&leaves.len());
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 

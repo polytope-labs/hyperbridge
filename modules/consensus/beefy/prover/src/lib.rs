@@ -236,7 +236,10 @@ impl<R: Config, P: Config> Prover<R, P> {
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
 		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices);
+		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices)
+			.into_iter()
+			.flatten()
+			.collect();
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -272,9 +275,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.unzip();
 
 		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let proof = util::merkle_proof(&leaves, &indices);
-
-		let proof: Vec<[u8; 32]> = proof.into_iter().flatten().map(|(_, hash)| hash).collect();
+		let proof: Vec<(u32, [u8; 32])> = util::merkle_proof(&leaves, &indices)
+			.into_iter()
+			.flatten()
+			.map(|(idx, hash)| (idx as u32, hash))
+			.collect();
 
 		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
@@ -326,7 +331,10 @@ impl<R: Config, P: Config> Prover<R, P> {
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
 		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices);
+		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices)
+			.into_iter()
+			.flatten()
+			.collect();
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -361,9 +369,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 			.unzip();
 
 		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let proof = util::merkle_proof(&leaves, &indices);
-
-		let proof: Vec<[u8; 32]> = proof.into_iter().flatten().map(|(_, hash)| hash).collect();
+		let proof: Vec<(u32, [u8; 32])> = util::merkle_proof(&leaves, &indices)
+			.into_iter()
+			.flatten()
+			.map(|(idx, hash)| (idx as u32, hash))
+			.collect();
 
 		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 

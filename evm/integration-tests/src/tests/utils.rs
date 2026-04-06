@@ -8,12 +8,12 @@ use sp_core::KeccakHasher;
 use sp_trie::{LayoutV0, MemoryDB, StorageProof, TrieDBBuilder, EMPTY_PREFIX};
 use trie_db::{HashDB, Recorder, Trie, TrieDBMutBuilder, TrieMut};
 
-/// Initialize an MMR tree, inserting the given leaf into it and returning the root of the tree, the
-/// proof and the k-index of the leaf
+/// Initialize an MMR tree, inserting the given leaf into it and returning the root of the tree and
+/// the proof
 pub fn initialize_mmr_tree(
 	leaf: DataOrHash,
 	block_height: u64,
-) -> Result<([u8; 32], Proof, usize), anyhow::Error> {
+) -> Result<([u8; 32], Proof), anyhow::Error> {
 	// create the mmr tree and insert it
 	let mut mmr = Mmr::default();
 
@@ -22,22 +22,21 @@ pub fn initialize_mmr_tree(
 		mmr.push(DataOrHash::Hash(hash))?;
 	}
 
-	let pos = mmr.push(leaf.clone())?;
+	let _pos = mmr.push(leaf.clone())?;
 
 	for _ in 0..30 {
 		let hash = H256::random();
 		mmr.push(DataOrHash::Hash(hash))?;
 	}
 
-	let k_index = mmr_primitives::mmr_position_to_k_index(vec![pos], mmr.mmr_size())[0].1;
-	let proof = mmr.gen_proof(vec![pos])?;
+	let proof = mmr.gen_proof(vec![_pos])?;
 	let root = mmr.get_root()?.hash().0;
 	let multiproof = proof.proof_items().iter().map(|h| h.hash().0).collect();
 	let height =
 		StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(block_height) };
 	let proof = Proof { height, multiproof, leaf_count: (61).into() };
 
-	Ok(((root, proof, k_index)))
+	Ok((root, proof))
 }
 
 /// Initialize a state trie

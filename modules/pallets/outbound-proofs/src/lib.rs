@@ -26,8 +26,24 @@ use polkadot_sdk::*;
 pub use pallet::*;
 pub use types::ProofMetadata;
 
+/// Crypto implementation using substrate host functions for BEEFY proof verification.
+pub struct SubstrateCrypto;
+
+impl ismp::messaging::Keccak256 for SubstrateCrypto {
+	fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
+		sp_io::hashing::keccak_256(bytes).into()
+	}
+}
+
+impl beefy_verifier::EcdsaRecover for SubstrateCrypto {
+	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
+		sp_io::crypto::secp256k1_ecdsa_recover(signature, prehash)
+			.map_err(|_| anyhow::anyhow!("Failed to recover secp256k1 public key"))
+	}
+}
+
 /// Result of verifying a BEEFY consensus proof. Contains the data extracted from the proof.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct VerifiedProof {
 	/// The relay chain height proven by this proof
 	pub relay_chain_height: u32,
@@ -37,6 +53,8 @@ pub struct VerifiedProof {
 	pub new_validator_set_id: u64,
 	/// The validator set id from the trusted (old) consensus state
 	pub old_validator_set_id: u64,
+	/// The new consensus state bytes to be stored
+	pub new_consensus_state: alloc::vec::Vec<u8>,
 }
 
 /// Verifies BEEFY consensus proofs and extracts data from them.
@@ -52,7 +70,7 @@ pub trait ProofVerifier {
 /// - `0x01` (PROOF_TYPE_SP1): SP1 PLONK ZK proof verification
 pub struct BeefyProofVerifier<T>(core::marker::PhantomData<T>);
 
-impl<T: pallet::Config + ismp_beefy::Config> ProofVerifier for BeefyProofVerifier<T> {
+impl<T: pallet::Config> ProofVerifier for BeefyProofVerifier<T> {
 	fn verify_and_extract(
 		trusted_state_bytes: &[u8],
 		proof: &[u8],
@@ -77,7 +95,7 @@ impl<T: pallet::Config + ismp_beefy::Config> ProofVerifier for BeefyProofVerifie
 				let consensus_proof: beefy_verifier_primitives::BeefyConsensusProof =
 					codec::Decode::decode(&mut &payload[..])
 						.map_err(|_| DispatchError::Other("Failed to decode naive proof"))?;
-				beefy_verifier::verify_consensus::<ismp_beefy::SubstrateCrypto>(
+				beefy_verifier::verify_consensus::<SubstrateCrypto>(
 					trusted_state.clone(),
 					consensus_proof,
 				)
@@ -87,10 +105,10 @@ impl<T: pallet::Config + ismp_beefy::Config> ProofVerifier for BeefyProofVerifie
 				let sp1_proof: beefy_verifier_primitives::Sp1BeefyProof =
 					codec::Decode::decode(&mut &payload[..])
 						.map_err(|_| DispatchError::Other("Failed to decode SP1 proof"))?;
-				let vkey_bytes = ismp_beefy::Sp1VkeyHash::<T>::get();
+				let vkey_bytes = pallet::Sp1VkeyHash::<T>::get();
 				let vkey_hash = core::str::from_utf8(&vkey_bytes)
 					.map_err(|_| DispatchError::Other("Invalid SP1 vkey hash encoding"))?;
-				beefy_verifier::sp1::verify_sp1_consensus::<ismp_beefy::SubstrateCrypto>(
+				beefy_verifier::sp1::verify_sp1_consensus::<SubstrateCrypto>(
 					trusted_state.clone(),
 					sp1_proof,
 					vkey_hash,
@@ -125,6 +143,7 @@ impl<T: pallet::Config + ismp_beefy::Config> ProofVerifier for BeefyProofVerifie
 			parachain_height,
 			new_validator_set_id: new_state.next_authorities.id,
 			old_validator_set_id: trusted_state.next_authorities.id,
+			new_consensus_state: new_state_bytes,
 		})
 	}
 }
@@ -173,6 +192,7 @@ pub mod pallet {
 	pub trait WeightInfo {
 		fn submit_proof() -> Weight;
 		fn set_proof_reward() -> Weight;
+		fn set_sp1_vkey_hash() -> Weight;
 	}
 
 	/// Bounded ring buffer of recent proofs to be polled
@@ -191,6 +211,10 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type ProofReward<T: Config> =
 		StorageValue<_, <<T as Config>::Currency as Inspect<T::AccountId>>::Balance, ValueQuery>;
+
+	/// SP1 verification key hash
+	#[pallet::storage]
+	pub type Sp1VkeyHash<T: Config> = StorageValue<_, alloc::vec::Vec<u8>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -231,6 +255,12 @@ pub mod pallet {
 
 			let verified =
 				<T as Config>::ProofVerifier::verify_and_extract(&trusted_bytes, &consensus_proof)?;
+
+			// Advance the light client, store the new consensus state
+			pallet_ismp::ConsensusStates::<T>::insert(
+				BEEFY_CONSENSUS_ID,
+				verified.new_consensus_state,
+			);
 
 			let relay_chain_height = verified.relay_chain_height;
 			let parachain_height = verified.parachain_height;
@@ -304,6 +334,17 @@ pub mod pallet {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 			ProofReward::<T>::put(reward);
 			Self::deposit_event(Event::ProofRewardUpdated { new_reward: reward });
+			Ok(())
+		}
+
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::WeightInfo::set_sp1_vkey_hash())]
+		pub fn set_sp1_vkey_hash(
+			origin: OriginFor<T>,
+			vkey_hash: alloc::vec::Vec<u8>,
+		) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			Sp1VkeyHash::<T>::put(vkey_hash);
 			Ok(())
 		}
 	}

@@ -13,7 +13,8 @@ ismp = { workspace = true, default-features = false }
 pallet-ismp = { workspace = true }
 beefy-verifier = { workspace = true, default-features = false }
 beefy-verifier-primitives = { workspace = true, default-features = false }
-ismp-beefy = { workspace = true, default-features = false }
+anyhow = { workspace = true, default-features = false }
+primitive-types = { workspace = true, default-features = false }
 scale-info = { workspace = true }
 
 [dependencies.polkadot-sdk]
@@ -29,7 +30,8 @@ std = [
     "pallet-ismp/std",
     "beefy-verifier/std",
     "beefy-verifier-primitives/std",
-    "ismp-beefy/std",
+    "anyhow/std",
+    "primitive-types/std",
     "scale-info/std",
 ]
 runtime-benchmarks = [

@@ -513,10 +513,10 @@ impl pallet_vesting::Config for Test {
 	type BlockNumberProvider = System;
 }
 
-use core::cell::Cell;
+use core::cell::RefCell;
 
 std::thread_local! {
-	static MOCK_VERIFIED_PROOF: Cell<Option<pallet_outbound_proofs::VerifiedProof>> = const { Cell::new(None) };
+	static MOCK_VERIFIED_PROOF: RefCell<Option<pallet_outbound_proofs::VerifiedProof>> = RefCell::new(None);
 }
 
 pub struct DummyProofVerifier;
@@ -525,13 +525,16 @@ impl pallet_outbound_proofs::ProofVerifier for DummyProofVerifier {
 		_trusted_state: &[u8],
 		_proof: &[u8],
 	) -> Result<pallet_outbound_proofs::VerifiedProof, DispatchError> {
-		MOCK_VERIFIED_PROOF
-			.with(|cell| cell.get().ok_or(DispatchError::Other("No mock proof configured")))
+		MOCK_VERIFIED_PROOF.with(|cell| {
+			cell.borrow()
+				.clone()
+				.ok_or(DispatchError::Other("No mock proof configured"))
+		})
 	}
 }
 
 pub fn set_mock_verified_proof(proof: pallet_outbound_proofs::VerifiedProof) {
-	MOCK_VERIFIED_PROOF.with(|cell| cell.set(Some(proof)));
+	MOCK_VERIFIED_PROOF.with(|cell| *cell.borrow_mut() = Some(proof));
 }
 
 pub struct OutboundProofsWeights;
@@ -540,6 +543,9 @@ impl pallet_outbound_proofs::WeightInfo for OutboundProofsWeights {
 		Weight::zero()
 	}
 	fn set_proof_reward() -> Weight {
+		Weight::zero()
+	}
+	fn set_sp1_vkey_hash() -> Weight {
 		Weight::zero()
 	}
 }

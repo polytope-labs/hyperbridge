@@ -51,6 +51,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
         uint256 amountOut = 485147;
         uint256 amountsIn = 2000000000000000000;
 
+        vm.deal(WHALE, 100 ether);
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
@@ -78,6 +79,7 @@ contract UniV3UniswapV2WrapperTest is MainnetForkBaseTest {
 
         uint256 amountOutMin = 0;
 
+        vm.deal(WHALE, 100 ether);
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 

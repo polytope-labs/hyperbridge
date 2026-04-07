@@ -1,0 +1,154 @@
+name: "Release @hyperbridge/indexer"
+
+on:
+    push:
+        tags:
+            - "indexer-v*"
+
+jobs:
+    build-and-release:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: sdk
+        permissions:
+            contents: write
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: "7"
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Build indexer dependencies
+              run: pnpm --filter="@hyperbridge/indexer^..." build
+
+            - name: Build indexer
+              run: pnpm --filter="@hyperbridge/indexer" build:release
+              env:
+                  ENV: mainnet
+
+            - name: Get version from tag
+              id: version
+              run: |
+                  TAG=${GITHUB_REF#refs/tags/indexer-}
+                  echo "version=${TAG}" >> $GITHUB_OUTPUT
+
+            - name: Assemble release package
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  RELEASE_DIR="${GITHUB_WORKSPACE}/hyperbridge-indexer-${VERSION}"
+                  mkdir -p "${RELEASE_DIR}/src"
+
+                  # Copy built output
+                  cp -r packages/indexer/dist "${RELEASE_DIR}/dist"
+
+                  # Copy configs (JSONs, ABIs, schema, generated yamls, config loader)
+                  cp -r packages/indexer/src/configs "${RELEASE_DIR}/src/configs"
+
+                  # Copy generation scripts and templates
+                  cp -r packages/indexer/scripts "${RELEASE_DIR}/scripts"
+
+                  # Create release package.json with deployment scripts
+                  cat > "${RELEASE_DIR}/package.json" <<PKGJSON
+                  {
+                    "name": "@hyperbridge/indexer",
+                    "version": "${VERSION}",
+                    "description": "Hyperbridge indexer release package with deployment config generators",
+                    "main": "dist/index.js",
+                    "type": "module",
+                    "engines": {
+                      "node": ">=22"
+                    },
+                    "scripts": {
+                      "codegen:yamls": "tsx scripts/generate-chain-yamls.ts",
+                      "codegen:compose": "tsx scripts/generate-compose.ts",
+                      "codegen": "npm run codegen:yamls && npm run codegen:compose",
+                      "start": "./scripts/up.sh ./docker/\$ENV",
+                      "down": "./scripts/down.sh ./docker/\$ENV"
+                    },
+                    "dependencies": {
+                      "dotenv": "^16.4.7",
+                      "handlebars": "^4.7.8",
+                      "rpc-websocket-client": "^1.1.4",
+                      "tsx": "^4.19.4",
+                      "viem": "^2.23.5",
+                      "zod": "^3.25.32"
+                    }
+                  }
+                  PKGJSON
+
+                  # Patch env-file paths for standalone package
+                  # (monorepo uses ../../.env.$ENV, release package uses ./.env.$ENV)
+                  sed -i 's|../../.env.\$ENV|./.env.\$ENV|g' "${RELEASE_DIR}/scripts/up.sh"
+                  sed -i 's|../../.env.\$ENV|./.env.\$ENV|g' "${RELEASE_DIR}/scripts/down.sh"
+                  sed -i 's|../../.env.|./.env.|g' "${RELEASE_DIR}/src/configs/index.ts"
+
+                  # Create the tarball
+                  cd "${GITHUB_WORKSPACE}"
+                  tar -czf "hyperbridge-indexer-${VERSION}.tar.gz" "hyperbridge-indexer-${VERSION}"
+
+            - name: Get previous tag
+              id: previous-tag
+              run: |
+                  CURRENT_TAG=${GITHUB_REF#refs/tags/}
+                  PREVIOUS_TAG=$(git tag -l "indexer-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
+                  echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
+                  echo "current_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
+
+            - name: Generate changelog
+              id: changelog
+              run: |
+                  CURRENT_TAG=${{ steps.previous-tag.outputs.current_tag }}
+                  PREVIOUS_TAG=${{ steps.previous-tag.outputs.previous_tag }}
+                  VERSION=${{ steps.version.outputs.version }}
+
+                  if [ -z "$PREVIOUS_TAG" ]; then
+                    COMMIT_RANGE="HEAD"
+                  else
+                    COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
+                  fi
+
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "indexer" || true)
+
+                  echo "changelog<<EOF" >> $GITHUB_OUTPUT
+                  echo "## What's Changed" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "$CHANGELOG" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "## Usage" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo '```bash' >> $GITHUB_OUTPUT
+                  echo "tar -xzf hyperbridge-indexer-${VERSION}.tar.gz" >> $GITHUB_OUTPUT
+                  echo "cd hyperbridge-indexer-${VERSION}" >> $GITHUB_OUTPUT
+                  echo "npm install" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "# Set environment and RPC endpoints" >> $GITHUB_OUTPUT
+                  echo "export ENV=mainnet" >> $GITHUB_OUTPUT
+                  echo "# Create .env.mainnet with chain RPC endpoints" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "# Generate chain yamls and docker compose files" >> $GITHUB_OUTPUT
+                  echo "npm run codegen" >> $GITHUB_OUTPUT
+                  echo '```' >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  name: "@hyperbridge/indexer ${{ steps.version.outputs.version }}"
+                  body: ${{ steps.changelog.outputs.changelog }}
+                  files: hyperbridge-indexer-${{ steps.version.outputs.version }}.tar.gz
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

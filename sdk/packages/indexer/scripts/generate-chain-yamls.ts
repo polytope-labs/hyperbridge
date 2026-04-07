@@ -7,11 +7,14 @@ import Handlebars from "handlebars"
 import { RpcWebSocketClient } from "rpc-websocket-client"
 import { Hex, hexToNumber } from "viem"
 
-import { type Configuration, getEnv, getValidChains } from "../src/configs"
+import { type Configuration, getConfigs, getEnv, getValidChains } from "../src/configs"
 
+const skipRpc = process.argv.includes("--skip-rpc")
 const root = process.cwd()
 const currentEnv = getEnv()
-const validChains = getValidChains()
+const validChains = skipRpc
+	? new Map<string, Configuration>(Object.entries(getConfigs()))
+	: getValidChains()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -60,13 +63,18 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const chainTypesConfig = getChainTypesPath(chain)
 	const endpoints = generateEndpoints(chain)
 
-	// Expect comma-separated endpoints in env var
-	const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
-	const rpc = new RpcWebSocketClient()
-	await rpc.connect(rpcUrl as string)
-	const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
-	const blockNumber =
-		currentEnv === "local" || currentEnv === "nexus-ci" ? hexToNumber(header.number) : config.startBlock
+	let blockNumber: number
+	if (skipRpc) {
+		blockNumber = config.startBlock
+	} else {
+		// Expect comma-separated endpoints in env var
+		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
+		const rpc = new RpcWebSocketClient()
+		await rpc.connect(rpcUrl as string)
+		const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
+		blockNumber =
+			currentEnv === "local" || currentEnv === "nexus-ci" ? hexToNumber(header.number) : config.startBlock
+	}
 
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
@@ -121,22 +129,27 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
-	// Expect comma-separated endpoints in env var
-	const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
-	const response = await fetch(rpcUrl as string, {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			id: 1,
-			jsonrpc: "2.0",
-			method: "eth_blockNumber",
-		}),
-	})
-	const data = await response.json()
-	const blockNumber = currentEnv === "local" ? hexToNumber(data.result) : config.startBlock
+	let blockNumber: number
+	if (skipRpc) {
+		blockNumber = config.startBlock
+	} else {
+		// Expect comma-separated endpoints in env var
+		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
+		const response = await fetch(rpcUrl as string, {
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "eth_blockNumber",
+			}),
+		})
+		const data = await response.json()
+		blockNumber = currentEnv === "local" ? hexToNumber(data.result) : config.startBlock
+	}
 
 	const templateData = {
 		name: chain,

@@ -233,6 +233,22 @@ impl VerifierState {
 	}
 }
 
+/// Proof of the current epoch number from the staking contract (slot 5).
+///
+/// Required in every consensus update so the on-chain verifier can determine
+/// which epoch a block belongs to. Pharos epochs are time-based (not block-count-based),
+/// so the epoch number must be proven from on-chain state.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct EpochProof {
+	/// The proven epoch number
+	pub epoch: u64,
+	/// SPV proof nodes for slot 5 on the staking precompile
+	pub proof_nodes: Vec<PharosProofNode>,
+	/// The raw 32-byte padded storage value of currentEpoch
+	pub storage_value: Vec<u8>,
+}
+
 /// Data required to update the verifier state.
 ///
 /// This is what the prover submits to advance the light client's state.
@@ -242,8 +258,11 @@ pub struct VerifierStateUpdate {
 	pub header: CodecHeader,
 	/// Block proof from debug_getBlockProof containing the BLS signature
 	pub block_proof: BlockProof,
-	/// Optional validator set update proof (required at epoch boundaries)
+	/// Optional validator set update proof (required at epoch transitions)
 	pub validator_set_proof: Option<ValidatorSetProof>,
+	/// Proof of the current epoch number from the staking contract.
+	/// Required in every update for epoch determination.
+	pub epoch_proof: EpochProof,
 }
 
 impl VerifierStateUpdate {

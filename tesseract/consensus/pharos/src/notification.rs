@@ -47,33 +47,39 @@ pub async fn consensus_notification<C: Config>(
 	}
 
 	let current_epoch = consensus_state.current_epoch;
-	let latest_epoch = C::compute_epoch(latest_block);
+	let latest_epoch = client
+		.prover
+		.fetch_current_epoch(latest_block)
+		.await
+		.map_err(|e| anyhow::anyhow!("Failed to read currentEpoch: {e}"))?;
 
 	log::info!(
 		target: "tesseract-pharos",
-		"New block available. Latest: {} (epoch {}), Finalized: {} (epoch {}), epoch_length: {}",
+		"New block available. Latest: {} (epoch {}), Finalized: {} (epoch {})",
 		latest_block,
 		latest_epoch,
 		consensus_state.finalized_height,
 		current_epoch,
-		C::EPOCH_LENGTH_BLOCKS,
 	);
 
-	// Determine the target block for the update
-	// If we're still in the same epoch, just get the latest block
-	// If we've crossed epoch boundaries, we need to sync epoch by epoch
+	// Determine the target block for the update.
+	// If we've crossed epoch boundaries, walk back to find the first block of the new epoch.
 	let target_block = if latest_epoch > current_epoch {
-		// We've crossed epoch boundaries — sync the first epoch boundary block.
-		// Since latest_block is in a later epoch, this boundary is always <= latest_block.
-		let next_epoch_boundary = (current_epoch + 1) * C::EPOCH_LENGTH_BLOCKS - 1;
-		log::trace!(
+		// Epoch changed, search for the first block of the new epoch
+		let boundary = client
+			.prover
+			.find_epoch_boundary(consensus_state.finalized_height, latest_block, current_epoch)
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to find epoch boundary: {e}"))?;
+
+		log::info!(
 			target: "tesseract-pharos",
-			"Epoch boundary detected. Syncing block {} for epoch transition {} -> {}",
-			next_epoch_boundary,
+			"Epoch boundary detected at block {}. Transition {} -> {}",
+			boundary,
 			current_epoch,
 			current_epoch + 1
 		);
-		next_epoch_boundary
+		boundary
 	} else {
 		log::trace!(
 			target: "tesseract-pharos",

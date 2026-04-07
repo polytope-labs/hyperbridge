@@ -109,10 +109,12 @@ impl<C: Config> PharosHost<C> {
 		let header = self.prover.rpc.get_block_by_number(latest_block).await?;
 		let header_hash = geth_primitives::Header::from(&header).hash::<KeccakHasher>();
 
-		// Use the hardcoded epoch length from Config, NOT the on-chain value.
-		// The on-chain verifier (ismp_pharos::PharosClient) uses C::compute_epoch()
-		// which uses Config::EPOCH_LENGTH_BLOCKS. The consensus state must match.
-		let current_epoch = C::compute_epoch(latest_block);
+		// Read the current epoch from the staking contract at this block.
+		let current_epoch = self
+			.prover
+			.fetch_current_epoch(latest_block)
+			.await
+			.map_err(|e| anyhow::anyhow!("Failed to read currentEpoch: {e}"))?;
 
 		// Fetch validator set directly via debug RPC
 		let validator_info = self

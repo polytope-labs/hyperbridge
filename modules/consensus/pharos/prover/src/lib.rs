@@ -21,8 +21,9 @@ pub mod rpc;
 pub use error::ProverError;
 
 use pharos_primitives::{
-	BlockProof, BlsPublicKey, Config, PharosProofNode, SiblingLeftmostLeafProof, ValidatorInfo,
-	ValidatorSet, ValidatorSetProof, VerifierStateUpdate, STAKING_CONTRACT_ADDRESS,
+	BlockProof, BlsPublicKey, Config, EpochProof, PharosProofNode, SiblingLeftmostLeafProof,
+	ValidatorInfo, ValidatorSet, ValidatorSetProof, VerifierStateUpdate,
+	CURRENT_EPOCH_SLOT, STAKING_CONTRACT_ADDRESS,
 };
 use pharos_verifier::state_proof::StakingContractLayout;
 use primitive_types::{H160, H256, U256};
@@ -37,22 +38,16 @@ use std::{collections::BTreeMap, marker::PhantomData, sync::Arc};
 pub struct PharosProver<C: Config> {
 	pub rpc: Arc<PharosRpcClient>,
 	storage_layout: StakingContractLayout,
-	/// Epoch length in blocks, read from staking contract slot 5 at init.
-	/// Falls back to `C::EPOCH_LENGTH_BLOCKS` if the RPC call fails.
-	pub epoch_length: u64,
 	_config: PhantomData<C>,
 }
 
 impl<C: Config> PharosProver<C> {
 	/// Create a new prover with the given RPC endpoint.
-	/// Reads `epochLength` from the staking contract at the latest block.
 	pub async fn new(endpoint: impl Into<String>) -> Result<Self, ProverError> {
 		let rpc = Arc::new(PharosRpcClient::new(endpoint)?);
-		let epoch_length = Self::fetch_epoch_length(&rpc).await;
 		Ok(Self {
 			rpc,
 			storage_layout: StakingContractLayout::default(),
-			epoch_length,
 			_config: PhantomData,
 		})
 	}
@@ -63,21 +58,70 @@ impl<C: Config> PharosProver<C> {
 		layout: StakingContractLayout,
 	) -> Result<Self, ProverError> {
 		let rpc = Arc::new(PharosRpcClient::new(endpoint)?);
-		let epoch_length = Self::fetch_epoch_length(&rpc).await;
-		Ok(Self { rpc, storage_layout: layout, epoch_length, _config: PhantomData })
+		Ok(Self { rpc, storage_layout: layout, _config: PhantomData })
 	}
 
-	async fn fetch_epoch_length(rpc: &PharosRpcClient) -> u64 {
+	/// Read `currentEpoch` from the staking contract at a specific block.
+	pub async fn fetch_current_epoch(&self, block_number: u64) -> Result<u64, ProverError> {
 		let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
-		let latest = rpc.get_block_number().await.unwrap_or(0);
-		if latest == 0 {
-			return C::EPOCH_LENGTH_BLOCKS;
+		let val = self.rpc.get_storage_at(address, U256::from(CURRENT_EPOCH_SLOT), block_number).await?;
+		Ok(val.low_u64())
+	}
+
+	/// Fetch a storage proof for `currentEpoch` (slot 5) at a specific block.
+	pub async fn fetch_epoch_proof(&self, block_number: u64) -> Result<EpochProof, ProverError> {
+		let address = H160::from_slice(STAKING_CONTRACT_ADDRESS.as_slice());
+		let slot = H256(U256::from(CURRENT_EPOCH_SLOT).to_big_endian());
+
+		let rpc_proof = self.rpc.get_proof(address, vec![slot], block_number).await?;
+
+		if rpc_proof.storage_proof.is_empty() {
+			return Err(ProverError::Custom("No storage proof for epoch slot".into()));
 		}
-		// Slot 5 = epochLength
-		match rpc.get_storage_at(address, U256::from(5), latest).await {
-			Ok(val) if !val.is_zero() => val.low_u64(),
-			_ => C::EPOCH_LENGTH_BLOCKS,
+
+		let sp = &rpc_proof.storage_proof[0];
+		let proof_nodes = rpc_to_proof_nodes(&sp.proof)?;
+		let value_bytes = hex_to_bytes(&sp.value)
+			.map_err(|e| ProverError::Custom(format!("hex decode epoch value: {e:?}")))?;
+		let mut padded = [0u8; 32];
+		if value_bytes.len() <= 32 {
+			padded[32 - value_bytes.len()..].copy_from_slice(&value_bytes);
 		}
+		let epoch = U256::from_big_endian(&padded).low_u64();
+
+		Ok(EpochProof { epoch, proof_nodes, storage_value: padded.to_vec() })
+	}
+
+	/// Detect if a block is at an epoch boundary by comparing the epoch at this
+	/// block with the epoch at the previous block.
+	pub async fn is_epoch_boundary(&self, block_number: u64) -> Result<bool, ProverError> {
+		let epoch_at_block = self.fetch_current_epoch(block_number).await?;
+		let epoch_at_prev = self.fetch_current_epoch(block_number.saturating_sub(1)).await?;
+		Ok(epoch_at_block > epoch_at_prev)
+	}
+
+	/// Binary search for the first block of a new epoch.
+	/// Returns the first block where `currentEpoch > old_epoch`.
+	pub async fn find_epoch_boundary(
+		&self,
+		low: u64,
+		high: u64,
+		old_epoch: u64,
+	) -> Result<u64, ProverError> {
+		let mut lo = low;
+		let mut hi = high;
+
+		while lo < hi {
+			let mid = lo + (hi - lo) / 2;
+			let epoch_at_mid = self.fetch_current_epoch(mid).await?;
+			if epoch_at_mid > old_epoch {
+				hi = mid;
+			} else {
+				lo = mid + 1;
+			}
+		}
+
+		Ok(lo)
 	}
 
 	/// Fetch the latest block number from the node.
@@ -89,8 +133,9 @@ impl<C: Config> PharosProver<C> {
 	///
 	/// This will:
 	/// 1. Fetch the block header
-	/// 2. Fetch the block proof
-	/// 3. If at epoch boundary, fetch validator set proof
+	/// 2. Fetch the block proof (BLS signature)
+	/// 3. Fetch the epoch proof (slot 5 storage proof)
+	/// 4. If at epoch boundary, fetch validator set proof
 	pub async fn fetch_block_update(
 		&self,
 		block_number: u64,
@@ -100,13 +145,23 @@ impl<C: Config> PharosProver<C> {
 		let rpc_proof = self.rpc.get_block_proof(block_number).await?;
 		let block_proof = self.convert_rpc_block_proof(&rpc_proof)?;
 
-		let validator_set_proof = if C::is_epoch_boundary(block_number) {
+		let epoch_proof = self.fetch_epoch_proof(block_number).await?;
+
+		let is_boundary = self.is_epoch_boundary(block_number).await?;
+		let validator_set_proof = if is_boundary {
+			log::info!(
+				target: "pharos-prover",
+				"Epoch boundary at block {}: epoch {} -> {}",
+				block_number,
+				epoch_proof.epoch.saturating_sub(1),
+				epoch_proof.epoch,
+			);
 			Some(self.fetch_validator_set_proof(block_number).await?)
 		} else {
 			None
 		};
 
-		Ok(VerifierStateUpdate { header, block_proof, validator_set_proof })
+		Ok(VerifierStateUpdate { header, block_proof, validator_set_proof, epoch_proof })
 	}
 
 	/// Fetch only the block proof for a given block number.

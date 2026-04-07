@@ -55,6 +55,7 @@ ismp-grandpa = { workspace = true, default-features = true }
 ismp-pharos = { workspace = true, default-features = true }
 pharos-primitives = { workspace = true, default-features = true }
 pharos-prover = { workspace = true, default-features = true }
+pharos-state-machine = { workspace = true, default-features = true }
 geth-primitives = { workspace = true, default-features = true }
 bls = { workspace = true }
 crypto-utils = { workspace = true, default-features = true }

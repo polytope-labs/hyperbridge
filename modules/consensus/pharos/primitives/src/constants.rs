@@ -33,8 +33,12 @@ pub const PHAROS_CONSENSUS_ID: [u8; 4] = *b"PHAR";
 /// Mainnet epoch length in seconds (4 hours)
 pub const MAINNET_EPOCH_LENGTH_SECS: u64 = 4 * 60 * 60; // 14400 seconds
 
-/// Testnet (Atlantic) epoch length in seconds.
-pub const TESTNET_EPOCH_LENGTH_SECS: u64 = 8080;
+/// Testnet (Atlantic) epoch length in seconds (30 minutes).
+pub const TESTNET_EPOCH_LENGTH_SECS: u64 = 30 * 60; // 1800 seconds
+
+/// Storage slot index for `currentEpoch` on the Pharos staking precompile.
+/// This stores the current epoch **number** (increments every epoch duration).
+pub const CURRENT_EPOCH_SLOT: u64 = 5;
 
 /// Pharos Mainnet chain ID
 pub const PHAROS_MAINNET_CHAIN_ID: u32 = 688600;
@@ -46,12 +50,17 @@ pub const PHAROS_ATLANTIC_CHAIN_ID: u32 = 688689;
 pub const DEFAULT_WITHDRAW_WINDOW_EPOCHS: u64 = 84;
 
 /// Configuration trait for Pharos network parameters.
+///
+/// Pharos epochs are **time-based** (not block-count-based). The epoch number
+/// is stored on-chain at slot 5 of the staking precompile and increments every
+/// `EPOCH_LENGTH_SECS` seconds. There is no fixed number of blocks per epoch.
+///
+/// Epoch determination requires either:
+/// - Reading `currentEpoch` from the staking contract (off-chain prover)
+/// - Verifying a storage proof of slot 5 against the block's state root (on-chain verifier)
 pub trait Config: Clone + Send + Sync {
 	/// The epoch length in seconds
 	const EPOCH_LENGTH_SECS: u64;
-
-	/// The epoch length in blocks (derived from epoch length and block time)
-	const EPOCH_LENGTH_BLOCKS: u64;
 
 	/// The chain ID for this network
 	const CHAIN_ID: u64;
@@ -62,27 +71,6 @@ pub trait Config: Clone + Send + Sync {
 	/// The unstaking period in seconds (withdraw_window_epochs × epoch_length_secs).
 	/// Defaults to `DEFAULT_WITHDRAW_WINDOW_EPOCHS × EPOCH_LENGTH_SECS`.
 	const UNBONDING_PERIOD: u64 = DEFAULT_WITHDRAW_WINDOW_EPOCHS * Self::EPOCH_LENGTH_SECS;
-
-	/// Calculate the epoch number for a given block number
-	fn compute_epoch(block_number: u64) -> u64 {
-		block_number / Self::EPOCH_LENGTH_BLOCKS
-	}
-
-	/// Check if a block is an epoch boundary block (last block of an epoch).
-	///
-	/// The epoch boundary is defined as the last block of an epoch, i.e.,
-	/// `(block_number + 1) % epoch_length == 0`.
-	///
-	/// At epoch boundaries, the validator set for the next epoch is finalized
-	fn is_epoch_boundary(block_number: u64) -> bool {
-		(block_number + 1) % Self::EPOCH_LENGTH_BLOCKS == 0
-	}
-
-	/// Get the first block number of the next epoch
-	fn next_epoch_start(current_block: u64) -> u64 {
-		let current_epoch = Self::compute_epoch(current_block);
-		(current_epoch + 1) * Self::EPOCH_LENGTH_BLOCKS
-	}
 }
 
 /// Pharos Mainnet configuration
@@ -93,12 +81,6 @@ impl Config for Mainnet {
 	/// 4 hours epoch length
 	const EPOCH_LENGTH_SECS: u64 = MAINNET_EPOCH_LENGTH_SECS;
 
-	/// With ~1 second finality (sub-second), assuming 1 block per second
-	/// 4 hours = 14400 blocks
-	const EPOCH_LENGTH_BLOCKS: u64 = 14400;
-
-	/// Mainnet chain ID - TBD
-	/// Placeholder based on testnet pattern
 	const CHAIN_ID: u64 = 688600;
 
 	const ID: [u8; 4] = PHAROS_CONSENSUS_ID;
@@ -109,10 +91,8 @@ impl Config for Mainnet {
 pub struct Testnet;
 
 impl Config for Testnet {
-	/// ~93.8 minutes epoch length
+	/// 30 minutes epoch length
 	const EPOCH_LENGTH_SECS: u64 = TESTNET_EPOCH_LENGTH_SECS;
-
-	const EPOCH_LENGTH_BLOCKS: u64 = 8080;
 
 	/// Pharos Testnet chain ID
 	const CHAIN_ID: u64 = 688689;

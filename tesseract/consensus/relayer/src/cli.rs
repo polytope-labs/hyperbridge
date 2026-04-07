@@ -244,15 +244,13 @@ pub async fn create_client_map(
 				client
 			},
 
-			AnyConfig::PharosTestnet(config) => {
-				let client =
-					config.into_client::<pharos_primitives::Testnet>().await?;
-				client
-			},
-
-			AnyConfig::PharosMainnet(config) => {
-				let client =
-					config.into_client::<pharos_primitives::Mainnet>().await?;
+			AnyConfig::Pharos(config) => {
+				let client = match config.state_machine() {
+					StateMachine::Evm(688689) =>
+						config.into_client::<pharos_primitives::Testnet>().await?,
+					_ =>
+						config.into_client::<pharos_primitives::Mainnet>().await?,
+				};
 				client
 			},
 

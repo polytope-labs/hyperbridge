@@ -129,30 +129,19 @@ async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
 	let latest_block_num = prover.get_latest_block().await.expect("Failed to get block number");
 	println!("Latest block: {}", latest_block_num);
 
-	// Find the most recent epoch boundary by walking back from latest block.
-	// An epoch boundary is the first block where currentEpoch incremented.
-	let current_epoch = prover
-		.fetch_current_epoch(latest_block_num)
-		.await
-		.expect("fetch epoch");
+	// Find the most recent epoch boundary using find_epoch_boundary.
+	let current_epoch = prover.fetch_current_epoch(latest_block_num).await.expect("fetch epoch");
 	println!("Current epoch at latest block: {}", current_epoch);
 
-	// Walk back to find a block in the previous epoch
-	let mut search_block = latest_block_num;
-	loop {
-		search_block = search_block.saturating_sub(100);
-		let epoch_at = prover.fetch_current_epoch(search_block).await.expect("fetch epoch");
-		if epoch_at < current_epoch {
-			break;
-		}
-		if search_block == 0 {
-			panic!("Could not find a block in a previous epoch");
-		}
-	}
-
-	// Now binary search for the boundary
+	// find_epoch_boundary binary-searches for the first block where
+	// currentEpoch > previous_epoch, i.e. the epoch boundary block.
+	let previous_epoch = current_epoch - 1;
 	let target_block = prover
-		.find_epoch_boundary(search_block, latest_block_num, current_epoch - 1)
+		.find_epoch_boundary(
+			latest_block_num.saturating_sub(5000),
+			latest_block_num,
+			previous_epoch,
+		)
 		.await
 		.expect("find epoch boundary");
 	let target_epoch = prover.fetch_current_epoch(target_block).await.expect("fetch epoch");
@@ -172,7 +161,6 @@ async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
 		.expect("Failed to get validator info");
 	println!("Validators: {}", validator_info.validator_set.len());
 	// The trusted state uses the PREVIOUS epoch (before the transition)
-	let previous_epoch = target_epoch - 1;
 	let validator_set = prover
 		.build_validator_set(&validator_info.validator_set, previous_epoch)
 		.expect("Failed to build validator set");

@@ -26,19 +26,18 @@ use error::Error;
 use geth_primitives::Header;
 use ismp::messaging::Keccak256;
 use pharos_primitives::{
-	spv, BlockProof, BlsPublicKey, Config, EpochProof, ValidatorSet, VerifierState,
-	VerifierStateUpdate, CURRENT_EPOCH_SLOT, STAKING_CONTRACT_ADDRESS,
+	BlockProof, BlsPublicKey, Config, ValidatorSet, VerifierState, VerifierStateUpdate,
 };
-use primitive_types::{H256, U256};
+use primitive_types::H256;
 
 /// Domain Separation Tag for Pharos BLS signatures.
 pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 
 /// Verifies a Pharos block proof and updates the verifier state.
 ///
-/// Epoch determination is proof-based: the update must include a storage proof
-/// for `currentEpoch` (slot 5) on the staking contract. The verifier checks
-/// this proof against the block's state root.
+/// Epoch transitions are determined by the presence of a `validator_set_proof`:
+/// if present, the epoch increments by 1. The relayer walks epoch-by-epoch,
+/// so each validator set proof corresponds to exactly one epoch transition.
 pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	trusted_state: VerifierState,
 	update: VerifierStateUpdate,
@@ -50,16 +49,6 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		return Err(Error::StaleUpdate {
 			current: current_block_number,
 			update: update_block_number,
-		});
-	}
-
-	// Verify the epoch proof: storage proof for slot 5 on staking contract
-	let proven_epoch = verify_epoch_proof::<H>(update.header.state_root, &update.epoch_proof)?;
-
-	if proven_epoch < trusted_state.current_epoch {
-		return Err(Error::EpochRegression {
-			proven_epoch,
-			trusted_epoch: trusted_state.current_epoch,
 		});
 	}
 
@@ -88,32 +77,23 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		update.block_proof.block_proof_hash,
 	)?;
 
-	// Determine if this is an epoch transition
-	let is_epoch_transition = proven_epoch > trusted_state.current_epoch;
-
-	let new_state = if is_epoch_transition {
-		// Epoch changed, must include a validator set proof for the new epoch
-		let validator_set_proof = update
-			.validator_set_proof
-			.ok_or(Error::MissingValidatorSetProof { block_number: update_block_number })?;
+	// Epoch transition is determined by presence of validator_set_proof
+	let new_state = if let Some(validator_set_proof) = update.validator_set_proof {
+		let new_epoch = trusted_state.current_epoch + 1;
 
 		let new_validator_set = state_proof::verify_validator_set_proof::<H>(
 			update.header.state_root,
 			&validator_set_proof,
-			proven_epoch,
+			new_epoch,
 		)?;
 
 		VerifierState {
 			current_validator_set: new_validator_set,
 			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,
-			current_epoch: proven_epoch,
+			current_epoch: new_epoch,
 		}
 	} else {
-		if update.validator_set_proof.is_some() {
-			return Err(Error::UnexpectedValidatorSetProof { block_number: update_block_number });
-		}
-
 		VerifierState {
 			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,
@@ -122,34 +102,6 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	};
 
 	Ok(new_state)
-}
-
-/// Verify the epoch proof: a storage proof for `currentEpoch` (slot 5) on the
-/// staking precompile, verified against the block's state root.
-fn verify_epoch_proof<H: Keccak256 + Send + Sync>(
-	state_root: H256,
-	epoch_proof: &EpochProof,
-) -> Result<u64, Error> {
-	let staking_address: [u8; 20] = STAKING_CONTRACT_ADDRESS.0 .0;
-	let slot_key: [u8; 32] = U256::from(CURRENT_EPOCH_SLOT).to_big_endian();
-
-	// Verify the storage proof against state_root using Pharos flat trie
-	spv::verify_proof(
-		&epoch_proof.proof_nodes,
-		&spv::build_storage_key(&staking_address, &slot_key),
-		&epoch_proof.storage_value,
-		&state_root.0,
-	)
-	.map_err(Error::InvalidEpochProof)?;
-
-	// Decode the epoch number from the 32-byte padded value
-	let decoded_epoch = U256::from_big_endian(&epoch_proof.storage_value).low_u64();
-
-	if decoded_epoch != epoch_proof.epoch {
-		return Err(Error::EpochValueMismatch { declared: epoch_proof.epoch, proven: decoded_epoch });
-	}
-
-	Ok(decoded_epoch)
 }
 
 /// Verify that all participating validators are members of the trusted validator set.

@@ -31,28 +31,6 @@ pub enum Error {
 		update: u64,
 	},
 
-	/// The proven epoch is older than the trusted epoch (epochs cannot regress)
-	#[error("Epoch regression: proven epoch {proven_epoch} < trusted epoch {trusted_epoch}")]
-	EpochRegression {
-		/// The epoch proven by the storage proof
-		proven_epoch: u64,
-		/// The trusted epoch from the verifier state
-		trusted_epoch: u64,
-	},
-
-	/// The declared epoch in EpochProof doesn't match the value proven by the storage proof
-	#[error("Epoch value mismatch: declared {declared}, proven from storage {proven}")]
-	EpochValueMismatch {
-		/// The epoch declared in the EpochProof struct
-		declared: u64,
-		/// The epoch decoded from the proven storage value
-		proven: u64,
-	},
-
-	/// The epoch proof verification failed against the state root
-	#[error("Invalid epoch proof: {0}")]
-	InvalidEpochProof(pharos_primitives::spv::Error),
-
 	/// A participating validator is not in the trusted validator set
 	#[error("Unknown validator with BLS key: {}", hex::encode(&key.as_ref()[..8]))]
 	UnknownValidator {

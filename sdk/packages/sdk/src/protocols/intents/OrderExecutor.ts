@@ -410,7 +410,6 @@ export class OrderExecutor {
 
 				if (fill.update) {
 					yield fill.update
-					if (fill.done) return
 				}
 			}
 		} catch (err) {

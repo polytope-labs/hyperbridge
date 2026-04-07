@@ -92,12 +92,13 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const currentBlock = await polygonPublicClient.getBlockNumber()
 
 		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(polygonMainnetId),
 			destination: toHex(polygonMainnetId),
-			deadline: 12545151568145n,
+			deadline: currentBlock + 3000n,
 			nonce: 0n,
 			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -127,8 +128,8 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const userSdkHelper = await IntentGateway.create(polygonEvmChain, polygonEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			auctionTimeMs: 600_000,
-			pollIntervalMs: 5_000,
+			auctionTimeMs: 10_000,
+			pollIntervalMs: 2_000,
 		})
 
 		let result = await gen.next()
@@ -184,7 +185,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe.only("Filler V2 FX - Base mainnet same-chain swap", () => {
+describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 	it.only("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
@@ -402,12 +403,13 @@ describe.only("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const beneficiaryAddress = "0x9C97B15c361e390a46a6a920538508Dc3a37c5e9"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const currentBlock = await basePublicClient.getBlockNumber()
 
 		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
-			deadline: 12545151568145n,
+			deadline: currentBlock + 3000n,
 			nonce: 0n,
 			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -446,8 +448,8 @@ describe.only("Filler V2 FX - Base mainnet same-chain swap", () => {
 
 		// `execute()` handles placement, then the same bid/fill pipeline as OrderExecutor (no local IntentFiller).
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			auctionTimeMs: 600_000,
-			pollIntervalMs: 5_000,
+			auctionTimeMs: 10_000,
+			pollIntervalMs: 2_000,
 		})
 
 		let result = await gen.next()
@@ -834,12 +836,13 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+		const deadlineBlock = (await basePublicClient.getBlockNumber()) + 3000n
 
 		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
-			deadline: 12545151568145n,
+			deadline: deadlineBlock,
 			nonce: 0n,
 			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -868,8 +871,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			auctionTimeMs: 600_000,
-			pollIntervalMs: 5_000,
+			auctionTimeMs: 10_000,
+			pollIntervalMs: 2_000,
 		})
 
 		let result = await gen.next()
@@ -1159,12 +1162,13 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+		const deadlineBlock = (await basePublicClient.getBlockNumber()) + 3000n
 
 		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
-			deadline: 12545151568145n,
+			deadline: deadlineBlock,
 			nonce: 0n,
 			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -1193,8 +1197,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			auctionTimeMs: 600_000,
-			pollIntervalMs: 5_000,
+			auctionTimeMs: 10_000,
+			pollIntervalMs: 2_000,
 		})
 
 		let result = await gen.next()
@@ -1288,12 +1292,13 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+		const currentBlock = await arbitrumPublicClient.getBlockNumber()
 
 		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(arbitrumMainnetId),
 			destination: toHex(arbitrumMainnetId),
-			deadline: 12545151568145n,
+			deadline: currentBlock + 3000n,
 			nonce: 0n,
 			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -1327,8 +1332,8 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, arbitrumEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			auctionTimeMs: 600_000,
-			pollIntervalMs: 5_000,
+			auctionTimeMs: 10_000,
+			pollIntervalMs: 2_000,
 		})
 
 		let result = await gen.next()
@@ -1379,7 +1384,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		)
 		expect(isFilled).toBe(true)
 
-		await new Promise((resolve) => setTimeout(resolve, 600_000_000))
+		await new Promise((resolve) => setTimeout(resolve, 30_000))
 
 		await intentFiller.stop()
 		await intentsCoprocessor.disconnect()
@@ -1429,12 +1434,13 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
 			const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 			const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+			const destBlock = await basePublicClient.getBlockNumber()
 
 			let order: Order = {
 				user: bytes20ToBytes32(user),
 				source: toHex(arbitrumMainnetId),
 				destination: toHex(baseMainnetId),
-				deadline: 12545151568145n,
+				deadline: destBlock + 3000n,
 				nonce: 0n,
 				fees: 0n,
 				session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -1474,8 +1480,8 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, baseEvmChain, intentsCoprocessor)
 
 			const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-				auctionTimeMs: 600_000,
-				pollIntervalMs: 5_000,
+				auctionTimeMs: 10_000,
+				pollIntervalMs: 2_000,
 			})
 
 			let result = await gen.next()

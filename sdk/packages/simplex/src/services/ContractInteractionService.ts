@@ -398,6 +398,50 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Ensures the solver account has max USDC allowance to the Circle Paymaster.
+	 * This is a one-time approval that eliminates per-bid permit signing.
+	 * No-ops if the allowance is already sufficient.
+	 */
+	async ensurePaymasterApproval(chain: string, paymasterAddress: HexString): Promise<void> {
+		const usdcAddress = this.configService.getUsdcAsset(chain)
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const walletClient = this.clientManager.getWalletClient(chain)
+
+		const currentAllowance = (await publicClient.readContract({
+			address: usdcAddress,
+			abi: ERC20_ABI,
+			functionName: "allowance",
+			args: [this.solverAccountAddress, paymasterAddress],
+		})) as bigint
+
+		// Consider sufficient if allowance covers at least $50 of USDC
+		const usdcDecimals = this.configService.getUsdcDecimals(chain)
+		const sufficientThreshold = 50n * 10n ** BigInt(usdcDecimals)
+
+		if (currentAllowance >= sufficientThreshold) {
+			this.logger.info({ chain, allowance: currentAllowance.toString() }, "USDC paymaster allowance sufficient")
+			return
+		}
+
+		this.logger.info(
+			{ chain, paymasterAddress, usdcAddress, currentAllowance: currentAllowance.toString() },
+			"Approving USDC to Circle Paymaster (one-time)",
+		)
+
+		const hash = await walletClient.writeContract({
+			address: usdcAddress,
+			abi: ERC20_ABI,
+			functionName: "approve",
+			args: [paymasterAddress, maxUint256],
+			chain: walletClient.chain,
+			account: walletClient.account!,
+		})
+
+		const receipt = await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 })
+		this.logger.info({ chain, txHash: hash, blockNumber: receipt.blockNumber }, "USDC paymaster approval confirmed")
+	}
+
+	/**
 	 * Calculates the total USD value of an order's inputs.
 	 * Only stable (USDC/USDT) inputs contribute; non-stables contribute 0.
 	 *

@@ -1,4 +1,4 @@
-import { encodePacked, maxUint256, getContract, type PublicClient } from "viem"
+import { encodePacked, maxUint256, getContract, erc20Abi, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { EIP2612_ABI } from "@/config/abis/EIP2612"
 
@@ -41,12 +41,12 @@ export interface CirclePaymasterConfig {
 // ── Core integration ─────────────────────────────────────────────────
 
 /**
- * Computes the default permit amount ($10 worth of USDC) for the given decimals.
+ * Computes the default permit amount ($5 worth of USDC) for the given decimals.
  * This is a max-spend cap per UserOp, not the actual charge.
  * The paymaster charges actual gas cost and refunds the rest.
  */
 function defaultPermitAmount(usdcDecimals: number): bigint {
-	return 10n * 10n ** BigInt(usdcDecimals)
+	return 5n * 10n ** BigInt(usdcDecimals)
 }
 
 /**
@@ -83,6 +83,26 @@ export async function buildCirclePaymasterData(
 		usdcDecimals,
 		permitAmount = defaultPermitAmount(usdcDecimals),
 	} = config
+
+	// The paymaster contract skips the permit section when paymasterData is
+	// shorter than PAYMASTER_PERMIT_SIGNATURE_OFFSET and goes straight to transferFrom.
+	const existingAllowance = (await client.readContract({
+		address: usdcAddress,
+		abi: erc20Abi,
+		functionName: "allowance",
+		args: [solverAccount, paymasterAddress],
+	})) as bigint
+
+	if (existingAllowance >= permitAmount) {
+		// No permit data needed — paymaster will use existing allowance
+		const paymasterData = encodePacked(["uint8"], [0]) as HexString
+		return {
+			paymaster: paymasterAddress,
+			paymasterData,
+			paymasterVerificationGasLimit: PAYMASTER_VERIFICATION_GAS_LIMIT,
+			paymasterPostOpGasLimit: PAYMASTER_POST_OP_GAS_LIMIT,
+		}
+	}
 
 	const permitSignature = await signUsdcPermit(
 		client,

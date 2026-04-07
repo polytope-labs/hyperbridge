@@ -130,8 +130,16 @@ export class IntentFiller {
 			// Chains with a paymaster address pay gas in USDC instead.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
-				if (this.configService.getCirclePaymasterV08Address(chain)) {
+				const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+				if (paymasterAddress) {
 					this.logger.info({ chain }, "Skipping EntryPoint deposit — Circle Paymaster available")
+					// Ensure solver has max USDC allowance to the paymaster so that
+					// per-bid permit signing is never needed (saves ~2-10s for MPC signers).
+					try {
+						await this.contractService.ensurePaymasterApproval(chain, paymasterAddress)
+					} catch (err) {
+						this.logger.warn({ chain, err }, "Failed to ensure paymaster USDC approval")
+					}
 					continue
 				}
 				try {
@@ -416,11 +424,21 @@ export class IntentFiller {
 					}),
 				])
 				const confirmDurationSec = (Date.now() - confirmStartMs) / 1000
-				this.monitor.emit("orderTiming", { orderId: order.id, phase: "confirmation", durationSec: confirmDurationSec })
+				this.monitor.emit("orderTiming", {
+					orderId: order.id,
+					phase: "confirmation",
+					durationSec: confirmDurationSec,
+				})
 
 				// Execute immediately
 				if (evaluationResult) {
-					this.executeOrder(order, evaluationResult.strategy, solverSelectionActive, inputUsdValue, evaluationResult.profitability)
+					this.executeOrder(
+						order,
+						evaluationResult.strategy,
+						solverSelectionActive,
+						inputUsdValue,
+						evaluationResult.profitability,
+					)
 				}
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
@@ -493,7 +511,13 @@ export class IntentFiller {
 		return validStrategies[0]
 	}
 
-	private executeOrder(order: Order, bestStrategy: FillerStrategy, solverSelectionActive: boolean, inputUsdValue: Decimal, profitUsd: number): void {
+	private executeOrder(
+		order: Order,
+		bestStrategy: FillerStrategy,
+		solverSelectionActive: boolean,
+		inputUsdValue: Decimal,
+		profitUsd: number,
+	): void {
 		// Get the chain-specific queue
 		const chainQueue = this.chainQueues.get(getChainId(order.destination)!)
 		if (!chainQueue) {
@@ -518,11 +542,21 @@ export class IntentFiller {
 				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
 				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
 				const execDurationSec = (Date.now() - execStartMs) / 1000
-				this.monitor.emit("orderTiming", { orderId: order.id, phase: "execution", durationSec: execDurationSec })
+				this.monitor.emit("orderTiming", {
+					orderId: order.id,
+					phase: "execution",
+					durationSec: execDurationSec,
+				})
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
 
 				if (result.success) {
-					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash, volumeUsd: inputUsdValue.toNumber(), profitUsd, chainId: getChainId(order.source) })
+					this.monitor.emit("orderFilled", {
+						orderId: order.id,
+						hash: result.txHash,
+						volumeUsd: inputUsdValue.toNumber(),
+						profitUsd,
+						chainId: getChainId(order.source),
+					})
 				}
 				this.monitor.emit("orderExecuted", {
 					orderId: order.id,

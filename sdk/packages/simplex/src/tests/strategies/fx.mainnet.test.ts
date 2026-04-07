@@ -256,7 +256,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000_00,
+			auctionTimeMs: 15_000,
 			pollIntervalMs: 5_000,
 		})
 
@@ -278,37 +278,74 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 
 		let userOpHash: HexString | undefined
 		let selectedSolver: HexString | undefined
+		let sawFilled = false
+		const FILL_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes
+		const orderPlacedAt = Date.now()
+		const allStatuses: string[] = []
 
-		while (!result.done) {
-			if (result.value && "status" in result.value) {
-				const status = result.value
-				console.log("status", status)
+		const timeoutPromise = new Promise<never>((_, reject) => {
+			setTimeout(async () => {
+				const onChainFilled = await checkIfOrderFilled(
+					order.id as HexString,
+					basePublicClient,
+					chainConfigService.getIntentGatewayV2Address(baseMainnetId),
+				).catch(() => false)
 
-				if (status.status === "BID_SELECTED") {
-					selectedSolver = status.selectedSolver as HexString
-					userOpHash = status.userOpHash as HexString
-					if (status.transactionHash) {
-						console.log("Transaction hash:", status.transactionHash)
+				console.error(`\n[TIMEOUT] FILLED event not received within ${FILL_TIMEOUT_MS / 1000}s`)
+				console.error(`[TIMEOUT] Statuses seen so far: ${JSON.stringify(allStatuses)}`)
+				console.error(`[TIMEOUT] userOpHash: ${userOpHash}`)
+				console.error(`[TIMEOUT] selectedSolver: ${selectedSolver}`)
+				console.error(`[TIMEOUT] order.id: ${order.id}`)
+				console.error(`[TIMEOUT] On-chain fill status: ${onChainFilled}`)
+
+				reject(new Error(
+					`FILLED event not received within 2 minutes. ` +
+					`Statuses seen: [${allStatuses.join(", ")}]. ` +
+					`On-chain filled: ${onChainFilled}. ` +
+					`userOpHash: ${userOpHash}, selectedSolver: ${selectedSolver}`
+				))
+			}, FILL_TIMEOUT_MS)
+		})
+
+		const drainGenerator = async () => {
+			while (!result.done) {
+				if (result.value && "status" in result.value) {
+					const status = result.value
+					allStatuses.push(status.status)
+					console.log(`[${((Date.now() - orderPlacedAt) / 1000).toFixed(1)}s] status:`, status.status, status)
+
+					if (status.status === "BID_SELECTED") {
+						selectedSolver = status.selectedSolver as HexString
+						userOpHash = status.userOpHash as HexString
+						if (status.transactionHash) {
+							console.log("Transaction hash:", status.transactionHash)
+						}
+					}
+					if (status.status === "FILLED") {
+						sawFilled = true
+						console.log("[FILLED] Order filled successfully!", {
+							commitment: status.commitment,
+							userOpHash: status.userOpHash,
+							transactionHash: status.transactionHash,
+							selectedSolver: status.selectedSolver,
+						})
+					}
+					if (status.status === "FAILED") {
+						throw new Error(`Order execution failed: ${status.error}`)
 					}
 				}
-				if (status.status === "FAILED") {
-					throw new Error(`Order execution failed: ${status.error}`)
-				}
+				result = await gen.next()
 			}
-			result = await gen.next()
 		}
+
+		await Promise.race([drainGenerator(), timeoutPromise])
 
 		expect(userOpHash).toBeDefined()
 		expect(selectedSolver).toBeDefined()
+		expect(sawFilled).toBe(true)
 
-		const isFilled = await pollForOrderFilled(
-			order.id as HexString,
-			basePublicClient,
-			chainConfigService.getIntentGatewayV2Address(baseMainnetId),
-		)
-		expect(isFilled).toBe(true)
-
-		await new Promise((resolve) => setTimeout(resolve, 10000000))
+		console.log(`[DONE] Order lifecycle completed in ${((Date.now() - orderPlacedAt) / 1000).toFixed(1)}s`)
+		console.log(`[DONE] All statuses: [${allStatuses.join(", ")}]`)
 
 		await intentFiller.stop()
 		await intentsCoprocessor.disconnect()

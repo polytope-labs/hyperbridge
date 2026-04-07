@@ -48,7 +48,7 @@ export class OrderExecutor {
 			if (currentBlock >= deadline) break
 
 			const blocksRemaining = Number(deadline - currentBlock)
-			const sleepMs = blocksRemaining * blockTimeMs
+			const sleepMs = Math.min(blocksRemaining * blockTimeMs, 60_000)
 			await sleep(sleepMs)
 		}
 
@@ -327,10 +327,27 @@ export class OrderExecutor {
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
 		try {
-			// Wait for auction time to collect bids
+			// Poll for bids during the auction period, yielding NEW_BID for each new bid seen
 			const auctionEnd = Date.now() + auctionTimeMs
+			const auctionSeenBids = new Set<string>()
 			while (Date.now() < auctionEnd) {
-				await sleep(Math.min(pollIntervalMs, auctionEnd - Date.now()))
+				try {
+					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
+					const freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
+					const newBids = freshBids.filter((bid) => !auctionSeenBids.has(userOpHashKey(bid.userOp)))
+					if (newBids.length > 0) {
+						for (const bid of newBids) {
+							auctionSeenBids.add(userOpHashKey(bid.userOp))
+						}
+						yield { status: "NEW_BID", commitment, bidCount: freshBids.length, bids: freshBids }
+					}
+				} catch {
+					// Ignore fetch errors during auction, will retry next interval
+				}
+				const remaining = auctionEnd - Date.now()
+				if (remaining > 0) {
+					await sleep(Math.min(pollIntervalMs, remaining))
+				}
 			}
 
 			while (true) {

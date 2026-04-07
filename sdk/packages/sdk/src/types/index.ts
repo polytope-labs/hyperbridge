@@ -1331,6 +1331,7 @@ export const IntentOrderStatus = Object.freeze({
 	ORDER_PLACED: "ORDER_PLACED",
 	ORDER_CONFIRMED: "ORDER_CONFIRMED",
 	AWAITING_BIDS: "AWAITING_BIDS",
+	NEW_BID: "NEW_BID",
 	BIDS_RECEIVED: "BIDS_RECEIVED",
 	BID_SELECTED: "BID_SELECTED",
 	FILLED: "FILLED",
@@ -1347,6 +1348,7 @@ export type IntentOrderStatusUpdate =
 	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+	| { status: "NEW_BID"; commitment: HexString; bidCount: number; bids: FillerBid[] }
 	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
 	| {
 			status: "BID_SELECTED"

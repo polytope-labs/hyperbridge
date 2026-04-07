@@ -127,7 +127,7 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 		const userSdkHelper = await IntentGateway.create(polygonEvmChain, polygonEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000,
+			auctionTimeMs: 600_000,
 			pollIntervalMs: 5_000,
 		})
 
@@ -184,8 +184,8 @@ describe.skip("Filler V2 FX - Polygon mainnet same-chain swap", () => {
 	}, 600_000)
 })
 
-describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
-	it.skip("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
+describe.only("Filler V2 FX - Base mainnet same-chain swap", () => {
+	it.only("Should place USDC->EXT order on Base and fill on Base using FX strategy only", async () => {
 		const {
 			baseIntentGatewayV2,
 			basePublicClient,
@@ -223,11 +223,15 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
 		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
 
+		// ~3000 blocks ≈ 10 min on Base (2s blocks)
+		const currentBlock = await basePublicClient.getBlockNumber()
+		const deadline = currentBlock + 3000n
+
 		let order: Order = {
 			user: bytes20ToBytes32(user),
 			source: toHex(baseMainnetId),
 			destination: toHex(baseMainnetId),
-			deadline: 12545151568145n,
+			deadline,
 			nonce: 0n,
 			fees: 0n,
 			session: "0x0000000000000000000000000000000000000000" as HexString,
@@ -256,8 +260,8 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000_00,
-			pollIntervalMs: 5_000,
+			auctionTimeMs: 10_000,
+			pollIntervalMs: 2_000,
 		})
 
 		let result = await gen.next()
@@ -308,15 +312,12 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 		)
 		expect(isFilled).toBe(true)
 
-		await new Promise((resolve) => setTimeout(resolve, 10000000))
-
 		await intentFiller.stop()
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 
 	/** USDC/cNGN V4 pool on Base mainnet (0.15% fee, tickSpacing 30, no hooks). */
-	const BASE_USDC_CNGN_V4_POOL_ID =
-		"0x84fa97768196067f0e5aa157709039a3897e219cba3002d9ad38bf44e300fe93" as HexString
+	const BASE_USDC_CNGN_V4_POOL_ID = "0x84fa97768196067f0e5aa157709039a3897e219cba3002d9ad38bf44e300fe93" as HexString
 
 	it.skip("Should place USDC→cNGN order on Base from V4 pool price minus 5 bps and wait for fill", async () => {
 		const tlog = (...args: unknown[]) => console.log("[USDC→cNGN]", ...args)
@@ -445,7 +446,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 
 		// `execute()` handles placement, then the same bid/fill pipeline as OrderExecutor (no local IntentFiller).
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000,
+			auctionTimeMs: 600_000,
 			pollIntervalMs: 5_000,
 		})
 
@@ -717,7 +718,10 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				recipient: user,
 			}
 
-			const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(position, mintOptions)
+			const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(
+				position,
+				mintOptions,
+			)
 
 			await waitForTxPoolDrained(basePublicClient, user)
 
@@ -799,17 +803,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const token1: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
-		const fxStrategy = new FXFiller(
-			signer,
-			chainConfigService,
-			chainClientManager,
-			contractService,
-			5000,
-			token1,
-			{
-				fundingVenues,
-			},
-		)
+		const fxStrategy = new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
+			fundingVenues,
+		})
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
@@ -872,7 +868,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000,
+			auctionTimeMs: 600_000,
 			pollIntervalMs: 5_000,
 		})
 
@@ -928,7 +924,6 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		await intentsCoprocessor.disconnect()
 	}, 600_000)
 })
-
 
 describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 funding", () => {
 	it("mints a USDC/cNGN V4 LP NFT (or uses FX_TEST_V4_MINT_TX), then fills a USDC→cNGN order via V4 funding", async () => {
@@ -1073,7 +1068,10 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 				recipient: user,
 			}
 
-			const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(position, mintOptions)
+			const { calldata: mintCalldata, value: mintValue } = V4PositionManager.addCallParameters(
+				position,
+				mintOptions,
+			)
 
 			mintTxHash = await baseWalletClient.sendTransaction({
 				to: positionManagerAddr,
@@ -1130,17 +1128,9 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 
 		const token1: Record<string, HexString> = { [baseMainnetId]: cNGN }
 
-		const fxStrategy = new FXFiller(
-			signer,
-			chainConfigService,
-			chainClientManager,
-			contractService,
-			5000,
-			token1,
-			{
-				fundingVenues,
-			},
-		)
+		const fxStrategy = new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
+			fundingVenues,
+		})
 		await fxStrategy.initialise()
 
 		const strategies = [fxStrategy]
@@ -1203,7 +1193,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 		const userSdkHelper = await IntentGateway.create(baseEvmChain, baseEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000,
+			auctionTimeMs: 600_000,
 			pollIntervalMs: 5_000,
 		})
 
@@ -1337,7 +1327,7 @@ describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 		const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, arbitrumEvmChain, intentsCoprocessor)
 
 		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-			bidTimeoutMs: 600_000,
+			auctionTimeMs: 600_000,
 			pollIntervalMs: 5_000,
 		})
 
@@ -1484,7 +1474,7 @@ describe.skip("Filler V2 FX - Arbitrum to Base cross-chain swap", () => {
 			const userSdkHelper = await IntentGateway.create(arbitrumEvmChain, baseEvmChain, intentsCoprocessor)
 
 			const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
-				bidTimeoutMs: 600_000,
+				auctionTimeMs: 600_000,
 				pollIntervalMs: 5_000,
 			})
 
@@ -1789,7 +1779,7 @@ async function createCrossChainFxIntentFiller(
 	chainConfigService: FillerConfigService,
 	chainIds: string[],
 	fillerSigner: SigningAccount,
-): IntentFiller {
+): Promise<IntentFiller> {
 	const cacheService = new CacheService()
 	const chainClientManager = new ChainClientManager(chainConfigService, fillerSigner)
 	const contractService = new ContractInteractionService(
@@ -1872,7 +1862,7 @@ async function createFxOnlyIntentFiller(
 	contractService: ContractInteractionService,
 	mainnetId: string,
 	exoticTokenOverride?: HexString,
-): IntentFiller {
+): Promise<IntentFiller> {
 	const privateKey = process.env.PRIVATE_KEY as HexString
 	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const cacheService = new CacheService()
@@ -1896,18 +1886,10 @@ async function createFxOnlyIntentFiller(
 	const extAsset = exoticTokenOverride ?? chainConfigService.getExtAsset(mainnetId)
 	const token1: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
-	const fxStrategy = new FXFiller(
-		signer,
-		chainConfigService,
-		chainClientManager,
-		contractService,
-		5000,
-		token1,
-		{
-			bidPricePolicy,
-			askPricePolicy,
-		},
-	)
+	const fxStrategy = new FXFiller(signer, chainConfigService, chainClientManager, contractService, 5000, token1, {
+		bidPricePolicy,
+		askPricePolicy,
+	})
 
 	const strategies = [fxStrategy]
 	const bidStorage = new BidStorageService(chainConfigService.getDataDir())

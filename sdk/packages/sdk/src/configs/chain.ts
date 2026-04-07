@@ -457,7 +457,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
-			SolverAccount: "0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b",
+			SolverAccount: "0xb7d5Bb305Fd102C9B0a343978f3b9Accc00e9603",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x6FFe92e4d7a9D589549644544780e6725E84b248",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",

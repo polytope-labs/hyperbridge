@@ -227,11 +227,17 @@ impl<R: Config, P: Config> Prover<R, P> {
 			signer_count,
 		);
 
-		// Extract and process only the challenged signatures
-		let signatures = filter_signatures_for_challenge(&signed_commitment, &challenged_indices)?;
-
 		// Build the merkle proof for exactly those challenged authorities
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
+		let authority_count = current_authorities.len();
+
+		// Extract and process only the challenged signatures
+		let signatures = filter_signatures_for_challenge(
+			&signed_commitment,
+			&challenged_indices,
+			authority_count,
+		)?;
+
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
@@ -257,6 +263,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)
 		.await?;
 
+		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+		let leaf_count = leaves.len();
+
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids
 			.iter()
@@ -266,6 +275,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 					ParachainHeader {
 						header: heads[index].1.clone(),
 						index: index as u32,
+						leaf_position: util::leaf_position(leaf_count, index) as u32,
 						para_id: heads[index].0,
 					},
 					index,
@@ -273,15 +283,14 @@ impl<R: Config, P: Config> Prover<R, P> {
 			})
 			.unzip();
 
-		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 		let para_proof_2d = util::merkle_proof(&leaves, &indices);
 		let proof: Vec<(u32, [u8; 32])> =
-			util::flatten_proof_with_positions(para_proof_2d, leaves.len())
+			util::flatten_proof_with_positions(para_proof_2d, leaf_count)
 				.into_iter()
 				.map(|(pos, hash)| (pos as u32, hash))
 				.collect();
 
-		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
+		let parachain = ParachainProof { parachains, proof, total_leaves: leaf_count as u32 };
 
 		Ok((ConsensusMessage { mmr, parachain }, bitmap))
 	}
@@ -304,6 +313,8 @@ impl<R: Config, P: Config> Prover<R, P> {
 				.await?;
 
 		// create authorities proof
+		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
+		let authority_count = current_authorities.len();
 		let signatures = signed_commitment
 			.signatures
 			.iter()
@@ -315,7 +326,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 						temp.copy_from_slice(&*sig.encode());
 						let last = temp.last_mut().unwrap();
 						*last = *last + 27;
-						Some(SignatureWithAuthorityIndex { index: index as u32, signature: temp })
+						Some(SignatureWithAuthorityIndex {
+							index: index as u32,
+							leaf_position: util::leaf_position(authority_count, index) as u32,
+							signature: temp,
+						})
 					} else {
 						None
 					}
@@ -325,7 +340,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 			})
 			.filter_map(|x| x)
 			.collect::<Vec<_>>();
-		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
@@ -351,6 +365,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)
 		.await?;
 
+		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+		let leaf_count = leaves.len();
+
 		let (parachains, indices): (Vec<_>, Vec<_>) = self
 			.para_ids
 			.iter()
@@ -360,6 +377,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 					ParachainHeader {
 						header: heads[index].1.clone(),
 						index: index as u32,
+						leaf_position: util::leaf_position(leaf_count, index) as u32,
 						para_id: heads[index].0,
 					},
 					index,
@@ -367,15 +385,14 @@ impl<R: Config, P: Config> Prover<R, P> {
 			})
 			.unzip();
 
-		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 		let para_proof_2d = util::merkle_proof(&leaves, &indices);
 		let proof: Vec<(u32, [u8; 32])> =
-			util::flatten_proof_with_positions(para_proof_2d, leaves.len())
+			util::flatten_proof_with_positions(para_proof_2d, leaf_count)
 				.into_iter()
 				.map(|(pos, hash)| (pos as u32, hash))
 				.collect();
 
-		let parachain = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
+		let parachain = ParachainProof { parachains, proof, total_leaves: leaf_count as u32 };
 
 		Ok(ConsensusMessage { mmr, parachain })
 	}

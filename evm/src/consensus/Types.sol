@@ -101,8 +101,10 @@ struct PartialBeefyMmrLeaf {
 }
 
 struct Parachain {
-    /// k-index for latestHeadsRoot
+    /// leaf index for latestHeadsRoot
     uint256 index;
+    /// Pre-calculated tree position for the merkle proof (computed offchain)
+    uint256 leafPosition;
     /// Parachain Id
     uint256 id;
     /// SCALE encoded header
@@ -120,6 +122,8 @@ struct Vote {
     bytes signature;
     // This member's index in the set
     uint256 authorityIndex;
+    // Pre-calculated tree position for the merkle proof (computed offchain)
+    uint256 leafPosition;
 }
 
 // The signed commitment holds a commitment to the latest

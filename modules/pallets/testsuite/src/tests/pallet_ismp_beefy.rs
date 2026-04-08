@@ -114,7 +114,7 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 			.await
 			.unwrap();
 
-	let signatures = signed_commitment_raw
+	let mut signatures = signed_commitment_raw
 		.signatures
 		.iter()
 		.enumerate()
@@ -123,15 +123,26 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 				let slice: &[u8] = s.as_ref();
 				let signature_array: [u8; 65] =
 					slice.try_into().expect("Signature should be 65 bytes long");
-				SignatureWithAuthorityIndex { index: index as u32, signature: signature_array }
+				SignatureWithAuthorityIndex {
+					index: index as u32,
+					leaf_position: 0,
+					signature: signature_array,
+				}
 			})
 		})
 		.collect::<Vec<_>>();
 
 	let current_authorities = prover.beefy_authorities(Some(block_hash)).await.unwrap();
+	let authority_count = current_authorities.len();
 	let authority_address_hashes =
 		hash_authority_addresses(current_authorities.into_iter().map(|x| x.encode()).collect())
 			.unwrap();
+
+	// Set leaf positions now that we know the authority count
+	for sig in &mut signatures {
+		sig.leaf_position =
+			beefy_prover::util::leaf_position(authority_count, sig.index as usize) as u32;
+	}
 	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
 	let authority_proof_2d = merkle_proof(&authority_address_hashes, &authority_indices);
 
@@ -175,6 +186,9 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 	.await
 	.unwrap();
 
+	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
+	let leaf_count = leaves.len();
+
 	let (parachains, indices): (Vec<_>, Vec<_>) = prover
 		.para_ids
 		.iter()
@@ -184,6 +198,7 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 				ParachainHeader {
 					header: heads[index].1.clone(),
 					index: index as u32,
+					leaf_position: beefy_prover::util::leaf_position(leaf_count, index) as u32,
 					para_id: heads[index].0,
 				},
 				index,
@@ -191,10 +206,9 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 		})
 		.unzip();
 
-	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 	let para_proof_2d = merkle_proof(&leaves, &indices);
 	let proof: Vec<(u32, [u8; 32])> =
-		beefy_prover::util::flatten_proof_with_positions(para_proof_2d, leaves.len())
+		beefy_prover::util::flatten_proof_with_positions(para_proof_2d, leaf_count)
 			.into_iter()
 			.map(|(pos, hash)| (pos as u32, hash))
 			.collect();

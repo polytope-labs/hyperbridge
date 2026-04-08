@@ -41,6 +41,7 @@ use primitive_types::{H256, U256};
 use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_io::hashing::keccak_256;
 
+use crate::util;
 use beefy_verifier_primitives::SignatureWithAuthorityIndex;
 
 /// Number of validator signatures sampled and verified on-chain.
@@ -318,6 +319,7 @@ pub fn compute_commitment_hash(commitment: &sp_consensus_beefy::Commitment<u32>)
 pub fn filter_signatures_for_challenge(
 	signed_commitment: &sp_consensus_beefy::SignedCommitment<u32, Signature>,
 	challenged_indices: &[u32],
+	authority_count: usize,
 ) -> Result<Vec<SignatureWithAuthorityIndex>, anyhow::Error> {
 	let mut filtered = Vec::with_capacity(challenged_indices.len());
 
@@ -351,8 +353,11 @@ pub fn filter_signatures_for_challenge(
 		let last = temp.last_mut().unwrap();
 		*last += 27;
 
-		filtered
-			.push(SignatureWithAuthorityIndex { index: authority_index, signature: temp });
+		filtered.push(SignatureWithAuthorityIndex {
+			index: authority_index,
+			leaf_position: util::leaf_position(authority_count, idx) as u32,
+			signature: temp,
+		});
 	}
 
 	Ok(filtered)

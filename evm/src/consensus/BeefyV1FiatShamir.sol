@@ -403,7 +403,6 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         }
 
         MerkleMultiProof.Node[] memory authorities = new MerkleMultiProof.Node[](sampleSize);
-        uint256 leafOffset = _nextPowerOfTwo(authoritySetLen);
 
         unchecked {
             for (uint256 i = 0; i < sampleSize; ++i) {
@@ -412,7 +411,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
                 }
 
                 address signer = ECDSA.recover(commitmentHash, votes[i].signature);
-                authorities[i] = MerkleMultiProof.Node(leafOffset + votes[i].authorityIndex, keccak256(abi.encodePacked(signer)));
+                authorities[i] = MerkleMultiProof.Node(votes[i].leafPosition, keccak256(abi.encodePacked(signer)));
             }
         }
 
@@ -452,7 +451,6 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         uint256 len = proof.parachains.length;
         MerkleMultiProof.Node[] memory leaves = new MerkleMultiProof.Node[](len);
         IntermediateState[] memory intermediates = new IntermediateState[](len);
-        uint256 leafOffset = _nextPowerOfTwo(proof.leafCount);
 
         for (uint256 i = 0; i < len; i++) {
             Parachain memory para = proof.parachains[i];
@@ -460,7 +458,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
             if (header.number == 0) revert IllegalGenesisBlock();
 
             leaves[i] = MerkleMultiProof.Node(
-                leafOffset + para.index,
+                para.leafPosition,
                 keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
             );
 
@@ -494,17 +492,6 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         } else {
             return parentNumber - activationBlock;
         }
-    }
-
-    // @dev Returns the next power of two >= x. Used to compute the leaf offset
-    // in a balanced merkle tree: leaves start at position nextPowerOfTwo(leafCount).
-    function _nextPowerOfTwo(uint256 x) internal pure returns (uint256) {
-        if (x <= 1) return 1;
-        uint256 p = 1;
-        while (p < x) {
-            p <<= 1;
-        }
-        return p;
     }
 
     /// @dev ABI export helper so these structs appear in the generated ABI.

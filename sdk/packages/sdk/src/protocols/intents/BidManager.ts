@@ -67,6 +67,7 @@ export class BidManager {
 			maxFeePerGas,
 			maxPriorityFeePerGas,
 			callData,
+			paymasterAndData = "0x" as HexString,
 		} = options
 
 		const chainId = BigInt(
@@ -84,7 +85,7 @@ export class BidManager {
 			accountGasLimits,
 			preVerificationGas,
 			gasFees,
-			paymasterAndData: "0x" as HexString,
+			paymasterAndData,
 			signature: "0x" as HexString,
 		}
 

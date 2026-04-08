@@ -44,7 +44,6 @@ export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Pr
 	)
 }
 
-
 export interface GasFeeBumpConfig {
 	maxPriorityFeePerGasBumpPercent?: number
 	maxFeePerGasBumpPercent?: number
@@ -140,6 +139,10 @@ export class FillerConfigService {
 
 	getUsdcDecimals(chain: string): number {
 		return this.chainConfigService.getUsdcDecimals(chain)
+	}
+
+	getCirclePaymasterV08Address(chain: string): HexString | undefined {
+		return this.chainConfigService.getCirclePaymasterV08Address(chain)
 	}
 
 	getUsdtDecimals(chain: string): number {
@@ -304,6 +307,8 @@ export class FillerConfigService {
 	getGasFeeBumpConfig(): GasFeeBumpConfig | undefined {
 		return this.fillerConfig?.gasFeeBump
 	}
+
+
 
 	/**
 	 * Get the LayerZero Endpoint ID for the chain

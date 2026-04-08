@@ -125,9 +125,23 @@ export class IntentFiller {
 				this.logger.warn({ results: result.results }, "Some chains failed EIP-7702 delegation setup")
 			}
 
-			// Ensure EntryPoint deposit covers target gas units on each chain
+			// Ensure EntryPoint deposit covers target gas units on chains
+			// that do NOT have a Circle Paymaster configured (e.g. BSC).
+			// Chains with a paymaster address pay gas in USDC instead.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
+				const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+				if (paymasterAddress) {
+					this.logger.info({ chain }, "Skipping EntryPoint deposit — Circle Paymaster available")
+					// Ensure solver has max USDC allowance to the paymaster so that
+					// per-bid permit signing is never needed (saves ~2-10s for MPC signers).
+					try {
+						await this.contractService.ensurePaymasterApproval(chain, paymasterAddress)
+					} catch (err) {
+						this.logger.warn({ chain, err }, "Failed to ensure paymaster USDC approval")
+					}
+					continue
+				}
 				try {
 					await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
 				} catch (err) {
@@ -410,11 +424,21 @@ export class IntentFiller {
 					}),
 				])
 				const confirmDurationSec = (Date.now() - confirmStartMs) / 1000
-				this.monitor.emit("orderTiming", { orderId: order.id, phase: "confirmation", durationSec: confirmDurationSec })
+				this.monitor.emit("orderTiming", {
+					orderId: order.id,
+					phase: "confirmation",
+					durationSec: confirmDurationSec,
+				})
 
 				// Execute immediately
 				if (evaluationResult) {
-					this.executeOrder(order, evaluationResult.strategy, solverSelectionActive, inputUsdValue, evaluationResult.profitability)
+					this.executeOrder(
+						order,
+						evaluationResult.strategy,
+						solverSelectionActive,
+						inputUsdValue,
+						evaluationResult.profitability,
+					)
 				}
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
@@ -487,7 +511,13 @@ export class IntentFiller {
 		return validStrategies[0]
 	}
 
-	private executeOrder(order: Order, bestStrategy: FillerStrategy, solverSelectionActive: boolean, inputUsdValue: Decimal, profitUsd: number): void {
+	private executeOrder(
+		order: Order,
+		bestStrategy: FillerStrategy,
+		solverSelectionActive: boolean,
+		inputUsdValue: Decimal,
+		profitUsd: number,
+	): void {
 		// Get the chain-specific queue
 		const chainQueue = this.chainQueues.get(getChainId(order.destination)!)
 		if (!chainQueue) {
@@ -512,11 +542,21 @@ export class IntentFiller {
 				const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
 				const result = await bestStrategy.executeOrder(order, hyperbridgeService)
 				const execDurationSec = (Date.now() - execStartMs) / 1000
-				this.monitor.emit("orderTiming", { orderId: order.id, phase: "execution", durationSec: execDurationSec })
+				this.monitor.emit("orderTiming", {
+					orderId: order.id,
+					phase: "execution",
+					durationSec: execDurationSec,
+				})
 				this.logger.info({ orderId: order.id, result }, "Order execution completed")
 
 				if (result.success) {
-					this.monitor.emit("orderFilled", { orderId: order.id, hash: result.txHash, volumeUsd: inputUsdValue.toNumber(), profitUsd, chainId: getChainId(order.source) })
+					this.monitor.emit("orderFilled", {
+						orderId: order.id,
+						hash: result.txHash,
+						volumeUsd: inputUsdValue.toNumber(),
+						profitUsd,
+						chainId: getChainId(order.source),
+					})
 				}
 				this.monitor.emit("orderExecuted", {
 					orderId: order.id,
@@ -551,13 +591,16 @@ export class IntentFiller {
 	}
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
-		// Top up EntryPoint deposit if we were the filler
+		// Top up EntryPoint deposit if we were the filler, but only on chains
+		// without Circle Paymaster (paymaster chains pay gas in USDC).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
-			const targetGasUnits = this.configService.getTargetGasUnits()
-			this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
-				this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
-			})
+			if (!this.configService.getCirclePaymasterV08Address(chain)) {
+				const targetGasUnits = this.configService.getTargetGasUnits()
+				this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
+					this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")
+				})
+			}
 		}
 
 		if (!this.bidStorage || !this.hyperbridge) {

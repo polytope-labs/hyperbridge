@@ -157,6 +157,9 @@ export class GasEstimator {
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
 		let preVerificationGas: bigint = 100_000n
+		// Circle Paymaster v0.8 caps used as fallback when the bundler doesn't return paymaster gas fields.
+		let paymasterVerificationGasLimit: bigint = 0n
+		let paymasterPostOpGasLimit: bigint = 0n
 
 		if (this.ctx.bundlerUrl) {
 			try {
@@ -257,6 +260,14 @@ export class GasEstimator {
 				verificationGasLimit = (BigInt(gasEstimate.verificationGasLimit) * 105n) / 100n
 				preVerificationGas = (BigInt(gasEstimate.preVerificationGas) * 105n) / 100n
 
+				if (gasEstimate.paymasterVerificationGasLimit) {
+					paymasterVerificationGasLimit =
+						(BigInt(gasEstimate.paymasterVerificationGasLimit) * 105n) / 100n
+				}
+				if (gasEstimate.paymasterPostOpGasLimit) {
+					paymasterPostOpGasLimit = (BigInt(gasEstimate.paymasterPostOpGasLimit) * 105n) / 100n
+				}
+
 				if (pimlicoGasPrices) {
 					const level = pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
 
@@ -275,8 +286,7 @@ export class GasEstimator {
 					// Alchemy requires 25% priority fee buffer (0% for Arbitrum)
 					const isArbitrum = chainId === 42161n
 					const alchemyPrioBump = isArbitrum ? 0n : 25n
-					maxPriorityFeePerGas =
-						rundlerPriorityFee + (rundlerPriorityFee * alchemyPrioBump) / 100n
+					maxPriorityFeePerGas = rundlerPriorityFee + (rundlerPriorityFee * alchemyPrioBump) / 100n
 					// Alchemy recommends 50% base fee buffer
 					const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
 					maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
@@ -301,7 +311,8 @@ export class GasEstimator {
 			}
 		}
 
-		const totalGas = callGasLimit + verificationGasLimit + preVerificationGas
+		const totalGas =
+			callGasLimit + verificationGasLimit + preVerificationGas + paymasterVerificationGasLimit + paymasterPostOpGasLimit
 		const rawTotalGasCostWei = totalGas * maxFeePerGas
 
 		const totalGasInDestFeeToken = await convertGasToFeeToken(
@@ -323,6 +334,8 @@ export class GasEstimator {
 			callGasLimit,
 			verificationGasLimit,
 			preVerificationGas,
+			paymasterVerificationGasLimit,
+			paymasterPostOpGasLimit,
 			maxFeePerGas,
 			maxPriorityFeePerGas,
 			totalGasCostWei,

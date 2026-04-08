@@ -248,10 +248,16 @@ export class CryptoUtils {
 		const factory = hasFactory ? (`0x${userOp.initCode.slice(2, 42)}` as HexString) : undefined
 		const factoryData = hasFactory ? (`0x${userOp.initCode.slice(42)}` as HexString) : undefined
 
+		// EntryPoint v0.8 packed paymasterAndData layout:
+		//   paymaster (20 bytes) || paymasterVerificationGasLimit (uint128, 16 bytes)
+		//   || paymasterPostOpGasLimit (uint128, 16 bytes) || paymasterData (variable)
 		const hasPaymaster =
 			userOp.paymasterAndData && userOp.paymasterAndData !== "0x" && userOp.paymasterAndData.length > 2
-		const paymaster = hasPaymaster ? (`0x${userOp.paymasterAndData.slice(2, 42)}` as HexString) : undefined
-		const paymasterData = hasPaymaster ? (`0x${userOp.paymasterAndData.slice(42)}` as HexString) : undefined
+		const pmHex = hasPaymaster ? userOp.paymasterAndData.slice(2) : ""
+		const paymaster = hasPaymaster ? (`0x${pmHex.slice(0, 40)}` as HexString) : undefined
+		const paymasterVerificationGasLimit = hasPaymaster ? BigInt(`0x${pmHex.slice(40, 72)}`) : undefined
+		const paymasterPostOpGasLimit = hasPaymaster ? BigInt(`0x${pmHex.slice(72, 104)}`) : undefined
+		const paymasterData = hasPaymaster ? (`0x${pmHex.slice(104)}` as HexString) : undefined
 
 		const userOpBundler: Record<string, unknown> = {
 			sender: userOp.sender,
@@ -273,8 +279,8 @@ export class CryptoUtils {
 		if (paymaster) {
 			userOpBundler.paymaster = paymaster
 			userOpBundler.paymasterData = paymasterData || "0x"
-			userOpBundler.paymasterVerificationGasLimit = toHex(50_000n)
-			userOpBundler.paymasterPostOpGasLimit = toHex(50_000n)
+			userOpBundler.paymasterVerificationGasLimit = toHex(paymasterVerificationGasLimit!)
+			userOpBundler.paymasterPostOpGasLimit = toHex(paymasterPostOpGasLimit!)
 		}
 
 		return userOpBundler
@@ -317,9 +323,7 @@ export class CryptoUtils {
 	 * @throws If the bundler URL is not configured, the HTTP call fails, or any
 	 *   individual response contains an error.
 	 */
-	async sendBundlerBatch<T extends unknown[]>(
-		requests: { method: BundlerMethod; params: unknown[] }[],
-	): Promise<T> {
+	async sendBundlerBatch<T extends unknown[]>(requests: { method: BundlerMethod; params: unknown[] }[]): Promise<T> {
 		if (!this.ctx.bundlerUrl) {
 			throw new Error("Bundler URL not configured")
 		}

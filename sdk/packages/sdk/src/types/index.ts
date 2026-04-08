@@ -1186,6 +1186,11 @@ export interface SigningAccount {
 	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
 	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
 	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
+	/**
+	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle paymaster).
+	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
+	 */
+	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
 }
 
 export interface SubmitBidOptions {
@@ -1208,6 +1213,12 @@ export interface SubmitBidOptions {
 	maxPriorityFeePerGas: bigint
 	/** Pre-built ERC-7821 calldata encoding the UserOp execution (approvals + fillOrder). */
 	callData: HexString
+	/**
+	 * Optional packed paymasterAndData for EntryPoint v0.8.
+	 * Must be built BEFORE calling prepareSubmitBid so the hash covers paymaster bytes.
+	 * Defaults to "0x" (EntryPoint deposit pays gas).
+	 */
+	paymasterAndData?: HexString
 }
 
 export interface EstimateFillOrderParams {
@@ -1237,6 +1248,10 @@ export interface FillOrderEstimate {
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
+	/** Paymaster verification gas limit from bundler estimate, or Circle's cap if absent. 0n when no paymaster. */
+	paymasterVerificationGasLimit: bigint
+	/** Paymaster postOp gas limit from bundler estimate, or Circle's cap if absent. 0n when no paymaster. */
+	paymasterPostOpGasLimit: bigint
 	maxFeePerGas: bigint
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint

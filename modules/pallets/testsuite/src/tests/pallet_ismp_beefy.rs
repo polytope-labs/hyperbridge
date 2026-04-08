@@ -9,7 +9,7 @@ use subxt::{backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, Polk
 
 use beefy_prover::{
 	relay::{fetch_mmr_proof, paras_parachains},
-	util::{hash_authority_addresses, merkle_proof},
+	util::{convert_proof, hash_authority_addresses},
 	Prover,
 };
 use beefy_verifier_primitives::{
@@ -133,24 +133,32 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 		.collect::<Vec<_>>();
 
 	let current_authorities = prover.beefy_authorities(Some(block_hash)).await.unwrap();
-	let authority_count = current_authorities.len();
 	let authority_address_hashes =
 		hash_authority_addresses(current_authorities.into_iter().map(|x| x.encode()).collect())
 			.unwrap();
 
-	// Set leaf positions now that we know the authority count
-	for sig in &mut signatures {
-		sig.leaf_position =
-			beefy_prover::util::leaf_position(authority_count, sig.index as usize) as u32;
-	}
 	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-	let authority_proof_2d = merkle_proof(&authority_address_hashes, &authority_indices);
 
-	let authority_proof_nodes = authority_proof_2d
-		.into_iter()
-		.flatten()
-		.map(|(_, hash)| H256::from(hash))
-		.collect();
+	// Build the merkle proof and convert it to positioned format using the helper
+	// from the solidity-merkle-trees README.
+	let tree =
+		beefy_prover::rs_merkle::MerkleTree::<beefy_prover::util::MerkleHasher>::from_leaves(
+			&authority_address_hashes,
+		);
+	let proof = tree.proof(&authority_indices);
+	let leaf_hashes: Vec<[u8; 32]> =
+		authority_indices.iter().map(|&i| authority_address_hashes[i]).collect();
+	let (proof_nodes, _leaf_nodes) =
+		convert_proof(&proof, &authority_indices, &leaf_hashes, authority_address_hashes.len());
+
+	// Set leaf positions on signatures using the same formula as convert_proof.
+	let first_leaf_pos =
+		1usize << beefy_prover::rs_merkle::utils::indices::tree_depth(authority_address_hashes.len());
+	for sig in &mut signatures {
+		sig.leaf_position = (first_leaf_pos + sig.index as usize) as u32;
+	}
+
+	let authority_proof_nodes = proof_nodes.into_iter().map(|n| H256::from(n.hash)).collect();
 
 	let signed_commitment = beefy_verifier_primitives::SignedCommitment {
 		commitment: signed_commitment_raw.commitment.clone(),
@@ -189,29 +197,37 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 	let leaf_count = leaves.len();
 
-	let (parachains, indices): (Vec<_>, Vec<_>) = prover
+	let para_indices: Vec<usize> = prover
 		.para_ids
 		.iter()
-		.map(|id| {
-			let index = heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist");
-			(
-				ParachainHeader {
-					header: heads[index].1.clone(),
-					index: index as u32,
-					leaf_position: beefy_prover::util::leaf_position(leaf_count, index) as u32,
-					para_id: heads[index].0,
-				},
-				index,
-			)
-		})
-		.unzip();
+		.map(|id| heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist"))
+		.collect();
 
-	let para_proof_2d = merkle_proof(&leaves, &indices);
+	let para_tree =
+		beefy_prover::rs_merkle::MerkleTree::<beefy_prover::util::MerkleHasher>::from_leaves(
+			&leaves,
+		);
+	let para_proof = para_tree.proof(&para_indices);
+	let para_leaf_hashes: Vec<[u8; 32]> = para_indices.iter().map(|&i| leaves[i]).collect();
+	let (proof_nodes, leaf_nodes) =
+		convert_proof(&para_proof, &para_indices, &para_leaf_hashes, leaf_count);
+	let first_leaf_pos =
+		1usize << beefy_prover::rs_merkle::utils::indices::tree_depth(leaf_count);
+	let parachains: Vec<_> = leaf_nodes
+		.iter()
+		.map(|leaf| {
+			let index = leaf.position - first_leaf_pos;
+			ParachainHeader {
+				header: heads[index].1.clone(),
+				index: index as u32,
+				leaf_position: leaf.position as u32,
+				para_id: heads[index].0,
+			}
+		})
+		.collect();
+
 	let proof: Vec<(u32, [u8; 32])> =
-		beefy_prover::util::flatten_proof_with_positions(para_proof_2d, leaf_count)
-			.into_iter()
-			.map(|(pos, hash)| (pos as u32, hash))
-			.collect();
+		proof_nodes.into_iter().map(|n| (n.position as u32, n.hash)).collect();
 	dbg!(&leaves.len());
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 

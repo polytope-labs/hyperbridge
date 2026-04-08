@@ -15,8 +15,8 @@
 
 //! SP1 BEEFY proof verification
 
-use alloc::vec::Vec;
 use crate::{error::Error, verify_parachain_headers};
+use alloc::vec::Vec;
 use beefy_verifier_primitives::{ConsensusState, ParachainHeader, Sp1BeefyProof};
 use codec::Encode;
 use ismp::messaging::Keccak256;

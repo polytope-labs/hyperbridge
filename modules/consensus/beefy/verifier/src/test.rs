@@ -22,7 +22,7 @@ use subxt::{PolkadotConfig, backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::
 use beefy_prover::{
 	Prover,
 	relay::{fetch_mmr_proof, paras_parachains},
-	util::{hash_authority_addresses, merkle_proof},
+	util::{convert_proof, hash_authority_addresses},
 };
 use beefy_verifier_primitives::{
 	BeefyConsensusProof, BeefyMmrLeaf, ParachainHeader, ParachainProof, RelaychainProof,
@@ -159,29 +159,41 @@ async fn test_verify_consensus() {
 				let slice: &[u8] = s.as_ref();
 				let signature_array: [u8; 65] =
 					slice.try_into().expect("Signature should be 65 bytes long");
-				SignatureWithAuthorityIndex { index: index as u32, leaf_position: 0, signature: signature_array }
+				SignatureWithAuthorityIndex {
+					index: index as u32,
+					leaf_position: 0,
+					signature: signature_array,
+				}
 			})
 		})
 		.collect::<Vec<_>>();
 
 	let current_authorities = prover.beefy_authorities(Some(block_hash)).await.unwrap();
-	let authority_count = current_authorities.len();
 	let authority_address_hashes =
 		hash_authority_addresses(current_authorities.into_iter().map(|x| x.encode()).collect())
 			.unwrap();
 
-	// Set leaf positions now that we know the authority count
+	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
+
+	// Build the merkle proof and convert it to positioned format using the helper
+	// from the solidity-merkle-trees README.
+	let tree = beefy_prover::rs_merkle::MerkleTree::<beefy_prover::util::MerkleHasher>::from_leaves(
+		&authority_address_hashes,
+	);
+	let proof = tree.proof(&authority_indices);
+	let leaf_hashes: Vec<[u8; 32]> =
+		authority_indices.iter().map(|&i| authority_address_hashes[i]).collect();
+	let (proof_nodes, _leaf_nodes) =
+		convert_proof(&proof, &authority_indices, &leaf_hashes, authority_address_hashes.len());
+
+	// Set leaf positions on signatures using the same formula as convert_proof.
+	let first_leaf_pos = 1usize <<
+		beefy_prover::rs_merkle::utils::indices::tree_depth(authority_address_hashes.len());
 	for sig in &mut signatures {
-		sig.leaf_position = beefy_prover::util::leaf_position(authority_count, sig.index as usize) as u32;
+		sig.leaf_position = (first_leaf_pos + sig.index as usize) as u32;
 	}
 
-	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-	let authority_proof_2d = merkle_proof(&authority_address_hashes, &authority_indices);
-	let authority_proof_nodes = authority_proof_2d
-		.into_iter()
-		.flatten()
-		.map(|(_, hash)| H256::from(hash))
-		.collect();
+	let authority_proof_nodes = proof_nodes.into_iter().map(|n| H256::from(n.hash)).collect();
 
 	let signed_commitment = beefy_verifier_primitives::SignedCommitment {
 		commitment: signed_commitment_raw.commitment.clone(),
@@ -221,27 +233,30 @@ async fn test_verify_consensus() {
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
 	let leaf_count = leaves.len();
 
-	let (parachains, indices): (Vec<_>, Vec<_>) = if !heads.is_empty() {
+	let (parachains, proof) = if !heads.is_empty() {
 		let first_head = &heads[0];
-		(
-			vec![ParachainHeader {
-				header: first_head.1.clone(),
-				index: 0,
-				leaf_position: beefy_prover::util::leaf_position(leaf_count, 0) as u32,
-				para_id: first_head.0,
-			}],
-			vec![0],
-		)
+		let indices = vec![0usize];
+		let para_tree =
+			beefy_prover::rs_merkle::MerkleTree::<beefy_prover::util::MerkleHasher>::from_leaves(
+				&leaves,
+			);
+		let para_proof = para_tree.proof(&indices);
+		let para_leaf_hashes: Vec<[u8; 32]> = indices.iter().map(|&i| leaves[i]).collect();
+		let (proof_nodes, leaf_nodes) =
+			convert_proof(&para_proof, &indices, &para_leaf_hashes, leaf_count);
+		let parachains = vec![ParachainHeader {
+			header: first_head.1.clone(),
+			index: 0,
+			leaf_position: leaf_nodes[0].position as u32,
+			para_id: first_head.0,
+		}];
+		let proof: Vec<(u32, [u8; 32])> =
+			proof_nodes.into_iter().map(|n| (n.position as u32, n.hash)).collect();
+		(parachains, proof)
 	} else {
 		(vec![], vec![])
 	};
 
-	let para_proof_2d = merkle_proof(&leaves, &indices);
-	let proof: Vec<(u32, [u8; 32])> =
-		beefy_prover::util::flatten_proof_with_positions(para_proof_2d, leaf_count)
-			.into_iter()
-			.map(|(pos, hash)| (pos as u32, hash))
-			.collect();
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaf_count as u32 };
 
 	println!("Assembling final proof for verification");

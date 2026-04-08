@@ -22,7 +22,12 @@ pub mod sp1;
 #[cfg(test)]
 mod test;
 
-use alloc::{format, string::{String, ToString}, vec, vec::Vec};
+use alloc::{
+	format,
+	string::{String, ToString},
+	vec,
+	vec::Vec,
+};
 use core::marker::PhantomData;
 
 use crate::error::Error;
@@ -218,8 +223,7 @@ pub fn verify_parachain_headers<H: Keccak256>(
 
 	let (leaf_indices, leaf_hashes): (Vec<usize>, Vec<[u8; 32]>) =
 		indexed_leaf_hashes.into_iter().unzip();
-	let proof_hashes: Vec<[u8; 32]> =
-		parachain_proof.proof.iter().map(|(_, hash)| *hash).collect();
+	let proof_hashes: Vec<[u8; 32]> = parachain_proof.proof.iter().map(|(_, hash)| *hash).collect();
 	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(proof_hashes);
 	let valid = merkle_proof.verify(
 		heads_root.0,

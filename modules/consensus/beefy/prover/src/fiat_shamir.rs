@@ -41,7 +41,6 @@ use primitive_types::{H256, U256};
 use sp_consensus_beefy::ecdsa_crypto::Signature;
 use sp_io::hashing::keccak_256;
 
-use crate::util;
 use beefy_verifier_primitives::SignatureWithAuthorityIndex;
 
 /// Number of validator signatures sampled and verified on-chain.
@@ -353,9 +352,12 @@ pub fn filter_signatures_for_challenge(
 		let last = temp.last_mut().unwrap();
 		*last += 27;
 
+		// leaf_position = first_leaf_pos + authority_index, where
+		// first_leaf_pos = 1 << tree_depth(authority_count).
+		let first_leaf_pos = 1usize << rs_merkle::utils::indices::tree_depth(authority_count);
 		filtered.push(SignatureWithAuthorityIndex {
 			index: authority_index,
-			leaf_position: util::leaf_position(authority_count, idx) as u32,
+			leaf_position: (first_leaf_pos + idx) as u32,
 			signature: temp,
 		});
 	}

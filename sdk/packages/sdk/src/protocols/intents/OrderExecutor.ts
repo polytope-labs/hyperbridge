@@ -286,9 +286,6 @@ export class OrderExecutor {
 			yield update
 
 			if (update.status === "EXPIRED" || update.status === "FILLED") return
-
-			// Cross-chain orders terminate after submission
-			if (update.status === "BID_SELECTED" && !isSameChain) return
 		}
 	}
 

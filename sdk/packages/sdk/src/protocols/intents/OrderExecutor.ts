@@ -282,10 +282,19 @@ export class OrderExecutor {
 		const deadlineTimeout = this.deadlineStream(order.deadline, commitment)
 		const combined = mergeRace(deadlineTimeout, executionStream)
 
-		for await (const update of combined) {
-			yield update
+		try {
+			for await (const update of combined) {
+				yield update
 
-			if (update.status === "EXPIRED" || update.status === "FILLED") return
+				if (update.status === "EXPIRED" || update.status === "FILLED") return
+			}
+		} finally {
+			// mergeRace does not call .return() on the underlying generators
+			// when the consumer exits, so tear them down explicitly to prevent
+			// them from running in the background.
+			console.log(`[OrderExecutor] Tearing down streams for commitment=${commitment}`)
+			await executionStream.return(undefined as never)
+			await deadlineTimeout.return(undefined as never)
 		}
 	}
 

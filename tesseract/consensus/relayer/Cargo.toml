@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.6.4"
+version = "1.7.0"
 edition = "2021"
 
 [lib]
@@ -56,6 +56,8 @@ tesseract-primitives = { workspace = true }
 rustls = { version = "0.23.23", features = ["ring"] }
 tesseract-tendermint = { workspace = true }
 tesseract-tron = { workspace = true }
+tesseract-pharos = { workspace = true }
+pharos-primitives = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

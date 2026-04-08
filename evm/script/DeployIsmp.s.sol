@@ -27,6 +27,7 @@ import {PingModule} from "../src/utils/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {PolkadotHost} from "../src/hosts/Polkadot.sol";
+import {PharosHost} from "../src/hosts/Pharos.sol";
 
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
@@ -233,6 +234,11 @@ contract DeployScript is BaseScript {
         // Polkadot Asset Hub (mainnet: 420420419, testnet: 420420417)
         else if (chainId == 420420419 || chainId == 420420417) {
             PolkadotHost h = new PolkadotHost{salt: salt}(params);
+            return address(h);
+        }
+        // Pharos (mainnet: 688600, testnet: 688689)
+        else if (chainId == 688600 || chainId == 688689) {
+            PharosHost h = new PharosHost{salt: salt}(params);
             return address(h);
         }
 

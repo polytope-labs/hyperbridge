@@ -236,13 +236,17 @@ impl VerifierState {
 /// Data required to update the verifier state.
 ///
 /// This is what the prover submits to advance the light client's state.
+/// Epoch transitions are determined by the presence of a `validator_set_proof`:
+/// if present, the epoch increments by 1. The relayer walks epoch-by-epoch,
+/// so each validator set proof corresponds to exactly one epoch transition.
 #[derive(Debug, Clone, Encode, Decode)]
 pub struct VerifierStateUpdate {
 	/// The header being attested to
 	pub header: CodecHeader,
 	/// Block proof from debug_getBlockProof containing the BLS signature
 	pub block_proof: BlockProof,
-	/// Optional validator set update proof (required at epoch boundaries)
+	/// Optional validator set update proof (required at epoch transitions).
+	/// Presence of this proof signals an epoch boundary: new_epoch = current_epoch + 1.
 	pub validator_set_proof: Option<ValidatorSetProof>,
 }
 

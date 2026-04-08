@@ -31,15 +31,6 @@ pub enum Error {
 		update: u64,
 	},
 
-	/// The update block is not in the expected epoch
-	#[error("Epoch mismatch: update block is in epoch {update_epoch}, expected {expected_epoch}")]
-	EpochMismatch {
-		/// The epoch of the update block
-		update_epoch: u64,
-		/// The expected epoch (current verifier state epoch)
-		expected_epoch: u64,
-	},
-
 	/// A participating validator is not in the trusted validator set
 	#[error("Unknown validator with BLS key: {}", hex::encode(&key.as_ref()[..8]))]
 	UnknownValidator {

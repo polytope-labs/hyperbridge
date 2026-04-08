@@ -54,6 +54,8 @@ pub struct SignatureWithAuthorityIndex {
 	pub signature: TSignature,
 	/// Index in signatures vector
 	pub index: u32,
+	/// Pre-calculated 1-based tree position for the merkle proof
+	pub leaf_position: u32,
 }
 
 #[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
@@ -96,7 +98,9 @@ pub struct ParachainHeader {
 	/// scale encoded parachain header
 	pub header: Vec<u8>,
 	/// leaf index for parachain heads proof
-	pub index: usize,
+	pub index: u32,
+	/// Pre-calculated 1-based tree position for the merkle proof
+	pub leaf_position: u32,
 	/// ParaId for parachain
 	pub para_id: u32,
 }

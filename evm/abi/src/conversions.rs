@@ -92,6 +92,7 @@ mod beefy {
 					.into_iter()
 					.map(|parachain| Parachain {
 						index: parachain.index.to_u256(),
+						leafPosition: parachain.leaf_position.to_u256(),
 						id: parachain.para_id.to_u256(),
 						header: Bytes::from(parachain.header),
 					})
@@ -179,6 +180,7 @@ mod beefy {
 						.map(|a| Vote {
 							signature: Bytes::from(a.signature.to_vec()),
 							authorityIndex: a.index.to_u256(),
+							leafPosition: a.leaf_position.to_u256(),
 						})
 						.collect(),
 				},

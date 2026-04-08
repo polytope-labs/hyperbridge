@@ -141,6 +141,20 @@ pub fn merkle_proof(leaves: &[Hash], indices: &[usize]) -> Vec<Vec<(usize, Hash)
 	tree.proof_2d(indices)
 }
 
+/// Compute the next power of two >= x. Returns 1 for x <= 1.
+pub fn next_power_of_two(x: usize) -> usize {
+	if x <= 1 {
+		return 1;
+	}
+	1 << ceil_log2(x)
+}
+
+/// Compute the 1-based tree position for a leaf at the given index.
+/// position = next_power_of_two(leaf_count) + leaf_index
+pub fn leaf_position(leaf_count: usize, leaf_index: usize) -> usize {
+	next_power_of_two(leaf_count) + leaf_index
+}
+
 /// Compute ceil(log2(x)). Returns 0 for x <= 1.
 pub fn ceil_log2(x: usize) -> usize {
 	if x <= 1 {

@@ -313,7 +313,7 @@ export class BidManager {
 	 * @param order - The placed order whose output spec drives sorting logic.
 	 * @returns Sorted array of `{ bid, options }` pairs ready for simulation.
 	 */
-	private async validateAndSortBids(
+	async validateAndSortBids(
 		bids: FillerBid[],
 		order: Order,
 	): Promise<{ bid: FillerBid; options: FillOptions }[]> {

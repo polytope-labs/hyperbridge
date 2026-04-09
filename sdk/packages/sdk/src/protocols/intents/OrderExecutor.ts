@@ -282,13 +282,19 @@ export class OrderExecutor {
 		const deadlineTimeout = this.deadlineStream(order.deadline, commitment)
 		const combined = mergeRace(deadlineTimeout, executionStream)
 
-		for await (const update of combined) {
-			yield update
+		try {
+			for await (const update of combined) {
+				yield update
 
-			if (update.status === "EXPIRED" || update.status === "FILLED") return
-
-			// Cross-chain orders terminate after submission
-			if (update.status === "BID_SELECTED" && !isSameChain) return
+				if (update.status === "EXPIRED" || update.status === "FILLED") return
+			}
+		} finally {
+			// mergeRace does not call .return() on the underlying generators
+			// when the consumer exits, so tear them down explicitly to prevent
+			// them from running in the background.
+			console.log(`[OrderExecutor] Tearing down streams for commitment=${commitment}`)
+			await executionStream.return(undefined as never)
+			await deadlineTimeout.return(undefined as never)
 		}
 	}
 
@@ -323,6 +329,15 @@ export class OrderExecutor {
 		} = params
 		let { totalFilledAssets, remainingAssets } = params
 
+		// Track per-bid failure counts. A bid is excluded from future
+		// iterations only after it has failed twice.
+		const MAX_BID_ATTEMPTS = 2
+		const bidFailCounts = new Map<string, number>()
+		const isFreshBid = (bid: FillerBid) => {
+			const key = userOpHashKey(bid.userOp)
+			return !usedUserOps.has(key) && (bidFailCounts.get(key) ?? 0) < MAX_BID_ATTEMPTS
+		}
+
 		const solverLockStartTime = Date.now()
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
@@ -354,7 +369,7 @@ export class OrderExecutor {
 				let freshBids: FillerBid[]
 				try {
 					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
-					freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
+					freshBids = bids.filter(isFreshBid)
 				} catch {
 					await sleep(pollIntervalMs)
 					continue
@@ -384,6 +399,19 @@ export class OrderExecutor {
 						totalFilledAssets,
 						remainingAssets,
 						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
+					}
+					// Increment the failure count only for the top-ranked bid
+					// (first after validation & sorting). That is the bid
+					// selectBid would have tried first; the rest should not be
+					// penalised for its failure.
+					try {
+						const sorted = await this.bidManager.validateAndSortBids(freshBids, order)
+						if (sorted.length > 0) {
+							const key = userOpHashKey(sorted[0].bid.userOp)
+							bidFailCounts.set(key, (bidFailCounts.get(key) ?? 0) + 1)
+						}
+					} catch {
+						// If sorting itself fails, skip counting
 					}
 					await sleep(pollIntervalMs)
 					continue

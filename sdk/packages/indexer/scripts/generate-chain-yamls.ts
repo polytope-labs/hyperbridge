@@ -64,7 +64,9 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	if (skipRpc) {
+	// Only connect to RPC when we actually need the live head (local/nexus-ci).
+	// For other environments we use the static startBlock from config.
+	if (skipRpc || (currentEnv !== "local" && currentEnv !== "nexus-ci")) {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
@@ -72,8 +74,7 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		const rpc = new RpcWebSocketClient()
 		await rpc.connect(rpcUrl as string)
 		const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
-		blockNumber =
-			currentEnv === "local" || currentEnv === "nexus-ci" ? hexToNumber(header.number) : config.startBlock
+		blockNumber = hexToNumber(header.number)
 	}
 
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
@@ -130,7 +131,9 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
 	let blockNumber: number
-	if (skipRpc) {
+	// Only connect to RPC when we actually need the live head (local env).
+	// For other environments we use the static startBlock from config.
+	if (skipRpc || currentEnv !== "local") {
 		blockNumber = config.startBlock
 	} else {
 		// Expect comma-separated endpoints in env var
@@ -148,7 +151,7 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 			}),
 		})
 		const data = await response.json()
-		blockNumber = currentEnv === "local" ? hexToNumber(data.result) : config.startBlock
+		blockNumber = hexToNumber(data.result)
 	}
 
 	const templateData = {
@@ -328,6 +331,25 @@ const generateEnvironmentConfig = () => {
 
 	fs.writeFileSync(root + "/src/env-config.json", JSON.stringify(configurations, null, 2))
 	console.log("Generated env-config.json")
+
+	// If a built dist bundle exists, patch the inlined env-config so the running
+	// indexer picks up the updated RPC endpoints and API keys without rebuilding.
+	const distBundle = path.join(root, "dist", "index.js")
+	if (fs.existsSync(distBundle)) {
+		const bundle = fs.readFileSync(distBundle, "utf8")
+		// The bundler inlines env-config.json as JSON.parse('{...}'). Anchor on
+		// the COIN_GECKGO_API_KEY marker which is always present in the config.
+		const envConfigPattern = /JSON\.parse\('(\{[^']*COIN_GECKGO_API_KEY[^']*\})'\)/
+		if (!envConfigPattern.test(bundle)) {
+			console.warn("Could not find inlined env-config in dist/index.js; skipping patch")
+			return
+		}
+		// Escape any single quotes and backslashes so the replacement is a valid JS string literal
+		const serialized = JSON.stringify(configurations).replace(/\\/g, "\\\\").replace(/'/g, "\\'")
+		const patched = bundle.replace(envConfigPattern, `JSON.parse('${serialized}')`)
+		fs.writeFileSync(distBundle, patched)
+		console.log("Patched env-config in dist/index.js")
+	}
 }
 
 try {

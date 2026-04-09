@@ -3,7 +3,8 @@ name: "Release @hyperbridge/indexer"
 on:
     push:
         tags:
-            - "indexer-v*"
+            - "indexer-mainnet-v*"
+            - "indexer-testnet-v*"
 
 jobs:
     build-and-release:
@@ -29,6 +30,23 @@ jobs:
               with:
                   version: "7"
 
+            - name: Parse tag
+              id: tag
+              run: |
+                  TAG=${GITHUB_REF#refs/tags/}
+                  # Expected tag format: indexer-<env>-v<version>
+                  if [[ "$TAG" =~ ^indexer-(mainnet|testnet)-v(.+)$ ]]; then
+                    ENV="${BASH_REMATCH[1]}"
+                    VERSION="${BASH_REMATCH[2]}"
+                  else
+                    echo "Tag '${TAG}' does not match expected format 'indexer-<mainnet|testnet>-v<version>'"
+                    exit 1
+                  fi
+                  echo "tag=${TAG}" >> $GITHUB_OUTPUT
+                  echo "env=${ENV}" >> $GITHUB_OUTPUT
+                  echo "version=${VERSION}" >> $GITHUB_OUTPUT
+                  echo "Building indexer release for env=${ENV}, version=${VERSION}"
+
             - name: Install dependencies
               run: pnpm install
 
@@ -38,18 +56,14 @@ jobs:
             - name: Build indexer
               run: pnpm --filter="@hyperbridge/indexer" build:release
               env:
-                  ENV: mainnet
-
-            - name: Get version from tag
-              id: version
-              run: |
-                  TAG=${GITHUB_REF#refs/tags/indexer-}
-                  echo "version=${TAG}" >> $GITHUB_OUTPUT
+                  ENV: ${{ steps.tag.outputs.env }}
 
             - name: Assemble release package
               run: |
-                  VERSION="${{ steps.version.outputs.version }}"
-                  RELEASE_DIR="${GITHUB_WORKSPACE}/hyperbridge-indexer-${VERSION}"
+                  ENV="${{ steps.tag.outputs.env }}"
+                  VERSION="${{ steps.tag.outputs.version }}"
+                  RELEASE_NAME="hyperbridge-indexer-${ENV}-v${VERSION}"
+                  RELEASE_DIR="${GITHUB_WORKSPACE}/${RELEASE_NAME}"
                   mkdir -p "${RELEASE_DIR}/src"
 
                   # Copy built output
@@ -66,7 +80,7 @@ jobs:
                   {
                     "name": "@hyperbridge/indexer",
                     "version": "${VERSION}",
-                    "description": "Hyperbridge indexer release package with deployment config generators",
+                    "description": "Hyperbridge indexer release package (${ENV}) with deployment config generators",
                     "main": "dist/index.js",
                     "type": "module",
                     "engines": {
@@ -98,22 +112,28 @@ jobs:
 
                   # Create the tarball
                   cd "${GITHUB_WORKSPACE}"
-                  tar -czf "hyperbridge-indexer-${VERSION}.tar.gz" "hyperbridge-indexer-${VERSION}"
+                  tar -czf "${RELEASE_NAME}.tar.gz" "${RELEASE_NAME}"
+
+                  echo "release_name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+              id: assemble
 
             - name: Get previous tag
               id: previous-tag
               run: |
-                  CURRENT_TAG=${GITHUB_REF#refs/tags/}
-                  PREVIOUS_TAG=$(git tag -l "indexer-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
+                  ENV="${{ steps.tag.outputs.env }}"
+                  CURRENT_TAG="${{ steps.tag.outputs.tag }}"
+                  # Only consider previous tags for the same environment
+                  PREVIOUS_TAG=$(git tag -l "indexer-${ENV}-v*" --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n1)
                   echo "previous_tag=${PREVIOUS_TAG}" >> $GITHUB_OUTPUT
-                  echo "current_tag=${CURRENT_TAG}" >> $GITHUB_OUTPUT
 
             - name: Generate changelog
               id: changelog
               run: |
-                  CURRENT_TAG=${{ steps.previous-tag.outputs.current_tag }}
-                  PREVIOUS_TAG=${{ steps.previous-tag.outputs.previous_tag }}
-                  VERSION=${{ steps.version.outputs.version }}
+                  CURRENT_TAG="${{ steps.tag.outputs.tag }}"
+                  PREVIOUS_TAG="${{ steps.previous-tag.outputs.previous_tag }}"
+                  ENV="${{ steps.tag.outputs.env }}"
+                  VERSION="${{ steps.tag.outputs.version }}"
+                  RELEASE_NAME="${{ steps.assemble.outputs.release_name }}"
 
                   if [ -z "$PREVIOUS_TAG" ]; then
                     COMMIT_RANGE="HEAD"
@@ -128,27 +148,34 @@ jobs:
                   echo "" >> $GITHUB_OUTPUT
                   echo "$CHANGELOG" >> $GITHUB_OUTPUT
                   echo "" >> $GITHUB_OUTPUT
+                  echo "## Environment" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "This release is built for the \`${ENV}\` environment." >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
                   echo "## Usage" >> $GITHUB_OUTPUT
                   echo "" >> $GITHUB_OUTPUT
                   echo '```bash' >> $GITHUB_OUTPUT
-                  echo "tar -xzf hyperbridge-indexer-${VERSION}.tar.gz" >> $GITHUB_OUTPUT
-                  echo "cd hyperbridge-indexer-${VERSION}" >> $GITHUB_OUTPUT
+                  echo "tar -xzf ${RELEASE_NAME}.tar.gz" >> $GITHUB_OUTPUT
+                  echo "cd ${RELEASE_NAME}" >> $GITHUB_OUTPUT
                   echo "npm install" >> $GITHUB_OUTPUT
                   echo "" >> $GITHUB_OUTPUT
-                  echo "# Set environment and RPC endpoints" >> $GITHUB_OUTPUT
-                  echo "export ENV=mainnet" >> $GITHUB_OUTPUT
-                  echo "# Create .env.mainnet with chain RPC endpoints" >> $GITHUB_OUTPUT
+                  echo "# Create .env.${ENV} with chain RPC endpoints and DB credentials" >> $GITHUB_OUTPUT
+                  echo "export ENV=${ENV}" >> $GITHUB_OUTPUT
                   echo "" >> $GITHUB_OUTPUT
                   echo "# Generate chain yamls and docker compose files" >> $GITHUB_OUTPUT
                   echo "npm run codegen" >> $GITHUB_OUTPUT
+                  echo "" >> $GITHUB_OUTPUT
+                  echo "# Start/stop indexers" >> $GITHUB_OUTPUT
+                  echo "npm run start" >> $GITHUB_OUTPUT
+                  echo "npm run down" >> $GITHUB_OUTPUT
                   echo '```' >> $GITHUB_OUTPUT
                   echo "EOF" >> $GITHUB_OUTPUT
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v2
               with:
-                  name: "@hyperbridge/indexer ${{ steps.version.outputs.version }}"
+                  name: "@hyperbridge/indexer ${{ steps.tag.outputs.env }} v${{ steps.tag.outputs.version }}"
                   body: ${{ steps.changelog.outputs.changelog }}
-                  files: hyperbridge-indexer-${{ steps.version.outputs.version }}.tar.gz
+                  files: ${{ steps.assemble.outputs.release_name }}.tar.gz
               env:
                   GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}

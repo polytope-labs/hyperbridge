@@ -38,6 +38,26 @@ features = [
     "sp-consensus-aura",
     "cumulus-pallet-parachain-system",
     "cumulus-primitives-core",
+    "pallet-migrations",
+]
+
+[dev-dependencies]
+anyhow = { workspace = true }
+ismp-testsuite = { workspace = true, default-features = true }
+
+[dev-dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = [
+    "frame-support",
+    "frame-system",
+    "pallet-balances",
+    "pallet-timestamp",
+    "pallet-migrations",
+    "staging-parachain-info",
+    "sp-io",
+    "sp-runtime",
+    "sp-core",
 ]
 
 [features]

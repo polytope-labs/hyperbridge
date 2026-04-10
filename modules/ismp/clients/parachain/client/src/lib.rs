@@ -21,7 +21,12 @@ extern crate alloc;
 extern crate core;
 
 pub mod consensus;
-mod migration;
+pub mod migration;
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -37,6 +42,7 @@ use cumulus_pallet_parachain_system::{
 	RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
 };
 use cumulus_primitives_core::relay_chain;
+use frame_support::{migrations::MultiStepMigrator, weights::Weight};
 use ismp::{
 	consensus::ConsensusStateId,
 	handlers,
@@ -45,6 +51,12 @@ use ismp::{
 };
 pub use pallet::*;
 pub use weights::WeightInfo;
+
+/// Maximum number of relay-chain state commitments retained
+/// (~25 minutes at 6s per relay block).
+pub const MAX_RELAY_STATE_COMMITMENTS: u32 = 256;
+
+const RELAY_COMMITMENTS_MAX_WALK: u32 = 64;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -59,7 +71,7 @@ pub mod pallet {
 	};
 	use migration::StorageV0;
 
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
@@ -81,11 +93,21 @@ pub mod pallet {
 
 	/// Mapping of relay chain heights to it's state commitment. The state commitment of the parent
 	/// relay block is inserted at every block in `on_finalize`. This commitment is gotten from
-	/// parachain-system.
+	/// parachain-system. Bounded to [`MAX_RELAY_STATE_COMMITMENTS`] entries.
 	#[pallet::storage]
 	#[pallet::getter(fn relay_chain_state)]
-	pub type RelayChainStateCommitments<T: Config> =
-		StorageMap<_, Blake2_128Concat, relay_chain::BlockNumber, relay_chain::Hash, OptionQuery>;
+	pub type RelayChainStateCommitments<T: Config> = CountedStorageMap<
+		_,
+		Blake2_128Concat,
+		relay_chain::BlockNumber,
+		relay_chain::Hash,
+		OptionQuery,
+	>;
+
+	/// Smallest relay-chain block number currently retained in [`RelayChainStateCommitments`].
+	#[pallet::storage]
+	pub type OldestRetainedRelayBlock<T: Config> =
+		StorageValue<_, relay_chain::BlockNumber, OptionQuery>;
 
 	/// Tracks whether we've already seen the `update_parachain_consensus` inherent
 	#[pallet::storage]
@@ -197,9 +219,25 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_finalize(_n: BlockNumberFor<T>) {
+			// Skip inserts while a multi-block migration (e.g. the v1 → v2 backlog
+			// drain) is running. Otherwise the migration's removals would race with
+			// fresh inserts here, the map would never reach a steady state, and the
+			// migration would never terminate.
+			if <T as polkadot_sdk::frame_system::Config>::MultiBlockMigrator::ongoing() {
+				return;
+			}
+
 			let state = RelaychainDataProvider::<T>::current_relay_chain_state();
 			if !RelayChainStateCommitments::<T>::contains_key(state.number) {
 				RelayChainStateCommitments::<T>::insert(state.number, state.state_root);
+
+				if OldestRetainedRelayBlock::<T>::get().is_none() {
+					OldestRetainedRelayBlock::<T>::put(state.number);
+				}
+
+				if RelayChainStateCommitments::<T>::count() > MAX_RELAY_STATE_COMMITMENTS {
+					Self::evict_oldest_relay_commitment(state.number);
+				}
 			}
 		}
 
@@ -213,7 +251,9 @@ pub mod pallet {
 				Pallet::<T>::initialize();
 			}
 
-			Weight::from_parts(0, 0)
+			// Reserve worst-case `on_finalize` weight here since `on_finalize` can't
+			// return a `Weight` to the executive.
+			<T as pallet::Config>::WeightInfo::on_finalize_bound_relay_state_commitments()
 		}
 
 		fn on_runtime_upgrade() -> Weight {
@@ -281,6 +321,25 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
+	pub(crate) fn evict_oldest_relay_commitment(current: relay_chain::BlockNumber) {
+		let Some(mut cursor) = OldestRetainedRelayBlock::<T>::get() else {
+			return;
+		};
+
+		let mut steps: u32 = 0;
+		while steps < RELAY_COMMITMENTS_MAX_WALK && cursor < current {
+			if RelayChainStateCommitments::<T>::contains_key(cursor) {
+				RelayChainStateCommitments::<T>::remove(cursor);
+				OldestRetainedRelayBlock::<T>::put(cursor.saturating_add(1));
+				return;
+			}
+			cursor = cursor.saturating_add(1);
+			steps = steps.saturating_add(1);
+		}
+
+		OldestRetainedRelayBlock::<T>::put(cursor);
+	}
+
 	/// Returns the list of parachains who's consensus updates will be inserted by the inherent
 	/// data provider
 	pub fn para_ids() -> Vec<u32> {

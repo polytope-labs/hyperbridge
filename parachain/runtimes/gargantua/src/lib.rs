@@ -378,6 +378,7 @@ impl frame_system::Config for Runtime {
 	/// The action to take on a Runtime Upgrade
 	type OnSetCode = cumulus_pallet_parachain_system::ParachainSetCode<Self>;
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
+	type MultiBlockMigrator = Migrations;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -713,6 +714,24 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
+parameter_types! {
+	pub MbmServiceWeight: Weight = RuntimeBlockWeights::get().max_block.saturating_div(2);
+}
+
+impl pallet_migrations::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	#[cfg(not(feature = "runtime-benchmarks"))]
+	type Migrations = (ismp_parachain::migration::MigrationV2<Runtime>,);
+	#[cfg(feature = "runtime-benchmarks")]
+	type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
+	type CursorMaxLen = ConstU32<65_536>;
+	type IdentifierMaxLen = ConstU32<256>;
+	type MigrationStatusHandler = ();
+	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type MaxServiceWeight = MbmServiceWeight;
+	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -832,6 +851,9 @@ mod runtime {
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(85)]
 	pub type IsmpTendermint = ismp_tendermint::pallet;
+	#[runtime::pallet_index(94)]
+	pub type Migrations = pallet_migrations;
+
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -865,6 +887,7 @@ mod benches {
 		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
+		[pallet_migrations, Migrations]
 	);
 }
 

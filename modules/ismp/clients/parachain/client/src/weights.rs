@@ -14,7 +14,20 @@
 // limitations under the License.
 use polkadot_sdk::*;
 
-use frame_support::weights::Weight;
+use frame_support::weights::{constants::RocksDbWeight, Weight};
+
+/// No-op `WeightInfo` impl for tests and the no-op runtime configuration.
+impl WeightInfo for () {
+	fn add_parachain(_n: u32) -> Weight {
+		Weight::zero()
+	}
+	fn remove_parachain(_n: u32) -> Weight {
+		Weight::zero()
+	}
+	fn update_parachain_consensus() -> Weight {
+		Weight::zero()
+	}
+}
 /// The weight information provider trait for dispatchable extrinsics
 pub trait WeightInfo {
 	/// Weight for adding parachains, scaled by the number of machines
@@ -25,4 +38,17 @@ pub trait WeightInfo {
 	fn remove_parachain(n: u32) -> Weight;
 	/// Weight for updating a parachain's consensus
 	fn update_parachain_consensus() -> Weight;
+
+	/// Worst-case weight of the steady-state `on_finalize` insert + bounded eviction.
+	/// Conservative default; runtimes should override with benchmarked numbers.
+	fn on_finalize_bound_relay_state_commitments() -> Weight {
+		RocksDbWeight::get().reads_writes(68, 4)
+	}
+
+	/// Worst-case weight of one `SteppedMigration` step that drains a single
+	/// `RelayChainStateCommitments` entry. Conservative default; runtimes should
+	/// override with benchmarked numbers.
+	fn migrate_relay_state_commitments_step() -> Weight {
+		RocksDbWeight::get().reads_writes(2, 3)
+	}
 }

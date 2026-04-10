@@ -131,7 +131,7 @@ export class IntentFiller {
 			// Paymaster approval is handled per-order inside buildPaymasterData().
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
-				const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+				const paymasterAddress = this.configService.getSimplexPaymasterAddress(chain)
 				if (paymasterAddress) {
 					this.logger.info({ chain }, "Skipping EntryPoint deposit — SimplexPaymaster available")
 					continue
@@ -589,7 +589,7 @@ export class IntentFiller {
 		// without SimplexPaymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
-			if (!this.configService.getCirclePaymasterV08Address(chain)) {
+			if (!this.configService.getSimplexPaymasterAddress(chain)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
 				this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
 					this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")

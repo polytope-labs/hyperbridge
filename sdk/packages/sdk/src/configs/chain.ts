@@ -131,8 +131,8 @@ export interface ChainConfigData {
 		UniswapV4PoolManager?: `0x${string}`
 		/** Uniswap V4 StateView (canonical CREATE2 address) for pool state reads via extsload */
 		UniswapV4StateView?: `0x${string}`
-		/** Circle Paymaster v0.8 contract address (ERC-4337 onchain USDC paymaster) */
-		CirclePaymasterV08?: `0x${string}`
+		/** SimplexPaymaster v0.8 contract address (ERC-4337 onchain ERC-20 paymaster) */
+		SimplexPaymaster?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -252,7 +252,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			UniswapV3Factory: "0x0000000000000000000000000000000000000000",
 			Calldispatcher: "0xC7f13b6D03A0A7F3239d38897503E90553ABe155",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
+			SimplexPaymaster: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
 		},
 		rpcEnvKey: "SEPOLIA",
 		defaultRpcUrl: "https://1rpc.io/sepolia",
@@ -301,7 +301,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee",
 		},
 		rpcEnvKey: "ETH_MAINNET",
@@ -357,7 +357,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0xCcE8B5f5C453e1Ff1acd227585d9e680c012462c",
+			SimplexPaymaster: "0xCcE8B5f5C453e1Ff1acd227585d9e680c012462c",
 			// "Usdt0Oft": Not available on BSC
 		},
 		rpcEnvKey: "BSC_MAINNET",
@@ -415,7 +415,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x14E4A1B13bf7F943c8ff7C51fb60FA964A298D92",
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
@@ -470,7 +470,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x18654D0319ffDC18c200c90C1A666AcbDf0E3762",
+			SimplexPaymaster: "0x18654D0319ffDC18c200c90C1A666AcbDf0E3762",
 			AerodromeRouter: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
 			UniswapV4PositionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
 			UniswapV4PoolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
@@ -532,7 +532,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x6BA10300f0DC58B7a1e4c0e41f5daBb7D7829e13",
 		},
 		rpcEnvKey: "POLYGON_MAINNET",
@@ -580,7 +580,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0xc07be8994d035631c36fb4a89c918cefb2f03ec3",
 		},
 		rpcEnvKey: "UNICHAIN_MAINNET",
@@ -651,7 +651,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0x876F1891982E260026630c233A4897160A281Fb8",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
+			SimplexPaymaster: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
 			SolverAccount: "0xCDFcFeD7A14154846808FddC8Ba971A2f8a830a3",
 		},
 		rpcEnvKey: "POLYGON_AMOY",
@@ -685,7 +685,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xC71251c8b3e7B02697A84363Eef6DcE8DfBdF333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			UniswapV4PositionManager: "0x3c3ea4b57a46241e54610e5f022e5c45859a1017",
 			UniswapV4PoolManager: "0x9a13f98cb987694c9f086b1f5eb990eea8264ec3",
 		},
@@ -767,7 +767,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
 			Host: "0x3435bD7e5895356535459D6087D1eB982DAd90e7",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
+			SimplexPaymaster: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
 		},
 		defaultRpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
 		consensusStateId: "ETH0",
@@ -792,7 +792,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
 			Host: "0x6d51b678836d8060d980605d2999eF211809f3C2",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
+			SimplexPaymaster: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
 		},
 		defaultRpcUrl: "https://sepolia.optimism.io",
 		consensusStateId: "ETH0",
@@ -817,7 +817,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			TokenGateway: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6",
 			Host: "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			CirclePaymasterV08: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
+			SimplexPaymaster: "0x3BA9A96eE3eFf3A69E2B18886AcF52027EFF8966",
 		},
 		defaultRpcUrl: "https://sepolia.base.org",
 		consensusStateId: "ETH0",

@@ -157,7 +157,7 @@ export class GasEstimator {
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
 		let preVerificationGas: bigint = 100_000n
-		// Circle Paymaster v0.8 caps used as fallback when the bundler doesn't return paymaster gas fields.
+		// SimplexPaymaster v0.8 caps used as fallback when the bundler doesn't return paymaster gas fields.
 		let paymasterVerificationGasLimit: bigint = 0n
 		let paymasterPostOpGasLimit: bigint = 0n
 

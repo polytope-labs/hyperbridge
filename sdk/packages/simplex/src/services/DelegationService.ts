@@ -5,26 +5,14 @@ import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
 import type { SigningAccount } from "./wallet"
-import { buildPaymasterData, packPaymasterAndData } from "./paymaster/circle"
+import { buildPaymasterData, packPaymasterAndData } from "./paymaster/simplex"
+import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 
 /** EIP-7702 delegation indicator prefix */
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 
 /** Floor for set-code (0x04) txs; L2s like Arbitrum reject viem's default ~94k with "intrinsic gas too low". */
 const DELEGATION_TX_GAS_FLOOR = 350_000n
-
-const ENTRYPOINT_GET_NONCE_ABI = [
-	{
-		inputs: [
-			{ name: "sender", type: "address" },
-			{ name: "key", type: "uint192" },
-		],
-		name: "getNonce",
-		outputs: [{ name: "nonce", type: "uint256" }],
-		stateMutability: "view",
-		type: "function",
-	},
-] as const
 
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
@@ -155,7 +143,7 @@ export class DelegationService {
 	 */
 	private async setupDelegationViaBundler(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
-		const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+		const paymasterAddress = this.configService.getSimplexPaymasterAddress(chain)
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
 
@@ -203,7 +191,7 @@ export class DelegationService {
 			// 4. Get nonce from EntryPoint (key = 0 for delegation UserOps)
 			const nonce = (await publicClient.readContract({
 				address: entryPointAddress,
-				abi: ENTRYPOINT_GET_NONCE_ABI,
+				abi: ENTRYPOINT_ABI,
 				functionName: "getNonce",
 				args: [solverAccount, 0n],
 			})) as bigint
@@ -299,7 +287,7 @@ export class DelegationService {
 		}
 
 		// Try bundler path first (paymaster pays gas)
-		const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+		const paymasterAddress = this.configService.getSimplexPaymasterAddress(chain)
 		if (paymasterAddress) {
 			const success = await this.setupDelegationViaBundler(chain)
 			if (success) return true

@@ -27,7 +27,7 @@ import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { SigningAccount } from "@/services/wallet"
-import { buildPaymasterData, packPaymasterAndData } from "@/services/paymaster/circle"
+import { buildPaymasterData, packPaymasterAndData } from "@/services/paymaster/simplex"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
@@ -397,10 +397,6 @@ export class ContractInteractionService {
 		await this.depositToEntryPoint(chain, deficit)
 	}
 
-	// Paymaster approval is now handled inside buildPaymasterData() in the paymaster module.
-	// For permit-capable tokens: per-order permit signature in paymasterData.
-	// For non-permit tokens (BSC): capped on-chain approval done automatically when needed.
-
 	/**
 	 * Calculates the total USD value of an order's inputs.
 	 * Only stable (USDC/USDT) inputs contribute; non-stables contribute 0.
@@ -618,7 +614,7 @@ export class ContractInteractionService {
 		// Chains without a paymaster address fall through to "0x",
 		// retaining the existing EntryPoint deposit behaviour.
 		let paymasterAndData: HexString = "0x" as HexString
-		const paymasterAddress = this.configService.getCirclePaymasterV08Address(order.destination)
+		const paymasterAddress = this.configService.getSimplexPaymasterAddress(order.destination)
 		if (paymasterAddress) {
 			const publicClient = this.clientManager.getPublicClient(order.destination)
 			const walletClient = this.clientManager.getWalletClient(order.destination)

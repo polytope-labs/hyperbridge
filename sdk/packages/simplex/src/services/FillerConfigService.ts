@@ -141,8 +141,8 @@ export class FillerConfigService {
 		return this.chainConfigService.getUsdcDecimals(chain)
 	}
 
-	getCirclePaymasterV08Address(chain: string): HexString | undefined {
-		return this.chainConfigService.getCirclePaymasterV08Address(chain)
+	getSimplexPaymasterAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getSimplexPaymasterAddress(chain)
 	}
 
 	getUsdtDecimals(chain: string): number {

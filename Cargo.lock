@@ -10414,7 +10414,6 @@ dependencies = [
 name = "ismp-parachain"
 version = "2512.0.0"
 dependencies = [
- "anyhow",
  "hex",
  "hex-literal 0.4.1",
  "ismp",

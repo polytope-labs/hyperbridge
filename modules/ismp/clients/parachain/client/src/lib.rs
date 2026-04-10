@@ -21,7 +21,7 @@ extern crate alloc;
 extern crate core;
 
 pub mod consensus;
-pub mod migration;
+mod migration;
 
 #[cfg(test)]
 mod mock;
@@ -42,7 +42,7 @@ use cumulus_pallet_parachain_system::{
 	RelayChainState, RelaychainDataProvider, RelaychainStateProvider,
 };
 use cumulus_primitives_core::relay_chain;
-use frame_support::{migrations::MultiStepMigrator, weights::Weight};
+use frame_support::weights::Weight;
 use ismp::{
 	consensus::ConsensusStateId,
 	handlers,
@@ -52,10 +52,16 @@ use ismp::{
 pub use pallet::*;
 pub use weights::WeightInfo;
 
-/// Maximum number of relay-chain state commitments retained
-/// (~25 minutes at 6s per relay block).
+/// Maximum number of relay-chain state commitments retained in
+/// [`pallet::CurrentRelayChainStateRoots`].
+/// At ~6s per relay block, 256 entries covers ~25 minutes of history.
 pub const MAX_RELAY_STATE_COMMITMENTS: u32 = 256;
 
+/// Number of legacy [`pallet::RelayChainStateCommitments`] entries drained per block.
+pub const LEGACY_DRAIN_BATCH_SIZE: u32 = 1000;
+
+/// Maximum forward steps the steady-state eviction takes per block when scanning
+/// for the next live key after the oldest retained relay block.
 const RELAY_COMMITMENTS_MAX_WALK: u32 = 64;
 
 #[frame_support::pallet]
@@ -71,7 +77,7 @@ pub mod pallet {
 	};
 	use migration::StorageV0;
 
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
@@ -91,12 +97,29 @@ pub mod pallet {
 		type RootOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
-	/// Mapping of relay chain heights to it's state commitment. The state commitment of the parent
-	/// relay block is inserted at every block in `on_finalize`. This commitment is gotten from
-	/// parachain-system. Bounded to [`MAX_RELAY_STATE_COMMITMENTS`] entries.
+
+	/// **Legacy / read-only.** The original unbounded map of relay chain heights
+	/// to state roots. New entries are no longer written here. Existing entries
+	/// are drained at [`LEGACY_DRAIN_BATCH_SIZE`] per block in `on_finalize`
+	/// until the map is empty, at which point this storage item can be removed
+	/// in a future runtime upgrade.
+	///
+	/// The [`RelayChainOracle`] implementation reads from
+	/// [`CurrentRelayChainStateRoots`] first and falls back to this map, so
+	/// consensus proofs that reference relay heights still in the legacy map
+	/// continue to verify during the transition.
 	#[pallet::storage]
-	#[pallet::getter(fn relay_chain_state)]
-	pub type RelayChainStateCommitments<T: Config> = CountedStorageMap<
+	pub type RelayChainStateCommitments<T: Config> =
+		StorageMap<_, Blake2_128Concat, relay_chain::BlockNumber, relay_chain::Hash, OptionQuery>;
+
+	// ── New bounded storage ─────────────────────────────────────────────
+
+	/// Bounded map of recent relay chain heights to state roots. Capped at
+	/// [`MAX_RELAY_STATE_COMMITMENTS`] entries by the eviction logic in
+	/// `on_finalize`. This replaces [`RelayChainStateCommitments`] as the
+	/// primary write target.
+	#[pallet::storage]
+	pub type CurrentRelayChainStateRoots<T: Config> = CountedStorageMap<
 		_,
 		Blake2_128Concat,
 		relay_chain::BlockNumber,
@@ -104,7 +127,8 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Smallest relay-chain block number currently retained in [`RelayChainStateCommitments`].
+	/// Smallest relay-chain block number currently retained in
+	/// [`CurrentRelayChainStateRoots`]. Used as the eviction cursor.
 	#[pallet::storage]
 	pub type OldestRetainedRelayBlock<T: Config> =
 		StorageValue<_, relay_chain::BlockNumber, OptionQuery>;
@@ -215,34 +239,30 @@ pub mod pallet {
 		}
 	}
 
-	// Pallet implements [`Hooks`] trait to define some logic to execute in some context.
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 		fn on_finalize(_n: BlockNumberFor<T>) {
-			// Skip inserts while a multi-block migration (e.g. the v1 → v2 backlog
-			// drain) is running. Otherwise the migration's removals would race with
-			// fresh inserts here, the map would never reach a steady state, and the
-			// migration would never terminate.
-			if <T as polkadot_sdk::frame_system::Config>::MultiBlockMigrator::ongoing() {
-				return;
-			}
-
 			let state = RelaychainDataProvider::<T>::current_relay_chain_state();
-			if !RelayChainStateCommitments::<T>::contains_key(state.number) {
-				RelayChainStateCommitments::<T>::insert(state.number, state.state_root);
+
+			if !CurrentRelayChainStateRoots::<T>::contains_key(state.number) {
+				CurrentRelayChainStateRoots::<T>::insert(state.number, state.state_root);
 
 				if OldestRetainedRelayBlock::<T>::get().is_none() {
 					OldestRetainedRelayBlock::<T>::put(state.number);
 				}
 
-				if RelayChainStateCommitments::<T>::count() > MAX_RELAY_STATE_COMMITMENTS {
+				if CurrentRelayChainStateRoots::<T>::count() > MAX_RELAY_STATE_COMMITMENTS {
 					Self::evict_oldest_relay_commitment(state.number);
 				}
 			}
+
+			// Remove up to LEGACY_DRAIN_BATCH_SIZE entries per block from the
+			// old unbounded RelayChainStateCommitments. Once empty, this loop
+			// becomes a single no-op iter_keys call per block.
+			Self::drain_legacy_commitments();
 		}
 
 		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-			// kill the storage, since this is the beginning of a new block.
 			ConsensusUpdated::<T>::kill();
 			let host = T::IsmpHost::default();
 			if let Err(_) =
@@ -251,8 +271,6 @@ pub mod pallet {
 				Pallet::<T>::initialize();
 			}
 
-			// Reserve worst-case `on_finalize` weight here since `on_finalize` can't
-			// return a `Weight` to the executive.
 			<T as pallet::Config>::WeightInfo::on_finalize_bound_relay_state_commitments()
 		}
 
@@ -321,15 +339,18 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-	pub(crate) fn evict_oldest_relay_commitment(current: relay_chain::BlockNumber) {
+	/// Evicts the oldest entry from [`CurrentRelayChainStateRoots`] and advances
+	/// [`OldestRetainedRelayBlock`]. Walks forward at most
+	/// [`RELAY_COMMITMENTS_MAX_WALK`] steps to skip gaps.
+	fn evict_oldest_relay_commitment(current: relay_chain::BlockNumber) {
 		let Some(mut cursor) = OldestRetainedRelayBlock::<T>::get() else {
 			return;
 		};
 
 		let mut steps: u32 = 0;
 		while steps < RELAY_COMMITMENTS_MAX_WALK && cursor < current {
-			if RelayChainStateCommitments::<T>::contains_key(cursor) {
-				RelayChainStateCommitments::<T>::remove(cursor);
+			if CurrentRelayChainStateRoots::<T>::contains_key(cursor) {
+				CurrentRelayChainStateRoots::<T>::remove(cursor);
 				OldestRetainedRelayBlock::<T>::put(cursor.saturating_add(1));
 				return;
 			}
@@ -338,6 +359,20 @@ impl<T: Config> Pallet<T> {
 		}
 
 		OldestRetainedRelayBlock::<T>::put(cursor);
+	}
+
+	/// Removes up to [`LEGACY_DRAIN_BATCH_SIZE`] entries from the old
+	/// [`RelayChainStateCommitments`] map. Called every block from
+	/// `on_finalize`. Once the legacy map is empty this is a single
+	/// `iter_keys` call that returns `None` immediately.
+	fn drain_legacy_commitments() {
+		for _ in 0..LEGACY_DRAIN_BATCH_SIZE {
+			if let Some(key) = RelayChainStateCommitments::<T>::iter_keys().next() {
+				RelayChainStateCommitments::<T>::remove(key);
+			} else {
+				break;
+			}
+		}
 	}
 
 	/// Returns the list of parachains who's consensus updates will be inserted by the inherent
@@ -379,7 +414,9 @@ pub trait RelayChainOracle {
 
 impl<T: Config> RelayChainOracle for Pallet<T> {
 	fn state_root(height: relay_chain::BlockNumber) -> Option<relay_chain::Hash> {
-		RelayChainStateCommitments::<T>::get(height)
+		// Try the new bounded map first, fall back to legacy for old heights
+		CurrentRelayChainStateRoots::<T>::get(height)
+			.or_else(|| RelayChainStateCommitments::<T>::get(height))
 	}
 }
 

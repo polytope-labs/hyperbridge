@@ -303,12 +303,14 @@ describe.skip("Filler V2 FX - Base mainnet same-chain swap", () => {
 				console.error(`[TIMEOUT] order.id: ${order.id}`)
 				console.error(`[TIMEOUT] On-chain fill status: ${onChainFilled}`)
 
-				reject(new Error(
-					`FILLED event not received within 2 minutes. ` +
-					`Statuses seen: [${allStatuses.join(", ")}]. ` +
-					`On-chain filled: ${onChainFilled}. ` +
-					`userOpHash: ${userOpHash}, selectedSolver: ${selectedSolver}`
-				))
+				reject(
+					new Error(
+						`FILLED event not received within 2 minutes. ` +
+							`Statuses seen: [${allStatuses.join(", ")}]. ` +
+							`On-chain filled: ${onChainFilled}. ` +
+							`userOpHash: ${userOpHash}, selectedSolver: ${selectedSolver}`,
+					),
+				)
 			}, FILL_TIMEOUT_MS)
 		})
 
@@ -1298,6 +1300,186 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 	}, 600_000)
 })
 
+describe.only("Filler V2 FX - BSC mainnet same-chain swap", () => {
+	it("Should place USDC->EXT order on BSC and fill on BSC using FX strategy only", async () => {
+		const {
+			bscIntentGatewayV2,
+			bscPublicClient,
+			bscWalletClient,
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			bscMainnetId,
+			contractService,
+		} = await setUpMainnetFxBsc()
+
+		const intentFiller = await createFxOnlyIntentFiller(
+			chainConfigs,
+			fillerConfig,
+			chainConfigService,
+			contractService,
+			bscMainnetId,
+		)
+		await intentFiller.initialize()
+		intentFiller.start()
+
+		const sourceUsdc = chainConfigService.getUsdcAsset(bscMainnetId)
+		const destExt = chainConfigService.getExtAsset(bscMainnetId)!
+
+		const sourceUsdcDecimals = await contractService.getTokenDecimals(sourceUsdc, bscMainnetId)
+		const destExtDecimals = await contractService.getTokenDecimals(destExt, bscMainnetId)
+		// BSC USDC is 18 decimals
+		const amountIn = parseUnits("0.01", sourceUsdcDecimals)
+
+		const inputs: TokenInfo[] = [{ token: bytes20ToBytes32(sourceUsdc), amount: amountIn }]
+
+		const requestedExtOut = parseUnits("0.006", destExtDecimals)
+		const outputs: TokenInfo[] = [{ token: bytes20ToBytes32(destExt), amount: requestedExtOut }]
+
+		const beneficiaryAddress = "0xdab14BdBF23d10F062eAA1a527cE2e9354E9e07F"
+		const beneficiary = bytes20ToBytes32(beneficiaryAddress)
+		const user = privateKeyToAccount(process.env.PRIVATE_KEY as HexString).address
+
+		// ~200 blocks ≈ 10 min on BSC (3s blocks)
+		const currentBlock = await bscPublicClient.getBlockNumber()
+		const deadline = currentBlock + 200n
+
+		let order: Order = {
+			user: bytes20ToBytes32(user),
+			source: toHex(bscMainnetId),
+			destination: toHex(bscMainnetId),
+			deadline,
+			nonce: 0n,
+			fees: 0n,
+			session: "0x0000000000000000000000000000000000000000" as HexString,
+			predispatch: { assets: [], call: "0x" as HexString },
+			inputs,
+			output: { beneficiary, assets: outputs, call: "0x" as HexString },
+		}
+
+		const intentsCoprocessor = await IntentsCoprocessor.connect(
+			process.env.HYPERBRIDGE_NEXUS!,
+			process.env.SECRET_PHRASE!,
+		)
+
+		const destBundlerUrl = chainConfigService.getBundlerUrl(bscMainnetId)
+		const bscEvmChain = EvmChain.fromParams({
+			chainId: 56,
+			host: chainConfigService.getHostAddress(bscMainnetId),
+			rpcUrl: chainConfigService.getRpcUrl(bscMainnetId),
+			bundlerUrl: destBundlerUrl,
+		})
+
+		const feeToken = await contractService.getFeeTokenWithDecimals(bscMainnetId)
+		await approveTokens(bscWalletClient, bscPublicClient, feeToken.address, bscIntentGatewayV2.address)
+		await approveTokens(bscWalletClient, bscPublicClient, sourceUsdc, bscIntentGatewayV2.address)
+
+		const userSdkHelper = await IntentGateway.create(bscEvmChain, bscEvmChain, intentsCoprocessor)
+
+		const gen = userSdkHelper.execute(order, DEFAULT_GRAFFITI, {
+			auctionTimeMs: 15_000,
+			pollIntervalMs: 5_000,
+		})
+
+		let result = await gen.next()
+		if (result.value?.status === "AWAITING_PLACE_ORDER") {
+			const { to, data, value } = result.value
+
+			const signedTx = (await bscWalletClient.signTransaction(
+				(await bscPublicClient.prepareTransactionRequest({
+					to,
+					data,
+					value: value ?? 0n,
+					account: bscWalletClient.account!,
+					chain: bscWalletClient.chain,
+				})) as any,
+			)) as HexString
+			result = await gen.next(signedTx)
+		}
+
+		let userOpHash: HexString | undefined
+		let selectedSolver: HexString | undefined
+		let sawFilled = false
+		const FILL_TIMEOUT_MS = 2 * 60 * 1000 // 2 minutes
+		const orderPlacedAt = Date.now()
+		const allStatuses: string[] = []
+
+		const timeoutPromise = new Promise<never>((_, reject) => {
+			setTimeout(async () => {
+				const onChainFilled = await checkIfOrderFilled(
+					order.id as HexString,
+					bscPublicClient,
+					chainConfigService.getIntentGatewayV2Address(bscMainnetId),
+				).catch(() => false)
+
+				console.error(`\n[TIMEOUT] FILLED event not received within ${FILL_TIMEOUT_MS / 1000}s`)
+				console.error(`[TIMEOUT] Statuses seen so far: ${JSON.stringify(allStatuses)}`)
+				console.error(`[TIMEOUT] userOpHash: ${userOpHash}`)
+				console.error(`[TIMEOUT] selectedSolver: ${selectedSolver}`)
+				console.error(`[TIMEOUT] order.id: ${order.id}`)
+				console.error(`[TIMEOUT] On-chain fill status: ${onChainFilled}`)
+
+				reject(
+					new Error(
+						`FILLED event not received within 2 minutes. ` +
+							`Statuses seen: [${allStatuses.join(", ")}]. ` +
+							`On-chain filled: ${onChainFilled}. ` +
+							`userOpHash: ${userOpHash}, selectedSolver: ${selectedSolver}`,
+					),
+				)
+			}, FILL_TIMEOUT_MS)
+		})
+
+		const drainGenerator = async () => {
+			while (!result.done) {
+				if (result.value && "status" in result.value) {
+					const status = result.value
+					allStatuses.push(status.status)
+					console.log(`[${((Date.now() - orderPlacedAt) / 1000).toFixed(1)}s] status:`, status.status, status)
+
+					if (status.status === "BID_SELECTED") {
+						selectedSolver = status.selectedSolver as HexString
+						userOpHash = status.userOpHash as HexString
+						if (status.transactionHash) {
+							console.log("Transaction hash:", status.transactionHash)
+						}
+					}
+					if (status.status === "FILLED") {
+						sawFilled = true
+						console.log("[FILLED] Order filled successfully!", {
+							commitment: status.commitment,
+							userOpHash: status.userOpHash,
+							transactionHash: status.transactionHash,
+							selectedSolver: status.selectedSolver,
+						})
+					}
+					if (status.status === "FAILED") {
+						throw new Error(`Order execution failed: ${status.error}`)
+					}
+				}
+				result = await gen.next()
+			}
+		}
+
+		await Promise.race([drainGenerator(), timeoutPromise])
+
+		expect(userOpHash).toBeDefined()
+		expect(selectedSolver).toBeDefined()
+		expect(sawFilled).toBe(true)
+		const isFilled = await pollForOrderFilled(
+			order.id as HexString,
+			bscPublicClient,
+			chainConfigService.getIntentGatewayV2Address(bscMainnetId),
+		)
+		expect(isFilled).toBe(true)
+
+		console.log(`[DONE] Order lifecycle completed in ${((Date.now() - orderPlacedAt) / 1000).toFixed(1)}s`)
+
+		await intentFiller.stop()
+		await intentsCoprocessor.disconnect()
+	}, 600_000)
+})
+
 describe.skip("Filler V2 FX - Arbitrum mainnet same-chain swap", () => {
 	it("Should place EXT->USDC order on Arbitrum and fill on Arbitrum using FX strategy only", async () => {
 		const {
@@ -1705,6 +1887,58 @@ async function setUpMainnetFxBase() {
 		chainConfigs,
 		chainClientManager,
 		signer,
+	}
+}
+
+async function setUpMainnetFxBsc() {
+	const bscMainnetId = "EVM-56"
+	const chains = [bscMainnetId]
+
+	const testChainConfigs: ResolvedChainConfig[] = [
+		{ chainId: 56, rpcUrl: process.env.BSC_MAINNET!, bundlerUrl: bundlerUrl(56) },
+	]
+
+	const fillerConfigForService: FillerServiceConfig = {
+		maxConcurrentOrders: 5,
+		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
+		substratePrivateKey: process.env.SECRET_PHRASE,
+	}
+
+	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
+	const chainConfigs: ChainConfig[] = chains.map((chain) => chainConfigService.getChainConfig(chain))
+
+	const fillerConfig: FillerConfig = {
+		maxConcurrentOrders: 5,
+		pendingQueueConfig: {
+			maxRechecks: 10,
+			recheckDelayMs: 30_000,
+		},
+	}
+
+	const privateKey = process.env.PRIVATE_KEY as HexString
+	const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })
+	const cacheService = new CacheService()
+	const chainClientManager = new ChainClientManager(chainConfigService, signer)
+	const contractService = new ContractInteractionService(chainClientManager, chainConfigService, signer, cacheService)
+
+	const bscWalletClient = chainClientManager.getWalletClient(bscMainnetId)
+	const bscPublicClient = chainClientManager.getPublicClient(bscMainnetId)
+
+	const bscIntentGatewayV2 = getContract({
+		address: chainConfigService.getIntentGatewayV2Address(bscMainnetId),
+		abi: INTENT_GATEWAY_V2_ABI,
+		client: { public: bscPublicClient, wallet: bscWalletClient },
+	})
+
+	return {
+		bscWalletClient,
+		bscPublicClient,
+		bscIntentGatewayV2,
+		contractService,
+		bscMainnetId,
+		chainConfigService,
+		fillerConfig,
+		chainConfigs,
 	}
 }
 

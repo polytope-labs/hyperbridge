@@ -11,6 +11,9 @@ importers:
       '@hyperbridge/core':
         specifier: ^1.6.0
         version: 1.6.0
+      '@openzeppelin/community-contracts':
+        specifier: github:OpenZeppelin/openzeppelin-community-contracts#9e1baed
+        version: https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed
       '@openzeppelin/contracts':
         specifier: ^5.4.0
         version: 5.4.0
@@ -202,6 +205,10 @@ packages:
     resolution: {integrity: sha512-q4n32/FNKIhQ3zQGGw5CvPF6GTvDCpYwIf7bEY/dZTZbgfDsHyjJwURxUJf3VQuuJj+fDIFl4+KkBVbw4Ef6jA==}
     engines: {node: '>= 12'}
 
+  '@openzeppelin/community-contracts@https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed':
+    resolution: {tarball: https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed}
+    version: 0.0.1
+
   '@openzeppelin/contracts@3.4.2-solc-0.7':
     resolution: {integrity: sha512-W6QmqgkADuFcTLzHL8vVoNBtkwjvQRpYIAom7KiUNoLKghyx3FgH0GBjt8NRvigV1ZmMOBllvE1By1C+bi8WpA==}
 
@@ -210,6 +217,9 @@ packages:
 
   '@openzeppelin/contracts@5.4.0':
     resolution: {integrity: sha512-eCYgWnLg6WO+X52I16TZt8uEjbtdkgLC0SUX/xnAksjjrQI4Xfn4iBRoI5j55dmlOhDv1Y7BoR3cU7e3WWhC6A==}
+
+  '@openzeppelin/contracts@5.6.1':
+    resolution: {integrity: sha512-Ly6SlsVJ3mj+b18W3R8gNufB7dTICT105fJhodGAGgyC2oqnBAhqSiNDJ8V8DLY05cCz81GLI0CU5vNYA1EC/w==}
 
   '@polytope-labs/solidity-merkle-trees@0.3.4':
     resolution: {integrity: sha512-ldLirdWNd7qNi8iRfpwlHCwy/FrVMd5wbsu9qVxx/IyOnbQnzzU816AfL3Zn01iN8DhB5UFLMkQ/HmF+VOLGFA==}
@@ -1102,7 +1112,7 @@ snapshots:
 
   '@hyperbridge/core@1.6.0':
     dependencies:
-      '@openzeppelin/contracts': 5.4.0
+      '@openzeppelin/contracts': 5.6.1
       '@polytope-labs/solidity-merkle-trees': 0.3.4
       prettier: 3.7.4
       prettier-plugin-solidity: 1.4.3(prettier@3.7.4)
@@ -1178,11 +1188,15 @@ snapshots:
       '@nomicfoundation/solidity-analyzer-linux-x64-musl': 0.1.2
       '@nomicfoundation/solidity-analyzer-win32-x64-msvc': 0.1.2
 
+  '@openzeppelin/community-contracts@https://codeload.github.com/OpenZeppelin/openzeppelin-community-contracts/tar.gz/9e1baed': {}
+
   '@openzeppelin/contracts@3.4.2-solc-0.7': {}
 
   '@openzeppelin/contracts@5.0.2': {}
 
   '@openzeppelin/contracts@5.4.0': {}
+
+  '@openzeppelin/contracts@5.6.1': {}
 
   '@polytope-labs/solidity-merkle-trees@0.3.4':
     dependencies:
@@ -1192,7 +1206,7 @@ snapshots:
 
   '@polytope-labs/solidity-merkle-trees@0.4.0':
     dependencies:
-      '@openzeppelin/contracts': 5.4.0
+      '@openzeppelin/contracts': 5.6.1
       prettier: 3.7.4
       prettier-plugin-solidity: 1.4.3(prettier@3.7.4)
 

@@ -308,8 +308,6 @@ export class FillerConfigService {
 		return this.fillerConfig?.gasFeeBump
 	}
 
-
-
 	/**
 	 * Get the LayerZero Endpoint ID for the chain
 	 * Used for USDT0 cross-chain transfers via LayerZero OFT

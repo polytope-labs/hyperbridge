@@ -1,147 +1,254 @@
-import { encodePacked, maxUint256, getContract, erc20Abi, type PublicClient } from "viem"
+import { encodePacked, maxUint256, getContract, erc20Abi, type PublicClient, type WalletClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { EIP2612_ABI } from "@/config/abis/EIP2612"
+import type { FillerConfigService } from "@/services/FillerConfigService"
 
 // ── Constants ────────────────────────────────────────────────────────
 
-/**
- * Recommended gas limits from Circle's documentation.
- * These are safe upper bounds — actual usage is typically lower.
- * Unused gas is not charged.
- */
-export const PAYMASTER_VERIFICATION_GAS_LIMIT = 200_000n
+export const PAYMASTER_VERIFICATION_GAS_LIMIT_PERMIT = 250_000n
+export const PAYMASTER_VERIFICATION_GAS_LIMIT_APPROVE = 150_000n
 export const PAYMASTER_POST_OP_GAS_LIMIT = 100_000n
+
+/** Capped approval amount for non-permit tokens ($100) */
+const APPROVAL_CAP_USD = 100n
+/** Threshold below which we top up the approval ($10) */
+const APPROVAL_THRESHOLD_USD = 10n
 
 // ── Types ────────────────────────────────────────────────────────────
 
 export interface PaymasterResult {
-	/** Circle Paymaster contract address */
 	paymaster: HexString
-	/** ABI-packed paymaster data (mode + token + permitAmount + permitSig) */
 	paymasterData: HexString
-	/** Gas limit for paymaster verification phase */
 	paymasterVerificationGasLimit: bigint
-	/** Gas limit for paymaster postOp phase */
 	paymasterPostOpGasLimit: bigint
 }
 
-export interface CirclePaymasterConfig {
-	/** USDC contract address on the destination chain (from config service) */
-	usdcAddress: HexString
-	/** Circle Paymaster contract address on the destination chain (from config service) */
-	paymasterAddress: HexString
-	/** Chain ID of the destination chain */
-	chainId: number
-	/** USDC decimal count on this chain (from config service) */
-	usdcDecimals: number
-	/** Max USDC the paymaster may pull (human units $10). Computed from decimals if omitted. */
-	permitAmount?: bigint
+interface TokenOption {
+	address: HexString
+	decimals: number
 }
 
-// ── Core integration ─────────────────────────────────────────────────
+// ── Main entry point ─────────────────────────────────────────────────
 
 /**
- * Computes the default permit amount ($5 worth of USDC) for the given decimals.
- * This is a max-spend cap per UserOp, not the actual charge.
- * The paymaster charges actual gas cost and refunds the rest.
+ * Self-contained paymaster data builder for SimplexPaymaster.
+ *
+ * Resolves USDC/USDT token addresses from the config service, then:
+ * 1. Selects the first token with ≥1 balance (priority: USDC → USDT)
+ * 2. If the token supports EIP-2612 permit → signs permit, encodes PERMIT mode
+ * 3. If not → ensures a capped on-chain approval exists, encodes APPROVE mode
+ *
+ * @param client          Public client for reading balances/allowances
+ * @param walletClient    Wallet client for sending approve tx (only for non-permit tokens)
+ * @param signer          Signer with signTypedData capability (for permit)
+ * @param solverAccount   The solver's smart account address
+ * @param paymasterAddress SimplexPaymaster contract address
+ * @param chain           State machine ID (e.g. "EVM-8453")
+ * @param configService   Config service to resolve token addresses and decimals
  */
-function defaultPermitAmount(usdcDecimals: number): bigint {
-	return 5n * 10n ** BigInt(usdcDecimals)
+export async function buildPaymasterData(
+	client: PublicClient,
+	walletClient: WalletClient,
+	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
+	solverAccount: HexString,
+	paymasterAddress: HexString,
+	chain: string,
+	configService: FillerConfigService,
+): Promise<PaymasterResult> {
+	const chainId = configService.getChainId(chain)
+
+	// ── Resolve tokens from config ───────────────────────────────────
+	const tokens: TokenOption[] = []
+
+	const usdcAddress = configService.getUsdcAsset(chain)
+	const usdcDecimals = configService.getUsdcDecimals(chain)
+	if (usdcAddress) {
+		tokens.push({ address: usdcAddress, decimals: usdcDecimals })
+	}
+
+	const usdtAddress = configService.getUsdtAsset(chain)
+	const usdtDecimals = configService.getUsdtDecimals(chain)
+	if (usdtAddress) {
+		tokens.push({ address: usdtAddress, decimals: usdtDecimals })
+	}
+
+	// ── 1. Select token by balance ───────────────────────────────────
+	const selected = await selectToken(client, solverAccount, tokens)
+	if (!selected) {
+		throw new Error(
+			`SimplexPaymaster: solver ${solverAccount} has insufficient balance in all configured tokens ` +
+				`(${tokens.map((t) => t.address).join(", ")}). Need ≥1 token in at least one.`,
+		)
+	}
+
+	const { address: tokenAddress, decimals: tokenDecimals } = selected
+	const permitAmount = defaultPermitAmount(tokenDecimals)
+
+	// ── 2. Check permit support ──────────────────────────────────────
+	const hasPermit = await tokenSupportsPermit(client, tokenAddress)
+
+	if (hasPermit) {
+		return buildPermitMode(client, signer, solverAccount, paymasterAddress, tokenAddress, permitAmount, chainId)
+	}
+
+	// ── 3. Approve mode: ensure capped allowance ─────────────────────
+	await ensureCappedApproval(client, walletClient, solverAccount, paymasterAddress, tokenAddress, tokenDecimals)
+
+	const paymasterData = encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString
+
+	return {
+		paymaster: paymasterAddress,
+		paymasterData,
+		paymasterVerificationGasLimit: PAYMASTER_VERIFICATION_GAS_LIMIT_APPROVE,
+		paymasterPostOpGasLimit: PAYMASTER_POST_OP_GAS_LIMIT,
+	}
 }
 
-/**
- * Builds the paymaster fields for a PackedUserOperation using Circle Paymaster v0.8.
- *
- * Flow:
- * 1. Signs an EIP-2612 permit granting the Circle Paymaster an allowance
- *    to pull up to `permitAmount` USDC from the solver's smart account.
- * 2. Encodes the paymaster data as:
- *    `abi.encodePacked(uint8(0), address(usdc), uint256(permitAmount), bytes(permitSig))`
- * 3. Returns the paymaster address, encoded data, and gas limits.
- *
- * The permit uses `deadline = maxUint256` because the paymaster contract
- * cannot access `block.timestamp` due to ERC-4337 opcode restrictions.
- *
- * Use `packPaymasterAndData(result)` to produce the final `paymasterAndData`
- * bytes for the PackedUserOperation.
- *
- * @param client - Public client for reading USDC contract state (nonces, name, version).
- * @param signer - The solver's signer, capable of EIP-712 signTypedData.
- * @param solverAccount - The solver's smart account address (the "owner" in permit terms).
- * @param config - Chain-specific addresses, decimals, chain ID, and optional permit amount.
- */
-export async function buildCirclePaymasterData(
+// ── Token selection ──────────────────────────────────────────────────
+
+async function selectToken(
+	client: PublicClient,
+	solverAccount: HexString,
+	tokens: TokenOption[],
+): Promise<TokenOption | null> {
+	for (const token of tokens) {
+		const balance = (await client.readContract({
+			address: token.address,
+			abi: erc20Abi,
+			functionName: "balanceOf",
+			args: [solverAccount],
+		})) as bigint
+
+		const minBalance = 10n ** BigInt(token.decimals)
+		if (balance >= minBalance) {
+			return token
+		}
+	}
+	return null
+}
+
+// ── Permit mode ──────────────────────────────────────────────────────
+
+async function buildPermitMode(
 	client: PublicClient,
 	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
 	solverAccount: HexString,
-	config: CirclePaymasterConfig,
+	paymasterAddress: HexString,
+	tokenAddress: HexString,
+	permitAmount: bigint,
+	chainId: number,
 ): Promise<PaymasterResult> {
-	const {
-		usdcAddress,
-		paymasterAddress,
-		chainId,
-		usdcDecimals,
-		permitAmount = defaultPermitAmount(usdcDecimals),
-	} = config
-
-	// The paymaster contract skips the permit section when paymasterData is
-	// shorter than PAYMASTER_PERMIT_SIGNATURE_OFFSET and goes straight to transferFrom.
+	// Check existing allowance — skip permit if already sufficient
 	const existingAllowance = (await client.readContract({
-		address: usdcAddress,
+		address: tokenAddress,
 		abi: erc20Abi,
 		functionName: "allowance",
 		args: [solverAccount, paymasterAddress],
 	})) as bigint
 
 	if (existingAllowance >= permitAmount) {
-		// No permit data needed — paymaster will use existing allowance
-		const paymasterData = encodePacked(["uint8"], [0]) as HexString
+		const paymasterData = encodePacked(["uint8", "address"], [1, tokenAddress]) as HexString
 		return {
 			paymaster: paymasterAddress,
 			paymasterData,
-			paymasterVerificationGasLimit: PAYMASTER_VERIFICATION_GAS_LIMIT,
+			paymasterVerificationGasLimit: PAYMASTER_VERIFICATION_GAS_LIMIT_APPROVE,
 			paymasterPostOpGasLimit: PAYMASTER_POST_OP_GAS_LIMIT,
 		}
 	}
 
-	const permitSignature = await signUsdcPermit(
+	const permitSignature = await signTokenPermit(
 		client,
 		signer,
 		solverAccount,
 		paymasterAddress,
-		usdcAddress,
+		tokenAddress,
 		permitAmount,
 		chainId,
 	)
 
-	// Encode paymasterData: mode(0) + token + permitAmount + permitSignature
+	const r = `0x${permitSignature.slice(2, 66)}` as HexString
+	const s = `0x${permitSignature.slice(66, 130)}` as HexString
+	const v = parseInt(permitSignature.slice(130, 132), 16)
+
 	const paymasterData = encodePacked(
-		["uint8", "address", "uint256", "bytes"],
-		[0, usdcAddress, permitAmount, permitSignature],
+		["uint8", "address", "uint256", "uint256", "uint8", "bytes32", "bytes32"],
+		[0, tokenAddress, permitAmount, maxUint256, v, r, s],
 	) as HexString
 
 	return {
 		paymaster: paymasterAddress,
 		paymasterData,
-		paymasterVerificationGasLimit: PAYMASTER_VERIFICATION_GAS_LIMIT,
+		paymasterVerificationGasLimit: PAYMASTER_VERIFICATION_GAS_LIMIT_PERMIT,
 		paymasterPostOpGasLimit: PAYMASTER_POST_OP_GAS_LIMIT,
+	}
+}
+
+// ── Approve mode: capped on-chain approval ───────────────────────────
+
+async function ensureCappedApproval(
+	client: PublicClient,
+	walletClient: WalletClient,
+	solverAccount: HexString,
+	paymasterAddress: HexString,
+	tokenAddress: HexString,
+	tokenDecimals: number,
+): Promise<void> {
+	const currentAllowance = (await client.readContract({
+		address: tokenAddress,
+		abi: erc20Abi,
+		functionName: "allowance",
+		args: [solverAccount, paymasterAddress],
+	})) as bigint
+
+	const threshold = APPROVAL_THRESHOLD_USD * 10n ** BigInt(tokenDecimals)
+
+	if (currentAllowance >= threshold) {
+		return
+	}
+
+	const approvalAmount = APPROVAL_CAP_USD * 10n ** BigInt(tokenDecimals)
+
+	const hash = await walletClient.writeContract({
+		address: tokenAddress,
+		abi: erc20Abi,
+		functionName: "approve",
+		args: [paymasterAddress, approvalAmount],
+		chain: walletClient.chain,
+		account: walletClient.account!,
+	})
+
+	await client.waitForTransactionReceipt({ hash, confirmations: 1 })
+}
+
+// ── EIP-2612 support detection ───────────────────────────────────────
+
+async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString): Promise<boolean> {
+	try {
+		await client.readContract({
+			address: tokenAddress,
+			abi: [{ inputs: [], name: "version", outputs: [{ type: "string" }], stateMutability: "view", type: "function" }],
+			functionName: "version",
+		})
+		return true
+	} catch {
+		return false
 	}
 }
 
 // ── EIP-2612 Permit signing ──────────────────────────────────────────
 
-async function signUsdcPermit(
+async function signTokenPermit(
 	client: PublicClient,
 	signer: { signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString> },
 	owner: HexString,
 	spender: HexString,
-	usdcAddress: HexString,
+	tokenAddress: HexString,
 	value: bigint,
 	chainId: number,
 ): Promise<HexString> {
 	const token = getContract({
 		client,
-		address: usdcAddress,
+		address: tokenAddress,
 		abi: EIP2612_ABI,
 	})
 
@@ -172,14 +279,13 @@ async function signUsdcPermit(
 			name,
 			version,
 			chainId,
-			verifyingContract: usdcAddress,
+			verifyingContract: tokenAddress,
 		},
 		message: {
 			owner,
 			spender,
 			value,
 			nonce,
-			// maxUint256: paymaster can't read block.timestamp (ERC-4337 opcode restriction)
 			deadline: maxUint256,
 		},
 	}
@@ -187,16 +293,17 @@ async function signUsdcPermit(
 	return signer.signTypedData(typedData, chainId)
 }
 
-// ── Helper: pack paymaster fields into paymasterAndData ──────────────
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function defaultPermitAmount(tokenDecimals: number): bigint {
+	return 10n * 10n ** BigInt(tokenDecimals) // $10 cap
+}
 
 /**
  * For EntryPoint v0.8, the `paymasterAndData` field in PackedUserOperation
  * is encoded as:
  *   paymaster (20 bytes) || paymasterVerificationGasLimit (uint128, 16 bytes)
  *   || paymasterPostOpGasLimit (uint128, 16 bytes) || paymasterData (variable)
- *
- * Use this helper to produce the final packed bytes from a PaymasterResult,
- * then pass the result as `paymasterAndData` in `SubmitBidOptions`.
  */
 export function packPaymasterAndData(pm: PaymasterResult): HexString {
 	return encodePacked(

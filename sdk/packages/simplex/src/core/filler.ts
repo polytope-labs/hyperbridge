@@ -126,20 +126,14 @@ export class IntentFiller {
 			}
 
 			// Ensure EntryPoint deposit covers target gas units on chains
-			// that do NOT have a Circle Paymaster configured (e.g. BSC).
-			// Chains with a paymaster address pay gas in USDC instead.
+			// that do NOT have a SimplexPaymaster configured.
+			// Chains with a paymaster address pay gas in ERC-20 tokens instead.
+			// Paymaster approval is handled per-order inside buildPaymasterData().
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
 				const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
 				if (paymasterAddress) {
-					this.logger.info({ chain }, "Skipping EntryPoint deposit — Circle Paymaster available")
-					// Ensure solver has max USDC allowance to the paymaster so that
-					// per-bid permit signing is never needed (saves ~2-10s for MPC signers).
-					try {
-						await this.contractService.ensurePaymasterApproval(chain, paymasterAddress)
-					} catch (err) {
-						this.logger.warn({ chain, err }, "Failed to ensure paymaster USDC approval")
-					}
+					this.logger.info({ chain }, "Skipping EntryPoint deposit — SimplexPaymaster available")
 					continue
 				}
 				try {
@@ -592,7 +586,7 @@ export class IntentFiller {
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
 		// Top up EntryPoint deposit if we were the filler, but only on chains
-		// without Circle Paymaster (paymaster chains pay gas in USDC).
+		// without SimplexPaymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
 			if (!this.configService.getCirclePaymasterV08Address(chain)) {

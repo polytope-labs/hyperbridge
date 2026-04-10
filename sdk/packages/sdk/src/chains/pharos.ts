@@ -90,22 +90,11 @@ class EvmHttpRpc {
 	}
 }
 
-/** Pad a hex-encoded key to exactly 32 bytes, big-endian (mirrors the Rust tesseract client). */
-function padStorageKey(hex: string): Uint8Array {
+/** Pad a hex-encoded value to exactly 32 bytes, big-endian (mirrors the Rust tesseract client). */
+function padTo32Bytes(hex: string): Uint8Array {
 	const bytes = hexToBytes(hex as HexString)
 	if (bytes.length > 32) {
-		throw new Error(`Pharos storage key exceeds 32 bytes: ${hex}`)
-	}
-	const out = new Uint8Array(32)
-	out.set(bytes, 32 - bytes.length)
-	return out
-}
-
-/** Pad a hex-encoded storage value to exactly 32 bytes, big-endian. */
-function padStorageValue(hex: string): Uint8Array {
-	const bytes = hexToBytes(hex as HexString)
-	if (bytes.length > 32) {
-		throw new Error(`Pharos storage value exceeds 32 bytes: ${hex}`)
+		throw new Error(`Pharos value exceeds 32 bytes: ${hex}`)
 	}
 	const out = new Uint8Array(32)
 	out.set(bytes, 32 - bytes.length)
@@ -264,10 +253,10 @@ export class PharosChain implements IChain {
 		])
 
 		for (const sp of rpcProof.storageProof) {
-			const slotKey = hexKey(padStorageKey(sp.key))
+			const slotKey = hexKey(padTo32Bytes(sp.key))
 			if (sp.isExist) {
 				acc.storageProof.set(slotKey, rpcToProofNodes(sp.proof))
-				acc.storageValues.set(slotKey, Array.from(padStorageValue(sp.value)))
+				acc.storageValues.set(slotKey, Array.from(padTo32Bytes(sp.value)))
 			} else {
 				acc.nonExistenceProofs.set(slotKey, {
 					proofNodes: rpcToProofNodes(sp.proof),

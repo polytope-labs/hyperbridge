@@ -74,8 +74,8 @@ export class BidManager {
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
 		)
 
-		const accountGasLimits = this.crypto.packGasLimits(verificationGasLimit, callGasLimit)
-		const gasFees = this.crypto.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
+		const accountGasLimits = CryptoUtils.packGasLimits(verificationGasLimit, callGasLimit)
+		const gasFees = CryptoUtils.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
 
 		const userOp: PackedUserOperation = {
 			sender: solverAccount,
@@ -89,7 +89,7 @@ export class BidManager {
 			signature: "0x" as HexString,
 		}
 
-		const userOpHash = this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
+		const userOpHash = CryptoUtils.computeUserOpHash(userOp, entryPointAddress, chainId)
 		const sessionKey = order.session
 
 		const messageHash = keccak256(concat([userOpHash, order.id as HexString, sessionKey as HexString]))
@@ -154,7 +154,7 @@ export class BidManager {
 			hexToString(order.destination as HexString),
 		)
 
-		const domainSeparator = this.crypto.getDomainSeparator(
+		const domainSeparator = CryptoUtils.getDomainSeparator(
 			"IntentGateway",
 			"2",
 			BigInt(
@@ -172,7 +172,7 @@ export class BidManager {
 			const solverAddress = bidWithOptions.bid.userOp.sender
 			console.log(`[BidManager] Simulating bid ${idx + 1}/${sortedBids.length} from solver=${solverAddress}`)
 
-			const signature = await this.crypto.signSolverSelection(
+			const signature = await CryptoUtils.signSolverSelection(
 				commitment,
 				solverAddress,
 				domainSeparator,
@@ -229,7 +229,7 @@ export class BidManager {
 		)
 
 		const bundlerResult = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
-			this.crypto.prepareBundlerCall(signedUserOp),
+			CryptoUtils.prepareBundlerCall(signedUserOp),
 			entryPointAddress,
 		])
 

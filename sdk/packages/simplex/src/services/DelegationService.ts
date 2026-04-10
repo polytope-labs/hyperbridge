@@ -1,9 +1,11 @@
 import type { HexString } from "@hyperbridge/sdk"
+import { CryptoUtils, BundlerMethod } from "@hyperbridge/sdk"
 import { concat, keccak256, toHex, toRlp, zeroAddress } from "viem"
 import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
 import type { SigningAccount } from "./wallet"
+import { buildPaymasterData, packPaymasterAndData } from "./paymaster/circle"
 
 /** EIP-7702 delegation indicator prefix */
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
@@ -11,9 +13,27 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 /** Floor for set-code (0x04) txs; L2s like Arbitrum reject viem's default ~94k with "intrinsic gas too low". */
 const DELEGATION_TX_GAS_FLOOR = 350_000n
 
+const ENTRYPOINT_GET_NONCE_ABI = [
+	{
+		inputs: [
+			{ name: "sender", type: "address" },
+			{ name: "key", type: "uint192" },
+		],
+		name: "getNonce",
+		outputs: [{ name: "nonce", type: "uint256" }],
+		stateMutability: "view",
+		type: "function",
+	},
+] as const
+
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
  * This enables the filler to participate in solver selection mode.
+ *
+ * When a SimplexPaymaster is configured, delegation is performed via a no-op UserOp
+ * sent through the bundler — the paymaster pays gas in ERC-20 tokens, so the solver
+ * never needs native tokens. Falls back to a direct type-0x04 tx if the bundler
+ * path is unavailable.
  */
 export class DelegationService {
 	private logger = getLogger("delegation-service")
@@ -29,9 +49,14 @@ export class DelegationService {
 		return keccak256(concat(["0x05", encoded])) as HexString
 	}
 
+	/**
+	 * @param viaBundler When true, uses the current nonce (bundler submits the tx).
+	 *                   When false, uses nonce+1 (EOA submits the type-0x04 tx itself).
+	 */
 	private async buildAuthorization(
 		chain: string,
 		contractAddress: HexString,
+		viaBundler = false,
 	): Promise<{
 		chainId: number
 		address: HexString
@@ -45,10 +70,9 @@ export class DelegationService {
 		const authorityAddress = this.signer.account.address as HexString
 		const currentNonce = await publicClient.getTransactionCount({
 			address: authorityAddress,
-			blockTag: "pending",
+			blockTag: "latest",
 		})
-		// EIP-7702 auth nonce must be authority tx nonce + 1 when authority submits the type-0x04 tx.
-		const authorizationNonce = currentNonce + 1
+		const authorizationNonce = viaBundler ? currentNonce : currentNonce + 1
 		const authHash = this.computeAuthorizationHash(chainId, contractAddress, Number(authorizationNonce))
 		const { r, s, yParity } = await this.signer.signRawHash(authHash)
 
@@ -89,9 +113,6 @@ export class DelegationService {
 
 	/**
 	 * Checks if the filler's EOA is already delegated to the SolverAccount contract on a specific chain.
-	 *
-	 * @param chain - The chain identifier (e.g., "EVM-1")
-	 * @returns True if delegated, false otherwise
 	 */
 	async isDelegated(chain: string): Promise<boolean> {
 		const client = this.clientManager.getPublicClient(chain)
@@ -103,17 +124,14 @@ export class DelegationService {
 		}
 
 		try {
-			// Get the code at the filler's EOA address
 			const code = await client.getCode({ address: account.address })
 
 			if (!code || code === "0x") {
 				return false
 			}
 
-			// Check if code starts with delegation indicator (0xef0100 + address)
-			// EIP-7702 sets code to: 0xef0100 || delegate_address (23 bytes total)
 			if (code.toLowerCase().startsWith(DELEGATION_INDICATOR_PREFIX)) {
-				const delegatedTo = ("0x" + code.slice(8)) as HexString // Skip "0xef0100"
+				const delegatedTo = ("0x" + code.slice(8)) as HexString
 				const isCorrectDelegate = delegatedTo.toLowerCase() === solverAccountContract.toLowerCase()
 
 				this.logger.debug(
@@ -132,11 +150,140 @@ export class DelegationService {
 	}
 
 	/**
+	 * Sets up EIP-7702 delegation via the bundler with a no-op UserOp.
+	 * The SimplexPaymaster pays gas in ERC-20 tokens — no native token needed.
+	 */
+	private async setupDelegationViaBundler(chain: string): Promise<boolean> {
+		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
+		const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+		const entryPointAddress = this.configService.getEntryPointAddress(chain)
+		const bundlerUrl = this.configService.getBundlerUrl(chain)
+
+		if (!solverAccountContract || !paymasterAddress || !entryPointAddress || !bundlerUrl) {
+			this.logger.warn({ chain }, "Missing config for bundler-based delegation, falling back to direct tx")
+			return false
+		}
+
+		const publicClient = this.clientManager.getPublicClient(chain)
+		const walletClient = this.clientManager.getWalletClient(chain)
+		const solverAccount = this.signer.account.address as HexString
+		const chainId = this.configService.getChainId(chain)
+
+		try {
+			// 1. Build EIP-7702 authorization (bundler submits tx, so use current nonce)
+			const authorization = await this.buildAuthorization(chain, solverAccountContract, true)
+
+			this.logger.info(
+				{ chain, solverAccount, solverAccountContract, mode: "bundler" },
+				"Setting up EIP-7702 delegation via bundler with paymaster",
+			)
+
+			// 2. Build paymaster data (force APPROVE mode — during delegation the EOA
+			//    may not have code yet for ERC-1271, so permit() would fail)
+			const pm = await buildPaymasterData(
+				publicClient,
+				walletClient,
+				this.signer,
+				solverAccount,
+				paymasterAddress,
+				chain,
+				this.configService,
+				true, // forceApproveMode
+			)
+			const paymasterAndData = packPaymasterAndData(pm)
+
+			// 3. Get gas prices from bundler
+			const gasPriceResult = await this.sendBundlerRpc<{
+				fast: { maxFeePerGas: string; maxPriorityFeePerGas: string }
+			}>(bundlerUrl, BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE, [])
+
+			const maxFeePerGas = BigInt(gasPriceResult.fast.maxFeePerGas)
+			const maxPriorityFeePerGas = BigInt(gasPriceResult.fast.maxPriorityFeePerGas)
+
+			// 4. Get nonce from EntryPoint (key = 0 for delegation UserOps)
+			const nonce = (await publicClient.readContract({
+				address: entryPointAddress,
+				abi: ENTRYPOINT_GET_NONCE_ABI,
+				functionName: "getNonce",
+				args: [solverAccount, 0n],
+			})) as bigint
+
+			// 5. Build minimal no-op UserOp
+			const verificationGasLimit = 150_000n
+			const callGasLimit = 50_000n
+			const preVerificationGas = 100_000n
+			const accountGasLimits = CryptoUtils.packGasLimits(verificationGasLimit, callGasLimit)
+			const gasFees = CryptoUtils.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
+
+			const userOp = {
+				sender: solverAccount,
+				nonce,
+				initCode: "0x" as HexString,
+				callData: "0x" as HexString,
+				accountGasLimits,
+				preVerificationGas,
+				gasFees,
+				paymasterAndData,
+				signature: "0x" as HexString,
+			}
+
+			// 6. Compute UserOp hash (EIP-712) and sign with raw ECDSA (no eth prefix)
+			//    SolverAccount._rawSignatureValidation expects ECDSA.recover(userOpHash, sig) == address(this)
+			const userOpHash = CryptoUtils.computeUserOpHash(
+				userOp,
+				entryPointAddress as `0x${string}`,
+				BigInt(chainId),
+			)
+			const { r, s, yParity } = await this.signer.signRawHash(userOpHash as HexString)
+			const v = yParity === 0 ? 27 : 28
+			userOp.signature = concat([r, s, toHex(v)]) as HexString
+
+			// 7. Prepare bundler call format using CryptoUtils
+			const bundlerUserOp = CryptoUtils.prepareBundlerCall(userOp)
+
+			// 8. Attach EIP-7702 authorization inside the UserOp object for Pimlico
+			bundlerUserOp.eip7702Auth = {
+				address: authorization.address,
+				chainId: toHex(authorization.chainId),
+				nonce: toHex(authorization.nonce),
+				r: authorization.r,
+				s: authorization.s,
+				yParity: toHex(authorization.yParity),
+			}
+
+			// 9. Send to bundler: eth_sendUserOperation(userOp, entryPoint)
+			const userOpHashResult = await this.sendBundlerRpc<HexString>(
+				bundlerUrl,
+				BundlerMethod.ETH_SEND_USER_OPERATION,
+				[bundlerUserOp, entryPointAddress],
+			)
+
+			this.logger.info({ chain, userOpHash: userOpHashResult }, "Delegation UserOp submitted to bundler")
+
+			// 10. Wait for receipt
+			const receipt = await this.waitForUserOpReceipt(bundlerUrl, userOpHashResult)
+
+			if (receipt) {
+				this.logger.info(
+					{ chain, txHash: receipt.receipt?.transactionHash },
+					"Delegation via bundler successful — paymaster paid gas",
+				)
+				return true
+			}
+
+			this.logger.warn({ chain }, "Delegation UserOp receipt not received, checking on-chain status")
+			return this.isDelegated(chain)
+		} catch (error) {
+			this.logger.warn({ chain, error }, "Bundler delegation failed, will fall back to direct tx")
+			return false
+		}
+	}
+
+	/**
 	 * Sets up EIP-7702 delegation from the filler's EOA to the SolverAccount contract.
-	 * This is required for solver selection mode to work.
 	 *
-	 * @param chain - The chain identifier to set up delegation on
-	 * @returns True if delegation was successful or already in place
+	 * Tries bundler path first (paymaster pays gas in ERC-20).
+	 * Falls back to direct type-0x04 tx if bundler path fails.
 	 */
 	async setupDelegation(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
@@ -146,24 +293,26 @@ export class DelegationService {
 			return false
 		}
 
-		// Check if already delegated
 		if (await this.isDelegated(chain)) {
 			this.logger.info({ chain }, "EOA already delegated to SolverAccount")
 			return true
 		}
 
+		// Try bundler path first (paymaster pays gas)
+		const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
+		if (paymasterAddress) {
+			const success = await this.setupDelegationViaBundler(chain)
+			if (success) return true
+			this.logger.info({ chain }, "Falling back to direct delegation tx")
+		}
+
+		// Fallback: direct type-0x04 transaction (requires native token)
 		const publicClient = this.clientManager.getPublicClient(chain)
-		const authority = this.signer.account
 
 		try {
 			this.logger.info(
-				{
-					chain,
-					authority: authority.address,
-					solverAccountContract,
-					mode: this.signer.mode,
-				},
-				"Setting up EIP-7702 delegation",
+				{ chain, authority: this.signer.account.address, solverAccountContract, mode: this.signer.mode },
+				"Setting up EIP-7702 delegation via direct tx",
 			)
 
 			const authorization = await this.buildAuthorization(chain, solverAccountContract)
@@ -171,7 +320,6 @@ export class DelegationService {
 
 			this.logger.info({ chain, txHash: hash }, "Delegation transaction sent")
 
-			// Wait for confirmation
 			const receipt = await publicClient.waitForTransactionReceipt({ hash })
 
 			if (receipt.status === "success") {
@@ -189,9 +337,6 @@ export class DelegationService {
 
 	/**
 	 * Sets up delegation on the specified chains where solver selection is active.
-	 *
-	 * @param chains - Array of chain identifiers (e.g., ["EVM-1", "EVM-137"])
-	 * @returns Object with results per chain
 	 */
 	async setupDelegationOnChains(chains: string[]): Promise<{ success: boolean; results: Record<string, boolean> }> {
 		const results: Record<string, boolean> = {}
@@ -215,18 +360,13 @@ export class DelegationService {
 
 	/**
 	 * Revokes delegation by delegating to the zero address.
-	 * This restores the EOA to a normal (non-delegated) state.
-	 *
-	 * @param chain - The chain identifier
-	 * @returns True if revocation was successful
 	 */
 	async revokeDelegation(chain: string): Promise<boolean> {
-		const authority = this.signer.account
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		try {
 			this.logger.info(
-				{ chain, authority: authority.address, mode: this.signer.mode },
+				{ chain, authority: this.signer.account.address, mode: this.signer.mode },
 				"Revoking EIP-7702 delegation",
 			)
 
@@ -245,5 +385,45 @@ export class DelegationService {
 			this.logger.error({ chain, error }, "Failed to revoke delegation")
 			return false
 		}
+	}
+
+	// ── Helpers ──────────────────────────────────────────────────────
+
+	private async sendBundlerRpc<T>(bundlerUrl: string, method: string, params: unknown[]): Promise<T> {
+		const response = await fetch(bundlerUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+		})
+
+		const result = (await response.json()) as { result?: T; error?: { message?: string } }
+
+		if (result.error) {
+			throw new Error(`Bundler RPC error (${method}): ${result.error.message || JSON.stringify(result.error)}`)
+		}
+
+		return result.result as T
+	}
+
+	private async waitForUserOpReceipt(
+		bundlerUrl: string,
+		userOpHash: HexString,
+		maxAttempts = 30,
+		intervalMs = 2000,
+	): Promise<{ receipt?: { transactionHash: HexString } } | null> {
+		for (let i = 0; i < maxAttempts; i++) {
+			try {
+				const receipt = await this.sendBundlerRpc<{ receipt: { transactionHash: HexString } } | null>(
+					bundlerUrl,
+					BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT,
+					[userOpHash],
+				)
+				if (receipt) return receipt
+			} catch {
+				// Not found yet
+			}
+			await new Promise((resolve) => setTimeout(resolve, intervalMs))
+		}
+		return null
 	}
 }

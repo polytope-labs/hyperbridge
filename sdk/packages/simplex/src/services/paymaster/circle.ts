@@ -46,6 +46,10 @@ interface TokenOption {
  * @param chain           State machine ID (e.g. "EVM-8453")
  * @param configService   Config service to resolve token addresses and decimals
  */
+/**
+ * @param forceApproveMode  When true, skips permit detection and always uses APPROVE mode.
+ *                          Useful for delegation UserOps where ERC-1271 may not be ready yet.
+ */
 export async function buildPaymasterData(
 	client: PublicClient,
 	walletClient: WalletClient,
@@ -54,10 +58,10 @@ export async function buildPaymasterData(
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
+	forceApproveMode = false,
 ): Promise<PaymasterResult> {
 	const chainId = configService.getChainId(chain)
 
-	// ── Resolve tokens from config ───────────────────────────────────
 	const tokens: TokenOption[] = []
 
 	const usdcAddress = configService.getUsdcAsset(chain)
@@ -85,7 +89,7 @@ export async function buildPaymasterData(
 	const permitAmount = defaultPermitAmount(tokenDecimals)
 
 	// ── 2. Check permit support ──────────────────────────────────────
-	const hasPermit = await tokenSupportsPermit(client, tokenAddress)
+	const hasPermit = !forceApproveMode && (await tokenSupportsPermit(client, tokenAddress))
 
 	if (hasPermit) {
 		return buildPermitMode(client, signer, solverAccount, paymasterAddress, tokenAddress, permitAmount, chainId)
@@ -226,7 +230,15 @@ async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString
 	try {
 		await client.readContract({
 			address: tokenAddress,
-			abi: [{ inputs: [], name: "version", outputs: [{ type: "string" }], stateMutability: "view", type: "function" }],
+			abi: [
+				{
+					inputs: [],
+					name: "version",
+					outputs: [{ type: "string" }],
+					stateMutability: "view",
+					type: "function",
+				},
+			],
 			functionName: "version",
 		})
 		return true

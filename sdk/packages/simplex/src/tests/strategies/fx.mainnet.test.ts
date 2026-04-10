@@ -1300,7 +1300,7 @@ describe.skip("Filler V2 FX - Base mainnet same-chain USDC→cNGN with V4 fundin
 	}, 600_000)
 })
 
-describe.only("Filler V2 FX - BSC mainnet same-chain swap", () => {
+describe.skip("Filler V2 FX - BSC mainnet same-chain swap", () => {
 	it("Should place USDC->EXT order on BSC and fill on BSC using FX strategy only", async () => {
 		const {
 			bscIntentGatewayV2,

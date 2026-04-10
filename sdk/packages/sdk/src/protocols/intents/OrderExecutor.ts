@@ -3,6 +3,7 @@ import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, Sel
 import { sleep, DEFAULT_POLL_INTERVAL, hexToString } from "@/utils"
 import type { IntentGatewayContext } from "./types"
 import { BidManager } from "./BidManager"
+import { CryptoUtils } from "./CryptoUtils"
 // @ts-ignore
 import mergeRace from "@async-generator/merge-race"
 
@@ -95,7 +96,7 @@ export class OrderExecutor {
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
 		)
-		return (userOp) => this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
+		return (userOp) => CryptoUtils.computeUserOpHash(userOp, entryPointAddress, chainId)
 	}
 
 	/**

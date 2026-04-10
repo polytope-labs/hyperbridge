@@ -23,9 +23,6 @@ function compareBytes(a: number[], b: number[]): number {
 }
 
 const PHAROS_RPC_URL = process.env.PHAROS_ATLANTIC_RPC
-if (!PHAROS_RPC_URL) {
-	throw new Error("PHAROS_ATLANTIC_RPC env variable must be set")
-}
 
 /**
  * Staking contract address on Pharos Atlantic (testnet).

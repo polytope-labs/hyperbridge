@@ -69,7 +69,7 @@ export const polkadotAssetHubPaseo = defineChain({
 export const pharosMainnet = defineChain({
 	id: 688600,
 	name: "Pharos Mainnet",
-	nativeCurrency: { name: "PHR", symbol: "PHR", decimals: 18 },
+	nativeCurrency: { name: "PHRS", symbol: "PHRS", decimals: 18 },
 	rpcUrls: {
 		default: { http: ["https://atlantic.dplabs-internal.com"] },
 	},
@@ -79,7 +79,7 @@ export const pharosMainnet = defineChain({
 export const pharosAtlantic = defineChain({
 	id: 688689,
 	name: "Pharos Atlantic Testnet",
-	nativeCurrency: { name: "PHR", symbol: "PHR", decimals: 18 },
+	nativeCurrency: { name: "PHRS", symbol: "PHRS", decimals: 18 },
 	rpcUrls: {
 		default: { http: ["https://atlantic.dplabs-internal.com"] },
 	},

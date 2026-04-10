@@ -11,14 +11,14 @@ on:
             - ".github/workflows/ci.yml"
             - "!sdk/**"
 
-   pull_request_target:
-       types: [opened, synchronize]
-       paths:
-           - "**/*.rs"
-           - "**/Cargo.toml"
-           - "**/Cargo.lock"
-           - ".github/workflows/ci.yml"
-           - "!sdk/**"
+    pull_request_target:
+        types: [opened, synchronize]
+        paths:
+            - "**/*.rs"
+            - "**/Cargo.toml"
+            - "**/Cargo.lock"
+            - ".github/workflows/ci.yml"
+            - "!sdk/**"
 
     # pull_request:
     #     branches:

@@ -48,6 +48,8 @@ export enum Chains {
 	POLKADOT_ASSET_HUB_PASEO = "EVM-420420417",
 	TRON_MAINNET = "EVM-728126428",
 	TRON_NILE = "EVM-3448148188",
+	PHAROS_MAINNET = "EVM-688600",
+	PHAROS_ATLANTIC = "EVM-688689"
 }
 
 /** Polkadot Asset Hub Paseo testnet (chain ID 420420417) — not in viem/chains */
@@ -60,6 +62,26 @@ export const polkadotAssetHubPaseo = defineChain({
 	},
 	blockExplorers: {
 		default: { name: "Routescan", url: "https://polkadot.testnet.routescan.io" },
+	},
+})
+
+/** Pharos Mainnet (chain ID 688600) — not in viem/chains */
+export const pharosMainnet = defineChain({
+	id: 688600,
+	name: "Pharos Mainnet",
+	nativeCurrency: { name: "PHRS", symbol: "PHRS", decimals: 18 },
+	rpcUrls: {
+		default: { http: ["https://atlantic.dplabs-internal.com"] },
+	},
+})
+
+/** Pharos Atlantic Testnet (chain ID 688689) — not in viem/chains */
+export const pharosAtlantic = defineChain({
+	id: 688689,
+	name: "Pharos Atlantic Testnet",
+	nativeCurrency: { name: "PHRS", symbol: "PHRS", decimals: 18 },
+	rpcUrls: {
+		default: { http: ["https://atlantic.dplabs-internal.com"] },
 	},
 })
 
@@ -846,6 +868,30 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		defaultRpcUrl: "https://testnet-asset-hub-eth-rpc.polkadot.io",
 		consensusStateId: "PAS0",
 		coingeckoId: "polkadot",
+	},
+	688600: {
+		chainId: 688600,
+		stateMachineId: Chains.PHAROS_MAINNET,
+		viemChain: pharosMainnet,
+		wrappedNativeDecimals: 18,
+		addresses: {
+			Host: "0x0000000000000000000000000000000000000000",
+		},
+		consensusStateId: "PHAR",
+		coingeckoId: "pharos",
+	},
+	688689: {
+		chainId: 688689,
+		stateMachineId: Chains.PHAROS_ATLANTIC,
+		viemChain: pharosAtlantic,
+		wrappedNativeDecimals: 18,
+		addresses: {
+		  TokenGateway: "0x451bDd8273839AD0Ec7F4Fa798E8B3DABb223fD8",
+			Host: "0xED54E9b64043c389173316B6351Bd25491060eA8",
+			IntentGatewayV2: "0xb8039832c6c9266F928d038eA49A8a169300C670"
+		},
+		consensusStateId: "PHAR",
+		coingeckoId: "pharos",
 	},
 }
 

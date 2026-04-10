@@ -30,7 +30,7 @@ import {
 	soneium,
 	tron,
 } from "viem/chains"
-import { chainConfigs, polkadotAssetHubPaseo, tronNile } from "@/configs/chain"
+import { chainConfigs, pharosAtlantic, pharosMainnet, polkadotAssetHubPaseo, tronNile } from "@/configs/chain"
 
 import { flatten, zip } from "lodash-es"
 import { match } from "ts-pattern"
@@ -82,6 +82,8 @@ const chains = {
 	[tron.id]: tron,
 	[tronNile.id]: tronNile,
 	[polkadotAssetHubPaseo.id]: polkadotAssetHubPaseo,
+	[pharosMainnet.id]: pharosMainnet,
+	[pharosAtlantic.id]: pharosAtlantic,
 }
 
 /**
@@ -144,6 +146,8 @@ export class EvmChain implements IChain {
 			10200: "GNO0", // Gnosis Chiado
 			420420417: "PAS0", // Polkadot Asset Hub (Paseo)
 			420420419: "DOT0", // Polkadot Asset Hub (Polkadot)
+			688600: "PHAR", // Pharos Mainnet
+			688689: "PHAR", // Pharos Atlantic (Testnet)
 		}
 
 		// Set default consensusStateId if not provided

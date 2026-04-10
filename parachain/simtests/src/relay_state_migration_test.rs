@@ -18,17 +18,13 @@
 //!
 //! What it exercises:
 //! 1. Spins up a simnode running the **previous** runtime (built from `main`).
-//! 2. Pulls the live nexus mainnet `IsmpParachain::RelayChainStateCommitments`
-//!    map (which contains the production backlog this work is about) and
-//!    injects it into the simnode via `set_storage`.
-//! 3. Submits a `set_code` runtime upgrade to the **current** runtime built
-//!    from this branch (the one with `pallet_migrations` wired in and the
-//!    `MigrationV2` `SteppedMigration` registered).
+//! 2. Pulls the live nexus mainnet `IsmpParachain::RelayChainStateCommitments` map (which contains
+//!    the production backlog this work is about) and injects it into the simnode via `set_storage`.
+//! 3. Submits a `set_code` runtime upgrade to the **current** runtime built from this branch (the
+//!    one with `pallet_migrations` wired in and the `MigrationV2` `SteppedMigration` registered).
 //! 4. Drives blocks until the multi-block migration drains the entire backlog.
-//! 5. Asserts that the resulting cache is bounded by
-//!    `MAX_RELAY_STATE_COMMITMENTS` and that the new on-chain storage version
-//!    is 2.
-//!
+//! 5. Asserts that the resulting cache is bounded by `MAX_RELAY_STATE_COMMITMENTS` and that the new
+//!    on-chain storage version is 2.
 
 #![cfg(test)]
 #![allow(dead_code)]
@@ -192,8 +188,7 @@ async fn wait_for_port(port: u16, timeout: Duration) -> Result<(), anyhow::Error
 
 #[tokio::test]
 #[ignore]
-async fn test_runtime_upgrade_and_relay_state_commitments_migration(
-) -> Result<(), anyhow::Error> {
+async fn test_runtime_upgrade_and_relay_state_commitments_migration() -> Result<(), anyhow::Error> {
 	eprintln!("Connecting to Nexus at: {}", NEXUS_RPC);
 	let (nexus_client, _) =
 		subxt_utils::client::ws_client::<Hyperbridge>(NEXUS_RPC, u32::MAX).await?;
@@ -232,8 +227,7 @@ async fn test_runtime_upgrade_and_relay_state_commitments_migration(
 	let local_ws_url = format!("ws://127.0.0.1:{port}");
 
 	eprintln!("Reconnecting to Nexus at: {}", NEXUS_RPC);
-	let nexus_client =
-		subxt_utils::client::ws_client::<Hyperbridge>(NEXUS_RPC, u32::MAX).await?.0;
+	let nexus_client = subxt_utils::client::ws_client::<Hyperbridge>(NEXUS_RPC, u32::MAX).await?.0;
 
 	eprintln!("Connecting to Local Simnode at: {}", local_ws_url);
 	let (local_client, rpc_client) =
@@ -307,8 +301,7 @@ async fn test_runtime_upgrade_and_relay_state_commitments_migration(
 	eprintln!("Injecting state into Simnode...");
 	batch_set_storage(&local_client, &rpc_client, &sudo_account, storage_data).await?;
 
-	let pre_upgrade_count =
-		count_relay_state_commitments(&local_client).await?;
+	let pre_upgrade_count = count_relay_state_commitments(&local_client).await?;
 	eprintln!("Pre-upgrade simnode count: {}", pre_upgrade_count);
 	assert!(
 		pre_upgrade_count >= commitment_count,
@@ -502,11 +495,7 @@ async fn batch_set_storage(
 			weight: Weight::from_parts(0, 0),
 		});
 
-		eprintln!(
-			"Injecting batch {}/{}...",
-			i + 1,
-			(data.len() + BATCH_SIZE - 1) / BATCH_SIZE
-		);
+		eprintln!("Injecting batch {}/{}...", i + 1, (data.len() + BATCH_SIZE - 1) / BATCH_SIZE);
 		submit_sudo(client, rpc_client, sudo_account, sudo_call).await?;
 	}
 	Ok(())

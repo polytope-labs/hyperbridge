@@ -108,9 +108,7 @@ pub mod storage_v1 {
 					"v1 → v2 step: insufficient weight (need {:?}, have {:?})",
 					weight_per_step, meter.remaining(),
 				);
-				return Err(SteppedMigrationError::InsufficientWeight {
-					required: weight_per_step,
-				});
+				return Err(SteppedMigrationError::InsufficientWeight { required: weight_per_step });
 			}
 
 			// Always remove the first live key. Removal naturally advances the
@@ -132,8 +130,8 @@ pub mod storage_v1 {
 					crate::pallet::RelayChainStateCommitments::<T>::remove(key);
 					// Sentinel non-empty cursor, value doesn't matter, only `Some` vs
 					// `None` does. The bound trivially fits.
-					let sentinel: Self::Cursor = BoundedVec::try_from(vec![0u8])
-						.expect("1-byte vec fits CursorMaxLen >= 1");
+					let sentinel: Self::Cursor =
+						BoundedVec::try_from(vec![0u8]).expect("1-byte vec fits CursorMaxLen >= 1");
 					Ok(Some(sentinel))
 				},
 				None => {
@@ -162,9 +160,7 @@ pub mod storage_v1 {
 		}
 
 		#[cfg(feature = "try-runtime")]
-		fn post_upgrade(
-			_state: Vec<u8>,
-		) -> Result<(), frame_support::sp_runtime::TryRuntimeError> {
+		fn post_upgrade(_state: Vec<u8>) -> Result<(), frame_support::sp_runtime::TryRuntimeError> {
 			log::info!(target: "ismp_parachain", "ismp-parachain v1 → v2 post_upgrade check");
 			assert_eq!(
 				StorageVersion::get::<crate::pallet::Pallet<T>>(),

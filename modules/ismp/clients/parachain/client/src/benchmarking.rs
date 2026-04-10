@@ -132,10 +132,7 @@ mod benchmarks {
 			Pallet::<T>::evict_oldest_relay_commitment(new_height);
 		}
 
-		assert_eq!(
-			RelayChainStateCommitments::<T>::count(),
-			crate::MAX_RELAY_STATE_COMMITMENTS,
-		);
+		assert_eq!(RelayChainStateCommitments::<T>::count(), crate::MAX_RELAY_STATE_COMMITMENTS,);
 		assert!(OldestRetainedRelayBlock::<T>::get().unwrap() > oldest);
 
 		Ok(())

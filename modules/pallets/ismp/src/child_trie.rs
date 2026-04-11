@@ -102,9 +102,15 @@ impl<T: Config> StateCommitments<T> {
 			.or(crate::StateCommitments::<T>::get(&key))
 	}
 
-	/// Insert the key and value into the child trie
+	/// Insert the key and value into both the legacy pallet storage and the child trie.
 	pub fn insert(key: StateMachineHeight, meta: StateCommitment) {
 		crate::StateCommitments::<T>::insert(key.clone(), meta.clone());
+		child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
+	}
+
+	/// Insert only into the child trie, skipping the legacy pallet storage.
+	/// Used by the new bounded storage path which manages its own map.
+	pub fn insert_child_only(key: StateMachineHeight, meta: StateCommitment) {
 		child::put(&ChildInfo::new_default(CHILD_TRIE_PREFIX), &Self::storage_key(key), &meta);
 	}
 

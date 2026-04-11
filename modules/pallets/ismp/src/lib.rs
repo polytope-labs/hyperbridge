@@ -82,6 +82,16 @@ pub mod pallet {
 	/// [`PalletId`] where relayer fees will be collected
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
+	/// Maximum state commitments retained per chain in [`BoundedStateCommitments`].
+	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 256;
+
+	/// Number of legacy [`StateCommitments`] and [`StateMachineUpdateTime`]
+	/// entries drained per block.
+	pub const LEGACY_SM_DRAIN_BATCH_SIZE: u32 = 1000;
+
+	/// Maximum forward steps the per-chain eviction cursor walks per call.
+	const SM_EVICTION_MAX_WALK: u32 = 64;
+
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config {
 		/// Admin origin for privileged actions such as adding new consensus clients as well as
@@ -230,6 +240,47 @@ pub mod pallet {
 	pub type StateMachineUpdateTime<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachineHeight, u64, OptionQuery>;
 
+	/// Bounded map of state machine commitments. Keyed by
+	/// `(StateMachineId, height)` so we can cap entries per chain at
+	/// [`MAX_STATE_MACHINE_COMMITMENTS`]. Writes go here; the legacy
+	/// [`StateCommitments`] map is drained gradually.
+	#[pallet::storage]
+	pub type BoundedStateCommitments<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		StateMachineId,
+		Blake2_128Concat,
+		u64,
+		StateCommitment,
+		OptionQuery,
+	>;
+
+	/// Bounded map of state machine update timestamps. Same per-chain cap
+	/// as [`BoundedStateCommitments`]. The legacy [`StateMachineUpdateTime`]
+	/// is drained gradually.
+	#[pallet::storage]
+	pub type BoundedStateMachineUpdateTime<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		StateMachineId,
+		Blake2_128Concat,
+		u64,
+		u64,
+		OptionQuery,
+	>;
+
+	/// Per-chain count of entries in [`BoundedStateCommitments`]. Tracked
+	/// manually because `StorageDoubleMap` doesn't have a built-in counter.
+	#[pallet::storage]
+	pub type StateCommitmentsCount<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, u32, ValueQuery>;
+
+	/// Per-chain oldest retained height in [`BoundedStateCommitments`].
+	/// Used as the eviction cursor.
+	#[pallet::storage]
+	pub type OldestRetainedStateMachineHeight<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
+
 	/// Tracks requests that have been responded to
 	/// The key is the request commitment
 	#[pallet::storage]
@@ -283,6 +334,8 @@ pub mod pallet {
 				timestamp_log.encode(),
 			);
 			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);
+
+			Self::drain_legacy_state_commitments();
 		}
 	}
 
@@ -602,5 +655,76 @@ pub mod pallet {
 	/// Static weights because these should get overridden by the FeeHandler
 	fn weight() -> Weight {
 		Weight::from_parts(300_000_000, 0)
+	}
+
+	impl<T: Config> Pallet<T> {
+		/// Insert a state commitment into the bounded map, evicting the oldest
+		/// entry for that chain if the per-chain cap is exceeded.
+		pub fn insert_bounded_state_commitment(
+			height: StateMachineHeight,
+			commitment: StateCommitment,
+		) {
+			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
+			StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_add(1));
+
+			if OldestRetainedStateMachineHeight::<T>::get(height.id).is_none() {
+				OldestRetainedStateMachineHeight::<T>::insert(height.id, height.height);
+			}
+
+			if StateCommitmentsCount::<T>::get(height.id) > MAX_STATE_MACHINE_COMMITMENTS {
+				Self::evict_oldest_state_commitment(height.id, height.height);
+			}
+		}
+
+		/// Insert a state machine update time into the bounded map. Uses the same
+		/// eviction cursor as [`BoundedStateCommitments`] since both maps track
+		/// the same heights per chain.
+		pub fn insert_bounded_update_time(height: StateMachineHeight, timestamp: u64) {
+			BoundedStateMachineUpdateTime::<T>::insert(height.id, height.height, timestamp);
+		}
+
+		/// Evict the oldest entry for `chain` from both bounded maps.
+		fn evict_oldest_state_commitment(chain: StateMachineId, current_height: u64) {
+			let Some(mut cursor) = OldestRetainedStateMachineHeight::<T>::get(chain) else {
+				return;
+			};
+
+			let mut steps: u32 = 0;
+			while steps < SM_EVICTION_MAX_WALK && cursor < current_height {
+				if BoundedStateCommitments::<T>::contains_key(chain, cursor) {
+					BoundedStateCommitments::<T>::remove(chain, cursor);
+					BoundedStateMachineUpdateTime::<T>::remove(chain, cursor);
+					StateCommitmentsCount::<T>::mutate(chain, |c| *c = c.saturating_sub(1));
+					OldestRetainedStateMachineHeight::<T>::insert(chain, cursor.saturating_add(1));
+					return;
+				}
+				cursor = cursor.saturating_add(1);
+				steps = steps.saturating_add(1);
+			}
+
+			OldestRetainedStateMachineHeight::<T>::insert(chain, cursor);
+		}
+
+		/// Drain up to [`LEGACY_SM_DRAIN_BATCH_SIZE`] entries from each of the
+		/// old unbounded [`StateCommitments`] and [`StateMachineUpdateTime`]
+		/// maps. They are drained independently since one may empty before the
+		/// other.
+		pub fn drain_legacy_state_commitments() {
+			for _ in 0..LEGACY_SM_DRAIN_BATCH_SIZE {
+				if let Some(key) = StateCommitments::<T>::iter_keys().next() {
+					StateCommitments::<T>::remove(&key);
+				} else {
+					break;
+				}
+			}
+
+			for _ in 0..LEGACY_SM_DRAIN_BATCH_SIZE {
+				if let Some(key) = StateMachineUpdateTime::<T>::iter_keys().next() {
+					StateMachineUpdateTime::<T>::remove(&key);
+				} else {
+					break;
+				}
+			}
+		}
 	}
 }

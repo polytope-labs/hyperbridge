@@ -20,9 +20,10 @@ use crate::{
 	child_trie,
 	dispatcher::{RefundingRouter, RequestMetadata},
 	utils::{ConsensusClientProvider, ResponseReceipt},
-	ChallengePeriod, Config, ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates,
-	FrozenConsensusClients, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
-	Responded, StateMachineUpdateTime, UnbondingPeriod,
+	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
+	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
+	LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight, Responded,
+	StateCommitmentsCount, StateMachineUpdateTime, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
@@ -56,7 +57,9 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		child_trie::StateCommitments::<T>::get(height)
+		// Try new bounded map first, fall back to legacy + child trie
+		BoundedStateCommitments::<T>::get(height.id, height.height)
+			.or_else(|| child_trie::StateCommitments::<T>::get(height))
 			.ok_or_else(|| Error::StateCommitmentNotFound { height })
 	}
 
@@ -70,11 +73,16 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		&self,
 		state_machine_height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		StateMachineUpdateTime::<T>::get(state_machine_height)
-			.map(|timestamp| Duration::from_secs(timestamp))
-			.ok_or_else(|| {
-				Error::Custom(format!("Update time not found for {:?}", state_machine_height))
-			})
+		// Try new bounded map first, fall back to legacy
+		BoundedStateMachineUpdateTime::<T>::get(
+			state_machine_height.id,
+			state_machine_height.height,
+		)
+		.or_else(|| StateMachineUpdateTime::<T>::get(state_machine_height))
+		.map(|timestamp| Duration::from_secs(timestamp))
+		.ok_or_else(|| {
+			Error::Custom(format!("Update time not found for {:?}", state_machine_height))
+		})
 	}
 
 	fn consensus_client_id(
@@ -177,10 +185,8 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		state_machine_height: StateMachineHeight,
 		timestamp: Duration,
 	) -> Result<(), Error> {
-		StateMachineUpdateTime::<T>::insert(
-			state_machine_height,
-			timestamp.as_secs().saturated_into::<u64>(),
-		);
+		let ts = timestamp.as_secs().saturated_into::<u64>();
+		Pallet::<T>::insert_bounded_update_time(state_machine_height, ts);
 		Ok(())
 	}
 
@@ -189,11 +195,19 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		height: StateMachineHeight,
 		state: StateCommitment,
 	) -> Result<(), Error> {
-		child_trie::StateCommitments::<T>::insert(height, state);
+		// Write to the new bounded map (with eviction) and the child trie
+		// (for POV-efficient reads). The legacy pallet StorageMap is no longer
+		// written to, it's drained gradually in on_finalize.
+		Pallet::<T>::insert_bounded_state_commitment(height, state.clone());
+		child_trie::StateCommitments::<T>::insert_child_only(height, state);
 		Ok(())
 	}
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+		// Remove from all locations: bounded map, legacy map, and child trie
+		BoundedStateCommitments::<T>::remove(height.id, height.height);
+		BoundedStateMachineUpdateTime::<T>::remove(height.id, height.height);
+		StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_sub(1));
 		child_trie::StateCommitments::<T>::remove(height);
 
 		// technically any state commitment can be vetoed,

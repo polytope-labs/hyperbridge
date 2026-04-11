@@ -5,7 +5,7 @@ import { ChainClientManager } from "./ChainClientManager"
 import { FillerConfigService } from "./FillerConfigService"
 import { getLogger } from "./Logger"
 import type { SigningAccount } from "./wallet"
-import { buildPaymasterData, packPaymasterAndData } from "./paymaster/simplex"
+import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 
 /** EIP-7702 delegation indicator prefix */
@@ -85,6 +85,7 @@ export class DelegationService {
 			yParity: number
 		},
 	): Promise<HexString> {
+		throw new Error("Not implemented")
 		const authorityAddress = this.signer.account.address
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
@@ -139,15 +140,15 @@ export class DelegationService {
 
 	/**
 	 * Sets up EIP-7702 delegation via the bundler with a no-op UserOp.
-	 * The SimplexPaymaster pays gas in ERC-20 tokens — no native token needed.
+	 * Prefers Circle Paymaster (USDC permit) when available and filler has USDC balance.
+	 * Falls back to SimplexPaymaster with forceApproveMode otherwise.
 	 */
 	private async setupDelegationViaBundler(chain: string): Promise<boolean> {
 		const solverAccountContract = this.configService.getSolverAccountContractAddress(chain)
-		const paymasterAddress = this.configService.getSimplexPaymasterAddress(chain)
 		const entryPointAddress = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
 
-		if (!solverAccountContract || !paymasterAddress || !entryPointAddress || !bundlerUrl) {
+		if (!solverAccountContract || !hasPaymaster(chain, this.configService) || !entryPointAddress || !bundlerUrl) {
 			this.logger.warn({ chain }, "Missing config for bundler-based delegation, falling back to direct tx")
 			return false
 		}
@@ -158,7 +159,7 @@ export class DelegationService {
 		const chainId = this.configService.getChainId(chain)
 
 		try {
-			// 1. Build EIP-7702 authorization (bundler submits tx, so use current nonce)
+			// Build EIP-7702 authorization (bundler submits tx, so use current nonce)
 			const authorization = await this.buildAuthorization(chain, solverAccountContract, true)
 
 			this.logger.info(
@@ -166,29 +167,60 @@ export class DelegationService {
 				"Setting up EIP-7702 delegation via bundler with paymaster",
 			)
 
-			// 2. Build paymaster data (force APPROVE mode — during delegation the EOA
-			//    may not have code yet for ERC-1271, so permit() would fail)
-			const pm = await buildPaymasterData(
+			// Build paymaster data — Circle (USDC permit) → Simplex (approve) → none
+			const pmResult = await buildPaymasterAndData({
+				chain,
+				solverAccount,
 				publicClient,
 				walletClient,
-				this.signer,
-				solverAccount,
-				paymasterAddress,
-				chain,
-				this.configService,
-				true, // forceApproveMode
+				signer: this.signer,
+				configService: this.configService,
+				forceApproveMode: true,
+			})
+			if (pmResult.type === "none") {
+				this.logger.warn({ chain }, "No paymaster available for delegation")
+				return false
+			}
+			const paymasterAndData = pmResult.paymasterAndData
+			this.logger.info(
+				{ chain, paymaster: pmResult.address, type: pmResult.type },
+				"Using paymaster for delegation UserOp",
 			)
-			const paymasterAndData = packPaymasterAndData(pm)
 
-			// 3. Get gas prices from bundler
-			const gasPriceResult = await this.sendBundlerRpc<{
-				fast: { maxFeePerGas: string; maxPriorityFeePerGas: string }
-			}>(bundlerUrl, BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE, [])
+			// Get gas prices — detect bundler type and use appropriate RPC method
+			let maxFeePerGas: bigint
+			let maxPriorityFeePerGas: bigint
 
-			const maxFeePerGas = BigInt(gasPriceResult.fast.maxFeePerGas)
-			const maxPriorityFeePerGas = BigInt(gasPriceResult.fast.maxPriorityFeePerGas)
+			const bundlerUrlLower = bundlerUrl.toLowerCase()
+			const isPimlico = bundlerUrlLower.includes("pimlico.io")
+			const isAlchemy = bundlerUrlLower.includes("alchemy.com")
 
-			// 4. Get nonce from EntryPoint (key = 0 for delegation UserOps)
+			if (isPimlico) {
+				const gasPriceResult = await this.sendBundlerRpc<{
+					fast: { maxFeePerGas: string; maxPriorityFeePerGas: string }
+				}>(bundlerUrl, BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE, [])
+				maxFeePerGas = BigInt(gasPriceResult.fast.maxFeePerGas)
+				maxPriorityFeePerGas = BigInt(gasPriceResult.fast.maxPriorityFeePerGas)
+			} else if (isAlchemy) {
+				const [rundlerPriorityFee, latestBlock] = await Promise.all([
+					this.sendBundlerRpc<HexString>(bundlerUrl, BundlerMethod.RUNDLER_MAX_PRIORITY_FEE_PER_GAS, []),
+					publicClient.getBlock({ blockTag: "latest" }),
+				])
+				const baseFeePerGas = latestBlock.baseFeePerGas ?? (await publicClient.getGasPrice())
+				const chainIdBigInt = BigInt(chainId)
+				const isArbitrum = chainIdBigInt === 42161n
+				const alchemyPrioBump = isArbitrum ? 0n : 25n
+				maxPriorityFeePerGas =
+					BigInt(rundlerPriorityFee) + (BigInt(rundlerPriorityFee) * alchemyPrioBump) / 100n
+				const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
+				maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
+			} else {
+				const gasPrice = await publicClient.getGasPrice()
+				maxPriorityFeePerGas = gasPrice + (gasPrice * 8n) / 100n
+				maxFeePerGas = gasPrice + (gasPrice * 10n) / 100n
+			}
+
+			// Get nonce from EntryPoint (key = 0 for delegation UserOps)
 			const nonce = (await publicClient.readContract({
 				address: entryPointAddress,
 				abi: ENTRYPOINT_ABI,
@@ -215,7 +247,7 @@ export class DelegationService {
 				signature: "0x" as HexString,
 			}
 
-			// 6. Compute UserOp hash (EIP-712) and sign with raw ECDSA (no eth prefix)
+			// Compute UserOp hash (EIP-712) and sign with raw ECDSA (no eth prefix)
 			//    SolverAccount._rawSignatureValidation expects ECDSA.recover(userOpHash, sig) == address(this)
 			const userOpHash = CryptoUtils.computeUserOpHash(
 				userOp,
@@ -226,10 +258,10 @@ export class DelegationService {
 			const v = yParity === 0 ? 27 : 28
 			userOp.signature = concat([r, s, toHex(v)]) as HexString
 
-			// 7. Prepare bundler call format using CryptoUtils
+			// Prepare bundler call format using CryptoUtils
 			const bundlerUserOp = CryptoUtils.prepareBundlerCall(userOp)
 
-			// 8. Attach EIP-7702 authorization inside the UserOp object for Pimlico
+			// Attach EIP-7702 authorization inside the UserOp object for Pimlico
 			bundlerUserOp.eip7702Auth = {
 				address: authorization.address,
 				chainId: toHex(authorization.chainId),
@@ -239,7 +271,7 @@ export class DelegationService {
 				yParity: toHex(authorization.yParity),
 			}
 
-			// 9. Send to bundler: eth_sendUserOperation(userOp, entryPoint)
+			// Send to bundler: eth_sendUserOperation(userOp, entryPoint)
 			const userOpHashResult = await this.sendBundlerRpc<HexString>(
 				bundlerUrl,
 				BundlerMethod.ETH_SEND_USER_OPERATION,
@@ -248,7 +280,7 @@ export class DelegationService {
 
 			this.logger.info({ chain, userOpHash: userOpHashResult }, "Delegation UserOp submitted to bundler")
 
-			// 10. Wait for receipt
+			// Wait for receipt
 			const receipt = await this.waitForUserOpReceipt(bundlerUrl, userOpHashResult)
 
 			if (receipt) {
@@ -287,8 +319,7 @@ export class DelegationService {
 		}
 
 		// Try bundler path first (paymaster pays gas)
-		const paymasterAddress = this.configService.getSimplexPaymasterAddress(chain)
-		if (paymasterAddress) {
+		if (hasPaymaster(chain, this.configService)) {
 			const success = await this.setupDelegationViaBundler(chain)
 			if (success) return true
 			this.logger.info({ chain }, "Falling back to direct delegation tx")

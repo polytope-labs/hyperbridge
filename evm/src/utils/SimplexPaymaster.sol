@@ -293,7 +293,7 @@ contract SimplexPaymaster is PaymasterERC20, Ownable {
     function _executePermit(PackedUserOperation calldata userOp) internal {
         bytes calldata data = userOp.paymasterData();
         // Minimum length: 1 + 20 + 32 + 32 + 1 + 32 + 32 = 150
-        require(data.length >= 150, "SimplexPaymaster: permit data too short");
+        require(data.length == 150, "SimplexPaymaster: invalid permit data length");
 
         address tokenAddr = address(bytes20(data[1:21]));
         uint256 permitAmount = uint256(bytes32(data[21:53]));

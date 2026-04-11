@@ -1,4 +1,4 @@
-import { toHex, formatUnits, encodeFunctionData, maxUint256, formatEther } from "viem"
+import { toHex, formatUnits, encodeFunctionData, formatEther } from "viem"
 import {
 	ADDRESS_ZERO,
 	HexString,
@@ -27,7 +27,7 @@ import { Decimal } from "decimal.js"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { SigningAccount } from "@/services/wallet"
-import { buildPaymasterData, packPaymasterAndData } from "@/services/paymaster/simplex"
+import { buildPaymasterAndData } from "@/services/paymaster"
 
 // Configure for financial precision
 Decimal.config({ precision: 28, rounding: 4 })
@@ -610,26 +610,18 @@ export class ContractInteractionService {
 
 		const commitment = orderCommitment(order)
 
-		// Build paymasterAndData when the destination chain has a SimplexPaymaster configured.
-		// Chains without a paymaster address fall through to "0x",
-		// retaining the existing EntryPoint deposit behaviour.
-		let paymasterAndData: HexString = "0x" as HexString
-		const paymasterAddress = this.configService.getSimplexPaymasterAddress(order.destination)
-		if (paymasterAddress) {
-			const publicClient = this.clientManager.getPublicClient(order.destination)
-			const walletClient = this.clientManager.getWalletClient(order.destination)
-
-			const pm = await buildPaymasterData(
-				publicClient,
-				walletClient,
-				this.signer,
-				solverAccountAddress,
-				paymasterAddress,
-				order.destination,
-				this.configService,
-			)
-			paymasterAndData = packPaymasterAndData(pm)
-			this.logger.info({ paymaster: pm.paymaster }, "Using SimplexPaymaster for bid UserOp")
+		// Build paymasterAndData — Circle (USDC permit) → Simplex → EntryPoint deposit
+		const pmResult = await buildPaymasterAndData({
+			chain: order.destination,
+			solverAccount: solverAccountAddress,
+			publicClient: this.clientManager.getPublicClient(order.destination),
+			walletClient: this.clientManager.getWalletClient(order.destination),
+			signer: this.signer,
+			configService: this.configService,
+		})
+		const paymasterAndData = pmResult.paymasterAndData
+		if (pmResult.type !== "none") {
+			this.logger.info({ paymaster: pmResult.address, type: pmResult.type }, "Using paymaster for bid UserOp")
 		}
 
 		const userOp = await sdkHelper.prepareSubmitBid({
@@ -716,7 +708,7 @@ export class ContractInteractionService {
 					data: encodeFunctionData({
 						abi: ERC20_ABI,
 						functionName: "approve",
-						args: [intentGatewayV2Address, maxUint256],
+						args: [intentGatewayV2Address, required],
 					}) as HexString,
 				})
 			}

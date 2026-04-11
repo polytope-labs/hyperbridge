@@ -2264,13 +2264,19 @@ async function approveTokens(
 		account: walletClient.account,
 	})
 
+	const decimals = await publicClient.readContract({
+		abi: ERC20_ABI,
+		address: tokenAddress,
+		functionName: "decimals",
+	})
+
 	if (approval === 0n) {
 		console.log(`Approving token ${tokenAddress} for ${spender}`)
 		const tx = await walletClient.writeContract({
 			abi: ERC20_ABI,
 			address: tokenAddress,
 			functionName: "approve",
-			args: [spender, maxUint256],
+			args: [spender, 10n ** BigInt(decimals)],
 			chain: walletClient.chain,
 			account: walletClient.account!,
 		})

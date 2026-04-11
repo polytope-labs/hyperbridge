@@ -133,6 +133,8 @@ export interface ChainConfigData {
 		UniswapV4StateView?: `0x${string}`
 		/** SimplexPaymaster v0.8 contract address (ERC-4337 onchain ERC-20 paymaster) */
 		SimplexPaymaster?: `0x${string}`
+		/** Circle Paymaster contract address (USDC-based ERC-4337 paymaster) */
+		CirclePaymaster?: `0x${string}`
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
@@ -301,7 +303,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x6C96dE32CEa08842dcc4058c14d3aaAD7Fa41dee",
 		},
 		rpcEnvKey: "ETH_MAINNET",
@@ -357,7 +359,6 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0xCcE8B5f5C453e1Ff1acd227585d9e680c012462c",
 			// "Usdt0Oft": Not available on BSC
 		},
 		rpcEnvKey: "BSC_MAINNET",
@@ -415,7 +416,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x14E4A1B13bf7F943c8ff7C51fb60FA964A298D92",
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
@@ -458,7 +459,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		addresses: {
 			IntentGateway: "0x1a4ee689a004b10210a1df9f24a387ea13359acf",
 			IntentGatewayV2: "0x2d61624A17f361020679FaA16fbB566C344AaF4B",
-			SolverAccount: "0xb7d5Bb305Fd102C9B0a343978f3b9Accc00e9603",
+			SolverAccount: "0x66C4459fa61E5Ca647152EEb6dA56150EE975512",
 			TokenGateway: "0xFd413e3AFe560182C4471F4d143A96d3e259B6dE",
 			Host: "0x6FFe92e4d7a9D589549644544780e6725E84b248",
 			UniswapRouter02: "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
@@ -470,7 +471,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0x18654D0319ffDC18c200c90C1A666AcbDf0E3762",
+			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			AerodromeRouter: "0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43",
 			UniswapV4PositionManager: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
 			UniswapV4PoolManager: "0x498581ff718922c3f8e6a244956af099b2652b2b",
@@ -532,7 +533,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0x6BA10300f0DC58B7a1e4c0e41f5daBb7D7829e13",
 		},
 		rpcEnvKey: "POLYGON_MAINNET",
@@ -580,7 +581,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			Usdt0Oft: "0xc07be8994d035631c36fb4a89c918cefb2f03ec3",
 		},
 		rpcEnvKey: "UNICHAIN_MAINNET",
@@ -685,7 +686,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			Calldispatcher: "0xC71251c8b3e7B02697A84363Eef6DcE8DfBdF333",
 			Permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
 			EntryPointV08: "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108",
-			SimplexPaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+			CirclePaymaster: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
 			UniswapV4PositionManager: "0x3c3ea4b57a46241e54610e5f022e5c45859a1017",
 			UniswapV4PoolManager: "0x9a13f98cb987694c9f086b1f5eb990eea8264ec3",
 		},

@@ -20,6 +20,7 @@ import {
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
+import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
 
 export class IntentFiller {
@@ -126,14 +127,13 @@ export class IntentFiller {
 			}
 
 			// Ensure EntryPoint deposit covers target gas units on chains
-			// that do NOT have a SimplexPaymaster configured.
+			// that do NOT have any paymaster (Circle or Simplex) configured.
 			// Chains with a paymaster address pay gas in ERC-20 tokens instead.
-			// Paymaster approval is handled per-order inside buildPaymasterData().
+			// Paymaster approval is handled per-order inside buildPaymasterData/buildCirclePaymasterData.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
-				const paymasterAddress = this.configService.getSimplexPaymasterAddress(chain)
-				if (paymasterAddress) {
-					this.logger.info({ chain }, "Skipping EntryPoint deposit — SimplexPaymaster available")
+				if (hasPaymaster(chain, this.configService)) {
+					this.logger.info({ chain }, "Skipping EntryPoint deposit — paymaster available")
 					continue
 				}
 				try {
@@ -586,10 +586,10 @@ export class IntentFiller {
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
 		// Top up EntryPoint deposit if we were the filler, but only on chains
-		// without SimplexPaymaster (paymaster chains pay gas in ERC-20 tokens).
+		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
-			if (!this.configService.getSimplexPaymasterAddress(chain)) {
+			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
 				this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
 					this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")

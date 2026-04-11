@@ -85,7 +85,6 @@ export class DelegationService {
 			yParity: number
 		},
 	): Promise<HexString> {
-		throw new Error("Not implemented")
 		const authorityAddress = this.signer.account.address
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)

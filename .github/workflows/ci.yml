@@ -11,7 +11,7 @@ on:
             - ".github/workflows/ci.yml"
             - "!sdk/**"
 
-   pull_request_target:
+    pull_request_target:
        types: [opened, synchronize]
        paths:
            - "**/*.rs"

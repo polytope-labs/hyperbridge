@@ -51,6 +51,26 @@ use sp_std::prelude::*;
 use staging_xcm::latest::Location;
 use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 
+/// Deprecated TokenGateway contract addresses whose incoming ISMP Post requests
+/// must be rejected unconditionally by the nexus runtime.
+/// Any [`PostRequest`] whose `from` field matches any of these 20-byte addresses
+/// is rejected in [`ProxyModule::on_accept`] before any other processing — the
+/// message is neither dispatched locally nor forwarded onwards.
+pub const DEPRECATED_TOKEN_GATEWAY_ADDRESSES: &[[u8; 20]] = &[
+	// Ethereum / Arbitrum / Optimism / Base / BSC / Gnosis TokenGateway
+	hex_literal::hex!("Fd413e3AFe560182C4471F4d143A96d3e259B6dE"),
+	// Polygon / Unichain TokenGateway
+	hex_literal::hex!("8b536105b6Fae2aE9199f5146D3C57Dfe53b614E"),
+	// Soneium TokenGateway
+	hex_literal::hex!("Ce304770236f39F9911BfCC51afBdfF3b8635718"),
+];
+
+/// Returns `true` if `from` is exactly one of the deprecated TokenGateway
+/// contract addresses in [`DEPRECATED_TOKEN_GATEWAY_ADDRESSES`].
+fn is_deprecated_token_gateway(from: &[u8]) -> bool {
+	DEPRECATED_TOKEN_GATEWAY_ADDRESSES.iter().any(|deprecated| deprecated == from)
+}
+
 #[derive(Default)]
 pub struct ProxyModule;
 
@@ -437,6 +457,17 @@ impl pallet_intents_coprocessor::Config for Runtime {
 }
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
+		// Permanently reject any request originating from a deprecated TokenGateway
+		// deployment, regardless of destination. This short-circuits both the
+		// forwarding path (dest != host) and the locally-dispatched path below.
+		if is_deprecated_token_gateway(&request.from) {
+			return Err(anyhow!(
+				"rejecting request from deprecated TokenGateway address {:?} on {:?}",
+				request.from,
+				request.source,
+			));
+		}
+
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -476,6 +507,19 @@ impl IsmpModule for ProxyModule {
 	}
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+		// Permanently reject Post-request timeouts whose originating module is a
+		// deprecated TokenGateway deployment, before any other handling runs. Only
+		// Post requests are subject to this — Get requests and Response timeouts
+		// are untouched.
+		if let Timeout::Request(Request::Post(post)) = &timeout {
+			if is_deprecated_token_gateway(&post.from) {
+				return Err(anyhow!(
+					"rejecting Post-request timeout from deprecated TokenGateway address {:?}",
+					post.from,
+				));
+			}
+		}
+
 		let (from, source, dest) = match &timeout {
 			Timeout::Request(Request::Post(post)) => {
 				if post.source != HostStateMachine::get() {

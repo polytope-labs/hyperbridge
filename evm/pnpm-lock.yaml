@@ -15,14 +15,14 @@ importers:
         specifier: ^5.4.0
         version: 5.4.0
       '@polytope-labs/solidity-merkle-trees':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@uniswap/swap-router-contracts':
         specifier: ^1.3.1
         version: 1.3.1(hardhat@2.28.0)
       '@uniswap/universal-router':
         specifier: github:Uniswap/universal-router
-        version: https://codeload.github.com/Uniswap/universal-router/tar.gz/705f7bb9836ebc4f6ad1aad91629c3d0fc4128d4
+        version: https://codeload.github.com/Uniswap/universal-router/tar.gz/fd75e3eca49d039fe2082bbd0c01aee93ed777a1
       '@uniswap/v2-periphery':
         specifier: ^1.1.0-beta.0
         version: 1.1.0-beta.0
@@ -34,10 +34,10 @@ importers:
         version: 1.4.4
       '@uniswap/v4-core':
         specifier: github:Uniswap/v4-core
-        version: https://codeload.github.com/Uniswap/v4-core/tar.gz/d153b048868a60c2403a3ef5b2301bb247884d46
+        version: https://codeload.github.com/Uniswap/v4-core/tar.gz/46c6834698c48bc4a463a86d8420f4eb1d7f3b75
       '@uniswap/v4-periphery':
         specifier: github:Uniswap/v4-periphery
-        version: https://codeload.github.com/Uniswap/v4-periphery/tar.gz/3779387e5d296f39df543d23524b050f89a62917
+        version: https://codeload.github.com/Uniswap/v4-periphery/tar.gz/9dafaaecc1e2e1e824eda9d941085f96517d827b
       prettier:
         specifier: ^3.3.3
         version: 3.7.4
@@ -211,8 +211,8 @@ packages:
   '@openzeppelin/contracts@5.4.0':
     resolution: {integrity: sha512-eCYgWnLg6WO+X52I16TZt8uEjbtdkgLC0SUX/xnAksjjrQI4Xfn4iBRoI5j55dmlOhDv1Y7BoR3cU7e3WWhC6A==}
 
-  '@polytope-labs/solidity-merkle-trees@0.5.0':
-    resolution: {integrity: sha512-j87pLi5AzmILX+8S+CqapeYWNymDHeFKuSVRQv76LUMaDWv83W2bHUzhH7H0qmVTyNI3OSaGXhWlToRNiopfIA==}
+  '@polytope-labs/solidity-merkle-trees@0.6.0':
+    resolution: {integrity: sha512-xegw7vwbbac2d8nFmklxk37J6izabfTb1JuMc7mIX/PJg68B8FSIqfa92l9gGOImb9zocakCqePq5U0IR44F6Q==}
 
   '@scure/base@1.1.9':
     resolution: {integrity: sha512-8YKhl8GHiNI/pU2VMaofa2Tor7PJRAjwQLBBuilkJ9L5+13yVbC7JO/wS7piioAvPSwR3JKM1IJ/u4xQzbcXKg==}
@@ -276,8 +276,8 @@ packages:
     engines: {node: '>=10'}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
-  '@uniswap/universal-router@https://codeload.github.com/Uniswap/universal-router/tar.gz/705f7bb9836ebc4f6ad1aad91629c3d0fc4128d4':
-    resolution: {tarball: https://codeload.github.com/Uniswap/universal-router/tar.gz/705f7bb9836ebc4f6ad1aad91629c3d0fc4128d4}
+  '@uniswap/universal-router@https://codeload.github.com/Uniswap/universal-router/tar.gz/fd75e3eca49d039fe2082bbd0c01aee93ed777a1':
+    resolution: {tarball: https://codeload.github.com/Uniswap/universal-router/tar.gz/fd75e3eca49d039fe2082bbd0c01aee93ed777a1}
     version: 2.1.0
     engines: {node: '>=14'}
 
@@ -305,13 +305,13 @@ packages:
     resolution: {integrity: sha512-S4+m+wh8HbWSO3DKk4LwUCPZJTpCugIsHrWR86m/OrUyvSqGDTXKFfc2sMuGXCZrD1ZqO3rhQsKgdWg3Hbb2Kw==}
     engines: {node: '>=10'}
 
-  '@uniswap/v4-core@https://codeload.github.com/Uniswap/v4-core/tar.gz/d153b048868a60c2403a3ef5b2301bb247884d46':
-    resolution: {tarball: https://codeload.github.com/Uniswap/v4-core/tar.gz/d153b048868a60c2403a3ef5b2301bb247884d46}
+  '@uniswap/v4-core@https://codeload.github.com/Uniswap/v4-core/tar.gz/46c6834698c48bc4a463a86d8420f4eb1d7f3b75':
+    resolution: {tarball: https://codeload.github.com/Uniswap/v4-core/tar.gz/46c6834698c48bc4a463a86d8420f4eb1d7f3b75}
     version: 1.0.2
 
-  '@uniswap/v4-periphery@https://codeload.github.com/Uniswap/v4-periphery/tar.gz/3779387e5d296f39df543d23524b050f89a62917':
-    resolution: {tarball: https://codeload.github.com/Uniswap/v4-periphery/tar.gz/3779387e5d296f39df543d23524b050f89a62917}
-    version: 1.0.3
+  '@uniswap/v4-periphery@https://codeload.github.com/Uniswap/v4-periphery/tar.gz/9dafaaecc1e2e1e824eda9d941085f96517d827b':
+    resolution: {tarball: https://codeload.github.com/Uniswap/v4-periphery/tar.gz/9dafaaecc1e2e1e824eda9d941085f96517d827b}
+    version: 1.0.4
 
   adm-zip@0.4.16:
     resolution: {integrity: sha512-TFi4HBKSGfIKsK5YCkKaaFG2m4PEDyViZmEwof3MTIgzimHLto6muaHVpbrljdIvIrFZzEq/p4nafOeLcYegrg==}
@@ -1096,7 +1096,7 @@ snapshots:
   '@hyperbridge/core@file:../sdk/packages/core':
     dependencies:
       '@openzeppelin/contracts': 5.4.0
-      '@polytope-labs/solidity-merkle-trees': 0.5.0
+      '@polytope-labs/solidity-merkle-trees': 0.6.0
       prettier: 3.7.4
       prettier-plugin-solidity: 1.4.3(prettier@3.7.4)
 
@@ -1177,7 +1177,7 @@ snapshots:
 
   '@openzeppelin/contracts@5.4.0': {}
 
-  '@polytope-labs/solidity-merkle-trees@0.5.0':
+  '@polytope-labs/solidity-merkle-trees@0.6.0':
     dependencies:
       prettier: 3.7.4
       prettier-plugin-solidity: 1.4.3(prettier@3.7.4)
@@ -1274,7 +1274,7 @@ snapshots:
     transitivePeerDependencies:
       - hardhat
 
-  '@uniswap/universal-router@https://codeload.github.com/Uniswap/universal-router/tar.gz/705f7bb9836ebc4f6ad1aad91629c3d0fc4128d4':
+  '@uniswap/universal-router@https://codeload.github.com/Uniswap/universal-router/tar.gz/fd75e3eca49d039fe2082bbd0c01aee93ed777a1':
     dependencies:
       '@openzeppelin/contracts': 5.0.2
       '@uniswap/v2-core': 1.0.1
@@ -1301,9 +1301,9 @@ snapshots:
       '@uniswap/v3-core': 1.0.1
       base64-sol: 1.0.1
 
-  '@uniswap/v4-core@https://codeload.github.com/Uniswap/v4-core/tar.gz/d153b048868a60c2403a3ef5b2301bb247884d46': {}
+  '@uniswap/v4-core@https://codeload.github.com/Uniswap/v4-core/tar.gz/46c6834698c48bc4a463a86d8420f4eb1d7f3b75': {}
 
-  '@uniswap/v4-periphery@https://codeload.github.com/Uniswap/v4-periphery/tar.gz/3779387e5d296f39df543d23524b050f89a62917': {}
+  '@uniswap/v4-periphery@https://codeload.github.com/Uniswap/v4-periphery/tar.gz/9dafaaecc1e2e1e824eda9d941085f96517d827b': {}
 
   adm-zip@0.4.16: {}
 

@@ -50,8 +50,8 @@ importers:
         specifier: ^5.4.0
         version: 5.6.1
       '@polytope-labs/solidity-merkle-trees':
-        specifier: ^0.3.3
-        version: 0.3.4
+        specifier: ^0.6.0
+        version: 0.6.0
       prettier:
         specifier: ^3.3.3
         version: 3.5.2
@@ -2640,8 +2640,8 @@ packages:
     resolution: {integrity: sha512-HZH7lIg5MbUhrnS6pCIQgAvsFd5XnKuZ4Sg2xVbod2H/l/PWFXgH5eOaMfxEQIvzWo1r8Nl6kERDH/HpHvb+NQ==}
     engines: {node: '>= 22.4.1'}
 
-  '@polytope-labs/solidity-merkle-trees@0.3.4':
-    resolution: {integrity: sha512-ldLirdWNd7qNi8iRfpwlHCwy/FrVMd5wbsu9qVxx/IyOnbQnzzU816AfL3Zn01iN8DhB5UFLMkQ/HmF+VOLGFA==}
+  '@polytope-labs/solidity-merkle-trees@0.6.0':
+    resolution: {integrity: sha512-xegw7vwbbac2d8nFmklxk37J6izabfTb1JuMc7mIX/PJg68B8FSIqfa92l9gGOImb9zocakCqePq5U0IR44F6Q==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -6871,10 +6871,6 @@ packages:
   onetime@7.0.0:
     resolution: {integrity: sha512-VXJjc87FScF88uafS3JllDgvAm+c/Slfz06lorj2uAY34rlUu0Nt+v8wreiImcrgAjjIHp1rXpTDlLOGw29WwQ==}
     engines: {node: '>=18'}
-
-  openzeppelin-solidity@4.8.1:
-    resolution: {integrity: sha512-KM0pVpfrCBdifqN2ZeJZFvFuoGz3GmI4Ty/ceKNkcaf7VVWo/rLOfc5EiLh+Ukb5NadNmYo8WMeGhFA8hVWDpg==}
-    hasBin: true
 
   optimism@0.18.1:
     resolution: {integrity: sha512-mLXNwWPa9dgFyDqkNi54sjDyNJ9/fTI6WGBLgnXku1vdKY/jovHfZT5r+aiVeFFLOz+foPNOm5YJ4mqgld2GBQ==}
@@ -12445,9 +12441,8 @@ snapshots:
 
   '@polytope-labs/hyperclient@1.2.0': {}
 
-  '@polytope-labs/solidity-merkle-trees@0.3.4':
+  '@polytope-labs/solidity-merkle-trees@0.6.0':
     dependencies:
-      openzeppelin-solidity: 4.8.1
       prettier: 3.5.2
       prettier-plugin-solidity: 1.4.3(prettier@3.5.2)
 
@@ -18620,8 +18615,6 @@ snapshots:
   onetime@7.0.0:
     dependencies:
       mimic-function: 5.0.1
-
-  openzeppelin-solidity@4.8.1: {}
 
   optimism@0.18.1:
     dependencies:

@@ -39,7 +39,6 @@ ismp-grandpa = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
-pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
@@ -150,7 +149,6 @@ std = [
     "pallet-ismp-relayer/std",
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
-    "pallet-xcm-gateway/std",
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",

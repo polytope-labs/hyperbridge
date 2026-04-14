@@ -803,8 +803,6 @@ mod runtime {
 	pub type HostExecutive = pallet_ismp_host_executive;
 	#[runtime::pallet_index(56)]
 	pub type CallDecompressor = pallet_call_decompressor;
-	#[runtime::pallet_index(57)]
-	pub type XcmGateway = pallet_xcm_gateway;
 	#[runtime::pallet_index(58)]
 	pub type Assets = pallet_assets;
 	#[runtime::pallet_index(59)]

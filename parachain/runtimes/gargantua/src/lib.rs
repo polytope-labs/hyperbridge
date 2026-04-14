@@ -78,7 +78,8 @@ use frame_system::{
 
 use pallet_ismp::offchain::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
+use mmr_primitives::INDEXING_PREFIX;
+use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
@@ -176,7 +177,11 @@ pub type Executive = frame_executive::Executive<
 	frame_system::ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
+	Migrations,
 >;
+
+/// All runtime migrations executed on each runtime upgrade in order.
+pub type Migrations = (pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,);
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 /// node's balance type.

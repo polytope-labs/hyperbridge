@@ -49,6 +49,7 @@ pallet-token-gateway = { workspace = true }
 token-gateway-primitives = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
+mmr-primitives = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
@@ -153,6 +154,7 @@ std = [
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",
+    "mmr-primitives/std",
     "simnode-runtime-api/std",
     "hyperbridge-client-machine/std",
     "anyhow/std",

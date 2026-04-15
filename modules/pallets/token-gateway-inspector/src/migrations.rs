@@ -47,9 +47,14 @@ mod version_unchecked {
 	/// flow through the runtime.
 	pub struct InnerResetTokenGatewayInspectorState<T>(PhantomData<T>);
 
+	/// Maximum number of [`InflowBalances`] entries to remove in a single run of
+	/// this migration. Bounds the worst-case weight while still being large
+	/// enough to drain the map in practice.
+	const CLEAR_LIMIT: u32 = 512;
+
 	impl<T: Config> UncheckedOnRuntimeUpgrade for InnerResetTokenGatewayInspectorState<T> {
 		fn on_runtime_upgrade() -> Weight {
-			let result = InflowBalances::<T>::clear(u32::MAX, None);
+			let result = InflowBalances::<T>::clear(CLEAR_LIMIT, None);
 			let cleared = result.unique as u64;
 
 			log::info!(

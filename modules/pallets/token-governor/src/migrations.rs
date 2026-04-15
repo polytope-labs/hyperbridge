@@ -21,7 +21,9 @@
 //! implementation and is exposed wrapped in a [`VersionedMigration`], which
 //! handles on-chain storage-version gating and bumping automatically.
 
-use crate::{Config, Pallet, StandaloneChainAssets, SupportedChains, TokenGatewayParams};
+use crate::{
+	AssetMetadatas, Config, Pallet, StandaloneChainAssets, SupportedChains, TokenGatewayParams,
+};
 use core::marker::PhantomData;
 use polkadot_sdk::*;
 
@@ -47,26 +49,35 @@ mod version_unchecked {
 	/// - [`StandaloneChainAssets`] — the standalone-chain native-asset registry
 	///   consulted by `pallet-token-gateway-inspector` when validating
 	///   TokenGateway requests.
+	/// - [`AssetMetadatas`] — the per-asset metadata registry tracked by the
+	///   token-governor for TokenGateway-managed assets.
 	///
-	/// All other token-governor storage items (`PendingAsset`, `AssetMetadatas`,
-	/// `AssetOwners`, `ProtocolParams`, `TokenRegistrarParams`,
-	/// `IntentGatewayParams`) are intentionally **not** touched: they are not
-	/// TokenGateway-specific configuration.
+	/// All other token-governor storage items (`PendingAsset`, `AssetOwners`,
+	/// `ProtocolParams`, `TokenRegistrarParams`, `IntentGatewayParams`) are
+	/// intentionally **not** touched: they are not TokenGateway-specific
+	/// configuration.
 	pub struct InnerResetTokenGatewayState<T>(PhantomData<T>);
+
+	/// Maximum number of entries to remove per affected storage map in a single
+	/// run of this migration. Bounds the worst-case weight while still being
+	/// large enough to drain the maps in practice.
+	const CLEAR_LIMIT: u32 = 512;
 
 	impl<T: Config> UncheckedOnRuntimeUpgrade for InnerResetTokenGatewayState<T> {
 		fn on_runtime_upgrade() -> Weight {
-			let token_gateway_params = TokenGatewayParams::<T>::clear(u32::MAX, None);
-			let supported_chains = SupportedChains::<T>::clear(u32::MAX, None);
-			let standalone_chain_assets = StandaloneChainAssets::<T>::clear(u32::MAX, None);
+			let token_gateway_params = TokenGatewayParams::<T>::clear(CLEAR_LIMIT, None);
+			let supported_chains = SupportedChains::<T>::clear(CLEAR_LIMIT, None);
+			let standalone_chain_assets = StandaloneChainAssets::<T>::clear(CLEAR_LIMIT, None);
+			let asset_metadatas = AssetMetadatas::<T>::clear(CLEAR_LIMIT, None);
 
 			let cleared = token_gateway_params.unique as u64
 				+ supported_chains.unique as u64
-				+ standalone_chain_assets.unique as u64;
+				+ standalone_chain_assets.unique as u64
+				+ asset_metadatas.unique as u64;
 
 			log::info!(
 				target: "pallet-token-governor",
-				"ResetTokenGatewayState migration: cleared {} TokenGateway-related entries (TokenGatewayParams + SupportedChains + StandaloneChainAssets)",
+				"ResetTokenGatewayState migration: cleared {} TokenGateway-related entries (TokenGatewayParams + SupportedChains + StandaloneChainAssets + AssetMetadatas)",
 				cleared,
 			);
 
@@ -81,14 +92,17 @@ mod version_unchecked {
 			let token_gateway_params = TokenGatewayParams::<T>::iter().count() as u64;
 			let supported_chains = SupportedChains::<T>::iter().count() as u64;
 			let standalone_chain_assets = StandaloneChainAssets::<T>::iter().count() as u64;
+			let asset_metadatas = AssetMetadatas::<T>::iter().count() as u64;
 			log::info!(
 				target: "pallet-token-governor",
-				"ResetTokenGatewayState pre_upgrade: TokenGatewayParams={}, SupportedChains={}, StandaloneChainAssets={}",
+				"ResetTokenGatewayState pre_upgrade: TokenGatewayParams={}, SupportedChains={}, StandaloneChainAssets={}, AssetMetadatas={}",
 				token_gateway_params,
 				supported_chains,
 				standalone_chain_assets,
+				asset_metadatas,
 			);
-			Ok((token_gateway_params, supported_chains, standalone_chain_assets).encode())
+			Ok((token_gateway_params, supported_chains, standalone_chain_assets, asset_metadatas)
+				.encode())
 		}
 
 		#[cfg(feature = "try-runtime")]
@@ -105,6 +119,9 @@ mod version_unchecked {
 			}
 			if StandaloneChainAssets::<T>::iter().next().is_some() {
 				return Err(TryRuntimeError::Other("StandaloneChainAssets not cleared"));
+			}
+			if AssetMetadatas::<T>::iter().next().is_some() {
+				return Err(TryRuntimeError::Other("AssetMetadatas not cleared"));
 			}
 			Ok(())
 		}

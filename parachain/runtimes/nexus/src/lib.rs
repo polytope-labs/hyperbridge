@@ -81,10 +81,10 @@ use frame_system::{
 	limits::{BlockLength, BlockWeights},
 	EnsureRoot, EnsureRootWithSuccess,
 };
+use mmr_primitives::INDEXING_PREFIX;
 use pallet_ismp::offchain::{Proof, ProofKeys};
 use pallet_messaging_fees::types::PriceOracle;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use mmr_primitives::INDEXING_PREFIX;
 use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;

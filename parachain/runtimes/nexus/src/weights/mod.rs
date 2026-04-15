@@ -46,10 +46,10 @@ pub mod pallet_timestamp;
 pub mod pallet_token_gateway;
 pub mod pallet_transaction_payment;
 pub mod pallet_treasury;
+pub mod pallet_tx_pause;
 pub mod pallet_utility;
 pub mod pallet_vesting;
 pub mod pallet_whitelist;
-pub mod pallet_tx_pause;
 
 pub use block_weights::constants::BlockExecutionWeight;
 pub use extrinsic_weights::constants::ExtrinsicBaseWeight;

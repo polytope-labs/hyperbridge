@@ -76,9 +76,9 @@ use frame_system::{
 	EnsureRoot, EnsureRootWithSuccess,
 };
 
+use mmr_primitives::INDEXING_PREFIX;
 use pallet_ismp::offchain::Proof;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use mmr_primitives::INDEXING_PREFIX;
 use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 #[cfg(feature = "runtime-benchmarks")]

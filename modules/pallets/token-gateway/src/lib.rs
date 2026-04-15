@@ -76,7 +76,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-		host::{StateMachine},
+		host::StateMachine,
 	};
 
 	#[pallet::pallet]
@@ -353,7 +353,6 @@ pub mod pallet {
 					encoded
 				},
 			};
-
 
 			let dispatch_post = DispatchPost {
 				dest: params.destination,

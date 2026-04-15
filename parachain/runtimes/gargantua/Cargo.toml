@@ -70,6 +70,7 @@ features = [
     "pallet-session",
     "pallet-sudo",
     "pallet-utility",
+    "pallet-tx-pause",
     "pallet-timestamp",
     "pallet-transaction-payment",
     "pallet-transaction-payment-rpc-runtime-api",

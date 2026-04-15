@@ -82,6 +82,7 @@ features = [
     "pallet-transaction-payment-rpc-runtime-api",
     "pallet-message-queue",
     "pallet-utility",
+    "pallet-tx-pause",
     "pallet-treasury",
     "pallet-asset-rate",
     "pallet-collective",

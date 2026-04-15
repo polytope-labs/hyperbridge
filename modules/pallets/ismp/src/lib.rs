@@ -247,19 +247,6 @@ pub mod pallet {
 	pub type ChildTrieRoot<T: Config> =
 		StorageValue<_, <T as frame_system::Config>::Hash, ValueQuery>;
 
-	/// Global pause flag for ISMP messaging.
-	///
-	/// While `true`, both **outgoing** message dispatch
-	/// ([`Pallet::dispatch_request`] / [`Pallet::dispatch_response`], and the
-	/// [`IsmpDispatcher`](ismp::dispatcher::IsmpDispatcher) impl that wraps
-	/// them) and **incoming** message processing ([`Pallet::execute`], which
-	/// is reached from `handle_unsigned` and from `validate_unsigned`) return
-	/// early with an error. Toggled via the [`Pallet::pause`] /
-	/// [`Pallet::unpause`] extrinsics by [`Config::AdminOrigin`].
-	#[pallet::storage]
-	#[pallet::getter(fn is_paused)]
-	pub type Paused<T: Config> = StorageValue<_, bool, ValueQuery>;
-
 	// Pallet implements [`Hooks`] trait to define some logic to execute in some context.
 	#[pallet::hooks]
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T>
@@ -380,37 +367,6 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Pause ISMP messaging. While paused, both outgoing dispatch
-		/// ([`Pallet::dispatch_request`] / [`Pallet::dispatch_response`]) and
-		/// incoming message processing ([`Pallet::execute`]) return early with
-		/// [`Error::MessagingPaused`]. The dispatch origin must be
-		/// [`Config::AdminOrigin`].
-		///
-		/// Returns [`Error::MessagingPauseUnchanged`] if messaging was already paused.
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-		#[pallet::call_index(5)]
-		pub fn pause(origin: OriginFor<T>) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-			ensure!(!Paused::<T>::get(), Error::<T>::MessagingPauseUnchanged);
-			Paused::<T>::put(true);
-			Self::deposit_event(Event::<T>::Paused);
-			Ok(())
-		}
-
-		/// Unpause ISMP messaging, re-enabling outgoing dispatch and incoming
-		/// message processing. The dispatch origin must be [`Config::AdminOrigin`].
-		///
-		/// Returns [`Error::MessagingPauseUnchanged`] if messaging was already unpaused.
-		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(1, 1))]
-		#[pallet::call_index(6)]
-		pub fn unpause(origin: OriginFor<T>) -> DispatchResult {
-			T::AdminOrigin::ensure_origin(origin)?;
-			ensure!(Paused::<T>::get(), Error::<T>::MessagingPauseUnchanged);
-			Paused::<T>::put(false);
-			Self::deposit_event(Event::<T>::Unpaused);
-			Ok(())
-		}
-
 		/// Add more funds to a message (request or response) to be used for delivery and execution.
 		///
 		/// Should not be called on a message that has been completed (delivered or timed-out) as
@@ -524,11 +480,6 @@ pub mod pallet {
 		PostResponseTimeoutHandled(TimeoutHandled),
 		/// Get request timeout handled
 		GetRequestTimeoutHandled(TimeoutHandled),
-		/// ISMP messaging has been paused. Both outgoing dispatch and incoming
-		/// message handling are now rejected until [`Event::Unpaused`] is emitted.
-		Paused,
-		/// ISMP messaging has been unpaused.
-		Unpaused,
 	}
 
 	/// Pallet errors
@@ -546,12 +497,6 @@ pub mod pallet {
 		ChallengePeriodUpdateFailed,
 		/// Error charging fee
 		ErrorChargingFee,
-		/// ISMP messaging is currently paused; outgoing dispatch and incoming
-		/// message handling are both rejected until an admin unpauses it.
-		MessagingPaused,
-		/// Tried to pause/unpause ISMP messaging while it was already in the
-		/// requested state.
-		MessagingPauseUnchanged,
 	}
 
 	/// This allows users execute ISMP datagrams for free. Use with caution.

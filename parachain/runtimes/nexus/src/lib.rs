@@ -34,7 +34,7 @@ use crate::sp_runtime::DispatchError;
 use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::{EverythingBut, TransformOrigin, WithdrawReasons};
+use frame_support::traits::{EverythingBut, InsideBoth, TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
@@ -54,7 +54,7 @@ use sp_runtime::{
 	ApplyExtrinsicResult, MultiSignature,
 };
 
-use crate::governance::TreasurySpender;
+use crate::governance::{TreasurySpender, WhitelistedCaller};
 use sp_core::Get;
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -398,7 +398,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = EverythingBut<IsTreasurySpend>;
+	type BaseCallFilter = InsideBoth<EverythingBut<IsTreasurySpend>, TxPause>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -610,6 +610,53 @@ impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
+}
+
+parameter_types! {
+	/// Maximum length of a SCALE-encoded pallet or call name that
+	/// `pallet-tx-pause` will accept when pausing / unpausing. Anything longer
+	/// is treated as **paused** by the pallet, so keep this comfortably above
+	/// the longest on-chain name.
+	pub const MaxTxPauseNameLen: u32 = 256;
+}
+
+/// Calls that [`pallet_tx_pause`] is never allowed to pause. Empty by default —
+/// the pallet already exempts its own `unpause` extrinsic so the admin origin
+/// can always recover, and inherents (timestamp, parachain system, etc.) are
+/// not subject to the `BaseCallFilter` so block production is unaffected.
+pub struct TxPauseWhitelistedCalls;
+impl frame_support::traits::Contains<pallet_tx_pause::RuntimeCallNameOf<Runtime>>
+	for TxPauseWhitelistedCalls
+{
+	fn contains(_full_name: &pallet_tx_pause::RuntimeCallNameOf<Runtime>) -> bool {
+		false
+	}
+}
+
+impl pallet_tx_pause::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	// Pause and unpause require the same governance origin used for other
+	// privileged ISMP actions on this runtime.
+	type PauseOrigin = EitherOfDiverse<
+		WhitelistedCaller,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type UnpauseOrigin = EitherOfDiverse<
+		WhitelistedCaller,
+		pallet_collective::EnsureMembers<
+			AccountId,
+			TechnicalCollectiveInstance,
+			MIN_TECH_COLLECTIVE_APPROVAL,
+		>,
+	>;
+	type WhitelistedCalls = TxPauseWhitelistedCalls;
+	type MaxNameLen = MaxTxPauseNameLen;
+	type WeightInfo = weights::pallet_tx_pause::WeightInfo<Runtime>;
 }
 
 impl pallet_mmr_tree::Config for Runtime {
@@ -1048,6 +1095,8 @@ mod runtime {
 	pub type CollatorManager = pallet_collator_manager;
 	#[runtime::pallet_index(94)]
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
+	#[runtime::pallet_index(95)]
+	pub type TxPause = pallet_tx_pause;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1092,6 +1141,7 @@ mod benches {
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
 		[pallet_token_gateway, TokenGateway]
+		[pallet_tx_pause, TxPause]
 	);
 }
 

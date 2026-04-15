@@ -44,8 +44,8 @@ mod version_unchecked {
 	/// Clears the pallet's on-chain MMR state so that new leaves accumulate
 	/// under the new [`Config::INDEXING_PREFIX`] from scratch:
 	/// - Kills [`NumberOfLeaves`], [`RootHash`], [`InitialHeight`].
-	/// - Clears every entry in [`Nodes`] (bounded above by `Nodes::count()`,
-	///   since it is a `CountedStorageMap`).
+	/// - Clears every entry in [`Nodes`] (bounded above by `Nodes::count()`, since it is a
+	///   `CountedStorageMap`).
 	///
 	/// [`crate::IntermediateLeaves`] is intentionally **not** touched: it is
 	/// only ever populated transiently within a single block's execution, so it

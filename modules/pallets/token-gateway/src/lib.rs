@@ -76,7 +76,7 @@ pub mod pallet {
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
-		host::{IsmpHost, StateMachine},
+		host::{StateMachine},
 	};
 
 	#[pallet::pallet]

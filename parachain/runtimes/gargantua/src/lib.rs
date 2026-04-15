@@ -64,7 +64,7 @@ use frame_support::{
 	dispatch::DispatchClass,
 	genesis_builder_helper::{build_state, get_preset},
 	parameter_types,
-	traits::{ConstU32, ConstU64, ConstU8, Everything},
+	traits::{ConstU32, ConstU64, ConstU8, Everything, InsideBoth},
 	weights::{
 		constants::WEIGHT_REF_TIME_PER_SECOND, ConstantMultiplier, Weight, WeightToFeeCoefficient,
 		WeightToFeeCoefficients, WeightToFeePolynomial,
@@ -375,7 +375,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = Everything;
+	type BaseCallFilter = InsideBoth<Everything, TxPause>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -590,6 +590,37 @@ impl pallet_utility::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
+}
+
+parameter_types! {
+	/// Maximum length of a SCALE-encoded pallet or call name that
+	/// `pallet-tx-pause` will accept when pausing / unpausing. Anything longer
+	/// is treated as **paused** by the pallet, so keep this comfortably above
+	/// the longest on-chain name.
+	pub const MaxTxPauseNameLen: u32 = 256;
+}
+
+/// Calls that [`pallet_tx_pause`] is never allowed to pause. Empty by default —
+/// the pallet already exempts its own `unpause` extrinsic so the admin origin
+/// can always recover, and inherents (timestamp, parachain system, etc.) are
+/// not subject to the `BaseCallFilter` so block production is unaffected.
+pub struct TxPauseWhitelistedCalls;
+impl frame_support::traits::Contains<pallet_tx_pause::RuntimeCallNameOf<Runtime>>
+	for TxPauseWhitelistedCalls
+{
+	fn contains(_full_name: &pallet_tx_pause::RuntimeCallNameOf<Runtime>) -> bool {
+		false
+	}
+}
+
+impl pallet_tx_pause::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	type PauseOrigin = EnsureRoot<AccountId>;
+	type UnpauseOrigin = EnsureRoot<AccountId>;
+	type WhitelistedCalls = TxPauseWhitelistedCalls;
+	type MaxNameLen = MaxTxPauseNameLen;
+	type WeightInfo = weights::pallet_tx_pause::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -839,6 +870,8 @@ mod runtime {
 	pub type IsmpOptimism = ismp_optimism::pallet;
 	#[runtime::pallet_index(85)]
 	pub type IsmpTendermint = ismp_tendermint::pallet;
+	#[runtime::pallet_index(86)]
+	pub type TxPause = pallet_tx_pause;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -872,6 +905,7 @@ mod benches {
 		[pallet_intents_coprocessor, IntentsCoprocessor]
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
+		[pallet_tx_pause, TxPause]
 	);
 }
 

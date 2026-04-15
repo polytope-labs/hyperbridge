@@ -44,13 +44,12 @@ mod version_unchecked {
 	///
 	/// Wipes every TokenGateway-related configuration tracked by this pallet:
 	/// - [`TokenGatewayParams`] — per-chain TokenGateway protocol parameters.
-	/// - [`SupportedChains`] — the asset → chain deployment matrix that the
-	///   token-governor uses to route TokenGateway operations.
-	/// - [`StandaloneChainAssets`] — the standalone-chain native-asset registry
-	///   consulted by `pallet-token-gateway-inspector` when validating
-	///   TokenGateway requests.
-	/// - [`AssetMetadatas`] — the per-asset metadata registry tracked by the
-	///   token-governor for TokenGateway-managed assets.
+	/// - [`SupportedChains`] — the asset → chain deployment matrix that the token-governor uses to
+	///   route TokenGateway operations.
+	/// - [`StandaloneChainAssets`] — the standalone-chain native-asset registry consulted by
+	///   `pallet-token-gateway-inspector` when validating TokenGateway requests.
+	/// - [`AssetMetadatas`] — the per-asset metadata registry tracked by the token-governor for
+	///   TokenGateway-managed assets.
 	///
 	/// All other token-governor storage items (`PendingAsset`, `AssetOwners`,
 	/// `ProtocolParams`, `TokenRegistrarParams`, `IntentGatewayParams`) are
@@ -70,10 +69,10 @@ mod version_unchecked {
 			let standalone_chain_assets = StandaloneChainAssets::<T>::clear(CLEAR_LIMIT, None);
 			let asset_metadatas = AssetMetadatas::<T>::clear(CLEAR_LIMIT, None);
 
-			let cleared = token_gateway_params.unique as u64
-				+ supported_chains.unique as u64
-				+ standalone_chain_assets.unique as u64
-				+ asset_metadatas.unique as u64;
+			let cleared = token_gateway_params.unique as u64 +
+				supported_chains.unique as u64 +
+				standalone_chain_assets.unique as u64 +
+				asset_metadatas.unique as u64;
 
 			log::info!(
 				target: "pallet-token-governor",

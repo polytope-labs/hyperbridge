@@ -21,7 +21,7 @@ use crate::{
 	dispatcher::{FeeMetadata, RequestMetadata},
 	fee_handler::FeeHandler,
 	offchain::{self, ForkIdentifier, Leaf, LeafIndexAndPos, OffchainDBProvider},
-	Config, Error, Event, Pallet, Paused, Responded,
+	Config, Error, Event, Pallet, Responded,
 };
 use alloc::{string::ToString, vec, vec::Vec};
 use codec::Decode;
@@ -38,14 +38,6 @@ impl<T: Config> Pallet<T> {
 	/// Execute the provided ISMP datagrams, this will short circuit if any messages are invalid.
 	/// This also charges fee on valid message delivery
 	pub fn execute(messages: Vec<Message>) -> Result<Vec<events::Event>, Error<T>> {
-		// Reject all incoming message processing while messaging is paused.
-		// This is the single chokepoint reached from both `handle_unsigned`
-		// and `validate_unsigned`, so the pause covers every incoming path.
-		if Paused::<T>::get() {
-			log::debug!(target: "ismp", "Rejecting incoming messages: ISMP messaging is paused");
-			return Err(Error::<T>::MessagingPaused);
-		}
-
 		let host = Pallet::<T>::default();
 
 		let message_results = messages
@@ -96,11 +88,6 @@ impl<T: Config> Pallet<T> {
 
 	/// Dispatch an outgoing request, returns the request commitment
 	pub fn dispatch_request(request: Request, meta: FeeMetadata<T>) -> Result<H256, ismp::Error> {
-		// Reject all outgoing message dispatch while messaging is paused.
-		if Paused::<T>::get() {
-			Err(ismp::Error::Custom("ISMP messaging is paused".to_string()))?
-		}
-
 		let commitment = hash_request::<Pallet<T>>(&request);
 
 		if RequestCommitments::<T>::contains_key(commitment) {
@@ -138,11 +125,6 @@ impl<T: Config> Pallet<T> {
 		response: Response,
 		meta: FeeMetadata<T>,
 	) -> Result<H256, ismp::Error> {
-		// Reject all outgoing message dispatch while messaging is paused.
-		if Paused::<T>::get() {
-			Err(ismp::Error::Custom("ISMP messaging is paused".to_string()))?
-		}
-
 		let req_commitment = hash_request::<Pallet<T>>(&response.request());
 
 		if Responded::<T>::contains_key(req_commitment) {

@@ -181,7 +181,11 @@ pub type Executive = frame_executive::Executive<
 >;
 
 /// All runtime migrations executed on each runtime upgrade in order.
-pub type Migrations = (pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,);
+pub type Migrations = (
+	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
+	pallet_token_governor::migrations::ResetTokenGatewayState<Runtime>,
+	pallet_token_gateway_inspector::migrations::ResetTokenGatewayInspectorState<Runtime>,
+);
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 /// node's balance type.

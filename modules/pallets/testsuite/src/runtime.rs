@@ -112,6 +112,7 @@ frame_support::construct_runtime!(
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
+		IsmpParachain: ismp_parachain,
 	}
 );
 
@@ -416,6 +417,12 @@ impl ismp_bsc::pallet::Config for Test {
 }
 
 impl ismp_grandpa::Config for Test {
+	type IsmpHost = Ismp;
+	type WeightInfo = ();
+	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_parachain::Config for Test {
 	type IsmpHost = Ismp;
 	type WeightInfo = ();
 	type RootOrigin = EnsureRoot<AccountId32>;

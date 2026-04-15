@@ -177,20 +177,22 @@ pub fn relayer_nonce_storage_key(address: Vec<u8>, state_machine: StateMachine) 
 
 pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"Ismp").to_vec();
+	let storage_prefix = twox_128(b"BoundedStateMachineUpdateTime").to_vec();
+	let key_1 = blake2_128(&height.id.encode()).to_vec();
+	let key_2 = blake2_128(&height.height.encode()).to_vec();
 
-	let storage_prefix = twox_128(b"StateMachineUpdateTime").to_vec();
-	let key_1 = twox_64(&height.encode()).to_vec();
-
-	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+	[pallet_prefix, storage_prefix, key_1, height.id.encode(), key_2, height.height.encode()]
+		.concat()
 }
 
 pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"Ismp").to_vec();
+	let storage_prefix = twox_128(b"BoundedStateCommitments").to_vec();
+	let key_1 = blake2_128(&height.id.encode()).to_vec();
+	let key_2 = blake2_128(&height.height.encode()).to_vec();
 
-	let storage_prefix = twox_128(b"StateCommitments").to_vec();
-	let key_1 = blake2_128(&height.encode()).to_vec();
-
-	[pallet_prefix, storage_prefix, key_1, height.encode()].concat()
+	[pallet_prefix, storage_prefix, key_1, height.id.encode(), key_2, height.height.encode()]
+		.concat()
 }
 
 pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {

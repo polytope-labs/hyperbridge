@@ -106,6 +106,7 @@ features = [
     "cumulus-pallet-session-benchmarking",
     "cumulus-pallet-xcm",
     "cumulus-pallet-xcmp-queue",
+    "pallet-migrations",
     "cumulus-primitives-core",
     "cumulus-primitives-timestamp",
     "cumulus-primitives-aura",

@@ -401,6 +401,28 @@ impl frame_system::Config for Runtime {
 	/// The action to take on a Runtime Upgrade
 	type OnSetCode = cumulus_pallet_parachain_system::ParachainSetCode<Self>;
 	type MaxConsumers = frame_support::traits::ConstU32<16>;
+	type MultiBlockMigrator = Migrations;
+}
+
+parameter_types! {
+	pub MbmServiceWeight: Weight = RuntimeBlockWeights::get().max_block.saturating_div(2);
+}
+
+impl pallet_migrations::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	#[cfg(not(feature = "runtime-benchmarks"))]
+	type Migrations = (
+		ismp_parachain::migration::MigrationV2<Runtime>,
+		pallet_ismp::migrations::DrainLegacyStateCommitments<Runtime>,
+	);
+	#[cfg(feature = "runtime-benchmarks")]
+	type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
+	type CursorMaxLen = ConstU32<65_536>;
+	type IdentifierMaxLen = ConstU32<256>;
+	type MigrationStatusHandler = ();
+	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type MaxServiceWeight = MbmServiceWeight;
+	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -1050,6 +1072,9 @@ mod runtime {
 	#[runtime::pallet_index(94)]
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 
+	#[runtime::pallet_index(95)]
+	pub type Migrations = pallet_migrations;
+
 	// consensus clients
 	#[runtime::pallet_index(254)]
 	pub type IsmpTendermint = ismp_tendermint::pallet;
@@ -1094,6 +1119,7 @@ mod benches {
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
 		[pallet_token_gateway, TokenGateway]
+		[pallet_migrations, Migrations]
 	);
 }
 

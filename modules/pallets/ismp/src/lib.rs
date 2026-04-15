@@ -27,6 +27,7 @@ pub mod events;
 pub mod fee_handler;
 pub mod host;
 mod impls;
+pub mod migrations;
 pub mod offchain;
 mod utils;
 pub mod weights;
@@ -84,13 +85,6 @@ pub mod pallet {
 
 	/// Maximum state commitments retained per chain in [`BoundedStateCommitments`].
 	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 256;
-
-	/// Number of legacy [`StateCommitments`] and [`StateMachineUpdateTime`]
-	/// entries drained per block.
-	pub const LEGACY_SM_DRAIN_BATCH_SIZE: u32 = 1000;
-
-	/// Maximum forward steps the per-chain eviction cursor walks per call.
-	const SM_EVICTION_MAX_WALK: u32 = 64;
 
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config {
@@ -275,12 +269,6 @@ pub mod pallet {
 	pub type StateCommitmentsCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, u32, ValueQuery>;
 
-	/// Per-chain oldest retained height in [`BoundedStateCommitments`].
-	/// Used as the eviction cursor.
-	#[pallet::storage]
-	pub type OldestRetainedStateMachineHeight<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineId, u64, OptionQuery>;
-
 	/// Tracks requests that have been responded to
 	/// The key is the request commitment
 	#[pallet::storage]
@@ -334,8 +322,6 @@ pub mod pallet {
 				timestamp_log.encode(),
 			);
 			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);
-
-			Self::drain_legacy_state_commitments();
 		}
 	}
 
@@ -667,12 +653,8 @@ pub mod pallet {
 			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
 			StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_add(1));
 
-			if OldestRetainedStateMachineHeight::<T>::get(height.id).is_none() {
-				OldestRetainedStateMachineHeight::<T>::insert(height.id, height.height);
-			}
-
 			if StateCommitmentsCount::<T>::get(height.id) > MAX_STATE_MACHINE_COMMITMENTS {
-				Self::evict_oldest_state_commitment(height.id, height.height);
+				Self::evict_oldest_state_commitment(height.id);
 			}
 		}
 
@@ -683,47 +665,14 @@ pub mod pallet {
 			BoundedStateMachineUpdateTime::<T>::insert(height.id, height.height, timestamp);
 		}
 
-		/// Evict the oldest entry for `chain` from both bounded maps.
-		fn evict_oldest_state_commitment(chain: StateMachineId, current_height: u64) {
-			let Some(mut cursor) = OldestRetainedStateMachineHeight::<T>::get(chain) else {
-				return;
-			};
-
-			let mut steps: u32 = 0;
-			while steps < SM_EVICTION_MAX_WALK && cursor < current_height {
-				if BoundedStateCommitments::<T>::contains_key(chain, cursor) {
-					BoundedStateCommitments::<T>::remove(chain, cursor);
-					BoundedStateMachineUpdateTime::<T>::remove(chain, cursor);
-					StateCommitmentsCount::<T>::mutate(chain, |c| *c = c.saturating_sub(1));
-					OldestRetainedStateMachineHeight::<T>::insert(chain, cursor.saturating_add(1));
-					return;
-				}
-				cursor = cursor.saturating_add(1);
-				steps = steps.saturating_add(1);
-			}
-
-			OldestRetainedStateMachineHeight::<T>::insert(chain, cursor);
-		}
-
-		/// Drain up to [`LEGACY_SM_DRAIN_BATCH_SIZE`] entries from each of the
-		/// old unbounded [`StateCommitments`] and [`StateMachineUpdateTime`]
-		/// maps. They are drained independently since one may empty before the
-		/// other.
-		pub fn drain_legacy_state_commitments() {
-			for _ in 0..LEGACY_SM_DRAIN_BATCH_SIZE {
-				if let Some(key) = StateCommitments::<T>::iter_keys().next() {
-					StateCommitments::<T>::remove(&key);
-				} else {
-					break;
-				}
-			}
-
-			for _ in 0..LEGACY_SM_DRAIN_BATCH_SIZE {
-				if let Some(key) = StateMachineUpdateTime::<T>::iter_keys().next() {
-					StateMachineUpdateTime::<T>::remove(&key);
-				} else {
-					break;
-				}
+		/// Evict the oldest entry for `chain` from both bounded maps using
+		/// `iter_key_prefix().next()` to find the smallest key.
+		fn evict_oldest_state_commitment(chain: StateMachineId) {
+			if let Some(oldest_height) = BoundedStateCommitments::<T>::iter_key_prefix(chain).next()
+			{
+				BoundedStateCommitments::<T>::remove(chain, oldest_height);
+				BoundedStateMachineUpdateTime::<T>::remove(chain, oldest_height);
+				StateCommitmentsCount::<T>::mutate(chain, |c| *c = c.saturating_sub(1));
 			}
 		}
 	}

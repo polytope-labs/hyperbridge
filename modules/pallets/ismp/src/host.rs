@@ -23,7 +23,7 @@ use crate::{
 	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
 	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
 	LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight, Responded,
-	StateCommitmentsCount, StateMachineUpdateTime, UnbondingPeriod,
+	StateCommitmentsCount, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
@@ -57,9 +57,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		// Try new bounded map first, fall back to legacy + child trie
 		BoundedStateCommitments::<T>::get(height.id, height.height)
-			.or_else(|| child_trie::StateCommitments::<T>::get(height))
 			.ok_or_else(|| Error::StateCommitmentNotFound { height })
 	}
 
@@ -73,12 +71,10 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		&self,
 		state_machine_height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		// Try new bounded map first, fall back to legacy
 		BoundedStateMachineUpdateTime::<T>::get(
 			state_machine_height.id,
 			state_machine_height.height,
 		)
-		.or_else(|| StateMachineUpdateTime::<T>::get(state_machine_height))
 		.map(|timestamp| Duration::from_secs(timestamp))
 		.ok_or_else(|| {
 			Error::Custom(format!("Update time not found for {:?}", state_machine_height))
@@ -195,20 +191,14 @@ impl<T: Config> IsmpHost for Pallet<T> {
 		height: StateMachineHeight,
 		state: StateCommitment,
 	) -> Result<(), Error> {
-		// Write to the new bounded map (with eviction) and the child trie
-		// (for POV-efficient reads). The legacy pallet StorageMap is no longer
-		// written to, it's drained gradually in on_finalize.
-		Pallet::<T>::insert_bounded_state_commitment(height, state.clone());
-		child_trie::StateCommitments::<T>::insert_child_only(height, state);
+		Pallet::<T>::insert_bounded_state_commitment(height, state);
 		Ok(())
 	}
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
-		// Remove from all locations: bounded map, legacy map, and child trie
 		BoundedStateCommitments::<T>::remove(height.id, height.height);
 		BoundedStateMachineUpdateTime::<T>::remove(height.id, height.height);
 		StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_sub(1));
-		child_trie::StateCommitments::<T>::remove(height);
 
 		// technically any state commitment can be vetoed,
 		// safety check that it's the latest before resetting it.

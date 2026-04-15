@@ -48,6 +48,7 @@ pallet-bridge-airdrop = { workspace = true, default-features = true }
 pallet-consensus-incentives = { workspace = true, default-features = true }
 pallet-messaging-fees = { workspace = true, default-features = true }
 pallet-collator-manager = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
 hyperbridge-client-machine =  {workspace = true, default-features = true }
 evm-state-machine = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }

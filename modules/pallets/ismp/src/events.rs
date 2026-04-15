@@ -70,6 +70,8 @@ impl<T: Config> TryFrom<PalletEvent<T>> for ismp::events::Event {
 			PalletEvent::ConsensusClientCreated { .. } |
 			PalletEvent::ConsensusClientFrozen { .. } |
 			PalletEvent::Errors { .. } |
+			PalletEvent::Paused |
+			PalletEvent::Unpaused |
 			PalletEvent::__Ignore(_, _) => Err(()),
 		}
 	}

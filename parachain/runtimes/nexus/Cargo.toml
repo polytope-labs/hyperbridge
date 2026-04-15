@@ -77,7 +77,6 @@ features = [
     "pallet-balances",
     "pallet-assets",
     "pallet-session",
-    "pallet-sudo",
     "pallet-timestamp",
     "pallet-transaction-payment",
     "pallet-transaction-payment-rpc-runtime-api",

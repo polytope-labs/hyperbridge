@@ -601,12 +601,6 @@ impl pallet_collator_selection::Config for Runtime {
 	type WeightInfo = weights::pallet_collator_selection::WeightInfo<Runtime>;
 }
 
-impl pallet_sudo::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeCall = RuntimeCall;
-	type WeightInfo = weights::pallet_sudo::WeightInfo<Runtime>;
-}
-
 impl pallet_utility::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
@@ -970,8 +964,6 @@ mod runtime {
 	pub type Aura = pallet_aura;
 	#[runtime::pallet_index(24)]
 	pub type AuraExt = cumulus_pallet_aura_ext;
-	#[runtime::pallet_index(25)]
-	pub type Sudo = pallet_sudo;
 
 	// XCM helpers.
 	#[runtime::pallet_index(30)]
@@ -1076,7 +1068,6 @@ mod benches {
 		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
 		[pallet_message_queue, MessageQueue]
-		[pallet_sudo, Sudo]
 		[pallet_assets, Assets]
 		[pallet_utility, Utility]
 		[pallet_treasury, Treasury]

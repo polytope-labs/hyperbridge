@@ -28,11 +28,11 @@ import {
 } from "./Types.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 
 import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
 import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
-import {Node, StorageValue, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
 import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
@@ -46,7 +46,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * @notice This verifies secp256k1 signatures and authority set membership merkle proofs
  * in order to confirm newly finalized states of the Hyperbridge blockchain.
  */
-contract BeefyV1 is IConsensus, ERC165 {
+contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // The PayloadId for the mmr root.
@@ -80,7 +80,23 @@ contract BeefyV1 is IConsensus, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+            || super.supportsInterface(interfaceId);
+    }
+
+    function verify(bytes calldata previousState, bytes calldata proof)
+        external
+        pure
+        returns (bytes memory, IntermediateState[] memory, uint256)
+    {
+        BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
+        (RelayChainProof memory relay, ParachainProof memory parachain) =
+            abi.decode(proof, (RelayChainProof, ParachainProof));
+
+        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
+            verifyConsensus(consensusState, BeefyConsensusProof(relay, parachain));
+
+        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
@@ -156,21 +172,21 @@ contract BeefyV1 is IConsensus, ERC165 {
         if (mmrRoot == bytes32(0)) revert MmrRootHashMissing();
 
         bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
-        Node[] memory authorities = new Node[](signatures_length);
+        MerkleMultiProof.Node[] memory authorities = new MerkleMultiProof.Node[](signatures_length);
 
         // verify authorities' votes
         for (uint256 i = 0; i < signatures_length; i++) {
             Vote memory vote = relayProof.signedCommitment.votes[i];
             address authority = ECDSA.recover(commitment_hash, vote.signature);
-            authorities[i] = Node(vote.authorityIndex, keccak256(abi.encodePacked(authority)));
+            authorities[i] = MerkleMultiProof.Node(vote.leafPosition, keccak256(abi.encodePacked(authority)));
         }
 
         bool valid;
         // check authorities proof
         if (is_current_authorities) {
-            valid = MerkleMultiProof.VerifyProof(trustedState.currentAuthoritySet.root, relayProof.proof, authorities);
+            valid = MerkleMultiProof.VerifyProof(trustedState.currentAuthoritySet.root, relayProof.proof, authorities, trustedState.currentAuthoritySet.len);
         } else {
-            valid = MerkleMultiProof.VerifyProof(trustedState.nextAuthoritySet.root, relayProof.proof, authorities);
+            valid = MerkleMultiProof.VerifyProof(trustedState.nextAuthoritySet.root, relayProof.proof, authorities, trustedState.nextAuthoritySet.len);
         }
         if (!valid) revert InvalidAuthoritiesProof();
 
@@ -204,8 +220,8 @@ contract BeefyV1 is IConsensus, ERC165 {
         );
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
 
-        MmrLeaf[] memory leaves = new MmrLeaf[](1);
-        leaves[0] = MmrLeaf(relay.latestMmrLeaf.kIndex, relay.latestMmrLeaf.leafIndex, hash);
+        MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](1);
+        leaves[0] = MerkleMountainRange.Leaf(relay.latestMmrLeaf.leafIndex, hash);
 
         bool valid = MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount);
 
@@ -219,7 +235,7 @@ contract BeefyV1 is IConsensus, ERC165 {
         returns (IntermediateState[] memory)
     {
         uint256 len = proof.parachains.length;
-        Node[] memory leaves = new Node[](len);
+        MerkleMultiProof.Node[] memory leaves = new MerkleMultiProof.Node[](len);
         IntermediateState[] memory intermediates = new IntermediateState[](len);
 
         for (uint256 i = 0; i < len; i++) {
@@ -227,8 +243,8 @@ contract BeefyV1 is IConsensus, ERC165 {
             Header memory header = Codec.DecodeHeader(para.header);
             if (header.number == 0) revert IllegalGenesisBlock();
 
-            leaves[i] = Node(
-                para.index,
+            leaves[i] = MerkleMultiProof.Node(
+                para.leafPosition,
                 keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
             );
 
@@ -238,7 +254,7 @@ contract BeefyV1 is IConsensus, ERC165 {
         }
 
         if (len > 0) {
-            bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves);
+            bool valid = MerkleMultiProof.VerifyProof(headsRoot, proof.proof, leaves, proof.leafCount);
             if (!valid) revert InvalidMmrProof();
         }
 

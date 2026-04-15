@@ -24,7 +24,7 @@ use crate::{
 		PostRequestHandled, PostRequestTimeoutHandled, PostResponse, PostResponseEvent,
 		PostResponseFunded, PostResponseHandled, PostResponseTimeoutHandled, RequestFunded,
 		StateCommitment, StateCommitmentRead, StateCommitmentVetoed as EvmStateCommitmentVetoed,
-		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated, StorageValue,
+		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated,
 	},
 };
 
@@ -68,16 +68,18 @@ impl ToU256 for usize {
 mod beefy {
 	use super::ToU256;
 	use crate::{
-		beefy::Beefy::{
-			AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
-			Commitment, Node, Parachain, ParachainProof, Payload, RelayChainProof,
-			SignedCommitment, Vote,
+		beefy::{
+			Beefy::{
+				AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
+				Commitment, Parachain, ParachainProof, Payload, RelayChainProof,
+				SignedCommitment, Vote,
+			},
+			MerkleMultiProof::Node,
 		},
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 	use alloy_primitives::{Bytes, FixedBytes, U256};
 	use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
-	use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
 	use polkadot_sdk::*;
 	use primitive_types::H256;
 	use sp_consensus_beefy::mmr::BeefyNextAuthoritySet;
@@ -89,7 +91,7 @@ mod beefy {
 					.parachains
 					.into_iter()
 					.map(|parachain| Parachain {
-						index: parachain.index.to_u256(),
+						leafPosition: parachain.leaf_position.to_u256(),
 						id: parachain.para_id.to_u256(),
 						header: Bytes::from(parachain.header),
 					})
@@ -97,16 +99,12 @@ mod beefy {
 				proof: value
 					.proof
 					.into_iter()
-					.map(|layer| {
-						layer
-							.into_iter()
-							.map(|(index, node)| Node {
-								k_index: index.to_u256(),
-								node: FixedBytes::from(node),
-							})
-							.collect()
+					.map(|(index, node)| Node {
+						position: (index as usize).to_u256(),
+						node: FixedBytes::from(node),
 					})
 					.collect(),
+				leafCount: value.total_leaves.to_u256(),
 			}
 		}
 	}
@@ -170,11 +168,6 @@ mod beefy {
 	impl From<MmrProof> for RelayChainProof {
 		fn from(value: MmrProof) -> Self {
 			let leaf_index = value.mmr_proof.leaf_indices[0];
-			let k_index = mmr_primitives::mmr_position_to_k_index(
-				vec![leaf_index_to_pos(leaf_index)],
-				leaf_index_to_mmr_size(leaf_index),
-			)[0]
-			.1;
 
 			RelayChainProof {
 				signedCommitment: SignedCommitment {
@@ -185,7 +178,7 @@ mod beefy {
 						.into_iter()
 						.map(|a| Vote {
 							signature: Bytes::from(a.signature.to_vec()),
-							authorityIndex: a.index.to_u256(),
+							leafPosition: a.leaf_position.to_u256(),
 						})
 						.collect(),
 				},
@@ -195,7 +188,6 @@ mod beefy {
 					parentHash: FixedBytes::from(value.latest_mmr_leaf.parent_number_and_hash.1 .0),
 					nextAuthoritySet: value.latest_mmr_leaf.beefy_next_authority_set.into(),
 					extra: FixedBytes::from(value.latest_mmr_leaf.leaf_extra.0),
-					kIndex: k_index.to_u256(),
 					leafIndex: leaf_index.to_u256(),
 				},
 				mmrProof: value
@@ -207,14 +199,9 @@ mod beefy {
 				proof: value
 					.authority_proof
 					.into_iter()
-					.map(|layer| {
-						layer
-							.into_iter()
-							.map(|(index, node)| Node {
-								k_index: index.to_u256(),
-								node: FixedBytes::from(node),
-							})
-							.collect()
+					.map(|(index, node)| Node {
+						position: index.to_u256(),
+						node: FixedBytes::from(node),
 					})
 					.collect(),
 			}
@@ -395,7 +382,7 @@ impl From<router::GetResponse> for GetResponse {
 			values: value
 				.values
 				.into_iter()
-				.map(|storage_value| StorageValue {
+				.map(|storage_value| crate::evm_host::MerklePatricia::StorageValue {
 					key: storage_value.key.into(),
 					value: storage_value.value.unwrap_or_default().into(),
 				})

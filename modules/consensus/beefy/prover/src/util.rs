@@ -18,7 +18,7 @@ use frame_support::sp_runtime::traits::Convert;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use polkadot_sdk::*;
-use rs_merkle::MerkleTree;
+use rs_merkle::{Hasher, MerkleProof};
 use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
@@ -39,8 +39,8 @@ pub struct TimeStampExtWithProof {
 /// This holds the signatures of a BEEFY commitment, along side a merkle multi-proof of the
 /// existence of the ethereum addresses associated with the signatures.
 pub struct AuthorityProofWithSignatures {
-	/// Merkle multi-proof
-	pub authority_proof: Vec<Vec<(usize, Hash)>>,
+	/// Merkle multi-proof (flattened with positions)
+	pub authority_proof: Vec<(usize, Hash)>,
 	/// The actual signatures alongside the authority index, used in verifying the merkle proof.
 	pub signatures: Vec<SignatureWithAuthorityIndex>,
 }
@@ -134,9 +134,53 @@ impl rs_merkle::Hasher for MerkleHasher {
 	}
 }
 
-/// Generates a 2D-merkle proof for the given leaves & indices
-pub fn merkle_proof(leaves: &[Hash], indices: &[usize]) -> Vec<Vec<(usize, Hash)>> {
-	let tree = MerkleTree::<MerkleHasher>::from_leaves(leaves);
+/// A merkle node with its 1-based tree position and hash, ready for the Solidity verifier.
+#[derive(Clone, Debug)]
+pub struct MerkleNode {
+	/// 1-based tree position. Root is 1; children of node `i` are `2i` and `2i+1`.
+	pub position: usize,
+	/// Node hash.
+	pub hash: [u8; 32],
+}
 
-	tree.proof_2d(indices)
+/// Converts an `rs-merkle` proof into the positioned format expected by the Solidity verifier.
+///
+/// This is the helper described verbatim in the `solidity-merkle-trees` README:
+/// <https://github.com/polytope-labs/solidity-merkle-trees>
+///
+/// Returns a tuple of `(proof_nodes, leaf_nodes)`, both with 1-based tree positions
+/// already calculated. The leaf nodes are sorted by position.
+pub fn convert_proof<T: Hasher<Hash = [u8; 32]>>(
+	proof: &MerkleProof<T>,
+	leaf_indices: &[usize],
+	leaf_hashes: &[[u8; 32]],
+	total_leaves: usize,
+) -> (Vec<MerkleNode>, Vec<MerkleNode>) {
+	let height = rs_merkle::utils::indices::tree_depth(total_leaves);
+
+	// Calculate the expected proof node positions and zip with the proof hashes.
+	// proof_indices_by_layers returns the 0-based indices that each proof hash
+	// corresponds to, layer by layer (bottom-to-top), in the same order as proof_hashes().
+	let proof_nodes =
+		rs_merkle::utils::indices::proof_indices_by_layers(leaf_indices, total_leaves)
+			.into_iter()
+			.enumerate()
+			.flat_map(|(layer, indices)| {
+				// At layer k (0 = leaves), 0-based index i → 1-based position:
+				let level_start = 1usize << (height - layer);
+				indices.into_iter().map(move |idx| level_start + idx)
+			})
+			.zip(proof.proof_hashes())
+			.map(|(position, &hash)| MerkleNode { position, hash })
+			.collect();
+
+	let first_leaf_pos = 1usize << height;
+	let mut leaf_nodes: Vec<MerkleNode> = leaf_indices
+		.iter()
+		.zip(leaf_hashes)
+		.map(|(&i, &hash)| MerkleNode { position: first_leaf_pos + i, hash })
+		.collect();
+	leaf_nodes.sort_by_key(|n| n.position);
+
+	(proof_nodes, leaf_nodes)
 }

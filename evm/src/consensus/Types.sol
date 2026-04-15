@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {Node} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+import {MerkleMultiProof} from "@polytope-labs/solidity-merkle-trees/src/MerkleMultiProof.sol";
 
 struct SP1BeefyProof {
     // BEEFY Commitment message
@@ -77,7 +77,6 @@ struct BeefyMmrLeaf {
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
     bytes32 extra;
-    uint256 kIndex;
     uint256 leafIndex;
 }
 
@@ -102,8 +101,8 @@ struct PartialBeefyMmrLeaf {
 }
 
 struct Parachain {
-    /// k-index for latestHeadsRoot
-    uint256 index;
+    /// Pre-calculated tree position for the merkle proof (computed offchain)
+    uint256 leafPosition;
     /// Parachain Id
     uint256 id;
     /// SCALE encoded header
@@ -112,14 +111,15 @@ struct Parachain {
 
 struct ParachainProof {
     Parachain[] parachains;
-    Node[][] proof;
+    MerkleMultiProof.Node[] proof;
+    uint256 leafCount;
 }
 
 struct Vote {
     // secp256k1 signature from a member of the authority set
     bytes signature;
-    // This member's index in the set
-    uint256 authorityIndex;
+    // Pre-calculated tree position for the merkle proof (computed offchain)
+    uint256 leafPosition;
 }
 
 // The signed commitment holds a commitment to the latest
@@ -140,7 +140,7 @@ struct RelayChainProof {
     // Proof for the latest mmr leaf
     bytes32[] mmrProof;
     // Proof for authorities in current/next session
-    Node[][] proof;
+    MerkleMultiProof.Node[] proof;
 }
 
 struct BeefyConsensusProof {

@@ -12,8 +12,8 @@ importers:
         specifier: ^5.4.0
         version: 5.4.0
       '@polytope-labs/solidity-merkle-trees':
-        specifier: ^0.3.3
-        version: 0.3.4
+        specifier: ^0.6.0
+        version: 0.6.0
       prettier:
         specifier: ^3.3.3
         version: 3.6.2
@@ -26,15 +26,11 @@ packages:
   '@openzeppelin/contracts@5.4.0':
     resolution: {integrity: sha512-eCYgWnLg6WO+X52I16TZt8uEjbtdkgLC0SUX/xnAksjjrQI4Xfn4iBRoI5j55dmlOhDv1Y7BoR3cU7e3WWhC6A==}
 
-  '@polytope-labs/solidity-merkle-trees@0.3.4':
-    resolution: {integrity: sha512-ldLirdWNd7qNi8iRfpwlHCwy/FrVMd5wbsu9qVxx/IyOnbQnzzU816AfL3Zn01iN8DhB5UFLMkQ/HmF+VOLGFA==}
+  '@polytope-labs/solidity-merkle-trees@0.6.0':
+    resolution: {integrity: sha512-xegw7vwbbac2d8nFmklxk37J6izabfTb1JuMc7mIX/PJg68B8FSIqfa92l9gGOImb9zocakCqePq5U0IR44F6Q==}
 
   '@solidity-parser/parser@0.20.2':
     resolution: {integrity: sha512-rbu0bzwNvMcwAjH86hiEAcOeRI2EeK8zCkHDrFykh/Al8mvJeFmjy3UrE7GYQjNwOgbGUUtCn5/k8CB8zIu7QA==}
-
-  openzeppelin-solidity@4.8.1:
-    resolution: {integrity: sha512-KM0pVpfrCBdifqN2ZeJZFvFuoGz3GmI4Ty/ceKNkcaf7VVWo/rLOfc5EiLh+Ukb5NadNmYo8WMeGhFA8hVWDpg==}
-    hasBin: true
 
   prettier-plugin-solidity@1.4.3:
     resolution: {integrity: sha512-Mrr/iiR9f9IaeGRMZY2ApumXcn/C5Gs3S7B7hWB3gigBFML06C0yEyW86oLp0eqiA0qg+46FaChgLPJCj/pIlg==}
@@ -56,15 +52,12 @@ snapshots:
 
   '@openzeppelin/contracts@5.4.0': {}
 
-  '@polytope-labs/solidity-merkle-trees@0.3.4':
+  '@polytope-labs/solidity-merkle-trees@0.6.0':
     dependencies:
-      openzeppelin-solidity: 4.8.1
       prettier: 3.6.2
       prettier-plugin-solidity: 1.4.3(prettier@3.6.2)
 
   '@solidity-parser/parser@0.20.2': {}
-
-  openzeppelin-solidity@4.8.1: {}
 
   prettier-plugin-solidity@1.4.3(prettier@3.6.2):
     dependencies:

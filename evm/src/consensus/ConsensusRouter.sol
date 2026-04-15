@@ -15,6 +15,7 @@
 pragma solidity ^0.8.20;
 
 import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /**
@@ -24,7 +25,7 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * @notice Routes consensus verification to either SP1Beefy (ZK proof), BeefyV1 (naive proof),
  * or BeefyV1FiatShamir (Fiat-Shamir sampled proof) based on the first byte of the proof.
  */
-contract ConsensusRouter is IConsensus, ERC165 {
+contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     // Proof type enum
     enum ProofType {
         // 0x00 - BeefyV1 naive proof
@@ -60,7 +61,8 @@ contract ConsensusRouter is IConsensus, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+            || super.supportsInterface(interfaceId);
     }
 
     /**
@@ -90,13 +92,45 @@ contract ConsensusRouter is IConsensus, ERC165 {
 
         if (proofType == ProofType.ZK) {
             // Route to SP1Beefy for ZK proof verification
-            return sp1Beefy.verifyConsensus(encodedState, actualProof);
+            return IConsensus(address(sp1Beefy)).verifyConsensus(encodedState, actualProof);
         } else if (proofType == ProofType.Naive) {
             // Route to BeefyV1 for naive proof verification
-            return beefyV1.verifyConsensus(encodedState, actualProof);
+            return IConsensus(address(beefyV1)).verifyConsensus(encodedState, actualProof);
         } else if (proofType == ProofType.FiatShamir) {
             // Route to BeefyV1FiatShamir for Fiat-Shamir sampled proof verification
-            return beefyV1FiatShamir.verifyConsensus(encodedState, actualProof);
+            return IConsensus(address(beefyV1FiatShamir)).verifyConsensus(encodedState, actualProof);
+        } else {
+            revert InvalidProofType(proofTypeByte);
+        }
+    }
+
+    /**
+     * @dev IConsensusV2 verify which routes to the appropriate verifier based on the first byte of the proof.
+     */
+    function verify(bytes calldata previousState, bytes calldata encodedProof)
+        external
+        view
+        returns (bytes memory, IntermediateState[] memory, uint256)
+    {
+        if (encodedProof.length == 0) revert EmptyProof();
+
+        uint8 proofTypeByte = uint8(encodedProof[0]);
+
+        if (proofTypeByte > uint8(type(ProofType).max)) {
+            revert InvalidProofType(proofTypeByte);
+        }
+
+        ProofType proofType = ProofType(proofTypeByte);
+
+        // Strip the first byte
+        bytes calldata actualProof = encodedProof[1:];
+
+        if (proofType == ProofType.ZK) {
+            return IConsensusV2(address(sp1Beefy)).verify(previousState, actualProof);
+        } else if (proofType == ProofType.Naive) {
+            return IConsensusV2(address(beefyV1)).verify(previousState, actualProof);
+        } else if (proofType == ProofType.FiatShamir) {
+            return IConsensusV2(address(beefyV1FiatShamir)).verify(previousState, actualProof);
         } else {
             revert InvalidProofType(proofTypeByte);
         }

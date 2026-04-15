@@ -14,8 +14,8 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {MerkleMountainRange, MmrLeaf} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
-import {MerklePatricia, StorageValue} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
+import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
 import {
@@ -120,7 +120,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
      * @param host - `IsmpHost`
      * @param proof - consensus proof
      */
-    function handleConsensus(IHost host, bytes calldata proof) external notFrozen(host) {
+    function handleConsensus(IHost host, bytes calldata proof) external virtual notFrozen(host) {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
 
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
@@ -154,7 +154,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
         uint256 requestsLen = request.requests.length;
-        MmrLeaf[] memory leaves = new MmrLeaf[](requestsLen);
+        MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](requestsLen);
 
         for (uint256 i = 0; i < requestsLen; ++i) {
             PostRequestLeaf memory leaf = request.requests[i];
@@ -166,7 +166,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             bytes32 commitment = leaf.request.hash();
             if (host.requestReceipts(commitment) != address(0)) revert DuplicateMessage();
 
-            leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, commitment);
+            leaves[i] = MerkleMountainRange.Leaf(leaf.index, commitment);
         }
 
         bytes32 root = host.stateMachineCommitment(request.proof.height).overlayRoot;
@@ -192,7 +192,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
         uint256 responsesLength = response.responses.length;
-        MmrLeaf[] memory leaves = new MmrLeaf[](responsesLength);
+        MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](responsesLength);
 
         for (uint256 i = 0; i < responsesLength; ++i) {
             PostResponseLeaf memory leaf = response.responses[i];
@@ -206,7 +206,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
             // duplicate response?
             if (host.responseReceipts(leaf.response.hash()).relayer != address(0)) revert DuplicateMessage();
-            leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, leaf.response.hash());
+            leaves[i] = MerkleMountainRange.Leaf(leaf.index, leaf.response.hash());
         }
 
         bytes32 root = host.stateMachineCommitment(response.proof.height).overlayRoot;
@@ -232,7 +232,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
         if (challengePeriod != 0 && challengePeriod > delay) revert ChallengePeriodNotElapsed();
 
         uint256 responsesLength = message.responses.length;
-        MmrLeaf[] memory leaves = new MmrLeaf[](responsesLength);
+        MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](responsesLength);
 
         for (uint256 i = 0; i < responsesLength; ++i) {
             GetResponseLeaf memory leaf = message.responses[i];
@@ -245,7 +245,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
 
             // duplicate response?
             if (host.responseReceipts(requestCommitment).relayer != address(0)) revert DuplicateMessage();
-            leaves[i] = MmrLeaf(leaf.kIndex, leaf.index, leaf.response.hash());
+            leaves[i] = MerkleMountainRange.Leaf(leaf.index, leaf.response.hash());
         }
 
         bytes32 root = host.stateMachineCommitment(message.proof.height).overlayRoot;
@@ -291,7 +291,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(requestCommitment));
 
             // verify state trie non-membership proofs
-            StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            MerklePatricia.StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(request, meta, requestCommitment);
@@ -330,7 +330,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             keys[0] = bytes.concat(RESPONSE_RECEIPTS_STORAGE_PREFIX, bytes.concat(responseCommitment));
 
             // verify state trie non-membership proofs
-            StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            MerklePatricia.StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(response, meta, responseCommitment);
@@ -365,7 +365,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(commitment));
 
             // verify state trie non-membership proofs
-            StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            MerklePatricia.StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(request, meta, commitment);

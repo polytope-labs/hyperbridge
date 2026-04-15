@@ -195,10 +195,6 @@ export class FillerConfigService {
 		return this.chainConfigService.getUniswapRouterV2Address(chain)
 	}
 
-	getAerodromeRouterAddress(chain: string): HexString {
-		return this.chainConfigService.getAerodromeRouterAddress(chain)
-	}
-
 	getUniswapV2FactoryAddress(chain: string): HexString {
 		return this.chainConfigService.getUniswapV2FactoryAddress(chain)
 	}

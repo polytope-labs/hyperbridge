@@ -7,8 +7,7 @@ import { parse } from "toml"
 import { IntentFiller } from "@/core/filler"
 import { BasicFiller } from "@/strategies/basic"
 import { FXFiller } from "@/strategies/fx"
-import type { AerodromePoolConfig, FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
-import { AerodromeFundingPlanner } from "@/funding/aerodrome/AerodromeFundingPlanner"
+import type { FundingVenue, UniswapV4PositionConfig } from "@/funding/types"
 import { UniswapV4FundingPlanner } from "@/funding/uniswapV4/UniswapV4FundingPlanner"
 import { ConfirmationPolicy, FillerBpsPolicy, FillerPricePolicy } from "@/config/interpolated-curve"
 import { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
@@ -72,11 +71,6 @@ interface BasicStrategyConfig {
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 }
 
-/** TOML row for an Aerodrome pool; `chain` is the state machine id e.g. `EVM-8453`. */
-interface AerodromePoolToml extends AerodromePoolConfig {
-	chain: string
-}
-
 /** TOML row for a Uniswap V4 position; only chain + tokenId needed. */
 interface UniswapV4PositionToml {
 	chain: string
@@ -122,9 +116,6 @@ interface FxStrategyConfig {
 	confirmationPolicies?: Record<string, ChainConfirmationPolicy>
 	/** Optional on-chain liquidity funding for destination-chain outputs */
 	vault?: {
-		aerodrome?: {
-			pools?: AerodromePoolToml[]
-		}
 		uniswapV4?: {
 			positions?: UniswapV4PositionToml[]
 		}
@@ -338,20 +329,6 @@ program
 						}
 						const fxConfirmationPolicy = new ConfirmationPolicy(mergedFxPolicies)
 						const fundingVenues: FundingVenue[] = []
-						if (strategyConfig.vault?.aerodrome?.pools?.length) {
-							const poolsByChain: Record<string, AerodromePoolConfig[]> = {}
-							for (const row of strategyConfig.vault.aerodrome.pools) {
-								const chain = row.chain
-								if (!poolsByChain[chain]) poolsByChain[chain] = []
-								poolsByChain[chain].push({
-									pair: row.pair,
-									gauge: row.gauge,
-								})
-							}
-							fundingVenues.push(
-								new AerodromeFundingPlanner(chainClientManager, { poolsByChain }, configService, strategyConfig.spreadBps),
-							)
-						}
 						if (strategyConfig.vault?.uniswapV4?.positions?.length) {
 							const positionsByChain: Record<string, UniswapV4PositionConfig[]> = {}
 							for (const row of strategyConfig.vault.uniswapV4.positions) {
@@ -580,9 +557,6 @@ function validateConfig(config: FillerTomlConfig): void {
 		}
 
 		if (strategy.type === "hyperfx") {
-			if (strategy.vault?.aerodrome?.pools?.length) {
-				AerodromeFundingPlanner.validateConfig(strategy.vault.aerodrome.pools)
-			}
 			if (strategy.vault?.uniswapV4?.positions?.length) {
 				UniswapV4FundingPlanner.validateConfig(strategy.vault.uniswapV4.positions)
 			}

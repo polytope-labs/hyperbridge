@@ -318,7 +318,7 @@ export class FXFiller implements FillerStrategy {
 				const { usdUsed, policyMaxOutput } = legResult
 				remainingUsd = remainingUsd.minus(usdUsed)
 
-				// Cap by wallet balance on the destination chain, optionally topped up via Aerodrome LP removal.
+				// Cap by wallet balance on the destination chain, optionally topped up via LP removal.
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 

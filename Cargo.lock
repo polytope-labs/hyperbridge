@@ -15123,7 +15123,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "2512.0.0"
+version = "2512.1.0"
 dependencies = [
  "anyhow",
  "crypto-utils",

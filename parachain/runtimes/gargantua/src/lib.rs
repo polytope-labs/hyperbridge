@@ -238,7 +238,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 5_400,
+	spec_version: 5_500,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -385,19 +385,29 @@ parameter_types! {
 	pub MbmServiceWeight: Weight = RuntimeBlockWeights::get().max_block.saturating_div(2);
 }
 
+/// Force-unstuck the chain on a failed multi-block migration instead of freezing.
+pub struct ForceUnstuckOnFailedMigration;
+impl frame_support::migrations::FailedMigrationHandler for ForceUnstuckOnFailedMigration {
+	fn failed(_migration: Option<u32>) -> frame_support::migrations::FailedMigrationHandling {
+		frame_support::migrations::FailedMigrationHandling::ForceUnstuck
+	}
+}
+
 impl pallet_migrations::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	#[cfg(not(feature = "runtime-benchmarks"))]
 	type Migrations = (
 		ismp_parachain::migration::MigrationV2<Runtime>,
 		pallet_ismp::migrations::DrainLegacyStateCommitments<Runtime>,
+		pallet_ismp::migrations::DrainLegacyStateMachineUpdateTime<Runtime>,
+		pallet_ismp::migrations::DrainLegacyChildTrieStateCommitments<Runtime>,
 	);
 	#[cfg(feature = "runtime-benchmarks")]
 	type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
 	type CursorMaxLen = ConstU32<65_536>;
 	type IdentifierMaxLen = ConstU32<256>;
 	type MigrationStatusHandler = ();
-	type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+	type FailedMigrationHandler = ForceUnstuckOnFailedMigration;
 	type MaxServiceWeight = MbmServiceWeight;
 	type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
 }

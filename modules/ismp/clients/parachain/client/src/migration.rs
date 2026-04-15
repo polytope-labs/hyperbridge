@@ -56,20 +56,18 @@ pub mod storage_v1 {
 	use super::*;
 	use frame_support::{
 		migrations::{SteppedMigration, SteppedMigrationError},
-		weights::{Weight, WeightMeter},
+		weights::WeightMeter,
 	};
 
 	/// Number of entries to clear per step.
-	const CLEAR_BATCH_SIZE: u32 = 50_000;
-
-	/// Conservative weight per single storage removal.
-	const WEIGHT_PER_REMOVAL: Weight = Weight::from_parts(20_000, 0);
+	/// Must fit within MbmServiceWeight (max_block / 2) when passed to
+	/// the benchmarked weight function.
+	const CLEAR_BATCH_SIZE: u32 = 1_000;
 
 	/// Drains the legacy [`RelayChainStateCommitments`] map using bulk `clear()`.
 	pub struct Migration<T: Config>(core::marker::PhantomData<T>);
 
 	impl<T: Config> SteppedMigration for Migration<T> {
-		/// Sentinel cursor.
 		type Cursor = ();
 		type Identifier = u8;
 
@@ -85,13 +83,20 @@ pub mod storage_v1 {
 			_cursor: Option<Self::Cursor>,
 			meter: &mut WeightMeter,
 		) -> Result<Option<Self::Cursor>, SteppedMigrationError> {
-			let step_weight = WEIGHT_PER_REMOVAL.saturating_mul(CLEAR_BATCH_SIZE as u64);
-			if meter.remaining().any_lt(step_weight) {
-				return Err(SteppedMigrationError::InsufficientWeight { required: step_weight });
+			let required =
+				<T as crate::pallet::Config>::WeightInfo::drain_relay_state_commitments_step(
+					CLEAR_BATCH_SIZE,
+				);
+			if meter.remaining().any_lt(required) {
+				return Err(SteppedMigrationError::InsufficientWeight { required });
 			}
 
 			let result = RelayChainStateCommitments::<T>::clear(CLEAR_BATCH_SIZE, None);
-			meter.consume(WEIGHT_PER_REMOVAL.saturating_mul(result.unique as u64));
+			meter.consume(
+				<T as crate::pallet::Config>::WeightInfo::drain_relay_state_commitments_step(
+					result.unique,
+				),
+			);
 
 			if result.unique > 0 || result.maybe_cursor.is_some() {
 				Ok(Some(()))

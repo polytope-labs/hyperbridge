@@ -173,6 +173,7 @@ impl pallet_ismp::Config for Runtime {
 		TreasuryPalletId,
 		false,
 	>;
+	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 
 impl ismp_grandpa::Config for Runtime {

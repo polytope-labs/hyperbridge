@@ -14,26 +14,35 @@
 // limitations under the License.
 
 //! Multi-block migrations for pallet-ismp legacy storage cleanup.
+//!
+//! Three separate migrations that run sequentially via `pallet_migrations`:
+//! 1. [`DrainLegacyStateCommitments`] — clears the legacy `StateCommitments` map
+//! 2. [`DrainLegacyStateMachineUpdateTime`] — clears the legacy `StateMachineUpdateTime` map
+//! 3. [`DrainLegacyChildTrieStateCommitments`] — clears state commitment entries from the child
+//!    trie
 
 use crate::{
 	child_trie::{CHILD_TRIE_PREFIX, STATE_COMMITMENTS_KEY},
+	weights::MigrationWeightInfo,
 	Config, StateCommitments, StateMachineUpdateTime,
 };
 use frame_support::{
 	migrations::{SteppedMigration, SteppedMigrationError},
-	weights::{Weight, WeightMeter},
+	weights::WeightMeter,
 };
 use polkadot_sdk::*;
 use sp_core::storage::ChildInfo;
 
-/// Number of entries to clear per step from each legacy map.
-const CLEAR_BATCH_SIZE: u32 = 20_000;
+/// Number of entries to clear per step for `StorageMap::clear()` operations.
+/// Must fit within MbmServiceWeight (max_block / 2) when passed to
+/// the benchmarked weight function.
+const CLEAR_BATCH_SIZE: u32 = 1_000;
 
-/// Conservative weight per single storage removal (read + write + trie update).
-const WEIGHT_PER_REMOVAL: Weight = Weight::from_parts(20_000, 0);
+/// Number of child trie entries to drain per step.
+/// Benchmarked at ~520ms per entry; 400 entries fits within MbmServiceWeight.
+const CHILD_TRIE_BATCH_SIZE: u32 = 400;
 
-/// Drains legacy [`StateCommitments`], [`StateMachineUpdateTime`], and
-/// child trie state commitment entries using bulk `clear()` operations.
+/// Drains the legacy [`StateCommitments`] storage map.
 pub struct DrainLegacyStateCommitments<T: Config>(core::marker::PhantomData<T>);
 
 impl<T: Config> SteppedMigration for DrainLegacyStateCommitments<T> {
@@ -52,39 +61,94 @@ impl<T: Config> SteppedMigration for DrainLegacyStateCommitments<T> {
 		_cursor: Option<Self::Cursor>,
 		meter: &mut WeightMeter,
 	) -> Result<Option<Self::Cursor>, SteppedMigrationError> {
-		let step_weight = WEIGHT_PER_REMOVAL.saturating_mul(CLEAR_BATCH_SIZE as u64 * 3);
-		if meter.remaining().any_lt(step_weight) {
-			return Err(SteppedMigrationError::InsufficientWeight { required: step_weight });
+		let required = T::MigrationWeightInfo::drain_state_commitments_step(CLEAR_BATCH_SIZE);
+		if meter.remaining().any_lt(required) {
+			return Err(SteppedMigrationError::InsufficientWeight { required });
 		}
 
-		let mut did_work = false;
+		let result = StateCommitments::<T>::clear(CLEAR_BATCH_SIZE, None);
+		meter.consume(T::MigrationWeightInfo::drain_state_commitments_step(result.unique));
 
-		// Bulk-clear StateCommitments
-		let sc_result = StateCommitments::<T>::clear(CLEAR_BATCH_SIZE, None);
-		meter.consume(WEIGHT_PER_REMOVAL.saturating_mul(sc_result.unique as u64));
-		if sc_result.unique > 0 || sc_result.maybe_cursor.is_some() {
-			did_work = true;
+		if result.unique > 0 || result.maybe_cursor.is_some() {
+			Ok(Some(()))
+		} else {
+			Ok(None)
+		}
+	}
+}
+
+/// Drains the legacy [`StateMachineUpdateTime`] storage map.
+pub struct DrainLegacyStateMachineUpdateTime<T: Config>(core::marker::PhantomData<T>);
+
+impl<T: Config> SteppedMigration for DrainLegacyStateMachineUpdateTime<T> {
+	type Cursor = ();
+	type Identifier = u8;
+
+	fn id() -> Self::Identifier {
+		3
+	}
+
+	fn max_steps() -> Option<u32> {
+		None
+	}
+
+	fn step(
+		_cursor: Option<Self::Cursor>,
+		meter: &mut WeightMeter,
+	) -> Result<Option<Self::Cursor>, SteppedMigrationError> {
+		let required =
+			T::MigrationWeightInfo::drain_state_machine_update_time_step(CLEAR_BATCH_SIZE);
+		if meter.remaining().any_lt(required) {
+			return Err(SteppedMigrationError::InsufficientWeight { required });
 		}
 
-		// Bulk-clear StateMachineUpdateTime
-		let smu_result = StateMachineUpdateTime::<T>::clear(CLEAR_BATCH_SIZE, None);
-		meter.consume(WEIGHT_PER_REMOVAL.saturating_mul(smu_result.unique as u64));
-		if smu_result.unique > 0 || smu_result.maybe_cursor.is_some() {
-			did_work = true;
+		let result = StateMachineUpdateTime::<T>::clear(CLEAR_BATCH_SIZE, None);
+		meter.consume(T::MigrationWeightInfo::drain_state_machine_update_time_step(result.unique));
+
+		if result.unique > 0 || result.maybe_cursor.is_some() {
+			Ok(Some(()))
+		} else {
+			Ok(None)
+		}
+	}
+}
+
+/// Drains state commitment entries from the ISMP child trie.
+pub struct DrainLegacyChildTrieStateCommitments<T: Config>(core::marker::PhantomData<T>);
+
+impl<T: Config> SteppedMigration for DrainLegacyChildTrieStateCommitments<T> {
+	type Cursor = ();
+	type Identifier = u8;
+
+	fn id() -> Self::Identifier {
+		4
+	}
+
+	fn max_steps() -> Option<u32> {
+		None
+	}
+
+	fn step(
+		_cursor: Option<Self::Cursor>,
+		meter: &mut WeightMeter,
+	) -> Result<Option<Self::Cursor>, SteppedMigrationError> {
+		let required =
+			T::MigrationWeightInfo::drain_child_trie_state_commitments_step(CHILD_TRIE_BATCH_SIZE);
+		if meter.remaining().any_lt(required) {
+			return Err(SteppedMigrationError::InsufficientWeight { required });
 		}
 
-		// Drain child trie entries in batch
 		let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
-		let mut child_removed = 0u32;
-		for _ in 0..CLEAR_BATCH_SIZE {
+		let mut removed = 0u32;
+
+		for _ in 0..CHILD_TRIE_BATCH_SIZE {
 			if let Some(key) = sp_io::default_child_storage::next_key(
 				child_info.storage_key(),
 				STATE_COMMITMENTS_KEY,
 			) {
 				if key.starts_with(STATE_COMMITMENTS_KEY) {
 					sp_io::default_child_storage::clear(child_info.storage_key(), &key);
-					child_removed += 1;
-					did_work = true;
+					removed += 1;
 				} else {
 					break;
 				}
@@ -92,9 +156,10 @@ impl<T: Config> SteppedMigration for DrainLegacyStateCommitments<T> {
 				break;
 			}
 		}
-		meter.consume(WEIGHT_PER_REMOVAL.saturating_mul(child_removed as u64));
 
-		if did_work {
+		meter.consume(T::MigrationWeightInfo::drain_child_trie_state_commitments_step(removed));
+
+		if removed > 0 {
 			Ok(Some(()))
 		} else {
 			Ok(None)

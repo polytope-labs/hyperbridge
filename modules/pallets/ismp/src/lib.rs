@@ -31,6 +31,9 @@ pub mod migrations;
 pub mod offchain;
 mod utils;
 pub mod weights;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 use crate::offchain::Leaf;
 use offchain::OffchainDBProvider;
 use polkadot_sdk::*;
@@ -164,6 +167,9 @@ pub mod pallet {
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
 		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
+
+		/// Weight functions for legacy storage drain migrations.
+		type MigrationWeightInfo: crate::weights::MigrationWeightInfo;
 	}
 
 	// Simple declaration of the `Pallet` type. It is placeholder we use to implement traits and

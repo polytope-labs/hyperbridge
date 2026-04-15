@@ -4,7 +4,6 @@ mod pallet_fishermen;
 mod pallet_hyperbridge;
 mod pallet_ismp;
 mod pallet_ismp_host_executive;
-mod pallet_ismp_parachain;
 mod pallet_ismp_relayer;
 mod pallet_xcm_gateway;
 

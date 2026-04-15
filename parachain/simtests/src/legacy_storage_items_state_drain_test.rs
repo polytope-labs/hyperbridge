@@ -73,9 +73,8 @@ fn runtime_wasm_path() -> Result<String, anyhow::Error> {
 		}
 	}
 
-	let wasm_path = repo_root.join(
-		"target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm",
-	);
+	let wasm_path = repo_root
+		.join("target/release/wbuild/gargantua-runtime/gargantua_runtime.compact.compressed.wasm");
 
 	if !wasm_path.exists() {
 		return Err(anyhow!(
@@ -138,10 +137,8 @@ async fn test_legacy_storage_drain() -> Result<(), anyhow::Error> {
 	let sudo_account = Keyring::Alice.to_account_id();
 
 	// ── Fetch all legacy data from Nexus ────────────────────────────
-	let fetch_limit: u32 = env::var("DRAIN_FETCH_LIMIT")
-		.ok()
-		.and_then(|v| v.parse().ok())
-		.unwrap_or(512);
+	let fetch_limit: u32 =
+		env::var("DRAIN_FETCH_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(512);
 
 	let mut storage_data: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
 
@@ -209,11 +206,13 @@ async fn test_legacy_storage_drain() -> Result<(), anyhow::Error> {
 	eprintln!("Signaling Simnode Upgrade...");
 	let _: () = rpc_client.request("simnode_upgradeSignal", rpc_params![true]).await?;
 
+	// Reconnect to get updated metadata after runtime upgrade
+	let (local_client, _) =
+		subxt_utils::client::ws_client::<Hyperbridge>(local_ws, u32::MAX).await?;
+	eprintln!("Reconnected with new metadata.");
+
 	// ── Drive blocks and observe drain ──────────────────────────────
-	let blocks: u32 = env::var("DRAIN_BLOCKS")
-		.ok()
-		.and_then(|v| v.parse().ok())
-		.unwrap_or(800);
+	let blocks: u32 = env::var("DRAIN_BLOCKS").ok().and_then(|v| v.parse().ok()).unwrap_or(800);
 	eprintln!("Producing {blocks} blocks...");
 
 	for i in 0..blocks {
@@ -223,8 +222,7 @@ async fn test_legacy_storage_drain() -> Result<(), anyhow::Error> {
 
 		if i % 100 == 0 {
 			let relay =
-				count_storage(&local_client, "IsmpParachain", "RelayChainStateCommitments")
-					.await?;
+				count_storage(&local_client, "IsmpParachain", "RelayChainStateCommitments").await?;
 			let sc = count_storage(&local_client, "Ismp", "StateCommitments").await?;
 			let smu = count_storage(&local_client, "Ismp", "StateMachineUpdateTime").await?;
 			eprintln!("Block {i}: RelayChain={relay}, SC={sc}, SMU={smu}");
@@ -247,10 +245,7 @@ async fn test_legacy_storage_drain() -> Result<(), anyhow::Error> {
 		final_relay, 0,
 		"legacy RelayChainStateCommitments should be fully drained (found {final_relay})"
 	);
-	assert_eq!(
-		final_sc, 0,
-		"legacy StateCommitments should be fully drained (found {final_sc})"
-	);
+	assert_eq!(final_sc, 0, "legacy StateCommitments should be fully drained (found {final_sc})");
 	assert_eq!(
 		final_smu, 0,
 		"legacy StateMachineUpdateTime should be fully drained (found {final_smu})"
@@ -288,11 +283,7 @@ async fn batch_set_storage(
 			call: Box::new(call),
 			weight: Weight::from_parts(0, 0),
 		});
-		eprintln!(
-			"Injecting batch {}/{}...",
-			i + 1,
-			(data.len() + BATCH_SIZE - 1) / BATCH_SIZE
-		);
+		eprintln!("Injecting batch {}/{}...", i + 1, (data.len() + BATCH_SIZE - 1) / BATCH_SIZE);
 		submit_sudo(client, rpc_client, sudo_account, sudo_call).await?;
 	}
 	Ok(())

@@ -39,6 +39,39 @@ use polkadot_sdk::*;
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
+/// State of one of the multi-block legacy storage drains. `Active(None)` is the
+/// initial state and means the next call should pass `None` as the `clear()`
+/// cursor. `Active(Some(cursor))` carries the cursor returned by the previous
+/// call so the next one resumes from where it stopped. `Done` is set when
+/// `clear()` returns `None`, meaning the prefix has been fully cleared; subsequent
+/// `on_idle` calls become a single cheap read for that target.
+#[derive(
+	codec::Encode,
+	codec::Decode,
+	codec::DecodeWithMemTracking,
+	codec::MaxEncodedLen,
+	scale_info::TypeInfo,
+	core::fmt::Debug,
+	Clone,
+	PartialEq,
+	Eq,
+)]
+pub enum LegacyDrainState {
+	/// Drain in progress. `None` starts from the beginning of the prefix;
+	/// `Some(cursor)` resumes from `cursor`.
+	Active(
+		Option<polkadot_sdk::frame_support::BoundedVec<u8, polkadot_sdk::sp_core::ConstU32<1024>>>,
+	),
+	/// Drain complete; nothing left to clear.
+	Done,
+}
+
+impl Default for LegacyDrainState {
+	fn default() -> Self {
+		Self::Active(None)
+	}
+}
+
 // Definition of the pallet logic, to be aggregated at runtime definition through
 // `construct_runtime`.
 #[frame_support::pallet]
@@ -276,12 +309,6 @@ pub mod pallet {
 		OptionQuery,
 	>;
 
-	/// Per-chain count of entries in [`BoundedStateCommitments`]. Tracked
-	/// manually because `StorageDoubleMap` doesn't have a built-in counter.
-	#[pallet::storage]
-	pub type StateCommitmentsCount<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachineId, u32, ValueQuery>;
-
 	/// Per-chain sorted pointer set of heights currently held in
 	/// [`BoundedStateCommitments`] and [`BoundedStateMachineUpdateTime`].
 	/// `BoundedStateCommitments` uses `Blake2_128Concat` for its inner key, so
@@ -297,6 +324,26 @@ pub mod pallet {
 		BoundedBTreeSet<u64, MaxStateMachineCommitments>,
 		ValueQuery,
 	>;
+
+	/// State of the multi-block drain of the legacy [`StateCommitments`] map.
+	/// See [`super::LegacyDrainState`].
+	#[pallet::storage]
+	pub type LegacyStateCommitmentsDrainState<T: Config> =
+		StorageValue<_, super::LegacyDrainState, ValueQuery>;
+
+	/// State of the multi-block drain of the legacy [`StateMachineUpdateTime`] map.
+	/// See [`super::LegacyDrainState`].
+	#[pallet::storage]
+	pub type LegacyStateMachineUpdateTimeDrainState<T: Config> =
+		StorageValue<_, super::LegacyDrainState, ValueQuery>;
+
+	/// State of the multi-block drain of the legacy state-commitment entries
+	/// stored in the ISMP child trie. The cursor is the last child-trie key we
+	/// processed; on the next call we resume with `next_key(last)`. `Done` short-
+	/// circuits subsequent `on_idle` calls.
+	#[pallet::storage]
+	pub type LegacyChildTrieDrainState<T: Config> =
+		StorageValue<_, super::LegacyDrainState, ValueQuery>;
 
 	/// Tracks requests that have been responded to
 	/// The key is the request commitment
@@ -356,67 +403,133 @@ pub mod pallet {
 		/// Drains the legacy [`StateCommitments`], [`StateMachineUpdateTime`], and child
 		/// trie state commitment entries using leftover block weight. Runs after all
 		/// extrinsics, so it never blocks user transactions.
+		///
+		/// Each drain target persists its `clear()` cursor in storage between blocks
+		/// so the next call resumes where the previous one stopped. Once `clear()`
+		/// returns no cursor (or no more child-trie keys exist) we mark that target
+		/// as `Done`, which short-circuits subsequent `on_idle` calls to a single
+		/// cheap storage read.
 		fn on_idle(_n: BlockNumberFor<T>, remaining: Weight) -> Weight {
 			use crate::weights::MigrationWeightInfo;
+			// We charge weight for `STATE_BATCH`/`CHILD_TRIE_BATCH` up front but only
+			// remove `*_BATCH - SAFETY_BUFFER` entries per call. The buffer absorbs
+			// any imprecision in the benchmarked weights so a single step never
+			// exceeds its charged budget.
+			const SAFETY_BUFFER: u32 = 10;
 			const STATE_BATCH: u32 = 500;
+			const STATE_DRAIN: u32 = STATE_BATCH - SAFETY_BUFFER;
 			const CHILD_TRIE_BATCH: u32 = 200;
+			const CHILD_TRIE_DRAIN: u32 = CHILD_TRIE_BATCH - SAFETY_BUFFER;
 
 			let mut consumed = Weight::zero();
 			let mut budget = remaining;
 
-			// Drain StateCommitments
-			let sc_required =
-				<T as Config>::MigrationWeightInfo::drain_state_commitments_step(STATE_BATCH);
-			if budget.all_gte(sc_required) {
-				let result = StateCommitments::<T>::clear(STATE_BATCH, None);
-				let used =
-					<T as Config>::MigrationWeightInfo::drain_state_commitments_step(result.unique);
-				consumed = consumed.saturating_add(used);
-				budget = budget.saturating_sub(used);
-			}
-
-			// Drain StateMachineUpdateTime
-			let smu_required =
-				<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
-					STATE_BATCH,
-				);
-			if budget.all_gte(smu_required) {
-				let result = StateMachineUpdateTime::<T>::clear(STATE_BATCH, None);
-				let used = <T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
-					result.unique,
-				);
-				consumed = consumed.saturating_add(used);
-				budget = budget.saturating_sub(used);
-			}
-
-			// Drain child trie state commitment entries
-			let ct_required =
-				<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
-					CHILD_TRIE_BATCH,
-				);
-			if budget.all_gte(ct_required) {
-				let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
-				let mut removed = 0u32;
-				for _ in 0..CHILD_TRIE_BATCH {
-					if let Some(key) = sp_io::default_child_storage::next_key(
-						child_info.storage_key(),
-						STATE_COMMITMENTS_KEY,
-					) {
-						if key.starts_with(STATE_COMMITMENTS_KEY) {
-							sp_io::default_child_storage::clear(child_info.storage_key(), &key);
-							removed += 1;
-						} else {
-							break;
-						}
-					} else {
-						break;
-					}
-				}
-				let used =
-					<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
-						removed,
+			// ── Drain StateCommitments ────────────────────────────────────
+			let sc_state = LegacyStateCommitmentsDrainState::<T>::get();
+			if let super::LegacyDrainState::Active(cursor) = sc_state {
+				let sc_required =
+					<T as Config>::MigrationWeightInfo::drain_state_commitments_step(STATE_BATCH);
+				if budget.all_gte(sc_required) {
+					let result = StateCommitments::<T>::clear(
+						STATE_DRAIN,
+						cursor.as_ref().map(|v| v.as_slice()),
 					);
-				consumed = consumed.saturating_add(used);
+					let new_state = match result.maybe_cursor {
+						Some(c) => match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
+							Ok(b) => super::LegacyDrainState::Active(Some(b)),
+							Err(_) => super::LegacyDrainState::Active(None),
+						},
+						None => super::LegacyDrainState::Done,
+					};
+					LegacyStateCommitmentsDrainState::<T>::put(new_state);
+					let used = <T as Config>::MigrationWeightInfo::drain_state_commitments_step(
+						result.unique,
+					);
+					consumed = consumed.saturating_add(used);
+					budget = budget.saturating_sub(used);
+				}
+			}
+
+			// ── Drain StateMachineUpdateTime ──────────────────────────────
+			let smu_state = LegacyStateMachineUpdateTimeDrainState::<T>::get();
+			if let super::LegacyDrainState::Active(cursor) = smu_state {
+				let smu_required =
+					<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
+						STATE_BATCH,
+					);
+				if budget.all_gte(smu_required) {
+					let result = StateMachineUpdateTime::<T>::clear(
+						STATE_DRAIN,
+						cursor.as_ref().map(|v| v.as_slice()),
+					);
+					let new_state = match result.maybe_cursor {
+						Some(c) => match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
+							Ok(b) => super::LegacyDrainState::Active(Some(b)),
+							Err(_) => super::LegacyDrainState::Active(None),
+						},
+						None => super::LegacyDrainState::Done,
+					};
+					LegacyStateMachineUpdateTimeDrainState::<T>::put(new_state);
+					let used =
+						<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
+							result.unique,
+						);
+					consumed = consumed.saturating_add(used);
+					budget = budget.saturating_sub(used);
+				}
+			}
+
+			// ── Drain child trie state commitment entries ─────────────────
+			// `next_key(last_key)` resumes iteration just past `last_key`, so we
+			// store the most recently processed key as the cursor. When iteration
+			// runs out of keys with the `STATE_COMMITMENTS_KEY` prefix we mark the
+			// drain as Done.
+			let ct_state = LegacyChildTrieDrainState::<T>::get();
+			if let super::LegacyDrainState::Active(cursor) = ct_state {
+				let ct_required =
+					<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
+						CHILD_TRIE_BATCH,
+					);
+				if budget.all_gte(ct_required) {
+					let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
+					let mut removed = 0u32;
+					let mut last_key: alloc::vec::Vec<u8> = match cursor {
+						Some(c) => c.into_inner(),
+						None => STATE_COMMITMENTS_KEY.to_vec(),
+					};
+					let mut exhausted = false;
+					for _ in 0..CHILD_TRIE_DRAIN {
+						match sp_io::default_child_storage::next_key(
+							child_info.storage_key(),
+							&last_key,
+						) {
+							Some(key) if key.starts_with(STATE_COMMITMENTS_KEY) => {
+								sp_io::default_child_storage::clear(child_info.storage_key(), &key);
+								last_key = key;
+								removed += 1;
+							},
+							_ => {
+								exhausted = true;
+								break;
+							},
+						}
+					}
+
+					let new_state = if exhausted {
+						super::LegacyDrainState::Done
+					} else {
+						match polkadot_sdk::frame_support::BoundedVec::try_from(last_key) {
+							Ok(b) => super::LegacyDrainState::Active(Some(b)),
+							Err(_) => super::LegacyDrainState::Active(None),
+						}
+					};
+					LegacyChildTrieDrainState::<T>::put(new_state);
+					let used =
+						<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
+							removed,
+						);
+					consumed = consumed.saturating_add(used);
+				}
 			}
 
 			consumed
@@ -742,28 +855,26 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Insert a state commitment into the bounded map. Evicts the oldest
-		/// entry for that chain first if the per-chain cap has been reached,
-		/// so the map and the pointer set never exceed the cap.
+		/// Insert a state commitment into the bounded map. ISMP does not allow
+		/// duplicate state updates so we don't have an overwrite path. Evicts the
+		/// oldest entry for `chain` first if the per-chain cap has been reached,
+		/// using [`KnownStateMachineHeights`] as both the cap counter (via `len`)
+		/// and the sorted pointer for eviction.
 		pub fn insert_bounded_state_commitment(
 			height: StateMachineHeight,
 			commitment: StateCommitment,
 		) {
-			if BoundedStateCommitments::<T>::contains_key(height.id, height.height) {
-				// Overwrite path: same (chain, height) already present, no cap accounting.
-				BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
-				return;
-			}
-
-			if StateCommitmentsCount::<T>::get(height.id) >= MAX_STATE_MACHINE_COMMITMENTS {
-				Self::evict_oldest_state_commitment(height.id);
-			}
-
-			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
-			StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_add(1));
 			KnownStateMachineHeights::<T>::mutate(height.id, |heights| {
+				if heights.len() as u32 >= MAX_STATE_MACHINE_COMMITMENTS {
+					if let Some(&oldest) = heights.iter().next() {
+						heights.remove(&oldest);
+						BoundedStateCommitments::<T>::remove(height.id, oldest);
+						BoundedStateMachineUpdateTime::<T>::remove(height.id, oldest);
+					}
+				}
 				let _ = heights.try_insert(height.height);
 			});
+			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
 		}
 
 		/// Insert a state machine update time into the bounded map. Shares the
@@ -771,21 +882,6 @@ pub mod pallet {
 		/// since both maps track the same heights per chain.
 		pub fn insert_bounded_update_time(height: StateMachineHeight, timestamp: u64) {
 			BoundedStateMachineUpdateTime::<T>::insert(height.id, height.height, timestamp);
-		}
-
-		/// Evict the oldest entry for `chain` from both bounded maps using the
-		/// sorted [`KnownStateMachineHeights`] pointer. `BTreeSet` iterates in
-		/// ascending key order, so `.iter().next()` returns the smallest height
-		/// deterministically, unlike the storage map's hashed iteration.
-		fn evict_oldest_state_commitment(chain: StateMachineId) {
-			KnownStateMachineHeights::<T>::mutate(chain, |heights| {
-				if let Some(&oldest) = heights.iter().next() {
-					heights.remove(&oldest);
-					BoundedStateCommitments::<T>::remove(chain, oldest);
-					BoundedStateMachineUpdateTime::<T>::remove(chain, oldest);
-					StateCommitmentsCount::<T>::mutate(chain, |c| *c = c.saturating_sub(1));
-				}
-			});
 		}
 	}
 }

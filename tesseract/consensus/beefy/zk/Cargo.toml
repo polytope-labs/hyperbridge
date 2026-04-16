@@ -26,11 +26,11 @@ hex-literal = "0.4.1"
 
 [dependencies.sp1-beefy]
 git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "a3d60d544470125b6d3727484bbb0c10c85de012"
+rev = "93c335b792ec3370129ec2dea3baea8d88cfd665"
 
 [dependencies.sp1-beefy-primitives]
 git = "ssh://git@github.com/polytope-labs/sp1-beefy.git"
-rev = "a3d60d544470125b6d3727484bbb0c10c85de012"
+rev = "93c335b792ec3370129ec2dea3baea8d88cfd665"
 
 [dev-dependencies]
 alloy-sol-types = { workspace = true }

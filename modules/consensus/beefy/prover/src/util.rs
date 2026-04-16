@@ -143,6 +143,16 @@ pub struct MerkleNode {
 	pub hash: [u8; 32],
 }
 
+/// ceil(log2(n)) — must match the Solidity `_ceilLog2` used by MerkleMultiProof.
+/// Do NOT use `rs_merkle::utils::indices::tree_depth` here — it uses floating-point
+/// math that returns incorrect results for exact powers of 2.
+pub fn ceil_log2(n: usize) -> usize {
+	if n <= 1 {
+		return 0;
+	}
+	(usize::BITS - (n - 1).leading_zeros()) as usize
+}
+
 /// Converts an `rs-merkle` proof into the positioned format expected by the Solidity verifier.
 ///
 /// This is the helper described verbatim in the `solidity-merkle-trees` README:
@@ -156,9 +166,8 @@ pub fn convert_proof<T: Hasher<Hash = [u8; 32]>>(
 	leaf_hashes: &[[u8; 32]],
 	total_leaves: usize,
 ) -> (Vec<MerkleNode>, Vec<MerkleNode>) {
-	let height = rs_merkle::utils::indices::tree_depth(total_leaves);
+	let height = ceil_log2(total_leaves);
 
-	// Calculate the expected proof node positions and zip with the proof hashes.
 	// proof_indices_by_layers returns the 0-based indices that each proof hash
 	// corresponds to, layer by layer (bottom-to-top), in the same order as proof_hashes().
 	let proof_nodes =
@@ -166,7 +175,6 @@ pub fn convert_proof<T: Hasher<Hash = [u8; 32]>>(
 			.into_iter()
 			.enumerate()
 			.flat_map(|(layer, indices)| {
-				// At layer k (0 = leaves), 0-based index i → 1-based position:
 				let level_start = 1usize << (height - layer);
 				indices.into_iter().map(move |idx| level_start + idx)
 			})

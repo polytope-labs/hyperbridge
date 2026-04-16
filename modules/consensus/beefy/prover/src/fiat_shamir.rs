@@ -353,8 +353,8 @@ pub fn filter_signatures_for_challenge(
 		*last += 27;
 
 		// leaf_position = first_leaf_pos + authority_index, where
-		// first_leaf_pos = 1 << tree_depth(authority_count).
-		let first_leaf_pos = 1usize << rs_merkle::utils::indices::tree_depth(authority_count);
+		// first_leaf_pos = 1 << ceil_log2(authority_count).
+		let first_leaf_pos = 1usize << crate::util::ceil_log2(authority_count);
 		filtered.push(SignatureWithAuthorityIndex {
 			index: authority_index,
 			leaf_position: (first_leaf_pos + idx) as u32,

@@ -108,6 +108,73 @@ pub const BEEFY_VALIDATOR_SET_ID: [u8; 32] =
 pub const PARAS_PARACHAINS: [u8; 32] =
 	hex!("cd710b30bd2eab0352ddcc26417aa1940b76934f4cc08dee01012d059e1b83ee");
 
+/// Build the authority merkle proof and assign leaf positions to each signature.
+///
+/// Returns the positioned proof nodes (for the Solidity verifier) and updates
+/// each signature's `leaf_position` in place.
+fn build_authority_proof(
+	signatures: &mut [SignatureWithAuthorityIndex],
+	authority_address_hashes: &[[u8; 32]],
+) -> Vec<(usize, [u8; 32])> {
+	let indices: Vec<usize> = signatures.iter().map(|x| x.index as usize).collect();
+	let tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(authority_address_hashes);
+	let proof = tree.proof(&indices);
+	let leaf_hashes: Vec<[u8; 32]> = indices.iter().map(|&i| authority_address_hashes[i]).collect();
+	let (proof_nodes, leaf_nodes) =
+		util::convert_proof(&proof, &indices, &leaf_hashes, authority_address_hashes.len());
+
+	let first_leaf_pos = 1usize << util::ceil_log2(authority_address_hashes.len());
+	for sig in signatures.iter_mut() {
+		let target = first_leaf_pos + sig.index as usize;
+		sig.leaf_position = leaf_nodes
+			.iter()
+			.find(|n| n.position == target)
+			.expect("leaf for signature must exist")
+			.position as u32;
+	}
+
+	proof_nodes.into_iter().map(|n| (n.position, n.hash)).collect()
+}
+
+/// Build the parachain header merkle proof from the heads committed in an MMR leaf.
+fn build_parachain_proof(
+	para_ids: &[u32],
+	heads: &[(u32, Vec<u8>)],
+) -> ParachainProof {
+	let leaves: Vec<[u8; 32]> = heads.iter().map(|pair| keccak_256(&pair.encode())).collect();
+	let leaf_count = leaves.len();
+
+	let indices: Vec<usize> = para_ids
+		.iter()
+		.map(|id| heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist"))
+		.collect();
+
+	let tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&leaves);
+	let para_proof = tree.proof(&indices);
+	let para_leaf_hashes: Vec<[u8; 32]> = indices.iter().map(|&i| leaves[i]).collect();
+	let (proof_nodes, leaf_nodes) =
+		util::convert_proof(&para_proof, &indices, &para_leaf_hashes, leaf_count);
+
+	let first_leaf_pos = 1usize << util::ceil_log2(leaf_count);
+	let parachains: Vec<_> = leaf_nodes
+		.iter()
+		.map(|leaf| {
+			let index = leaf.position - first_leaf_pos;
+			ParachainHeader {
+				header: heads[index].1.clone(),
+				index: index as u32,
+				leaf_position: leaf.position as u32,
+				para_id: heads[index].0,
+			}
+		})
+		.collect();
+
+	let proof: Vec<(u32, [u8; 32])> =
+		proof_nodes.into_iter().map(|n| (n.position as u32, n.hash)).collect();
+
+	ParachainProof { parachains, proof, total_leaves: leaf_count as u32 }
+}
+
 impl<R: Config, P: Config> Prover<R, P> {
 	/// Construct a beefy client state to be submitted to the counterparty chain
 	pub async fn get_initial_consensus_state(
@@ -245,35 +312,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
-		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
 
-		// Build the merkle proof and convert it to positioned format using the
-		// helper documented in the solidity-merkle-trees README.
-		let tree =
-			rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&authority_address_hashes);
-		let proof = tree.proof(&indices);
-		let leaf_hashes: Vec<[u8; 32]> =
-			indices.iter().map(|&i| authority_address_hashes[i]).collect();
-		let (proof_nodes, leaf_nodes) =
-			util::convert_proof(&proof, &indices, &leaf_hashes, authority_address_hashes.len());
-
-		// Each signature's leaf_position comes from the leaf_nodes returned by convert_proof.
-		// leaf_nodes is sorted by position, but signatures are in their original order, so
-		// we look each one up by its index.
-		for sig in &mut signatures {
-			let leaf = leaf_nodes
-				.iter()
-				.find(|n| {
-					let first_leaf_pos = 1usize <<
-						rs_merkle::utils::indices::tree_depth(authority_address_hashes.len());
-					n.position == first_leaf_pos + sig.index as usize
-				})
-				.expect("leaf for signature must exist");
-			sig.leaf_position = leaf.position as u32;
-		}
-
-		let authority_proof: Vec<(usize, [u8; 32])> =
-			proof_nodes.into_iter().map(|n| (n.position, n.hash)).collect();
+		let authority_proof =
+			build_authority_proof(&mut signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -285,46 +326,13 @@ impl<R: Config, P: Config> Prover<R, P> {
 			authority_proof,
 		};
 
-		// Build parachain proofs (identical to naive consensus_proof)
 		let heads = paras_parachains(
 			&self.relay_rpc,
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
 		)
 		.await?;
 
-		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let leaf_count = leaves.len();
-
-		let para_indices: Vec<usize> = self
-			.para_ids
-			.iter()
-			.map(|id| heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist"))
-			.collect();
-
-		let para_tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&leaves);
-		let para_proof = para_tree.proof(&para_indices);
-		let para_leaf_hashes: Vec<[u8; 32]> = para_indices.iter().map(|&i| leaves[i]).collect();
-		let (proof_nodes, leaf_nodes) =
-			util::convert_proof(&para_proof, &para_indices, &para_leaf_hashes, leaf_count);
-
-		let first_leaf_pos = 1usize << rs_merkle::utils::indices::tree_depth(leaf_count);
-		let parachains: Vec<_> = leaf_nodes
-			.iter()
-			.map(|leaf| {
-				let index = leaf.position - first_leaf_pos;
-				ParachainHeader {
-					header: heads[index].1.clone(),
-					index: index as u32,
-					leaf_position: leaf.position as u32,
-					para_id: heads[index].0,
-				}
-			})
-			.collect();
-
-		let proof: Vec<(u32, [u8; 32])> =
-			proof_nodes.into_iter().map(|n| (n.position as u32, n.hash)).collect();
-
-		let parachain = ParachainProof { parachains, proof, total_leaves: leaf_count as u32 };
+		let parachain = build_parachain_proof(&self.para_ids, &heads);
 
 		Ok((ConsensusMessage { mmr, parachain }, bitmap))
 	}
@@ -373,32 +381,9 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
-		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
 
-		// Build the merkle proof and convert it to positioned format using the
-		// helper documented in the solidity-merkle-trees README.
-		let tree =
-			rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&authority_address_hashes);
-		let proof = tree.proof(&indices);
-		let leaf_hashes: Vec<[u8; 32]> =
-			indices.iter().map(|&i| authority_address_hashes[i]).collect();
-		let (proof_nodes, leaf_nodes) =
-			util::convert_proof(&proof, &indices, &leaf_hashes, authority_address_hashes.len());
-
-		// Each signature's leaf_position comes from leaf_nodes (sorted by position).
-		let first_leaf_pos =
-			1usize << rs_merkle::utils::indices::tree_depth(authority_address_hashes.len());
-		for sig in &mut signatures {
-			let target = first_leaf_pos + sig.index as usize;
-			sig.leaf_position = leaf_nodes
-				.iter()
-				.find(|n| n.position == target)
-				.expect("leaf for signature must exist")
-				.position as u32;
-		}
-
-		let authority_proof: Vec<(usize, [u8; 32])> =
-			proof_nodes.into_iter().map(|n| (n.position, n.hash)).collect();
+		let authority_proof =
+			build_authority_proof(&mut signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -416,39 +401,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)
 		.await?;
 
-		let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-		let leaf_count = leaves.len();
-
-		let indices: Vec<usize> = self
-			.para_ids
-			.iter()
-			.map(|id| heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist"))
-			.collect();
-
-		let para_tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&leaves);
-		let para_proof = para_tree.proof(&indices);
-		let para_leaf_hashes: Vec<[u8; 32]> = indices.iter().map(|&i| leaves[i]).collect();
-		let (proof_nodes, leaf_nodes) =
-			util::convert_proof(&para_proof, &indices, &para_leaf_hashes, leaf_count);
-
-		let first_leaf_pos = 1usize << rs_merkle::utils::indices::tree_depth(leaf_count);
-		let parachains = leaf_nodes
-			.iter()
-			.map(|leaf| {
-				let index = leaf.position - first_leaf_pos;
-				ParachainHeader {
-					header: heads[index].1.clone(),
-					index: index as u32,
-					leaf_position: leaf.position as u32,
-					para_id: heads[index].0,
-				}
-			})
-			.collect();
-
-		let proof: Vec<(u32, [u8; 32])> =
-			proof_nodes.into_iter().map(|n| (n.position as u32, n.hash)).collect();
-
-		let parachain = ParachainProof { parachains, proof, total_leaves: leaf_count as u32 };
+		let parachain = build_parachain_proof(&self.para_ids, &heads);
 
 		Ok(ConsensusMessage { mmr, parachain })
 	}

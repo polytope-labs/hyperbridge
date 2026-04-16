@@ -39,6 +39,13 @@ struct ParachainHeader {
     bytes header;
 }
 
+struct ParachainHeaderHash {
+    // Parachain Id
+    uint256 id;
+    // header hash
+    bytes32 hash;
+}
+
 /// The public values encoded as a struct that can be easily deserialized inside Solidity.
 struct PublicInputs {
     // merkle commitment to all authorities
@@ -48,7 +55,7 @@ struct PublicInputs {
     // BEEFY mmr leaf hash
     bytes32 leaf_hash;
     // Parachain header hashes
-    bytes32[] headers;
+    ParachainHeaderHash[] headers;
 }
 
 struct Payload {

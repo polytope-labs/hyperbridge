@@ -638,22 +638,12 @@ impl pallet_tx_pause::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	// Pause and unpause require the same governance origin used for other
 	// privileged ISMP actions on this runtime.
-	type PauseOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
+	type PauseOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
 	>;
-	type UnpauseOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type UnpauseOrigin = WhitelistedCaller;
 	type WhitelistedCalls = TxPauseWhitelistedCalls;
 	type MaxNameLen = MaxTxPauseNameLen;
 	type WeightInfo = weights::pallet_tx_pause::WeightInfo<Runtime>;

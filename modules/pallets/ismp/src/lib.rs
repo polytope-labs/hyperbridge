@@ -27,7 +27,6 @@ pub mod events;
 pub mod fee_handler;
 pub mod host;
 mod impls;
-pub mod migrations;
 pub mod offchain;
 mod utils;
 pub mod weights;
@@ -47,7 +46,9 @@ pub mod pallet {
 	use super::*;
 
 	use crate::{
-		child_trie::{RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX},
+		child_trie::{
+			RequestCommitments, ResponseCommitments, CHILD_TRIE_PREFIX, STATE_COMMITMENTS_KEY,
+		},
 		errors::HandlingError,
 		fee_handler::FeeHandler,
 	};
@@ -57,7 +58,7 @@ pub mod pallet {
 		dispatch::DispatchResult,
 		pallet_prelude::*,
 		traits::{fungible::Mutate, tokens::Preservation, Get, UnixTime},
-		PalletId,
+		BoundedBTreeSet, PalletId,
 	};
 	use frame_system::pallet_prelude::{BlockNumberFor, *};
 	use ismp::{
@@ -88,6 +89,12 @@ pub mod pallet {
 
 	/// Maximum state commitments retained per chain in [`BoundedStateCommitments`].
 	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 256;
+
+	frame_support::parameter_types! {
+		/// Type-level `Get<u32>` mirror of [`MAX_STATE_MACHINE_COMMITMENTS`], used as
+		/// the bound for the per-chain [`KnownStateMachineHeights`] pointer set.
+		pub const MaxStateMachineCommitments: u32 = MAX_STATE_MACHINE_COMMITMENTS;
+	}
 
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config {
@@ -275,6 +282,22 @@ pub mod pallet {
 	pub type StateCommitmentsCount<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachineId, u32, ValueQuery>;
 
+	/// Per-chain sorted pointer set of heights currently held in
+	/// [`BoundedStateCommitments`] and [`BoundedStateMachineUpdateTime`].
+	/// `BoundedStateCommitments` uses `Blake2_128Concat` for its inner key, so
+	/// `iter_key_prefix(chain).next()` yields hash order rather than numeric
+	/// order and cannot identify the oldest height. Iterating this set does,
+	/// because `BTreeSet` is sorted. Every write to the bounded maps for a
+	/// given chain must keep this set in sync.
+	#[pallet::storage]
+	pub type KnownStateMachineHeights<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		StateMachineId,
+		BoundedBTreeSet<u64, MaxStateMachineCommitments>,
+		ValueQuery,
+	>;
+
 	/// Tracks requests that have been responded to
 	/// The key is the request commitment
 	#[pallet::storage]
@@ -328,6 +351,75 @@ pub mod pallet {
 				timestamp_log.encode(),
 			);
 			<frame_system::Pallet<T>>::deposit_log(timestamp_digest);
+		}
+
+		/// Drains the legacy [`StateCommitments`], [`StateMachineUpdateTime`], and child
+		/// trie state commitment entries using leftover block weight. Runs after all
+		/// extrinsics, so it never blocks user transactions.
+		fn on_idle(_n: BlockNumberFor<T>, remaining: Weight) -> Weight {
+			use crate::weights::MigrationWeightInfo;
+			const STATE_BATCH: u32 = 500;
+			const CHILD_TRIE_BATCH: u32 = 200;
+
+			let mut consumed = Weight::zero();
+			let mut budget = remaining;
+
+			// Drain StateCommitments
+			let sc_required =
+				<T as Config>::MigrationWeightInfo::drain_state_commitments_step(STATE_BATCH);
+			if budget.all_gte(sc_required) {
+				let result = StateCommitments::<T>::clear(STATE_BATCH, None);
+				let used =
+					<T as Config>::MigrationWeightInfo::drain_state_commitments_step(result.unique);
+				consumed = consumed.saturating_add(used);
+				budget = budget.saturating_sub(used);
+			}
+
+			// Drain StateMachineUpdateTime
+			let smu_required =
+				<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
+					STATE_BATCH,
+				);
+			if budget.all_gte(smu_required) {
+				let result = StateMachineUpdateTime::<T>::clear(STATE_BATCH, None);
+				let used = <T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
+					result.unique,
+				);
+				consumed = consumed.saturating_add(used);
+				budget = budget.saturating_sub(used);
+			}
+
+			// Drain child trie state commitment entries
+			let ct_required =
+				<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
+					CHILD_TRIE_BATCH,
+				);
+			if budget.all_gte(ct_required) {
+				let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
+				let mut removed = 0u32;
+				for _ in 0..CHILD_TRIE_BATCH {
+					if let Some(key) = sp_io::default_child_storage::next_key(
+						child_info.storage_key(),
+						STATE_COMMITMENTS_KEY,
+					) {
+						if key.starts_with(STATE_COMMITMENTS_KEY) {
+							sp_io::default_child_storage::clear(child_info.storage_key(), &key);
+							removed += 1;
+						} else {
+							break;
+						}
+					} else {
+						break;
+					}
+				}
+				let used =
+					<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
+						removed,
+					);
+				consumed = consumed.saturating_add(used);
+			}
+
+			consumed
 		}
 	}
 
@@ -650,36 +742,50 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// Insert a state commitment into the bounded map, evicting the oldest
-		/// entry for that chain if the per-chain cap is exceeded.
+		/// Insert a state commitment into the bounded map. Evicts the oldest
+		/// entry for that chain first if the per-chain cap has been reached,
+		/// so the map and the pointer set never exceed the cap.
 		pub fn insert_bounded_state_commitment(
 			height: StateMachineHeight,
 			commitment: StateCommitment,
 		) {
-			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
-			StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_add(1));
+			if BoundedStateCommitments::<T>::contains_key(height.id, height.height) {
+				// Overwrite path: same (chain, height) already present, no cap accounting.
+				BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
+				return;
+			}
 
-			if StateCommitmentsCount::<T>::get(height.id) > MAX_STATE_MACHINE_COMMITMENTS {
+			if StateCommitmentsCount::<T>::get(height.id) >= MAX_STATE_MACHINE_COMMITMENTS {
 				Self::evict_oldest_state_commitment(height.id);
 			}
+
+			BoundedStateCommitments::<T>::insert(height.id, height.height, commitment);
+			StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_add(1));
+			KnownStateMachineHeights::<T>::mutate(height.id, |heights| {
+				let _ = heights.try_insert(height.height);
+			});
 		}
 
-		/// Insert a state machine update time into the bounded map. Uses the same
-		/// eviction cursor as [`BoundedStateCommitments`] since both maps track
-		/// the same heights per chain.
+		/// Insert a state machine update time into the bounded map. Shares the
+		/// [`KnownStateMachineHeights`] pointer with [`BoundedStateCommitments`]
+		/// since both maps track the same heights per chain.
 		pub fn insert_bounded_update_time(height: StateMachineHeight, timestamp: u64) {
 			BoundedStateMachineUpdateTime::<T>::insert(height.id, height.height, timestamp);
 		}
 
-		/// Evict the oldest entry for `chain` from both bounded maps using
-		/// `iter_key_prefix().next()` to find the smallest key.
+		/// Evict the oldest entry for `chain` from both bounded maps using the
+		/// sorted [`KnownStateMachineHeights`] pointer. `BTreeSet` iterates in
+		/// ascending key order, so `.iter().next()` returns the smallest height
+		/// deterministically, unlike the storage map's hashed iteration.
 		fn evict_oldest_state_commitment(chain: StateMachineId) {
-			if let Some(oldest_height) = BoundedStateCommitments::<T>::iter_key_prefix(chain).next()
-			{
-				BoundedStateCommitments::<T>::remove(chain, oldest_height);
-				BoundedStateMachineUpdateTime::<T>::remove(chain, oldest_height);
-				StateCommitmentsCount::<T>::mutate(chain, |c| *c = c.saturating_sub(1));
-			}
+			KnownStateMachineHeights::<T>::mutate(chain, |heights| {
+				if let Some(&oldest) = heights.iter().next() {
+					heights.remove(&oldest);
+					BoundedStateCommitments::<T>::remove(chain, oldest);
+					BoundedStateMachineUpdateTime::<T>::remove(chain, oldest);
+					StateCommitmentsCount::<T>::mutate(chain, |c| *c = c.saturating_sub(1));
+				}
+			});
 		}
 	}
 }

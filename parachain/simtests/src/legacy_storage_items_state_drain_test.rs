@@ -13,11 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Simnode integration test for the pallet_migrations-driven legacy storage drain.
+//! Simnode integration test for the on_idle-driven legacy storage drain.
 //!
-//! Spawns a single simnode from the old binary, injects real nexus data for
-//! all three legacy maps, upgrades the runtime, drives blocks, and verifies
-//! everything drains to zero.
+//! Spawns a simnode from the pre-upgrade (main) binary, injects real nexus data
+//! for all three legacy maps, upgrades the runtime, drives blocks, and verifies
+//! everything drains to zero via the `on_idle` hooks.
 
 #![cfg(test)]
 
@@ -206,26 +206,60 @@ async fn test_legacy_storage_drain() -> Result<(), anyhow::Error> {
 	eprintln!("Signaling Simnode Upgrade...");
 	let _: () = rpc_client.request("simnode_upgradeSignal", rpc_params![true]).await?;
 
-	// Reconnect to get updated metadata after runtime upgrade
+	// Reconnect to pick up new metadata
 	let (local_client, _) =
 		subxt_utils::client::ws_client::<Hyperbridge>(local_ws, u32::MAX).await?;
 	eprintln!("Reconnected with new metadata.");
 
-	// ── Drive blocks and observe drain ──────────────────────────────
+	// ── Drive blocks; on_idle will drain legacy maps each block ─────
 	let blocks: u32 = env::var("DRAIN_BLOCKS").ok().and_then(|v| v.parse().ok()).unwrap_or(800);
-	eprintln!("Producing {blocks} blocks...");
+	// Number of transfers bundled into one utility.batch_all per block (simulates load).
+	let transfers_per_block: u32 =
+		env::var("TRANSFERS_PER_BLOCK").ok().and_then(|v| v.parse().ok()).unwrap_or(200);
+	eprintln!(
+		"Producing {blocks} blocks with {transfers_per_block} transfers batched per block..."
+	);
+
+	// Use a fresh Charlie account so we can track balance growth from zero.
+	let charlie = Keyring::Charlie.to_account_id();
+	let initial_charlie = query_balance(&local_client, &charlie).await?;
+	eprintln!("Charlie's initial balance: {initial_charlie}");
+	let mut successful_batches = 0u64;
 
 	for i in 0..blocks {
+		// Build a utility.batch_all with many transfers FROM Alice TO Charlie.
+		// This is ONE extrinsic (single nonce) but consumes weight proportional to
+		// the number of inner calls, simulating production load on the block.
+		let transfers: Vec<RuntimeCall> = (0..transfers_per_block)
+			.map(|_| {
+				RuntimeCall::Balances(polkadot_sdk::pallet_balances::Call::transfer_keep_alive {
+					dest: charlie.clone().into(),
+					value: 1_000_000,
+				})
+			})
+			.collect();
+		let batch_call =
+			RuntimeCall::Utility(polkadot_sdk::pallet_utility::Call::batch { calls: transfers });
+		// NOTE: submit signed as Alice (not wrapped in sudo). The batch runs with Alice's
+		// Signed origin, so transfers actually execute from Alice's account.
+		if submit_extrinsic_no_wait(&rpc_client, &sudo_account, batch_call).await.is_ok() {
+			successful_batches += 1;
+		}
+
 		let _ = rpc_client
 			.request::<CreatedBlock<H256>>("engine_createBlock", rpc_params![true, true])
 			.await?;
 
-		if i % 100 == 0 {
+		if i % 50 == 0 {
 			let relay =
 				count_storage(&local_client, "IsmpParachain", "RelayChainStateCommitments").await?;
 			let sc = count_storage(&local_client, "Ismp", "StateCommitments").await?;
 			let smu = count_storage(&local_client, "Ismp", "StateMachineUpdateTime").await?;
-			eprintln!("Block {i}: RelayChain={relay}, SC={sc}, SMU={smu}");
+			let charlie_balance = query_balance(&local_client, &charlie).await?;
+			let delta = charlie_balance.saturating_sub(initial_charlie);
+			eprintln!(
+				"Block {i}: RelayChain={relay}, SC={sc}, SMU={smu}, batches={successful_batches}, charlie_gain={delta}"
+			);
 
 			if relay == 0 && sc == 0 && smu == 0 {
 				eprintln!("All legacy maps fully drained after {i} blocks.");
@@ -233,6 +267,14 @@ async fn test_legacy_storage_drain() -> Result<(), anyhow::Error> {
 			}
 		}
 	}
+
+	let final_charlie = query_balance(&local_client, &charlie).await?;
+	let gain = final_charlie.saturating_sub(initial_charlie);
+	eprintln!("Total batches submitted: {successful_batches}, Charlie received: {gain} planks");
+	assert!(
+		gain > 0,
+		"Charlie received nothing — user transactions aren't executing during drain!"
+	);
 
 	let final_relay =
 		count_storage(&local_client, "IsmpParachain", "RelayChainStateCommitments").await?;
@@ -286,6 +328,50 @@ async fn batch_set_storage(
 		eprintln!("Injecting batch {}/{}...", i + 1, (data.len() + BATCH_SIZE - 1) / BATCH_SIZE);
 		submit_sudo(client, rpc_client, sudo_account, sudo_call).await?;
 	}
+	Ok(())
+}
+
+/// Queries the free balance of an account via the System::Account storage.
+async fn query_balance(
+	client: &OnlineClient<Hyperbridge>,
+	account: &polkadot_sdk::sp_core::crypto::AccountId32,
+) -> Result<u128, anyhow::Error> {
+	use subxt::ext::scale_value::At;
+
+	let account_bytes: &[u8] = account.as_ref();
+	let addr = subxt::dynamic::storage(
+		"System",
+		"Account",
+		vec![subxt::dynamic::Value::from_bytes(account_bytes)],
+	);
+	let value = client.storage().at_latest().await?.fetch(&addr).await?;
+	let Some(v) = value else { return Ok(0) };
+	let decoded = v.to_value()?;
+	// AccountInfo { nonce, consumers, providers, sufficients, data: { free, ... } }
+	let Some(free_value) = decoded.at("data").and_then(|d| d.at("free")) else {
+		return Ok(0);
+	};
+	Ok(free_value.as_u128().unwrap_or(0))
+}
+
+/// Submits an extrinsic to the txpool without waiting for it to be included.
+/// Used to fill the block with user transactions.
+async fn submit_extrinsic_no_wait(
+	rpc_client: &RpcClient,
+	sudo_account: &polkadot_sdk::sp_core::crypto::AccountId32,
+	call: RuntimeCall,
+) -> Result<(), anyhow::Error> {
+	let call_data = call.encode();
+	let extrinsic_bytes: Bytes = rpc_client
+		.request(
+			"simnode_authorExtrinsic",
+			rpc_params![Bytes::from(call_data), sudo_account.to_ss58check()],
+		)
+		.await?;
+
+	rpc_client
+		.request::<String>("author_submitExtrinsic", rpc_params![extrinsic_bytes])
+		.await?;
 	Ok(())
 }
 

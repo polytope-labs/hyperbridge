@@ -114,26 +114,34 @@ mod benchmarks {
 		Ok(())
 	}
 
-	/// Steady-state `on_finalize`: insert at the cap + evict the oldest.
+	/// Steady-state `on_finalize`: map already at the cap, evict the oldest
+	/// then insert the new height. Mirrors the order used in the hook.
 	#[benchmark]
 	fn on_finalize_bound_relay_state_commitments() -> Result<(), BenchmarkError> {
 		let oldest: u32 = 1;
 		for i in 0..crate::MAX_RELAY_STATE_COMMITMENTS {
 			let key = oldest + i;
-			RelayChainStateCommitments::<T>::insert(key, H256::repeat_byte(0xab));
+			CurrentRelayChainStateRoots::<T>::insert(key, H256::repeat_byte(0xab));
+			KnownRelayHeights::<T>::mutate(|heights| {
+				let _ = heights.try_insert(key);
+			});
 		}
-		OldestRetainedRelayBlock::<T>::put(oldest);
 
 		let new_height = oldest + crate::MAX_RELAY_STATE_COMMITMENTS;
 
 		#[block]
 		{
-			RelayChainStateCommitments::<T>::insert(new_height, H256::repeat_byte(0xcd));
-			Pallet::<T>::evict_oldest_relay_commitment(new_height);
+			Pallet::<T>::evict_oldest_relay_commitment();
+			CurrentRelayChainStateRoots::<T>::insert(new_height, H256::repeat_byte(0xcd));
+			KnownRelayHeights::<T>::mutate(|heights| {
+				let _ = heights.try_insert(new_height);
+			});
 		}
 
-		assert_eq!(RelayChainStateCommitments::<T>::count(), crate::MAX_RELAY_STATE_COMMITMENTS,);
-		assert!(OldestRetainedRelayBlock::<T>::get().unwrap() > oldest);
+		assert_eq!(CurrentRelayChainStateRoots::<T>::count(), crate::MAX_RELAY_STATE_COMMITMENTS);
+		let heights = KnownRelayHeights::<T>::get();
+		assert_eq!(heights.len() as u32, crate::MAX_RELAY_STATE_COMMITMENTS);
+		assert!(*heights.iter().next().expect("set is non-empty") > oldest);
 
 		Ok(())
 	}
@@ -151,7 +159,7 @@ mod benchmarks {
 			let _ = RelayChainStateCommitments::<T>::clear(1, None);
 		}
 
-		assert!(RelayChainStateCommitments::<T>::count() < 16);
+		assert!(RelayChainStateCommitments::<T>::iter_values().count() < 16);
 
 		Ok(())
 	}

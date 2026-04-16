@@ -52,11 +52,17 @@ pub use weights::WeightInfo;
 /// At ~6s per relay block, 256 entries covers ~25 minutes of history.
 pub const MAX_RELAY_STATE_COMMITMENTS: u32 = 256;
 
+frame_support::parameter_types! {
+	/// Type-level `Get<u32>` mirror of [`MAX_RELAY_STATE_COMMITMENTS`], used as the
+	/// bound for [`pallet::KnownRelayHeights`].
+	pub const MaxRelayStateCommitments: u32 = MAX_RELAY_STATE_COMMITMENTS;
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
 	use cumulus_primitives_core::relay_chain;
-	use frame_support::pallet_prelude::*;
+	use frame_support::{pallet_prelude::*, BoundedBTreeSet};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		consensus::StateMachineId,
@@ -112,6 +118,20 @@ pub mod pallet {
 		relay_chain::BlockNumber,
 		relay_chain::Hash,
 		OptionQuery,
+	>;
+
+	/// Sorted pointer set of relay chain block numbers currently held in
+	/// [`CurrentRelayChainStateRoots`]. The map uses a `Blake2_128Concat` hasher,
+	/// so its `iter_keys()` order is hash order, not numeric order, and cannot
+	/// tell us which entry is the oldest. `BTreeSet` iterates in ascending key
+	/// order, so `.iter().next()` on this set returns the smallest known height
+	/// deterministically. Every write to `CurrentRelayChainStateRoots` must keep
+	/// this set in sync.
+	#[pallet::storage]
+	pub type KnownRelayHeights<T: Config> = StorageValue<
+		_,
+		BoundedBTreeSet<relay_chain::BlockNumber, super::MaxRelayStateCommitments>,
+		ValueQuery,
 	>;
 
 	/// Tracks whether we've already seen the `update_parachain_consensus` inherent
@@ -225,13 +245,19 @@ pub mod pallet {
 		fn on_finalize(_n: BlockNumberFor<T>) {
 			let state = RelaychainDataProvider::<T>::current_relay_chain_state();
 
-			if !CurrentRelayChainStateRoots::<T>::contains_key(state.number) {
-				CurrentRelayChainStateRoots::<T>::insert(state.number, state.state_root);
-
-				if CurrentRelayChainStateRoots::<T>::count() > MAX_RELAY_STATE_COMMITMENTS {
-					Self::evict_oldest_relay_commitment();
-				}
+			if CurrentRelayChainStateRoots::<T>::contains_key(state.number) {
+				return;
 			}
+
+			// Evict first so neither the map nor the pointer set ever exceeds the cap.
+			if CurrentRelayChainStateRoots::<T>::count() >= MAX_RELAY_STATE_COMMITMENTS {
+				Self::evict_oldest_relay_commitment();
+			}
+
+			CurrentRelayChainStateRoots::<T>::insert(state.number, state.state_root);
+			KnownRelayHeights::<T>::mutate(|heights| {
+				let _ = heights.try_insert(state.number);
+			});
 		}
 
 		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
@@ -248,6 +274,22 @@ pub mod pallet {
 
 		fn on_runtime_upgrade() -> Weight {
 			StorageV0::migrate_to_v1::<T>()
+		}
+
+		/// Drains the legacy [`RelayChainStateCommitments`] map using leftover block
+		/// weight. Runs after all extrinsics, so it never blocks user transactions.
+		fn on_idle(_n: BlockNumberFor<T>, remaining: Weight) -> Weight {
+			// Target per on_idle call. Chosen so the full step weight fits in
+			// typical leftover weight without exceeding the proof-size budget.
+			const BATCH_SIZE: u32 = 500;
+			let required =
+				<T as pallet::Config>::WeightInfo::drain_relay_state_commitments_step(BATCH_SIZE);
+			if remaining.any_lt(required) {
+				return Weight::zero();
+			}
+
+			let result = RelayChainStateCommitments::<T>::clear(BATCH_SIZE, None);
+			<T as pallet::Config>::WeightInfo::drain_relay_state_commitments_step(result.unique)
 		}
 	}
 
@@ -311,12 +353,19 @@ pub mod pallet {
 }
 
 impl<T: Config> Pallet<T> {
-	/// Evicts the oldest entry from [`CurrentRelayChainStateRoots`] using
-	/// `iter_keys().next()` to find the smallest key.
+	/// Evicts the oldest entry from [`CurrentRelayChainStateRoots`] using the
+	/// sorted [`KnownRelayHeights`] pointer set. The map's `Blake2_128Concat`
+	/// hasher means `iter_keys()` does not yield keys in numeric order, so it
+	/// cannot identify the oldest height. `BTreeSet` iterates in ascending key
+	/// order, so `.iter().next()` here returns the smallest known height
+	/// deterministically.
 	fn evict_oldest_relay_commitment() {
-		if let Some(oldest) = CurrentRelayChainStateRoots::<T>::iter_keys().next() {
-			CurrentRelayChainStateRoots::<T>::remove(oldest);
-		}
+		KnownRelayHeights::<T>::mutate(|heights| {
+			if let Some(&oldest) = heights.iter().next() {
+				heights.remove(&oldest);
+				CurrentRelayChainStateRoots::<T>::remove(oldest);
+			}
+		});
 	}
 
 	/// Returns the list of parachains who's consensus updates will be inserted by the inherent

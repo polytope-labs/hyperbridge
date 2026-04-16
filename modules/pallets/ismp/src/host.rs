@@ -22,8 +22,8 @@ use crate::{
 	utils::{ConsensusClientProvider, ResponseReceipt},
 	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
 	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
-	LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight, Responded,
-	StateCommitmentsCount, UnbondingPeriod,
+	KnownStateMachineHeights, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
+	Responded, StateCommitmentsCount, UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};
@@ -196,8 +196,15 @@ impl<T: Config> IsmpHost for Pallet<T> {
 	}
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
+		let was_present = BoundedStateCommitments::<T>::contains_key(height.id, height.height);
 		BoundedStateCommitments::<T>::remove(height.id, height.height);
-		StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_sub(1));
+		BoundedStateMachineUpdateTime::<T>::remove(height.id, height.height);
+		if was_present {
+			StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_sub(1));
+			KnownStateMachineHeights::<T>::mutate(height.id, |heights| {
+				heights.remove(&height.height);
+			});
+		}
 
 		// technically any state commitment can be vetoed,
 		// safety check that it's the latest before resetting it.

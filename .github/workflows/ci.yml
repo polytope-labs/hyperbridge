@@ -408,11 +408,20 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            - name: Build old binary from main
+              run: |
+                  git fetch origin main
+                  git worktree add /tmp/main-worktree origin/main
+                  cd /tmp/main-worktree
+                  cargo build -p hyperbridge --release
+                  cp ./target/release/hyperbridge $GITHUB_WORKSPACE/simnode-old-binary
+                  cd $GITHUB_WORKSPACE
+                  git worktree remove /tmp/main-worktree --force
+
             - name: Run Simnet Tests
               run: |
                   cargo build -p hyperbridge --release
                   cargo build -p gargantua-runtime --release
-                  cp ./target/release/hyperbridge ./simnode-old-binary
                   ./target/release/hyperbridge simnode --chain=gargantua-2000 --name=alice --tmp  --state-pruning=archive --blocks-pruning=archive --rpc-port=9990 --port 40337 --log="mmr=trace" --rpc-cors=all --unsafe-rpc-external --rpc-methods=unsafe --pool-type=single-state &
                   ./scripts/wait_for_tcp_port_opening.sh localhost 9990
                   SIMNODE_OLD_BINARY=./simnode-old-binary cargo test -p simtests -- --nocapture --ignored --test-threads=1 --skip test_runtime_upgrade_and_fee_migration

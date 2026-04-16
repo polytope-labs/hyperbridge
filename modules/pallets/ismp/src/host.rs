@@ -197,7 +197,6 @@ impl<T: Config> IsmpHost for Pallet<T> {
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		BoundedStateCommitments::<T>::remove(height.id, height.height);
-		BoundedStateMachineUpdateTime::<T>::remove(height.id, height.height);
 		StateCommitmentsCount::<T>::mutate(height.id, |c| *c = c.saturating_sub(1));
 
 		// technically any state commitment can be vetoed,

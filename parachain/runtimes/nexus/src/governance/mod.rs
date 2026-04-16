@@ -18,13 +18,11 @@ use super::*;
 mod origins;
 mod tracks;
 use crate::{
-	frame_support::traits::{
-		fungible::HoldConsideration, EitherOf, EitherOfDiverse, LinearStoragePrice,
-	},
-	Preimage,
+	frame_support::traits::{fungible::HoldConsideration, EitherOf, LinearStoragePrice},
+	Preimage, TechnicalCollectiveInstance, MIN_TECH_COLLECTIVE_APPROVAL,
 };
 pub use origins::{
-	custom_origins, FellowshipAdmin, ReferendumCanceller, ReferendumKiller, WhitelistedCaller, *,
+	custom_origins, ReferendumCanceller, ReferendumKiller, WhitelistedCaller, *,
 };
 pub use tracks::TracksInfo;
 
@@ -81,7 +79,11 @@ impl pallet_whitelist::Config for Runtime {
 	type WeightInfo = weights::pallet_whitelist::WeightInfo<Runtime>;
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
-	type WhitelistOrigin = EitherOfDiverse<EnsureRoot<Self::AccountId>, FellowshipAdmin>;
+	type WhitelistOrigin = pallet_collective::EnsureMembers<
+		MIN_TECH_COLLECTIVE_APPROVAL,
+		AccountId,
+		TechnicalCollectiveInstance,
+	>;
 	type DispatchWhitelistedOrigin = EitherOf<EnsureRoot<Self::AccountId>, WhitelistedCaller>;
 	type Preimages = Preimage;
 }

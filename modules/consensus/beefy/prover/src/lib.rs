@@ -108,32 +108,17 @@ pub const BEEFY_VALIDATOR_SET_ID: [u8; 32] =
 pub const PARAS_PARACHAINS: [u8; 32] =
 	hex!("cd710b30bd2eab0352ddcc26417aa1940b76934f4cc08dee01012d059e1b83ee");
 
-/// Build the authority merkle proof and assign leaf positions to each signature.
+/// Build the authority merkle proof.
 ///
-/// Returns the positioned proof nodes (for the Solidity verifier) and updates
-/// each signature's `leaf_position` in place.
+/// Returns the flat proof hashes for the Solidity verifier.
 fn build_authority_proof(
-	signatures: &mut [SignatureWithAuthorityIndex],
+	signatures: &[SignatureWithAuthorityIndex],
 	authority_address_hashes: &[[u8; 32]],
-) -> Vec<(usize, [u8; 32])> {
+) -> Vec<[u8; 32]> {
 	let indices: Vec<usize> = signatures.iter().map(|x| x.index as usize).collect();
 	let tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(authority_address_hashes);
 	let proof = tree.proof(&indices);
-	let leaf_hashes: Vec<[u8; 32]> = indices.iter().map(|&i| authority_address_hashes[i]).collect();
-	let (proof_nodes, leaf_nodes) =
-		util::convert_proof(&proof, &indices, &leaf_hashes, authority_address_hashes.len());
-
-	let first_leaf_pos = 1usize << util::ceil_log2(authority_address_hashes.len());
-	for sig in signatures.iter_mut() {
-		let target = first_leaf_pos + sig.index as usize;
-		sig.leaf_position = leaf_nodes
-			.iter()
-			.find(|n| n.position == target)
-			.expect("leaf for signature must exist")
-			.position as u32;
-	}
-
-	proof_nodes.into_iter().map(|n| (n.position, n.hash)).collect()
+	proof.proof_hashes().to_vec()
 }
 
 /// Build the parachain header merkle proof from the heads committed in an MMR leaf.
@@ -151,26 +136,18 @@ fn build_parachain_proof(
 
 	let tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&leaves);
 	let para_proof = tree.proof(&indices);
-	let para_leaf_hashes: Vec<[u8; 32]> = indices.iter().map(|&i| leaves[i]).collect();
-	let (proof_nodes, leaf_nodes) =
-		util::convert_proof(&para_proof, &indices, &para_leaf_hashes, leaf_count);
 
-	let first_leaf_pos = 1usize << util::ceil_log2(leaf_count);
-	let parachains: Vec<_> = leaf_nodes
+	let mut parachains: Vec<_> = indices
 		.iter()
-		.map(|leaf| {
-			let index = leaf.position - first_leaf_pos;
-			ParachainHeader {
-				header: heads[index].1.clone(),
-				index: index as u32,
-				leaf_position: leaf.position as u32,
-				para_id: heads[index].0,
-			}
+		.map(|&i| ParachainHeader {
+			header: heads[i].1.clone(),
+			index: i as u32,
+			para_id: heads[i].0,
 		})
 		.collect();
+	parachains.sort_by_key(|p| p.index);
 
-	let proof: Vec<(u32, [u8; 32])> =
-		proof_nodes.into_iter().map(|n| (n.position as u32, n.hash)).collect();
+	let proof = para_proof.proof_hashes().to_vec();
 
 	ParachainProof { parachains, proof, total_leaves: leaf_count as u32 }
 }
@@ -300,13 +277,11 @@ impl<R: Config, P: Config> Prover<R, P> {
 
 		// Build the merkle proof for exactly those challenged authorities
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
-		let authority_count = current_authorities.len();
 
 		// Extract and process only the challenged signatures
-		let mut signatures = filter_signatures_for_challenge(
+		let signatures = filter_signatures_for_challenge(
 			&signed_commitment,
 			&challenged_indices,
-			authority_count,
 		)?;
 
 		let authority_address_hashes = hash_authority_addresses(
@@ -314,7 +289,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)?;
 
 		let authority_proof =
-			build_authority_proof(&mut signatures, &authority_address_hashes);
+			build_authority_proof(&signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -356,7 +331,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 
 		// create authorities proof
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
-		let mut signatures = signed_commitment
+		let signatures = signed_commitment
 			.signatures
 			.iter()
 			.enumerate()
@@ -371,8 +346,6 @@ impl<R: Config, P: Config> Prover<R, P> {
 				*last = *last + 27;
 				Some(SignatureWithAuthorityIndex {
 					index: index as u32,
-					// filled in below once we know the leaf positions from convert_proof
-					leaf_position: 0,
 					signature: temp,
 				})
 			})
@@ -383,7 +356,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)?;
 
 		let authority_proof =
-			build_authority_proof(&mut signatures, &authority_address_hashes);
+			build_authority_proof(&signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {

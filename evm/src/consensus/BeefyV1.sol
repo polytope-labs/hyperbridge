@@ -172,13 +172,13 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         if (mmrRoot == bytes32(0)) revert MmrRootHashMissing();
 
         bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
-        MerkleMultiProof.Node[] memory authorities = new MerkleMultiProof.Node[](signatures_length);
+        MerkleMultiProof.Leaf[] memory authorities = new MerkleMultiProof.Leaf[](signatures_length);
 
         // verify authorities' votes
         for (uint256 i = 0; i < signatures_length; i++) {
             Vote memory vote = relayProof.signedCommitment.votes[i];
             address authority = ECDSA.recover(commitment_hash, vote.signature);
-            authorities[i] = MerkleMultiProof.Node(vote.leafPosition, keccak256(abi.encodePacked(authority)));
+            authorities[i] = MerkleMultiProof.Leaf(vote.authorityIndex, keccak256(abi.encodePacked(authority)));
         }
 
         bool valid;
@@ -235,7 +235,7 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         returns (IntermediateState[] memory)
     {
         uint256 len = proof.parachains.length;
-        MerkleMultiProof.Node[] memory leaves = new MerkleMultiProof.Node[](len);
+        MerkleMultiProof.Leaf[] memory leaves = new MerkleMultiProof.Leaf[](len);
         IntermediateState[] memory intermediates = new IntermediateState[](len);
 
         for (uint256 i = 0; i < len; i++) {
@@ -243,8 +243,8 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
             Header memory header = Codec.DecodeHeader(para.header);
             if (header.number == 0) revert IllegalGenesisBlock();
 
-            leaves[i] = MerkleMultiProof.Node(
-                para.leafPosition,
+            leaves[i] = MerkleMultiProof.Leaf(
+                para.index,
                 keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
             );
 

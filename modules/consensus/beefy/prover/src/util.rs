@@ -18,7 +18,6 @@ use frame_support::sp_runtime::traits::Convert;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use polkadot_sdk::*;
-use rs_merkle::{Hasher, MerkleProof};
 use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
@@ -134,15 +133,6 @@ impl rs_merkle::Hasher for MerkleHasher {
 	}
 }
 
-/// A merkle node with its 1-based tree position and hash, ready for the Solidity verifier.
-#[derive(Clone, Debug)]
-pub struct MerkleNode {
-	/// 1-based tree position. Root is 1; children of node `i` are `2i` and `2i+1`.
-	pub position: usize,
-	/// Node hash.
-	pub hash: [u8; 32],
-}
-
 /// ceil(log2(n)) — must match the Solidity `_ceilLog2` used by MerkleMultiProof.
 /// Do NOT use `rs_merkle::utils::indices::tree_depth` here — it uses floating-point
 /// math that returns incorrect results for exact powers of 2.
@@ -151,44 +141,4 @@ pub fn ceil_log2(n: usize) -> usize {
 		return 0;
 	}
 	(usize::BITS - (n - 1).leading_zeros()) as usize
-}
-
-/// Converts an `rs-merkle` proof into the positioned format expected by the Solidity verifier.
-///
-/// This is the helper described verbatim in the `solidity-merkle-trees` README:
-/// <https://github.com/polytope-labs/solidity-merkle-trees>
-///
-/// Returns a tuple of `(proof_nodes, leaf_nodes)`, both with 1-based tree positions
-/// already calculated. The leaf nodes are sorted by position.
-pub fn convert_proof<T: Hasher<Hash = [u8; 32]>>(
-	proof: &MerkleProof<T>,
-	leaf_indices: &[usize],
-	leaf_hashes: &[[u8; 32]],
-	total_leaves: usize,
-) -> (Vec<MerkleNode>, Vec<MerkleNode>) {
-	let height = ceil_log2(total_leaves);
-
-	// proof_indices_by_layers returns the 0-based indices that each proof hash
-	// corresponds to, layer by layer (bottom-to-top), in the same order as proof_hashes().
-	let proof_nodes =
-		rs_merkle::utils::indices::proof_indices_by_layers(leaf_indices, total_leaves)
-			.into_iter()
-			.enumerate()
-			.flat_map(|(layer, indices)| {
-				let level_start = 1usize << (height - layer);
-				indices.into_iter().map(move |idx| level_start + idx)
-			})
-			.zip(proof.proof_hashes())
-			.map(|(position, &hash)| MerkleNode { position, hash })
-			.collect();
-
-	let first_leaf_pos = 1usize << height;
-	let mut leaf_nodes: Vec<MerkleNode> = leaf_indices
-		.iter()
-		.zip(leaf_hashes)
-		.map(|(&i, &hash)| MerkleNode { position: first_leaf_pos + i, hash })
-		.collect();
-	leaf_nodes.sort_by_key(|n| n.position);
-
-	(proof_nodes, leaf_nodes)
 }

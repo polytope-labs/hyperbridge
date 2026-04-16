@@ -318,7 +318,6 @@ pub fn compute_commitment_hash(commitment: &sp_consensus_beefy::Commitment<u32>)
 pub fn filter_signatures_for_challenge(
 	signed_commitment: &sp_consensus_beefy::SignedCommitment<u32, Signature>,
 	challenged_indices: &[u32],
-	authority_count: usize,
 ) -> Result<Vec<SignatureWithAuthorityIndex>, anyhow::Error> {
 	let mut filtered = Vec::with_capacity(challenged_indices.len());
 
@@ -352,12 +351,8 @@ pub fn filter_signatures_for_challenge(
 		let last = temp.last_mut().unwrap();
 		*last += 27;
 
-		// leaf_position = first_leaf_pos + authority_index, where
-		// first_leaf_pos = 1 << ceil_log2(authority_count).
-		let first_leaf_pos = 1usize << crate::util::ceil_log2(authority_count);
 		filtered.push(SignatureWithAuthorityIndex {
 			index: authority_index,
-			leaf_position: (first_leaf_pos + idx) as u32,
 			signature: temp,
 		});
 	}

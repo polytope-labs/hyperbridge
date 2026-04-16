@@ -68,13 +68,10 @@ impl ToU256 for usize {
 mod beefy {
 	use super::ToU256;
 	use crate::{
-		beefy::{
-			Beefy::{
-				AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
-				Commitment, Parachain, ParachainProof, Payload, RelayChainProof,
-				SignedCommitment, Vote,
-			},
-			MerkleMultiProof::Node,
+		beefy::Beefy::{
+			AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
+			Commitment, Parachain, ParachainProof, Payload, RelayChainProof,
+			SignedCommitment, Vote,
 		},
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
@@ -91,7 +88,7 @@ mod beefy {
 					.parachains
 					.into_iter()
 					.map(|parachain| Parachain {
-						leafPosition: parachain.leaf_position.to_u256(),
+						index: parachain.index.to_u256(),
 						id: parachain.para_id.to_u256(),
 						header: Bytes::from(parachain.header),
 					})
@@ -99,10 +96,7 @@ mod beefy {
 				proof: value
 					.proof
 					.into_iter()
-					.map(|(index, node)| Node {
-						position: (index as usize).to_u256(),
-						node: FixedBytes::from(node),
-					})
+					.map(|hash| FixedBytes::from(hash))
 					.collect(),
 				leafCount: value.total_leaves.to_u256(),
 			}
@@ -178,7 +172,7 @@ mod beefy {
 						.into_iter()
 						.map(|a| Vote {
 							signature: Bytes::from(a.signature.to_vec()),
-							leafPosition: a.leaf_position.to_u256(),
+							authorityIndex: a.index.to_u256(),
 						})
 						.collect(),
 				},
@@ -199,10 +193,7 @@ mod beefy {
 				proof: value
 					.authority_proof
 					.into_iter()
-					.map(|(index, node)| Node {
-						position: index.to_u256(),
-						node: FixedBytes::from(node),
-					})
+					.map(|hash| FixedBytes::from(hash))
 					.collect(),
 			}
 		}

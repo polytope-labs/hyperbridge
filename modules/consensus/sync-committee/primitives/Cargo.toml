@@ -34,3 +34,4 @@ std = [
     "serde-hex-utils/std",
     "crypto-utils/std",
 ]
+nofulu = []

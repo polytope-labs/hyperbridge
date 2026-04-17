@@ -177,7 +177,10 @@ async fn setup() -> (ConsensusState, ConsensusMessage) {
 	(initial_state, beefy_consensus_proof)
 }
 
+// Integration test: hits live Polkadot/parachain RPCs (see RELAY_WS_URL / PARA_WS_URL env vars).
+// Run explicitly with `cargo test -- --ignored`.
 #[tokio::test]
+#[ignore]
 async fn test_verify_consensus() {
 	let (initial_state, beefy_consensus_proof) = setup().await;
 	let mut ext = new_test_ext();

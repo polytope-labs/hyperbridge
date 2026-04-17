@@ -49,7 +49,10 @@ impl EcdsaRecover for TestHost {
 	}
 }
 
+// Integration test: hits live Polkadot/parachain RPCs (see RELAY_WS_URL / PARA_WS_URL env vars).
+// Run explicitly with `cargo test -- --ignored`.
 #[tokio::test]
+#[ignore]
 async fn test_verify_consensus() {
 	let max_rpc_payload_size = 15 * 1024 * 1024;
 

@@ -112,6 +112,7 @@ frame_support::construct_runtime!(
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
+		IsmpParachain: ismp_parachain,
 	}
 );
 
@@ -258,7 +259,13 @@ impl pallet_ismp::Config for Test {
 			Test,
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
+		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
+		ismp_beefy::consensus::BeefyConsensusClient<
+			Ismp,
+			Test,
+			substrate_state_machine::SubstrateStateMachine<Test>,
+		>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = (
@@ -419,6 +426,22 @@ impl ismp_grandpa::Config for Test {
 	type IsmpHost = Ismp;
 	type WeightInfo = ();
 	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_parachain::Config for Test {
+	type IsmpHost = Ismp;
+	type WeightInfo = ();
+	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_beefy::BeefyClientConfig for Test {
+	fn is_parachain_tracked(para_id: u32) -> bool {
+		ismp_parachain::Parachains::<Test>::contains_key(para_id)
+	}
+
+	fn sp1_vkey_hash() -> Vec<u8> {
+		Vec::new()
+	}
 }
 
 parameter_types! {

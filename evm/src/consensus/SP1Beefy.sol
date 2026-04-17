@@ -51,9 +51,6 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
 
-    // Provided consensus proof height is stale
-    error StaleHeight();
-
     // Genesis block should not be provided
     error IllegalGenesisBlock();
 
@@ -124,7 +121,11 @@ contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
         returns (BeefyConsensusState memory, IntermediateState[] memory)
     {
         MiniCommitment memory commitment = proof.commitment;
-        if (trustedState.latestHeight >= commitment.blockNumber) revert StaleHeight();
+        // Stale proofs are a no-op: return the previous state with no intermediates so replays
+        // are idempotent rather than reverting.
+        if (trustedState.latestHeight >= commitment.blockNumber) {
+            return (trustedState, new IntermediateState[](0));
+        }
 
         AuthoritySetCommitment memory authority;
         if (commitment.validatorSetId == trustedState.nextAuthoritySet.id) {

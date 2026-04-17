@@ -102,9 +102,6 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
     /// @notice Provided authority set id was unknown.
     error UnknownAuthoritySet();
 
-    /// @notice Provided consensus proof height is stale.
-    error StaleHeight();
-
     /// @notice Mmr root hash was not found in commitment payload.
     error MmrRootHashMissing();
 
@@ -182,6 +179,11 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         ParachainProof memory parachain,
         uint256[4] memory signersBitmap
     ) internal pure returns (BeefyConsensusState memory, IntermediateState[] memory) {
+        // Stale proofs are a no-op: return the previous state with no intermediates so replays
+        // are idempotent rather than reverting.
+        if (trustedState.latestHeight >= relay.signedCommitment.commitment.blockNumber) {
+            return (trustedState, new IntermediateState[](0));
+        }
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, relay, signersBitmap);
         IntermediateState[] memory intermediates = verifyParachainHeaderProof(headsRoot, parachain);
         return (state, intermediates);
@@ -207,7 +209,6 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         uint256[4] memory signersBitmap
     ) internal pure returns (BeefyConsensusState memory, bytes32) {
         uint256 latestHeight = relayProof.signedCommitment.commitment.blockNumber;
-        if (trustedState.latestHeight >= latestHeight) revert StaleHeight();
 
         Commitment memory commitment = relayProof.signedCommitment.commitment;
 

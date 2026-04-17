@@ -56,7 +56,6 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
     error UnknownAuthoritySet();
 
     // Provided consensus proof height is stale
-    error StaleHeight();
 
     // Provided ultra plonk proof was invalid
     error InvalidUltraPlonkProof();
@@ -121,6 +120,11 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         pure
         returns (BeefyConsensusState memory, IntermediateState[] memory)
     {
+        // Stale proofs are a no-op: return the previous state with no intermediates so the caller
+        // can treat replays as idempotent rather than having to guard against reverts.
+        if (trustedState.latestHeight >= proof.relay.signedCommitment.commitment.blockNumber) {
+            return (trustedState, new IntermediateState[](0));
+        }
         (BeefyConsensusState memory state, bytes32 headsRoot) = verifyMmrUpdateProof(trustedState, proof.relay);
         IntermediateState[] memory intermediate = verifyParachainHeaderProof(headsRoot, proof.parachain);
         return (state, intermediate);
@@ -139,8 +143,6 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
     {
         uint256 signatures_length = relayProof.signedCommitment.votes.length;
         uint256 latestHeight = relayProof.signedCommitment.commitment.blockNumber;
-
-        if (trustedState.latestHeight >= latestHeight) revert StaleHeight();
 
         if (
             !checkParticipationThreshold(signatures_length, trustedState.currentAuthoritySet.len)

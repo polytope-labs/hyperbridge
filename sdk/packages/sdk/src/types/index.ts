@@ -19,9 +19,9 @@ export type HexString = `0x${string}`
 
 export interface IConfig {
 	// confuration object for the source chain
-	source: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
+	source: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig | IPharosConfig
 	// confuration object for the destination chain
-	dest: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
+	dest: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig | IPharosConfig
 	// confuration object for hyperbridge
 	hyperbridge: IHyperbridgeConfig
 	// Flag to enable tracing console logs
@@ -46,6 +46,14 @@ export interface IEvmConfig {
 export interface IPolkadotHubConfig extends IEvmConfig {
 	substrateRpcUrl: string
 }
+
+/**
+ * Pharos EVM chain — same as {@link IEvmConfig}. Pharos uses a non-standard
+ * `eth_getProof` response format (hexary hash tree proof nodes with offsets plus
+ * SHA-256 hashing), so proof fetching is handled by the Pharos-specific chain
+ * client rather than viem's standard `getProof`.
+ */
+export interface IPharosConfig extends IEvmConfig {}
 
 export interface ISubstrateConfig {
 	// rpc url of the chain

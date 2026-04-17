@@ -28,9 +28,7 @@ use ismp_solidity_abi::{
 		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
-use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
-use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 use primitive_types::{H256, U256};
 use std::{collections::BTreeSet, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
@@ -59,19 +57,15 @@ fn extract_state_machine_id(state_id: &StateMachine) -> anyhow::Result<AlloyU256
 	}
 }
 
-/// Decode a raw MMR proof and compute the k-index for each leaf position.
-fn decode_mmr_proof(raw: &[u8]) -> anyhow::Result<(MmrProof<H256>, Vec<(usize, u64)>)> {
+/// Decode a raw MMR proof and extract the leaf indices.
+fn decode_mmr_proof(raw: &[u8]) -> anyhow::Result<(MmrProof<H256>, Vec<u64>)> {
 	let proof = MmrProof::<H256>::decode(&mut &*raw)?;
-	let mmr_size = NodesUtils::new(proof.leaf_count).size();
-	let k_and_leaf_indices = proof
+	let leaf_indices = proof
 		.leaf_indices_and_pos
 		.iter()
-		.map(|LeafIndexAndPos { pos, leaf_index }| {
-			let k_index = mmr_position_to_k_index(vec![*pos], mmr_size)[0].1;
-			(k_index, *leaf_index)
-		})
+		.map(|LeafIndexAndPos { leaf_index, .. }| *leaf_index)
 		.collect();
-	Ok((proof, k_and_leaf_indices))
+	Ok((proof, leaf_indices))
 }
 
 /// Build the solidity `Proof` struct from an MMR proof and ISMP height.
@@ -240,15 +234,14 @@ pub async fn generate_contract_calls(
 			},
 
 			Message::Request(msg) => {
-				let (mmr_proof, k_and_leaf_idx) = decode_mmr_proof(&msg.proof.proof)?;
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&msg.proof.proof)?;
 				let mut leaves: Vec<PostRequestLeaf> = msg
 					.requests
 					.iter()
-					.zip(&k_and_leaf_idx)
-					.map(|(post, &(k_index, leaf_index))| PostRequestLeaf {
+					.zip(&leaf_indices)
+					.map(|(post, &leaf_index)| PostRequestLeaf {
 						request: post.clone().into(),
 						index: AlloyU256::from(leaf_index),
-						kIndex: AlloyU256::from(k_index),
 					})
 					.collect();
 				leaves.sort_by_key(|l| l.index);
@@ -264,15 +257,14 @@ pub async fn generate_contract_calls(
 				proof,
 				..
 			}) => {
-				let (mmr_proof, k_and_leaf_idx) = decode_mmr_proof(&proof.proof)?;
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
 				let mut leaves: Vec<PostResponseLeaf> = responses
 					.iter()
-					.zip(&k_and_leaf_idx)
-					.filter_map(|(res, &(k_index, leaf_index))| match res {
+					.zip(&leaf_indices)
+					.filter_map(|(res, &leaf_index)| match res {
 						Response::Post(res) => Some(PostResponseLeaf {
 							response: res.clone().into(),
 							index: AlloyU256::from(leaf_index),
-							kIndex: AlloyU256::from(k_index),
 						}),
 						_ => None,
 					})

@@ -18,6 +18,10 @@
 #![allow(clippy::all)]
 #![deny(missing_docs)]
 
+/// Re-export of `rs_merkle` so downstream crates use the same version as the prover
+/// (necessary because `MerkleHasher` only implements `Hasher` for this version).
+pub use rs_merkle;
+
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use hex_literal::hex;
@@ -103,6 +107,50 @@ pub const BEEFY_VALIDATOR_SET_ID: [u8; 32] =
 /// Relay chain storage key for paras.parachains()
 pub const PARAS_PARACHAINS: [u8; 32] =
 	hex!("cd710b30bd2eab0352ddcc26417aa1940b76934f4cc08dee01012d059e1b83ee");
+
+/// Build the authority merkle proof.
+///
+/// Returns the flat proof hashes for the Solidity verifier.
+fn build_authority_proof(
+	signatures: &[SignatureWithAuthorityIndex],
+	authority_address_hashes: &[[u8; 32]],
+) -> Vec<[u8; 32]> {
+	let indices: Vec<usize> = signatures.iter().map(|x| x.index as usize).collect();
+	let tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(authority_address_hashes);
+	let proof = tree.proof(&indices);
+	proof.proof_hashes().to_vec()
+}
+
+/// Build the parachain header merkle proof from the heads committed in an MMR leaf.
+fn build_parachain_proof(
+	para_ids: &[u32],
+	heads: &[(u32, Vec<u8>)],
+) -> ParachainProof {
+	let leaves: Vec<[u8; 32]> = heads.iter().map(|pair| keccak_256(&pair.encode())).collect();
+	let leaf_count = leaves.len();
+
+	let indices: Vec<usize> = para_ids
+		.iter()
+		.map(|id| heads.iter().position(|(i, _)| *i == *id).expect("ParaId should exist"))
+		.collect();
+
+	let tree = rs_merkle::MerkleTree::<util::MerkleHasher>::from_leaves(&leaves);
+	let para_proof = tree.proof(&indices);
+
+	let mut parachains: Vec<_> = indices
+		.iter()
+		.map(|&i| ParachainHeader {
+			header: heads[i].1.clone(),
+			index: i as u32,
+			para_id: heads[i].0,
+		})
+		.collect();
+	parachains.sort_by_key(|p| p.index);
+
+	let proof = para_proof.proof_hashes().to_vec();
+
+	ParachainProof { parachains, proof, total_leaves: leaf_count as u32 }
+}
 
 impl<R: Config, P: Config> Prover<R, P> {
 	/// Construct a beefy client state to be submitted to the counterparty chain
@@ -227,16 +275,21 @@ impl<R: Config, P: Config> Prover<R, P> {
 			signer_count,
 		);
 
-		// Extract and process only the challenged signatures
-		let signatures = filter_signatures_for_challenge(&signed_commitment, &challenged_indices)?;
-
 		// Build the merkle proof for exactly those challenged authorities
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
+
+		// Extract and process only the challenged signatures
+		let signatures = filter_signatures_for_challenge(
+			&signed_commitment,
+			&challenged_indices,
+		)?;
+
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
-		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices);
+
+		let authority_proof =
+			build_authority_proof(&signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -248,33 +301,13 @@ impl<R: Config, P: Config> Prover<R, P> {
 			authority_proof,
 		};
 
-		// Build parachain proofs (identical to naive consensus_proof)
 		let heads = paras_parachains(
 			&self.relay_rpc,
 			Some(HashFor::<R>::decode(&mut &*latest_leaf.parent_number_and_hash.1.encode())?),
 		)
 		.await?;
 
-		let (parachains, indices): (Vec<_>, Vec<_>) = heads
-			.clone()
-			.into_iter()
-			.enumerate()
-			.filter_map(|(index, (para_id, header))| {
-				if self.para_ids.contains(&para_id) {
-					Some((ParachainHeader { header, index, para_id }, index))
-				} else {
-					None
-				}
-			})
-			.unzip();
-
-		let proof = if parachains.len() > 0 {
-			let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-			util::merkle_proof(&leaves, &indices)
-		} else {
-			vec![]
-		};
-		let parachain = ParachainProof { parachains, proof };
+		let parachain = build_parachain_proof(&self.para_ids, &heads);
 
 		Ok((ConsensusMessage { mmr, parachain }, bitmap))
 	}
@@ -297,34 +330,33 @@ impl<R: Config, P: Config> Prover<R, P> {
 				.await?;
 
 		// create authorities proof
+		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 		let signatures = signed_commitment
 			.signatures
 			.iter()
 			.enumerate()
-			.map(|(index, x)| {
-				if let Some(sig) = x {
-					let mut temp = [0u8; 65];
-					if sig.len() == 65 {
-						temp.copy_from_slice(&*sig.encode());
-						let last = temp.last_mut().unwrap();
-						*last = *last + 27;
-						Some(SignatureWithAuthorityIndex { index: index as u32, signature: temp })
-					} else {
-						None
-					}
-				} else {
-					None
+			.filter_map(|(index, x)| {
+				let sig = x.as_ref()?;
+				if sig.len() != 65 {
+					return None;
 				}
+				let mut temp = [0u8; 65];
+				temp.copy_from_slice(&*sig.encode());
+				let last = temp.last_mut().unwrap();
+				*last = *last + 27;
+				Some(SignatureWithAuthorityIndex {
+					index: index as u32,
+					signature: temp,
+				})
 			})
-			.filter_map(|x| x)
 			.collect::<Vec<_>>();
-		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
-		let indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-		let authority_proof = util::merkle_proof(&authority_address_hashes, &indices);
+
+		let authority_proof =
+			build_authority_proof(&signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -342,26 +374,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 		)
 		.await?;
 
-		let (parachains, indices): (Vec<_>, Vec<_>) = heads
-			.clone()
-			.into_iter()
-			.enumerate()
-			.filter_map(|(index, (para_id, header))| {
-				if self.para_ids.contains(&para_id) {
-					Some((ParachainHeader { header, index, para_id }, index))
-				} else {
-					None
-				}
-			})
-			.unzip();
-
-		let proof = if parachains.len() > 0 {
-			let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-			util::merkle_proof(&leaves, &indices)
-		} else {
-			vec![]
-		};
-		let parachain = ParachainProof { parachains, proof };
+		let parachain = build_parachain_proof(&self.para_ids, &heads);
 
 		Ok(ConsensusMessage { mmr, parachain })
 	}

@@ -12,6 +12,9 @@ concurrency:
 jobs:
     build_and_publish:
         runs-on: release-runner
+        permissions:
+            contents: read
+            packages: write
         steps:
             - name: Checkout sources
               uses: actions/checkout@v3
@@ -62,17 +65,34 @@ jobs:
             - name: Install Cargo get
               run: cargo install cargo-get
 
+            - name: Resolve feature flag
+              id: feature
+              run: |
+                  FEATURE=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
+                  echo "flag=${FEATURE}" >> "$GITHUB_OUTPUT"
+
             - name: Login to Docker Hub
               uses: docker/login-action@v3
               with:
                   username: ${{ secrets.DOCKER_USERNAME }}
                   password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-            - name: Build the Docker image
-              run: |
-                  feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
-                  docker build -t polytopelabs/tesseract-consensus:${feature_flag} -f ./scripts/docker/consensus.Dockerfile .
-            - name: Docker Push
-              run: |
-                  feature_flag=$(echo "$GITHUB_REF_NAME" | cut -d'-' -f"3")
-                  docker push polytopelabs/tesseract-consensus:${feature_flag}
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  file: ./scripts/docker/consensus.Dockerfile
+                  push: true
+                  tags: |
+                      polytopelabs/tesseract-consensus:${{ steps.feature.outputs.flag }}
+                      ghcr.io/${{ github.repository_owner }}/tesseract-consensus:${{ steps.feature.outputs.flag }}

@@ -117,8 +117,56 @@ The instance’s `config` includes every `IEvmConfig` field plus `substrateRpcUr
 
 **Proofs:** `queryProof` **must** be called with an explicit finalized (or chosen) block height as `at`. Other `IChain` methods delegate to the inner EVM client, same pattern as other chain types.
 
+**Pharos chain:**
+
+Use `PharosChain` when connecting to a Pharos network. Pharos exposes a standard EVM JSON-RPC surface, but its `eth_getProof` endpoint returns proofs in a custom hexary hash tree format (SHA-256) instead of Ethereum's Merkle-Patricia Trie (Keccak-256). `PharosChain` wraps an internal [`EvmChain`](/developers/sdk/api/evm-chain) for all standard interactions and overrides `queryProof` / `queryStateProof` to handle the Pharos proof format.
+
+`PharosChain.create(rpcUrl, bundlerUrl?)` mirrors [`EvmChain.create`](/developers/sdk/api/evm-chain): it resolves chain id and `IsmpHost` from known deployments, and optionally forwards an ERC-4337 **bundler URL** as the second argument.
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { PharosChain } from "@hyperbridge/sdk"
+
+// Auto-detect chain ID and IsmpHost from the RPC
+const pharos = await PharosChain.create("https://rpc.pharos.example")
+
+// With an ERC-4337 bundler (optional second argument, same as EvmChain.create)
+const pharosWithBundler = await PharosChain.create(
+  "https://rpc.pharos.example",
+  "https://your-bundler.example",
+)
+```
+
+Or pass full parameters when you already know chain id and host:
+
+```typescript lineNumbers title="client.ts" icon=typescript
+import { PharosChain } from "@hyperbridge/sdk"
+
+const pharos = PharosChain.fromParams({
+  chainId: 688689,
+  rpcUrl: "https://rpc.pharos-atlantic.example",
+  host: "0xYourIsmpHostAddress",
+  // Optional — defaults exist for some known chain IDs (same as EvmChain)
+  // consensusStateId: "PHAR",
+  // Optional — ERC-4337 bundler, same as EvmChain
+  // bundlerUrl: "https://...",
+})
+```
+
+| Field | Description |
+|-------|-------------|
+| `chainId`, `rpcUrl`, `host` | Same as [`EvmChain`](/developers/sdk/api/evm-chain): EVM chain id, JSON-RPC URL, and `IsmpHost` address. |
+| `consensusStateId` | Optional Hyperbridge consensus state id for this chain (mirrors `EvmChain`). |
+| `bundlerUrl` | Optional account-abstraction bundler (mirrors `EvmChain`). |
+
+**Proofs:** `queryProof` **must** be called with an explicit finalized block height as `at`. The returned proof is a SCALE-encoded `PharosStateProof` containing hexary hash tree proof nodes, storage values, non-existence proofs, and account proofs. Other `IChain` methods delegate to the inner EVM client.
+
+| Chain | Chain ID |
+|-------|----------|
+| Pharos Mainnet | 688600 |
+| Pharos Atlantic (Testnet) | 688689 |
+
 For detailed configuration options and supported chains, see:
-- [EvmChain API Reference](/developers/sdk/api/evm-chain) (shared EVM surface for Polkadot Hub)
+- [EvmChain API Reference](/developers/sdk/api/evm-chain) (shared EVM surface for Polkadot Hub and Pharos)
 - [SubstrateChain API Reference](/developers/sdk/api/substrate-chain)
 
 ---
@@ -162,7 +210,7 @@ const indexer = new IndexerClient({
 |-----------|------|-------------|
 | `queryClient` | `QueryClient` | Query client for the Hyperbridge indexer |
 | `pollInterval` | `number` | Polling interval in milliseconds (default: 1000) |
-| `source` | `IChain` | Source chain instance (`EvmChain`, `SubstrateChain`, `PolkadotHubChain`, …) |
+| `source` | `IChain` | Source chain instance (`EvmChain`, `SubstrateChain`, `PolkadotHubChain`, `PharosChain`, …) |
 | `dest` | `IChain` | Destination chain instance |
 | `hyperbridge` | `IChain` | Hyperbridge chain instance (often `SubstrateChain`) |
 
@@ -231,7 +279,7 @@ main().catch(console.error)
 Now that you have the SDK set up, explore the detailed documentation:
 
 - **[IndexerClient API](/developers/sdk/api/indexer-client)** - Complete API reference with all methods and usage examples
-- **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration (also applies to the EVM layer of `PolkadotHubChain`)
+- **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration (also applies to the EVM layer of `PolkadotHubChain` and `PharosChain`)
 - **[SubstrateChain API](/developers/sdk/api/substrate-chain)** - Substrate chain methods and configuration
 - **[Tracking Requests](/developers/sdk/tracking/post-requests)** - Monitor cross-chain message statuses
 - **[Vite Integration](/developers/sdk/vite-integration)** - Detailed Vite plugin configuration and framework examples

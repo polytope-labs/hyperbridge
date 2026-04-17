@@ -108,7 +108,7 @@ where
 			let leaf_hashes = paras.iter().map(|l| keccak_256(&l.encode())).collect::<Vec<_>>();
 			let tree = MerkleTree::<KeccakHasher>::from_leaves(&leaf_hashes);
 
-			let indices = message.parachain.parachains.iter().map(|i| i.index).collect::<Vec<_>>();
+			let indices = message.parachain.parachains.iter().map(|i| i.index as usize).collect::<Vec<_>>();
 			let proof = tree.proof(&indices);
 			let witness = proof.proof_hashes().iter().map(|item| item.clone().into()).collect();
 

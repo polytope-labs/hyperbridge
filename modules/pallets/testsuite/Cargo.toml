@@ -63,7 +63,6 @@ crypto-utils = { workspace = true, default-features = true }
 rs_merkle = { workspace = true, default-features = true }
 log = { workspace = true }
 primitive-types = { workspace = true }
-ismp-parachain = { workspace = true, default-features = true }
 ismp-beefy = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
 beefy-verifier-primitives = { workspace = true }

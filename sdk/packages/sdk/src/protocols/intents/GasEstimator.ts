@@ -157,7 +157,7 @@ export class GasEstimator {
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
 		let preVerificationGas: bigint = 100_000n
-		// Circle Paymaster v0.8 caps used as fallback when the bundler doesn't return paymaster gas fields.
+		// Paymaster gas fields default to 0n when the bundler estimate doesn't include them.
 		let paymasterVerificationGasLimit: bigint = 0n
 		let paymasterPostOpGasLimit: bigint = 0n
 
@@ -168,8 +168,8 @@ export class GasEstimator {
 					{ target: intentGatewayV2Address, value: totalNativeValue, data: fillOrderCalldata },
 				])
 
-				const accountGasLimits = this.crypto.packGasLimits(100_000n, callGasLimit)
-				const gasFees = this.crypto.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
+				const accountGasLimits = CryptoUtils.packGasLimits(100_000n, callGasLimit)
+				const gasFees = CryptoUtils.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
 
 				const nonce = 0n
 
@@ -185,7 +185,7 @@ export class GasEstimator {
 					signature: "0x" as HexString,
 				}
 
-				const userOpHash = this.crypto.computeUserOpHash(preliminaryUserOp, entryPointAddress, chainId)
+				const userOpHash = CryptoUtils.computeUserOpHash(preliminaryUserOp, entryPointAddress, chainId)
 				const messageHash = keccak256(
 					concat([userOpHash, commitment as HexString, solverAccountAddress as import("viem").Hex]),
 				)
@@ -194,13 +194,13 @@ export class GasEstimator {
 				})
 				const solverSig = concat([commitment as HexString, solverSignature as import("viem").Hex]) as HexString
 
-				const domainSeparator = this.crypto.getDomainSeparator(
+				const domainSeparator = CryptoUtils.getDomainSeparator(
 					"IntentGateway",
 					"2",
 					chainId,
 					intentGatewayV2Address,
 				)
-				const sessionSignature = await this.crypto.signSolverSelection(
+				const sessionSignature = await CryptoUtils.signSolverSelection(
 					commitment as HexString,
 					solverAccountAddress,
 					domainSeparator,
@@ -212,7 +212,7 @@ export class GasEstimator {
 					sessionSignature as import("viem").Hex,
 				]) as HexString
 
-				const bundlerUserOp = this.crypto.prepareBundlerCall(preliminaryUserOp)
+				const bundlerUserOp = CryptoUtils.prepareBundlerCall(preliminaryUserOp)
 				const bundlerUrlLower = this.ctx.bundlerUrl.toLowerCase()
 				const isPimlico = bundlerUrlLower.includes("pimlico.io")
 				const isAlchemy = bundlerUrlLower.includes("alchemy.com")

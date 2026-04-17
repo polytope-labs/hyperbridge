@@ -77,7 +77,7 @@ export class CryptoUtils {
 	 * @param contractAddress - Address of the verifying contract.
 	 * @returns The 32-byte domain separator as a hex string.
 	 */
-	getDomainSeparator(contractName: string, version: string, chainId: bigint, contractAddress: HexString): HexString {
+	static getDomainSeparator(contractName: string, version: string, chainId: bigint, contractAddress: HexString): HexString {
 		return keccak256(
 			encodeAbiParameters(parseAbiParameters("bytes32, bytes32, bytes32, uint256, address"), [
 				DOMAIN_TYPEHASH,
@@ -102,7 +102,7 @@ export class CryptoUtils {
 	 * @param privateKey - Hex-encoded private key of the session key that signs the message.
 	 * @returns The ECDSA signature as a hex string, or `null` if signing fails.
 	 */
-	async signSolverSelection(
+	static async signSolverSelection(
 		commitment: HexString,
 		solverAddress: HexString,
 		domainSeparator: HexString,
@@ -132,9 +132,9 @@ export class CryptoUtils {
 	 * @param chainId - Chain ID of the network on which the operation will execute.
 	 * @returns The UserOperation hash as a hex string.
 	 */
-	computeUserOpHash(userOp: PackedUserOperation, entryPoint: Hex, chainId: bigint): Hex {
-		const structHash = this.getPackedUserStructHash(userOp)
-		const domainSeparator = this.getDomainSeparator("ERC4337", "1", chainId, entryPoint as HexString)
+	static computeUserOpHash(userOp: PackedUserOperation, entryPoint: Hex, chainId: bigint): Hex {
+		const structHash = CryptoUtils.getPackedUserStructHash(userOp)
+		const domainSeparator = CryptoUtils.getDomainSeparator("ERC4337", "1", chainId, entryPoint as HexString)
 
 		return keccak256(
 			encodePacked(["bytes1", "bytes1", "bytes32", "bytes32"], ["0x19", "0x01", domainSeparator, structHash]),
@@ -150,7 +150,7 @@ export class CryptoUtils {
 	 * @param userOp - The packed UserOperation to hash.
 	 * @returns The struct hash as a 32-byte hex string.
 	 */
-	getPackedUserStructHash(userOp: PackedUserOperation): HexString {
+	static getPackedUserStructHash(userOp: PackedUserOperation): HexString {
 		return keccak256(
 			encodeAbiParameters(
 				parseAbiParameters("bytes32, address, uint256, bytes32, bytes32, bytes32, uint256, bytes32, bytes32"),
@@ -180,7 +180,7 @@ export class CryptoUtils {
 	 * @param callGasLimit - Gas limit for the main execution call.
 	 * @returns A 32-byte hex string with both limits packed.
 	 */
-	packGasLimits(verificationGasLimit: bigint, callGasLimit: bigint): HexString {
+	static packGasLimits(verificationGasLimit: bigint, callGasLimit: bigint): HexString {
 		const verificationGasHex = pad(toHex(verificationGasLimit), { size: 16 })
 		const callGasHex = pad(toHex(callGasLimit), { size: 16 })
 		return concat([verificationGasHex, callGasHex]) as HexString
@@ -197,7 +197,7 @@ export class CryptoUtils {
 	 * @param maxFeePerGas - Maximum total fee per gas (EIP-1559).
 	 * @returns A 32-byte hex string with both fee values packed.
 	 */
-	packGasFees(maxPriorityFeePerGas: bigint, maxFeePerGas: bigint): HexString {
+	static packGasFees(maxPriorityFeePerGas: bigint, maxFeePerGas: bigint): HexString {
 		const priorityFeeHex = pad(toHex(maxPriorityFeePerGas), { size: 16 })
 		const maxFeeHex = pad(toHex(maxFeePerGas), { size: 16 })
 		return concat([priorityFeeHex, maxFeeHex]) as HexString
@@ -210,7 +210,7 @@ export class CryptoUtils {
 	 * @param accountGasLimits - The packed 32-byte gas limits field from a `PackedUserOperation`.
 	 * @returns Object with `verificationGasLimit` and `callGasLimit` as bigints.
 	 */
-	unpackGasLimits(accountGasLimits: HexString): { verificationGasLimit: bigint; callGasLimit: bigint } {
+	static unpackGasLimits(accountGasLimits: HexString): { verificationGasLimit: bigint; callGasLimit: bigint } {
 		const hex = accountGasLimits.slice(2)
 		const verificationGasLimit = BigInt(`0x${hex.slice(0, 32)}`)
 		const callGasLimit = BigInt(`0x${hex.slice(32, 64)}`)
@@ -223,7 +223,7 @@ export class CryptoUtils {
 	 * @param gasFees - The packed 32-byte gas fees field from a `PackedUserOperation`.
 	 * @returns Object with `maxPriorityFeePerGas` and `maxFeePerGas` as bigints.
 	 */
-	unpackGasFees(gasFees: HexString): { maxPriorityFeePerGas: bigint; maxFeePerGas: bigint } {
+	static unpackGasFees(gasFees: HexString): { maxPriorityFeePerGas: bigint; maxFeePerGas: bigint } {
 		const hex = gasFees.slice(2)
 		const maxPriorityFeePerGas = BigInt(`0x${hex.slice(0, 32)}`)
 		const maxFeePerGas = BigInt(`0x${hex.slice(32, 64)}`)
@@ -240,9 +240,9 @@ export class CryptoUtils {
 	 * @param userOp - The packed UserOperation to convert.
 	 * @returns A plain object safe to pass as the first element of bundler RPC params.
 	 */
-	prepareBundlerCall(userOp: PackedUserOperation): Record<string, unknown> {
-		const { verificationGasLimit, callGasLimit } = this.unpackGasLimits(userOp.accountGasLimits)
-		const { maxPriorityFeePerGas, maxFeePerGas } = this.unpackGasFees(userOp.gasFees)
+	static prepareBundlerCall(userOp: PackedUserOperation): Record<string, unknown> {
+		const { verificationGasLimit, callGasLimit } = CryptoUtils.unpackGasLimits(userOp.accountGasLimits)
+		const { maxPriorityFeePerGas, maxFeePerGas } = CryptoUtils.unpackGasFees(userOp.gasFees)
 
 		const hasFactory = userOp.initCode && userOp.initCode !== "0x" && userOp.initCode.length > 2
 		const factory = hasFactory ? (`0x${userOp.initCode.slice(2, 42)}` as HexString) : undefined

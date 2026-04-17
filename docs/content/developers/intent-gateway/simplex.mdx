@@ -53,7 +53,9 @@ Both curves are expressed in **exotic tokens per USD**. A higher bid means the f
 
 `maxOrderUsd` caps the filler's exposure per order. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
 
-HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry. Simplex automatically monitors and tops up the ERC-4337 EntryPoint deposit as a background task — depositing 10% of the solver account's native balance when it falls low.
+HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
+
+On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. Circle Paymaster covers the delegation tx (and subsequent fills) in USDC on chains where it is deployed; on chains without the paymaster (e.g. BSC), Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
 
 ```toml lineNumbers
 [[strategies]]
@@ -209,6 +211,27 @@ signWith         = "0xYourWalletAddress"
 Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
 </Callout>
 
+### Delegation & Gas Payment
+
+Solver selection requires each filler's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
+
+- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When the Circle Paymaster is deployed on the chain and the filler holds ≥1 USDC, the paymaster pays gas in USDC (EIP-2612 permit) so the filler never needs native gas for delegation.
+- **Fallback** — if the bundler path fails or the chain has no paymaster (e.g. BSC), Simplex sends a direct type-0x04 delegation tx using the filler's native balance. On these chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
+
+No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
+
+### Overfill Protection
+
+Bounds per-leg loss if the filler's internal pricing is wrong (bug, stale cache, manipulated venue). For every order, the filler clamps its computed output to at most `(1 + maxOverfillBps) × user-requested amount`. After `maxConsecutiveClamps` consecutive orders where the clamp activated, the strategy halts itself — a pattern that strongly suggests a systemic pricing error — and requires an operator restart. The FX strategy additionally rejects any order where the total output USD value ≥ total input USD value.
+
+Defaults are sensible (`maxOverfillBps = 100` ≈ 1% ceiling, `maxConsecutiveClamps = 3`). Override under `[simplex.overfillProtection]`:
+
+```toml lineNumbers
+[simplex.overfillProtection]
+maxOverfillBps       = 100   # 1% ceiling above user-requested output
+maxConsecutiveClamps = 3     # halt threshold
+```
+
 ### Confirmation Policy
 
 <Callout type="info">
@@ -233,24 +256,31 @@ Values between the min and max order amounts are linearly interpolated.
 
 #### Custom Overrides
 
-To override the defaults for specific chains, add a `confirmationPolicies` section to your strategy. Unlisted chains keep their defaults:
+Confirmation policies are configured **per strategy** under `[strategies.confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults:
 
 ```toml lineNumbers
-[confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
+[[strategies]]
+type = "basic"
+bpsCurve = [
+    { amount = "100",    value = 100 },
+    { amount = "100000", value = 10  },
+]
+
+[strategies.confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
 points = [
     { amount = "1000",   value = 3  },   # $1k → 3 blocks (~36s)
     { amount = "50000",  value = 15 },   # $50k → 15 blocks (~3m)
     { amount = "100000", value = 20 },   # $100k → 20 blocks (~4m)
 ]
 
-[confirmationPolicies."56"]    # BSC (~3s blocks)
+[strategies.confirmationPolicies."56"]    # BSC (~3s blocks)
 points = [
     { amount = "1000",   value = 2  },
     { amount = "100000", value = 5  },
 ]
 ```
 
-For HyperFX, you can configure confirmation policies in the same way. For example:
+HyperFX uses the same schema:
 
 ```toml lineNumbers
 [[strategies]]
@@ -261,16 +291,14 @@ maxOrderUsd = 5000
 "EVM-56"  = "0xExoticTokenAddressOnBsc"
 "EVM-137" = "0xExoticTokenAddressOnPolygon"
 
-[strategies.confirmationPolicies]
-# Chain IDs for HyperFX confirmation policy (same schema as BasicFiller)
-[strategies.confirmationPolicies."56"]    # BSC (~1s blocks)
+[strategies.confirmationPolicies."56"]    # BSC
 points = [
-    { amount = "1",   value = 3  },
-    { amount = "500", value = 6  },
+    { amount = "1",    value = 3  },
+    { amount = "500",  value = 6  },
     { amount = "5000", value = 15 },
 ]
 
-[strategies.confirmationPolicies."42161"] # Arbitrum (~0.25s blocks)
+[strategies.confirmationPolicies."42161"] # Arbitrum
 points = [
     { amount = "2",    value = 2  },
     { amount = "1000", value = 5  },
@@ -279,7 +307,7 @@ points = [
 ```
 
 <Callout type="info">
-Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, and Arbitrum. Custom <code>[strategies.confirmationPolicies]</code> entries override the defaults for those chains only.
+Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[strategies.confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
 </Callout>
 
 
@@ -324,6 +352,11 @@ callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
 [simplex.queue]
 maxRechecks    = 10
 recheckDelayMs = 30000
+
+# Optional — defaults: maxOverfillBps = 100, maxConsecutiveClamps = 3
+# [simplex.overfillProtection]
+# maxOverfillBps       = 100
+# maxConsecutiveClamps = 3
 
 [[strategies]]
 type        = "hyperfx"
@@ -385,7 +418,7 @@ Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
 ---
 
 ### **HyperFX bid submission fails**
-Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. Ensure the solver account has sufficient native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit as a background task (10% of native balance per top-up). If using MPC Vault, verify the client-signer container is running and reachable.
+Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with the Circle Paymaster, make sure the filler's smart account holds ≥1 USDC so the paymaster can cover gas. On chains without the paymaster (e.g. BSC), the filler needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
 
 ---
 

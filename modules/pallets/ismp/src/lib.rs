@@ -121,7 +121,7 @@ pub mod pallet {
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
 	/// Maximum state commitments retained per chain in [`BoundedStateCommitments`].
-	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 256;
+	pub const MAX_STATE_MACHINE_COMMITMENTS: u32 = 1024;
 
 	frame_support::parameter_types! {
 		/// Type-level `Get<u32>` mirror of [`MAX_STATE_MACHINE_COMMITMENTS`], used as

@@ -49,17 +49,3 @@ impl WeightInfo for () {
 		Weight::zero()
 	}
 }
-
-impl WeightInfo for () {
-	fn add_parachain(_: u32) -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-
-	fn remove_parachain(_: u32) -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-
-	fn update_parachain_consensus() -> Weight {
-		Weight::from_parts(10_000_000, 0)
-	}
-}

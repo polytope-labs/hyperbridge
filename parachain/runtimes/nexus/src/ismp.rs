@@ -158,6 +158,7 @@ impl pallet_ismp::Config for Runtime {
 	type OffchainDB = Mmr;
 	type FeeHandler =
 		(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
+	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

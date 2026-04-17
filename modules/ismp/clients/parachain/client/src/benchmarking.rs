@@ -66,7 +66,7 @@ mod benchmarks {
 		let parachains: Vec<ParachainData> =
 			(0..n).map(|i| ParachainData { id: i, slot_duration: 6000u64 }).collect();
 
-		Pallet::<T>::add_parachain(RawOrigin::Root.into(), parachains)?;
+		Pallet::<T>::add_parachain(origin.clone(), parachains)?;
 
 		#[block]
 		{
@@ -110,6 +110,56 @@ mod benchmarks {
 		{
 			Pallet::<T>::update_parachain_consensus(RawOrigin::None.into(), consensus_message)?;
 		}
+
+		Ok(())
+	}
+
+	/// Steady-state `on_finalize`: map already at the cap, evict the oldest
+	/// then insert the new height. Mirrors the order used in the hook.
+	#[benchmark]
+	fn on_finalize_bound_relay_state_commitments() -> Result<(), BenchmarkError> {
+		let oldest: u32 = 1;
+		for i in 0..crate::MAX_RELAY_STATE_COMMITMENTS {
+			let key = oldest + i;
+			CurrentRelayChainStateRoots::<T>::insert(key, H256::repeat_byte(0xab));
+			KnownRelayHeights::<T>::mutate(|heights| {
+				let _ = heights.try_insert(key);
+			});
+		}
+
+		let new_height = oldest + crate::MAX_RELAY_STATE_COMMITMENTS;
+
+		#[block]
+		{
+			Pallet::<T>::evict_oldest_relay_commitment();
+			CurrentRelayChainStateRoots::<T>::insert(new_height, H256::repeat_byte(0xcd));
+			KnownRelayHeights::<T>::mutate(|heights| {
+				let _ = heights.try_insert(new_height);
+			});
+		}
+
+		assert_eq!(CurrentRelayChainStateRoots::<T>::count(), crate::MAX_RELAY_STATE_COMMITMENTS);
+		let heights = KnownRelayHeights::<T>::get();
+		assert_eq!(heights.len() as u32, crate::MAX_RELAY_STATE_COMMITMENTS);
+		assert!(*heights.iter().next().expect("set is non-empty") > oldest);
+
+		Ok(())
+	}
+
+	/// One v1 → v2 `SteppedMigration::step` that removes a single
+	/// `RelayChainStateCommitments` entry.
+	#[benchmark]
+	fn migrate_relay_state_commitments_step() -> Result<(), BenchmarkError> {
+		for i in 0u32..16u32 {
+			RelayChainStateCommitments::<T>::insert(i, H256::repeat_byte(0xef));
+		}
+
+		#[block]
+		{
+			let _ = RelayChainStateCommitments::<T>::clear(1, None);
+		}
+
+		assert!(RelayChainStateCommitments::<T>::iter_values().count() < 16);
 
 		Ok(())
 	}

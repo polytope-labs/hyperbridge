@@ -20,6 +20,7 @@ import {
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
 import type { SigningAccount } from "@/services/wallet"
+import { hasPaymaster } from "@/services/paymaster"
 import { Decimal } from "decimal.js"
 
 export class IntentFiller {
@@ -126,20 +127,13 @@ export class IntentFiller {
 			}
 
 			// Ensure EntryPoint deposit covers target gas units on chains
-			// that do NOT have a Circle Paymaster configured (e.g. BSC).
-			// Chains with a paymaster address pay gas in USDC instead.
+			// that do NOT have the Circle Paymaster configured.
+			// Chains with Circle Paymaster pay gas in USDC instead.
+			// Paymaster permit is handled per-order inside buildCirclePaymasterData.
 			const targetGasUnits = this.configService.getTargetGasUnits()
 			for (const chain of chainsWithSolverSelection) {
-				const paymasterAddress = this.configService.getCirclePaymasterV08Address(chain)
-				if (paymasterAddress) {
-					this.logger.info({ chain }, "Skipping EntryPoint deposit — Circle Paymaster available")
-					// Ensure solver has max USDC allowance to the paymaster so that
-					// per-bid permit signing is never needed (saves ~2-10s for MPC signers).
-					try {
-						await this.contractService.ensurePaymasterApproval(chain, paymasterAddress)
-					} catch (err) {
-						this.logger.warn({ chain, err }, "Failed to ensure paymaster USDC approval")
-					}
+				if (hasPaymaster(chain, this.configService)) {
+					this.logger.info({ chain }, "Skipping EntryPoint deposit — paymaster available")
 					continue
 				}
 				try {
@@ -592,10 +586,10 @@ export class IntentFiller {
 
 	private handleOrderFilledOnChain(commitment: HexString, filler: string, chainId: number): void {
 		// Top up EntryPoint deposit if we were the filler, but only on chains
-		// without Circle Paymaster (paymaster chains pay gas in USDC).
+		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (filler.toLowerCase() === this.fillerAddress.toLowerCase()) {
 			const chain = `EVM-${chainId}`
-			if (!this.configService.getCirclePaymasterV08Address(chain)) {
+			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
 				this.contractService.topUpEntryPointDeposit(chain, targetGasUnits, 1_000_000n).catch((err) => {
 					this.logger.error({ commitment, chain, err }, "Post-fill EntryPoint deposit top-up failed")

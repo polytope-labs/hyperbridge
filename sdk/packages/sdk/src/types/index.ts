@@ -1187,7 +1187,7 @@ export interface SigningAccount {
 	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
 	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
 	/**
-	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle paymaster).
+	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
 	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
 	 */
 	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
@@ -1248,9 +1248,9 @@ export interface FillOrderEstimate {
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
-	/** Paymaster verification gas limit from bundler estimate, or Circle's cap if absent. 0n when no paymaster. */
+	/** Paymaster verification gas limit from bundler estimate. 0n when no paymaster. */
 	paymasterVerificationGasLimit: bigint
-	/** Paymaster postOp gas limit from bundler estimate, or Circle's cap if absent. 0n when no paymaster. */
+	/** Paymaster postOp gas limit from bundler estimate. 0n when no paymaster. */
 	paymasterPostOpGasLimit: bigint
 	maxFeePerGas: bigint
 	maxPriorityFeePerGas: bigint

@@ -35,6 +35,7 @@ export function createPrivateKeySigningAccount(privateKey: HexString): SigningAc
 				value: 0n,
 				authorizationList: [args.authorization],
 				chain: args.walletClient.chain,
+				gas: args.gasFloor,
 			})) as HexString,
 	}
 }

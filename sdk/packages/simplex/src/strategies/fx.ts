@@ -64,6 +64,14 @@ export class FXFiller implements FillerStrategy {
 	private maxOrderUsd: Decimal
 	private signer: SigningAccount
 	private logger = getLogger("fx-simplex")
+	/** Consecutive orders where overfill clamp activated. */
+	private consecutiveClamps = 0
+	/** Once set, the filler refuses all orders until restart — systemic pricing error suspected. */
+	private halted = false
+	/** Ceiling bps above user-requested output. Sourced from filler config. */
+	private readonly maxOverfillBps: bigint
+	/** Consecutive clamped evaluations before halting. Sourced from filler config. */
+	private readonly maxConsecutiveClamps: number
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	private spreadBps: number
@@ -130,6 +138,8 @@ export class FXFiller implements FillerStrategy {
 			throw new Error("FXFiller maxOrderUsd must be greater than 0")
 		}
 		this.signer = signer
+		this.maxOverfillBps = configService.getMaxOverfillBps()
+		this.maxConsecutiveClamps = configService.getMaxConsecutiveClamps()
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
@@ -178,6 +188,10 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	async canFill(order: Order): Promise<boolean> {
+		if (this.halted) {
+			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
+			return false
+		}
 		try {
 			if (order.inputs.length !== order.output.assets.length) {
 				this.logger.debug(
@@ -218,6 +232,10 @@ export class FXFiller implements FillerStrategy {
 	 * outputs if the price policy makes that attractive. This is how we stay competitive.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
+		if (this.halted) {
+			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
+			return 0
+		}
 		try {
 			const sourceChain = order.source
 			const destChain = order.destination
@@ -262,6 +280,7 @@ export class FXFiller implements FillerStrategy {
 			const policyAskPrice = this.askPricePolicy.getPrice(cappedOrderUsd)
 			const fillerOutputs: TokenInfo[] = []
 			let remainingUsd = cappedOrderUsd
+			let anyLegClamped = false
 
 			const fundingCalls: ERC7821Call[] = []
 
@@ -315,10 +334,31 @@ export class FXFiller implements FillerStrategy {
 					continue
 				}
 
-				const { usdUsed, policyMaxOutput } = legResult
+				const { usdUsed, policyMaxOutput: rawPolicyMaxOutput } = legResult
 				remainingUsd = remainingUsd.minus(usdUsed)
 
-				// Cap by wallet balance on the destination chain, optionally topped up via Aerodrome LP removal.
+				// Clamp policy output to at most (1 + maxOverfillBps) × user-requested.
+				// Bounds per-leg loss if internal pricing is wrong (bug, stale cache, manipulated venue).
+				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
+				let policyMaxOutput = rawPolicyMaxOutput
+				if (rawPolicyMaxOutput > overfillCeiling) {
+					this.logger.warn(
+						{
+							orderId: order.id,
+							leg: i,
+							token: output.token,
+							userRequested: output.amount.toString(),
+							unclamped: rawPolicyMaxOutput.toString(),
+							clamped: overfillCeiling.toString(),
+							maxOverfillBps: this.maxOverfillBps.toString(),
+						},
+						"Overfill clamp activated",
+					)
+					policyMaxOutput = overfillCeiling
+					anyLegClamped = true
+				}
+
+				// Cap by wallet balance on the destination chain, optionally topped up via LP removal.
 				const tokenAddress = bytes32ToBytes20(output.token).toLowerCase()
 				const balance = await this.getAndCacheBalance(tokenAddress, walletAddress, destClient, balanceCache)
 
@@ -411,7 +451,10 @@ export class FXFiller implements FillerStrategy {
 			// Spread profit (bid/ask): value received minus cost, using opposite side of spread for valuation.
 			// - When filler sells exotic (stable→exotic): value exotic we give at acquisition cost (bid).
 			// - When filler buys exotic (exotic→stable): value exotic we receive at resale (ask).
+			// Also accumulates totalInputUsd / totalOutputUsd for the input-over-output check.
 			let spreadProfitUsd = new Decimal(0)
+			let totalInputUsdValued = new Decimal(0)
+			let totalOutputUsdValued = new Decimal(0)
 			for (let i = 0; i < fillerOutputs.length; i++) {
 				const input = order.inputs[i]
 				const output = fillerOutputs[i]
@@ -436,16 +479,35 @@ export class FXFiller implements FillerStrategy {
 					// Filler sells exotic (stable→exotic): receives stable, gives exotic. Value exotic at bid (acquisition cost).
 					const inputUsd = new Decimal(formatUnits(input.amount, stableDecimals))
 					const outputExotic = new Decimal(formatUnits(output.amount, exoticDecimalsLeg))
-					// Cost = outputExotic / bidPrice; revenue = inputUsd → profit = inputUsd - outputExotic/bid
-					spreadProfitUsd = spreadProfitUsd.plus(inputUsd.minus(outputExotic.div(bidPrice)))
+					const outputUsd = outputExotic.div(bidPrice)
+					spreadProfitUsd = spreadProfitUsd.plus(inputUsd.minus(outputUsd))
+					totalInputUsdValued = totalInputUsdValued.plus(inputUsd)
+					totalOutputUsdValued = totalOutputUsdValued.plus(outputUsd)
 				} else {
 					// Filler buys exotic (exotic→stable): receives exotic, gives stable. Value exotic at ask (resale value).
 					const inputExotic = new Decimal(formatUnits(input.amount, exoticDecimalsLeg))
 					const outputUsd = new Decimal(formatUnits(output.amount, stableDecimals))
-					// Revenue = inputExotic / askPrice; cost = outputUsd → profit = inputExotic/ask - outputUsd
-					spreadProfitUsd = spreadProfitUsd.plus(inputExotic.div(askPrice).minus(outputUsd))
+					const inputUsd = inputExotic.div(askPrice)
+					spreadProfitUsd = spreadProfitUsd.plus(inputUsd.minus(outputUsd))
+					totalInputUsdValued = totalInputUsdValued.plus(inputUsd)
+					totalOutputUsdValued = totalOutputUsdValued.plus(outputUsd)
 				}
 			}
+
+			// Input USD must always exceed output USD — filler cannot pay more than it receives.
+			if (totalOutputUsdValued.gte(totalInputUsdValued)) {
+				this.logger.warn(
+					{
+						orderId: order.id,
+						totalInputUsd: totalInputUsdValued.toString(),
+						totalOutputUsd: totalOutputUsdValued.toString(),
+					},
+					"Rejecting order: output USD ≥ input USD",
+				)
+				return 0
+			}
+
+			this.recordOrderOutcome(anyLegClamped, order.id)
 
 			const { totalCostInSourceFeeToken } = await this.contractService.estimateGasFillPost(order)
 			const feeProfit = order.fees > totalCostInSourceFeeToken ? order.fees - totalCostInSourceFeeToken : 0n
@@ -576,6 +638,27 @@ export class FXFiller implements FillerStrategy {
 	 * Returns `null` when this leg cannot consume any of the remaining USD
 	 * budget (e.g. the cap has already been exhausted).
 	 */
+
+	/**
+	 * Update consecutive-clamp counter after a successful order evaluation.
+	 * Halts the filler if maxConsecutiveClamps is reached — a pattern that strongly
+	 * suggests a systemic pricing bug rather than benign one-off over-provision.
+	 */
+	private recordOrderOutcome(clamped: boolean, orderId: string | undefined) {
+		if (clamped) {
+			this.consecutiveClamps += 1
+			if (this.consecutiveClamps >= this.maxConsecutiveClamps) {
+				this.halted = true
+				this.logger.error(
+					{ orderId, consecutiveClamps: this.consecutiveClamps, maxConsecutiveClamps: this.maxConsecutiveClamps },
+					"FXFiller HALTED — overfill clamp triggered consecutively; restart required after investigation",
+				)
+			}
+		} else {
+			this.consecutiveClamps = 0
+		}
+	}
+
 	private computeLegPolicyOutput(
 		inputAmount: bigint,
 		inputIsStable: boolean,

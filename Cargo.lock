@@ -2847,6 +2847,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "beefy-verifier"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
+ "ckb-merkle-mountain-range",
+ "futures",
+ "hex-literal 0.4.1",
+ "ismp",
+ "ismp-solidity-abi",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "rs_merkle 1.2.0",
+ "sp1-verifier 6.1.0 (git+https://github.com/polytope-labs/sp1.git?branch=polytope-labs%2Fv6.1.0-wasm-compatible)",
+ "subxt 0.42.1",
+ "subxt-core 0.42.1",
+ "subxt-utils",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "beefy-verifier-primitives"
 version = "0.1.1"
 dependencies = [
@@ -10357,6 +10383,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ismp-beefy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beefy-verifier",
+ "beefy-verifier-primitives",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "substrate-state-machine",
+]
+
+[[package]]
 name = "ismp-bsc"
 version = "0.1.1"
 dependencies = [
@@ -15248,6 +15289,8 @@ dependencies = [
  "alloy-primitives 1.5.7",
  "alloy-sol-types 1.5.7",
  "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
  "bls_on_arkworks",
  "ckb-merkle-mountain-range",
  "crypto-utils",
@@ -15261,8 +15304,10 @@ dependencies = [
  "hex",
  "hyperbridge-client-machine",
  "ismp",
+ "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
+ "ismp-parachain",
  "ismp-pharos",
  "ismp-solidity-abi",
  "ismp-sync-committee",
@@ -15300,6 +15345,7 @@ dependencies = [
  "sp-core",
  "substrate-state-machine",
  "subxt 0.42.1",
+ "subxt-core 0.42.1",
  "subxt-utils",
  "token-gateway-primitives",
  "tokio",
@@ -26128,7 +26174,7 @@ dependencies = [
  "sp1-recursion-executor",
  "sp1-recursion-gnark-ffi",
  "sp1-recursion-machine",
- "sp1-verifier",
+ "sp1-verifier 6.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "static_assertions",
  "sysinfo",
  "tempfile",
@@ -26266,7 +26312,7 @@ dependencies = [
  "sp1-hypercube",
  "sp1-primitives",
  "sp1-recursion-compiler",
- "sp1-verifier",
+ "sp1-verifier 6.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile",
  "tracing",
 ]
@@ -26336,7 +26382,7 @@ dependencies = [
  "sp1-prover-types",
  "sp1-recursion-executor",
  "sp1-recursion-gnark-ffi",
- "sp1-verifier",
+ "sp1-verifier 6.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "strum 0.27.2",
  "tempfile",
  "thiserror 1.0.69",
@@ -26370,6 +26416,20 @@ dependencies = [
  "sp1-recursion-executor",
  "sp1-recursion-machine",
  "strum 0.27.2",
+ "substrate-bn-succinct-rs",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "sp1-verifier"
+version = "6.1.0"
+source = "git+https://github.com/polytope-labs/sp1.git?branch=polytope-labs%2Fv6.1.0-wasm-compatible#9f0231abeb1da58699fc205e13308131168fbdb5"
+dependencies = [
+ "blake3",
+ "cfg-if",
+ "dirs",
+ "hex",
+ "sha2 0.10.9",
  "substrate-bn-succinct-rs",
  "thiserror 2.0.18",
 ]

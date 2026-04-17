@@ -197,6 +197,7 @@ impl<T: Config> IsmpHost for Pallet<T> {
 
 	fn delete_state_commitment(&self, height: StateMachineHeight) -> Result<(), Error> {
 		BoundedStateCommitments::<T>::remove(height.id, height.height);
+		BoundedStateMachineUpdateTime::<T>::remove(height.id, height.height);
 		KnownStateMachineHeights::<T>::mutate(height.id, |heights| {
 			heights.remove(&height.height);
 		});

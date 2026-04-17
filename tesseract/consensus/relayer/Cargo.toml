@@ -1,6 +1,6 @@
 [package]
 name = "tesseract-consensus"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 
 [lib]
@@ -62,7 +62,3 @@ pharos-primitives = { workspace = true }
 [dependencies.polkadot-sdk]
 workspace = true
 features = ["sp-runtime", "sc-service"]
-
-
-[features]
-nofulu = ["tesseract-sync-committee/nofulu"]

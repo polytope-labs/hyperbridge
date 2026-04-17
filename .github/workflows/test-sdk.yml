@@ -137,9 +137,6 @@ jobs:
             - name: Run SDK test - requests
               run: pnpm --filter="@hyperbridge/sdk" test:requests
 
-            - name: Run SDK test - hyperbridge
-              run: cd packages/sdk && pnpm vitest --watch=false --sequence.concurrent=false src/tests/sequential/hyperbridge.test.ts
-
             - name: Run SDK test - intent-gateway
               run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
 

@@ -1,6 +1,6 @@
 [package]
 name = "hyperbridge"
-version = "1.4.4"
+version = "1.5.0"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 description = "The Hyperbridge coprocessor node"
 repository = "https://github.com/polytope-labs/hyperbridge"
@@ -33,6 +33,7 @@ pallet-intents-coprocessor = { workspace = true, default-features = true }
 pallet-mmr-rpc = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }
+mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-runtime-api = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 ismp-parachain-inherent = { workspace = true }

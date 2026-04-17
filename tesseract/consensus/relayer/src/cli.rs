@@ -248,8 +248,7 @@ pub async fn create_client_map(
 				let client = match config.state_machine() {
 					StateMachine::Evm(688689) =>
 						config.into_client::<pharos_primitives::Testnet>().await?,
-					_ =>
-						config.into_client::<pharos_primitives::Mainnet>().await?,
+					_ => config.into_client::<pharos_primitives::Mainnet>().await?,
 				};
 				client
 			},

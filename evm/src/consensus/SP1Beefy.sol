@@ -14,12 +14,23 @@
 // limitations under the License.
 pragma solidity ^0.8.20;
 
-import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 
-import "./Codec.sol";
-import "./Types.sol";
+import {Codec} from "./Codec.sol";
+import {Header, HeaderImpl} from "./Header.sol";
+import {
+    AuthoritySetCommitment,
+    BeefyConsensusState,
+    MiniCommitment,
+    ParachainHeader,
+    ParachainHeaderHash,
+    PartialBeefyMmrLeaf,
+    PublicInputs,
+    SP1BeefyProof
+} from "./Types.sol";
 
 /**
  * @title The SP1 BEEFY Consensus Client.
@@ -28,7 +39,7 @@ import "./Types.sol";
  * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification, authority set membership proof checks
  * and mmr leaf to an SP1 program.
  */
-contract SP1Beefy is IConsensus, ERC165 {
+contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
@@ -55,7 +66,29 @@ contract SP1Beefy is IConsensus, ERC165 {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+            || super.supportsInterface(interfaceId);
+    }
+
+    function verify(bytes calldata previousState, bytes calldata proof)
+        external
+        view
+        returns (bytes memory, IntermediateState[] memory, uint256)
+    {
+        BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
+        (
+            MiniCommitment memory commitment,
+            PartialBeefyMmrLeaf memory leaf,
+            ParachainHeader[] memory headers,
+            bytes memory plonkProof
+        ) = abi.decode(proof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
+        SP1BeefyProof memory sp1Proof =
+            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: plonkProof});
+
+        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
+            verifyConsensus(consensusState, sp1Proof);
+
+        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     /*
@@ -103,9 +136,12 @@ contract SP1Beefy is IConsensus, ERC165 {
         }
 
         uint256 headers_len = proof.headers.length;
-        bytes32[] memory headers = new bytes32[](headers_len);
+        ParachainHeaderHash[] memory headers = new ParachainHeaderHash[](headers_len);
         for (uint256 i = 0; i < headers_len; i++) {
-            headers[i] = keccak256(proof.headers[i].header);
+            headers[i] = ParachainHeaderHash({
+                id: proof.headers[i].id,
+                hash: keccak256(proof.headers[i].header)
+            });
         }
 
         bytes memory publicInputs = abi.encode(

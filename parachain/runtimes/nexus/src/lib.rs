@@ -34,7 +34,7 @@ use crate::sp_runtime::DispatchError;
 use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::{EverythingBut, TransformOrigin, WithdrawReasons};
+use frame_support::traits::{EverythingBut, InsideBoth, TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
@@ -81,10 +81,11 @@ use frame_system::{
 	limits::{BlockLength, BlockWeights},
 	EnsureRoot, EnsureRootWithSuccess,
 };
+use mmr_primitives::INDEXING_PREFIX;
 use pallet_ismp::offchain::{Proof, ProofKeys};
 use pallet_messaging_fees::types::PriceOracle;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_mmr_primitives::{LeafIndex, INDEXING_PREFIX};
+use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
 use xcm::XcmOriginToTransactDispatchOrigin;
 
@@ -100,7 +101,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use crate::pallet_collective::PrimeDefaultVote;
 use cumulus_primitives_core::ParaId;
 
-use frame_support::traits::{ConstBool, EitherOfDiverse};
+use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use staging_xcm::latest::prelude::BodyId;
 
@@ -165,7 +166,15 @@ pub type Executive = frame_executive::Executive<
 	frame_system::ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
+	Migrations,
 >;
+
+/// All runtime migrations executed on each runtime upgrade in order.
+pub type Migrations = (
+	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
+	pallet_token_governor::migrations::ResetTokenGatewayState<Runtime>,
+	pallet_token_gateway_inspector::migrations::ResetTokenGatewayInspectorState<Runtime>,
+);
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 /// node's balance type.
@@ -227,7 +236,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 6_700,
+	spec_version: 6_800,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -389,7 +398,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = EverythingBut<IsTreasurySpend>;
+	type BaseCallFilter = InsideBoth<EverythingBut<IsTreasurySpend>, TxPause>;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -597,17 +606,48 @@ impl pallet_collator_selection::Config for Runtime {
 	type WeightInfo = weights::pallet_collator_selection::WeightInfo<Runtime>;
 }
 
-impl pallet_sudo::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type RuntimeCall = RuntimeCall;
-	type WeightInfo = weights::pallet_sudo::WeightInfo<Runtime>;
-}
-
 impl pallet_utility::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type RuntimeCall = RuntimeCall;
 	type PalletsOrigin = OriginCaller;
 	type WeightInfo = weights::pallet_utility::WeightInfo<Runtime>;
+}
+
+parameter_types! {
+	/// Maximum length of a SCALE-encoded pallet or call name that
+	/// `pallet-tx-pause` will accept when pausing / unpausing. Anything longer
+	/// is treated as **paused** by the pallet, so keep this comfortably above
+	/// the longest on-chain name.
+	pub const MaxTxPauseNameLen: u32 = 256;
+}
+
+/// Calls that [`pallet_tx_pause`] is never allowed to pause. Empty by default —
+/// the pallet already exempts its own `unpause` extrinsic so the admin origin
+/// can always recover, and inherents (timestamp, parachain system, etc.) are
+/// not subject to the `BaseCallFilter` so block production is unaffected.
+pub struct TxPauseWhitelistedCalls;
+impl frame_support::traits::Contains<pallet_tx_pause::RuntimeCallNameOf<Runtime>>
+	for TxPauseWhitelistedCalls
+{
+	fn contains(_full_name: &pallet_tx_pause::RuntimeCallNameOf<Runtime>) -> bool {
+		false
+	}
+}
+
+impl pallet_tx_pause::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type RuntimeCall = RuntimeCall;
+	// Pause and unpause require the same governance origin used for other
+	// privileged ISMP actions on this runtime.
+	type PauseOrigin = pallet_collective::EnsureMembers<
+		AccountId,
+		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
+	>;
+	type UnpauseOrigin = EnsureRoot<AccountId>;
+	type WhitelistedCalls = TxPauseWhitelistedCalls;
+	type MaxNameLen = MaxTxPauseNameLen;
+	type WeightInfo = weights::pallet_tx_pause::WeightInfo<Runtime>;
 }
 
 impl pallet_mmr_tree::Config for Runtime {
@@ -866,14 +906,7 @@ impl pallet_proxy::Config for Runtime {
 impl pallet_messaging_fees::Config for Runtime {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EitherOfDiverse<
-		EnsureRoot<AccountId>,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
 	type PriceOracle = FixedPriceOracle;
 	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
@@ -889,14 +922,7 @@ impl pallet_collator_manager::Config for Runtime {
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryPalletId;
-	type AdminOrigin = EitherOfDiverse<
-		EnsureRoot<AccountId>,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type IncentivesManager = MessagingFees;
 	type WeightInfo = ();
 }
@@ -966,8 +992,6 @@ mod runtime {
 	pub type Aura = pallet_aura;
 	#[runtime::pallet_index(24)]
 	pub type AuraExt = cumulus_pallet_aura_ext;
-	#[runtime::pallet_index(25)]
-	pub type Sudo = pallet_sudo;
 
 	// XCM helpers.
 	#[runtime::pallet_index(30)]
@@ -998,8 +1022,6 @@ mod runtime {
 	pub type HostExecutive = pallet_ismp_host_executive;
 	#[runtime::pallet_index(54)]
 	pub type CallDecompressor = pallet_call_decompressor;
-	#[runtime::pallet_index(55)]
-	pub type XcmGateway = pallet_xcm_gateway;
 	#[runtime::pallet_index(56)]
 	pub type Assets = pallet_assets;
 	#[runtime::pallet_index(57)]
@@ -1050,6 +1072,8 @@ mod runtime {
 	pub type CollatorManager = pallet_collator_manager;
 	#[runtime::pallet_index(94)]
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
+	#[runtime::pallet_index(95)]
+	pub type TxPause = pallet_tx_pause;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1074,7 +1098,6 @@ mod benches {
 		// [pallet_xcm, pallet_xcm::benchmarking::Pallet::<Runtime>]
 		[cumulus_pallet_xcmp_queue, XcmpQueue]
 		[pallet_message_queue, MessageQueue]
-		[pallet_sudo, Sudo]
 		[pallet_assets, Assets]
 		[pallet_utility, Utility]
 		[pallet_treasury, Treasury]
@@ -1095,6 +1118,7 @@ mod benches {
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
 		[pallet_token_gateway, TokenGateway]
+		[pallet_tx_pause, TxPause]
 	);
 }
 

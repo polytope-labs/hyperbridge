@@ -17,7 +17,7 @@ codec = { workspace = true, features = ["derive"], default-features = false }
 beefy-verifier-primitives = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
 merkle-mountain-range = { workspace = true, default-features = false }
-rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs", default-features = false }
+rs_merkle = { workspace = true, default-features = false }
 thiserror = { workspace = true }
 sp1-verifier = { git = "https://github.com/polytope-labs/sp1.git", branch = "polytope-labs/v6.1.0-wasm-compatible", default-features = false }
 alloy-sol-types = { workspace = true, default-features = false }
@@ -57,6 +57,7 @@ std = [
     "beefy-verifier-primitives/std",
     "polkadot-sdk/std",
     "merkle-mountain-range/std",
+    "rs_merkle/std",
     "sp1-verifier/std",
     "alloy-sol-types/std",
 ]

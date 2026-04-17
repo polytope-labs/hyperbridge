@@ -2838,7 +2838,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
- "rs_merkle 1.2.0",
+ "rs_merkle",
  "subxt 0.42.1",
  "subxt-core 0.42.1",
  "subxt-utils",
@@ -2863,7 +2863,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "primitive-types 0.13.1",
- "rs_merkle 1.2.0",
+ "rs_merkle",
  "sp1-verifier 6.1.0 (git+https://github.com/polytope-labs/sp1.git?branch=polytope-labs%2Fv6.1.0-wasm-compatible)",
  "subxt 0.42.1",
  "subxt-core 0.42.1",
@@ -12317,12 +12317,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "micromath"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
-
-[[package]]
 name = "migration-connector"
 version = "0.1.0"
 source = "git+https://github.com/Brendonovich/prisma-engines?tag=pcr-0.6.10#c4aeef82dbae310e974d6122160c7e3b5fb6df53"
@@ -14463,7 +14457,7 @@ dependencies = [
  "pallet-ismp",
  "parity-scale-codec",
  "polkadot-sdk",
- "rs_merkle 1.5.0",
+ "rs_merkle",
  "scale-info",
 ]
 
@@ -15337,7 +15331,7 @@ dependencies = [
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "reqwest 0.11.27",
- "rs_merkle 1.5.0",
+ "rs_merkle",
  "ruzstd 0.6.0",
  "scale-info",
  "serde",
@@ -21184,15 +21178,6 @@ dependencies = [
 
 [[package]]
 name = "rs_merkle"
-version = "1.2.0"
-source = "git+https://github.com/polytope-labs/rs-merkle?branch=seun%2F2d-merkle-proofs#02750ca0b3a93dc9b53c826b58692b3c1cf7e2a7"
-dependencies = [
- "micromath",
- "sha2 0.10.9",
-]
-
-[[package]]
-name = "rs_merkle"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb09b49230ba22e8c676e7b75dfe2887dea8121f18b530ae0ba519ce442d2b21"
@@ -25783,7 +25768,7 @@ dependencies = [
  "alloy-sol-types 0.7.7",
  "parity-scale-codec",
  "primitive-types 0.12.2",
- "rs_merkle 1.5.0",
+ "rs_merkle",
  "serde",
  "sp-crypto-hashing",
 ]
@@ -32069,7 +32054,7 @@ dependencies = [
  "polkadot-ckb-merkle-mountain-range",
  "polkadot-sdk",
  "primitive-types 0.13.1",
- "rs_merkle 1.5.0",
+ "rs_merkle",
  "serde",
  "sp-consensus-beefy",
  "sp-core",

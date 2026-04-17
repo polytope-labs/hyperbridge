@@ -30,15 +30,31 @@ import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
  * Also tracks which relayer submitted the consensus proof for each authority set epoch.
  */
 contract HandlerV2 is HandlerV1, IHandlerV2 {
-    // Maps authority set ID to the relayer that submitted the consensus proof for that epoch
+    /**
+     * @notice Maps an authority set ID (epoch) to the relayer that first submitted
+     * the consensus proof for that epoch. Used to attribute and reward the relayer
+     * responsible for submitting a new validator set transition.
+     */
     mapping(uint256 => address) private _epochs;
 
-    // The current authority set epoch
+    /**
+     * @notice The most recent authority set ID for which a consensus proof has been submitted.
+     * Monotonically increasing; updated in handleConsensus when a new epoch is observed.
+     */
     uint256 private _currentEpoch;
 
-    // A call in the batch failed
+    /**
+     * @notice Reverted when a delegatecall in batchCall fails.
+     * @param index The zero-based position of the failed call in the batch.
+     * @param reason The raw revert data from the failed delegatecall.
+     */
     error BatchCallFailed(uint256 index, bytes reason);
 
+    /**
+     * @notice Emitted when a consensus proof introduces a new authority set epoch.
+     * @param authoritySetId The new authority set ID.
+     * @param relayer The address of the relayer that submitted the proof.
+     */
     event NewEpoch(uint256 indexed authoritySetId, address indexed relayer);
 
     /**
@@ -58,9 +74,7 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
         uint256 len = calls.length;
         for (uint256 i = 0; i < len; ++i) {
             (bool success, bytes memory returnData) = address(this).delegatecall(calls[i]);
-            if (!success) {
-                revert BatchCallFailed(i, returnData);
-            }
+            if (!success) revert BatchCallFailed(i, returnData);
         }
     }
 

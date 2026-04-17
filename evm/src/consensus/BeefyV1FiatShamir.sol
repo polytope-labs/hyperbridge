@@ -122,7 +122,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
 
     /// @notice A provided vote's authorityIndex does not match the expected
     /// Fiat-Shamir challenge.
-    error VoteAuthorityMismatch(uint256 position, uint256 expectedAuthority, uint256 actualAuthority);
+    error VoteAuthorityMismatch(uint256 position, uint256 expectedIndex, uint256 actualIndex);
 
     /// @notice The authority set is smaller than SAMPLE_SIZE.
     error AuthoritySetTooSmall(uint256 authoritySetLen, uint256 sampleSize);
@@ -239,15 +239,14 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
 
         bytes32 commitmentHash = keccak256(Codec.Encode(commitment));
 
-        // Derive challenged leaf positions (pre-offset by nextPowerOfTwo of the authority set len)
-        // so that the on-chain check can compare directly against vote.leafPosition.
-        uint256[] memory challengedLeafPositions =
+        // Derive challenged 0-based authority indices via Fiat-Shamir transcript
+        uint256[] memory challengedIndices =
             deriveAuthorityChallenge(commitmentHash, authoritySet, signersBitmap, signerCount);
 
         verifySampledVotes(
             commitmentHash,
             relayProof.signedCommitment.votes,
-            challengedLeafPositions,
+            challengedIndices,
             authoritySet.root,
             relayProof.proof,
             authoritySet.len
@@ -329,7 +328,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
     }
 
     /**
-     * @dev Derives SAMPLE_SIZE unique challenged leaf positions from the transcript.
+     * @dev Derives SAMPLE_SIZE unique challenged authority indices from the transcript.
      *
      * The transcript absorbs:
      *   - commitmentHash (binds to this specific block)
@@ -339,23 +338,20 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
      *     challenge)
      *
      * Indices are sampled from [0, signerCount) and then mapped to actual
-     * authority indices via the bitmap, then converted to leaf positions
-     * (`nextPowerOfTwo(authoritySet.len) + authority_index`) so the verifier
-     * can compare directly against `vote.leafPosition` without needing a
-     * separate `authorityIndex` field on the vote.
+     * 0-based authority indices via the bitmap.
      *
      * @param commitmentHash  keccak256 of the SCALE-encoded commitment.
      * @param authoritySet    The active authority set commitment.
      * @param signersBitmap   The 4×uint256 signers bitmap.
      * @param signerCount     Number of set bits in the bitmap.
-     * @return positions      SAMPLE_SIZE leaf positions, sorted ascending.
+     * @return indices        SAMPLE_SIZE 0-based authority indices.
      */
     function deriveAuthorityChallenge(
         bytes32 commitmentHash,
         AuthoritySetCommitment memory authoritySet,
         uint256[4] memory signersBitmap,
         uint256 signerCount
-    ) internal pure returns (uint256[] memory positions) {
+    ) internal pure returns (uint256[] memory indices) {
         Transcript.State memory transcript = Transcript.init(TRANSCRIPT_DOMAIN);
 
         // Absorb commitment + authority set
@@ -376,13 +372,11 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         // Sample SAMPLE_SIZE unique indices in [0, signerCount)
         uint256[] memory sampledPositions = transcript.sampleUniqueIndices(SAMPLE_SIZE, signerCount);
 
-        // Map each sampled position to its leaf position in the authority merkle tree.
-        // leafPosition = nextPowerOfTwo(authoritySet.len) + authority_index
-        uint256 leafOffset = _nextPowerOfTwo(authoritySet.len);
-        positions = new uint256[](SAMPLE_SIZE);
+        // Map each sampled position to its 0-based authority index
+        indices = new uint256[](SAMPLE_SIZE);
         unchecked {
             for (uint256 i = 0; i < SAMPLE_SIZE; ++i) {
-                positions[i] = leafOffset + signers[sampledPositions[i]];
+                indices[i] = signers[sampledPositions[i]];
             }
         }
     }
@@ -390,35 +384,35 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
     /**
      * @dev Verifies that the provided sampled votes are valid:
      *   1. Exactly SAMPLE_SIZE votes were provided.
-     *   2. Each vote's leafPosition matches the Fiat-Shamir derived position.
-     *      Votes must be ordered to match the challengedLeafPositions array.
+     *   2. Each vote's authorityIndex matches the Fiat-Shamir derived index.
+     *      Votes must be ordered to match the challengedIndices array.
      *   3. Each signature recovers to a valid authority address.
      *   4. All recovered authorities pass the merkle membership proof.
      */
     function verifySampledVotes(
         bytes32 commitmentHash,
         Vote[] memory votes,
-        uint256[] memory challengedLeafPositions,
+        uint256[] memory challengedIndices,
         bytes32 authorityRoot,
-        MerkleMultiProof.Node[] memory proof,
+        bytes32[] memory proof,
         uint256 authoritySetLen
     ) internal pure {
-        uint256 sampleSize = challengedLeafPositions.length;
+        uint256 sampleSize = challengedIndices.length;
 
         if (votes.length != sampleSize) {
             revert WrongSampleCount(sampleSize, votes.length);
         }
 
-        MerkleMultiProof.Node[] memory authorities = new MerkleMultiProof.Node[](sampleSize);
+        MerkleMultiProof.Leaf[] memory authorities = new MerkleMultiProof.Leaf[](sampleSize);
 
         unchecked {
             for (uint256 i = 0; i < sampleSize; ++i) {
-                if (votes[i].leafPosition != challengedLeafPositions[i]) {
-                    revert VoteAuthorityMismatch(i, challengedLeafPositions[i], votes[i].leafPosition);
+                if (votes[i].authorityIndex != challengedIndices[i]) {
+                    revert VoteAuthorityMismatch(i, challengedIndices[i], votes[i].authorityIndex);
                 }
 
                 address signer = ECDSA.recover(commitmentHash, votes[i].signature);
-                authorities[i] = MerkleMultiProof.Node(votes[i].leafPosition, keccak256(abi.encodePacked(signer)));
+                authorities[i] = MerkleMultiProof.Leaf(votes[i].authorityIndex, keccak256(abi.encodePacked(signer)));
             }
         }
 
@@ -456,7 +450,7 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         returns (IntermediateState[] memory)
     {
         uint256 len = proof.parachains.length;
-        MerkleMultiProof.Node[] memory leaves = new MerkleMultiProof.Node[](len);
+        MerkleMultiProof.Leaf[] memory leaves = new MerkleMultiProof.Leaf[](len);
         IntermediateState[] memory intermediates = new IntermediateState[](len);
 
         for (uint256 i = 0; i < len; i++) {
@@ -464,8 +458,8 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
             Header memory header = Codec.DecodeHeader(para.header);
             if (header.number == 0) revert IllegalGenesisBlock();
 
-            leaves[i] = MerkleMultiProof.Node(
-                para.leafPosition,
+            leaves[i] = MerkleMultiProof.Leaf(
+                para.index,
                 keccak256(bytes.concat(ScaleCodec.encode32(uint32(para.id)), ScaleCodec.encodeBytes(para.header)))
             );
 
@@ -499,18 +493,6 @@ contract BeefyV1FiatShamir is IConsensus, IConsensusV2, ERC165 {
         } else {
             return parentNumber - activationBlock;
         }
-    }
-
-    /// @dev Returns the next power of two >= x. Used once per verification to compute
-    /// the leaf offset for converting Fiat-Shamir derived authority indices into
-    /// leaf positions in the authority merkle tree.
-    function _nextPowerOfTwo(uint256 x) internal pure returns (uint256) {
-        if (x <= 1) return 1;
-        uint256 p = 1;
-        while (p < x) {
-            p <<= 1;
-        }
-        return p;
     }
 
     /// @dev ABI export helper so these structs appear in the generated ABI.

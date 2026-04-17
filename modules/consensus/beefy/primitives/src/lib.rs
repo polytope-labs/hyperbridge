@@ -52,10 +52,8 @@ pub type Hash = [u8; 32];
 pub struct SignatureWithAuthorityIndex {
 	/// Authority signature
 	pub signature: TSignature,
-	/// Index in signatures vector
+	/// 0-based index of the authority in the authority set
 	pub index: u32,
-	/// Pre-calculated 1-based tree position for the merkle proof
-	pub leaf_position: u32,
 }
 
 #[derive(Clone, sp_std::fmt::Debug, PartialEq, Eq, Encode, Decode)]
@@ -76,9 +74,8 @@ pub struct MmrProof {
 	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
 	/// Proof for the latest mmr leaf
 	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
-	/// Proof for authorities in current session.
-	/// Each element is (position, hash) for the merkle multi-proof.
-	pub authority_proof: Vec<(usize, [u8; 32])>,
+	/// Flat proof hashes for authorities merkle multi-proof.
+	pub authority_proof: Vec<[u8; 32]>,
 }
 
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -97,10 +94,8 @@ pub struct PartialMmrLeaf {
 pub struct ParachainHeader {
 	/// scale encoded parachain header
 	pub header: Vec<u8>,
-	/// leaf index for parachain heads proof
+	/// 0-based leaf index in the parachain heads merkle tree
 	pub index: u32,
-	/// Pre-calculated 1-based tree position for the merkle proof
-	pub leaf_position: u32,
 	/// ParaId for parachain
 	pub para_id: u32,
 }
@@ -111,9 +106,8 @@ pub struct ParachainProof {
 	/// List of parachains we have a proof for
 	pub parachains: Vec<ParachainHeader>,
 
-	/// Proof for parachain header inclusion in the parachain headers root.
-	/// Each element is (position, hash) for the merkle multi-proof.
-	pub proof: Vec<(u32, [u8; 32])>,
+	/// Flat proof hashes for parachain header merkle multi-proof.
+	pub proof: Vec<[u8; 32]>,
 	/// Total leaves count for the proof
 	pub total_leaves: u32,
 }

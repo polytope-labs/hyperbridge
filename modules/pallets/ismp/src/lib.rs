@@ -429,17 +429,38 @@ pub mod pallet {
 			if let super::LegacyDrainState::Active(cursor) = sc_state {
 				let sc_required =
 					<T as Config>::MigrationWeightInfo::drain_state_commitments_step(STATE_BATCH);
-				if budget.all_gte(sc_required) {
+				if !budget.all_gte(sc_required) {
+					log::trace!(
+						target: "ismp",
+						"Skipping StateCommitments drain: insufficient weight",
+					);
+				} else {
 					let result = StateCommitments::<T>::clear(
 						STATE_DRAIN,
 						cursor.as_ref().map(|v| v.as_slice()),
 					);
 					let new_state = match result.maybe_cursor {
-						Some(c) => match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
-							Ok(b) => super::LegacyDrainState::Active(Some(b)),
-							Err(_) => super::LegacyDrainState::Active(None),
+						Some(c) => {
+							if result.unique > 0 {
+								log::info!(
+									target: "ismp",
+									"Draining legacy StateCommitments: removed {} entries, continuing",
+									result.unique,
+								);
+							}
+							match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
+								Ok(b) => super::LegacyDrainState::Active(Some(b)),
+								Err(_) => super::LegacyDrainState::Active(None),
+							}
 						},
-						None => super::LegacyDrainState::Done,
+						None => {
+							log::info!(
+								target: "ismp",
+								"Legacy StateCommitments drain complete (final batch removed {} entries)",
+								result.unique,
+							);
+							super::LegacyDrainState::Done
+						},
 					};
 					LegacyStateCommitmentsDrainState::<T>::put(new_state);
 					let used = <T as Config>::MigrationWeightInfo::drain_state_commitments_step(
@@ -457,17 +478,38 @@ pub mod pallet {
 					<T as Config>::MigrationWeightInfo::drain_state_machine_update_time_step(
 						STATE_BATCH,
 					);
-				if budget.all_gte(smu_required) {
+				if !budget.all_gte(smu_required) {
+					log::trace!(
+						target: "ismp",
+						"Skipping StateMachineUpdateTime drain: insufficient weight",
+					);
+				} else {
 					let result = StateMachineUpdateTime::<T>::clear(
 						STATE_DRAIN,
 						cursor.as_ref().map(|v| v.as_slice()),
 					);
 					let new_state = match result.maybe_cursor {
-						Some(c) => match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
-							Ok(b) => super::LegacyDrainState::Active(Some(b)),
-							Err(_) => super::LegacyDrainState::Active(None),
+						Some(c) => {
+							if result.unique > 0 {
+								log::info!(
+									target: "ismp",
+									"Draining legacy StateMachineUpdateTime: removed {} entries, continuing",
+									result.unique,
+								);
+							}
+							match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
+								Ok(b) => super::LegacyDrainState::Active(Some(b)),
+								Err(_) => super::LegacyDrainState::Active(None),
+							}
 						},
-						None => super::LegacyDrainState::Done,
+						None => {
+							log::info!(
+								target: "ismp",
+								"Legacy StateMachineUpdateTime drain complete (final batch removed {} entries)",
+								result.unique,
+							);
+							super::LegacyDrainState::Done
+						},
 					};
 					LegacyStateMachineUpdateTimeDrainState::<T>::put(new_state);
 					let used =
@@ -490,7 +532,12 @@ pub mod pallet {
 					<T as Config>::MigrationWeightInfo::drain_child_trie_state_commitments_step(
 						CHILD_TRIE_BATCH,
 					);
-				if budget.all_gte(ct_required) {
+				if !budget.all_gte(ct_required) {
+					log::trace!(
+						target: "ismp",
+						"Skipping child trie StateCommitments drain: insufficient weight",
+					);
+				} else {
 					let child_info = ChildInfo::new_default(CHILD_TRIE_PREFIX);
 					let mut removed = 0u32;
 					let mut last_key: alloc::vec::Vec<u8> = match cursor {
@@ -516,8 +563,20 @@ pub mod pallet {
 					}
 
 					let new_state = if exhausted {
+						if removed > 0 {
+							log::info!(
+								target: "ismp",
+								"Legacy child trie StateCommitments drain complete (final batch removed {} entries)",
+								removed,
+							);
+						}
 						super::LegacyDrainState::Done
 					} else {
+						log::info!(
+							target: "ismp",
+							"Draining legacy child trie StateCommitments: removed {} entries, continuing",
+							removed,
+						);
 						match polkadot_sdk::frame_support::BoundedVec::try_from(last_key) {
 							Ok(b) => super::LegacyDrainState::Active(Some(b)),
 							Err(_) => super::LegacyDrainState::Active(None),

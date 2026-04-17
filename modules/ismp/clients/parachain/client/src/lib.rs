@@ -332,7 +332,6 @@ pub mod pallet {
 			const BATCH_SIZE: u32 = 500;
 			const DRAIN: u32 = BATCH_SIZE - SAFETY_BUFFER;
 
-			// If we've already finished draining, don't even read the map prefix.
 			let state = LegacyRelayDrainState::<T>::get();
 			let cursor = match state {
 				LegacyDrainState::Done => return Weight::zero(),
@@ -342,6 +341,11 @@ pub mod pallet {
 			let required =
 				<T as pallet::Config>::WeightInfo::drain_relay_state_commitments_step(BATCH_SIZE);
 			if remaining.any_lt(required) {
+				log::trace!(
+					target: "ismp",
+					"Skipping RelayChainStateCommitments drain: insufficient weight (need {:?}, have {:?})",
+					required, remaining,
+				);
 				return Weight::zero();
 			}
 
@@ -351,13 +355,29 @@ pub mod pallet {
 			);
 
 			let new_state = match result.maybe_cursor {
-				Some(c) => match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
-					Ok(bounded) => LegacyDrainState::Active(Some(bounded)),
-					// Cursor too large to bound: fall back to None so the next call
-					// restarts from the beginning of the prefix rather than getting stuck.
-					Err(_) => LegacyDrainState::Active(None),
+				Some(c) => {
+					if result.unique > 0 {
+						log::info!(
+							target: "ismp",
+							"Draining legacy RelayChainStateCommitments: removed {} entries, continuing",
+							result.unique,
+						);
+					}
+					match polkadot_sdk::frame_support::BoundedVec::try_from(c) {
+						Ok(bounded) => LegacyDrainState::Active(Some(bounded)),
+						// Cursor too large to bound: fall back to None so the next call
+						// restarts from the beginning of the prefix rather than getting stuck.
+						Err(_) => LegacyDrainState::Active(None),
+					}
 				},
-				None => LegacyDrainState::Done,
+				None => {
+					log::info!(
+						target: "ismp",
+						"Legacy RelayChainStateCommitments drain complete (final batch removed {} entries)",
+						result.unique,
+					);
+					LegacyDrainState::Done
+				},
 			};
 			LegacyRelayDrainState::<T>::put(new_state);
 

@@ -8202,6 +8202,7 @@ dependencies = [
  "ismp-sync-committee",
  "ismp-tendermint",
  "log",
+ "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
@@ -8218,7 +8219,6 @@ dependencies = [
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
- "pallet-xcm-gateway",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -9228,7 +9228,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.4.4"
+version = "1.5.0"
 dependencies = [
  "clap",
  "futures",
@@ -9239,6 +9239,7 @@ dependencies = [
  "jsonrpsee 0.24.10",
  "log",
  "mmr-gadget 29.0.1",
+ "mmr-primitives",
  "nexus-runtime",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
@@ -13003,6 +13004,7 @@ dependencies = [
  "ismp-sync-committee",
  "ismp-tendermint",
  "log",
+ "mmr-primitives",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
@@ -13022,7 +13024,6 @@ dependencies = [
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
- "pallet-xcm-gateway",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -15132,7 +15133,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-ismp"
-version = "2512.0.0"
+version = "2512.1.0"
 dependencies = [
  "anyhow",
  "crypto-utils",
@@ -28105,7 +28106,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "anyhow",
  "arb-host",

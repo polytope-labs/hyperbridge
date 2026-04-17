@@ -41,8 +41,6 @@ pub mod custom_origins {
 	pub enum Origin {
 		/// Origin able to dispatch a whitelisted call.
 		WhitelistedCaller,
-		/// Origin for managing the composition of the fellowship.
-		FellowshipAdmin,
 		/// Origin able to cancel referenda.
 		ReferendumCanceller,
 		/// Origin able to kill referenda.
@@ -88,7 +86,6 @@ pub mod custom_origins {
 		ReferendumCanceller,
 		ReferendumKiller,
 		WhitelistedCaller,
-		FellowshipAdmin,
 		TreasurySpend,
 	);
 

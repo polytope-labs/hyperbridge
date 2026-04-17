@@ -222,7 +222,7 @@ pub mod gnosis {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("05000064");
 		const ELECTRA_FORK_EPOCH: Epoch = 1337856;
-		const FULU_FORK_EPOCH: Epoch = u64::MAX;
+		const FULU_FORK_EPOCH: Epoch = 1714688;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("06000064");
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}
@@ -255,7 +255,7 @@ pub mod gnosis {
 		const NEXT_SYNC_COMMITTEE_INDEX_LOG2: u64 = 6;
 		const ELECTRA_FORK_VERSION: Version = hex_literal::hex!("0500006f");
 		const ELECTRA_FORK_EPOCH: Epoch = 948224;
-		const FULU_FORK_EPOCH: Epoch = u64::MAX;
+		const FULU_FORK_EPOCH: Epoch = 1353216;
 		const FULU_FORK_VERSION: Version = hex_literal::hex!("0600006f");
 		const ID: [u8; 4] = GNOSIS_CONSENSUS_ID;
 	}

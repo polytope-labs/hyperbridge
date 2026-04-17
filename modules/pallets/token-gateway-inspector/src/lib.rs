@@ -25,6 +25,15 @@ use polkadot_sdk::*;
 use alloc::format;
 use primitive_types::{H256, U256};
 
+pub mod migrations;
+
+/// Current storage version of `pallet-token-gateway-inspector`. Bumped to `1`
+/// when the [`migrations::ResetTokenGatewayInspectorState`] migration is
+/// introduced — version `0` is the pre-reset layout, version `1` is the
+/// post-reset layout whose [`InflowBalances`] storage has been wiped.
+pub const STORAGE_VERSION: frame_support::traits::StorageVersion =
+	frame_support::traits::StorageVersion::new(1);
+
 // Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
@@ -43,6 +52,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
+	#[pallet::storage_version(crate::STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// The pallet's configuration trait.

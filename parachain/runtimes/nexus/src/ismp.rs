@@ -15,17 +15,16 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	governance::WhitelistedCaller,
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp, TokenGateway,
-	TokenGatewayInspector, TreasuryPalletId, EXISTENTIAL_DEPOSIT, MIN_TECH_COLLECTIVE_APPROVAL,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGateway, TokenGatewayInspector,
+	TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
-	traits::{AsEnsureOriginWithArg, EitherOfDiverse},
+	traits::AsEnsureOriginWithArg,
 };
 use frame_system::EnsureRoot;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
@@ -83,38 +82,17 @@ pub type Ethereum = ismp_sync_committee::pallet::Instance1;
 pub type Gnosis = ismp_sync_committee::pallet::Instance2;
 
 impl ismp_sync_committee::pallet::Config<Ethereum> for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_bsc::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
 }
@@ -135,14 +113,7 @@ impl Get<Option<StateMachine>> for Coprocessor {
 impl ismp_grandpa::Config for Runtime {
 	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
-	type RootOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 pub struct ParachainStateMachineProvider;
@@ -159,14 +130,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 }
 
 impl pallet_ismp::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
 	type TimestampProvider = Timestamp;
 	type Router = Router;
@@ -198,26 +162,12 @@ impl pallet_ismp::Config for Runtime {
 
 impl pallet_ismp_relayer::Config for Runtime {
 	type IsmpHost = Ismp;
-	type RelayerOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type RelayerOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
 	type IsmpHost = Ismp;
-	type HostExecutiveOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type HostExecutiveOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_call_decompressor::Config for Runtime {
@@ -226,92 +176,43 @@ impl pallet_call_decompressor::Config for Runtime {
 
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type FishermenOrigin = EnsureRoot<AccountId>;
 }
 
 impl ismp_parachain::Config for Runtime {
 	type IsmpHost = Ismp;
 	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
-	type RootOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_token_governor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type GovernorOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type GovernorOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_consensus_incentives::Config for Runtime {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = ();
 }
 
 impl ismp_arbitrum::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
 }
 
 impl ismp_optimism::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
 }
 
 impl ismp_tendermint::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -363,14 +264,7 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl pallet_token_gateway_inspector::Config for Runtime {
-	type GatewayOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_hyperbridge::Config for Runtime {
@@ -400,14 +294,7 @@ impl pallet_token_gateway::Config for Runtime {
 	type Assets = Assets;
 	type NativeCurrency = Balances;
 	type NativeAssetId = NativeAssetId;
-	type CreateOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type CreateOrigin = EnsureRoot<AccountId>;
 	type Decimals = Decimals;
 	type AssetAdmin = AssetAdmin;
 	type EvmToSubstrate = ();
@@ -422,14 +309,7 @@ impl pallet_intents_coprocessor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = IntentsStorageDepositFee;
-	type GovernanceOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
 impl IsmpModule for ProxyModule {

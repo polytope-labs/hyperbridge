@@ -54,7 +54,7 @@ use sp_runtime::{
 	ApplyExtrinsicResult, MultiSignature,
 };
 
-use crate::governance::{TreasurySpender, WhitelistedCaller};
+use crate::governance::TreasurySpender;
 use sp_core::Get;
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -101,7 +101,7 @@ use weights::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight};
 use crate::pallet_collective::PrimeDefaultVote;
 use cumulus_primitives_core::ParaId;
 
-use frame_support::traits::{ConstBool, EitherOfDiverse};
+use frame_support::traits::ConstBool;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
 use staging_xcm::latest::prelude::BodyId;
 
@@ -643,7 +643,7 @@ impl pallet_tx_pause::Config for Runtime {
 		TechnicalCollectiveInstance,
 		MIN_TECH_COLLECTIVE_APPROVAL,
 	>;
-	type UnpauseOrigin = WhitelistedCaller;
+	type UnpauseOrigin = EnsureRoot<AccountId>;
 	type WhitelistedCalls = TxPauseWhitelistedCalls;
 	type MaxNameLen = MaxTxPauseNameLen;
 	type WeightInfo = weights::pallet_tx_pause::WeightInfo<Runtime>;
@@ -905,14 +905,7 @@ impl pallet_proxy::Config for Runtime {
 impl pallet_messaging_fees::Config for Runtime {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EitherOfDiverse<
-		EnsureRoot<AccountId>,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
 	type PriceOracle = FixedPriceOracle;
 	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
@@ -928,14 +921,7 @@ impl pallet_collator_manager::Config for Runtime {
 	type NativeCurrency = Balances;
 	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryPalletId;
-	type AdminOrigin = EitherOfDiverse<
-		EnsureRoot<AccountId>,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type IncentivesManager = MessagingFees;
 	type WeightInfo = ();
 }

@@ -21,9 +21,7 @@ use crate::{
 	frame_support::traits::{fungible::HoldConsideration, EitherOf, LinearStoragePrice},
 	Preimage, TechnicalCollectiveInstance, MIN_TECH_COLLECTIVE_APPROVAL,
 };
-pub use origins::{
-	custom_origins, ReferendumCanceller, ReferendumKiller, WhitelistedCaller, *,
-};
+pub use origins::{custom_origins, *};
 pub use tracks::TracksInfo;
 
 impl origins::custom_origins::Config for Runtime {}
@@ -80,9 +78,9 @@ impl pallet_whitelist::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 	type RuntimeEvent = RuntimeEvent;
 	type WhitelistOrigin = pallet_collective::EnsureMembers<
-		MIN_TECH_COLLECTIVE_APPROVAL,
 		AccountId,
 		TechnicalCollectiveInstance,
+		MIN_TECH_COLLECTIVE_APPROVAL,
 	>;
 	type DispatchWhitelistedOrigin = EitherOf<EnsureRoot<Self::AccountId>, WhitelistedCaller>;
 	type Preimages = Preimage;

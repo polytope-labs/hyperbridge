@@ -89,9 +89,12 @@ contract HandlerV2 is HandlerV1, IHandlerV2 {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
+        bytes memory previousState = host.consensusState();
         (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 nextAuthoritySetId) =
-            IConsensusV2(host.consensusClient()).verify(host.consensusState(), proof);
+            IConsensusV2(host.consensusClient()).verify(previousState, proof);
         host.storeConsensusState(verifiedState);
+
+        if (keccak256(previousState) == keccak256(verifiedState)) return;
 
         uint256 intermediatesLen = intermediates.length;
         for (uint256 i = 0; i < intermediatesLen; i++) {

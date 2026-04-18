@@ -15,7 +15,7 @@
 
 use crate::{
 	AccountId, BalancesConfig, CollatorSelectionConfig, ParachainInfoConfig, PolkadotXcmConfig,
-	RuntimeGenesisConfig, SessionConfig, SessionKeys, SudoConfig, EXISTENTIAL_DEPOSIT,
+	RuntimeGenesisConfig, SessionConfig, SessionKeys, EXISTENTIAL_DEPOSIT,
 };
 
 use alloc::{vec, vec::Vec};
@@ -46,7 +46,6 @@ pub fn template_session_keys(keys: AuraId) -> SessionKeys {
 fn testnet_genesis(
 	invulnerables: Vec<(AccountId, AuraId)>,
 	endowed_accounts: Vec<AccountId>,
-	root: AccountId,
 	id: ParaId,
 ) -> Value {
 	let genesis = RuntimeGenesisConfig {
@@ -81,7 +80,6 @@ fn testnet_genesis(
 			safe_xcm_version: Some(SAFE_XCM_VERSION),
 			..Default::default()
 		},
-		sudo: SudoConfig { key: Some(root) },
 		..Default::default()
 	};
 
@@ -109,7 +107,6 @@ fn local_testnet_genesis() -> Value {
 			sr25519::Pair::from_string("//Eve//stash", None).unwrap().public().into(),
 			sr25519::Pair::from_string("//Ferdie//stash", None).unwrap().public().into(),
 		],
-		Sr25519Keyring::Alice.to_account_id(),
 		PARACHAIN_ID.into(),
 	)
 }
@@ -137,7 +134,6 @@ fn development_config_genesis() -> Value {
 			hex!["887962b318721c54b333a5477c014798e26e4e3751096734796191b333c1034e"].into(), /* Eve//stash */
 			hex!["38b33535d61e050f2b3eac6466333c87f4c549646487e07663473f324c45477c"].into(), /* Ferdie//stash */
 		],
-		Sr25519Keyring::Alice.to_account_id(),
 		PARACHAIN_ID.into(),
 	)
 }

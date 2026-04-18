@@ -262,6 +262,11 @@ impl pallet_ismp::Config for Test {
 		>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
+		ismp_beefy::consensus::BeefyConsensusClient<
+			Ismp,
+			Test,
+			substrate_state_machine::SubstrateStateMachine<Test>,
+		>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = (
@@ -276,6 +281,7 @@ impl pallet_ismp::Config for Test {
 		>,
 	);
 	type OnDispatch = pallet_outbound_proofs::Pallet<Test>;
+	type MigrationWeightInfo = ();
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -431,8 +437,14 @@ impl ismp_parachain::Config for Test {
 	type RootOrigin = EnsureRoot<AccountId32>;
 }
 
-impl ismp_beefy::Config for Test {
-	type IsmpHost = Ismp;
+impl ismp_beefy::BeefyClientConfig for Test {
+	fn is_parachain_tracked(para_id: u32) -> bool {
+		ismp_parachain::Parachains::<Test>::contains_key(para_id)
+	}
+
+	fn sp1_vkey_hash() -> Vec<u8> {
+		Vec::new()
+	}
 }
 
 parameter_types! {

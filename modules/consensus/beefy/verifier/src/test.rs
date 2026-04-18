@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use codec::{Decode, Encode};
+use hex_literal::hex;
 use polkadot_sdk::{sp_consensus_beefy::VersionedFinalityProof, *};
 use sp_core::H256;
 use sp_io::hashing::keccak_256;
@@ -22,44 +23,36 @@ use subxt::{PolkadotConfig, backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::
 use beefy_prover::{
 	Prover,
 	relay::{fetch_mmr_proof, paras_parachains},
-	util::{hash_authority_addresses, merkle_proof},
+	rs_merkle::MerkleTree,
+	util::{MerkleHasher, hash_authority_addresses},
 };
 use beefy_verifier_primitives::{
-	BeefyConsensusProof, BeefyMmrLeaf, ParachainHeader, ParachainProof, RelaychainProof,
-	SignatureWithAuthorityIndex,
+	ConsensusMessage, MmrProof, ParachainHeader, ParachainProof, SignatureWithAuthorityIndex,
 };
 use ismp::messaging::Keccak256;
-use k256::ecdsa::{RecoveryId, Signature as K256Signature, VerifyingKey};
 use polkadot_sdk::sp_consensus_beefy::ecdsa_crypto::Signature;
 
 use crate::{EcdsaRecover, verify_consensus};
 
-struct TestKeccak256;
+struct TestHost;
 
-impl Keccak256 for TestKeccak256 {
+impl Keccak256 for TestHost {
 	fn keccak256(bytes: &[u8]) -> H256 {
 		sp_core::hashing::keccak_256(bytes).into()
 	}
 }
 
-impl EcdsaRecover for TestKeccak256 {
+impl EcdsaRecover for TestHost {
 	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
-		let recovery_id = RecoveryId::from_byte(signature[64])
-			.ok_or_else(|| anyhow::anyhow!("Invalid recovery id"))?;
-		let k256_sig = K256Signature::from_slice(&signature[0..64])
-			.map_err(|e| anyhow::anyhow!("Invalid signature format: {e}"))?;
-		let recovered_verifying_key =
-			VerifyingKey::recover_from_prehash(prehash, &k256_sig, recovery_id)
-				.map_err(|e| anyhow::anyhow!("Failed to recover public key: {e}"))?;
-		let uncompressed_point = recovered_verifying_key.to_encoded_point(false);
-		let uncompressed_bytes = &uncompressed_point.as_bytes()[1..];
-		let mut result = [0u8; 64];
-		result.copy_from_slice(uncompressed_bytes);
-		Ok(result)
+		sp_io::crypto::secp256k1_ecdsa_recover(signature, prehash)
+			.map_err(|_| anyhow::anyhow!("Failed to recover secp256k1 public key"))
 	}
 }
 
+// Integration test: hits live Polkadot/parachain RPCs (see RELAY_WS_URL / PARA_WS_URL env vars).
+// Run explicitly with `cargo test -- --ignored`.
 #[tokio::test]
+#[ignore]
 async fn test_verify_consensus() {
 	let max_rpc_payload_size = 15 * 1024 * 1024;
 
@@ -170,35 +163,19 @@ async fn test_verify_consensus() {
 			.unwrap();
 
 	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-	let authority_proof_2d = merkle_proof(&authority_address_hashes, &authority_indices);
-	let authority_proof_nodes = authority_proof_2d
-		.into_iter()
-		.flatten()
-		.map(|(_, hash)| H256::from(hash))
-		.collect();
+	let authority_tree = MerkleTree::<MerkleHasher>::from_leaves(&authority_address_hashes);
+	let authority_proof_hashes = authority_tree.proof(&authority_indices).proof_hashes().to_vec();
 
 	let signed_commitment = beefy_verifier_primitives::SignedCommitment {
 		commitment: signed_commitment_raw.commitment.clone(),
 		signatures,
 	};
 
-	let beefy_mmr_leaf = BeefyMmrLeaf {
-		version: latest_leaf.version.clone(),
-		parent_block_and_hash: (
-			latest_leaf.parent_number_and_hash.0,
-			latest_leaf.parent_number_and_hash.1,
-		),
-		beefy_next_authority_set: latest_leaf.beefy_next_authority_set.clone(),
-		k_index: 0,
-		leaf_index: mmr_leaf_proof.leaf_indices[0] as u32,
-		extra: latest_leaf.leaf_extra,
-	};
-
-	let relay_proof = RelaychainProof {
+	let mmr = MmrProof {
 		signed_commitment,
-		latest_mmr_leaf: beefy_mmr_leaf,
-		mmr_proof: mmr_leaf_proof.items,
-		proof: authority_proof_nodes,
+		latest_mmr_leaf: latest_leaf.clone(),
+		mmr_proof: mmr_leaf_proof.clone(),
+		authority_proof: authority_proof_hashes,
 	};
 
 	println!("Generating the parachain proof");
@@ -224,16 +201,68 @@ async fn test_verify_consensus() {
 	};
 
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-	let proof_2d = merkle_proof(&leaves, &indices);
-	let proof = proof_2d.into_iter().flatten().map(|(_, hash)| hash).collect();
+	let parachain_tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let proof = parachain_tree.proof(&indices).proof_hashes().to_vec();
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
 	println!("Assembling final proof for verification");
-	let consensus_proof = BeefyConsensusProof { relay: relay_proof, parachain: parachain_proof };
+	let consensus_proof = ConsensusMessage { mmr, parachain: parachain_proof };
 
-	let result = verify_consensus::<TestKeccak256>(trusted_state, consensus_proof);
+	// secp256k1_ecdsa_recover is a host function; run inside test externalities.
+	let result = sp_io::TestExternalities::default()
+		.execute_with(|| verify_consensus::<TestHost>(trusted_state, consensus_proof));
 
 	assert!(result.is_ok(), "Consensus verification failed: {:?}", result.err());
 
 	println!("Successfully verified beefy justification for block #{}", block_number);
+}
+
+/// One-off SP1 verifier smoke test using the same Groth16 fixture that drives
+/// `SP1BeefyTest.testVerifySp1Optional` in `evm/test/SP1BeefyTest.sol`.
+///
+/// The test decodes the solidity-ABI-encoded `BeefyConsensusState` and `SP1BeefyProof`
+/// payload using the bindings in `ismp-solidity-abi`, converts them via the
+/// existing `From` impls in `evm/abi/src/conversions.rs`, and runs them through
+/// our Rust [`crate::sp1::verify_sp1_consensus`].
+#[test]
+fn test_sp1_verify_consensus_accepts_solidity_fixture() {
+	use alloy_sol_types::{SolType, SolValue, sol};
+	use beefy_verifier_primitives::ConsensusState;
+	use ismp_solidity_abi::{
+		beefy::Beefy::BeefyConsensusState,
+		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
+		sp1_beefy_proof_from_solidity,
+	};
+
+	// Fixtures copied verbatim from SP1BeefyTest.testVerifySp1Optional() in
+	// evm/test/SP1BeefyTest.sol.
+	let state_bytes = hex!("0000000000000000000000000000000000000000000000000000000001d6792200000000000000000000000000000000000000000000000000000000012a531800000000000000000000000000000000000000000000000000000000000012750000000000000000000000000000000000000000000000000000000000000257a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f4900000000000000000000000000000000000000000000000000000000000012760000000000000000000000000000000000000000000000000000000000000257a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+	let proof_bytes = hex!("0000000000000000000000000000000000000000000000000000000001d6792a000000000000000000000000000000000000000000000000000000000000127500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001d67929e1dbc67b9da4b90227fb3dc2e7ffdce4e120d583502399e4bd083c02651ca5eb00000000000000000000000000000000000000000000000000000000000012760000000000000000000000000000000000000000000000000000000000000257a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f4963bc2eb07f9c83afe64eb8815b626cd0a7d2a1bbb4630a44a1896af297d0135d00000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000340000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000d2700000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000139739e9bd7f1addf87db9b6a762bd0e1713baa895c3b82b4595080e5ba02fb5b3cf2915702b49122c32b822e6a11384074d8902d5ea5f79c7cb0d7804e49501b8b532298f49e38d3f7140ce1ba61c243152e4e380b37eb628e08d5270d8b2c5e4ebedd84bb14066175726120fbc4d208000000000452505352902a869d4e00b3bb93f1e88e41a2b5f51fc637626b4ce1da15749ef2d79de4797a9ae459070449534d50010118a13886ac93d163a1d22cdef94e018eba5189424a66b7bd03a5ac232beb46bf08b0f9d2b979fff833d7e21a64a5183c61e2630c0b452236baba3c1b4ff41821044953544d20ca3be169000000000561757261010152d45dea4dcf058b0610e12981e0e4c97ad153f26481510c0b78beedf1848b4dd2abd37b8c6b800b72fa12199898eca7651471b49e38d6167a84fb6e2df7c7840000000000000000000000000000000000000000000000000000000000000000000000000001644388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000002ac5e596c552ee76353c176f0870e47a0aa765ceafc4c65b03dbf434e27fa9062f185bdc40f7aae982c1c8c6b766dd491a1e1cd60128efbc58da965e5be96320287f4ce1b04538f0c8287c8eff096c36df67dc17970032546c9b3d4dd5510c5c25e880e13469e1e1aca1b41c367f2ecf04da65f7602fb53ec212b03d0148157b2cd9a79a9779f350d240e6d4c980848302fca8c7447c5fa7ac8d3c6eefcd0c640acff8b27ea316db978652553e3d054765094cf0dab6085a616489cdb973c42b258e22f346ac3ceb3e2e6750c37dad1f98f6ca15d1f70659343caa52dbbcad150b75dd2dcf0ba0a664ea4605b291df54ab1aa5b4c55034b9425ba29cc87eca7b00000000000000000000000000000000000000000000000000000000");
+
+	let sol_state =
+		<BeefyConsensusState as SolValue>::abi_decode(&state_bytes).expect("decode state");
+	let trusted: ConsensusState = sol_state.into();
+
+	// Proof payload matches SP1Beefy.sol:verifyConsensus's ABI decode signature.
+	type ProofTuple = sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes) };
+	let (commitment, leaf, headers, plonk_proof) =
+		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
+
+	let sp1_proof = sp1_beefy_proof_from_solidity(commitment, leaf, headers, plonk_proof);
+
+	// Matches the `verificationKey` in SP1BeefyTest.sol.
+	let vkey_hash = "0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c";
+	let result = sp_io::TestExternalities::default().execute_with(|| {
+		crate::sp1::verify_sp1_consensus::<TestHost>(trusted.clone(), sp1_proof, vkey_hash)
+	});
+
+	let (new_state_bytes, verified_headers) =
+		result.expect("SP1 consensus verification should succeed against the solidity fixture");
+
+	let new_state = ConsensusState::decode(&mut &*new_state_bytes).unwrap();
+	assert!(
+		new_state.latest_beefy_height > trusted.latest_beefy_height,
+		"latest_beefy_height should advance"
+	);
+	assert_eq!(verified_headers.len(), 1, "fixture contains one parachain header");
 }

@@ -5,13 +5,11 @@ mod pallet_hyperbridge;
 mod pallet_ismp;
 mod pallet_ismp_host_executive;
 mod pallet_ismp_relayer;
-mod pallet_xcm_gateway;
-
-mod xcm_integration_test;
 
 mod common;
 mod ismp_pharos;
 mod pallet_bridge_airdrop;
+mod pallet_ismp_beefy;
 mod pallet_collator_manager;
 mod pallet_consensus_incentives;
 mod pallet_messaging_fees;

@@ -25,8 +25,8 @@ use sp_consensus_beefy::mmr::{BeefyAuthoritySet, MmrLeaf, MmrLeafVersion};
 use sp_core::H256;
 use sp_std::prelude::*;
 
-#[derive(sp_std::fmt::Debug, Encode, Decode, PartialEq, Eq, Clone)]
 /// Client state definition for the light client
+#[derive(sp_std::fmt::Debug, Encode, Decode, PartialEq, Eq, Clone)]
 pub struct ConsensusState {
 	/// Latest beefy height
 	pub latest_beefy_height: u32,
@@ -52,7 +52,7 @@ pub type Hash = [u8; 32];
 pub struct SignatureWithAuthorityIndex {
 	/// Authority signature
 	pub signature: TSignature,
-	/// Index in signatures vector
+	/// 0-based index of the authority in the authority set
 	pub index: u32,
 }
 
@@ -65,7 +65,7 @@ pub struct SignedCommitment {
 	pub signatures: Vec<SignatureWithAuthorityIndex>,
 }
 
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Mmr Update with proof
 pub struct MmrProof {
 	/// Signed commitment
@@ -74,8 +74,8 @@ pub struct MmrProof {
 	pub latest_mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
 	/// Proof for the latest mmr leaf
 	pub mmr_proof: sp_mmr_primitives::LeafProof<H256>,
-	/// Proof for authorities in current session
-	pub authority_proof: Vec<Vec<(usize, [u8; 32])>>,
+	/// Flat proof hashes for authorities merkle multi-proof.
+	pub authority_proof: Vec<[u8; 32]>,
 }
 
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -94,7 +94,7 @@ pub struct PartialMmrLeaf {
 pub struct ParachainHeader {
 	/// scale encoded parachain header
 	pub header: Vec<u8>,
-	/// leaf index for parachain heads proof
+	/// 0-based leaf index in the parachain heads merkle tree
 	pub index: u32,
 	/// ParaId for parachain
 	pub para_id: u32,
@@ -105,14 +105,13 @@ pub struct ParachainHeader {
 pub struct ParachainProof {
 	/// List of parachains we have a proof for
 	pub parachains: Vec<ParachainHeader>,
-
-	/// Proof for parachain header inclusion in the parachain headers root
+	/// Flat proof hashes for parachain header merkle multi-proof.
 	pub proof: Vec<[u8; 32]>,
 	/// Total leaves count for the proof
 	pub total_leaves: u32,
 }
 
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq)]
+#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 /// Parachain headers update with proof
 pub struct ConsensusMessage {
 	/// Parachain headers
@@ -121,89 +120,28 @@ pub struct ConsensusMessage {
 	pub mmr: MmrProof,
 }
 
-/// Represents a node in a Merkle proof, containing a hash and its index at a specific layer.
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct Node {
-	/// The positional index of the node in its layer of the Merkle tree.
-	pub index: u32,
-	/// The hash of the node.
-	pub hash: H256,
-}
-
-/// Represents a canonical BEEFY Merkle Mountain Range (MMR) leaf.
-///
-/// This struct contains the essential data about a finalized block that is committed to the MMR.
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct BeefyMmrLeaf {
-	/// The version of the MMR leaf format.
-	pub version: MmrLeafVersion,
-	/// A tuple containing the block number and hash of the parent block.
-	pub parent_block_and_hash: (u32, H256),
-	/// The authority set that will be active in the next BEEFY session.
-	pub beefy_next_authority_set: BeefyAuthoritySet<H256>,
-	/// The k-index of the leaf, used in MMR calculations.
-	pub k_index: u32,
-	/// The sequential index of this leaf in the MMR.
-	pub leaf_index: u32,
-	/// An extra data field
-	pub extra: H256,
-}
-
-/// Represents the proof components for verifying the relay chain's consensus state
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct RelaychainProof {
-	/// Signed commitment
-	pub signed_commitment: SignedCommitment,
-	/// Latest leaf added to mmr
-	pub latest_mmr_leaf: BeefyMmrLeaf,
-	/// Proof for the latest mmr leaf
-	pub mmr_proof: Vec<H256>,
-	/// Proof for authorities in current/next session
-	pub proof: Vec<H256>,
-}
-
-/// Represents a complete BEEFY consensus proof.
-///
-/// This proof contains all the necessary data to verify a BEEFY finality proof from the relay chain
-/// and to prove the inclusion of specific parachain headers within that finalized block.
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct BeefyConsensusProof {
-	/// The proof items for the relay chain consensus
-	pub relay: RelaychainProof,
-	/// The proof items for parachain headers
-	pub parachain: ParachainProof,
-}
-
 /// Proof type identifier for naive proofs
 pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 
 /// Proof type identifier for SP1 ZK proofs
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
-/// SP1 BEEFY proof
-/// The proof bytes are prefixed with PROOF_TYPE_SP1 (0x01) by the prover.
+/// SP1 BEEFY proof. The proof bytes are prefixed with [`PROOF_TYPE_SP1`] by the prover.
 #[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct Sp1BeefyProof {
-	/// BEEFY commitment (block number + validator set ID)
-	pub commitment: Sp1MiniCommitment,
-	/// Latest MMR leaf data
-	pub mmr_leaf: BeefyMmrLeaf,
-	/// Parachain headers finalized by this proof
-	pub parachain: ParachainProof,
-	/// SP1 proof bytes
-	pub proof: Vec<u8>,
-}
-
-/// Minimal BEEFY commitment for SP1 proofs
-#[derive(sp_std::fmt::Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct Sp1MiniCommitment {
 	/// Relay chain block number
 	pub block_number: u32,
 	/// Validator set ID that signed the commitment
 	pub validator_set_id: u64,
+	/// Latest MMR leaf data
+	pub mmr_leaf: MmrLeaf<u32, H256, H256, H256>,
+	/// Parachain headers finalized by this proof. SP1 proves inclusion via public inputs.
+	pub headers: Vec<ParachainHeader>,
+	/// SP1 proof bytes
+	pub proof: Vec<u8>,
 }
 
+/// finality proof
 #[cfg(feature = "std")]
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-/// finality proof
 pub struct EncodedVersionedFinalityProof(pub sp_core::Bytes);

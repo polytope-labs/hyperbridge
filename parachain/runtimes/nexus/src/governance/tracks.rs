@@ -21,7 +21,7 @@ const fn percent(x: i32) -> sp_runtime::FixedI64 {
 }
 
 use pallet_referenda::Curve;
-const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
+const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 5] = [
 	pallet_referenda::Track {
 		id: 0,
 		info: pallet_referenda::TrackInfo {
@@ -53,20 +53,6 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 	pallet_referenda::Track {
 		id: 2,
 		info: pallet_referenda::TrackInfo {
-			name: s("fellowship_admin"),
-			max_deciding: 3,
-			decision_deposit: 100_000 * UNIT,
-			prepare_period: 2 * HOURS,
-			decision_period: 6 * DAYS,
-			confirm_period: 6 * HOURS,
-			min_enactment_period: 20 * MINUTES,
-			min_approval: Curve::make_reciprocal(4, 7, percent(80), percent(50), percent(100)),
-			min_support: Curve::make_reciprocal(1, 7, percent(20), percent(5), percent(50)),
-		},
-	},
-	pallet_referenda::Track {
-		id: 3,
-		info: pallet_referenda::TrackInfo {
 			name: s("referendum_canceller"),
 			max_deciding: 3,
 			decision_deposit: 100_000 * UNIT,
@@ -79,7 +65,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		},
 	},
 	pallet_referenda::Track {
-		id: 4,
+		id: 3,
 		info: pallet_referenda::TrackInfo {
 			name: s("referendum_killer"),
 			max_deciding: 3,
@@ -93,7 +79,7 @@ const TRACKS_DATA: [pallet_referenda::Track<u16, Balance, BlockNumber>; 6] = [
 		},
 	},
 	pallet_referenda::Track {
-		id: 5,
+		id: 4,
 		info: pallet_referenda::TrackInfo {
 			name: s("treasury_spend"),
 			max_deciding: 3,
@@ -126,10 +112,9 @@ impl pallet_referenda::TracksInfo<Balance, BlockNumber> for TracksInfo {
 		} else if let Ok(custom_origin) = origins::Origin::try_from(id.clone()) {
 			match custom_origin {
 				origins::Origin::WhitelistedCaller => Ok(1),
-				origins::Origin::FellowshipAdmin => Ok(2),
-				origins::Origin::ReferendumCanceller => Ok(3),
-				origins::Origin::ReferendumKiller => Ok(4),
-				origins::Origin::TreasurySpend => Ok(5),
+				origins::Origin::ReferendumCanceller => Ok(2),
+				origins::Origin::ReferendumKiller => Ok(3),
+				origins::Origin::TreasurySpend => Ok(4),
 			}
 		} else {
 			Err(())

@@ -16,10 +16,11 @@ primitive-types = { workspace = true, default-features = false, features = ["cod
 codec = { workspace = true, features = ["derive"], default-features = false }
 beefy-verifier-primitives = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
-merkle-mountain-range = {workspace = true, default-features = false}
-rs_merkle = {workspace = true, default-features = false}
+merkle-mountain-range = { workspace = true, default-features = false }
+rs_merkle = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-sp1-verifier = { git = "https://github.com/dharjeezy/sp1.git", branch = "dami/sp1-verifier-wasm-compatible-changes", default-features = false }
+sp1-verifier = { git = "https://github.com/polytope-labs/sp1.git", branch = "polytope-labs/v6.1.0-wasm-compatible", default-features = false }
+alloy-sol-types = { workspace = true, default-features = false }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -30,13 +31,19 @@ features = [
 ]
 
 [dev-dependencies]
-k256 = { workspace = true }
+hex-literal = { workspace = true }
 beefy-prover = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }
 subxt-core = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sp-io"]
 
 
 [features]
@@ -52,4 +59,5 @@ std = [
     "merkle-mountain-range/std",
     "rs_merkle/std",
     "sp1-verifier/std",
+    "alloy-sol-types/std",
 ]

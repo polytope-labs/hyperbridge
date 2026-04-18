@@ -132,6 +132,7 @@ impl pallet_ismp::Config for Test {
 	type OffchainDB = ();
 	type FeeHandler = ();
 	type OnDispatch = ();
+	type MigrationWeightInfo = ();
 }
 
 parameter_types! {

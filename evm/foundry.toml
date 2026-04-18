@@ -25,6 +25,7 @@ bsc-testnet = "${BSC_TESTNET_RPC_URL}"
 gnosis-chiado = "${GNOSIS_CHIADO_RPC_URL}"
 sei-testnet = "${SEI_TESTNET_RPC_URL}"
 polkadot-testnet = "${POLKADOT_TESTNET_URL}"
+pharos-testnet = "${PHAROS_ATLANTIC_RPC}"
 
 # mainnet
 ethereum = "${ETHEREUM_RPC_URL}"
@@ -50,6 +51,7 @@ bsc-testnet = { chain = 97, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://
 gnosis-chiado = { chain = 10200, key = "${GNOSIS_BLOCKSCOUT_API_KEY}",url = "https://gnosis-chiado.blockscout.com/api" }
 sei-testnet = { chain = 1328, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api" }
 polkadot-testnet = { chain = 420420417, key="${ROUTESCAN_API_KEY}", url = "https://api.routescan.io/v2/network/testnet/evm/420420417/etherscan/api" }
+pharos-testnet = { chain = 688689, key="${PHAROS_EXPLORER_API_KEY}", url = "${PHAROS_EXPLORER_API_URL}" }
 
 # mainnet
 ethereum = { chain = 1, key="${ETHEREUM_ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }

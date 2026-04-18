@@ -89,6 +89,7 @@ impl pallet_ismp::Config for Runtime {
 	);
 	type Mmr = Mmr;
 	type WeightProvider = ();
+	type MigrationWeightInfo = ();
 }
 
 impl pallet_ismp_relayer::Config for Runtime {

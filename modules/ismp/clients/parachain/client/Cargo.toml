@@ -38,6 +38,7 @@ features = [
     "sp-consensus-aura",
     "cumulus-pallet-parachain-system",
     "cumulus-primitives-core",
+    "pallet-migrations",
 ]
 
 [features]

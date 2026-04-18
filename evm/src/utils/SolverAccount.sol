@@ -19,6 +19,7 @@ import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337U
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 
 import {SelectOptions, IIntentGatewayV2} from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 
@@ -30,7 +31,7 @@ import {SelectOptions, IIntentGatewayV2} from "@hyperbridge/core/apps/IntentGate
  *      contract account using EIP-7702.
  * @author Polytope Labs
  */
-contract SolverAccount is Account, ERC7821 {
+contract SolverAccount is Account, ERC7821, IERC1271 {
     /**
      * @notice Standard length of an ECDSA signature (r: 32 bytes, s: 32 bytes, v: 1 byte)
      */
@@ -126,6 +127,18 @@ contract SolverAccount is Account, ERC7821 {
      */
     function _rawSignatureValidation(bytes32 hash, bytes calldata signature) internal view override returns (bool) {
         return ECDSA.recover(hash, signature) == address(this);
+    }
+
+    /**
+     * @notice ERC-1271 signature validation for EIP-7702 delegated accounts.
+     * @dev Required so that protocols using OpenZeppelin's SignatureChecker (e.g. USDC's
+     *      EIP-2612 permit) can verify signatures from this account. Under EIP-7702 the
+     *      account has code, so SignatureChecker takes the ERC-1271 path instead of
+     *      ecrecover. Delegates to {_rawSignatureValidation} which performs ECDSA recovery
+     *      and checks that the recovered address equals address(this) (the delegating EOA).
+     */
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view override returns (bytes4) {
+        return _rawSignatureValidation(hash, signature) ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 
     /**

@@ -43,6 +43,7 @@ members = [
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
     "modules/ismp/clients/tendermint",
+    "modules/ismp/clients/beefy",
     "modules/pallets/collator-manager",
 
     # cryptography
@@ -214,6 +215,7 @@ alloy-chains = { version = "0.2.30", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
+rs_merkle = { version = "1.5.0", default-features = false }
 rlp = { version = "0.6.1", default-features = false }
 primitive-types = { version = "0.13.1", default-features = false }
 subxt = { version = "0.42.1", default-features = false }
@@ -327,6 +329,7 @@ pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", def
 pallet-intents-rpc = { path = "modules/pallets/intents-coprocessor/rpc" }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
+ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
@@ -406,8 +409,4 @@ features = ["derive"]
 
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
-default-features = false
-
-[workspace.dependencies.rs_merkle]
-version = "1.2.0"
 default-features = false

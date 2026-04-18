@@ -109,7 +109,7 @@ jobs:
             - name: Create GitHub Release
               uses: actions/create-release@v1
               env:
-                  GITHUB_TOKEN: ${{ secrets.POLYTOPE_GITHUB_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
                   tag_name: ${{ steps.previous-tag.outputs.current_tag }}
                   release_name: "@hyperbridge/core ${{ steps.previous-tag.outputs.clean_tag }}"

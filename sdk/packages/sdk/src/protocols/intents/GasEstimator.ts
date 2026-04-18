@@ -157,6 +157,9 @@ export class GasEstimator {
 		let callGasLimit: bigint = 500_000n
 		let verificationGasLimit: bigint = 100_000n
 		let preVerificationGas: bigint = 100_000n
+		// Paymaster gas fields default to 0n when the bundler estimate doesn't include them.
+		let paymasterVerificationGasLimit: bigint = 0n
+		let paymasterPostOpGasLimit: bigint = 0n
 
 		if (this.ctx.bundlerUrl) {
 			try {
@@ -165,8 +168,8 @@ export class GasEstimator {
 					{ target: intentGatewayV2Address, value: totalNativeValue, data: fillOrderCalldata },
 				])
 
-				const accountGasLimits = this.crypto.packGasLimits(100_000n, callGasLimit)
-				const gasFees = this.crypto.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
+				const accountGasLimits = CryptoUtils.packGasLimits(100_000n, callGasLimit)
+				const gasFees = CryptoUtils.packGasFees(maxPriorityFeePerGas, maxFeePerGas)
 
 				const nonce = 0n
 
@@ -182,7 +185,7 @@ export class GasEstimator {
 					signature: "0x" as HexString,
 				}
 
-				const userOpHash = this.crypto.computeUserOpHash(preliminaryUserOp, entryPointAddress, chainId)
+				const userOpHash = CryptoUtils.computeUserOpHash(preliminaryUserOp, entryPointAddress, chainId)
 				const messageHash = keccak256(
 					concat([userOpHash, commitment as HexString, solverAccountAddress as import("viem").Hex]),
 				)
@@ -191,13 +194,13 @@ export class GasEstimator {
 				})
 				const solverSig = concat([commitment as HexString, solverSignature as import("viem").Hex]) as HexString
 
-				const domainSeparator = this.crypto.getDomainSeparator(
+				const domainSeparator = CryptoUtils.getDomainSeparator(
 					"IntentGateway",
 					"2",
 					chainId,
 					intentGatewayV2Address,
 				)
-				const sessionSignature = await this.crypto.signSolverSelection(
+				const sessionSignature = await CryptoUtils.signSolverSelection(
 					commitment as HexString,
 					solverAccountAddress,
 					domainSeparator,
@@ -209,7 +212,7 @@ export class GasEstimator {
 					sessionSignature as import("viem").Hex,
 				]) as HexString
 
-				const bundlerUserOp = this.crypto.prepareBundlerCall(preliminaryUserOp)
+				const bundlerUserOp = CryptoUtils.prepareBundlerCall(preliminaryUserOp)
 				const bundlerUrlLower = this.ctx.bundlerUrl.toLowerCase()
 				const isPimlico = bundlerUrlLower.includes("pimlico.io")
 				const isAlchemy = bundlerUrlLower.includes("alchemy.com")
@@ -257,6 +260,14 @@ export class GasEstimator {
 				verificationGasLimit = (BigInt(gasEstimate.verificationGasLimit) * 105n) / 100n
 				preVerificationGas = (BigInt(gasEstimate.preVerificationGas) * 105n) / 100n
 
+				if (gasEstimate.paymasterVerificationGasLimit) {
+					paymasterVerificationGasLimit =
+						(BigInt(gasEstimate.paymasterVerificationGasLimit) * 105n) / 100n
+				}
+				if (gasEstimate.paymasterPostOpGasLimit) {
+					paymasterPostOpGasLimit = (BigInt(gasEstimate.paymasterPostOpGasLimit) * 105n) / 100n
+				}
+
 				if (pimlicoGasPrices) {
 					const level = pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
 
@@ -275,8 +286,7 @@ export class GasEstimator {
 					// Alchemy requires 25% priority fee buffer (0% for Arbitrum)
 					const isArbitrum = chainId === 42161n
 					const alchemyPrioBump = isArbitrum ? 0n : 25n
-					maxPriorityFeePerGas =
-						rundlerPriorityFee + (rundlerPriorityFee * alchemyPrioBump) / 100n
+					maxPriorityFeePerGas = rundlerPriorityFee + (rundlerPriorityFee * alchemyPrioBump) / 100n
 					// Alchemy recommends 50% base fee buffer
 					const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
 					maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
@@ -301,7 +311,8 @@ export class GasEstimator {
 			}
 		}
 
-		const totalGas = callGasLimit + verificationGasLimit + preVerificationGas
+		const totalGas =
+			callGasLimit + verificationGasLimit + preVerificationGas + paymasterVerificationGasLimit + paymasterPostOpGasLimit
 		const rawTotalGasCostWei = totalGas * maxFeePerGas
 
 		const totalGasInDestFeeToken = await convertGasToFeeToken(
@@ -323,6 +334,8 @@ export class GasEstimator {
 			callGasLimit,
 			verificationGasLimit,
 			preVerificationGas,
+			paymasterVerificationGasLimit,
+			paymasterPostOpGasLimit,
 			maxFeePerGas,
 			maxPriorityFeePerGas,
 			totalGasCostWei,

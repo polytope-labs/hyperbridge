@@ -20,11 +20,19 @@
 extern crate alloc;
 
 mod impls;
+pub mod migrations;
 mod types;
 use frame_support::pallet_prelude::Weight;
 use polkadot_sdk::*;
 
 pub use types::*;
+
+/// Current storage version of `pallet-token-governor`. Bumped to `1` when the
+/// [`migrations::ResetTokenGatewayState`] migration is introduced — version `0`
+/// is the pre-reset layout, version `1` is the post-reset layout whose
+/// TokenGateway-related storage items have been wiped.
+pub const STORAGE_VERSION: frame_support::traits::StorageVersion =
+	frame_support::traits::StorageVersion::new(1);
 
 use alloc::vec;
 use primitive_types::{H160, H256};
@@ -51,6 +59,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
+	#[pallet::storage_version(crate::STORAGE_VERSION)]
 	pub struct Pallet<T>(_);
 
 	/// The pallet's configuration trait.

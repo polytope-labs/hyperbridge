@@ -92,7 +92,7 @@ impl<T: pallet::Config> ProofVerifier for BeefyProofVerifier<T> {
 
 		let (new_state_bytes, verified_parachains) = match *proof_type {
 			beefy_verifier_primitives::PROOF_TYPE_NAIVE => {
-				let consensus_proof: beefy_verifier_primitives::BeefyConsensusProof =
+				let consensus_proof: beefy_verifier_primitives::ConsensusMessage =
 					codec::Decode::decode(&mut &payload[..])
 						.map_err(|_| DispatchError::Other("Failed to decode naive proof"))?;
 				beefy_verifier::verify_consensus::<SubstrateCrypto>(

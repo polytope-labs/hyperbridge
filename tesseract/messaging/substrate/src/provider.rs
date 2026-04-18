@@ -57,7 +57,7 @@ use pallet_ismp_rpc::BlockNumberOrHash;
 use substrate_state_machine::{StateMachineProof, SubstrateStateProof};
 use subxt_utils::{
 	fisherman_storage_key, host_params_storage_key, send_extrinsic,
-	state_machine_update_time_storage_key,
+	state_machine_commitment_storage_key, state_machine_update_time_storage_key,
 	values::{messages_to_value, state_machine_height_to_value},
 };
 use tesseract_primitives::{
@@ -840,17 +840,23 @@ where
 		&self,
 		height: StateMachineHeight,
 	) -> Result<StateCommitment, Error> {
-		let key = pallet_ismp::child_trie::state_commitment_storage_key(height);
-		let child_storage_key = ChildInfo::new_default(CHILD_TRIE_PREFIX).prefixed_storage_key();
-		let storage_key = StorageKey(key);
-		let params = rpc_params![child_storage_key, storage_key, Option::<HashFor<C>>::None];
+		let key = state_machine_commitment_storage_key(height);
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+		let raw_value = self
+			.client
+			.storage()
+			.at(block_hash)
+			.fetch_raw(key.clone())
+			.await?
+			.ok_or_else(|| {
+				anyhow!("State commitment not present for state machine {:?}", height)
+			})?;
 
-		let response: Option<StorageData> =
-			self.rpc_client.request("childstate_getStorage", params).await?;
-		let data =
-			response.ok_or_else(|| anyhow!("State commitment not present for state machine"))?;
-		let commitment = Decode::decode(&mut &*data.0)?;
-
+		let commitment = Decode::decode(&mut &*raw_value)?;
 		Ok(commitment)
 	}
 

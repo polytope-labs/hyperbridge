@@ -3,6 +3,7 @@ import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, Sel
 import { sleep, DEFAULT_POLL_INTERVAL, hexToString } from "@/utils"
 import type { IntentGatewayContext } from "./types"
 import { BidManager } from "./BidManager"
+import { CryptoUtils } from "./CryptoUtils"
 // @ts-ignore
 import mergeRace from "@async-generator/merge-race"
 
@@ -48,7 +49,7 @@ export class OrderExecutor {
 			if (currentBlock >= deadline) break
 
 			const blocksRemaining = Number(deadline - currentBlock)
-			const sleepMs = blocksRemaining * blockTimeMs
+			const sleepMs = Math.min(blocksRemaining * blockTimeMs, 60_000)
 			await sleep(sleepMs)
 		}
 
@@ -95,7 +96,7 @@ export class OrderExecutor {
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
 		)
-		return (userOp) => this.crypto.computeUserOpHash(userOp, entryPointAddress, chainId)
+		return (userOp) => CryptoUtils.computeUserOpHash(userOp, entryPointAddress, chainId)
 	}
 
 	/**
@@ -282,13 +283,19 @@ export class OrderExecutor {
 		const deadlineTimeout = this.deadlineStream(order.deadline, commitment)
 		const combined = mergeRace(deadlineTimeout, executionStream)
 
-		for await (const update of combined) {
-			yield update
+		try {
+			for await (const update of combined) {
+				yield update
 
-			if (update.status === "EXPIRED" || update.status === "FILLED") return
-
-			// Cross-chain orders terminate after submission
-			if (update.status === "BID_SELECTED" && !isSameChain) return
+				if (update.status === "EXPIRED" || update.status === "FILLED") return
+			}
+		} finally {
+			// mergeRace does not call .return() on the underlying generators
+			// when the consumer exits, so tear them down explicitly to prevent
+			// them from running in the background.
+			console.log(`[OrderExecutor] Tearing down streams for commitment=${commitment}`)
+			await executionStream.return(undefined as never)
+			await deadlineTimeout.return(undefined as never)
 		}
 	}
 
@@ -323,21 +330,47 @@ export class OrderExecutor {
 		} = params
 		let { totalFilledAssets, remainingAssets } = params
 
+		// Track per-bid failure counts. A bid is excluded from future
+		// iterations only after it has failed twice.
+		const MAX_BID_ATTEMPTS = 2
+		const bidFailCounts = new Map<string, number>()
+		const isFreshBid = (bid: FillerBid) => {
+			const key = userOpHashKey(bid.userOp)
+			return !usedUserOps.has(key) && (bidFailCounts.get(key) ?? 0) < MAX_BID_ATTEMPTS
+		}
+
 		const solverLockStartTime = Date.now()
 		yield { status: "AWAITING_BIDS", commitment, totalFilledAssets, remainingAssets }
 
 		try {
-			// Wait for auction time to collect bids
+			// Poll for bids during the auction period, yielding NEW_BID for each new bid seen
 			const auctionEnd = Date.now() + auctionTimeMs
+			const auctionSeenBids = new Set<string>()
 			while (Date.now() < auctionEnd) {
-				await sleep(Math.min(pollIntervalMs, auctionEnd - Date.now()))
+				try {
+					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
+					const freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
+					const newBids = freshBids.filter((bid) => !auctionSeenBids.has(userOpHashKey(bid.userOp)))
+					if (newBids.length > 0) {
+						for (const bid of newBids) {
+							auctionSeenBids.add(userOpHashKey(bid.userOp))
+						}
+						yield { status: "NEW_BID", commitment, bidCount: freshBids.length, bids: freshBids }
+					}
+				} catch {
+					// Ignore fetch errors during auction, will retry next interval
+				}
+				const remaining = auctionEnd - Date.now()
+				if (remaining > 0) {
+					await sleep(Math.min(pollIntervalMs, remaining))
+				}
 			}
 
 			while (true) {
 				let freshBids: FillerBid[]
 				try {
 					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
-					freshBids = bids.filter((bid) => !usedUserOps.has(userOpHashKey(bid.userOp)))
+					freshBids = bids.filter(isFreshBid)
 				} catch {
 					await sleep(pollIntervalMs)
 					continue
@@ -368,6 +401,19 @@ export class OrderExecutor {
 						remainingAssets,
 						error: `Failed to select bid and submit: ${err instanceof Error ? err.message : String(err)}`,
 					}
+					// Increment the failure count only for the top-ranked bid
+					// (first after validation & sorting). That is the bid
+					// selectBid would have tried first; the rest should not be
+					// penalised for its failure.
+					try {
+						const sorted = await this.bidManager.validateAndSortBids(freshBids, order)
+						if (sorted.length > 0) {
+							const key = userOpHashKey(sorted[0].bid.userOp)
+							bidFailCounts.set(key, (bidFailCounts.get(key) ?? 0) + 1)
+						}
+					} catch {
+						// If sorting itself fails, skip counting
+					}
 					await sleep(pollIntervalMs)
 					continue
 				}
@@ -393,7 +439,6 @@ export class OrderExecutor {
 
 				if (fill.update) {
 					yield fill.update
-					if (fill.done) return
 				}
 			}
 		} catch (err) {

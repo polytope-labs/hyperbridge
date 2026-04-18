@@ -44,7 +44,6 @@ export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Pr
 	)
 }
 
-
 export interface GasFeeBumpConfig {
 	maxPriorityFeePerGasBumpPercent?: number
 	maxFeePerGasBumpPercent?: number
@@ -56,6 +55,13 @@ export interface RebalancingConfig {
 		USDC?: Record<string, string>
 		USDT?: Record<string, string>
 	}
+}
+
+export interface OverfillProtectionConfig {
+	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 100 (1%). */
+	maxOverfillBps?: number
+	/** Consecutive clamped evaluations before the strategy halts itself. Default 3. */
+	maxConsecutiveClamps?: number
 }
 
 export interface FillerConfig {
@@ -76,6 +82,11 @@ export interface FillerConfig {
 	 * Defaults to 3,000,000 if not set.
 	 */
 	targetGasUnits?: number
+	/**
+	 * Overfill protection knobs. If omitted, defaults are used
+	 * (maxOverfillBps=100, maxConsecutiveClamps=3).
+	 */
+	overfillProtection?: OverfillProtectionConfig
 }
 
 /**
@@ -142,6 +153,10 @@ export class FillerConfigService {
 		return this.chainConfigService.getUsdcDecimals(chain)
 	}
 
+	getCirclePaymasterAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getCirclePaymasterAddress(chain)
+	}
+
 	getUsdtDecimals(chain: string): number {
 		return this.chainConfigService.getUsdtDecimals(chain)
 	}
@@ -186,10 +201,6 @@ export class FillerConfigService {
 
 	getUniswapRouterV2Address(chain: string): HexString {
 		return this.chainConfigService.getUniswapRouterV2Address(chain)
-	}
-
-	getAerodromeRouterAddress(chain: string): HexString {
-		return this.chainConfigService.getAerodromeRouterAddress(chain)
 	}
 
 	getUniswapV2FactoryAddress(chain: string): HexString {
@@ -364,5 +375,15 @@ export class FillerConfigService {
 	 */
 	getTargetGasUnits(): bigint {
 		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
+
+	/** Ceiling bps above user-requested output. Default 100 (1%). */
+	getMaxOverfillBps(): bigint {
+		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 100)
+	}
+
+	/** Consecutive clamped evaluations before the strategy halts. Default 3. */
+	getMaxConsecutiveClamps(): number {
+		return this.fillerConfig?.overfillProtection?.maxConsecutiveClamps ?? 3
 	}
 }

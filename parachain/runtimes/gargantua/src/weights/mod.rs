@@ -33,12 +33,14 @@ pub mod pallet_assets;
 pub mod pallet_balances;
 pub mod pallet_collective;
 pub mod pallet_intents_coprocessor;
+pub mod pallet_ismp;
 pub mod pallet_message_queue;
 pub mod pallet_outbound_proofs;
 pub mod pallet_session;
 pub mod pallet_sudo;
 pub mod pallet_timestamp;
 pub mod pallet_treasury;
+pub mod pallet_tx_pause;
 pub mod pallet_utility;
 
 pub use block_weights::constants::BlockExecutionWeight;

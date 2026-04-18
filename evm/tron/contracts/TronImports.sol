@@ -19,7 +19,9 @@ import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
 
 // ── Consensus ───────────────────────────────────────────────────────────────
 
+import {BeefyV1} from "../../src/consensus/BeefyV1.sol";
 import {BeefyV1FiatShamir} from "../../src/consensus/BeefyV1FiatShamir.sol";
+// SP1Beefy excluded — depends on @sp1-contracts not available in TronBox
 import {ConsensusRouter} from "../../src/consensus/ConsensusRouter.sol";
 import {HeaderImpl} from "../../src/consensus/Header.sol";
 import {Codec} from "../../src/consensus/Codec.sol";

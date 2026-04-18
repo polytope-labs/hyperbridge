@@ -132,8 +132,10 @@ contract HandlerV2Test is Test {
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
+        // TestConsensusClientV2.verify returns `abi.encode(previousState, nextAuthoritySetId)`
+        // as the new state so handleConsensus can observe a state change.
         bytes memory stateAfter = host.consensusState();
-        assertEq(keccak256(stateAfter), keccak256(stateBefore));
+        assertEq(keccak256(stateAfter), keccak256(abi.encode(stateBefore, uint256(0))));
     }
 
     function testHandleConsensusV2RecordsRelayerOnEpochChange() public {

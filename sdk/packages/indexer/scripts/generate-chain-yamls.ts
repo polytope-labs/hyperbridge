@@ -7,11 +7,14 @@ import Handlebars from "handlebars"
 import { RpcWebSocketClient } from "rpc-websocket-client"
 import { Hex, hexToNumber } from "viem"
 
-import { type Configuration, getEnv, getValidChains } from "../src/configs"
+import { type Configuration, getConfigs, getEnv, getValidChains } from "../src/configs"
 
+const skipRpc = process.argv.includes("--skip-rpc")
 const root = process.cwd()
 const currentEnv = getEnv()
-const validChains = getValidChains()
+const validChains = skipRpc
+	? new Map<string, Configuration>(Object.entries(getConfigs()))
+	: getValidChains()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -60,13 +63,19 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	const chainTypesConfig = getChainTypesPath(chain)
 	const endpoints = generateEndpoints(chain)
 
-	// Expect comma-separated endpoints in env var
-	const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
-	const rpc = new RpcWebSocketClient()
-	await rpc.connect(rpcUrl as string)
-	const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
-	const blockNumber =
-		currentEnv === "local" || currentEnv === "nexus-ci" ? hexToNumber(header.number) : config.startBlock
+	let blockNumber: number
+	// Only connect to RPC when we actually need the live head (local/nexus-ci).
+	// For other environments we use the static startBlock from config.
+	if (skipRpc || (currentEnv !== "local" && currentEnv !== "nexus-ci")) {
+		blockNumber = config.startBlock
+	} else {
+		// Expect comma-separated endpoints in env var
+		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
+		const rpc = new RpcWebSocketClient()
+		await rpc.connect(rpcUrl as string)
+		const header = (await rpc.call("chain_getHeader", [])) as { number: Hex }
+		blockNumber = hexToNumber(header.number)
+	}
 
 	// Check if this is a Hyperbridge chain (stateMachineId is KUSAMA-4009 or POLKADOT-3367)
 	const isHyperbridgeChain = ["KUSAMA-4009", "POLKADOT-3367"].includes(config.stateMachineId)
@@ -121,22 +130,29 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
-	// Expect comma-separated endpoints in env var
-	const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
-	const response = await fetch(rpcUrl as string, {
-		method: "POST",
-		headers: {
-			accept: "application/json",
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			id: 1,
-			jsonrpc: "2.0",
-			method: "eth_blockNumber",
-		}),
-	})
-	const data = await response.json()
-	const blockNumber = currentEnv === "local" ? hexToNumber(data.result) : config.startBlock
+	let blockNumber: number
+	// Only connect to RPC when we actually need the live head (local env).
+	// For other environments we use the static startBlock from config.
+	if (skipRpc || currentEnv !== "local") {
+		blockNumber = config.startBlock
+	} else {
+		// Expect comma-separated endpoints in env var
+		const rpcUrl = process.env[chain.replace(/-/g, "_").toUpperCase()]?.split(",")[0]
+		const response = await fetch(rpcUrl as string, {
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "eth_blockNumber",
+			}),
+		})
+		const data = await response.json()
+		blockNumber = hexToNumber(data.result)
+	}
 
 	const templateData = {
 		name: chain,
@@ -315,6 +331,25 @@ const generateEnvironmentConfig = () => {
 
 	fs.writeFileSync(root + "/src/env-config.json", JSON.stringify(configurations, null, 2))
 	console.log("Generated env-config.json")
+
+	// If a built dist bundle exists, patch the inlined env-config so the running
+	// indexer picks up the updated RPC endpoints and API keys without rebuilding.
+	const distBundle = path.join(root, "dist", "index.js")
+	if (fs.existsSync(distBundle)) {
+		const bundle = fs.readFileSync(distBundle, "utf8")
+		// The bundler inlines env-config.json as JSON.parse('{...}'). Anchor on
+		// the COIN_GECKGO_API_KEY marker which is always present in the config.
+		const envConfigPattern = /JSON\.parse\('(\{[^']*COIN_GECKGO_API_KEY[^']*\})'\)/
+		if (!envConfigPattern.test(bundle)) {
+			console.warn("Could not find inlined env-config in dist/index.js; skipping patch")
+			return
+		}
+		// Escape any single quotes and backslashes so the replacement is a valid JS string literal
+		const serialized = JSON.stringify(configurations).replace(/\\/g, "\\\\").replace(/'/g, "\\'")
+		const patched = bundle.replace(envConfigPattern, `JSON.parse('${serialized}')`)
+		fs.writeFileSync(distBundle, patched)
+		console.log("Patched env-config in dist/index.js")
+	}
 }
 
 try {

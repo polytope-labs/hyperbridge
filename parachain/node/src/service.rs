@@ -127,7 +127,7 @@ where
 		mmr_gadget::MmrGadget::start(
 			client.clone(),
 			backend.clone(),
-			sp_mmr_primitives::INDEXING_PREFIX.to_vec(),
+			mmr_primitives::INDEXING_PREFIX.to_vec(),
 		),
 	);
 

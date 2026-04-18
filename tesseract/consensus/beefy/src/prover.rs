@@ -213,7 +213,7 @@ where
 					.collect::<Vec<_>>()
 					.try_into()
 					.expect("bitmap should have exactly 4 words");
-				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode();
+				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode_params();
 				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
 			},
 		};

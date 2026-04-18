@@ -58,6 +58,7 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         uint256[] memory expectedAmounts = wrapper.getAmountsOut(exactEthAmount, path);
         uint256 amountOutMin = expectedAmounts[1];
 
+        vm.deal(WHALE, 100 ether);
         uint256 initialDaiBalance = IERC20(DAI).balanceOf(WHALE);
         uint256 initialEthBalance = WHALE.balance;
 
@@ -89,6 +90,7 @@ contract UniV4UniswapV2WrapperTest is MainnetForkBaseTest {
         uint256 amountOut = 1000 * 1e18;
         uint256 maxEthIn = 2 ether;
 
+        vm.deal(WHALE, 100 ether);
         uint256 initialEthBalance = WHALE.balance;
         uint256 initialDeployerBalance = DEPLOYER.balance;
 

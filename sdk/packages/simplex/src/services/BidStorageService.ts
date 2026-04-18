@@ -180,7 +180,11 @@ export class BidStorageService {
 	 * Used by the periodic sweep to retract stale bids after a TTL.
 	 */
 	getExpiredUnretractedBids(maxAgeMs: number): StoredBid[] {
-		const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+		// Format must match SQLite's datetime('now'): "YYYY-MM-DD HH:MM:SS"
+		// Using .toISOString() produces "YYYY-MM-DDTHH:MM:SS.sssZ" which breaks
+		// lexicographic comparison because space (ASCII 32) < 'T' (ASCII 84),
+		// causing ALL bids to appear expired.
+		const cutoff = new Date(Date.now() - maxAgeMs).toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "")
 		const stmt = this.db.prepare(`
 			SELECT 
 				id,
@@ -228,7 +232,8 @@ export class BidStorageService {
 			ORDER BY created_at DESC
 		`)
 
-		const rows = stmt.all(startDate.toISOString(), endDate.toISOString()) as any[]
+		const toSqliteDatetime = (d: Date) => d.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "")
+		const rows = stmt.all(toSqliteDatetime(startDate), toSqliteDatetime(endDate)) as any[]
 
 		return rows.map((row) => ({
 			...row,

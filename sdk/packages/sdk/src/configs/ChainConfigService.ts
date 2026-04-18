@@ -187,6 +187,10 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.addresses.EntryPointV08!
 	}
 
+	getCirclePaymasterAddress(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.addresses.CirclePaymaster as HexString | undefined
+	}
+
 	getHyperbridgeAddress(): string {
 		return hyperbridgeAddress
 	}

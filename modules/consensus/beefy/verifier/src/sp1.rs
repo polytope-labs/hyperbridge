@@ -15,87 +15,87 @@
 
 //! SP1 BEEFY proof verification
 
+use crate::error::Error;
 use alloc::vec::Vec;
-use crate::{error::Error, verify_parachain_headers};
+use alloy_sol_types::{
+	SolValue,
+	private::{FixedBytes, U256},
+	sol,
+};
 use beefy_verifier_primitives::{ConsensusState, ParachainHeader, Sp1BeefyProof};
 use codec::Encode;
 use ismp::messaging::Keccak256;
 
-/// Verify an SP1 BEEFY consensus proof and return the updated consensus state
-/// and verified parachain headers.
-///
-/// 1. Check proof is not stale
-/// 2. Match validator_set_id against known authority sets
-/// 3. Build public inputs (authority root, len, leaf hash, header hashes)
-/// 4. Verify SP1 proof
-/// 5. Update authority sets if epoch changed
-pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
-	trusted_state: ConsensusState,
-	sp1_proof: Sp1BeefyProof,
-	vkey_hash: &str,
-) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
-	if trusted_state.latest_beefy_height >= sp1_proof.commitment.block_number {
-		return Err(Error::StaleHeight {
-			trusted_height: trusted_state.latest_beefy_height,
-			current_height: sp1_proof.commitment.block_number,
-		});
+// Matches `PublicInputs` and `ParachainHeaderHash` in evm/src/consensus/Types.sol
+sol! {
+	struct ParachainHeaderHash {
+		uint256 id;
+		bytes32 hash;
 	}
 
-	let authority = if sp1_proof.commitment.validator_set_id == trusted_state.next_authorities.id {
+	struct PublicInputs {
+		bytes32 authorities_root;
+		uint256 authorities_len;
+		bytes32 leaf_hash;
+		ParachainHeaderHash[] headers;
+	}
+}
+
+/// Verify an SP1 BEEFY consensus proof and return the updated consensus state
+/// and verified parachain headers. Mirrors the Solidity `SP1Beefy.verifyConsensus` flow:
+/// SP1 proves authority-set membership, commitment signatures, MMR leaf correctness and
+/// parachain header inclusion — so no additional merkle verification is done here.
+pub fn verify_sp1_consensus<H: Keccak256 + Send + Sync>(
+	trusted_state: ConsensusState,
+	proof: Sp1BeefyProof,
+	vkey: &str,
+) -> Result<(Vec<u8>, Vec<ParachainHeader>), Error> {
+	if trusted_state.latest_beefy_height >= proof.block_number {
+		Err(Error::StaleHeight {
+			trusted_height: trusted_state.latest_beefy_height,
+			current_height: proof.block_number,
+		})?;
+	}
+
+	let authority = if proof.validator_set_id == trusted_state.next_authorities.id {
 		&trusted_state.next_authorities
-	} else if sp1_proof.commitment.validator_set_id == trusted_state.current_authorities.id {
+	} else if proof.validator_set_id == trusted_state.current_authorities.id {
 		&trusted_state.current_authorities
 	} else {
-		return Err(Error::UnknownAuthoritySet { id: sp1_proof.commitment.validator_set_id });
+		Err(Error::UnknownAuthoritySet { id: proof.validator_set_id })?
 	};
 
-	let public_inputs =
-		build_sp1_public_inputs::<H>(&sp1_proof, authority.keyset_commitment.into(), authority.len);
+	let headers = proof
+		.headers
+		.iter()
+		.map(|h| ParachainHeaderHash {
+			id: U256::from(h.para_id),
+			hash: FixedBytes::from(Into::<[u8; 32]>::into(H::keccak256(&h.header))),
+		})
+		.collect();
 
-	sp1_verifier::PlonkVerifier::verify(
-		&sp1_proof.proof,
+	let public_inputs = PublicInputs {
+		authorities_root: FixedBytes::from(Into::<[u8; 32]>::into(authority.keyset_commitment)),
+		authorities_len: U256::from(authority.len),
+		leaf_hash: FixedBytes::from(Into::<[u8; 32]>::into(H::keccak256(&proof.mmr_leaf.encode()))),
+		headers,
+	}
+	.abi_encode();
+
+	sp1_verifier::Groth16Verifier::verify(
+		&proof.proof,
 		&public_inputs,
-		vkey_hash,
-		sp1_verifier::PLONK_VK_BYTES,
+		vkey,
+		sp1_verifier::GROTH16_VK_BYTES,
 	)
 	.map_err(|_| Error::Sp1VerificationFailed)?;
 
-	let verified_headers =
-		verify_parachain_headers::<H>(sp1_proof.mmr_leaf.extra, sp1_proof.parachain)?;
-
 	let mut new_state = trusted_state;
-	if sp1_proof.mmr_leaf.beefy_next_authority_set.id > new_state.next_authorities.id {
+	if proof.mmr_leaf.beefy_next_authority_set.id > new_state.next_authorities.id {
 		new_state.current_authorities = new_state.next_authorities.clone();
-		new_state.next_authorities = sp1_proof.mmr_leaf.beefy_next_authority_set;
+		new_state.next_authorities = proof.mmr_leaf.beefy_next_authority_set.clone();
 	}
-	new_state.latest_beefy_height = sp1_proof.commitment.block_number;
+	new_state.latest_beefy_height = proof.block_number;
 
-	Ok((new_state.encode(), verified_headers))
-}
-
-fn build_sp1_public_inputs<H: Keccak256>(
-	proof: &Sp1BeefyProof,
-	authority_root: [u8; 32],
-	authority_len: u32,
-) -> Vec<u8> {
-	let leaf_hash: [u8; 32] = H::keccak256(&proof.mmr_leaf.encode()).into();
-
-	let headers: Vec<[u8; 32]> = proof
-		.parachain
-		.parachains
-		.iter()
-		.map(|h| H::keccak256(&h.header).into())
-		.collect();
-
-	let mut encoded = Vec::new();
-	encoded.extend_from_slice(&authority_root);
-	encoded.extend_from_slice(&{
-		let mut buf = [0u8; 32];
-		buf[28..32].copy_from_slice(&authority_len.to_be_bytes());
-		buf
-	});
-	encoded.extend_from_slice(&leaf_hash);
-	headers.iter().for_each(|h| encoded.extend_from_slice(h));
-
-	encoded
+	Ok((new_state.encode(), proof.headers))
 }

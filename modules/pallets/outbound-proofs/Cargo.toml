@@ -16,6 +16,7 @@ beefy-verifier-primitives = { workspace = true, default-features = false }
 anyhow = { workspace = true, default-features = false }
 primitive-types = { workspace = true, default-features = false }
 scale-info = { workspace = true }
+hex-literal = { workspace = true, optional = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -37,5 +38,6 @@ std = [
 runtime-benchmarks = [
     "polkadot-sdk/frame-benchmarking",
     "polkadot-sdk/runtime-benchmarks",
+    "dep:hex-literal",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

@@ -5,17 +5,17 @@ use polkadot_sdk::{
 	sp_consensus_beefy::VersionedFinalityProof, sp_core::H256, sp_io::hashing::keccak_256, *,
 };
 use sp_consensus_beefy::ecdsa_crypto::Signature;
-use subxt::{PolkadotConfig, backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params};
+use subxt::{backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, PolkadotConfig};
 
 use beefy_prover::{
-	Prover,
 	relay::{fetch_mmr_proof, paras_parachains},
 	rs_merkle::MerkleTree,
-	util::{MerkleHasher, hash_authority_addresses},
+	util::{hash_authority_addresses, MerkleHasher},
+	Prover,
 };
 use beefy_verifier_primitives::{
-	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, ParachainHeader, ParachainProof,
-	SignatureWithAuthorityIndex,
+	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
+	SignatureWithAuthorityIndex, PROOF_TYPE_NAIVE,
 };
 use ismp::{
 	consensus::{ConsensusClient, StateMachineId},

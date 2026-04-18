@@ -538,9 +538,7 @@ impl pallet_outbound_proofs::ProofVerifier for DummyProofVerifier {
 		_proof: &[u8],
 	) -> Result<pallet_outbound_proofs::VerifiedProof, DispatchError> {
 		MOCK_VERIFIED_PROOF.with(|cell| {
-			cell.borrow()
-				.clone()
-				.ok_or(DispatchError::Other("No mock proof configured"))
+			cell.borrow().clone().ok_or(DispatchError::Other("No mock proof configured"))
 		})
 	}
 }

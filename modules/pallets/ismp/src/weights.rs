@@ -56,3 +56,25 @@ impl WeightProvider for () {
 		None
 	}
 }
+
+/// Weight functions for legacy storage drain migrations.
+pub trait MigrationWeightInfo {
+	/// Weight to clear n entries from `StateCommitments`.
+	fn drain_state_commitments_step(n: u32) -> Weight;
+	/// Weight to clear n entries from `StateMachineUpdateTime`.
+	fn drain_state_machine_update_time_step(n: u32) -> Weight;
+	/// Weight to drain n entries from the child trie.
+	fn drain_child_trie_state_commitments_step(n: u32) -> Weight;
+}
+
+impl MigrationWeightInfo for () {
+	fn drain_state_commitments_step(_n: u32) -> Weight {
+		Weight::zero()
+	}
+	fn drain_state_machine_update_time_step(_n: u32) -> Weight {
+		Weight::zero()
+	}
+	fn drain_child_trie_state_commitments_step(_n: u32) -> Weight {
+		Weight::zero()
+	}
+}

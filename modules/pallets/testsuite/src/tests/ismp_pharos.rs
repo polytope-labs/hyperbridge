@@ -22,7 +22,7 @@ use ismp::{
 	host::StateMachine,
 };
 use ismp_pharos::{ConsensusState, PharosClient, PHAROS_CONSENSUS_CLIENT_ID};
-use pharos_primitives::{Config, Testnet, PHAROS_ATLANTIC_CHAIN_ID};
+use pharos_primitives::{Testnet, PHAROS_ATLANTIC_CHAIN_ID};
 use pharos_prover::PharosProver;
 use primitive_types::H256;
 
@@ -38,8 +38,8 @@ async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
 
 	let mut target_block = latest_block_num.saturating_sub(5);
 
-	// ensuring we're not at an epoch boundary so as to avoid needing staking contract verification
-	while Testnet::is_epoch_boundary(target_block) {
+	// Ensure we're not at an epoch boundary by checking the epoch at consecutive blocks
+	while prover.is_epoch_boundary(target_block).await.expect("epoch boundary check") {
 		target_block = target_block.saturating_sub(1);
 	}
 	println!("Target block: {}", target_block);
@@ -48,7 +48,7 @@ async fn test_ismp_pharos_non_epoch_boundary_consensus_verification() {
 		prover.rpc.get_validator_info(None).await.expect("Failed to get validator info");
 	println!("Validators: {}", validator_info.validator_set.len());
 
-	let current_epoch = Testnet::compute_epoch(target_block);
+	let current_epoch = prover.fetch_current_epoch(target_block).await.expect("fetch epoch");
 	let validator_set = prover
 		.build_validator_set(&validator_info.validator_set, current_epoch)
 		.expect("Failed to build validator set");
@@ -129,23 +129,30 @@ async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
 	let latest_block_num = prover.get_latest_block().await.expect("Failed to get block number");
 	println!("Latest block: {}", latest_block_num);
 
-	// Find the most recent epoch boundary block.
-	let epoch_length = Testnet::EPOCH_LENGTH_BLOCKS;
-	let current_epoch = Testnet::compute_epoch(latest_block_num);
-	// last epoch boundary block is at (current_epoch * epoch_length) - 1
-	let target_block = (current_epoch * epoch_length) - 1;
+	// Find the most recent epoch boundary using find_epoch_boundary.
+	let current_epoch = prover.fetch_current_epoch(latest_block_num).await.expect("fetch epoch");
+	println!("Current epoch at latest block: {}", current_epoch);
+
+	// find_epoch_boundary binary-searches for the first block where
+	// currentEpoch > previous_epoch, i.e. the epoch boundary block.
+	let previous_epoch = current_epoch - 1;
+	let target_block = prover
+		.find_epoch_boundary(
+			latest_block_num.saturating_sub(5000),
+			latest_block_num,
+			previous_epoch,
+		)
+		.await
+		.expect("find epoch boundary");
+	let target_epoch = prover.fetch_current_epoch(target_block).await.expect("fetch epoch");
 
 	assert!(
-		Testnet::is_epoch_boundary(target_block),
+		prover.is_epoch_boundary(target_block).await.expect("epoch boundary check"),
 		"Target block {} should be an epoch boundary",
 		target_block
 	);
 	println!("Target epoch boundary block: {}", target_block);
-	println!(
-		"Current epoch: {}, target epoch: {}",
-		current_epoch,
-		Testnet::compute_epoch(target_block)
-	);
+	println!("Epoch at boundary: {}", target_epoch);
 
 	let validator_info = prover
 		.rpc
@@ -153,20 +160,19 @@ async fn test_ismp_pharos_epoch_boundary_consensus_verification() {
 		.await
 		.expect("Failed to get validator info");
 	println!("Validators: {}", validator_info.validator_set.len());
-
-	let target_epoch = Testnet::compute_epoch(target_block);
+	// The trusted state uses the PREVIOUS epoch (before the transition)
 	let validator_set = prover
-		.build_validator_set(&validator_info.validator_set, target_epoch)
+		.build_validator_set(&validator_info.validator_set, previous_epoch)
 		.expect("Failed to build validator set");
 	println!("Total stake: {}", validator_set.total_stake);
 
-	// trusted consensus state at the block before the epoch boundary
+	// trusted consensus state at the block before the epoch boundary, with previous epoch
 	let initial_block = target_block - 1;
 	let initial_consensus_state = ConsensusState {
 		current_validators: validator_set,
 		finalized_height: initial_block,
 		finalized_hash: H256::zero(),
-		current_epoch: target_epoch,
+		current_epoch: previous_epoch,
 		chain_id: PHAROS_ATLANTIC_CHAIN_ID,
 	};
 

@@ -38,6 +38,10 @@ contract TeleportForkTest is MainnetForkBaseTest {
         // mainnet address holding eth and dai
         address whaleAccount = address(0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503);
 
+        // Fund the whale account
+        vm.deal(whaleAccount, 100 ether);
+        deal(address(dai), whaleAccount, 1_000_000 * 1e6);
+
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));
 
@@ -76,6 +80,9 @@ contract TeleportForkTest is MainnetForkBaseTest {
     function testCanTeleportNativeToken() public {
         // mainnet address holding eth and dai
         address whaleAccount = address(0x47ac0Fb4F2D84898e4D9E7b4DaB3C24507a6D503);
+
+        // Fund the whale account
+        vm.deal(whaleAccount, 100 ether);
 
         // relayer fee + per-byte fee
         uint256 messagingFee = (9 * 1e17) + (BODY_BYTES_SIZE * host.perByteFee(StateMachine.evm(97)));

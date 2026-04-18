@@ -27,12 +27,15 @@ export function createPrivateKeySigningAccount(privateKey: HexString): SigningAc
 		signMessage: (messageHash: HexString, _chainId: number) =>
 			account.signMessage({ message: { raw: messageHash } }),
 		signRawHash,
+		signTypedData: (typedData: unknown, _chainId?: number) =>
+			account.signTypedData(typedData as Parameters<typeof account.signTypedData>[0]) as Promise<HexString>,
 		sendEip7702DelegationTransaction: async (args) =>
 			(await args.walletClient.sendTransaction({
 				to: args.authorityAddress,
 				value: 0n,
 				authorizationList: [args.authorization],
 				chain: args.walletClient.chain,
+				gas: args.gasFloor,
 			})) as HexString,
 	}
 }

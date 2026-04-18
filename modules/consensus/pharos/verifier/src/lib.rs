@@ -33,7 +33,11 @@ use primitive_types::H256;
 /// Domain Separation Tag for Pharos BLS signatures.
 pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 
-/// Verifies a Pharos block proof and update the verifier state.
+/// Verifies a Pharos block proof and updates the verifier state.
+///
+/// Epoch transitions are determined by the presence of a `validator_set_proof`:
+/// if present, the epoch increments by 1. The relayer walks epoch-by-epoch,
+/// so each validator set proof corresponds to exactly one epoch transition.
 pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	trusted_state: VerifierState,
 	update: VerifierStateUpdate,
@@ -45,14 +49,6 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		return Err(Error::StaleUpdate {
 			current: current_block_number,
 			update: update_block_number,
-		});
-	}
-
-	let update_epoch = C::compute_epoch(update_block_number);
-	if update_epoch != trusted_state.current_epoch {
-		return Err(Error::EpochMismatch {
-			update_epoch,
-			expected_epoch: trusted_state.current_epoch,
 		});
 	}
 
@@ -81,30 +77,23 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		update.block_proof.block_proof_hash,
 	)?;
 
-	let new_state = if C::is_epoch_boundary(update_block_number) {
-		// Epoch boundary block must always have validator set proof
-		let validator_set_proof = update
-			.validator_set_proof
-			.ok_or(Error::MissingValidatorSetProof { block_number: update_block_number })?;
+	// Epoch transition is determined by presence of validator_set_proof
+	let new_state = if let Some(validator_set_proof) = update.validator_set_proof {
+		let new_epoch = trusted_state.current_epoch + 1;
 
-		let next_epoch = C::compute_epoch(update_block_number) + 1;
 		let new_validator_set = state_proof::verify_validator_set_proof::<H>(
 			update.header.state_root,
 			&validator_set_proof,
-			next_epoch,
+			new_epoch,
 		)?;
 
 		VerifierState {
 			current_validator_set: new_validator_set,
 			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,
-			current_epoch: next_epoch,
+			current_epoch: new_epoch,
 		}
 	} else {
-		if update.validator_set_proof.is_some() {
-			return Err(Error::UnexpectedValidatorSetProof { block_number: update_block_number });
-		}
-
 		VerifierState {
 			finalized_block_number: update_block_number,
 			finalized_hash: computed_hash,

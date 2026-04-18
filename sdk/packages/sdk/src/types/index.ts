@@ -19,9 +19,9 @@ export type HexString = `0x${string}`
 
 export interface IConfig {
 	// confuration object for the source chain
-	source: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
+	source: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig | IPharosConfig
 	// confuration object for the destination chain
-	dest: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
+	dest: IEvmConfig | ISubstrateConfig | IPolkadotHubConfig | IPharosConfig
 	// confuration object for hyperbridge
 	hyperbridge: IHyperbridgeConfig
 	// Flag to enable tracing console logs
@@ -46,6 +46,14 @@ export interface IEvmConfig {
 export interface IPolkadotHubConfig extends IEvmConfig {
 	substrateRpcUrl: string
 }
+
+/**
+ * Pharos EVM chain — same as {@link IEvmConfig}. Pharos uses a non-standard
+ * `eth_getProof` response format (hexary hash tree proof nodes with offsets plus
+ * SHA-256 hashing), so proof fetching is handled by the Pharos-specific chain
+ * client rather than viem's standard `getProof`.
+ */
+export interface IPharosConfig extends IEvmConfig {}
 
 export interface ISubstrateConfig {
 	// rpc url of the chain
@@ -1186,6 +1194,11 @@ export interface SigningAccount {
 	signMessage: (messageHash: HexString, chainId: number) => Promise<HexString>
 	/** Signs a raw 32-byte hash, returning split signature components for EIP-7702 etc. */
 	signRawHash: (hash: HexString) => Promise<{ r: HexString; s: HexString; yParity: number }>
+	/**
+	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
+	 * The shape of `typedData` matches viem's `TypedDataDefinition` (domain + types + message).
+	 */
+	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
 }
 
 export interface SubmitBidOptions {
@@ -1208,6 +1221,12 @@ export interface SubmitBidOptions {
 	maxPriorityFeePerGas: bigint
 	/** Pre-built ERC-7821 calldata encoding the UserOp execution (approvals + fillOrder). */
 	callData: HexString
+	/**
+	 * Optional packed paymasterAndData for EntryPoint v0.8.
+	 * Must be built BEFORE calling prepareSubmitBid so the hash covers paymaster bytes.
+	 * Defaults to "0x" (EntryPoint deposit pays gas).
+	 */
+	paymasterAndData?: HexString
 }
 
 export interface EstimateFillOrderParams {
@@ -1237,6 +1256,10 @@ export interface FillOrderEstimate {
 	callGasLimit: bigint
 	verificationGasLimit: bigint
 	preVerificationGas: bigint
+	/** Paymaster verification gas limit from bundler estimate. 0n when no paymaster. */
+	paymasterVerificationGasLimit: bigint
+	/** Paymaster postOp gas limit from bundler estimate. 0n when no paymaster. */
+	paymasterPostOpGasLimit: bigint
 	maxFeePerGas: bigint
 	maxPriorityFeePerGas: bigint
 	totalGasCostWei: bigint
@@ -1316,6 +1339,7 @@ export const IntentOrderStatus = Object.freeze({
 	ORDER_PLACED: "ORDER_PLACED",
 	ORDER_CONFIRMED: "ORDER_CONFIRMED",
 	AWAITING_BIDS: "AWAITING_BIDS",
+	NEW_BID: "NEW_BID",
 	BIDS_RECEIVED: "BIDS_RECEIVED",
 	BID_SELECTED: "BID_SELECTED",
 	FILLED: "FILLED",
@@ -1332,6 +1356,7 @@ export type IntentOrderStatusUpdate =
 	| { status: "AWAITING_PLACE_ORDER"; to: HexString; data: HexString; value?: bigint; sessionPrivateKey: HexString }
 	| { status: "ORDER_PLACED"; order: Order; receipt: TransactionReceipt }
 	| { status: "AWAITING_BIDS"; commitment: HexString; totalFilledAssets: TokenInfo[]; remainingAssets: TokenInfo[] }
+	| { status: "NEW_BID"; commitment: HexString; bidCount: number; bids: FillerBid[] }
 	| { status: "BIDS_RECEIVED"; commitment: HexString; bidCount: number; bids: FillerBid[] }
 	| {
 			status: "BID_SELECTED"

@@ -39,10 +39,10 @@ pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-intents-coprocessor = { workspace = true }
-pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
+mmr-primitives = { workspace = true }
 simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
@@ -71,6 +71,7 @@ features = [
     "pallet-session",
     "pallet-sudo",
     "pallet-utility",
+    "pallet-tx-pause",
     "pallet-timestamp",
     "pallet-transaction-payment",
     "pallet-transaction-payment-rpc-runtime-api",
@@ -107,6 +108,7 @@ features = [
     "cumulus-pallet-session-benchmarking",
     "cumulus-pallet-xcm",
     "cumulus-pallet-xcmp-queue",
+    "pallet-migrations",
     "cumulus-primitives-core",
     "cumulus-primitives-timestamp",
     "cumulus-primitives-aura",
@@ -142,11 +144,11 @@ std = [
     "pallet-call-decompressor/std",
     "pallet-state-coprocessor/std",
     "pallet-intents-coprocessor/std",
-    "pallet-xcm-gateway/std",
     "pallet-token-gateway-inspector/std",
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",
+    "mmr-primitives/std",
     "simnode-runtime-api/std",
     "hyperbridge-client-machine/std",
     "anyhow/std",

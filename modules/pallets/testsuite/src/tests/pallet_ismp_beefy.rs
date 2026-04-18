@@ -5,36 +5,28 @@ use polkadot_sdk::{
 	sp_consensus_beefy::VersionedFinalityProof, sp_core::H256, sp_io::hashing::keccak_256, *,
 };
 use sp_consensus_beefy::ecdsa_crypto::Signature;
-use subxt::{backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, PolkadotConfig};
+use subxt::{PolkadotConfig, backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params};
 
 use beefy_prover::{
-	relay::{fetch_mmr_proof, paras_parachains},
-	util::{hash_authority_addresses, merkle_proof},
 	Prover,
+	relay::{fetch_mmr_proof, paras_parachains},
+	rs_merkle::MerkleTree,
+	util::{MerkleHasher, hash_authority_addresses},
 };
 use beefy_verifier_primitives::{
-	BeefyConsensusProof, BeefyMmrLeaf, ConsensusState, Node, ParachainHeader, ParachainProof,
-	RelaychainProof, SignatureWithAuthorityIndex, PROOF_TYPE_NAIVE,
+	ConsensusMessage, ConsensusState, MmrProof, PROOF_TYPE_NAIVE, ParachainHeader, ParachainProof,
+	SignatureWithAuthorityIndex,
 };
 use ismp::{
 	consensus::{ConsensusClient, StateMachineId},
 	host::{IsmpHost, StateMachine},
-	messaging::Keccak256,
 };
-use ismp_beefy::{consensus::BEEFY_CONSENSUS_ID, Config};
+use ismp_beefy::consensus::BEEFY_CONSENSUS_ID;
 use ismp_parachain::Parachains;
 
 use crate::runtime::*;
 
-struct TestKeccak256;
-
-impl Keccak256 for TestKeccak256 {
-	fn keccak256(bytes: &[u8]) -> H256 {
-		sp_core::hashing::keccak_256(bytes).into()
-	}
-}
-
-async fn setup() -> (ConsensusState, BeefyConsensusProof) {
+async fn setup() -> (ConsensusState, ConsensusMessage) {
 	let max_rpc_payload_size = 15 * 1024 * 1024;
 
 	let relay_ws_url =
@@ -133,36 +125,19 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 		hash_authority_addresses(current_authorities.into_iter().map(|x| x.encode()).collect())
 			.unwrap();
 	let authority_indices = signatures.iter().map(|x| x.index as usize).collect::<Vec<_>>();
-	let authority_proof_2d = merkle_proof(&authority_address_hashes, &authority_indices);
-
-	let authority_proof_nodes = authority_proof_2d
-		.into_iter()
-		.flatten()
-		.map(|(_, hash)| H256::from(hash))
-		.collect();
+	let authority_tree = MerkleTree::<MerkleHasher>::from_leaves(&authority_address_hashes);
+	let authority_proof_hashes = authority_tree.proof(&authority_indices).proof_hashes().to_vec();
 
 	let signed_commitment = beefy_verifier_primitives::SignedCommitment {
 		commitment: signed_commitment_raw.commitment.clone(),
 		signatures,
 	};
 
-	let beefy_mmr_leaf = BeefyMmrLeaf {
-		version: latest_leaf.version.clone(),
-		parent_block_and_hash: (
-			latest_leaf.parent_number_and_hash.0,
-			latest_leaf.parent_number_and_hash.1,
-		),
-		beefy_next_authority_set: latest_leaf.beefy_next_authority_set.clone(),
-		k_index: 0,
-		leaf_index: mmr_leaf_proof.leaf_indices[0] as u32,
-		extra: latest_leaf.leaf_extra,
-	};
-
-	let relay_proof = RelaychainProof {
+	let mmr = MmrProof {
 		signed_commitment,
-		latest_mmr_leaf: beefy_mmr_leaf,
-		mmr_proof: mmr_leaf_proof.items,
-		proof: authority_proof_nodes,
+		latest_mmr_leaf: latest_leaf.clone(),
+		mmr_proof: mmr_leaf_proof.clone(),
+		authority_proof: authority_proof_hashes,
 	};
 
 	let heads = paras_parachains(
@@ -193,18 +168,19 @@ async fn setup() -> (ConsensusState, BeefyConsensusProof) {
 		.unzip();
 
 	let leaves = heads.iter().map(|pair| keccak_256(&pair.encode())).collect::<Vec<_>>();
-	let proof_2d = merkle_proof(&leaves, &indices);
-	let proof = proof_2d.into_iter().flatten().map(|level| level.1).collect();
-	dbg!(&leaves.len());
+	let parachain_tree = MerkleTree::<MerkleHasher>::from_leaves(&leaves);
+	let proof = parachain_tree.proof(&indices).proof_hashes().to_vec();
 	let parachain_proof = ParachainProof { parachains, proof, total_leaves: leaves.len() as u32 };
 
-	let beefy_consensus_proof =
-		BeefyConsensusProof { relay: relay_proof, parachain: parachain_proof };
+	let beefy_consensus_proof = ConsensusMessage { mmr, parachain: parachain_proof };
 
 	(initial_state, beefy_consensus_proof)
 }
 
+// Integration test: hits live Polkadot/parachain RPCs (see RELAY_WS_URL / PARA_WS_URL env vars).
+// Run explicitly with `cargo test -- --ignored`.
 #[tokio::test]
+#[ignore]
 async fn test_verify_consensus() {
 	let (initial_state, beefy_consensus_proof) = setup().await;
 	let mut ext = new_test_ext();
@@ -241,7 +217,6 @@ async fn test_verify_consensus() {
 			}
 		);
 		assert!(!state_commitments.is_empty());
-		dbg!(state_commitments);
 		println!("Successfully verified beefy justification and extracted parachain commitments");
 	});
 }

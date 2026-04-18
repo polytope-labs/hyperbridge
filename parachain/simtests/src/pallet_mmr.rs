@@ -10,12 +10,12 @@ use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
 use sp_keyring::sr25519::Keyring;
-use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils, INDEXING_PREFIX};
+use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils};
 use sp_runtime::traits::Keccak256;
 use subxt::{backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, utils::H160};
 
 use merkle_mountain_range::util::MemMMR;
-use mmr_primitives::DataOrHash;
+use mmr_primitives::{DataOrHash, INDEXING_PREFIX};
 use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
 use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};

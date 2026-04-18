@@ -81,5 +81,11 @@ export interface Eip7702DelegationTxArgs {
 export interface SigningAccount extends SdkSigningAccount {
 	account: Account
 	mode: "privateKey" | "mpcVault" | "turnkey"
+	/**
+	 * Signs an EIP-712 typed-data payload (e.g. an EIP-2612 USDC permit for the Circle Paymaster).
+	 * The shape of `typedData` matches viem's `TypedDataDefinition`.
+	 * MPC adapter must JSON.stringify before delegating to MpcVaultService.signTypedData.
+	 */
+	signTypedData: (typedData: unknown, chainId?: number) => Promise<HexString>
 	sendEip7702DelegationTransaction: (args: Eip7702DelegationTxArgs) => Promise<HexString>
 }

@@ -5,6 +5,7 @@ import type {
 	IEvmConfig,
 	IGetRequest,
 	IMessage,
+	IPharosConfig,
 	IPolkadotHubConfig,
 	IPostRequest,
 	ISubstrateConfig,
@@ -18,6 +19,7 @@ export * from "@/chains/substrate"
 export * from "@/chains/intentsCoprocessor"
 export * from "@/chains/tron"
 export * from "@/chains/polkadotHub"
+export * from "@/chains/pharos"
 
 /**
  * Type representing an ISMP message.
@@ -141,7 +143,7 @@ export interface IChain {
 	/**
 	 * Returns the configuration for this chain
 	 */
-	get config(): IEvmConfig | ISubstrateConfig | IPolkadotHubConfig
+	get config(): IEvmConfig | ISubstrateConfig | IPolkadotHubConfig | IPharosConfig
 
 	/*
 	 * Returns the current timestamp of the chain in seconds.

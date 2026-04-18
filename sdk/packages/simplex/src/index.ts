@@ -15,6 +15,6 @@ export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 // Service exports
 export { ChainClientManager, ContractInteractionService } from "@/services"
 
-// Output funding (Aerodrome LP → fillOrder batch)
-export type { AerodromePoolConfig, AerodromeOutputFundingConfig, OutputFundingConfig } from "@/funding/types"
-export { AerodromeFundingPlanner, AerodromeLiquidityState } from "@/funding"
+// Output funding
+export type { OutputFundingConfig } from "@/funding/types"
+export { UniswapV4LiquidityState, UniswapV4FundingPlanner } from "@/funding"

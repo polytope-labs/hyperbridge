@@ -13,7 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! BEEFY consensus proof verifier.
+//!
+//! Provides a chain-agnostic verifier for BEEFY finality proofs originating from a Polkadot-style
+//! relay chain, as well as an [`sp1`] module that verifies SP1-compressed BEEFY proofs.
+
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(missing_docs)]
 
 extern crate alloc;
 
@@ -22,12 +28,12 @@ pub mod sp1;
 #[cfg(test)]
 mod test;
 
-use alloc::{format, string::{String, ToString}, vec, vec::Vec};
+use alloc::{string::ToString, vec, vec::Vec};
 use core::marker::PhantomData;
 
 use crate::error::Error;
 use beefy_verifier_primitives::{
-	BeefyConsensusProof, ConsensusState, ParachainHeader, ParachainProof, RelaychainProof,
+	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 };
 use codec::Encode;
 use ismp::messaging::Keccak256;
@@ -84,9 +90,9 @@ impl<H: Keccak256> MmrMerge for KeccakMerge<H> {
 /// headers
 pub fn verify_consensus<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	trusted_state: ConsensusState,
-	proof: BeefyConsensusProof,
+	proof: ConsensusMessage,
 ) -> anyhow::Result<(Vec<u8>, Vec<ParachainHeader>)> {
-	let (state, heads_root) = verify_mmr_update_proof::<H>(trusted_state, proof.relay)?;
+	let (state, heads_root) = verify_mmr_update_proof::<H>(trusted_state, proof.mmr)?;
 	let verified_headers = verify_parachain_headers::<H>(heads_root, proof.parachain)?;
 	Ok((state.encode(), verified_headers))
 }
@@ -96,18 +102,18 @@ pub fn verify_consensus<H: Keccak256 + EcdsaRecover + Send + Sync>(
 /// root hash is signed by the relay chain authority set and we can verify the membership of the
 /// authorities that signed this new root using a merkle multi proof and a merkle commitment to the
 /// total authorities
-fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
+pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	mut trusted_state: ConsensusState,
-	relay_proof: RelaychainProof,
+	mmr: MmrProof,
 ) -> Result<(ConsensusState, H256), Error> {
-	let signatures_length = relay_proof.signed_commitment.signatures.len();
-	let latest_height = relay_proof.signed_commitment.commitment.block_number;
+	let signatures_length = mmr.signed_commitment.signatures.len();
+	let latest_height = mmr.signed_commitment.commitment.block_number;
 
 	if trusted_state.latest_beefy_height >= latest_height {
 		return Err(Error::StaleHeight {
 			trusted_height: trusted_state.latest_beefy_height,
 			current_height: latest_height,
-		})
+		});
 	}
 
 	if !check_participation_threshold(
@@ -120,10 +126,10 @@ fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 		return Err(Error::SuperMajorityRequired);
 	}
 
-	let commitment = relay_proof.signed_commitment.commitment.clone();
+	let commitment = mmr.signed_commitment.commitment.clone();
 
-	if commitment.validator_set_id != trusted_state.current_authorities.id &&
-		commitment.validator_set_id != trusted_state.next_authorities.id
+	if commitment.validator_set_id != trusted_state.current_authorities.id
+		&& commitment.validator_set_id != trusted_state.next_authorities.id
 	{
 		return Err(Error::UnknownAuthoritySet { id: commitment.validator_set_id });
 	}
@@ -145,7 +151,7 @@ fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	let mut authority_leaves: Vec<[u8; 32]> = Vec::new();
 	let mut authority_indices = Vec::new();
 
-	for sig in relay_proof.signed_commitment.signatures.iter() {
+	for sig in mmr.signed_commitment.signatures.iter() {
 		let uncompressed = H::secp256k1_recover(&commitment_hash.0, &sig.signature)
 			.map_err(|_| Error::FailedToRecoverPublicKey)?;
 
@@ -160,8 +166,7 @@ fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 		authority_indices.push(sig.index as usize);
 	}
 
-	let proof_hashes: Vec<[u8; 32]> = relay_proof.proof.iter().map(|h| (*h).into()).collect();
-	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(proof_hashes);
+	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(mmr.authority_proof.clone());
 
 	let valid = if is_current_authorities {
 		merkle_proof.verify(
@@ -180,20 +185,19 @@ fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 	};
 
 	if !valid {
-		return Err(Error::InvalidAuthoritiesProof)
+		Err(Error::InvalidAuthoritiesProof)?;
 	}
 
-	verify_mmr_leaf::<H>(&relay_proof, mmr_root)?;
+	verify_mmr_leaf::<H>(&mmr, mmr_root)?;
 
-	if relay_proof.latest_mmr_leaf.beefy_next_authority_set.id > trusted_state.next_authorities.id {
+	if mmr.latest_mmr_leaf.beefy_next_authority_set.id > trusted_state.next_authorities.id {
 		trusted_state.current_authorities = trusted_state.next_authorities.clone();
-		trusted_state.next_authorities =
-			relay_proof.latest_mmr_leaf.beefy_next_authority_set.clone();
+		trusted_state.next_authorities = mmr.latest_mmr_leaf.beefy_next_authority_set.clone();
 	}
 
 	trusted_state.latest_beefy_height = latest_height;
 
-	Ok((trusted_state, relay_proof.latest_mmr_leaf.extra))
+	Ok((trusted_state, mmr.latest_mmr_leaf.leaf_extra))
 }
 
 /// Verifies the inclusion of parachain headers in the parachain heads root via a merkle multi proof
@@ -217,9 +221,7 @@ pub fn verify_parachain_headers<H: Keccak256>(
 
 	let (leaf_indices, leaf_hashes): (Vec<usize>, Vec<[u8; 32]>) =
 		indexed_leaf_hashes.into_iter().unzip();
-	let proof_hashes: Vec<[u8; 32]> =
-		parachain_proof.proof.iter().map(|node| (*node).into()).collect();
-	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(proof_hashes);
+	let merkle_proof = MerkleProof::<MerkleHasher<H>>::new(parachain_proof.proof.clone());
 	let valid = merkle_proof.verify(
 		heads_root.0,
 		&leaf_indices,
@@ -228,39 +230,32 @@ pub fn verify_parachain_headers<H: Keccak256>(
 	);
 
 	if !valid {
-		return Err(Error::InvalidParachainProof);
+		Err(Error::InvalidParachainProof)?;
 	}
 
 	Ok(parachain_proof.parachains)
 }
 
 fn verify_mmr_leaf<H: Keccak256 + Send + Sync>(
-	relay: &RelaychainProof,
+	mmr: &MmrProof,
 	mmr_root: H256,
 ) -> Result<(), Error> {
-	use polkadot_sdk::sp_consensus_beefy::mmr::MmrLeaf;
-
-	let mmr_leaf = MmrLeaf::<u32, H256, H256, H256> {
-		version: relay.latest_mmr_leaf.version.clone(),
-		parent_number_and_hash: relay.latest_mmr_leaf.parent_block_and_hash,
-		beefy_next_authority_set: relay.latest_mmr_leaf.beefy_next_authority_set.clone(),
-		leaf_extra: relay.latest_mmr_leaf.extra,
-	};
-	let leaf_hash = H::keccak256(&mmr_leaf.encode());
-	let mmr_size = leaf_index_to_mmr_size(relay.latest_mmr_leaf.leaf_index as u64);
+	let leaf_index = mmr.mmr_proof.leaf_indices[0];
+	let leaf_hash = H::keccak256(&mmr.latest_mmr_leaf.encode());
+	let mmr_size = leaf_index_to_mmr_size(leaf_index);
 
 	let mmr_proof = MmrMerkleProof::<[u8; 32], KeccakMerge<H>>::new(
 		mmr_size,
-		relay.mmr_proof.iter().map(|h| (*h).into()).collect(),
+		mmr.mmr_proof.items.iter().map(|h| (*h).into()).collect(),
 	);
-	let leaf_pos = leaf_index_to_pos(relay.latest_mmr_leaf.leaf_index as u64);
+	let leaf_pos = leaf_index_to_pos(leaf_index);
 	let leaf = (leaf_pos, leaf_hash.into());
 	let valid = mmr_proof
 		.verify(mmr_root.into(), vec![leaf])
 		.map_err(|e| Error::MmrVerificationFailed(e.to_string()))?;
 
 	if !valid {
-		return Err(Error::InvalidMmrProof)
+		Err(Error::InvalidMmrProof)?
 	}
 
 	Ok(())

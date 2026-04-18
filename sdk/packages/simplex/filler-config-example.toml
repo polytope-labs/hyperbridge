@@ -49,6 +49,16 @@ hyperbridgeWsUrl = ""
 # maxPriorityFeePerGasBumpPercent = 8   # Percentage added to gasPrice for priority fee (default: 8)
 # maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
 
+# Overfill protection (optional)
+# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).
+# The filler clamps its computed output to at most (1 + maxOverfillBps) × user-requested amount.
+# After `maxConsecutiveClamps` consecutive orders where the clamp activated, the strategy
+# halts itself — likely a systemic pricing error — and requires operator restart.
+# If not provided, defaults will be used (maxOverfillBps = 100, maxConsecutiveClamps = 3)
+# [simplex.overfillProtection]
+# maxOverfillBps = 100          # 1% ceiling above user-requested output (default: 100)
+# maxConsecutiveClamps = 3      # Halt threshold (default: 3)
+
 
 # Logging level: trace, debug, info, warn, error
 logging = "debug"
@@ -90,13 +100,59 @@ triggerPercentage = 0.5
 type = "basic"
 # Filler BPS (basis points) curve based on order value
 # Uses polynomial interpolation to create a smooth curve through all points
-# - Small orders: Higher BPS to make filling worthwhile  
+# - Small orders: Higher BPS to make filling worthwhile
 # - Large orders: Lower BPS to be more competitive
 bpsCurve = [
     { amount = "100", value = 100 },      # $100 orders: 1% margin
     { amount = "1000", value = 50 },      # $1000 orders: 0.5% margin
     { amount = "10000", value = 25 },     # $10000 orders: 0.25% margin
     { amount = "100000", value = 10 },    # $100000 orders: 0.1% margin
+]
+
+# Per-chain confirmation policies for this strategy (optional).
+# Uses polynomial interpolation to create a smooth curve through all points.
+# The chain ID should match the numeric ID from the chain configuration.
+# Sensible defaults are merged in for chains you don't list (ETH, BSC, Polygon, Base, Arbitrum).
+[strategies.confirmationPolicies."1"]  # Ethereum Mainnet
+points = [
+    { amount = "5", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 12 },
+]
+
+[strategies.confirmationPolicies."56"]  # BSC Mainnet
+points = [
+    { amount = "1", value = 3 },
+    { amount = "500", value = 6 },
+    { amount = "5000", value = 15 },
+]
+
+[strategies.confirmationPolicies."42161"]  # Arbitrum Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
+
+[strategies.confirmationPolicies."8453"]  # Base Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
+
+[strategies.confirmationPolicies."137"]  # Polygon Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
+]
+
+[strategies.confirmationPolicies."130"]  # Unichain Mainnet
+points = [
+    { amount = "2", value = 2 },
+    { amount = "1000", value = 5 },
+    { amount = "8000", value = 10 },
 ]
 
 # HyperFX strategy for exotic token swaps (e.g. stablecoin <-> cNGN)
@@ -164,66 +220,3 @@ rpcUrl = ""      # Unichain Mainnet
 bundlerUrl = ""
 
 
-# Confirmation policies per chain
-# Uses polynomial interpolation to create a smooth curve through all points
-# The chain ID should match the numeric ID from the chain configuration
-
-[confirmationPolicies."97"]  # BSC Testnet
-points = [
-    { amount = "1", value = 1 },
-    { amount = "1000", value = 5 },
-]
-
-[confirmationPolicies."10200"]  # Gnosis Chiado
-points = [
-    { amount = "1", value = 1 },
-    { amount = "1000", value = 5 },
-]
-
-[confirmationPolicies."1"]  # Ethereum Mainnet
-points = [
-    { amount = "5", value = 3 },
-    { amount = "500", value = 6 },
-    { amount = "5000", value = 12 },
-]
-
-[confirmationPolicies."56"]  # BSC Mainnet
-points = [
-    { amount = "1", value = 3 },
-    { amount = "500", value = 6 },
-    { amount = "5000", value = 15 },
-]
-
-[confirmationPolicies."11155111"]  # Sepolia
-points = [
-    { amount = "1", value = 1 },
-    { amount = "1000", value = 5 },
-]
-
-[confirmationPolicies."42161"]  # Arbitrum Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-[confirmationPolicies."8453"]  # Base Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-[confirmationPolicies."137"]  # Polygon Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]
-
-[confirmationPolicies."130"]  # Unichain Mainnet
-points = [
-    { amount = "2", value = 2 },
-    { amount = "1000", value = 5 },
-    { amount = "8000", value = 10 },
-]

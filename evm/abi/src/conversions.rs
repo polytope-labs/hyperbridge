@@ -24,7 +24,7 @@ use crate::{
 		PostRequestHandled, PostRequestTimeoutHandled, PostResponse, PostResponseEvent,
 		PostResponseFunded, PostResponseHandled, PostResponseTimeoutHandled, RequestFunded,
 		StateCommitment, StateCommitmentRead, StateCommitmentVetoed as EvmStateCommitmentVetoed,
-		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated, StorageValue,
+		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated,
 	},
 };
 
@@ -70,17 +70,18 @@ mod beefy {
 	use crate::{
 		beefy::Beefy::{
 			AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
-			Commitment, Node, Parachain, ParachainProof, Payload, RelayChainProof,
+			Commitment, Parachain, ParachainProof, Payload, RelayChainProof,
 			SignedCommitment, Vote,
 		},
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 	use alloy_primitives::{Bytes, FixedBytes, U256};
-	use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
-	use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+	use beefy_verifier_primitives::{
+		ConsensusMessage, ConsensusState, MmrProof, Sp1BeefyProof,
+	};
 	use polkadot_sdk::*;
 	use primitive_types::H256;
-	use sp_consensus_beefy::mmr::BeefyNextAuthoritySet;
+	use sp_consensus_beefy::mmr::{BeefyNextAuthoritySet, MmrLeafVersion};
 
 	impl From<beefy_verifier_primitives::ParachainProof> for ParachainProof {
 		fn from(value: beefy_verifier_primitives::ParachainProof) -> Self {
@@ -97,16 +98,9 @@ mod beefy {
 				proof: value
 					.proof
 					.into_iter()
-					.map(|layer| {
-						layer
-							.into_iter()
-							.map(|(index, node)| Node {
-								k_index: index.to_u256(),
-								node: FixedBytes::from(node),
-							})
-							.collect()
-					})
+					.map(|hash| FixedBytes::from(hash))
 					.collect(),
+				leafCount: value.total_leaves.to_u256(),
 			}
 		}
 	}
@@ -170,11 +164,6 @@ mod beefy {
 	impl From<MmrProof> for RelayChainProof {
 		fn from(value: MmrProof) -> Self {
 			let leaf_index = value.mmr_proof.leaf_indices[0];
-			let k_index = mmr_primitives::mmr_position_to_k_index(
-				vec![leaf_index_to_pos(leaf_index)],
-				leaf_index_to_mmr_size(leaf_index),
-			)[0]
-			.1;
 
 			RelayChainProof {
 				signedCommitment: SignedCommitment {
@@ -195,7 +184,6 @@ mod beefy {
 					parentHash: FixedBytes::from(value.latest_mmr_leaf.parent_number_and_hash.1 .0),
 					nextAuthoritySet: value.latest_mmr_leaf.beefy_next_authority_set.into(),
 					extra: FixedBytes::from(value.latest_mmr_leaf.leaf_extra.0),
-					kIndex: k_index.to_u256(),
 					leafIndex: leaf_index.to_u256(),
 				},
 				mmrProof: value
@@ -207,15 +195,7 @@ mod beefy {
 				proof: value
 					.authority_proof
 					.into_iter()
-					.map(|layer| {
-						layer
-							.into_iter()
-							.map(|(index, node)| Node {
-								k_index: index.to_u256(),
-								node: FixedBytes::from(node),
-							})
-							.collect()
-					})
+					.map(|hash| FixedBytes::from(hash))
 					.collect(),
 			}
 		}
@@ -281,6 +261,71 @@ mod beefy {
 					keyset_commitment: H256(value.nextAuthoritySet.root.0),
 				},
 			}
+		}
+	}
+
+	impl From<PartialBeefyMmrLeaf> for sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256> {
+		fn from(value: PartialBeefyMmrLeaf) -> Self {
+			let version: u8 =
+				value.version.try_into().expect("mmr leaf version out of bounds");
+			sp_consensus_beefy::mmr::MmrLeaf {
+				version: MmrLeafVersion::new(version >> 5, version & 0b11111),
+				parent_number_and_hash: (
+					value.parentNumber.try_into().expect("parent number out of bounds"),
+					H256(value.parentHash.0),
+				),
+				beefy_next_authority_set: BeefyNextAuthoritySet {
+					id: value
+						.nextAuthoritySet
+						.id
+						.try_into()
+						.expect("next authority set id out of bounds"),
+					len: value
+						.nextAuthoritySet
+						.len
+						.try_into()
+						.expect("next authority set len out of bounds"),
+					keyset_commitment: H256(value.nextAuthoritySet.root.0),
+				},
+				leaf_extra: H256(value.extra.0),
+			}
+		}
+	}
+
+	impl From<ParachainHeader> for beefy_verifier_primitives::ParachainHeader {
+		fn from(value: ParachainHeader) -> Self {
+			beefy_verifier_primitives::ParachainHeader {
+				header: value.header.to_vec(),
+				para_id: value.id.try_into().expect("para id out of bounds"),
+				// SP1 proves inclusion directly so any value here is fine.
+				index: 0,
+			}
+		}
+	}
+
+	/// Build an [`Sp1BeefyProof`] from the solidity-side SP1 proof components.
+	///
+	/// Mirrors `SP1Beefy.verifyConsensus`'s decode step (see
+	/// `evm/src/consensus/SP1Beefy.sol`): the contract ABI-decodes the proof payload into
+	/// `(MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes)`.
+	pub fn sp1_beefy_proof_from_solidity(
+		commitment: MiniCommitment,
+		leaf: PartialBeefyMmrLeaf,
+		headers: Vec<ParachainHeader>,
+		proof: Bytes,
+	) -> Sp1BeefyProof {
+		Sp1BeefyProof {
+			block_number: commitment
+				.blockNumber
+				.try_into()
+				.expect("block number out of bounds"),
+			validator_set_id: commitment
+				.validatorSetId
+				.try_into()
+				.expect("validator set id out of bounds"),
+			mmr_leaf: leaf.into(),
+			headers: headers.into_iter().map(Into::into).collect(),
+			proof: proof.to_vec(),
 		}
 	}
 }
@@ -395,7 +440,7 @@ impl From<router::GetResponse> for GetResponse {
 			values: value
 				.values
 				.into_iter()
-				.map(|storage_value| StorageValue {
+				.map(|storage_value| crate::evm_host::MerklePatricia::StorageValue {
 					key: storage_value.key.into(),
 					value: storage_value.value.unwrap_or_default().into(),
 				})

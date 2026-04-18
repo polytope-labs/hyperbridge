@@ -15,7 +15,7 @@ anyhow.workspace = true
 primitive-types = { workspace = true, features = ["codec"] }
 codec = { workspace = true, features = ["derive"], default-features = true }
 derive_more = { workspace = true, features = ["from"], default-features = true }
-rs_merkle = { git = "https://github.com/polytope-labs/rs-merkle", branch = "seun/2d-merkle-proofs" }
+rs_merkle = { workspace = true, default-features = true }
 hex-literal = "0.4.1"
 hex = { version = "0.4.3" }
 

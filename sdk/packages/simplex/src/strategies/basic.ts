@@ -27,6 +27,14 @@ export class BasicFiller implements FillerStrategy {
 	private bpsPolicy: FillerBpsPolicy
 	private signer: SigningAccount
 	private logger = getLogger("basic-simplex")
+	/** Consecutive orders where overfill clamp activated. Reset on a clean evaluation. */
+	private consecutiveClamps = 0
+	/** Once set, the filler refuses all orders until restart — likely systemic pricing error. */
+	private halted = false
+	/** Ceiling bps above user-requested output. Sourced from filler config. */
+	private readonly maxOverfillBps: bigint
+	/** Consecutive clamped evaluations before halting. Sourced from filler config. */
+	private readonly maxConsecutiveClamps: number
 	confirmationPolicy: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 
 	constructor(
@@ -46,6 +54,8 @@ export class BasicFiller implements FillerStrategy {
 				confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 		}
 		this.signer = signer
+		this.maxOverfillBps = configService.getMaxOverfillBps()
+		this.maxConsecutiveClamps = configService.getMaxConsecutiveClamps()
 	}
 
 	/**
@@ -55,6 +65,10 @@ export class BasicFiller implements FillerStrategy {
 	 * @returns True if the strategy can fill the order
 	 */
 	async canFill(order: Order): Promise<boolean> {
+		if (this.halted) {
+			this.logger.warn({ orderId: order.id }, "BasicFiller halted — rejecting order")
+			return false
+		}
 		try {
 			// Validate basic structure
 			if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
@@ -127,6 +141,10 @@ export class BasicFiller implements FillerStrategy {
 	 * @returns The profit in USD (Number), or 0 if not profitable or output amounts don't meet minimum
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
+		if (this.halted) {
+			this.logger.warn({ orderId: order.id }, "BasicFiller halted — rejecting order")
+			return 0
+		}
 		try {
 			const { decimals: destFeeTokenDecimals } = await this.contractService.getFeeTokenWithDecimals(
 				order.destination,
@@ -212,6 +230,7 @@ export class BasicFiller implements FillerStrategy {
 		const basisPoints = 10000n
 		let totalProfitNormalized = 0n
 		const fillerOutputs: TokenInfo[] = []
+		let anyLegClamped = false
 
 		for (let i = 0; i < order.inputs.length; i++) {
 			const input = order.inputs[i]
@@ -228,23 +247,42 @@ export class BasicFiller implements FillerStrategy {
 
 			// Calculate max output filler will provide based on their bps
 			// Formula: inputAmount * (10000 - fillerBps) / 10000
-			const fillerMaxOutput = (convertedInputAmount * (basisPoints - fillerBps)) / basisPoints
+			const bpsOutput = (convertedInputAmount * (basisPoints - fillerBps)) / basisPoints
 
 			// Reject if user expects more than filler can provide
-			if (output.amount > fillerMaxOutput) {
+			if (output.amount > bpsOutput) {
 				this.logger.debug(
 					{
 						index: i,
 						inputAmount: input.amount.toString(),
 						inputDecimals,
 						userExpects: output.amount.toString(),
-						fillerWillProvide: fillerMaxOutput.toString(),
+						fillerWillProvide: bpsOutput.toString(),
 						outputDecimals,
 						fillerBps: fillerBps.toString(),
 					},
 					"User expects more than filler can provide based on bps",
 				)
 				return { isValid: false, profitFromSlippage: 0n }
+			}
+
+			// Clamp to at most (1 + maxOverfillBps) × user-requested to bound loss on pricing errors.
+			const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
+			let fillerMaxOutput = bpsOutput
+			if (bpsOutput > overfillCeiling) {
+				this.logger.warn(
+					{
+						orderId: order.id,
+						index: i,
+						userRequested: output.amount.toString(),
+						unclamped: bpsOutput.toString(),
+						clamped: overfillCeiling.toString(),
+						maxOverfillBps: this.maxOverfillBps.toString(),
+					},
+					"Overfill clamp activated",
+				)
+				fillerMaxOutput = overfillCeiling
+				anyLegClamped = true
 			}
 
 			// Store the filler's calculated output for this token
@@ -262,6 +300,8 @@ export class BasicFiller implements FillerStrategy {
 			totalProfitNormalized += profitNormalized
 		}
 
+		this.recordOrderOutcome(anyLegClamped, order.id)
+
 		// Cache filler outputs for use during order execution
 		this.contractService.cacheService.setFillerOutputs(order.id!, fillerOutputs)
 		this.logger.debug(
@@ -273,6 +313,26 @@ export class BasicFiller implements FillerStrategy {
 		)
 
 		return { isValid: true, profitFromSlippage: totalProfitNormalized }
+	}
+
+	/**
+	 * Update consecutive-clamp counter after a successful order evaluation.
+	 * Halts the filler if maxConsecutiveClamps is reached — a pattern that strongly
+	 * suggests a systemic pricing bug rather than benign one-off over-provision.
+	 */
+	private recordOrderOutcome(clamped: boolean, orderId: string | undefined) {
+		if (clamped) {
+			this.consecutiveClamps += 1
+			if (this.consecutiveClamps >= this.maxConsecutiveClamps) {
+				this.halted = true
+				this.logger.error(
+					{ orderId, consecutiveClamps: this.consecutiveClamps, maxConsecutiveClamps: this.maxConsecutiveClamps },
+					"BasicFiller HALTED — overfill clamp triggered consecutively; restart required after investigation",
+				)
+			}
+		} else {
+			this.consecutiveClamps = 0
+		}
 	}
 
 	/**

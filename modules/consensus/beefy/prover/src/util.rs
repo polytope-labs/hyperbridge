@@ -18,7 +18,6 @@ use frame_support::sp_runtime::traits::Convert;
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use polkadot_sdk::*;
-use rs_merkle::MerkleTree;
 use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Keccak256;
 use sp_trie::{LayoutV0, Recorder, Trie, TrieDBBuilder, TrieDBMutBuilder, TrieMut};
@@ -39,8 +38,8 @@ pub struct TimeStampExtWithProof {
 /// This holds the signatures of a BEEFY commitment, along side a merkle multi-proof of the
 /// existence of the ethereum addresses associated with the signatures.
 pub struct AuthorityProofWithSignatures {
-	/// Merkle multi-proof
-	pub authority_proof: Vec<Vec<(usize, Hash)>>,
+	/// Merkle multi-proof (flattened with positions)
+	pub authority_proof: Vec<(usize, Hash)>,
 	/// The actual signatures alongside the authority index, used in verifying the merkle proof.
 	pub signatures: Vec<SignatureWithAuthorityIndex>,
 }
@@ -134,9 +133,12 @@ impl rs_merkle::Hasher for MerkleHasher {
 	}
 }
 
-/// Generates a 2D-merkle proof for the given leaves & indices
-pub fn merkle_proof(leaves: &[Hash], indices: &[usize]) -> Vec<Vec<(usize, Hash)>> {
-	let tree = MerkleTree::<MerkleHasher>::from_leaves(leaves);
-
-	tree.proof_2d(indices)
+/// ceil(log2(n)) — must match the Solidity `_ceilLog2` used by MerkleMultiProof.
+/// Do NOT use `rs_merkle::utils::indices::tree_depth` here — it uses floating-point
+/// math that returns incorrect results for exact powers of 2.
+pub fn ceil_log2(n: usize) -> usize {
+	if n <= 1 {
+		return 0;
+	}
+	(usize::BITS - (n - 1).leading_zeros()) as usize
 }

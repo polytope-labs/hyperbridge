@@ -93,4 +93,8 @@ pub enum ProverError {
 	/// Provider transport error
 	#[error("Provider error: {0}")]
 	ProviderError(String),
+
+	/// Custom error
+	#[error("{0}")]
+	Custom(String),
 }

@@ -8230,6 +8230,7 @@ dependencies = [
  "ismp-tendermint",
  "log",
  "mmr-primitives",
+ "pallet-beefy-consensus-proofs",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
@@ -8242,7 +8243,6 @@ dependencies = [
  "pallet-messaging-fees",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
- "pallet-outbound-proofs",
  "pallet-state-coprocessor",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
@@ -10561,9 +10561,7 @@ dependencies = [
  "alloy-transport",
  "anyhow",
  "beefy-verifier-primitives",
- "ckb-merkle-mountain-range",
  "ismp",
- "mmr-primitives",
  "polkadot-sdk",
  "primitive-types 0.13.1",
 ]
@@ -14408,6 +14406,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-beefy-consensus-proofs"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "beefy-verifier",
+ "beefy-verifier-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "ismp-beefy",
+ "ismp-solidity-abi",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+]
+
+[[package]]
 name = "pallet-beefy-mmr"
 version = "46.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15323,7 +15343,6 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-messaging-fees",
  "pallet-mmr-tree",
- "pallet-outbound-proofs",
  "pallet-token-gateway",
  "pallet-token-gateway-inspector",
  "pallet-token-governor",
@@ -15762,22 +15781,6 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
-]
-
-[[package]]
-name = "pallet-outbound-proofs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beefy-verifier",
- "beefy-verifier-primitives",
- "hex-literal 0.4.1",
- "ismp",
- "pallet-ismp",
- "parity-scale-codec",
- "polkadot-sdk",
- "primitive-types 0.13.1",
- "scale-info",
 ]
 
 [[package]]

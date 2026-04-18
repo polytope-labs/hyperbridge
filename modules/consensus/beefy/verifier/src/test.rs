@@ -223,7 +223,7 @@ async fn test_verify_consensus() {
 ///
 ///   cargo test -p beefy-verifier --lib dump_sp1_fixture_scale_bytes -- --nocapture --ignored
 ///
-/// Output is copied into `pallet-outbound-proofs`'s benchmark to avoid
+/// Output is copied into `pallet-beefy-consensus-proofs`'s benchmark to avoid
 /// pulling solidity-abi (std-only) into the wasm runtime build.
 #[test]
 #[ignore]

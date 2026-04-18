@@ -169,7 +169,7 @@ impl pallet_ismp::Config for Runtime {
 		TreasuryPalletId,
 		false,
 	>;
-	type OnDispatch = pallet_outbound_proofs::Pallet<Runtime>;
+	type OnDispatch = ();
 	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 

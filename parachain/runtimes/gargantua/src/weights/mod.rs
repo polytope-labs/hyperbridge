@@ -35,7 +35,7 @@ pub mod pallet_collective;
 pub mod pallet_intents_coprocessor;
 pub mod pallet_ismp;
 pub mod pallet_message_queue;
-pub mod pallet_outbound_proofs;
+pub mod pallet_beefy_consensus_proofs;
 pub mod pallet_session;
 pub mod pallet_sudo;
 pub mod pallet_timestamp;

@@ -131,7 +131,6 @@ impl pallet_ismp::Config for Test {
 	type ConsensusClients = ();
 	type OffchainDB = ();
 	type FeeHandler = ();
-	type OnDispatch = ();
 	type MigrationWeightInfo = ();
 }
 

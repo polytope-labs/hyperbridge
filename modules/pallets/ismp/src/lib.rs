@@ -117,15 +117,6 @@ pub mod pallet {
 	use sp_std::prelude::*;
 	pub use utils::*;
 
-	/// Hook called when an outgoing message is dispatched
-	pub trait OnDispatch {
-		fn on_dispatch();
-	}
-
-	impl OnDispatch for () {
-		fn on_dispatch() {}
-	}
-
 	/// [`PalletId`] where relayer fees will be collected
 	pub const RELAYER_FEE_ACCOUNT: PalletId = PalletId(*b"ISMPFEES");
 
@@ -216,10 +207,6 @@ pub mod pallet {
 		/// This offchain DB is also allowed to "merkelize" and "generate proofs" for messages.
 		/// Most state machines will likey not need this and can just provide `()`
 		type OffchainDB: OffchainDBProvider<Leaf = Leaf>;
-
-		/// Hook called when an outgoing request is dispatched.
-		/// Use `()` for a no-op implementation.
-		type OnDispatch: OnDispatch;
 
 		/// Weight functions for legacy storage drain migrations.
 		type MigrationWeightInfo: crate::weights::MigrationWeightInfo;
@@ -391,13 +378,7 @@ pub mod pallet {
 				storage::child::root(&ChildInfo::new_default(CHILD_TRIE_PREFIX), state_version);
 
 			let child_trie_root = H256::from_slice(&child_trie_root);
-			let previous_root = ChildTrieRoot::<T>::get();
-			let new_root: T::Hash = child_trie_root.into();
-			ChildTrieRoot::<T>::put::<T::Hash>(new_root);
-
-			if previous_root != new_root {
-				T::OnDispatch::on_dispatch();
-			}
+			ChildTrieRoot::<T>::put::<T::Hash>(child_trie_root.into());
 
 			let root = match T::OffchainDB::finalize() {
 				Ok(root) => root,

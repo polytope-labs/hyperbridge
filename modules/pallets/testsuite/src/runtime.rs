@@ -279,7 +279,6 @@ impl pallet_ismp::Config for Test {
 			true,
 		>,
 	);
-	type OnDispatch = ();
 	type MigrationWeightInfo = ();
 }
 

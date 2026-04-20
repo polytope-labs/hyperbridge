@@ -19,7 +19,7 @@ const BASE_CHAIN_ID = 8453
 const BASE_PUBLIC_RPCS: string[] = [
 	"https://mainnet.base.org",
 	"https://base.publicnode.com",
-	"https://base.llamarpc.com",
+	"https://base.drpc.org",
 	...(process.env.BASE_MAINNET ? [process.env.BASE_MAINNET] : []),
 ]
 

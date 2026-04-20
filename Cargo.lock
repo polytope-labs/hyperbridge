@@ -28097,6 +28097,7 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "log",
+ "pallet-beefy-consensus-proofs",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "parity-scale-codec",

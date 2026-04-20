@@ -255,10 +255,7 @@ fn dump_sp1_fixture_scale_bytes() {
 	let (commitment, leaf, headers, plonk_proof) =
 		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
 	let sp1_proof = Sp1BeefyProof {
-		block_number: commitment
-			.blockNumber
-			.try_into()
-			.expect("block number out of bounds"),
+		block_number: commitment.blockNumber.try_into().expect("block number out of bounds"),
 		validator_set_id: commitment
 			.validatorSetId
 			.try_into()
@@ -312,10 +309,7 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 	let (commitment, leaf, headers, plonk_proof) =
 		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
 	let sp1_proof = Sp1BeefyProof {
-		block_number: commitment
-			.blockNumber
-			.try_into()
-			.expect("block number out of bounds"),
+		block_number: commitment.blockNumber.try_into().expect("block number out of bounds"),
 		validator_set_id: commitment
 			.validatorSetId
 			.try_into()

@@ -44,8 +44,9 @@ pub use types::{Signature, SubmitProofPayload};
 pub use weights::WeightInfo;
 
 /// Offchain-storage key for the rotation proof that advanced the authority set to
-/// `set_id`. Relayers reconstruct this key off of a [`RotationProofs`](crate::pallet::RotationProofs)
-/// entry's key and read the raw ABI-encoded proof bytes from node-local offchain storage.
+/// `set_id`. Relayers reconstruct this key off of a
+/// [`RotationProofs`](crate::pallet::RotationProofs) entry's key and read the raw ABI-encoded proof
+/// bytes from node-local offchain storage.
 pub fn rotation_offchain_key(set_id: u64) -> alloc::vec::Vec<u8> {
 	let mut key = alloc::vec::Vec::with_capacity(
 		types::OFFCHAIN_PREFIX.len() + types::OFFCHAIN_ROT.len() + 8,
@@ -192,21 +193,15 @@ pub mod pallet {
 	/// reaches `T::MaxStoredProofs`). BEEFY set ids are monotone, so `pop_first` gives
 	/// FIFO eviction for free.
 	#[pallet::storage]
-	pub type RotationProofs<T: Config> = StorageValue<
-		_,
-		BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>,
-		ValueQuery,
-	>;
+	pub type RotationProofs<T: Config> =
+		StorageValue<_, BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>, ValueQuery>;
 
 	/// Bounded map of `proven_height → block number` for the most recent accepted
 	/// messaging proofs. See [`messaging_offchain_key`](crate::messaging_offchain_key)
 	/// for the matching offchain-storage lookup.
 	#[pallet::storage]
-	pub type MessagingProofs<T: Config> = StorageValue<
-		_,
-		BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>,
-		ValueQuery,
-	>;
+	pub type MessagingProofs<T: Config> =
+		StorageValue<_, BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -333,7 +328,7 @@ pub mod pallet {
 			let messaging_reward =
 				Some(child_trie_root) != last_rewarded && outcome.proven_height > prev_proven;
 			let should_reward = outcome.rotated || messaging_reward;
-			
+
 			if !should_reward {
 				return Ok(());
 			}
@@ -388,9 +383,9 @@ pub mod pallet {
 					if map.len() as u32 == T::MaxStoredProofs::get() {
 						if let Some(evicted_set_id) = map.iter().next().map(|(k, _)| *k) {
 							let _ = map.remove(&evicted_set_id);
-							sp_io::offchain_index::clear(
-								&crate::rotation_offchain_key(evicted_set_id),
-							);
+							sp_io::offchain_index::clear(&crate::rotation_offchain_key(
+								evicted_set_id,
+							));
 						}
 					}
 					let _ = map.try_insert(outcome.current_set_id, at);
@@ -403,9 +398,9 @@ pub mod pallet {
 					if map.len() as u32 == T::MaxStoredProofs::get() {
 						if let Some(evicted_height) = map.iter().next().map(|(k, _)| *k) {
 							let _ = map.remove(&evicted_height);
-							sp_io::offchain_index::clear(
-								&crate::messaging_offchain_key(evicted_height),
-							);
+							sp_io::offchain_index::clear(&crate::messaging_offchain_key(
+								evicted_height,
+							));
 						}
 					}
 					let _ = map.try_insert(outcome.proven_height, at);

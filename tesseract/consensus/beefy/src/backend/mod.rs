@@ -18,15 +18,37 @@
 //! allowing the prover and host to communicate without being tightly coupled to Redis.
 
 mod memory;
+mod onchain;
 mod redis;
 
 pub use memory::InMemoryProofBackend;
+pub use onchain::OnchainBackend;
 pub use redis::{RedisConfig, RedisProofBackend};
 
 use codec::{Decode, Encode};
 use futures::Stream;
 use ismp::{host::StateMachine, messaging::ConsensusMessage};
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
+
+/// Which proof backend the BEEFY prover/host should use.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProofBackendConfig {
+	/// Persistent Redis-backed queue. The prover writes proofs into RSMQ queues
+	/// and a separate host process consumes them.
+	Redis {
+		#[serde(flatten)]
+		config: RedisConfig,
+	},
+	/// On-chain backend. The prover submits proofs directly to
+	/// `pallet-beefy-consensus-proofs` via unsigned extrinsics — no separate
+	/// host process is needed.
+	Onchain,
+	/// In-process queue shared between prover and host. Single-process only,
+	/// not persisted across restarts.
+	InMemory,
+}
 
 /// Consensus proof message exchanged between prover and host
 #[derive(Clone, Debug, Encode, Decode)]

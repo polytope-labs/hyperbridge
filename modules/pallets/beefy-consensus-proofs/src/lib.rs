@@ -333,6 +333,10 @@ pub mod pallet {
 			let messaging_reward =
 				Some(child_trie_root) != last_rewarded && outcome.proven_height > prev_proven;
 			let should_reward = outcome.rotated || messaging_reward;
+			
+			if !should_reward {
+				return Ok(());
+			}
 
 			if messaging_reward {
 				LastRewardedDispatchRoot::<T>::put(child_trie_root);

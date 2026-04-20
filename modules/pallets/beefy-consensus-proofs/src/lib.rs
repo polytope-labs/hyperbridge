@@ -77,7 +77,7 @@ pub mod pallet {
 	use ismp::{
 		consensus::{ConsensusClientId, ConsensusStateId},
 		events::StateMachineUpdated,
-		handlers::handle_incoming_message,
+		handlers,
 		host::IsmpHost,
 		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
 	};
@@ -153,7 +153,8 @@ pub mod pallet {
 	pub type ProofReward<T: Config> =
 		StorageValue<_, <<T as Config>::Currency as Inspect<T::AccountId>>::Balance, ValueQuery>;
 
-	/// SP1 verification key hash (ASCII hex), consumed by `beefy_verifier::sp1::verify_sp1_consensus`.
+	/// SP1 verification key hash (ASCII hex), consumed by
+	/// `beefy_verifier::sp1::verify_sp1_consensus`.
 	#[pallet::storage]
 	pub type Sp1VkeyHash<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
@@ -175,7 +176,8 @@ pub mod pallet {
 		InvalidAccountId,
 		/// Signature did not verify against the signed message.
 		BadSignature,
-		/// Proof is stale (height ≤ `LastProvenHeight` for messaging, or not the expected rotation).
+		/// Proof is stale (height ≤ `LastProvenHeight` for messaging, or not the expected
+		/// rotation).
 		StaleProof,
 		/// First proof byte is not a recognized proof type.
 		UnknownProofType,
@@ -214,7 +216,7 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T>
 	where
-		T::AccountId: AsRef<[u8]>,
+		T::AccountId: Into<[u8; 32]>,
 	{
 		/// Initialize or reset the BEEFY consensus state from its solidity-ABI encoding.
 		#[pallet::call_index(0)]
@@ -298,28 +300,24 @@ pub mod pallet {
 			}
 
 			let zero = <<T as Config>::Currency as Inspect<T::AccountId>>::Balance::default();
-			let reward_paid = if should_reward {
-				let reward = ProofReward::<T>::get();
-				if reward > zero {
-					let treasury: T::AccountId =
-						<T as Config>::TreasuryPalletId::get().into_account_truncating();
-					<T as Config>::Currency::transfer(
-						&treasury,
-						&payload.submitter,
-						reward,
-						Preservation::Preserve,
-					)
-					.map_err(|e| {
-						log::warn!(
-							target: "ismp",
-							"[beefy-consensus-proofs] treasury reward transfer failed: {e:?}",
-						);
-						Error::<T>::RewardTransferFailed
-					})?;
-					reward
-				} else {
-					zero
-				}
+			let reward = ProofReward::<T>::get();
+			let reward_paid = if should_reward && reward > zero {
+				let treasury: T::AccountId =
+					<T as Config>::TreasuryPalletId::get().into_account_truncating();
+				<T as Config>::Currency::transfer(
+					&treasury,
+					&payload.submitter,
+					reward,
+					Preservation::Preserve,
+				)
+				.map_err(|e| {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] treasury reward transfer failed: {e:?}",
+					);
+					Error::<T>::RewardTransferFailed
+				})?;
+				reward
 			} else {
 				zero
 			};
@@ -327,7 +325,7 @@ pub mod pallet {
 			// Record metadata in the ring buffer.
 			let meta = ProofMetadata {
 				proven_height: outcome.proven_height,
-				validator_set_id: outcome.new_current_set_id,
+				validator_set_id: outcome.current_set_id,
 				submitter: payload.submitter.clone(),
 				created_at: frame_system::Pallet::<T>::block_number(),
 			};
@@ -341,7 +339,7 @@ pub mod pallet {
 			Self::deposit_event(Event::ProofAccepted {
 				submitter: payload.submitter.clone(),
 				height: outcome.proven_height,
-				new_set_id: outcome.rotated.then_some(outcome.new_current_set_id),
+				new_set_id: outcome.rotated.then_some(outcome.current_set_id),
 				rewarded: reward_paid,
 			});
 
@@ -375,9 +373,14 @@ pub mod pallet {
 	#[pallet::validate_unsigned]
 	impl<T: Config> ValidateUnsigned for Pallet<T>
 	where
-		T::AccountId: AsRef<[u8]>,
+		T::AccountId: Into<[u8; 32]>,
 	{
 		type Call = Call<T>;
+
+		// empty pre-dispatch so we don't modify storage
+		fn pre_dispatch(_call: &Self::Call) -> Result<(), TransactionValidityError> {
+			Ok(())
+		}
 
 		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
 			let Call::submit_proof { payload, signature } = call else {
@@ -415,7 +418,7 @@ pub mod pallet {
 				// One slot per pending rotation target.
 				builder
 					.priority(TransactionPriority::MAX)
-					.and_provides((ROT_TAG, outcome.new_current_set_id).encode())
+					.and_provides((ROT_TAG, outcome.current_set_id).encode())
 			} else {
 				// Single fixed slot — highest `proven_height` wins.
 				builder.priority(outcome.proven_height).and_provides(MSG_TAG.encode())
@@ -430,26 +433,25 @@ pub mod pallet {
 		/// Highest parachain height finalized by this proof (0 if none).
 		pub proven_height: u64,
 		/// `current_authorities.id` of the consensus state *after* the update.
-		pub new_current_set_id: u64,
+		pub current_set_id: u64,
 		/// True iff the proof rotated the current authority set.
 		pub rotated: bool,
 	}
 
 	impl<T: Config> Pallet<T>
 	where
-		T::AccountId: AsRef<[u8]>,
+		T::AccountId: Into<[u8; 32]>,
 	{
 		/// Single verification path shared by `validate_unsigned` and `submit_proof`:
 		///
 		/// 1. SR25519 signature check over the payload.
 		/// 2. ABI-decode the proof into the SCALE shape `ismp-beefy` consumes.
-		/// 3. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`
-		///    — `pallet-ismp` routes to `BeefyConsensusClient::verify_consensus` which runs
-		///    the full BEEFY / SP1 check and persists consensus state + parachain
-		///    commitments.
-		/// 4. Extract the proven parachain height from the returned
-		///    `StateMachineUpdated` events and the new authority-set id from the stored
-		///    consensus state so the caller can classify the proof as rotation / messaging.
+		/// 3. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message` —
+		///    `pallet-ismp` routes to `BeefyConsensusClient::verify_consensus` which runs the full
+		///    BEEFY / SP1 check and persists consensus state + parachain commitments.
+		/// 4. Extract the proven parachain height from the returned `StateMachineUpdated` events
+		///    and the new authority-set id from the stored consensus state so the caller can
+		///    classify the proof as rotation / messaging.
 		///
 		/// Staleness rejection (messaging proofs must push height forward; rotation must
 		/// target the expected next set id) is enforced here so both `validate_unsigned`
@@ -465,14 +467,7 @@ pub mod pallet {
 			}
 
 			// Signature.
-			let acct_bytes: &[u8] = payload.submitter.as_ref();
-			if acct_bytes.len() != 32 {
-				Err(Error::<T>::InvalidAccountId)?
-			}
-			let mut pk = [0u8; 32];
-			pk.copy_from_slice(acct_bytes);
-			let public = sr25519::Public::from_raw(pk);
-
+			let public = sr25519::Public::from(payload.submitter.clone().into());
 			let proof_digest = sp_io::hashing::blake2_256(&payload.proof);
 			let msg_preimage = (SIGNATURE_DOMAIN, &payload.submitter, proof_digest).encode();
 			let signed_msg = sp_io::hashing::blake2_256(&msg_preimage);
@@ -486,11 +481,7 @@ pub mod pallet {
 				Err(Error::<T>::UnknownProofType)?
 			}
 
-			// Hand off to pallet-ismp. This verifies, stores the new consensus state,
-			// and stores intermediate parachain commitments. Capture the pre-update
-			// `current_authorities.id` straight from the stored consensus state (rather
-			// than tracking it in a separate storage item) so we can detect rotation
-			// against the post-update state below.
+			// Hand off to pallet-ismp.
 			let host = pallet_ismp::Pallet::<T>::default();
 			let prev_state_bytes = host
 				.consensus_state(BEEFY_CONSENSUS_ID)
@@ -498,8 +489,7 @@ pub mod pallet {
 			let prev_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &prev_state_bytes[..])
 					.map_err(|_| Error::<T>::NotInitialized)?;
-			let prev_current_set = prev_state.current_authorities.id;
-			let result = handle_incoming_message(
+			let result = handlers::handle_incoming_message(
 				&host,
 				Message::Consensus(IsmpConsensusMessage {
 					consensus_proof: payload.proof.clone(),
@@ -515,26 +505,22 @@ pub mod pallet {
 				Error::<T>::VerificationFailed
 			})?;
 
-			// Highest parachain height finalized by this proof — read from the
-			// StateMachineUpdated events emitted by the consensus handler.
-			let mut proven_height: u64 = 0;
+			// Highest parachain height finalized by this proof
 			let ismp::handlers::MessageResult::ConsensusMessage(events) = result else {
 				Err(Error::<T>::StaleProof)?
 			};
-			for ev in events {
-				if let ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
-					latest_height,
-					state_machine_id,
-				}) = ev
-				{
-					// only advance hyperbridge height
-					if latest_height > proven_height
-						&& state_machine_id.state_id == T::Coprocessor::get().unwrap()
-					{
-						proven_height = latest_height;
-					}
-				}
-			}
+			let coprocessor = T::Coprocessor::get().unwrap();
+			let proven_height = events
+				.into_iter()
+				.filter_map(|ev| match ev {
+					ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
+						latest_height,
+						state_machine_id,
+					}) if state_machine_id.state_id == coprocessor => Some(latest_height),
+					_ => None,
+				})
+				.max()
+				.unwrap_or(0);
 
 			// Read post-update consensus state to derive the new set id.
 			let new_state_bytes = host
@@ -543,22 +529,24 @@ pub mod pallet {
 			let new_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &new_state_bytes[..])
 					.map_err(|_| Error::<T>::VerificationFailed)?;
-			let new_current_set_id = new_state.current_authorities.id;
-			let new_next_set_id = new_state.next_authorities.id;
-			let rotated = new_current_set_id > prev_current_set;
+			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
 
 			// BEEFY invariant: `next` is always `current + 1`. This also subsumes the
 			// N → N + 1 rotation check: when rotated, `new_current == prev_next ==
 			// prev_current + 1`, and `new_next == new_current + 1` is the same rule.
-			if new_next_set_id != new_current_set_id.saturating_add(1) {
-				return Err(Error::<T>::UnexpectedAuthoritySet);
+			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
+				Err(Error::<T>::UnexpectedAuthoritySet)?;
 			}
 			// Messaging-only proofs must push height forward, otherwise it's a replay.
 			if !rotated && proven_height <= LastProvenHeight::<T>::get() {
-				return Err(Error::<T>::StaleProof);
+				Err(Error::<T>::StaleProof)?
 			}
 
-			Ok(VerifyOutcome { proven_height, new_current_set_id, rotated })
+			Ok(VerifyOutcome {
+				proven_height,
+				current_set_id: new_state.current_authorities.id,
+				rotated,
+			})
 		}
 	}
 }

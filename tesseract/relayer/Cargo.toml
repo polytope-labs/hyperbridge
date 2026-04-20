@@ -25,7 +25,8 @@ tokio = { workspace = true, features = ["full"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
-proof-indexer = { workspace = true }
+hex = "0.4"
+pallet-beefy-consensus-proofs = { workspace = true, default-features = true }
 sp-consensus-beefy = { workspace = true }
 subxt = { workspace = true }
 subxt-utils = { workspace = true }

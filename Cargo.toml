@@ -128,7 +128,6 @@ members = [
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
     "tesseract/consensus/pharos",
-    "tesseract/consensus/proof-indexer",
 
     "tesseract/relayer",
 

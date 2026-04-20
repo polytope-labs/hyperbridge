@@ -22,6 +22,15 @@ pub mod queue;
 use anyhow::anyhow;
 use futures::{Stream, StreamExt};
 pub use ismp::events::StateMachineUpdated;
+
+/// `ProofAccepted` event from `pallet-beefy-consensus-proofs`. `new_set_id.is_some()`
+/// indicates an authority-set rotation — treat as mandatory (must propagate to every
+/// destination even when no user messages target it).
+#[derive(Debug, Clone)]
+pub struct ProofAccepted {
+	pub height: u64,
+	pub new_set_id: Option<u64>,
+}
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -304,6 +313,17 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		&self,
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
+
+	/// Return a stream of [`ProofAccepted`] events emitted by
+	/// `pallet-beefy-consensus-proofs`. Only Hyperbridge runs this pallet — other
+	/// providers fall back to the default implementation which errors.
+	async fn proof_accepted_notification(
+		&self,
+	) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
+		Err(anyhow!(
+			"proof_accepted_notification is only supported on Hyperbridge substrate clients"
+		))
+	}
 
 	/// Return a stream that watches for state machine commitment vetoes, starting at [`from`]
 	/// yields when a [`StateCommitmentVetoed`] event is observed for [`height`]

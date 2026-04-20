@@ -13,44 +13,64 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use codec::Decode;
-use ismp::messaging::ConsensusMessage;
-use proof_indexer::ProofIndexer;
+//! Reads accepted BEEFY proof bytes from Hyperbridge's node-local offchain storage.
+//!
+//! Requires the HB node to expose the `offchain_localStorageGet` JSON-RPC —
+//! typically via `--rpc-methods Unsafe`. Proofs are node-local: a node that
+//! wasn't running when a proof was submitted will have no record of it.
+
+use anyhow::anyhow;
+use pallet_beefy_consensus_proofs::{messaging_offchain_key, rotation_offchain_key};
+use subxt::ext::subxt_rpcs::{rpc_params, RpcClient};
 
 #[async_trait::async_trait]
-pub trait ConsensusProofProvider: Send + Sync {
-	/// Returns a consensus proof that finalizes at least up to `target_height`,
-	/// or None if no suitable proof is available yet.
-	async fn get_proof(
+pub trait ConsensusProofSource: Send + Sync {
+	/// Returns the raw `payload.proof` bytes for the accepted proof. Callers
+	/// wrap it in a [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
+	async fn fetch(
 		&self,
-		target_height: u64,
-	) -> Result<Option<ConsensusMessage>, anyhow::Error>;
+		height: u64,
+		new_set_id: Option<u64>,
+	) -> Result<Vec<u8>, anyhow::Error>;
 }
 
-/// V1: queries pre-generated ZK proofs from the indexer PostgreSQL.
-pub struct IndexerProofProvider {
-	indexer: ProofIndexer,
+pub struct OffchainProofSource {
+	rpc_client: RpcClient,
 }
 
-impl IndexerProofProvider {
-	pub fn new(indexer: ProofIndexer) -> Self {
-		Self { indexer }
+impl OffchainProofSource {
+	pub fn new(rpc_client: RpcClient) -> Self {
+		Self { rpc_client }
 	}
 }
 
 #[async_trait::async_trait]
-impl ConsensusProofProvider for IndexerProofProvider {
-	async fn get_proof(
+impl ConsensusProofSource for OffchainProofSource {
+	async fn fetch(
 		&self,
-		target_height: u64,
-	) -> Result<Option<ConsensusMessage>, anyhow::Error> {
-		let proof = self.indexer.latest_proof().await?;
-		match proof {
-			Some(row) if row.finalized_height >= target_height as i64 => {
-				let msg = ConsensusMessage::decode(&mut &row.consensus_proof[..])?;
-				Ok(Some(msg))
-			},
-			_ => Ok(None),
-		}
+		height: u64,
+		new_set_id: Option<u64>,
+	) -> Result<Vec<u8>, anyhow::Error> {
+		let key = match new_set_id {
+			Some(set_id) => rotation_offchain_key(set_id),
+			None => messaging_offchain_key(height),
+		};
+		let params = rpc_params!["PERSISTENT", format!("0x{}", hex::encode(&key))];
+
+		let result: Option<String> = self
+			.rpc_client
+			.request("offchain_localStorageGet", params)
+			.await
+			.map_err(|err| anyhow!("offchain_localStorageGet failed: {err:?}"))?;
+
+		let hex_bytes = result.ok_or_else(|| {
+			anyhow!(
+				"proof missing from HB offchain storage (h={height}, set={new_set_id:?}). \
+				 Ensure the HB node exposes unsafe RPCs and was up when the proof was submitted."
+			)
+		})?;
+
+		let stripped = hex_bytes.strip_prefix("0x").unwrap_or(hex_bytes.as_str());
+		hex::decode(stripped).map_err(|err| anyhow!("offchain proof not valid hex: {err:?}"))
 	}
 }

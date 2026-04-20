@@ -13,8 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Consolidated relayer config. Shape:
+//! - `[hyperbridge]`         — HB host (substrate RPC, prover)
+//! - `[<chain-name>]`        — per-chain [`AnyConfig`]; one block per chain
+//! - `[relayer]`             — operator knobs
+//!
+//! `delivery_endpoints` scopes inbound messaging; `consensus_chains` scopes
+//! inbound consensus; `outbound` toggles the HB → chain fan-out.
+
 use anyhow::anyhow;
-use ismp::{consensus::StateMachineId, host::StateMachine};
+use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_consensus::any::{AnyConfig, HyperbridgeHostConfig};
@@ -22,12 +30,6 @@ use toml::Table;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayerConfig {
-	// -- Consensus (inbound) --
-	pub challenge_period: Option<u64>,
-	pub maximum_update_intervals: Option<Vec<(StateMachineId, u64)>>,
-	#[serde(default = "default_true")]
-	pub enable_hyperbridge_consensus: bool,
-
 	// -- Messaging (inbound) --
 	pub module_filter: Option<Vec<String>>,
 	#[serde(default)]
@@ -41,8 +43,15 @@ pub struct RelayerConfig {
 	pub deliver_failed: Option<bool>,
 	pub disable_fee_accumulation: Option<bool>,
 
-	// -- Outbound --
-	pub indexer_db_url: Option<String>,
+	/// Chains (by state machine string, e.g. `"EVM-1"`) to run inbound consensus
+	/// for. `None` / empty → run for every configured chain. Use this to opt
+	/// individual chains in or out of the consensus-relaying cost.
+	pub consensus_chains: Option<Vec<String>>,
+
+	/// If `true` (the default), spawn the outbound (HB → destination) task that
+	/// drives off pallet-beefy-consensus-proofs `ProofAccepted` events.
+	#[serde(default = "default_true")]
+	pub outbound: bool,
 }
 
 fn default_true() -> bool {
@@ -52,9 +61,6 @@ fn default_true() -> bool {
 impl Default for RelayerConfig {
 	fn default() -> Self {
 		Self {
-			challenge_period: None,
-			maximum_update_intervals: None,
-			enable_hyperbridge_consensus: true,
 			module_filter: None,
 			minimum_profit_percentage: 0,
 			delivery_endpoints: Vec::new(),
@@ -64,7 +70,19 @@ impl Default for RelayerConfig {
 			unprofitable_retry_frequency: None,
 			deliver_failed: None,
 			disable_fee_accumulation: None,
-			indexer_db_url: None,
+			consensus_chains: None,
+			outbound: true,
+		}
+	}
+}
+
+impl RelayerConfig {
+	/// Returns true iff inbound consensus should run for `state_machine`.
+	pub fn inbound_consensus_enabled(&self, state_machine: &StateMachine) -> bool {
+		match &self.consensus_chains {
+			None => true,
+			Some(list) if list.is_empty() => true,
+			Some(list) => list.iter().any(|s| s == &state_machine.to_string()),
 		}
 	}
 }
@@ -85,8 +103,6 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 	}
 }
 
-/// Consolidated config reusing the consensus relayer's chain config types
-/// plus messaging and outbound fields in the [relayer] section.
 pub struct HyperbridgeConfig {
 	pub hyperbridge: HyperbridgeHostConfig,
 	pub chains: HashMap<StateMachine, AnyConfig>,
@@ -124,7 +140,7 @@ impl HyperbridgeConfig {
 		Ok(Self { hyperbridge, chains, relayer })
 	}
 
-	/// Build the consensus relayer's config for create_client_map
+	/// Build the consensus relayer's config for create_client_map.
 	pub fn consensus_config(&self) -> tesseract_consensus::config::HyperbridgeConfig {
 		tesseract_consensus::config::HyperbridgeConfig {
 			hyperbridge: self.hyperbridge.clone(),

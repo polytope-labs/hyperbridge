@@ -22,7 +22,7 @@ use subxt::{
 	config::HashFor,
 	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType},
 	tx::{Payload, TxInBlock, TxProgress, TxStatus},
-	utils::{MultiSignature, H256},
+	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
 
@@ -53,6 +53,22 @@ pub struct PostResponseHandledEvent(pub RequestResponseHandled);
 impl subxt::events::StaticEvent for PostResponseHandledEvent {
 	const PALLET: &'static str = "Ismp";
 	const EVENT: &'static str = "PostResponseHandled";
+}
+
+/// Mirror of `pallet_beefy_consensus_proofs::Event::ProofAccepted` for subxt
+/// type-driven decoding. Balance is `u128` on the Hyperbridge runtime.
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub struct ProofAcceptedEvent {
+	pub submitter: AccountId32,
+	pub height: u64,
+	pub new_set_id: Option<u64>,
+	pub rewarded: u128,
+}
+impl subxt::events::StaticEvent for ProofAcceptedEvent {
+	const PALLET: &'static str = "BeefyConsensusProofs";
+	const EVENT: &'static str = "ProofAccepted";
 }
 
 /// Send an unsigned extrinsic for ISMP messages.

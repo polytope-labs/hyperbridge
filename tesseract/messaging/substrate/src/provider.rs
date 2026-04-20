@@ -61,13 +61,13 @@ use subxt_utils::{
 	values::{messages_to_value, state_machine_height_to_value},
 };
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
-	StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
+	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider,
+	ProofAccepted, Query, StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
 };
 
 use crate::{
 	calls::RequestMetadata,
-	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner, ProofAcceptedEvent},
 	SubstrateClient,
 };
 
@@ -655,6 +655,90 @@ where
 			}
 		});
 
+		Ok(Box::pin(stream))
+	}
+
+	async fn proof_accepted_notification(
+		&self,
+	) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
+		use futures::StreamExt;
+		let client = self.clone();
+		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(64);
+
+		let initial_height = client.query_finalized_height().await?;
+		let state_machine = client.state_machine;
+
+		tokio::task::spawn(async move {
+			let mut cursor = initial_height;
+			let poll_interval = client.config.poll_interval.unwrap_or(10);
+
+			loop {
+				tokio::time::sleep(Duration::from_secs(poll_interval)).await;
+
+				let finalized_hash = match client.rpc.chain_get_finalized_head().await {
+					Ok(h) => h,
+					Err(err) => {
+						log::error!(target: "tesseract", "{state_machine:?} proof_accepted: finalized_head: {err:?}");
+						continue;
+					},
+				};
+
+				let header = match client.rpc.chain_get_header(Some(finalized_hash)).await {
+					Ok(Some(h)) => h,
+					Ok(None) => continue,
+					Err(err) => {
+						log::error!(target: "tesseract", "{state_machine:?} proof_accepted: get_header: {err:?}");
+						continue;
+					},
+				};
+
+				let tip: u64 = header.number().into();
+				if tip <= cursor {
+					continue;
+				}
+
+				for block_num in (cursor + 1)..=tip {
+					let hash = match client.rpc.chain_get_block_hash(Some(block_num.into())).await {
+						Ok(Some(h)) => h,
+						_ => continue,
+					};
+
+					let events = match client.client.events().at(hash).await {
+						Ok(e) => e,
+						Err(err) => {
+							log::debug!(target: "tesseract", "{state_machine:?} proof_accepted: events at {block_num}: {err:?}");
+							continue;
+						},
+					};
+
+					for ev in events.iter() {
+						let ev = match ev {
+							Ok(e) => e,
+							Err(_) => continue,
+						};
+						match ev.as_event::<ProofAcceptedEvent>() {
+							Ok(Some(decoded)) => {
+								let out = ProofAccepted {
+									height: decoded.height,
+									new_set_id: decoded.new_set_id,
+								};
+								if tx.send(out).await.is_err() {
+									return;
+								}
+							},
+							Ok(None) => {},
+							Err(err) => {
+								log::warn!(target: "tesseract", "{state_machine:?} proof_accepted decode failed: {err:?}");
+							},
+						}
+					}
+				}
+
+				cursor = tip;
+			}
+		});
+
+		let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(Ok);
 		Ok(Box::pin(stream))
 	}
 

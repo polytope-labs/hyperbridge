@@ -13,7 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+	collections::{BTreeMap, HashMap},
+	sync::Arc,
+};
 
 use anyhow::Context;
 use clap::Parser;
@@ -28,7 +31,7 @@ use transaction_fees::TransactionPayment;
 use crate::{
 	config::HyperbridgeConfig,
 	outbound,
-	provider::{ConsensusProofProvider, IndexerProofProvider},
+	provider::{ConsensusProofSource, OffchainProofSource},
 };
 
 #[derive(Parser, Debug)]
@@ -41,35 +44,11 @@ pub struct Cli {
 	/// Path to the relayer database file (for fee tracking)
 	#[arg(short, long)]
 	pub db: String,
-
-	#[command(subcommand)]
-	pub subcommand: Option<Subcommand>,
-}
-
-#[derive(clap::Subcommand, Debug)]
-pub enum Subcommand {
-	/// Capture a BEEFY consensus proof from the relay chain and store it in the indexer DB
-	CaptureProof {
-		/// Relay chain websocket RPC URL
-		#[arg(long)]
-		relay_rpc: String,
-		/// PostgreSQL connection URL for the indexer database
-		#[arg(long)]
-		db_url: String,
-	},
 }
 
 impl Cli {
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		setup_logging()?;
-
-		if let Some(subcommand) = self.subcommand {
-			return match subcommand {
-				Subcommand::CaptureProof { relay_rpc, db_url } =>
-					crate::capture_proof::capture_and_store(&relay_rpc, &db_url).await,
-			};
-		}
-
 		log::info!("Initializing tesseract relayer");
 
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
@@ -84,7 +63,6 @@ impl Cli {
 				.context("Error initializing fee database")?,
 		);
 
-		// Hyperbridge as IsmpHost (for inbound consensus counterparty)
 		let hyperbridge_host = config
 			.hyperbridge
 			.clone()
@@ -92,36 +70,22 @@ impl Cli {
 			.await?;
 		let coprocessor = hyperbridge_host.provider().state_machine_id().state_id;
 		let hyperbridge_provider = hyperbridge_host.provider();
+		let hb_rpc_client = hyperbridge_host.client().rpc_client.clone();
 
 		let host_clients = create_client_map(config.consensus_config()).await?;
 
-		// IsmpProvider map derived from IsmpHost clients
 		let mut provider_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
 			host_clients.iter().map(|(sm, host)| (*sm, host.provider())).collect();
 		provider_clients.insert(coprocessor, hyperbridge_provider.clone());
 
-		let proof_provider: Option<Arc<dyn ConsensusProofProvider>> = match relayer.indexer_db_url {
-			Some(ref db_url) => {
-				let indexer = proof_indexer::ProofIndexer::initialize(db_url).await?;
-				log::info!("Outbound proof provider connected to indexer DB");
-				Some(Arc::new(IndexerProofProvider::new(indexer)))
-			},
-			None => None,
-		};
-
 		let messaging_config: tesseract_primitives::config::RelayerConfig = relayer.clone().into();
 
 		for (state_machine, host) in &host_clients {
-			if !relayer.delivery_endpoints.is_empty() &&
-				!relayer.delivery_endpoints.contains(&state_machine.to_string())
-			{
-				continue;
-			}
-
+			let messaging_in_scope = relayer.delivery_endpoints.is_empty() ||
+				relayer.delivery_endpoints.contains(&state_machine.to_string());
 			let provider = host.provider();
 
-			// -- Inbound consensus: EVM → Hyperbridge --
-			{
+			if relayer.inbound_consensus_enabled(state_machine) {
 				let hb = hyperbridge_provider.clone();
 				let name = format!("inbound-consensus-{}-{}", provider.name(), hb.name());
 				let host = host.clone();
@@ -137,8 +101,7 @@ impl Cli {
 				);
 			}
 
-			// -- Inbound messaging: EVM → Hyperbridge --
-			{
+			if messaging_in_scope {
 				let mut hb_for_messaging = tesseract_substrate::SubstrateClient::<
 					KeccakSubstrateChain,
 				>::new(config.hyperbridge.substrate_config())
@@ -156,20 +119,34 @@ impl Cli {
 				)
 				.await?;
 			}
+		}
 
-			// -- Outbound: Hyperbridge → EVM (merged consensus + messaging) --
-			if let Some(ref proof_provider) = proof_provider {
+		if relayer.outbound {
+			let destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>> = host_clients
+				.iter()
+				.filter(|(sm, _)| {
+					relayer.delivery_endpoints.is_empty() ||
+						relayer.delivery_endpoints.contains(&sm.to_string())
+				})
+				.map(|(sm, host)| (*sm, host.provider()))
+				.collect();
+
+			if destinations.is_empty() {
+				log::warn!(
+					target: "tesseract",
+					"outbound enabled but no destinations resolved — skipping outbound task"
+				);
+			} else {
+				let proof_source: Arc<dyn ConsensusProofSource> =
+					Arc::new(OffchainProofSource::new(hb_rpc_client));
 				let hb = hyperbridge_provider.clone();
-				let evm = provider.clone();
-				let provider = proof_provider.clone();
-				let coproc = coprocessor;
-				let name = format!("outbound-{}-{}", hb.name(), evm.name());
+				let name = format!("outbound-{}", hb.name());
 
 				task_manager.spawn_essential_handle().spawn_blocking(
 					Box::leak(Box::new(name.clone())),
 					"outbound",
 					async move {
-						let res = outbound::run(hb, evm, provider, coproc).await;
+						let res = outbound::run(hb, destinations, proof_source).await;
 						log::error!(target: "tesseract", "{name} terminated: {res:?}");
 					}
 					.boxed(),
@@ -179,7 +156,6 @@ impl Cli {
 
 		log::info!("Initialized relayer tasks");
 		task_manager.future().await?;
-
 		Ok(())
 	}
 }

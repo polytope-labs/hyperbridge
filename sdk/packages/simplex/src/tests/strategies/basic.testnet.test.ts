@@ -479,8 +479,8 @@ async function setUp() {
 	const chains = [bscChapelId, polygonAmoyId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 97, rpcUrl: process.env.BSC_CHAPEL!, bundlerUrl: bundlerUrl(97) },
-		{ chainId: 80002, rpcUrl: process.env.POLYGON_AMOY!, bundlerUrl: bundlerUrl(80002) },
+		{ chainId: 97, rpcUrls: [process.env.BSC_CHAPEL!], bundlerUrl: bundlerUrl(97) },
+		{ chainId: 80002, rpcUrls: [process.env.POLYGON_AMOY!], bundlerUrl: bundlerUrl(80002) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -545,8 +545,8 @@ async function setUpTron() {
 	const chains = [tronNileId, polygonAmoyId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 3448148188, rpcUrl: process.env.TRON_NILE! },
-		{ chainId: 80002, rpcUrl: process.env.POLYGON_AMOY!, bundlerUrl: bundlerUrl(80002) },
+		{ chainId: 3448148188, rpcUrls: [process.env.TRON_NILE!] },
+		{ chainId: 80002, rpcUrls: [process.env.POLYGON_AMOY!], bundlerUrl: bundlerUrl(80002) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {

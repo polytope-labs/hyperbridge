@@ -3,14 +3,47 @@ import { ChainConfigService } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
-	rpcUrl: string
+	/** One or more RPC URLs. When multiple are provided, event scans use quorum consensus. */
+	rpcUrls: string[]
 	bundlerUrl: string
 }
 
 export interface ResolvedChainConfig {
 	chainId: number
-	rpcUrl: string
+	/** One or more RPC URLs for this chain. When multiple are provided, event scans use quorum consensus. */
+	rpcUrls: string[]
 	bundlerUrl?: string
+}
+
+/**
+ * Enforces that every URL in `rpcUrls` resolves to a distinct hostname and returns
+ * the array unchanged.
+ *
+ * @throws if the array is empty or two URLs share the same hostname.
+ */
+export function validateRpcUrls(rpcUrls: string[]): string[] {
+	if (rpcUrls.length === 0) {
+		throw new Error("rpcUrls must contain at least one URL")
+	}
+
+	const seenHosts = new Map<string, string>()
+	for (const url of rpcUrls) {
+		let hostname: string
+		try {
+			hostname = new URL(url).hostname.toLowerCase()
+		} catch {
+			throw new Error(`Invalid RPC URL: ${url}`)
+		}
+		const existing = seenHosts.get(hostname)
+		if (existing) {
+			throw new Error(
+				`Quorum RPC URLs must point to different domains, but ${existing} and ${url} share hostname "${hostname}"`,
+			)
+		}
+		seenHosts.set(hostname, url)
+	}
+
+	return rpcUrls
 }
 
 /**
@@ -34,12 +67,23 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 
 /**
  * Resolves chain IDs for all user-provided chain configs by querying each RPC.
+ * When multiple RPC URLs are configured for a chain, every URL is queried and all
+ * must agree on the chainId.
  */
 export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Promise<ResolvedChainConfig[]> {
 	return Promise.all(
 		chains.map(async (chain) => {
-			const chainId = await fetchChainId(chain.rpcUrl)
-			return { chainId, rpcUrl: chain.rpcUrl, bundlerUrl: chain.bundlerUrl }
+			const rpcUrls = validateRpcUrls(chain.rpcUrls)
+			const chainIds = await Promise.all(rpcUrls.map((url) => fetchChainId(url)))
+			const [first, ...rest] = chainIds
+			for (let i = 0; i < rest.length; i++) {
+				if (rest[i] !== first) {
+					throw new Error(
+						`Quorum RPC URLs disagree on chainId: ${rpcUrls[0]} returned ${first} but ${rpcUrls[i + 1]} returned ${rest[i]}`,
+					)
+				}
+			}
+			return { chainId: first, rpcUrls, bundlerUrl: chain.bundlerUrl }
 		}),
 	)
 }
@@ -95,14 +139,16 @@ export interface FillerConfig {
  */
 export class FillerConfigService {
 	private chainConfigService: ChainConfigService
-	private rpcOverrides: Map<number, string> = new Map()
+	private rpcOverrides: Map<number, string[]> = new Map()
 	private bundlerUrls: Map<number, string> = new Map()
 	private fillerConfig?: FillerConfig
 
 	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
 		chainConfigs.forEach((config) => {
-			if (config.rpcUrl) {
-				this.rpcOverrides.set(config.chainId, config.rpcUrl)
+			if (config.rpcUrls && config.rpcUrls.length > 0) {
+				// Re-validate in case the caller constructed a ResolvedChainConfig directly
+				// (e.g. in tests) without going through resolveChainConfigs.
+				this.rpcOverrides.set(config.chainId, validateRpcUrls(config.rpcUrls))
 			}
 			if (config.bundlerUrl) {
 				this.bundlerUrls.set(config.chainId, config.bundlerUrl)
@@ -181,13 +227,28 @@ export class FillerConfigService {
 
 	getRpcUrl(chain: string): string {
 		const chainId = this.getChainIdFromStateMachineId(chain)
-		const customRpcUrl = this.rpcOverrides.get(chainId)
-		if (customRpcUrl) {
-			return customRpcUrl
+		const customRpcUrls = this.rpcOverrides.get(chainId)
+		if (customRpcUrls && customRpcUrls.length > 0) {
+			return customRpcUrls[0]
 		}
 
 		// Fall back to SDK's default RPC URL
 		return this.chainConfigService.getRpcUrl(chain)
+	}
+
+	/**
+	 * Returns every user-configured RPC URL for a chain. When multiple URLs are present,
+	 * consumers (e.g. the event monitor) run queries as a quorum — every provider must
+	 * return the same result for the batch to succeed.
+	 */
+	getRpcUrls(chain: string): string[] {
+		const chainId = this.getChainIdFromStateMachineId(chain)
+		const customRpcUrls = this.rpcOverrides.get(chainId)
+		if (customRpcUrls && customRpcUrls.length > 0) {
+			return [...customRpcUrls]
+		}
+
+		return [this.chainConfigService.getRpcUrl(chain)]
 	}
 
 	private getChainIdFromStateMachineId(chain: string): number {

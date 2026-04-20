@@ -18,10 +18,12 @@ import { decodeFunctionData } from "viem"
 import { ChainClientManager } from "@/services"
 import { FillerConfigService } from "@/services/FillerConfigService"
 import { getLogger } from "@/services/Logger"
+import { QuorumPublicClient } from "@/services/QuorumPublicClient"
 import { Mutex } from "async-mutex"
 
 export class EventMonitor extends EventEmitter {
 	private chains: Map<number, IEvmChain> = new Map()
+	private quorumClients: Map<number, QuorumPublicClient> = new Map()
 	private listening: boolean = false
 	private configService: FillerConfigService
 	private fillerAddress: string
@@ -52,6 +54,15 @@ export class EventMonitor extends EventEmitter {
 			const chain = EvmChain.fromParams(chainParams)
 			this.chains.set(config.chainId, chain as IEvmChain)
 			this.scanningMutexes.set(config.chainId, new Mutex())
+
+			const rpcUrls = this.configService.getRpcUrls(chainName)
+			this.quorumClients.set(config.chainId, new QuorumPublicClient(config.chainId, rpcUrls))
+			if (rpcUrls.length > 1) {
+				this.logger.info(
+					{ chainId: config.chainId, providerCount: rpcUrls.length },
+					"Quorum log scanning enabled",
+				)
+			}
 		})
 	}
 
@@ -69,12 +80,12 @@ export class EventMonitor extends EventEmitter {
 			try {
 				const intentGatewayAddress = this.configService.getIntentGatewayV2Address(`EVM-${chainId}`)
 
-				const client = chain.client
-				if (!client) {
-					throw new Error(`Chain ${chainId} does not expose a public client`)
+				const quorumClient = this.quorumClients.get(chainId)
+				if (!quorumClient) {
+					throw new Error(`Chain ${chainId} has no quorum client`)
 				}
 
-				const startBlock = await retryPromise(() => client.getBlockNumber(), {
+				const startBlock = await retryPromise(() => quorumClient.getBlockNumber(), {
 					maxRetries: 3,
 					backoffMs: 250,
 					logMessage: "Failed to get start block number",
@@ -93,7 +104,7 @@ export class EventMonitor extends EventEmitter {
 
 					await mutex.runExclusive(async () => {
 						try {
-							await this.scanBlocks(chainId, chain, intentGatewayAddress, gatewayEvents)
+							await this.scanBlocks(chainId, chain, quorumClient, intentGatewayAddress, gatewayEvents)
 						} catch (error) {
 							this.logger.error({ chainId, err: error }, "Error in block scanner")
 						}
@@ -120,13 +131,14 @@ export class EventMonitor extends EventEmitter {
 	private async scanBlocks(
 		chainId: number,
 		chain: IEvmChain,
+		quorumClient: QuorumPublicClient,
 		intentGatewayAddress: `0x${string}`,
 		gatewayEvents: any[],
 	): Promise<void> {
 		const lastScanned = this.lastScannedBlock.get(chainId)
 		if (!lastScanned) return
 
-		const currentBlock = await retryPromise(() => chain.client.getBlockNumber(), {
+		const currentBlock = await retryPromise(() => quorumClient.getBlockNumber(), {
 			maxRetries: 3,
 			backoffMs: 250,
 			logMessage: "Failed to get current block number",
@@ -147,7 +159,7 @@ export class EventMonitor extends EventEmitter {
 		try {
 			logs = await retryPromise(
 				() =>
-					chain.client.getLogs({
+					quorumClient.getLogs({
 						address: intentGatewayAddress,
 						events: gatewayEvents,
 						fromBlock,

@@ -22,7 +22,7 @@
 //! past a block in which new ISMP requests were dispatched.
 //!
 //! Proofs are submitted via **authenticated unsigned** extrinsics: the payload carries an
-//! SR25519 signature over `(domain, submitter, blake2_256(proof))`. The submitter account
+//! SR25519 signature over `(domain, submitter, keccak256(proof))`. The submitter account
 //! is both the reward payee and the claimed signer. Full proof verification runs in
 //! `ValidateUnsigned` so the tx pool only ever retains valid proofs. Replay is prevented
 //! by the monotonic advance of `LastProvenHeight` and the BEEFY authority set id
@@ -544,9 +544,9 @@ pub mod pallet {
 
 			// Signature.
 			let public = sr25519::Public::from(payload.submitter.clone().into());
-			let proof_digest = sp_io::hashing::keccak256(&payload.proof);
+			let proof_digest = sp_io::hashing::keccak_256(&payload.proof);
 			let msg_preimage = (SIGNATURE_DOMAIN, &payload.submitter, proof_digest).encode();
-			let signed_msg = sp_io::hashing::keccak256(&msg_preimage);
+			let signed_msg = sp_io::hashing::keccak_256(&msg_preimage);
 			if !sp_io::crypto::sr25519_verify(signature, &signed_msg, &public) {
 				Err(Error::<T>::BadSignature)?
 			}

@@ -68,9 +68,9 @@ mod benchmarks {
 
 		// Sign the canonical message exactly as `verify_and_apply` computes it.
 		let proof = WIRE_PROOF.to_vec();
-		let proof_digest = sp_io::hashing::blake2_256(&proof);
+		let proof_digest = sp_io::hashing::keccak_256(&proof);
 		let msg_preimage = (crate::types::SIGNATURE_DOMAIN, &submitter, proof_digest).encode();
-		let signed_msg = sp_io::hashing::blake2_256(&msg_preimage);
+		let signed_msg = sp_io::hashing::keccak_256(&msg_preimage);
 		let signature = sp_io::crypto::sr25519_sign(BENCH_KEY, &public, &signed_msg)
 			.expect("keystore has the just-generated keypair");
 

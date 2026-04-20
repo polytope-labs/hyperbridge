@@ -1,4 +1,4 @@
-export { IsmpClient, IndexerClient } from "@/client"
+export { IsmpClient } from "@/client"
 export { createQueryClient, queryGetRequest, queryPostRequest, queryAssetTeleported } from "@/query-client"
 export {
 	__test,

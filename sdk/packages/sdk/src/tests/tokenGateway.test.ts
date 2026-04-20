@@ -23,7 +23,7 @@ import type { KeyringPair } from "@polkadot/keyring/types"
 import { encodeISMPMessage, EvmChain, SubstrateChain } from "@/chain"
 import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
 import { createQueryClient } from "@/query-client"
-import { IndexerClient } from "@/client"
+import { IsmpClient } from "@/client"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { baseSepolia, bscTestnet } from "viem/chains"
 import tokenGateway from "@/abis/tokenGateway"
@@ -221,7 +221,7 @@ describe.skip("teleport function", () => {
 			hasher: "Keccak" as const,
 		})
 
-		const indexer = new IndexerClient({
+		const indexer = new IsmpClient({
 			source: sourceChain,
 			dest: destChain,
 			hyperbridge: hyperbridgeChain,

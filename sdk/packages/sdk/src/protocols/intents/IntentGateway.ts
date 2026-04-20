@@ -15,7 +15,7 @@ import type {
 import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
-import type { IndexerClient } from "@/client"
+import type { IsmpClient } from "@/client"
 import { _queryOrderInternal } from "@/query-client"
 import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
@@ -347,7 +347,7 @@ export class IntentGateway {
 	 */
 	async *cancelOrder(
 		order: Order,
-		indexerClient: IndexerClient,
+		indexerClient: IsmpClient,
 		fromDest: boolean = false,
 	): AsyncGenerator<CancelEvent> {
 		yield* this.orderCanceller.cancelOrder(order, indexerClient, fromDest)

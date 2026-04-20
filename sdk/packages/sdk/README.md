@@ -17,7 +17,7 @@ pnpm add @hyperbridge/sdk
 ### Initialize Client
 
 ```ts
-import { IndexerClient, createQueryClient, EvmChain, SubstrateChain } from "@hyperbridge/sdk"
+import { IsmpClient, createQueryClient, EvmChain, SubstrateChain } from "@hyperbridge/sdk"
 
 const queryClient = createQueryClient({
 	url: "http://localhost:3000", // URL of the Hyperbridge indexer API
@@ -48,8 +48,8 @@ const hyperbridgeChain = new SubstrateChain({
 // Connect to Substrate chain
 await hyperbridgeChain.connect()
 
-// Create the IndexerClient
-const indexer = new IndexerClient({
+// Create the IsmpClient
+const indexer = new IsmpClient({
 	queryClient: queryClient,
 	pollInterval: 1_000, // Every second
 	source: sourceChain,
@@ -267,7 +267,9 @@ The plugin automatically copies the necessary WebAssembly files to the correct l
 
 ### Classes
 
-- **IndexerClient** - Main client for interacting with the indexer
+- **IsmpClient** - Main client for tracking ISMP requests via the indexer
+- **IntentGateway** - Cross-chain intent order placement and status tracking (pair with `withIndexer(queryClient)` for indexer-backed order status)
+- **TokenGateway** - Cross-chain token transfers and teleport status tracking (pair with `withIndexer(queryClient)` for indexer-backed teleport status)
 - **EvmChain** - Utilities for EVM chain interaction
 - **SubstrateChain** - Utilities for Substrate chain interaction
 - **TokenGateway** - Utilities for cross-chain token transfers and fee estimation

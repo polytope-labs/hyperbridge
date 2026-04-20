@@ -21,7 +21,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet } from "viem/chains"
 import { DEFAULT_LOGGER, normalizeTimestamp, postRequestCommitment } from "@/utils"
-import { IndexerClient } from "@/client"
+import { IsmpClient } from "@/client"
 import { createQueryClient } from "@/query-client"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
@@ -165,7 +165,7 @@ const getIndexer = singleton(() => {
 		url: process.env.INDEXER_URL as string,
 	})
 
-	return new IndexerClient({
+	return new IsmpClient({
 		source: {
 			consensusStateId: Source.consensus.stateId,
 			rpcUrl: Source.rpcUrls[0],

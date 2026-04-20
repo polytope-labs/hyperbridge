@@ -115,26 +115,55 @@ export class QuorumPublicClient {
  * satisfies this constraint, so the generic parameter lets us accept the concrete
  * `GetLogsReturnType<...>` element type without widening or casting.
  */
-interface SortableLog {
+interface ComparableLog {
+	address: string
+	blockHash: string | null
 	blockNumber: bigint | null
+	data: string
 	logIndex: number | null
+	removed: boolean
 	transactionHash: string | null
+	transactionIndex: number | null
+	readonly topics: readonly string[]
 }
 
 /**
  * Produces a stable, order-invariant string representation of a log batch.
  *
- * Two providers can legitimately return the same logs in different orders, so we
- * sort by (blockNumber, logIndex, transactionHash) before serialising. BigInt
- * values are emitted as strings through the JSON replacer because `JSON.stringify`
- * would otherwise throw.
+ * Only the consensus-relevant JSON-RPC fields of each log are included —
+ * `address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`,
+ * `transactionHash`, `transactionIndex`. Provider-added extras such as
+ * `blockTimestamp` (not part of the JSON-RPC spec, but returned by some nodes)
+ * are deliberately dropped, because two providers that agree on the actual event
+ * state must still be considered in quorum even if one attaches debug metadata
+ * that the other does not.
+ *
+ * Logs are sorted by (blockNumber, logIndex, transactionHash) before serialising
+ * so providers that return the same events in different order still produce an
+ * identical key. BigInt values are emitted as strings through the JSON replacer
+ * because `JSON.stringify` would otherwise throw.
  */
-function canonicalizeLogs<T extends SortableLog>(logs: readonly T[]): string {
-	const sorted = [...logs].sort(compareLogs)
-	return JSON.stringify(sorted, bigIntReplacer)
+function canonicalizeLogs<T extends ComparableLog>(logs: readonly T[]): string {
+	const projected = logs.map(projectForComparison)
+	projected.sort(compareLogs)
+	return JSON.stringify(projected, bigIntReplacer)
 }
 
-function compareLogs(a: SortableLog, b: SortableLog): number {
+function projectForComparison(log: ComparableLog) {
+	return {
+		address: log.address.toLowerCase(),
+		blockHash: log.blockHash,
+		blockNumber: log.blockNumber,
+		data: log.data,
+		logIndex: log.logIndex,
+		removed: log.removed,
+		topics: log.topics,
+		transactionHash: log.transactionHash,
+		transactionIndex: log.transactionIndex,
+	}
+}
+
+function compareLogs(a: ReturnType<typeof projectForComparison>, b: ReturnType<typeof projectForComparison>): number {
 	const aBlock = a.blockNumber ?? -1n
 	const bBlock = b.blockNumber ?? -1n
 	if (aBlock !== bBlock) return aBlock < bBlock ? -1 : 1

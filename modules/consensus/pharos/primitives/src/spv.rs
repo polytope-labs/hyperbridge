@@ -59,6 +59,8 @@ pub enum Error {
 	SiblingNibbleMismatch,
 	#[error("Sibling proof failed verification: {0}")]
 	SiblingProofInvalid(alloc::boxed::Box<Error>),
+	#[error("Proof exceeds maximum allowed depth")]
+	ProofTooDeep,
 }
 
 const INTERNAL_NODE_HEADER: usize = 3;
@@ -71,17 +73,30 @@ const LEAF_NODE_LEN: usize = 65;
 const LEAF_NODE_TYPE: u8 = 1;
 const ZERO_HASH: [u8; 32] = [0u8; 32];
 
+// Max legitimate proof length for a SHA-256 hexary trie: 64 nibbles of trie
+// depth (one per hash byte nibble) plus the MSU root. Anything beyond this
+// cannot correspond to a real trie path and is rejected to bound verifier
+// work and prevent adversarial proofs from driving `nibble_at_depth` past
+// the end of the 32-byte key hash.
+pub const MAX_PROOF_DEPTH: usize = 65;
+
 pub fn sha256(data: &[u8]) -> [u8; 32] {
 	sp_io::hashing::sha2_256(data)
 }
 
 /// Pharos nibble extraction: low nibble first at even depths, high nibble at odd depths.
-pub fn nibble_at_depth(key_hash: &[u8], depth: usize) -> u8 {
+///
+/// Returns `None` if `depth` is beyond the nibbles addressable by `key_hash`
+/// (i.e. `depth >= key_hash.len() * 2`). Entry points additionally enforce
+/// `MAX_PROOF_DEPTH`, so this `None` case should be unreachable in practice,
+/// but surfacing it as an `Option` keeps adversarial callers from panicking.
+pub fn nibble_at_depth(key_hash: &[u8], depth: usize) -> Option<u8> {
 	let byte_index = depth / 2;
+	let byte = *key_hash.get(byte_index)?;
 	if depth % 2 == 0 {
-		key_hash[byte_index] & 0x0F
+		Some(byte & 0x0F)
 	} else {
-		(key_hash[byte_index] >> 4) & 0x0F
+		Some((byte >> 4) & 0x0F)
 	}
 }
 
@@ -145,7 +160,8 @@ fn verify_proof_walk(
 			parent.next_begin_offset as usize
 		} else {
 			let trie_depth = i - 1;
-			let nibble = nibble_at_depth(&key_hash, trie_depth) as usize;
+			let nibble =
+				nibble_at_depth(&key_hash, trie_depth).ok_or(Error::ProofTooDeep)? as usize;
 			INTERNAL_NODE_HEADER + nibble * INTERNAL_NODE_SLOT_SIZE
 		};
 
@@ -183,6 +199,10 @@ pub fn verify_proof(
 	value: &[u8],
 	root: &[u8; 32],
 ) -> Result<(), Error> {
+	if proof_nodes.len() > MAX_PROOF_DEPTH {
+		return Err(Error::ProofTooDeep);
+	}
+
 	let last = proof_nodes.last().ok_or(Error::EmptyProof)?;
 
 	if !is_leaf(&last.proof_node) {
@@ -207,6 +227,10 @@ pub fn verify_membership_proof(
 	key: &[u8],
 	root: &[u8; 32],
 ) -> Result<[u8; 32], Error> {
+	if proof_nodes.len() > MAX_PROOF_DEPTH {
+		return Err(Error::ProofTooDeep);
+	}
+
 	let last = proof_nodes.last().ok_or(Error::EmptyProof)?;
 
 	if !is_leaf(&last.proof_node) {
@@ -235,6 +259,10 @@ pub fn verify_non_existence_proof(
 	root: &[u8; 32],
 	sibling_proofs: &[SiblingLeftmostLeafProof],
 ) -> Result<(), Error> {
+	if proof_nodes.len() > MAX_PROOF_DEPTH {
+		return Err(Error::ProofTooDeep);
+	}
+
 	let last_node = proof_nodes.last().ok_or(Error::EmptyProof)?;
 	let last = &last_node.proof_node;
 	let key_hash = sha256(key);
@@ -253,7 +281,7 @@ pub fn verify_non_existence_proof(
 	}
 
 	let depth = proof_nodes.len().saturating_sub(2);
-	let nibble = nibble_at_depth(&key_hash, depth) as usize;
+	let nibble = nibble_at_depth(&key_hash, depth).ok_or(Error::ProofTooDeep)? as usize;
 	let slot_start = INTERNAL_NODE_HEADER + nibble * INTERNAL_NODE_SLOT_SIZE;
 
 	if slot_start + INTERNAL_NODE_SLOT_SIZE > last.len() {
@@ -303,7 +331,7 @@ pub fn verify_non_existence_proof(
 			}
 
 			let sib_key_hash = sha256(&sib.leftmost_leaf_key);
-			if nibble_at_depth(&sib_key_hash, depth) as usize != idx {
+			if nibble_at_depth(&sib_key_hash, depth).ok_or(Error::ProofTooDeep)? as usize != idx {
 				return Err(Error::SiblingNibbleMismatch);
 			}
 
@@ -386,7 +414,7 @@ mod tests {
 
 		// Internal node slot must match key's nibble at depth 0
 		let key_hash = sha256(key);
-		let nibble = nibble_at_depth(&key_hash, 0) as usize;
+		let nibble = nibble_at_depth(&key_hash, 0).unwrap() as usize;
 		let internal = make_internal_with_child(nibble, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
 
@@ -448,7 +476,7 @@ mod tests {
 
 		// Place the leaf at the slot matching the QUERY key's nibble at depth 0.
 		let query_key_hash = sha256(query_key);
-		let query_nibble = nibble_at_depth(&query_key_hash, 0) as usize;
+		let query_nibble = nibble_at_depth(&query_key_hash, 0).unwrap() as usize;
 
 		let internal = make_internal_with_child(query_nibble, &leaf_hash);
 		let internal_hash = hash_internal_node(&internal);
@@ -483,7 +511,7 @@ mod tests {
 
 		// Place the leaf at a DIFFERENT internal-node slot than the query key's nibble.
 		let query_key_hash = sha256(query_key);
-		let query_nibble = nibble_at_depth(&query_key_hash, 0) as usize;
+		let query_nibble = nibble_at_depth(&query_key_hash, 0).unwrap() as usize;
 		let wrong_slot = (query_nibble + 1) % INTERNAL_NODE_SLOTS;
 
 		let internal = make_internal_with_child(wrong_slot, &leaf_hash);
@@ -578,12 +606,42 @@ mod tests {
 		full_hash[..4].copy_from_slice(&hash);
 
 		// depth 0: low nibble of byte 0 = 0xB
-		assert_eq!(nibble_at_depth(&full_hash, 0), 0x0B);
+		assert_eq!(nibble_at_depth(&full_hash, 0), Some(0x0B));
 		// depth 1: high nibble of byte 0 = 0xA
-		assert_eq!(nibble_at_depth(&full_hash, 1), 0x0A);
+		assert_eq!(nibble_at_depth(&full_hash, 1), Some(0x0A));
 		// depth 2: low nibble of byte 1 = 0xD
-		assert_eq!(nibble_at_depth(&full_hash, 2), 0x0D);
+		assert_eq!(nibble_at_depth(&full_hash, 2), Some(0x0D));
 		// depth 3: high nibble of byte 1 = 0xC
-		assert_eq!(nibble_at_depth(&full_hash, 3), 0x0C);
+		assert_eq!(nibble_at_depth(&full_hash, 3), Some(0x0C));
+
+		// Regression: depth beyond the hash length must surface as `None`
+		// rather than panicking on an out-of-bounds index. Without this
+		// guard an adversarial proof of length >= 66 drives `byte_index`
+		// past the end of the 32-byte key hash.
+		assert_eq!(nibble_at_depth(&full_hash, 64), None);
+		assert_eq!(nibble_at_depth(&full_hash, 65), None);
+	}
+
+	#[test]
+	fn test_over_deep_proof_rejected() {
+		// Regression: prior to the MAX_PROOF_DEPTH guard, a proof with more
+		// than 65 nodes would drive `nibble_at_depth` past the 32-byte key
+		// hash and panic with index-out-of-bounds inside on-chain execution.
+		// Now it must return `ProofTooDeep` cleanly.
+		let dummy_leaf = make_leaf(b"k", b"v");
+		let mut proof: Vec<PharosProofNode> = Vec::with_capacity(MAX_PROOF_DEPTH + 1);
+		for _ in 0..MAX_PROOF_DEPTH {
+			proof.push(node(vec![0u8; INTERNAL_NODE_LEN], 0, 0));
+		}
+		proof.push(node(dummy_leaf, 0, 0));
+		assert_eq!(proof.len(), MAX_PROOF_DEPTH + 1);
+
+		let root = [0u8; 32];
+		assert!(matches!(verify_proof(&proof, b"k", b"v", &root), Err(Error::ProofTooDeep)));
+		assert!(matches!(verify_membership_proof(&proof, b"k", &root), Err(Error::ProofTooDeep)));
+		assert!(matches!(
+			verify_non_existence_proof(&proof, b"k", &root, &[]),
+			Err(Error::ProofTooDeep)
+		));
 	}
 }

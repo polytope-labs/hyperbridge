@@ -228,12 +228,10 @@ async fn test_verify_consensus() {
 #[test]
 #[ignore]
 fn dump_sp1_fixture_scale_bytes() {
-	use alloy_sol_types::{SolType, SolValue, sol};
-	use beefy_verifier_primitives::{ConsensusState, PROOF_TYPE_SP1};
+	use alloy_sol_types::SolValue;
+	use beefy_verifier_primitives::{ConsensusState, PROOF_TYPE_SP1, Sp1BeefyProof};
 	use ismp_solidity_abi::{
-		beefy::Beefy::BeefyConsensusState,
-		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
-		sp1_beefy_proof_from_solidity,
+		beefy::Beefy::BeefyConsensusState, sp1_beefy::SP1Beefy::SP1BeefyProof,
 	};
 
 	let state_bytes = hex!(
@@ -248,10 +246,8 @@ fn dump_sp1_fixture_scale_bytes() {
 	let trusted: ConsensusState = sol_state.into();
 	let trusted_scale = trusted.encode();
 
-	type ProofTuple = sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes) };
-	let (commitment, leaf, headers, plonk_proof) =
-		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
-	let sp1_proof = sp1_beefy_proof_from_solidity(commitment, leaf, headers, plonk_proof);
+	let sol_proof = <SP1BeefyProof as SolValue>::abi_decode(&proof_bytes).expect("decode proof");
+	let sp1_proof: Sp1BeefyProof = sol_proof.into();
 
 	let mut wire = vec![PROOF_TYPE_SP1];
 	sp1_proof.encode_to(&mut wire);
@@ -271,12 +267,10 @@ fn dump_sp1_fixture_scale_bytes() {
 /// our Rust [`crate::sp1::verify_sp1_consensus`].
 #[test]
 fn test_sp1_verify_consensus_accepts_solidity_fixture() {
-	use alloy_sol_types::{SolType, SolValue, sol};
-	use beefy_verifier_primitives::ConsensusState;
+	use alloy_sol_types::SolValue;
+	use beefy_verifier_primitives::{ConsensusState, Sp1BeefyProof};
 	use ismp_solidity_abi::{
-		beefy::Beefy::BeefyConsensusState,
-		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
-		sp1_beefy_proof_from_solidity,
+		beefy::Beefy::BeefyConsensusState, sp1_beefy::SP1Beefy::SP1BeefyProof,
 	};
 
 	// Fixtures copied verbatim from SP1BeefyTest.testVerifySp1Optional() in
@@ -292,12 +286,8 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 		<BeefyConsensusState as SolValue>::abi_decode(&state_bytes).expect("decode state");
 	let trusted: ConsensusState = sol_state.into();
 
-	// Proof payload matches SP1Beefy.sol:verifyConsensus's ABI decode signature.
-	type ProofTuple = sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes) };
-	let (commitment, leaf, headers, plonk_proof) =
-		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
-
-	let sp1_proof = sp1_beefy_proof_from_solidity(commitment, leaf, headers, plonk_proof);
+	let sol_proof = <SP1BeefyProof as SolValue>::abi_decode(&proof_bytes).expect("decode proof");
+	let sp1_proof: Sp1BeefyProof = sol_proof.into();
 
 	// Matches the `verificationKey` in SP1BeefyTest.sol.
 	let vkey_hash = "0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c";

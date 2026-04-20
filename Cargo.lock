@@ -10466,7 +10466,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2512.0.0"
+version = "2512.1.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -28035,7 +28035,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.6.1"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28097,6 +28097,7 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "log",
+ "pallet-beefy-consensus-proofs",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "parity-scale-codec",

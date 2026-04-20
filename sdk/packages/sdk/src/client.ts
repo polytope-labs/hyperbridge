@@ -29,6 +29,7 @@ import type {
 } from "@/types"
 
 import { type IChain, type SubstrateChain } from "@/chain"
+import { EvmChain } from "@/chains/evm"
 import {
 	GET_RESPONSE_BY_REQUEST_ID,
 	LATEST_STATE_MACHINE_UPDATE,
@@ -442,46 +443,84 @@ export class IndexerClient {
 			return addFinalityEvents(request)
 		}
 
-		const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
-			statemachineId: this.config.hyperbridge.config.stateMachineId,
-			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: request.dest,
-		})
-
-		if (!hyperbridgeFinality) return addFinalityEvents(request)
-
-		// check if request receipt exists on destination chain
 		const destChain = this.config.dest
 		const hyperbridge = this.config.hyperbridge
+		const useHandlerV2 = destChain instanceof EvmChain && (await destChain.isHandlerV2())
 
-		const proof = await hyperbridge.queryProof(
-			{ Requests: [postRequestCommitment(request).commitment] },
-			request.dest,
-			BigInt(hyperbridgeFinality.height),
-		)
+		if (useHandlerV2) {
+			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+			const consensusResult = await hyperbridgeSubstrate.queryConsensusProof(
+				BigInt(hyperbridgeDelivered.metadata.blockNumber),
+			)
+			if (!consensusResult) return addFinalityEvents(request)
 
-		const calldata = destChain.encode({
-			kind: "PostRequest",
-			proof: {
-				stateMachine: this.config.hyperbridge.config.stateMachineId,
-				consensusStateId: this.config.hyperbridge.config.consensusStateId,
-				proof,
-				height: BigInt(hyperbridgeFinality.height),
-			},
-			requests: [request],
-			signer: pad("0x"),
-		})
+			const proof = await hyperbridge.queryProof(
+				{ Requests: [postRequestCommitment(request).commitment] },
+				request.dest,
+				consensusResult.provenHeight,
+			)
 
-		events.push({
-			status: RequestStatus.HYPERBRIDGE_FINALIZED,
-			metadata: {
-				blockHash: hyperbridgeFinality.blockHash,
-				blockNumber: hyperbridgeFinality.height,
-				transactionHash: hyperbridgeFinality.transactionHash,
-				timestamp: hyperbridgeFinality.timestamp,
-				calldata,
-			},
-		})
+			const calldata = destChain.encode({
+				kind: "BatchConsensusAndPostRequest",
+				consensusProof: consensusResult.proof,
+				proof: {
+					stateMachine: this.config.hyperbridge.config.stateMachineId,
+					consensusStateId: this.config.hyperbridge.config.consensusStateId,
+					proof,
+					height: consensusResult.provenHeight,
+				},
+				requests: [request],
+				signer: pad("0x"),
+			})
+
+			events.push({
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: hyperbridgeDelivered.metadata.blockHash,
+					blockNumber: Number(consensusResult.provenHeight),
+					transactionHash: hyperbridgeDelivered.metadata.transactionHash,
+					// @ts-ignore
+					timestamp: hyperbridgeDelivered.metadata.timestamp,
+					calldata,
+				},
+			})
+		} else {
+			const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
+				statemachineId: this.config.hyperbridge.config.stateMachineId,
+				height: hyperbridgeDelivered.metadata.blockNumber,
+				chain: request.dest,
+			})
+			if (!hyperbridgeFinality) return addFinalityEvents(request)
+
+			const proof = await hyperbridge.queryProof(
+				{ Requests: [postRequestCommitment(request).commitment] },
+				request.dest,
+				BigInt(hyperbridgeFinality.height),
+			)
+
+			const calldata = destChain.encode({
+				kind: "PostRequest",
+				proof: {
+					stateMachine: this.config.hyperbridge.config.stateMachineId,
+					consensusStateId: this.config.hyperbridge.config.consensusStateId,
+					proof,
+					height: BigInt(hyperbridgeFinality.height),
+				},
+				requests: [request],
+				signer: pad("0x"),
+			})
+
+			events.push({
+				status: RequestStatus.HYPERBRIDGE_FINALIZED,
+				metadata: {
+					blockHash: hyperbridgeFinality.blockHash,
+					blockNumber: hyperbridgeFinality.height,
+					transactionHash: hyperbridgeFinality.transactionHash,
+					timestamp: hyperbridgeFinality.timestamp,
+					calldata,
+				},
+			})
+		}
 
 		return addFinalityEvents(request)
 	}
@@ -723,58 +762,104 @@ export class IndexerClient {
 			if (!hyperbridgeDelivered) return addFinalityEvents(request)
 		}
 
-		const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
-			statemachineId: this.config.hyperbridge.config.stateMachineId,
-			height: hyperbridgeDelivered.metadata.blockNumber,
-			chain: request.source,
-		})
-
-		if (!hyperbridgeFinality) return addFinalityEvents(request)
-
 		const sourceChain = this.config.source
 		const hyperbridge = this.config.hyperbridge
+		const useHandlerV2 = sourceChain instanceof EvmChain && (await sourceChain.isHandlerV2())
 
 		try {
 			const response = await this.queryResponseByRequestId(request.commitment)
-
 			if (!response) return addFinalityEvents(request)
 
-			const proof = await hyperbridge.queryProof(
-				{ Responses: [response.commitment as HexString] },
-				request.source,
-				BigInt(hyperbridgeFinality.height),
-			)
+			if (useHandlerV2) {
+				const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+				const consensusResult = await hyperbridgeSubstrate.queryConsensusProof(
+					BigInt(hyperbridgeDelivered.metadata.blockNumber),
+				)
+				if (!consensusResult) return addFinalityEvents(request)
 
-			const calldata = sourceChain.encode({
-				kind: "GetResponse",
-				proof: {
-					stateMachine: this.config.hyperbridge.config.stateMachineId,
-					consensusStateId: this.config.hyperbridge.config.consensusStateId,
-					proof,
-					height: BigInt(hyperbridgeFinality.height),
-				},
-				responses: [
-					{
-						get: request,
-						values: request.keys.map((key, index) => ({
-							key,
-							value: (response.values[index] as HexString) || "0x",
-						})),
+				const proof = await hyperbridge.queryProof(
+					{ Responses: [response.commitment as HexString] },
+					request.source,
+					consensusResult.provenHeight,
+				)
+
+				const calldata = sourceChain.encode({
+					kind: "BatchConsensusAndGetResponse",
+					consensusProof: consensusResult.proof,
+					proof: {
+						stateMachine: this.config.hyperbridge.config.stateMachineId,
+						consensusStateId: this.config.hyperbridge.config.consensusStateId,
+						proof,
+						height: consensusResult.provenHeight,
 					},
-				],
-				signer: pad("0x"),
-			})
+					responses: [
+						{
+							get: request,
+							values: request.keys.map((key, index) => ({
+								key,
+								value: (response.values[index] as HexString) || "0x",
+							})),
+						},
+					],
+					signer: pad("0x"),
+				})
 
-			events.push({
-				status: RequestStatus.HYPERBRIDGE_FINALIZED,
-				metadata: {
-					blockHash: hyperbridgeFinality.blockHash,
-					blockNumber: hyperbridgeFinality.height,
-					transactionHash: hyperbridgeFinality.transactionHash,
-					timestamp: hyperbridgeFinality.timestamp,
-					calldata,
-				},
-			})
+				events.push({
+					status: RequestStatus.HYPERBRIDGE_FINALIZED,
+					metadata: {
+						blockHash: hyperbridgeDelivered.metadata.blockHash,
+						blockNumber: Number(consensusResult.provenHeight),
+						transactionHash: hyperbridgeDelivered.metadata.transactionHash,
+						// @ts-ignore
+						timestamp: hyperbridgeDelivered.metadata.timestamp,
+						calldata,
+					},
+				})
+			} else {
+				const hyperbridgeFinality = await this.queryStateMachineUpdateByHeight({
+					statemachineId: this.config.hyperbridge.config.stateMachineId,
+					height: hyperbridgeDelivered.metadata.blockNumber,
+					chain: request.source,
+				})
+				if (!hyperbridgeFinality) return addFinalityEvents(request)
+
+				const proof = await hyperbridge.queryProof(
+					{ Responses: [response.commitment as HexString] },
+					request.source,
+					BigInt(hyperbridgeFinality.height),
+				)
+
+				const calldata = sourceChain.encode({
+					kind: "GetResponse",
+					proof: {
+						stateMachine: this.config.hyperbridge.config.stateMachineId,
+						consensusStateId: this.config.hyperbridge.config.consensusStateId,
+						proof,
+						height: BigInt(hyperbridgeFinality.height),
+					},
+					responses: [
+						{
+							get: request,
+							values: request.keys.map((key, index) => ({
+								key,
+								value: (response.values[index] as HexString) || "0x",
+							})),
+						},
+					],
+					signer: pad("0x"),
+				})
+
+				events.push({
+					status: RequestStatus.HYPERBRIDGE_FINALIZED,
+					metadata: {
+						blockHash: hyperbridgeFinality.blockHash,
+						blockNumber: hyperbridgeFinality.height,
+						transactionHash: hyperbridgeFinality.transactionHash,
+						timestamp: hyperbridgeFinality.timestamp,
+						calldata,
+					},
+				})
+			}
 		} catch (error) {
 			this.logger.trace("Could not generate HYPERBRIDGE_FINALIZED event for GET request:", error)
 		}
@@ -960,83 +1045,148 @@ export class IndexerClient {
 
 				// the request has been verified and aggregated on Hyperbridge
 				case RequestStatus.HYPERBRIDGE_DELIVERED: {
-					// Get the latest state machine update for hyperbridge on the destination chain
-					const hyperbridgeFinalized = await this.waitOrAbort({
-						signal,
-						promise: () => {
-							const stateMachineId = this.config.hyperbridge.config.stateMachineId
-							const index = request.source === stateMachineId ? 0 : 1
-
-							return this.queryStateMachineUpdateByHeight({
-								statemachineId: stateMachineId,
-								height: request.statuses[index].metadata.blockNumber,
-								chain: request.dest,
-							})
-						},
-					})
-
 					const destChain = this.config.dest
 					const hyperbridge = this.config.hyperbridge
+					const useHandlerV2 = destChain instanceof EvmChain && (await destChain.isHandlerV2())
 
-					const safeFetchProof = async () => {
-						try {
-							const proof_hex = await hyperbridge.queryProof(
-								{ Requests: [postRequestCommitment(request).commitment] },
-								request.dest,
-								BigInt(hyperbridgeFinalized.height),
-							)
-							return { data: proof_hex, error: null }
-						} catch (err) {
-							return { error: err as unknown, data: null }
+					if (useHandlerV2) {
+						// HandlerV2: wait for consensus proof on Hyperbridge, then batch
+						const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+						const stateMachineId = this.config.hyperbridge.config.stateMachineId
+						const index = request.source === stateMachineId ? 0 : 1
+						const neededHeight = BigInt(request.statuses[index].metadata.blockNumber)
+
+						const consensusResult = await this.waitOrAbort({
+							signal,
+							promise: () => hyperbridgeSubstrate.queryConsensusProof(neededHeight),
+						})
+
+						const safeFetchProof = async () => {
+							try {
+								const proof_hex = await hyperbridge.queryProof(
+									{ Requests: [postRequestCommitment(request).commitment] },
+									request.dest,
+									consensusResult.provenHeight,
+								)
+								return { data: proof_hex, error: null }
+							} catch (err) {
+								return { error: err as unknown, data: null }
+							}
 						}
-					}
 
-					const proof = await this.waitOrAbort({
-						signal,
-						promise: () =>
-							this.withRetry(safeFetchProof, {
-								backoffMs: 2000,
-								maxRetries: 6, // <-- should fail after 2mins
-							}),
-					})
+						const proof = await this.waitOrAbort({
+							signal,
+							promise: () =>
+								this.withRetry(safeFetchProof, {
+									backoffMs: 2000,
+									maxRetries: 6,
+								}),
+						})
 
-					if (proof.data === null) {
-						this.logger.error("Failed to fetch proof:", proof.error)
+						if (proof.data === null) {
+							this.logger.error("Failed to fetch proof:", proof.error)
+							throw proof.error
+						}
 
-						throw proof.error
-					}
+						const calldata = destChain.encode({
+							kind: "BatchConsensusAndPostRequest",
+							consensusProof: consensusResult.proof,
+							proof: {
+								stateMachine: this.config.hyperbridge.config.stateMachineId,
+								consensusStateId: this.config.hyperbridge.config.consensusStateId,
+								proof: proof.data,
+								height: consensusResult.provenHeight,
+							},
+							requests: [request],
+							signer: pad("0x"),
+						})
 
-					const calldata = destChain.encode({
-						kind: "PostRequest",
-						proof: {
-							stateMachine: this.config.hyperbridge.config.stateMachineId,
-							consensusStateId: this.config.hyperbridge.config.consensusStateId,
-							proof: proof.data,
+						yield {
+							status: RequestStatus.HYPERBRIDGE_FINALIZED,
+							metadata: {
+								blockHash: request.statuses[index].metadata.blockHash,
+								blockNumber: Number(consensusResult.provenHeight),
+								transactionHash: request.statuses[index].metadata.transactionHash,
+								// @ts-ignore
+								timestamp: request.statuses[index].metadata.timestamp,
+								calldata,
+							},
+						}
+					} else {
+						// HandlerV1: wait for consensus proof to be submitted to destination
+						const hyperbridgeFinalized = await this.waitOrAbort({
+							signal,
+							promise: () => {
+								const stateMachineId = this.config.hyperbridge.config.stateMachineId
+								const index = request.source === stateMachineId ? 0 : 1
+
+								return this.queryStateMachineUpdateByHeight({
+									statemachineId: stateMachineId,
+									height: request.statuses[index].metadata.blockNumber,
+									chain: request.dest,
+								})
+							},
+						})
+
+						const safeFetchProof = async () => {
+							try {
+								const proof_hex = await hyperbridge.queryProof(
+									{ Requests: [postRequestCommitment(request).commitment] },
+									request.dest,
+									BigInt(hyperbridgeFinalized.height),
+								)
+								return { data: proof_hex, error: null }
+							} catch (err) {
+								return { error: err as unknown, data: null }
+							}
+						}
+
+						const proof = await this.waitOrAbort({
+							signal,
+							promise: () =>
+								this.withRetry(safeFetchProof, {
+									backoffMs: 2000,
+									maxRetries: 6,
+								}),
+						})
+
+						if (proof.data === null) {
+							this.logger.error("Failed to fetch proof:", proof.error)
+							throw proof.error
+						}
+
+						const calldata = destChain.encode({
+							kind: "PostRequest",
+							proof: {
+								stateMachine: this.config.hyperbridge.config.stateMachineId,
+								consensusStateId: this.config.hyperbridge.config.consensusStateId,
+								proof: proof.data,
+								height: BigInt(hyperbridgeFinalized.height),
+							},
+							requests: [request],
+							signer: pad("0x"),
+						})
+
+						const { stateId } = parseStateMachineId(this.config.hyperbridge.config.stateMachineId)
+
+						await waitForChallengePeriod(destChain, {
 							height: BigInt(hyperbridgeFinalized.height),
-						},
-						requests: [request],
-						signer: pad("0x"),
-					})
+							id: {
+								stateId,
+								consensusStateId: this.config.hyperbridge.config.consensusStateId,
+							},
+						})
 
-					const { stateId } = parseStateMachineId(this.config.hyperbridge.config.stateMachineId)
-
-					await waitForChallengePeriod(destChain, {
-						height: BigInt(hyperbridgeFinalized.height),
-						id: {
-							stateId,
-							consensusStateId: this.config.hyperbridge.config.consensusStateId,
-						},
-					})
-
-					yield {
-						status: RequestStatus.HYPERBRIDGE_FINALIZED,
-						metadata: {
-							blockHash: hyperbridgeFinalized.blockHash,
-							blockNumber: hyperbridgeFinalized.height,
-							transactionHash: hyperbridgeFinalized.transactionHash,
-							timestamp: hyperbridgeFinalized.timestamp,
-							calldata,
-						},
+						yield {
+							status: RequestStatus.HYPERBRIDGE_FINALIZED,
+							metadata: {
+								blockHash: hyperbridgeFinalized.blockHash,
+								blockNumber: hyperbridgeFinalized.height,
+								transactionHash: hyperbridgeFinalized.transactionHash,
+								timestamp: hyperbridgeFinalized.timestamp,
+								calldata,
+							},
+						}
 					}
 					status = RequestStatus.HYPERBRIDGE_FINALIZED
 					break
@@ -1217,62 +1367,109 @@ export class IndexerClient {
 
 				// the request has been verified and aggregated on Hyperbridge
 				case RequestStatus.HYPERBRIDGE_DELIVERED: {
-					// If Hyperbridge was the source, the request is already complete
 					if (request.source === this.config.hyperbridge.config.stateMachineId) {
 						return
 					}
 
-					// Get the latest state machine update for hyperbridge on the destination chain
-					const hyperbridgeFinalized = await this.waitOrAbort({
-						signal,
-						promise: () =>
-							this.queryStateMachineUpdateByHeight({
-								statemachineId: this.config.hyperbridge.config.stateMachineId,
-								height: request.statuses[1].metadata.blockNumber,
-								chain: request.source,
-							}),
-					})
-
 					const sourceChain = this.config.source
 					const hyperbridge = this.config.hyperbridge
-
+					const useHandlerV2 = sourceChain instanceof EvmChain && (await sourceChain.isHandlerV2())
 					const response = await this.queryResponseByRequestId(hash)
 
-					const proof = await hyperbridge.queryProof(
-						{ Responses: [response?.commitment as HexString] },
-						request.source,
-						BigInt(hyperbridgeFinalized.height),
-					)
+					if (useHandlerV2) {
+						const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+						const neededHeight = BigInt(request.statuses[1].metadata.blockNumber)
 
-					const calldata = sourceChain.encode({
-						kind: "GetResponse",
-						proof: {
-							stateMachine: this.config.hyperbridge.config.stateMachineId,
-							consensusStateId: this.config.hyperbridge.config.consensusStateId,
-							proof,
-							height: BigInt(hyperbridgeFinalized.height),
-						},
-						responses: [
-							{
-								get: request,
-								values: request.keys.map((key, index) => ({
-									key,
-									value: (response?.values[index] as HexString) || "0x",
-								})),
+						const consensusResult = await this.waitOrAbort({
+							signal,
+							promise: () => hyperbridgeSubstrate.queryConsensusProof(neededHeight),
+						})
+
+						const proof = await hyperbridge.queryProof(
+							{ Responses: [response?.commitment as HexString] },
+							request.source,
+							consensusResult.provenHeight,
+						)
+
+						const calldata = sourceChain.encode({
+							kind: "BatchConsensusAndGetResponse",
+							consensusProof: consensusResult.proof,
+							proof: {
+								stateMachine: this.config.hyperbridge.config.stateMachineId,
+								consensusStateId: this.config.hyperbridge.config.consensusStateId,
+								proof,
+								height: consensusResult.provenHeight,
 							},
-						],
-						signer: pad("0x"),
-					})
+							responses: [
+								{
+									get: request,
+									values: request.keys.map((key, index) => ({
+										key,
+										value: (response?.values[index] as HexString) || "0x",
+									})),
+								},
+							],
+							signer: pad("0x"),
+						})
 
-					yield {
-						status: RequestStatus.HYPERBRIDGE_FINALIZED,
-						metadata: {
-							blockHash: hyperbridgeFinalized.blockHash,
-							blockNumber: hyperbridgeFinalized.height,
-							transactionHash: hyperbridgeFinalized.transactionHash,
-							timestamp: hyperbridgeFinalized.timestamp,
-							calldata,
-						},
+						yield {
+							status: RequestStatus.HYPERBRIDGE_FINALIZED,
+							metadata: {
+								blockHash: request.statuses[1].metadata.blockHash,
+								blockNumber: Number(consensusResult.provenHeight),
+								transactionHash: request.statuses[1].metadata.transactionHash,
+								// @ts-ignore
+								timestamp: request.statuses[1].metadata.timestamp,
+								calldata,
+							},
+						}
+					} else {
+						const hyperbridgeFinalized = await this.waitOrAbort({
+							signal,
+							promise: () =>
+								this.queryStateMachineUpdateByHeight({
+									statemachineId: this.config.hyperbridge.config.stateMachineId,
+									height: request.statuses[1].metadata.blockNumber,
+									chain: request.source,
+								}),
+						})
+
+						const proof = await hyperbridge.queryProof(
+							{ Responses: [response?.commitment as HexString] },
+							request.source,
+							BigInt(hyperbridgeFinalized.height),
+						)
+
+						const calldata = sourceChain.encode({
+							kind: "GetResponse",
+							proof: {
+								stateMachine: this.config.hyperbridge.config.stateMachineId,
+								consensusStateId: this.config.hyperbridge.config.consensusStateId,
+								proof,
+								height: BigInt(hyperbridgeFinalized.height),
+							},
+							responses: [
+								{
+									get: request,
+									values: request.keys.map((key, index) => ({
+										key,
+										value: (response?.values[index] as HexString) || "0x",
+									})),
+								},
+							],
+							signer: pad("0x"),
+						})
+
+						yield {
+							status: RequestStatus.HYPERBRIDGE_FINALIZED,
+							metadata: {
+								blockHash: hyperbridgeFinalized.blockHash,
+								blockNumber: hyperbridgeFinalized.height,
+								transactionHash: hyperbridgeFinalized.transactionHash,
+								timestamp: hyperbridgeFinalized.timestamp,
+								calldata,
+							},
+						}
 					}
 					status = RequestStatus.HYPERBRIDGE_FINALIZED
 					break

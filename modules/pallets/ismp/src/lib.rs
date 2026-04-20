@@ -379,6 +379,7 @@ pub mod pallet {
 
 			let child_trie_root = H256::from_slice(&child_trie_root);
 			ChildTrieRoot::<T>::put::<T::Hash>(child_trie_root.into());
+
 			let root = match T::OffchainDB::finalize() {
 				Ok(root) => root,
 				Err(e) => {

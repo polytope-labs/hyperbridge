@@ -128,8 +128,8 @@ pub fn verify_mmr_update_proof<H: Keccak256 + EcdsaRecover + Send + Sync>(
 
 	let commitment = mmr.signed_commitment.commitment.clone();
 
-	if commitment.validator_set_id != trusted_state.current_authorities.id
-		&& commitment.validator_set_id != trusted_state.next_authorities.id
+	if commitment.validator_set_id != trusted_state.current_authorities.id &&
+		commitment.validator_set_id != trusted_state.next_authorities.id
 	{
 		return Err(Error::UnknownAuthoritySet { id: commitment.validator_set_id });
 	}

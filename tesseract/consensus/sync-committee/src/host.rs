@@ -28,7 +28,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use sync_committee_primitives::{constants::Config, util::compute_sync_committee_period};
 
 use crate::notification::consensus_notification;
-use op_verifier::{CANNON, _PERMISSIONED};
+use op_verifier::{_PERMISSIONED, CANNON};
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 #[async_trait::async_trait]

@@ -47,34 +47,30 @@ async fn setup_prover() -> BscPosProver<Testnet> {
 /// End-to-end test that mirrors the two-phase consensus-update loop used by
 /// `tesseract::consensus::bsc::host::start_consensus`:
 ///
-/// 1. **Sync phase** — starting at the first candidate attested block after an
-///    epoch boundary (`epoch_block + 2`), walk block-by-block up to the latest
-///    position from which the previous validator set can still sign
-///    (`rotation_block - 1 + epoch_length / 2`). For each header, ask the
-///    prover for a `BscClientUpdate` that carries the new validator set
-///    (`fetch_val_set_change: true`), drop updates with insufficient BLS
-///    participation, verify under the **current** validator set, and accept
-///    the first one that either contains the epoch header ancestry or whose
-///    source header *is* the epoch block. That update's `next_validators`
-///    becomes the pending set.
+/// 1. **Sync phase** — starting at the first candidate attested block after an epoch boundary
+///    (`epoch_block + 2`), walk block-by-block up to the latest position from which the previous
+///    validator set can still sign (`rotation_block - 1 + epoch_length / 2`). For each header, ask
+///    the prover for a `BscClientUpdate` that carries the new validator set (`fetch_val_set_change:
+///    true`), drop updates with insufficient BLS participation, verify under the **current**
+///    validator set, and accept the first one that either contains the epoch header ancestry or
+///    whose source header *is* the epoch block. That update's `next_validators` becomes the pending
+///    set.
 ///
-/// 2. **Enactment phase** — starting at `get_rotation_block(...)`, walk up to
-///    `epoch_block + epoch_length - 1` and pull an update with
-///    `fetch_val_set_change: false`. Drop low-participation ones against the
-///    **next** validator set, then verify under the next set. The first update
-///    that verifies proves rotation has taken effect.
+/// 2. **Enactment phase** — starting at `get_rotation_block(...)`, walk up to `epoch_block +
+///    epoch_length - 1` and pull an update with `fetch_val_set_change: false`. Drop
+///    low-participation ones against the **next** validator set, then verify under the next set.
+///    The first update that verifies proves rotation has taken effect.
 ///
 /// Relative to the previous implementation which polled `latest_header` at
 /// 750 ms and guessed at rotation, this version:
-///   - walks specific deterministic block numbers rather than racing the chain
-///     tip, so it can't accidentally skip or double-count blocks;
-///   - waits for each header to materialize (sleeps 3 s and retries if the
-///     tip hasn't caught up), which is the expected failure mode on a live
-///     chain rather than a reason to bail;
-///   - uses the same `get_rotation_block` helper the production host uses,
-///     instead of re-deriving the rotation boundary inline;
-///   - distinguishes "update source header too old" from "update fails
-///     verification" so the sync phase can fail fast on a truly bad update.
+///   - walks specific deterministic block numbers rather than racing the chain tip, so it can't
+///     accidentally skip or double-count blocks;
+///   - waits for each header to materialize (sleeps 3 s and retries if the tip hasn't caught up),
+///     which is the expected failure mode on a live chain rather than a reason to bail;
+///   - uses the same `get_rotation_block` helper the production host uses, instead of re-deriving
+///     the rotation boundary inline;
+///   - distinguishes "update source header too old" from "update fails verification" so the sync
+///     phase can fail fast on a truly bad update.
 #[tokio::test]
 #[ignore]
 async fn verify_bsc_pos_headers() {
@@ -90,11 +86,9 @@ async fn verify_bsc_pos_headers() {
 	// ── Sync phase ──────────────────────────────────────────────────────────
 	let next_epoch = current_epoch + 1;
 	let epoch_block_number = next_epoch * EPOCH_LENGTH;
-	let sync_end = get_rotation_block(
-		epoch_block_number,
-		current_validators.len() as u64,
-		EPOCH_LENGTH,
-	) - 1 + EPOCH_LENGTH / 2;
+	let sync_end =
+		get_rotation_block(epoch_block_number, current_validators.len() as u64, EPOCH_LENGTH) - 1 +
+			EPOCH_LENGTH / 2;
 
 	println!(
 		"Sync phase: walking [{}, {}] against {}-validator set from epoch {}",
@@ -140,8 +134,7 @@ async fn verify_bsc_pos_headers() {
 			extra_data.vote_address_set.to_le_bytes().to_vec().as_slice(),
 		)
 		.expect("infallible: prover already parsed extra data");
-		if validators_bit_set.iter().as_bitslice().count_ones() <
-			(2 * current_validators.len() / 3)
+		if validators_bit_set.iter().as_bitslice().count_ones() < (2 * current_validators.len() / 3)
 		{
 			println!("sync: not enough participants at block {block}, skipping");
 			block += 1;
@@ -181,9 +174,7 @@ async fn verify_bsc_pos_headers() {
 			continue;
 		}
 
-		let next = result
-			.next_validators
-			.expect("sync update must carry next validator set");
+		let next = result.next_validators.expect("sync update must carry next validator set");
 		finalized_height = update.source_header.number.low_u64();
 		println!(
 			"Sync accepted at block {block}: new {}-validator set staged, rotation at {}",
@@ -197,11 +188,8 @@ async fn verify_bsc_pos_headers() {
 	// Walk from the actual rotation block up to the end of the new epoch.
 	// Verification must succeed under the *next* validator set before we
 	// declare the rotation enacted.
-	let rotation_start = get_rotation_block(
-		epoch_block_number,
-		current_validators.len() as u64,
-		EPOCH_LENGTH,
-	);
+	let rotation_start =
+		get_rotation_block(epoch_block_number, current_validators.len() as u64, EPOCH_LENGTH);
 	let enact_end = epoch_block_number + EPOCH_LENGTH - 1;
 
 	println!(
@@ -274,8 +262,7 @@ async fn verify_bsc_pos_headers() {
 				println!(
 					"enact: verified update at block {block} against next set \
 					(source_header={}, target_header={})",
-					update.source_header.number,
-					update.target_header.number,
+					update.source_header.number, update.target_header.number,
 				);
 				println!(
 					"VALIDATOR SET ROTATED SUCCESSFULLY at block {block} \

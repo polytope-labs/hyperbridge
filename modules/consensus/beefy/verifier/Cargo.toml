@@ -32,6 +32,7 @@ features = [
 
 [dev-dependencies]
 hex-literal = { workspace = true }
+hex = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
 ismp-solidity-abi = { workspace = true, default-features = true }
 subxt = { workspace = true, default-features = true }

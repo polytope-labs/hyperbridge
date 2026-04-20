@@ -19,8 +19,8 @@ pub mod deliveries {
 	pub const NAME: &str = "Deliveries";
 	pub mod id {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "id";
 		pub struct Set(pub i32);
@@ -89,8 +89,8 @@ pub mod deliveries {
 	}
 	pub mod hash {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "hash";
 		pub struct Set(pub String);
@@ -150,8 +150,8 @@ pub mod deliveries {
 	}
 	pub mod source_chain {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "source_chain";
 		pub struct Set(pub String);
@@ -215,8 +215,8 @@ pub mod deliveries {
 	}
 	pub mod dest_chain {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "dest_chain";
 		pub struct Set(pub String);
@@ -280,8 +280,8 @@ pub mod deliveries {
 	}
 	pub mod delivery_type {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "delivery_type";
 		pub struct Set(pub i32);
@@ -354,8 +354,8 @@ pub mod deliveries {
 	}
 	pub mod created_at {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "created_at";
 		pub struct Set(pub i32);
@@ -428,8 +428,8 @@ pub mod deliveries {
 	}
 	pub mod height {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "height";
 		pub struct Set(pub i32);
@@ -1073,8 +1073,8 @@ pub mod pending_withdrawal {
 	pub const NAME: &str = "PendingWithdrawal";
 	pub mod id {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "id";
 		pub struct Set(pub i32);
@@ -1143,8 +1143,8 @@ pub mod pending_withdrawal {
 	}
 	pub mod dest {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "dest";
 		pub struct Set(pub String);
@@ -1204,8 +1204,8 @@ pub mod pending_withdrawal {
 	}
 	pub mod encoded {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "encoded";
 		pub struct Set(pub Vec<u8>);
@@ -1614,8 +1614,8 @@ pub mod unprofitable_messages {
 	pub const NAME: &str = "UnprofitableMessages";
 	pub mod id {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "id";
 		pub struct Set(pub i32);
@@ -1684,8 +1684,8 @@ pub mod unprofitable_messages {
 	}
 	pub mod dest {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "dest";
 		pub struct Set(pub String);
@@ -1745,8 +1745,8 @@ pub mod unprofitable_messages {
 	}
 	pub mod encoded {
 		use super::{
-			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
-			WithParam, _prisma::*,
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
 		};
 		pub const NAME: &str = "encoded";
 		pub struct Set(pub Vec<u8>);

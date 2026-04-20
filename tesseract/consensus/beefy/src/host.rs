@@ -265,7 +265,7 @@ where
 
 				let QueueMessage {
 					id,
-					proof: ConsensusProof { message, finalized_height, set_id },
+					proof: ConsensusProof { message, finalized_height, set_id, .. },
 				} = match item {
 					Ok(Some(message)) => message,
 					Ok(None) => break, // no new items in the queue

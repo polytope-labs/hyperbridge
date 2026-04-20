@@ -422,8 +422,21 @@ where
 							.consensus_proof(commitment.clone(), self.consensus_state.inner.clone())
 							.await?;
 
+						let finalized_hash = relay_rpc
+							.chain_get_block_hash(Some(commitment.commitment.block_number.into()))
+							.await?
+							.expect("Epoch change header exists");
+						let para_header = query_parachain_header(
+							&self.prover.inner().relay_rpc,
+							finalized_hash,
+							para_id,
+						)
+						.await?;
+						let finalized_parachain_height: u64 = para_header.number.into();
+
 						let message = ConsensusProof {
 							finalized_height: commitment.commitment.block_number,
+							finalized_parachain_height,
 							set_id: next_set_id,
 							message: ConsensusMessage {
 								consensus_proof,
@@ -441,19 +454,8 @@ where
 								.await?;
 						}
 
-						let finalized_hash = relay_rpc
-							.chain_get_block_hash(Some(commitment.commitment.block_number.into()))
-							.await?
-							.expect("Epoch change header exists");
-						let para_header = query_parachain_header(
-							&self.prover.inner().relay_rpc,
-							finalized_hash,
-							para_id,
-						)
-						.await?;
-
 						self.consensus_state.finalized_parachain_height =
-							para_header.number.into();
+							finalized_parachain_height;
 						self.consensus_state.inner.latest_beefy_height =
 							commitment.commitment.block_number;
 						self.rotate_authorities(epoch_change_block_hash).await?;
@@ -544,6 +546,7 @@ where
 
 				let message = ConsensusProof {
 					finalized_height: commitment.commitment.block_number,
+					finalized_parachain_height: latest_parachain_height,
 					set_id,
 					message: ConsensusMessage {
 						consensus_proof,

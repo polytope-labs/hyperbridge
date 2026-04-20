@@ -21,8 +21,8 @@ use sp_core::sr25519;
 
 /// Payload submitted via the `submit_proof` unsigned extrinsic.
 ///
-/// The signed message is `blake2_256(("beefy_consensus_proof_v1", submitter,
-/// blake2_256(proof)).encode())`; the signature in the outer extrinsic is expected to
+/// The signed message is `keccak256(("beefy_consensus_proof_v1", submitter,
+/// keccak256(proof)).encode())`; the signature in the outer extrinsic is expected to
 /// verify against `submitter` interpreted as an SR25519 public key.
 ///
 /// No nonce: replay is prevented by on-chain state progression. Once a proof is applied

@@ -244,6 +244,15 @@ pub async fn create_client_map(
 				client
 			},
 
+			AnyConfig::Pharos(config) => {
+				let client = match config.state_machine() {
+					StateMachine::Evm(688689) =>
+						config.into_client::<pharos_primitives::Testnet>().await?,
+					_ => config.into_client::<pharos_primitives::Mainnet>().await?,
+				};
+				client
+			},
+
 			AnyConfig::Grandpa(config) => match config.substrate.hashing {
 				Some(HashAlgorithm::Keccak) => {
 					let client =

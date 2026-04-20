@@ -35,12 +35,11 @@ The setup differs slightly depending on whether you are placing a same-chain or 
 
 ### Bundler Services
 
-A bundler URL is required for the destination chain. Any ERC-4337-compatible bundler works. Popular options:
+A bundler URL is required for the destination chain. Any ERC-4337-compatible bundler works. [Alchemy](https://alchemy.com/account-abstraction) provides bundler support as part of its RPC endpoints (with Account Abstraction enabled):
 
 | Provider | URL format |
 |----------|-----------|
-| [Pimlico](https://pimlico.io) | `https://api.pimlico.io/v2/{chain}/rpc?apikey=YOUR_KEY` |
-| [Alchemy](https://alchemy.com/account-abstraction) | `https://{chain}.g.alchemy.com/v2/YOUR_KEY` (with AA enabled) |
+| [Alchemy](https://alchemy.com/account-abstraction) | `https://{chain}.g.alchemy.com/v2/YOUR_KEY` |
 
 ### Cross-Chain Orders
 
@@ -53,10 +52,9 @@ import { privateKeyToAccount } from "viem/accounts"
 const sourceChain = await EvmChain.create("YOUR_SOURCE_RPC_URL")
 
 // Destination chain — bundlerUrl is REQUIRED; solvers submit UserOperations via this bundler
-// Example using Pimlico on Arbitrum:
 const destChain = await EvmChain.create(
-  "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  "https://api.pimlico.io/v2/arbitrum/rpc?apikey=YOUR_PIMLICO_KEY",
+  "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+  "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
 )
 
 // Hyperbridge coprocessor — hosts the order auction and manages solver bids
@@ -72,7 +70,7 @@ const walletClient = createWalletClient({
 ```
 
 <Callout type="warn">
-The `bundlerUrl` on the destination chain is **required** for cross-chain orders. `IntentGateway` uses it to submit the solver's `UserOperation` to the ERC-4337 bundler on the destination chain. Without it, solver selection will fail at the `BID_SELECTED` stage.
+The `bundlerUrl` on the destination chain is **required** for cross-chain orders. `IntentGateway` uses it to submit the solver's `UserOperation` to the ERC-4337 bundler on the destination chain. Without it, bid submission will fail at the `BID_SELECTED` stage.
 </Callout>
 
 ### Same-Chain Orders
@@ -84,8 +82,8 @@ import { EvmChain, IntentsCoprocessor, IntentGateway } from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 
-const RPC_URL     = "https://mainnet.base.org"
-const BUNDLER_URL = "https://api.pimlico.io/v2/base/rpc?apikey=YOUR_PIMLICO_KEY"
+const RPC_URL     = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+const BUNDLER_URL = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 // Source and destination are the same chain for same-chain swaps
 const chain = await EvmChain.create(RPC_URL, BUNDLER_URL)
@@ -199,19 +197,18 @@ import { stringToHex, padHex } from "viem"
 const MY_GRAFFITI = padHex(stringToHex("my-app"), { size: 32 })
 
 const gen = intentGateway.execute(order, MY_GRAFFITI, {
-  minBids: 1,
-  bidTimeoutMs: 60_000,
+  auctionTimeMs: 15_000,
 })
 
 // Use DEFAULT_GRAFFITI to opt out of attribution
-const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, { minBids: 1 })
+const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 15_000 })
 ```
 
 ---
 
 ## The `execute()` Generator
 
-`execute()` is the recommended entry point. It auto-estimates fees, encodes and broadcasts the `placeOrder` transaction, polls the auction for solver bids, submits the winning `UserOperation`, and streams real-time status updates. For same-chain orders it loops back after each partial fill, retrying until the order is fully filled or the attempt limit is reached.
+`execute()` is the recommended entry point. It auto-estimates fees, encodes and broadcasts the `placeOrder` transaction, runs a timed auction to collect solver bids, submits the winning `UserOperation`, and streams real-time status updates. During the auction period, the generator yields `NEW_BID` each time a previously unseen bid arrives, giving callers real-time visibility into the auction. After the auction ends, the best bid is selected and submitted. For same-chain orders it loops back after each partial fill, retrying until the order is fully filled or the attempt limit is reached.
 
 ### Generator protocol
 
@@ -223,7 +220,7 @@ The generator is bidirectional — it pauses at two points to hand control back 
 
 **Second yield** — `ORDER_PLACED`. After the transaction is confirmed, the generator yields `{ status: "ORDER_PLACED", order, receipt }` where `order` is the finalized `Order` (with `nonce`, `id`, and `inputs` populated from the `OrderPlaced` event) and `receipt` is the full viem `TransactionReceipt` of the placement transaction.
 
-**Subsequent yields** — status updates. The generator then yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `FAILED`, `PARTIAL_FILL_EXHAUSTED`). Call `gen.next()` with no arguments to advance after each update.
+**Subsequent yields** — status updates. The generator then yields `IntentOrderStatusUpdate` objects continuously until the order reaches a terminal state (`FILLED`, `EXPIRED`). During the auction period (`auctionTimeMs`), the generator yields `NEW_BID` each time a new solver bid is discovered — these are informational and do not affect bid selection. Once the auction ends, `BIDS_RECEIVED` is yielded with the full set of collected bids, and the best bid is selected. `FAILED` events are informational — the executor automatically retries by looping back to bid polling. Call `gen.next()` with no arguments to advance after each update.
 
 ```typescript lineNumbers title="execute.ts" icon="typescript"
 import { IntentOrderStatus, DEFAULT_GRAFFITI } from "@hyperbridge/sdk"
@@ -232,9 +229,8 @@ import type { IntentOrderStatusUpdate, Order } from "@hyperbridge/sdk"
 
 async function runOrder(order: Order) {
   const gen = intentGateway.execute(order, DEFAULT_GRAFFITI, {
-    minBids: 1,           // wait for at least N bids before selecting (default: 1)
-    bidTimeoutMs: 60_000, // max time to wait for bids in ms (default: 60 000)
-    pollIntervalMs: 5_000, // how often to poll for bids (default: SDK-defined)
+    auctionTimeMs: 15_000, // duration in ms to collect bids before selecting the best one
+    pollIntervalMs: 5_000, // how often to poll for new bids during the auction (default: SDK-defined)
   })
 
   // First yield: AWAITING_PLACE_ORDER — placeOrder calldata + estimated native fee
@@ -258,22 +254,22 @@ async function runOrder(order: Order) {
   for await (const update of gen) {
     switch (update.status) {
       case IntentOrderStatus.AWAITING_BIDS:
-        // SDK is polling the Hyperbridge coprocessor for solver bids
-        console.log("Waiting for solver bids on Hyperbridge…")
+        // Auction started — SDK is polling the Hyperbridge coprocessor for solver bids
+        console.log("Auction started, waiting for solver bids…")
+        break
+      case IntentOrderStatus.NEW_BID:
+        // A new bid arrived during the auction period (informational — bid selection happens after auction)
+        console.log(`New bid during auction — ${update.bidCount} total bids so far`)
         break
       case IntentOrderStatus.BIDS_RECEIVED:
-        // At least minBids bids collected or bidTimeoutMs elapsed
-        console.log(`${update.bidCount} bids received`)
+        // Auction ended — all collected bids are available for selection
+        console.log(`Auction ended, ${update.bidCount} bids collected`)
         break
       case IntentOrderStatus.BID_SELECTED:
-        // Best bid chosen; SDK is encoding the SelectSolver UserOperation
-        console.log("Best bid selected, solver:", update.selectedSolver)
-        break
-      case IntentOrderStatus.USEROP_SUBMITTED:
-        // UserOp submitted to the ERC-4337 bundler
+        // Best bid chosen and UserOp submitted to the ERC-4337 bundler
         // Cross-chain: execute() exits here — Hyperbridge finalisation is async
         // Same-chain: SDK waits for the fill tx, then moves to FILLED or PARTIAL_FILL
-        console.log("UserOp submitted to bundler:", update.userOpHash)
+        console.log("Bid selected, solver:", update.selectedSolver, "tx:", update.transactionHash)
         break
       case IntentOrderStatus.PARTIAL_FILL: {
         // Same-chain only: a solver partially filled the output
@@ -282,19 +278,20 @@ async function runOrder(order: Order) {
         console.log("Partial fill:", filledAssets, "| total filled:", totalFilledAssets, "| remaining:", remainingAssets)
         break
       }
-      case IntentOrderStatus.PARTIAL_FILL_EXHAUSTED:
-        // Order deadline reached, or no new bids arrived for the remaining amount
-        // The order is still live on-chain — cancel it or wait for a solver to fill the rest manually
-        console.warn("Could not fully fill order after max attempts. Remaining:", update.remainingAssets)
-        return
       case IntentOrderStatus.FILLED:
         // Order fully filled; escrow released to the solver
         console.log("Order fully filled! tx:", update.transactionHash)
         return
-      case IntentOrderStatus.FAILED:
-        // Unrecoverable error (e.g. bundler rejection, RPC failure)
-        console.error("Order failed:", update.error)
+      case IntentOrderStatus.EXPIRED:
+        // Order deadline reached, or no new bids arrived for the remaining amount
+        // The order is still live on-chain — cancel it or wait for a solver to fill the rest manually
+        console.warn("Order expired:", update.error, "Remaining:", update.remainingAssets)
         return
+      case IntentOrderStatus.FAILED:
+        // Retryable error (e.g. bundler rejection, simulation failure)
+        // The executor automatically retries — this is informational only
+        console.warn("Retryable error, retrying:", update.error)
+        break
     }
   }
 }
@@ -307,26 +304,29 @@ async function runOrder(order: Order) {
 |--------|---------|-----------|
 | `AWAITING_PLACE_ORDER` | Before broadcasting — SDK yields calldata for signing | `to`, `data`, `value`, `sessionPrivateKey` |
 | `ORDER_PLACED` | `placeOrder` tx confirmed on-chain | `order` (finalized `Order`), `receipt` |
-| `AWAITING_BIDS` | Polling coprocessor for bids | `commitment`, `totalFilledAssets`, `remainingAssets` |
-| `BIDS_RECEIVED` | `minBids` collected or `bidTimeoutMs` elapsed | `commitment`, `bidCount`, `bids` |
-| `BID_SELECTED` | Best bid chosen | `commitment`, `selectedSolver`, `userOpHash` |
-| `USEROP_SUBMITTED` | UserOp sent to bundler | `commitment`, `userOpHash`, `transactionHash` |
+| `AWAITING_BIDS` | Auction started, polling coprocessor for bids | `commitment`, `totalFilledAssets`, `remainingAssets` |
+| `NEW_BID` | New bid discovered during auction (informational) | `commitment`, `bidCount`, `bids` |
+| `BIDS_RECEIVED` | Auction ended, all bids ready for selection | `commitment`, `bidCount`, `bids` |
+| `BID_SELECTED` | Best bid chosen and UserOp sent to bundler | `commitment`, `selectedSolver`, `userOpHash`, `userOp`, `transactionHash` |
 | `PARTIAL_FILL` | Same-chain partial fill confirmed; loop restarts | `commitment`, `filledAssets`, `totalFilledAssets`, `remainingAssets` |
-| `PARTIAL_FILL_EXHAUSTED` | Deadline reached or no new bids for remainder | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
 | `FILLED` | Order fully filled | `commitment`, `userOpHash`, `transactionHash` |
-| `FAILED` | Unrecoverable error | `error` |
+| `EXPIRED` | Deadline reached or no new bids available — terminal | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
+| `FAILED` | Retryable error (e.g. bundler rejection) — executor retries automatically | `commitment`, `totalFilledAssets`, `remainingAssets`, `error` |
 
 ### `execute()` options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `minBids` | `number` | `1` | Minimum bids to collect before selecting the best one |
-| `bidTimeoutMs` | `number` | `60000` | Max time (ms) to wait for bids before proceeding with whatever has arrived |
-| `pollIntervalMs` | `number` | SDK default | How frequently (ms) to poll the coprocessor for new bids |
+| `auctionTimeMs` | `number` | — | Duration in ms to collect bids before selecting the best one. During this period, `NEW_BID` is yielded each time a new bid is discovered. After the auction ends, `BIDS_RECEIVED` is yielded and the best bid is selected. |
+| `pollIntervalMs` | `number` | SDK default | How frequently (ms) to poll the coprocessor for new bids during and after the auction |
 
-### `PARTIAL_FILL_EXHAUSTED`
+### `EXPIRED`
 
-When `PARTIAL_FILL_EXHAUSTED` fires, the user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+When `EXPIRED` fires, the order deadline has been reached or no new bids are available. The user can cancel and reclaim the remaining escrow. See [Cancelling Orders](./cancelling-orders) for cancellation options.
+
+### `FAILED` (retryable)
+
+`FAILED` events are informational — the executor automatically retries by looping back to bid polling. Common causes include bundler gas price rejections or bid simulation failures. The retry continues until the order reaches `FILLED` or `EXPIRED`.
 
 ---
 
@@ -382,7 +382,7 @@ Set `destination` to the target chain's state machine ID. The contract verifies 
 
 Cross-chain fills are **all-or-nothing** — the solver must provide the full required amount for every output asset in a single transaction. Partial fills are not supported for cross-chain orders. On fill, the contract dispatches a `RedeemEscrow` POST request via Hyperbridge back to the source chain, which releases escrowed tokens to the solver on receipt.
 
-`execute()` exits after `USEROP_SUBMITTED` for cross-chain orders — it does not wait for Hyperbridge finalisation. To track cross-chain settlement, monitor the `EscrowReleased` event on the source chain or use the indexer.
+`execute()` exits after `BID_SELECTED` for cross-chain orders — it does not wait for Hyperbridge finalisation. To track cross-chain settlement, monitor the `EscrowReleased` event on the source chain or use the indexer.
 
 ```typescript lineNumbers title="cross-chain-order.ts" icon="typescript"
 import { toHex, parseUnits } from "viem"

@@ -5,4 +5,4 @@ global:
 scrape_configs:
   - job_name: "simplex"
     static_configs:
-      - targets: ["simplex:9090"]
+      - targets: ["hyperbridge-simplex:9090"]

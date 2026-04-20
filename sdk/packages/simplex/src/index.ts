@@ -14,3 +14,7 @@ export type { CurvePoint, CurveConfig } from "@/config/interpolated-curve"
 
 // Service exports
 export { ChainClientManager, ContractInteractionService } from "@/services"
+
+// Output funding
+export type { OutputFundingConfig } from "@/funding/types"
+export { UniswapV4LiquidityState, UniswapV4FundingPlanner } from "@/funding"

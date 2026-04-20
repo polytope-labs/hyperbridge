@@ -37,6 +37,7 @@ services:
         command:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.retention.time=30d"
+            - "--web.enable-admin-api"
         networks:
             - simplex-network
         ports:

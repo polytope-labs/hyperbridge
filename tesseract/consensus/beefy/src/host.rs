@@ -117,7 +117,6 @@ where
 
 		Ok(())
 	}
-
 }
 
 #[async_trait::async_trait]
@@ -183,10 +182,7 @@ where
 					let item =
 						self.backend.receive_mandatory_proof(&counterparty_state_machine).await;
 
-					let QueueMessage {
-						id,
-						proof: ConsensusProof { message, set_id, .. },
-					} =
+					let QueueMessage { id, proof: ConsensusProof { message, set_id, .. } } =
 						match item {
 							Ok(Some(message)) => message,
 							// no new items in the queue, continue to process messages queue

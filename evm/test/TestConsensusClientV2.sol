@@ -43,6 +43,11 @@ contract TestConsensusClientV2 is IConsensus, IConsensusV2, ERC165 {
 
     /**
      * @dev IConsensusV2 implementation — used by HandlerV2.handleConsensus.
+     *
+     * The new consensus state is `abi.encode(previousState, nextAuthoritySetId)` so it
+     * always differs from `previousState`, mirroring a real client that advances state
+     * on a valid proof. Returning `previousState` unchanged would short-circuit the
+     * epoch-attribution path in HandlerV2.
      */
     function verify(bytes calldata previousState, bytes calldata proof)
         external
@@ -55,6 +60,7 @@ contract TestConsensusClientV2 is IConsensus, IConsensusV2, ERC165 {
         IntermediateState[] memory intermediates = new IntermediateState[](1);
         intermediates[0] = intermediate;
 
-        return (previousState, intermediates, nextAuthoritySetId);
+        bytes memory newState = abi.encode(previousState, nextAuthoritySetId);
+        return (newState, intermediates, nextAuthoritySetId);
     }
 }

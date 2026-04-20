@@ -73,7 +73,7 @@
 		"stateMachineId": "EVM-84532",
 		"contracts": {
 			"ethereumHost": "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
-			"handlerV1": "0x63259e5ad3992CC91a662edd75AcD55125046E0B",
+			"handlerV1": "0x4638945E120846366cB7Abc08DB9c0766E3a663F",
 			"erc6160ext20": "0xA801da100bF16D07F668F4A49E1f71fc54D05177",
 			"tokenGateway": "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
 		}
@@ -83,6 +83,7 @@
 		"chainId": "97",
 		"startBlock": 44742412,
 		"stateMachineId": "EVM-97",
+		"unfinalizedBlocks": false,
 		"contracts": {
 			"ethereumHost": "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7",
 			"handlerV1": "0xb45A4078A2D0B036C324A0046C2845aD59e769F6",
@@ -97,6 +98,7 @@
 		"chainId": "10200",
 		"startBlock": 12294845,
 		"stateMachineId": "EVM-10200",
+		"blockConfirmations": 5,
 		"contracts": {
 			"ethereumHost": "0x58A41B89F4871725E5D898d98eF4BF917601c5eB",
 			"handlerV1": "0x01b40De26Ba4C63c17A6f4Ed2cF96927C280B029",
@@ -142,6 +144,19 @@
 			"erc6160ext20": "0xECa9bC828A3005B9a3b909f2cc5c2a54794DE05F",
 			"tokenGateway": "0x1c1e5be83df4a54c7a2230c337e4a3e8b7354b1c",
 			"intentGatewayV2": "0xbB6BFF5Cf62cf5a091C29D88FAe88b3010F100D1"
+		}
+	},
+"pharos-atlantic": {
+		"type": "evm",
+		"chainId": "688689",
+		"startBlock": 18128677,
+		"stateMachineId": "EVM-688689",
+		"contracts": {
+			"ethereumHost": "0xED54E9b64043c389173316B6351Bd25491060eA8",
+			"handlerV1": "0x8B37747BBF8c8485026B9Dc2f8Fb177096EF574f",
+			"erc6160ext20": "0xeaB7572c5506978C9A4Ff0A0BA5A1291e327B0B8",
+			"tokenGateway": "0x451bDd8273839AD0Ec7F4Fa798E8B3DABb223fD8",
+			"intentGatewayV2": "0xb8039832c6c9266F928d038eA49A8a169300C670"
 		}
 	}
 }

@@ -3,13 +3,45 @@ import { ChainConfigService } from "@hyperbridge/sdk"
 import { LogLevel } from "./Logger"
 
 export interface UserProvidedChainConfig {
+	rpcUrl: string
+	bundlerUrl: string
+}
+
+export interface ResolvedChainConfig {
 	chainId: number
 	rpcUrl: string
 	bundlerUrl?: string
 }
 
-export interface LoggingConfig {
-	level?: LogLevel
+/**
+ * Fetches the chain ID from an RPC endpoint using eth_chainId.
+ */
+export async function fetchChainId(rpcUrl: string): Promise<number> {
+	const response = await fetch(rpcUrl, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+	})
+	if (!response.ok) {
+		throw new Error(`Failed to fetch chainId from ${rpcUrl}: HTTP ${response.status}`)
+	}
+	const json = (await response.json()) as { result?: string; error?: { message: string } }
+	if (json.error) {
+		throw new Error(`eth_chainId error from ${rpcUrl}: ${json.error.message}`)
+	}
+	return Number(json.result)
+}
+
+/**
+ * Resolves chain IDs for all user-provided chain configs by querying each RPC.
+ */
+export async function resolveChainConfigs(chains: UserProvidedChainConfig[]): Promise<ResolvedChainConfig[]> {
+	return Promise.all(
+		chains.map(async (chain) => {
+			const chainId = await fetchChainId(chain.rpcUrl)
+			return { chainId, rpcUrl: chain.rpcUrl, bundlerUrl: chain.bundlerUrl }
+		}),
+	)
 }
 
 export interface GasFeeBumpConfig {
@@ -25,9 +57,16 @@ export interface RebalancingConfig {
 	}
 }
 
+export interface OverfillProtectionConfig {
+	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 100 (1%). */
+	maxOverfillBps?: number
+	/** Consecutive clamped evaluations before the strategy halts itself. Default 3. */
+	maxConsecutiveClamps?: number
+}
+
 export interface FillerConfig {
 	maxConcurrentOrders: number
-	logging?: LoggingConfig
+	logging?: LogLevel
 	hyperbridgeWsUrl?: string
 	substratePrivateKey?: string
 	entryPointAddress?: string
@@ -38,6 +77,16 @@ export interface FillerConfig {
 	 */
 	gasFeeBump?: GasFeeBumpConfig
 	rebalancing?: RebalancingConfig
+	/**
+	 * Target gas units the EntryPoint deposit should cover per chain.
+	 * Defaults to 3,000,000 if not set.
+	 */
+	targetGasUnits?: number
+	/**
+	 * Overfill protection knobs. If omitted, defaults are used
+	 * (maxOverfillBps=100, maxConsecutiveClamps=3).
+	 */
+	overfillProtection?: OverfillProtectionConfig
 }
 
 /**
@@ -50,7 +99,7 @@ export class FillerConfigService {
 	private bundlerUrls: Map<number, string> = new Map()
 	private fillerConfig?: FillerConfig
 
-	constructor(chainConfigs: UserProvidedChainConfig[], fillerConfig?: FillerConfig) {
+	constructor(chainConfigs: ResolvedChainConfig[], fillerConfig?: FillerConfig) {
 		chainConfigs.forEach((config) => {
 			if (config.rpcUrl) {
 				this.rpcOverrides.set(config.chainId, config.rpcUrl)
@@ -102,6 +151,10 @@ export class FillerConfigService {
 
 	getUsdcDecimals(chain: string): number {
 		return this.chainConfigService.getUsdcDecimals(chain)
+	}
+
+	getCirclePaymasterAddress(chain: string): HexString | undefined {
+		return this.chainConfigService.getCirclePaymasterAddress(chain)
 	}
 
 	getUsdtDecimals(chain: string): number {
@@ -166,6 +219,18 @@ export class FillerConfigService {
 		return this.chainConfigService.getUniswapV4QuoterAddress(chain)
 	}
 
+	getUniswapV4PositionManagerAddress(chain: string): HexString {
+		return this.chainConfigService.getUniswapV4PositionManagerAddress(chain)
+	}
+
+	getUniswapV4PoolManagerAddress(chain: string): HexString {
+		return this.chainConfigService.getUniswapV4PoolManagerAddress(chain)
+	}
+
+	getUniswapV4StateViewAddress(chain: string): HexString {
+		return this.chainConfigService.getUniswapV4StateViewAddress(chain)
+	}
+
 	getPermit2Address(chain: string): HexString {
 		return this.chainConfigService.getPermit2Address(chain)
 	}
@@ -194,7 +259,7 @@ export class FillerConfigService {
 		return Array.from(this.rpcOverrides.keys())
 	}
 
-	getLoggingConfig(): LoggingConfig | undefined {
+	getLoggingConfig(): LogLevel | undefined {
 		return this.fillerConfig?.logging
 	}
 
@@ -302,5 +367,23 @@ export class FillerConfigService {
 	 */
 	getTriggerPercentage(): number | undefined {
 		return this.fillerConfig?.rebalancing?.triggerPercentage
+	}
+
+	/**
+	 * Get target gas units for EntryPoint deposits.
+	 * Defaults to 3,000,000 if not configured.
+	 */
+	getTargetGasUnits(): bigint {
+		return BigInt(this.fillerConfig?.targetGasUnits ?? 3_000_000)
+	}
+
+	/** Ceiling bps above user-requested output. Default 100 (1%). */
+	getMaxOverfillBps(): bigint {
+		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 100)
+	}
+
+	/** Consecutive clamped evaluations before the strategy halts. Default 3. */
+	getMaxConsecutiveClamps(): number {
+		return this.fillerConfig?.overfillProtection?.maxConsecutiveClamps ?? 3
 	}
 }

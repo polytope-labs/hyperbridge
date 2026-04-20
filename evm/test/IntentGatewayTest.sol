@@ -19,7 +19,7 @@ import {
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {PostRequest, GetResponse, GetRequest} from "@hyperbridge/core/libraries/Message.sol";
-import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
+import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -135,7 +135,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
             })
         );
         bytes memory hostId = host.host();
-        StorageValue[] memory values = new StorageValue[](1);
+        MerklePatricia.StorageValue[] memory values = new MerklePatricia.StorageValue[](1);
         values[0].value = bytes("0xdeadbeef");
         vm.startPrank(address(host));
         vm.expectRevert(IntentGateway.Filled.selector);
@@ -247,7 +247,7 @@ contract IntentGatewayTest is MainnetForkBaseTest {
             })
         );
         bytes memory hostId = host.host();
-        StorageValue[] memory values = new StorageValue[](1);
+        MerklePatricia.StorageValue[] memory values = new MerklePatricia.StorageValue[](1);
         GetResponse memory response = GetResponse({
             values: values,
             request: GetRequest({

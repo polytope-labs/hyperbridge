@@ -22,7 +22,6 @@ features = [
     "sp-core",
     "sp-consensus-beefy",
     "sp-mmr-primitives",
-    "sp-io",
 ]
 
 [features]

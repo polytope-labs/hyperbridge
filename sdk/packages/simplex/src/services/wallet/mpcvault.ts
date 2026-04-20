@@ -202,7 +202,7 @@ export class MpcVaultService {
 		})
 
 		const result = await this.executeSigningRequest(uuid)
-		return this.signatureFromParts(this.extractEcdsaSignature(result, "typed data signing"))
+		return this.signatureFromParts(this.extractEcdsaSignature(result, "typed data signing"), true)
 	}
 
 	private async executeRawMessageSigningRequest(hash: HexString): Promise<SignatureContainer_ECDSASignature> {

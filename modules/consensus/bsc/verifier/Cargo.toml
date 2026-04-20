@@ -17,10 +17,9 @@ primitive-types = { workspace = true }
 codec = { workspace = true }
 ismp = { workspace = true, default-features = false }
 geth-primitives = { workspace = true, default-features = false }
-sync-committee-verifier = { workspace = true, default-features = false }
+crypto-utils = { workspace = true, default-features = false }
 sync-committee-primitives = { workspace = true, default-features = false }
 bls = { workspace = true }
-ark-ec = { workspace = true }
 ssz-rs = { git = "https://github.com/polytope-labs/ssz-rs", branch = "main", default-features = false }
 
 [dependencies.polkadot-sdk]
@@ -38,9 +37,8 @@ std = [
     "alloy-primitives/std",
     "alloy-rlp/std",
     "bls/std",
-    "sync-committee-verifier/std",
+    "crypto-utils/std",
     "sync-committee-primitives/std",
     "geth-primitives/std",
-    "ark-ec/std",
     "ssz-rs/std",
 ]

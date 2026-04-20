@@ -44,7 +44,7 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 	let response = router::GetResponse { get: get.clone(), values };
 
 	let leaf = DataOrHash::Data(Leaf::Response(Response::Get(response.clone())));
-	let (overlay_root, proof, k_index) = initialize_mmr_tree(leaf, 10)?;
+	let (overlay_root, proof) = initialize_mmr_tree(leaf, 10)?;
 
 	// create intermediate state
 	let height = StateMachineHeight { state_machine_id: U256::from(2000), height: U256::from(10) };
@@ -65,7 +65,6 @@ async fn test_get_response() -> Result<(), anyhow::Error> {
 		proof,
 		responses: vec![GetResponseLeaf {
 			index: 30.into(),
-			k_index: k_index.into(),
 			response: response.into(),
 		}],
 	};

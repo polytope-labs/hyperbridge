@@ -117,8 +117,6 @@ pub struct BeefyProver<R: subxt::Config, P: subxt::Config, B: Sp1BeefyProverTrai
 	backend: Arc<Q>,
 	/// Prover configuration options
 	config: BeefyProverConfig,
-	/// Stores ZK proofs in the indexer PostgreSQL for external querying
-	proof_indexer: Option<Arc<proof_indexer::ProofIndexer>>,
 }
 
 /// Global key in redis for the prover consensus state. The prover will write it's consensus state
@@ -153,7 +151,6 @@ where
 		client: SubstrateClient<P>,
 		prover: Prover<R, P, B>,
 		backend: Arc<Q>,
-		proof_indexer: Option<Arc<proof_indexer::ProofIndexer>>,
 	) -> Result<Self, anyhow::Error> {
 		let consensus_state = backend.load_state().await?;
 
@@ -162,7 +159,7 @@ where
 		// Initialize queues for the configured state machines
 		backend.init_queues(&config.state_machines).await?;
 
-		Ok(BeefyProver { consensus_state, prover, client, config, backend, proof_indexer })
+		Ok(BeefyProver { consensus_state, prover, client, config, backend })
 	}
 
 	/// Rotate the prover's known authority set, using the network view at the provided hash
@@ -216,7 +213,7 @@ where
 					.collect::<Vec<_>>()
 					.try_into()
 					.expect("bitmap should have exactly 4 words");
-				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode();
+				let encoded = (message.relay, message.parachain, bitmap_words).abi_encode_params();
 				[&[PROOF_TYPE_FIAT_SHAMIR], encoded.as_slice()].concat()
 			},
 		};
@@ -448,8 +445,6 @@ where
 							},
 						};
 
-						self.maybe_index_proof(&message).await;
-
 						for state_machine in self.config.state_machines.iter() {
 							tracing::info!(
 								"Sending mandatory consensus proof to {state_machine}"
@@ -560,8 +555,6 @@ where
 					},
 				};
 
-				self.maybe_index_proof(&message).await;
-
 				for state_machine in state_machines {
 					tracing::info!(
 						"Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}"
@@ -580,27 +573,6 @@ where
 			if let Err(err) = result {
 				tracing::error!("Prover error: {err:?}");
 			}
-		}
-	}
-
-	async fn maybe_index_proof(&self, proof: &ConsensusProof) {
-		let Some(ref indexer) = self.proof_indexer else { return };
-
-		if proof.message.consensus_proof.first() != Some(&PROOF_TYPE_ZK) {
-			return;
-		}
-
-		let encoded = proof.message.encode();
-		if let Err(err) = indexer
-			.store_zk_proof(
-				&encoded,
-				proof.finalized_height,
-				proof.finalized_parachain_height,
-				proof.set_id,
-			)
-			.await
-		{
-			tracing::error!("Failed to store ZK proof in indexer DB: {err:?}");
 		}
 	}
 }

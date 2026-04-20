@@ -157,6 +157,7 @@ jobs:
 
             - name: Install dependencies
               run: |
+                  sudo apt-get update
                   sudo apt-get install -y clang netcat wget curl libssl-dev llvm libclang-dev libudev-dev make libprotobuf-dev protobuf-compiler pkg-config
                   echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib" >> $GITHUB_ENV
                   rustup install nightly
@@ -295,6 +296,9 @@ jobs:
     # Build and push Docker image
     build_docker:
         runs-on: release-runner
+        permissions:
+            contents: read
+            packages: write
         steps:
             - name: Checkout sources
               uses: actions/checkout@v3
@@ -325,8 +329,14 @@ jobs:
               run: |
                   cargo build --release -p hyperbridge
 
-            - name: Install Cargo get
+            - name: Install cargo-get
               run: cargo install cargo-get
+
+            - name: Resolve version
+              id: version
+              run: |
+                  VERSION=$(cargo get package.version --entry ./parachain/node)
+                  echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
             - name: Login to Docker Hub
               uses: docker/login-action@v3
@@ -334,13 +344,27 @@ jobs:
                   username: ${{ secrets.DOCKER_USERNAME }}
                   password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
 
-            - name: Build the Docker image
-              run: docker build -t polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node) -t polytopelabs/hyperbridge:latest -f ./scripts/docker/hyperbridge.Dockerfile .
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Docker Push
-              run: |
-                  docker push polytopelabs/hyperbridge:v$(cargo get package.version --entry ./parachain/node)
-                  docker push polytopelabs/hyperbridge:latest
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  file: ./scripts/docker/hyperbridge.Dockerfile
+                  push: true
+                  tags: |
+                      polytopelabs/hyperbridge:v${{ steps.version.outputs.version }}
+                      polytopelabs/hyperbridge:latest
+                      ghcr.io/${{ github.repository_owner }}/hyperbridge:v${{ steps.version.outputs.version }}
+                      ghcr.io/${{ github.repository_owner }}/hyperbridge:latest
 
     # Create a GitHub Release while uploading all files to it
     announce:
@@ -380,7 +404,7 @@ jobs:
                     COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
                   fi
 
-                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "node")
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "node" || true)
 
                   echo "changelog<<EOF" >> $GITHUB_OUTPUT
                   echo "## What's Changed" >> $GITHUB_OUTPUT

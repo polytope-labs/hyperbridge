@@ -24,13 +24,11 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		HandlerInstance, PostRequestLeaf, PostRequestMessage,
-		PostResponseLeaf, PostResponseMessage, Proof, StateMachineHeight,
+		HandlerInstance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
-use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
-use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 use primitive_types::{H256, U256};
 use std::{collections::BTreeSet, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
@@ -59,19 +57,15 @@ fn extract_state_machine_id(state_id: &StateMachine) -> anyhow::Result<AlloyU256
 	}
 }
 
-/// Decode a raw MMR proof and compute the k-index for each leaf position.
-fn decode_mmr_proof(raw: &[u8]) -> anyhow::Result<(MmrProof<H256>, Vec<(usize, u64)>)> {
+/// Decode a raw MMR proof and extract the leaf indices.
+fn decode_mmr_proof(raw: &[u8]) -> anyhow::Result<(MmrProof<H256>, Vec<u64>)> {
 	let proof = MmrProof::<H256>::decode(&mut &*raw)?;
-	let mmr_size = NodesUtils::new(proof.leaf_count).size();
-	let k_and_leaf_indices = proof
+	let leaf_indices = proof
 		.leaf_indices_and_pos
 		.iter()
-		.map(|LeafIndexAndPos { pos, leaf_index }| {
-			let k_index = mmr_position_to_k_index(vec![*pos], mmr_size)[0].1;
-			(k_index, *leaf_index)
-		})
+		.map(|LeafIndexAndPos { leaf_index, .. }| *leaf_index)
 		.collect();
-	Ok((proof, k_and_leaf_indices))
+	Ok((proof, leaf_indices))
 }
 
 /// Build the solidity `Proof` struct from an MMR proof and ISMP height.
@@ -135,20 +129,17 @@ fn build_tx_request(
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	match state_machine {
-		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) => {
-			32_000_000
-		},
+		StateMachine::Evm(ARBITRUM_CHAIN_ID) | StateMachine::Evm(ARBITRUM_SEPOLIA_CHAIN_ID) =>
+			32_000_000,
 		StateMachine::Evm(GNOSIS_CHAIN_ID) | StateMachine::Evm(CHIADO_CHAIN_ID) => 16_000_000,
 		// Gas limit is 10_000_000, we set our transaction gas limit to 40% of that
 		StateMachine::Evm(SEI_CHAIN_ID) | StateMachine::Evm(SEI_TESTNET_CHAIN_ID) => 4_000_000,
 		// Gas limit is 60_000_000, we set our transaction gas limit to 30% of that
-		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) => {
-			18_000_000
-		},
+		StateMachine::Evm(CRONOS_CHAIN_ID) | StateMachine::Evm(CRONOS_TESTNET_CHAIN_ID) =>
+			18_000_000,
 		// Gas limit is 50_000_000, we set our transaction gas limit to 30% of that
-		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) => {
-			15_000_000
-		},
+		StateMachine::Evm(INJECTIVE_CHAIN_ID) | StateMachine::Evm(INJECTIVE_TESTNET_CHAIN_ID) =>
+			15_000_000,
 		// Ethereum L1 max's gas limit per transaction will be reduced to 16m soon.
 		StateMachine::Evm(_) => 16_000_000,
 		_ => Default::default(),
@@ -243,15 +234,14 @@ pub async fn generate_contract_calls(
 			},
 
 			Message::Request(msg) => {
-				let (mmr_proof, k_and_leaf_idx) = decode_mmr_proof(&msg.proof.proof)?;
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&msg.proof.proof)?;
 				let mut leaves: Vec<PostRequestLeaf> = msg
 					.requests
 					.iter()
-					.zip(&k_and_leaf_idx)
-					.map(|(post, &(k_index, leaf_index))| PostRequestLeaf {
+					.zip(&leaf_indices)
+					.map(|(post, &leaf_index)| PostRequestLeaf {
 						request: post.clone().into(),
 						index: AlloyU256::from(leaf_index),
-						kIndex: AlloyU256::from(k_index),
 					})
 					.collect();
 				leaves.sort_by_key(|l| l.index);
@@ -267,15 +257,14 @@ pub async fn generate_contract_calls(
 				proof,
 				..
 			}) => {
-				let (mmr_proof, k_and_leaf_idx) = decode_mmr_proof(&proof.proof)?;
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
 				let mut leaves: Vec<PostResponseLeaf> = responses
 					.iter()
-					.zip(&k_and_leaf_idx)
-					.filter_map(|(res, &(k_index, leaf_index))| match res {
+					.zip(&leaf_indices)
+					.filter_map(|(res, &leaf_index)| match res {
 						Response::Post(res) => Some(PostResponseLeaf {
 							response: res.clone().into(),
 							index: AlloyU256::from(leaf_index),
-							kIndex: AlloyU256::from(k_index),
 						}),
 						_ => None,
 					})
@@ -294,9 +283,7 @@ pub async fn generate_contract_calls(
 				datagram: RequestResponse::Request(..), ..
 			}) => return Err(anyhow!("Get requests are not supported by relayer")),
 
-			Message::Timeout(_) => {
-				return Err(anyhow!("Timeout messages not supported by relayer"))
-			},
+			Message::Timeout(_) => return Err(anyhow!("Timeout messages not supported by relayer")),
 
 			Message::FraudProof(_) => return Err(anyhow!("Unexpected fraud proof message")),
 		};
@@ -410,7 +397,7 @@ pub async fn wait_for_success(
 	tx_hash: H256,
 ) -> anyhow::Result<Option<BTreeSet<H256>>> {
 	match wait_for_transaction_receipt(tx_hash, client).await? {
-		Some(receipt) => {
+		Some(receipt) =>
 			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
 				tracing::info!("Tx for {:?} succeeded", client.state_machine);
 				Ok(Some(extract_event_commitments(&receipt)))
@@ -421,8 +408,7 @@ pub async fn wait_for_success(
 					client.state_machine
 				);
 				Err(anyhow!("Transaction reverted"))
-			}
-		},
+			},
 		None => Ok(None),
 	}
 }
@@ -437,7 +423,7 @@ pub async fn handle_message_submission(
 
 	for msg in messages {
 		match msg {
-			Message::Request(req_msg) => {
+			Message::Request(req_msg) =>
 				for post in req_msg.requests {
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
@@ -452,12 +438,11 @@ pub async fn handle_message_submission(
 							height,
 						});
 					}
-				}
-			},
+				},
 			Message::Response(ResponseMessage {
 				datagram: RequestResponse::Response(resp),
 				..
-			}) => {
+			}) =>
 				for res in resp {
 					let commitment = hash_response::<Hasher>(&res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
@@ -473,8 +458,7 @@ pub async fn handle_message_submission(
 							height,
 						});
 					}
-				}
-			},
+				},
 			_ => {},
 		}
 	}

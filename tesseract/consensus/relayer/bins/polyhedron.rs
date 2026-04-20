@@ -236,7 +236,7 @@ async fn main() -> anyhow::Result<()> {
 			KeccakSubstrateChain,
 			zk_beefy::LocalProver,
 			InMemoryProofBackend,
-		>::new(config.beefy.clone(), substrate_client.clone(), prover, backend.clone(), None)
+		>::new(config.beefy.clone(), substrate_client.clone(), prover, backend.clone())
 		.await
 		.context("Failed to create BEEFY prover")?;
 

@@ -8,6 +8,22 @@ export default defineConfig({
 	sourcemap: true,
 	clean: true,
 	shims: true,
+	noExternal: [/.*/],
+	esbuildOptions(options, context) {
+		options.external = [
+			"better-sqlite3",
+			"@solana/spl-token",
+			"@solana/web3.js",
+			"pino",
+			"pino-pretty",
+			"thread-stream",
+		]
+		if (context.format === "esm") {
+			options.banner = {
+				js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
+			}
+		}
+	},
 	onSuccess: async () => {
 		// Add shebang only to the CLI file after build
 		const fs = await import("fs/promises")

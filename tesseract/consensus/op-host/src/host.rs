@@ -14,7 +14,7 @@ use ismp_optimism::{
 	ConsensusState, OptimismConsensusProof, OptimismConsensusType, OptimismUpdate,
 	OPTIMISM_CONSENSUS_CLIENT_ID,
 };
-use op_verifier::{calculate_output_root, CANNON, _PERMISSIONED};
+use op_verifier::{calculate_output_root, _PERMISSIONED, CANNON};
 use reqwest::Url;
 use sp_core::{bytes::from_hex, Encode, H160, H256, U256};
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};

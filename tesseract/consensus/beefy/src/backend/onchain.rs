@@ -28,8 +28,10 @@ use pallet_beefy_consensus_proofs::types::SIGNATURE_DOMAIN;
 use sp_core::{sr25519, Pair};
 use std::{pin::Pin, sync::Arc};
 use subxt::{
-	dynamic::Value, ext::subxt_rpcs::RpcClient, ext::subxt_rpcs::rpc_params,
-	utils::MultiSignature, OnlineClient,
+	dynamic::Value,
+	ext::subxt_rpcs::{rpc_params, RpcClient},
+	utils::MultiSignature,
+	OnlineClient,
 };
 use tesseract_substrate::extrinsic::send_unsigned_extrinsic;
 use tokio::sync::RwLock;
@@ -65,13 +67,7 @@ impl<P: subxt::Config> OnchainBackend<P> {
 		signer: sr25519::Pair,
 		consensus_state_id: ConsensusStateId,
 	) -> Self {
-		Self {
-			client,
-			rpc_client,
-			signer,
-			consensus_state_id,
-			state: Arc::new(RwLock::new(None)),
-		}
+		Self { client, rpc_client, signer, consensus_state_id, state: Arc::new(RwLock::new(None)) }
 	}
 }
 

@@ -53,10 +53,7 @@ impl BeefyConfig {
 	/// [`BeefyProverConfig::backend`](prover::BeefyProverConfig::backend).
 	pub async fn into_client<R, P>(
 		self,
-	) -> Result<
-		BeefyHost<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>,
-		anyhow::Error,
-	>
+	) -> Result<BeefyHost<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
 		P: subxt::Config + Send + Sync + Clone,
@@ -74,13 +71,12 @@ impl BeefyConfig {
 				cfg.realtime = true; // Enable real-time notifications
 				Arc::new(backend::RedisProofBackend::new(cfg).await?)
 			},
-			backend::ProofBackendConfig::Onchain =>
-				Arc::new(backend::OnchainBackend::<P>::new(
-					client.client.clone(),
-					client.rpc_client.clone(),
-					client.signer.clone(),
-					self.host.consensus_state_id,
-				)),
+			backend::ProofBackendConfig::Onchain => Arc::new(backend::OnchainBackend::<P>::new(
+				client.client.clone(),
+				client.rpc_client.clone(),
+				client.signer.clone(),
+				self.host.consensus_state_id,
+			)),
 			backend::ProofBackendConfig::InMemory => {
 				let initial_state = prover.query_initial_consensus_state(None).await?;
 				Arc::new(backend::InMemoryProofBackend::new(initial_state))

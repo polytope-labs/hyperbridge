@@ -295,7 +295,11 @@ where
 		};
 
 		let changes = relay_rpc
-			.state_query_storage(vec![&BEEFY_VALIDATOR_SET_ID[..]], from, Some(header.hash().into()))
+			.state_query_storage(
+				vec![&BEEFY_VALIDATOR_SET_ID[..]],
+				from,
+				Some(header.hash().into()),
+			)
 			.await?;
 
 		let changes_iter = changes.into_iter().filter_map(|change| {

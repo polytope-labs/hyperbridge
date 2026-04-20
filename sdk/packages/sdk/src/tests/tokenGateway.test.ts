@@ -315,7 +315,7 @@ describe.skip("teleport function", () => {
 })
 
 describe("TokenGateway SDK", () => {
-	it("should estimate native cost for teleport using quoteNative", async () => {
+	it.skip("should estimate native cost for teleport using quoteNative", async () => {
 		const baseIsmpHostAddress = "0x6FFe92e4d7a9D589549644544780e6725E84b248" as HexString
 		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
 

@@ -1,6 +1,6 @@
 import "log-timestamp"
 import { describe, it, expect, beforeAll } from "vitest"
-import { createQueryClient, _queryTokenPriceInternal } from "@/query-client"
+import { createQueryClient, _queryTokenPriceInternal } from "@/queryClient"
 import type { IndexerQueryClient } from "@/types"
 
 describe.sequential("Token Price and Registry Integration Tests", () => {

@@ -12,7 +12,7 @@ import type {
 	TeleportStatus,
 	TokenGatewayAssetTeleportedWithStatus,
 } from "@/types"
-import { _queryTokenGatewayAssetTeleportedInternal } from "@/query-client"
+import { _queryTokenGatewayAssetTeleportedInternal } from "@/queryClient"
 import { DEFAULT_POLL_INTERVAL, sleep } from "@/utils"
 
 /**

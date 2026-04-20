@@ -1,5 +1,5 @@
 export { IsmpClient } from "@/client"
-export { createQueryClient, queryGetRequest, queryPostRequest, queryAssetTeleported } from "@/query-client"
+export { createQueryClient, queryGetRequest, queryPostRequest, queryAssetTeleported } from "@/queryClient"
 export {
 	__test,
 	postRequestCommitment,

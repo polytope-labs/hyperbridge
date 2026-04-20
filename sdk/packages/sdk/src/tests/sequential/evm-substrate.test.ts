@@ -22,7 +22,7 @@ import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet } from "viem/chains"
 import { DEFAULT_LOGGER, normalizeTimestamp, postRequestCommitment } from "@/utils"
 import { IsmpClient } from "@/client"
-import { createQueryClient } from "@/query-client"
+import { createQueryClient } from "@/queryClient"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
 const logger = DEFAULT_LOGGER.withTag("evm-substrate")

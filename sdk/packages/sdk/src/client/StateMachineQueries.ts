@@ -10,7 +10,7 @@ import type {
 import {
 	_queryGetRequestInternal,
 	_queryRequestInternal,
-} from "@/query-client"
+} from "@/queryClient"
 import {
 	GET_RESPONSE_BY_REQUEST_ID,
 	LATEST_STATE_MACHINE_UPDATE,

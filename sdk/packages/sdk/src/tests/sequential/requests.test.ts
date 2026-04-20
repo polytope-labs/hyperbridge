@@ -23,7 +23,7 @@ import PING_MODULE from "@/abis/pingModule"
 import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
 import { EvmChain, SubstrateChain } from "@/chain"
-import { createQueryClient } from "@/query-client"
+import { createQueryClient } from "@/queryClient"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
 describe.sequential("Get and Post Requests", () => {

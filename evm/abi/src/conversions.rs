@@ -72,8 +72,7 @@ mod beefy {
 		},
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
-	use alloc::vec;
-	use alloc::vec::Vec;
+	use alloc::{vec, vec::Vec};
 	use alloy_primitives::{Bytes, FixedBytes, U256};
 	use beefy_verifier_primitives::{
 		ConsensusMessage, ConsensusState, MmrProof, ParachainHeader as BvpParachainHeader,
@@ -83,8 +82,8 @@ mod beefy {
 	use polkadot_sdk::*;
 	use primitive_types::H256;
 	use sp_consensus_beefy::{
-		Payload as BeefyPayload,
 		mmr::{BeefyNextAuthoritySet, MmrLeafVersion},
+		Payload as BeefyPayload,
 	};
 	use sp_mmr_primitives::LeafProof;
 
@@ -386,11 +385,8 @@ mod beefy {
 
 	impl From<RelayChainProof> for MmrProof {
 		fn from(value: RelayChainProof) -> Self {
-			let leaf_index: u64 = value
-				.latestMmrLeaf
-				.leafIndex
-				.try_into()
-				.expect("mmr leaf index out of bounds");
+			let leaf_index: u64 =
+				value.latestMmrLeaf.leafIndex.try_into().expect("mmr leaf index out of bounds");
 			let items: Vec<H256> = value.mmrProof.into_iter().map(|h| H256(h.0)).collect();
 			let mmr_proof = LeafProof {
 				leaf_indices: vec![leaf_index],
@@ -401,12 +397,7 @@ mod beefy {
 			MmrProof {
 				signed_commitment: BvpSignedCommitment {
 					commitment: value.signedCommitment.commitment.into(),
-					signatures: value
-						.signedCommitment
-						.votes
-						.into_iter()
-						.map(Into::into)
-						.collect(),
+					signatures: value.signedCommitment.votes.into_iter().map(Into::into).collect(),
 				},
 				latest_mmr_leaf: value.latestMmrLeaf.into(),
 				mmr_proof,
@@ -613,13 +604,11 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 	type Error = anyhow::Error;
 	fn try_from(event: EvmHostEvents) -> Result<Self, Self::Error> {
 		match event {
-			EvmHostEvents::GetRequestEvent(get) => {
-				Ok(ismp::events::Event::GetRequest(get.try_into()?))
-			},
-			EvmHostEvents::PostRequestEvent(post) => {
-				Ok(ismp::events::Event::PostRequest(post.try_into()?))
-			},
-			EvmHostEvents::PostResponseEvent(resp) => {
+			EvmHostEvents::GetRequestEvent(get) =>
+				Ok(ismp::events::Event::GetRequest(get.try_into()?)),
+			EvmHostEvents::PostRequestEvent(post) =>
+				Ok(ismp::events::Event::PostRequest(post.try_into()?)),
+			EvmHostEvents::PostResponseEvent(resp) =>
 				Ok(ismp::events::Event::PostResponse(router::PostResponse {
 					post: router::PostRequest {
 						source: StateMachine::from_str(&resp.dest).map_err(|e| anyhow!("{}", e))?,
@@ -638,28 +627,24 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						.responseTimeoutTimestamp
 						.try_into()
 						.map_err(|e| anyhow!("{e}"))?,
-				}))
-			},
-			EvmHostEvents::PostRequestHandled(handled) => {
+				})),
+			EvmHostEvents::PostRequestHandled(handled) =>
 				Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
 					commitment: H256(handled.commitment.0),
 					relayer: handled.relayer.0.to_vec(),
-				}))
-			},
-			EvmHostEvents::GetRequestHandled(handled) => {
+				})),
+			EvmHostEvents::GetRequestHandled(handled) =>
 				Ok(ismp::events::Event::GetRequestHandled(ismp::events::RequestResponseHandled {
 					commitment: H256(handled.commitment.0),
 					relayer: handled.relayer.0.to_vec(),
-				}))
-			},
+				})),
 
-			EvmHostEvents::PostResponseHandled(handled) => {
+			EvmHostEvents::PostResponseHandled(handled) =>
 				Ok(ismp::events::Event::PostResponseHandled(ismp::events::RequestResponseHandled {
 					commitment: H256(handled.commitment.0),
 					relayer: handled.relayer.0.to_vec(),
-				}))
-			},
-			EvmHostEvents::StateMachineUpdated(filter) => {
+				})),
+			EvmHostEvents::StateMachineUpdated(filter) =>
 				Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id: ismp::consensus::StateMachineId {
 						state_id: StateMachine::from_str(&filter.stateMachineId)
@@ -667,8 +652,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						consensus_state_id: Default::default(),
 					},
 					latest_height: filter.height.try_into().map_err(|e| anyhow!("{e}"))?,
-				}))
-			},
+				})),
 			EvmHostEvents::PostRequestTimeoutHandled(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostRequestTimeoutHandled(TimeoutHandled {
@@ -693,7 +677,7 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 					source: dest.clone(),
 				}))
 			},
-			EvmHostEvents::StateCommitmentVetoed(vetoed) => {
+			EvmHostEvents::StateCommitmentVetoed(vetoed) =>
 				Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 					height: ismp::consensus::StateMachineHeight {
 						id: StateMachineId {
@@ -704,14 +688,13 @@ impl TryFrom<EvmHostEvents> for ismp::events::Event {
 						height: vetoed.height.try_into().map_err(|e| anyhow!("{e}"))?,
 					},
 					fisherman: vetoed.fisherman.0.to_vec(),
-				}))
-			},
-			EvmHostEvents::StateCommitmentRead(_)
-			| EvmHostEvents::HostFrozen(_)
-			| EvmHostEvents::HostWithdrawal(_)
-			| EvmHostEvents::HostParamsUpdated(_)
-			| EvmHostEvents::PostResponseFunded(_)
-			| EvmHostEvents::RequestFunded(_) => Err(anyhow!("Unsupported Event!"))?,
+				})),
+			EvmHostEvents::StateCommitmentRead(_) |
+			EvmHostEvents::HostFrozen(_) |
+			EvmHostEvents::HostWithdrawal(_) |
+			EvmHostEvents::HostParamsUpdated(_) |
+			EvmHostEvents::PostResponseFunded(_) |
+			EvmHostEvents::RequestFunded(_) => Err(anyhow!("Unsupported Event!"))?,
 		}
 	}
 }

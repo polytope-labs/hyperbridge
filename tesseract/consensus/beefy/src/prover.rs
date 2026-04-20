@@ -575,7 +575,6 @@ where
 			}
 		}
 	}
-
 }
 
 /// Beefy prover, can either produce zk proofs or naive proofs

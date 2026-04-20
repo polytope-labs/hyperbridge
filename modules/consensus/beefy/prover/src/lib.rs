@@ -122,10 +122,7 @@ fn build_authority_proof(
 }
 
 /// Build the parachain header merkle proof from the heads committed in an MMR leaf.
-fn build_parachain_proof(
-	para_ids: &[u32],
-	heads: &[(u32, Vec<u8>)],
-) -> ParachainProof {
+fn build_parachain_proof(para_ids: &[u32], heads: &[(u32, Vec<u8>)]) -> ParachainProof {
 	let leaves: Vec<[u8; 32]> = heads.iter().map(|pair| keccak_256(&pair.encode())).collect();
 	let leaf_count = leaves.len();
 
@@ -279,17 +276,13 @@ impl<R: Config, P: Config> Prover<R, P> {
 		let current_authorities = self.beefy_authorities(Some(block_hash)).await?;
 
 		// Extract and process only the challenged signatures
-		let signatures = filter_signatures_for_challenge(
-			&signed_commitment,
-			&challenged_indices,
-		)?;
+		let signatures = filter_signatures_for_challenge(&signed_commitment, &challenged_indices)?;
 
 		let authority_address_hashes = hash_authority_addresses(
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
 
-		let authority_proof =
-			build_authority_proof(&signatures, &authority_address_hashes);
+		let authority_proof = build_authority_proof(&signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {
@@ -344,10 +337,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 				temp.copy_from_slice(&*sig.encode());
 				let last = temp.last_mut().unwrap();
 				*last = *last + 27;
-				Some(SignatureWithAuthorityIndex {
-					index: index as u32,
-					signature: temp,
-				})
+				Some(SignatureWithAuthorityIndex { index: index as u32, signature: temp })
 			})
 			.collect::<Vec<_>>();
 
@@ -355,8 +345,7 @@ impl<R: Config, P: Config> Prover<R, P> {
 			current_authorities.into_iter().map(|x| x.encode()).collect(),
 		)?;
 
-		let authority_proof =
-			build_authority_proof(&signatures, &authority_address_hashes);
+		let authority_proof = build_authority_proof(&signatures, &authority_address_hashes);
 
 		let mmr = MmrProof {
 			signed_commitment: SignedCommitment {

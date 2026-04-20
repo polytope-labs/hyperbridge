@@ -324,9 +324,21 @@ rpcUrls = [
 bundlerUrl = "https://..."
 ```
 
-When two or more URLs are configured, the event monitor fans every `eth_getLogs` batch out to all providers in parallel. The batch only succeeds when **every** provider returns byte-identical logs (after sorting by `(blockNumber, logIndex, transactionHash)` and normalising BigInt serialisation). Any provider error, timeout, or divergence fails the batch — the scan cursor does not advance, so the same range is retried on the next tick. `getBlockNumber` is likewise fanned out and resolves to the lowest head across providers, preventing a fast node from pulling the scanner ahead of state the slower nodes have not yet indexed.
+When two or more URLs are configured, the event monitor fans every `eth_getLogs` batch out to all providers in parallel and accepts the batch once a **Byzantine-fault-tolerant quorum** of providers agree. The threshold is the standard BFT bound — strictly more than two thirds, i.e. `floor(2N/3) + 1` providers:
 
-A single-entry `rpcUrls` array is legal and keeps the pre-existing single-provider behaviour; the quorum machinery only engages when you list more than one endpoint.
+| Providers (N) | Quorum threshold | Faults tolerated |
+|---|---|---|
+| 1 | 1 | 0 |
+| 2 | 2 | 0 |
+| 3 | 3 | 0 |
+| 4 | 3 | 1 |
+| 5 | 4 | 1 |
+| 7 | 5 | 2 |
+| 10 | 7 | 3 |
+
+Provider errors, timeouts, and divergent results are all tolerated up to the BFT bound. Beyond it, the batch fails with a `QuorumError` that enumerates each failing URL and the size of the largest agreeing group — the scan cursor does not advance, so the same range is retried on the next tick. Agreement is computed by sorting logs by `(blockNumber, logIndex, transactionHash)` and comparing only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`); provider-added extras such as `blockTimestamp` are deliberately excluded so debug metadata on one node does not manufacture a quorum failure. `getBlockNumber` resolves to the highest block at which `floor(2N/3) + 1` providers have indexed — preventing the scanner from running ahead of BFT-supported state.
+
+A single-entry `rpcUrls` array is legal and keeps the pre-existing single-provider behaviour; the quorum machinery only engages when you list more than one endpoint. **To actually tolerate a faulty or co-opted provider you need at least four endpoints** — with three, the threshold is still three and any single failure halts scanning.
 
 #### Why this matters for cross-chain orders
 

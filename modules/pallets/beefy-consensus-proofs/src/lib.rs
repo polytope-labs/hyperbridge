@@ -546,7 +546,7 @@ pub mod pallet {
 			let public = sr25519::Public::from(payload.submitter.clone().into());
 			let proof_digest = sp_io::hashing::keccak256(&payload.proof);
 			let msg_preimage = (SIGNATURE_DOMAIN, &payload.submitter, proof_digest).encode();
-			let signed_msg = sp_io::hashing::blake2_256(&msg_preimage);
+			let signed_msg = sp_io::hashing::keccak256(&msg_preimage);
 			if !sp_io::crypto::sr25519_verify(signature, &signed_msg, &public) {
 				Err(Error::<T>::BadSignature)?
 			}

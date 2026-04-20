@@ -160,7 +160,7 @@ Async generator that cancels a placed order and streams status events until canc
 ```typescript lineNumbers
 async *cancelOrder(
   order: Order,
-  indexerClient: IndexerClient,
+  indexerClient: IsmpClient,
   fromDest?: boolean,
 ): AsyncGenerator<CancelEvent>
 ```
@@ -170,7 +170,7 @@ async *cancelOrder(
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `order` | `Order` | — | The order to cancel |
-| `indexerClient` | `IndexerClient` | — | Indexer client for streaming ISMP request status |
+| `indexerClient` | `IsmpClient` | — | Indexer client for streaming ISMP request status |
 | `fromDest` | `boolean` | `false` | If `true`, initiates cancellation from the destination chain |
 
 **Yields:** `CancelEvent`
@@ -326,6 +326,83 @@ decodeERC7821Execute(callData: HexString): ERC7821Call[] | null
 | `callData` | `HexString` | Hex-encoded calldata to decode |
 
 **Returns:** `ERC7821Call[] | null` — Array of decoded calls, or `null` on failure
+
+---
+
+### withQueryClient(queryClient, options?)
+
+Attaches a Hyperbridge indexer GraphQL client to this `IntentGateway` so that
+[`queryOrder`](#queryordercommitment) and
+[`orderStatusStream`](#orderstatusstreamcommitment) become available. Returns
+`this` for chaining.
+
+```typescript lineNumbers
+withQueryClient(
+  queryClient: IndexerQueryClient,
+  options?: { pollInterval?: number; tracing?: boolean },
+): this
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `queryClient` | `IndexerQueryClient` | GraphQL client from `createQueryClient(...)` |
+| `options.pollInterval` | `number` | Poll interval in milliseconds (default: `1_000`) |
+| `options.tracing` | `boolean` | Enable trace-level logging (default: `false`) |
+
+**Example:**
+
+```typescript lineNumbers
+const gateway = (await IntentGateway.create(source, dest)).withQueryClient(queryClient)
+```
+
+---
+
+### queryOrder(commitment)
+
+Queries an order by its commitment hash from the Hyperbridge indexer.
+
+Requires a prior call to [`withQueryClient`](#withqueryclientqueryclient-options).
+
+```typescript lineNumbers
+async queryOrder(commitment: HexString): Promise<OrderWithStatus | undefined>
+```
+
+---
+
+### orderStatusStream(commitment)
+
+Streams status updates for an order as it progresses through placement, filling,
+and redemption. Terminates when the order reaches a terminal state (`FILLED`,
+`REDEEMED`, or `REFUNDED`).
+
+Requires a prior call to [`withQueryClient`](#withqueryclientqueryclient-options).
+
+```typescript lineNumbers
+async *orderStatusStream(commitment: HexString): AsyncGenerator<
+  {
+    status: OrderStatus
+    metadata: {
+      blockHash: string
+      blockNumber: number
+      transactionHash: string
+      timestamp: bigint
+      filler?: string
+    }
+  },
+  void
+>
+```
+
+**Example:**
+
+```typescript lineNumbers
+for await (const update of gateway.orderStatusStream(commitment)) {
+  console.log(`Order status: ${update.status}`)
+  if (["FILLED", "REDEEMED", "REFUNDED"].includes(update.status)) break
+}
+```
 
 ---
 

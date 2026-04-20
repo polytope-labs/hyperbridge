@@ -1,10 +1,11 @@
 import { isNil } from "lodash-es"
 
-import type { RetryConfig } from "@/types"
+import type { IChain } from "@/chain"
+import { type RequestStatusWithMetadata, type RetryConfig, TimeoutStatus } from "@/types"
 import { retryPromise, sleep } from "@/utils"
 import { AbortSignalInternal } from "@/utils/exceptions"
 
-import type { ClientContext } from "./types"
+import type { ClientContext } from "."
 
 /**
  * Executes an async operation with exponential backoff retry, using the context's
@@ -31,6 +32,33 @@ export function sleepFor(ctx: ClientContext, duration: number): Promise<void> {
  */
 export function sleepForInterval(ctx: ClientContext): Promise<void> {
 	return sleepFor(ctx, ctx.config.pollInterval)
+}
+
+/**
+ * Shared watcher used by both POST and GET status streams: yields a single
+ * `PENDING_TIMEOUT` event once `chain.timestamp()` passes `timeoutTimestamp`.
+ * Yields nothing if `timeoutTimestamp === 0n` (no timeout configured).
+ */
+export async function* timeoutStream(
+	ctx: ClientContext,
+	timeoutTimestamp: bigint,
+	chain: IChain,
+): AsyncGenerator<RequestStatusWithMetadata, void> {
+	const logger = ctx.logger.withTag("[timeoutStream()]")
+	if (timeoutTimestamp === 0n) return
+
+	let timestamp = await chain.timestamp()
+	while (timestamp < timeoutTimestamp) {
+		logger.trace("Comparing timeout timestamps", { control: timeoutTimestamp, latest: timestamp })
+		const diff = BigInt(timeoutTimestamp) - BigInt(timestamp)
+		await sleepFor(ctx, Number(diff))
+		timestamp = await chain.timestamp()
+	}
+
+	yield {
+		status: TimeoutStatus.PENDING_TIMEOUT,
+		metadata: { blockHash: "0x", blockNumber: 0, transactionHash: "0x" },
+	}
 }
 
 /**

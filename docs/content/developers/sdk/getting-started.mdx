@@ -190,12 +190,12 @@ Polytope Labs provides a free indexer service for both mainnet and testnet. The 
 
 ---
 
-### 3. Initialize IndexerClient
+### 3. Initialize IsmpClient
 
 ```typescript lineNumbers title="client.ts" icon=typescript
-import { IndexerClient } from "@hyperbridge/sdk"
+import { IsmpClient } from "@hyperbridge/sdk"
 
-const indexer = new IndexerClient({
+const indexer = new IsmpClient({
   queryClient,
   pollInterval: 1_000, // Poll every 1 second
   source: sourceChain,
@@ -214,7 +214,7 @@ const indexer = new IndexerClient({
 | `dest` | `IChain` | Destination chain instance |
 | `hyperbridge` | `IChain` | Hyperbridge chain instance (often `SubstrateChain`) |
 
-For complete API documentation and usage examples, see the [IndexerClient API Reference](/developers/sdk/api/indexer-client).
+For complete API documentation and usage examples, see the [IsmpClient API Reference](/developers/sdk/api/ismp-client).
 
 ---
 
@@ -222,7 +222,7 @@ For complete API documentation and usage examples, see the [IndexerClient API Re
 
 ```typescript lineNumbers title="client.ts" icon=typescript
 import { 
-  IndexerClient, 
+  IsmpClient, 
   createQueryClient, 
   EvmChain,
   SubstrateChain 
@@ -245,8 +245,8 @@ async function main() {
     consensusStateId: "PAS0"
   })
 
-  // 3. Initialize IndexerClient
-  const indexer = new IndexerClient({
+  // 3. Initialize IsmpClient
+  const indexer = new IsmpClient({
     queryClient,
     pollInterval: 1_000,
     source: sourceChain,
@@ -278,7 +278,7 @@ main().catch(console.error)
 
 Now that you have the SDK set up, explore the detailed documentation:
 
-- **[IndexerClient API](/developers/sdk/api/indexer-client)** - Complete API reference with all methods and usage examples
+- **[IsmpClient API](/developers/sdk/api/ismp-client)** - Complete API reference with all methods and usage examples
 - **[EvmChain API](/developers/sdk/api/evm-chain)** - EVM chain methods and configuration (also applies to the EVM layer of `PolkadotHubChain` and `PharosChain`)
 - **[SubstrateChain API](/developers/sdk/api/substrate-chain)** - Substrate chain methods and configuration
 - **[Tracking Requests](/developers/sdk/tracking/post-requests)** - Monitor cross-chain message statuses

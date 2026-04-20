@@ -220,7 +220,7 @@ describe.sequential("Get and Post Requests", () => {
 				],
 			})
 
-			const evmChain = new EvmChain({
+			const evmChain = EvmChain.fromParams({
 				rpcUrl: process.env.BASE_SEPOLIA!,
 				chainId: 84532,
 				host: "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",

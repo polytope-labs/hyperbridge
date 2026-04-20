@@ -20,7 +20,7 @@ import {
 } from "@/queries"
 import { dateStringtoTimestamp } from "@/utils"
 
-import type { ClientContext } from "./types"
+import type { ClientContext } from "."
 import { withRetry } from "./utils"
 
 /**
@@ -28,11 +28,11 @@ import { withRetry } from "./utils"
  * response lookups. Groups the thin GraphQL wrappers that other client
  * sub-modules consume when building finality events and status streams.
  */
-export class StateMachineQueries {
+export class Queries {
 	private readonly logger
 
 	constructor(private readonly ctx: ClientContext) {
-		this.logger = ctx.logger.withTag("[StateMachineQueries]")
+		this.logger = ctx.logger.withTag("[Queries]")
 	}
 
 	/**

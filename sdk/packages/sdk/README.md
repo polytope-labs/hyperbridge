@@ -268,8 +268,8 @@ The plugin automatically copies the necessary WebAssembly files to the correct l
 ### Classes
 
 - **IsmpClient** - Main client for tracking ISMP requests via the indexer
-- **IntentGateway** - Cross-chain intent order placement and status tracking (pair with `withIndexer(queryClient)` for indexer-backed order status)
-- **TokenGateway** - Cross-chain token transfers and teleport status tracking (pair with `withIndexer(queryClient)` for indexer-backed teleport status)
+- **IntentGateway** - Cross-chain intent order placement and status tracking (pair with `withQueryClient(queryClient)` for indexer-backed order status)
+- **TokenGateway** - Cross-chain token transfers and teleport status tracking (pair with `withQueryClient(queryClient)` for indexer-backed teleport status)
 - **EvmChain** - Utilities for EVM chain interaction
 - **SubstrateChain** - Utilities for Substrate chain interaction
 - **TokenGateway** - Utilities for cross-chain token transfers and fee estimation

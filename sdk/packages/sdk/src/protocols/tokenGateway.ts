@@ -256,7 +256,7 @@ export class TokenGateway {
 
 	/**
 	 * Optional indexer context for {@link queryAssetTeleported} /
-	 * {@link assetTeleportedStatusStream}. Configured via {@link withIndexer}.
+	 * {@link assetTeleportedStatusStream}. Configured via {@link withQueryClient}.
 	 */
 	private indexer?: {
 		queryClient: IndexerQueryClient
@@ -268,7 +268,7 @@ export class TokenGateway {
 	 * Attaches an indexer GraphQL client so {@link queryAssetTeleported} and
 	 * {@link assetTeleportedStatusStream} become available. Returns `this` for chaining.
 	 */
-	withIndexer(
+	withQueryClient(
 		queryClient: IndexerQueryClient,
 		options: { pollInterval?: number; tracing?: boolean } = {},
 	): this {
@@ -287,7 +287,7 @@ export class TokenGateway {
 	private requireIndexer(): NonNullable<TokenGateway["indexer"]> {
 		if (!this.indexer) {
 			throw new Error(
-				"TokenGateway: call withIndexer(queryClient) before using indexer-backed methods",
+				"TokenGateway: call withQueryClient(queryClient) before using indexer-backed methods",
 			)
 		}
 		return this.indexer
@@ -296,7 +296,7 @@ export class TokenGateway {
 	/**
 	 * Queries a token gateway asset-teleported event by commitment hash.
 	 *
-	 * Requires a prior call to {@link withIndexer}.
+	 * Requires a prior call to {@link withQueryClient}.
 	 */
 	async queryAssetTeleported(
 		commitment: HexString,
@@ -309,7 +309,7 @@ export class TokenGateway {
 	 * Streams status updates for an asset-teleported event until a terminal
 	 * state (`RECEIVED` or `REFUNDED`).
 	 *
-	 * Requires a prior call to {@link withIndexer}.
+	 * Requires a prior call to {@link withQueryClient}.
 	 */
 	async *assetTeleportedStatusStream(commitment: HexString): AsyncGenerator<
 		{

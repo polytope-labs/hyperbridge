@@ -82,7 +82,7 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
       console.log("✓ Request finalized on Hyperbridge")
       // Calldata is available for submitting to destination chain
       if (status.metadata.calldata) {
-        console.log(`Calldata for IHandler.handlePostRequests: ${status.metadata.calldata}`)
+        console.log(`Calldata for destination Handler: ${status.metadata.calldata}`)
         // This calldata can be used to submit the request proof to the destination chain
       }
       break
@@ -103,91 +103,82 @@ for await (const status of indexer.postRequestStatusStream(commitment)) {
 
 ### Self Relaying Requests
 
-When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes a `calldata` field containing the encoded transaction data for `IHandler.handlePostRequests()`. This calldata contains the cryptographic proofs needed to deliver the request to the destination chain.
+When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes a `calldata` field containing the encoded transaction data needed to deliver the request to the destination chain.
 
+**What's in the calldata**: The SDK picks the right shape for the destination handler automatically:
+
+- On **HandlerV1** destinations it's a bare [`handlePostRequests(IHost, PostRequestMessage)`](/developers/evm/api/ihandler#handlepostrequests) — the consensus message must have already landed on the destination (via a separate relayer) before this call can succeed.
+- On **HandlerV2** destinations (detected via ERC-165) it's a `batchCall(bytes[])` that bundles `handleConsensus(...)` **and** `handlePostRequests(...)` into a single transaction, pulling the consensus proof directly from Hyperbridge's offchain storage. No separate consensus-message relay is required.
+
+Either way, you submit the raw calldata to the destination's Handler contract — the SDK already selected the correct function selector for you.
 
 **Note:** While the calldata is provided for transparency and advanced use cases, relayers will handle submitting proofs to the destination chain automatically only if a relayer fee was specified when dispatching the POST request. If no relayer fee was provided, you'll need to manually submit this calldata yourself or implement custom relaying logic.
 
 If you need to manually submit the calldata (for self-relaying or custom relayer implementations), here's how to do it:
 
 ```typescript lineNumbers title="client.ts" icon=typescript
-import { decodeFunctionData, createWalletClient, http } from "viem"
+import { createWalletClient, getContract, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { ABI as HandlerABI } from "@hyperbridge/sdk/abis/handler"
+import { EvmHostABI } from "@hyperbridge/sdk"
 
 for await (const status of indexer.postRequestStatusStream(commitment)) {
   if (status.status === RequestStatus.HYPERBRIDGE_FINALIZED) {
-    // Extract the calldata for destination chain submission
     const { calldata, blockHash, transactionHash } = status.metadata
-    
+
     console.log("Request finalized on Hyperbridge!")
-    console.log(`Calldata for destination: ${calldata}`)
     console.log(`Hyperbridge TX: ${transactionHash}`)
-    
-    // 1. Decode the calldata to extract function arguments
-    const { args, functionName } = decodeFunctionData({
-      abi: HandlerABI.ABI,
-      data: status.metadata.calldata,
-    })
-    
-    console.log(`Function: ${functionName}`) // "handlePostRequests"
-    
-    // 2. Create a wallet client for the destination chain
+
+    // 1. Create a wallet client for the destination chain
     const account = privateKeyToAccount("0xYourPrivateKey")
     const walletClient = createWalletClient({
       account,
       chain: destinationChain, // e.g., gnosisChiado, arbitrum, etc.
-      transport: http(destinationChainRpcUrl)
+      transport: http(destinationChainRpcUrl),
     })
-    
-    // 3. Get the Handler contract instance
-    // Use the Host contract to retrieve Handler address,
-    // it is not recommended to hardcode the address
-    // because it can be changed by hyperbridge governance
+
+    // 2. Resolve the destination Handler contract address from the Host.
+    // Don't hardcode it — governance can rotate the Handler.
     const destHost = getContract({
       address: destHostAddress,
-      abi: EvmHostABI.ABI,
-      client: sourcePublicClient,
+      abi: EvmHostABI,
+      client: destPublicClient,
     })
-    const hostParams = await destHost.read.hostParams()
-    const handlerAddress = hostParams.handler
+    const { handler: handlerAddress } = await destHost.read.hostParams()
 
-    
     try {
-      // 4. Submit the transaction to the destination chain's Handler
-      const hash = await walletClient.writeContract({
-        address: handlerAddress,
-        abi: HandlerABI.ABI,
-        functionName: "handlePostRequests",
-        args: args as any,
+      // 3. Submit the calldata as-is. The SDK already picked the right selector
+      //    (handlePostRequests on HandlerV1, batchCall on HandlerV2).
+      const hash = await walletClient.sendTransaction({
+        to: handlerAddress,
+        data: calldata,
       })
-      
+
       console.log(`Transaction submitted: ${hash}`)
-      
-      // 5. Wait for confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({
+
+      // 4. Wait for confirmation
+      const receipt = await destPublicClient.waitForTransactionReceipt({
         hash,
         confirmations: 1,
       })
-      
+
       console.log(`Request delivered! Block: ${receipt.blockNumber}`)
     } catch (error) {
       console.error("Error submitting calldata:", error)
     }
-    
+
     // don't forget to terminate the stream
     break
   }
 }
 ```
 
-The calldata decodes to [`IHandler.handlePostRequests(IHost, PostRequestMessage)`](/developers/evm/api/ihandler#handlepostrequests) on the destination chain's Handler contract. You'll need gas tokens on the destination chain to submit the transaction. Host contract addresses for each supported network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages. The transaction will fail if the cryptographic proof is invalid or if the request was already delivered.
+You'll need gas tokens on the destination chain to submit the transaction. Host contract addresses for each supported network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages. The transaction will fail if the cryptographic proof is invalid or if the request was already delivered.
 
 ### Timeout Detection
 
 The `postRequestStatusStream()` stream automatically monitors timeouts by comparing the current timestamp against the request's `timeoutTimestamp`. If the request exceeds its timeout period, the stream yields `TimeoutStatus.PENDING_TIMEOUT`. 
 
-At this point, Switch to [`postRequestTimeoutStream()`](/developers/sdk/api/indexer-client#postrequesttimeoutstreamhash) to track this timeout processing through its stages. See the [timeout tracking guide](/developers/sdk/tracking/timeouts) for complete examples and best practices.
+At this point, Switch to [`postRequestTimeoutStream()`](/developers/sdk/api/ismp-client#postrequesttimeoutstreamhash) to track this timeout processing through its stages. See the [timeout tracking guide](/developers/sdk/tracking/timeouts) for complete examples and best practices.
 
 ### Query Current Status
 
@@ -209,9 +200,9 @@ if (request) {
 }
 ```
 
-### Direct Query (Without IndexerClient)
+### Direct Query (Without IsmpClient)
 
-Query POST request status directly without creating an IndexerClient:
+Query POST request status directly without creating an IsmpClient:
 
 ```typescript lineNumbers title="client.ts" icon=typescript
 import { createQueryClient, queryPostRequest } from "@hyperbridge/sdk"
@@ -256,7 +247,7 @@ Each status update includes:
 | `blockNumber` | `number` | Block number where status was recorded |
 | `transactionHash` | `string` | Transaction hash for this status update |
 | `timestamp` | `number` | Optional. Unix timestamp in seconds |
-| `calldata` | `HexString` | Optional. Only present when status is `HYPERBRIDGE_FINALIZED`. Contains encoded transaction data for `IHandler.handlePostRequests()` |
+| `calldata` | `HexString` | Optional. Only present when status is `HYPERBRIDGE_FINALIZED`. Contains encoded transaction data for the destination Handler contract — either `handlePostRequests` (HandlerV1) or a `batchCall` wrapping `handleConsensus` + `handlePostRequests` (HandlerV2) |
 
 ## Best Practices
 

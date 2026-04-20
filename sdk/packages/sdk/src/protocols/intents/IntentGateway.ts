@@ -453,7 +453,7 @@ export class IntentGateway {
 
 	/**
 	 * Optional indexer context for {@link queryOrder} / {@link orderStatusStream}.
-	 * Configured via {@link withIndexer}; unset by default since not every
+	 * Configured via {@link withQueryClient}; unset by default since not every
 	 * IntentGateway caller needs indexer access.
 	 */
 	private indexer?: {
@@ -469,11 +469,11 @@ export class IntentGateway {
 	 *
 	 * @example
 	 * ```ts
-	 * const gateway = (await IntentGateway.create(source, dest)).withIndexer(queryClient)
+	 * const gateway = (await IntentGateway.create(source, dest)).withQueryClient(queryClient)
 	 * const order = await gateway.queryOrder("0x...")
 	 * ```
 	 */
-	withIndexer(
+	withQueryClient(
 		queryClient: IndexerQueryClient,
 		options: { pollInterval?: number; tracing?: boolean } = {},
 	): this {
@@ -491,7 +491,7 @@ export class IntentGateway {
 
 	private requireIndexer(): NonNullable<IntentGateway["indexer"]> {
 		if (!this.indexer) {
-			throw new Error("IntentGateway: call withIndexer(queryClient) before using indexer-backed methods")
+			throw new Error("IntentGateway: call withQueryClient(queryClient) before using indexer-backed methods")
 		}
 		return this.indexer
 	}
@@ -499,7 +499,7 @@ export class IntentGateway {
 	/**
 	 * Queries an order by its commitment hash.
 	 *
-	 * Requires a prior call to {@link withIndexer}.
+	 * Requires a prior call to {@link withQueryClient}.
 	 */
 	async queryOrder(commitment: HexString): Promise<OrderWithStatus | undefined> {
 		const { queryClient, logger } = this.requireIndexer()
@@ -510,7 +510,7 @@ export class IntentGateway {
 	 * Streams status updates for an order until it reaches a terminal state
 	 * (FILLED, REDEEMED, or REFUNDED).
 	 *
-	 * Requires a prior call to {@link withIndexer}.
+	 * Requires a prior call to {@link withQueryClient}.
 	 */
 	async *orderStatusStream(commitment: HexString): AsyncGenerator<
 		{

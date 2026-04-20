@@ -71,10 +71,8 @@ console.log(`GET Request Commitment: ${commitment}`)
 Monitor GET request status in real-time using `getRequestStatusStream()`. This [async generator](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function*) polls the indexer at your configured interval and yields status objects containing the current stage, block information, transaction hashes, and metadata. The stream automatically detects timeout scenarios and continues until the response reaches the source chain or exceeds its timeout period. Remember to break out of the loop when tracking is complete.
 
 ```typescript lineNumbers title="client.ts" icon=typescript
-import { RequestStatus, TimeoutStatus } from "@hyperbridge/sdk"
-import { decodeFunctionData, getContract } from "viem"
-import { ABI as HandlerABI } from "@hyperbridge/sdk/abis/handler"
-import { ABI as EvmHostABI } from "@hyperbridge/sdk/abis/evmHost"
+import { RequestStatus, TimeoutStatus, EvmHostABI } from "@hyperbridge/sdk"
+import { getContract } from "viem"
 
 // Stream status updates
 for await (const status of indexer.getRequestStatusStream(commitment)) {
@@ -93,42 +91,32 @@ for await (const status of indexer.getRequestStatusStream(commitment)) {
       break
     case RequestStatus.HYPERBRIDGE_FINALIZED:
       console.log("✓ Request finalized on Hyperbridge - data queried!")
-      
-      // Decode the calldata to extract function arguments
-      const { args, functionName } = decodeFunctionData({
-        abi: HandlerABI.ABI,
-        data: status.metadata.calldata,
-      })
-      
-      console.log(`Function: ${functionName}`) // "handleGetResponses"
 
-      // Use the Host contract to retrieve Handler address,
-      // it is not recommended to hardcode the address
-      // because it can be changed by hyperbridge governance
+      // Resolve the source Handler address via the Host.
+      // Don't hardcode it — governance can rotate the Handler.
       const sourceHost = getContract({
         address: sourceHostAddress,
-        abi: EvmHostABI.ABI,
+        abi: EvmHostABI,
         client: sourcePublicClient,
       })
-      const hostParams = await sourceHost.read.hostParams()
-      const sourceHandler = getContract({
-        address: hostParams.handler,
-        abi: HandlerABI.ABI,
-        client: { public: sourcePublicClient, wallet: sourceWalletClient },
-      })
-      
+      const { handler: handlerAddress } = await sourceHost.read.hostParams()
+
       try {
-        // Submit the response to the source chain
-        const hash = await sourceHandler.write.handleGetResponses(args as any)
-        
+        // Submit the calldata as-is. The SDK already picked the right selector
+        // (handleGetResponses on HandlerV1, batchCall on HandlerV2).
+        const hash = await sourceWalletClient.sendTransaction({
+          to: handlerAddress,
+          data: status.metadata.calldata,
+        })
+
         console.log(`Response submitted: ${hash}`)
-        
+
         // Wait for confirmation
         const receipt = await sourcePublicClient.waitForTransactionReceipt({
           hash,
           confirmations: 1,
         })
-        
+
         console.log(`Response delivered! Block: ${receipt.blockNumber}`)
       } catch (error) {
         console.error("Error submitting response:", error)
@@ -149,13 +137,13 @@ for await (const status of indexer.getRequestStatusStream(commitment)) {
 }
 ```
 
-When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes calldata for [`IHandler.handleGetResponses(IHost, GetResponseMessage)`](/developers/evm/api/ihandler#handlegetresponses) containing the queried data and cryptographic proofs. You must submit this calldata to the source chain's Handler contract to complete the request and deliver the response to your application. You'll need gas tokens on the source chain for submission. Host contract addresses for each network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages.
+When the request reaches `HYPERBRIDGE_FINALIZED` status, the metadata includes calldata for the source chain's Handler contract containing the queried data and cryptographic proofs. The SDK picks the right function selector for you: bare [`handleGetResponses(IHost, GetResponseMessage)`](/developers/evm/api/ihandler#handlegetresponses) on HandlerV1 sources, or a `batchCall(bytes[])` that bundles `handleConsensus` + `handleGetResponses` on HandlerV2 sources. Either way, submit the raw calldata as a plain transaction to the Handler address. You'll need gas tokens on the source chain for submission. Host contract addresses for each network are listed in the [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet) deployment pages.
 
 ### Timeout Detection
 
 The `getRequestStatusStream()` automatically monitors timeouts by comparing the current timestamp against the request's `timeoutTimestamp`. If the request exceeds its timeout period, the stream yields `TimeoutStatus.PENDING_TIMEOUT`.
 
-At this point, Switch to [`getRequestTimeoutStream()`](/developers/sdk/api/indexer-client#getrequesttimeoutstream) to track this timeout processing through its stages. See the [timeout tracking guide](/developers/sdk/tracking/timeouts) for complete examples and best practices.
+At this point, Switch to [`getRequestTimeoutStream()`](/developers/sdk/api/ismp-client#getrequesttimeoutstream) to track this timeout processing through its stages. See the [timeout tracking guide](/developers/sdk/tracking/timeouts) for complete examples and best practices.
 
 ### Query Current Status
 
@@ -179,9 +167,9 @@ if (request) {
 }
 ```
 
-### Direct Query (Without IndexerClient)
+### Direct Query (Without IsmpClient)
 
-Query GET request status directly without creating an IndexerClient:
+Query GET request status directly without creating an IsmpClient:
 
 ```typescript lineNumbers title="client.ts" icon=typescript
 import { createQueryClient, queryGetRequest } from "@hyperbridge/sdk"
@@ -227,7 +215,7 @@ Each status update includes:
 | `blockNumber` | `number` | Block number where status was recorded |
 | `transactionHash` | `string` | Transaction hash for this status update |
 | `timestamp` | `number` | Optional. Unix timestamp in seconds |
-| `calldata` | `HexString` | Optional. Only present when status is `HYPERBRIDGE_FINALIZED`. Contains encoded transaction data for `IHandler.handleGetResponses()` |
+| `calldata` | `HexString` | Optional. Only present when status is `HYPERBRIDGE_FINALIZED`. Contains encoded transaction data for the source Handler contract — either `handleGetResponses` (HandlerV1) or a `batchCall` wrapping `handleConsensus` + `handleGetResponses` (HandlerV2) |
 
 ## Best Practices
 

@@ -40,8 +40,34 @@ pub mod weights;
 use polkadot_sdk::*;
 
 pub use pallet::*;
-pub use types::{ProofMetadata, Signature, SubmitProofPayload};
+pub use types::{Signature, SubmitProofPayload};
 pub use weights::WeightInfo;
+
+/// Offchain-storage key for the rotation proof that advanced the authority set to
+/// `set_id`. Relayers reconstruct this key off of a [`RotationProofs`](crate::pallet::RotationProofs)
+/// entry's key and read the raw ABI-encoded proof bytes from node-local offchain storage.
+pub fn rotation_offchain_key(set_id: u64) -> alloc::vec::Vec<u8> {
+	let mut key = alloc::vec::Vec::with_capacity(
+		types::OFFCHAIN_PREFIX.len() + types::OFFCHAIN_ROT.len() + 8,
+	);
+	key.extend_from_slice(types::OFFCHAIN_PREFIX);
+	key.extend_from_slice(types::OFFCHAIN_ROT);
+	key.extend_from_slice(&set_id.to_be_bytes());
+	key
+}
+
+/// Offchain-storage key for the messaging proof that advanced the proven parachain
+/// height to `proven_height`. Relayers reconstruct this key off of a
+/// [`MessagingProofs`](crate::pallet::MessagingProofs) entry's key.
+pub fn messaging_offchain_key(proven_height: u64) -> alloc::vec::Vec<u8> {
+	let mut key = alloc::vec::Vec::with_capacity(
+		types::OFFCHAIN_PREFIX.len() + types::OFFCHAIN_MSG.len() + 8,
+	);
+	key.extend_from_slice(types::OFFCHAIN_PREFIX);
+	key.extend_from_slice(types::OFFCHAIN_MSG);
+	key.extend_from_slice(&proven_height.to_be_bytes());
+	key
+}
 
 /// BEEFY host-function backed crypto used by `beefy-verifier`.
 pub struct SubstrateCrypto;
@@ -122,7 +148,8 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxProofSize: Get<u32>;
 
-		/// Size of the `RecentProofs` ring buffer.
+		/// Shared cap on the `RotationProofs` and `MessagingProofs` on-chain ring buffers
+		/// (and, transitively, on the number of offchain proof blobs retained per stream).
 		#[pallet::constant]
 		type MaxStoredProofs: Get<u32>;
 
@@ -158,11 +185,26 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Sp1VkeyHash<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
-	/// Ring buffer of recent accepted proofs, for off-chain polling by relayers.
+	/// Bounded map of `set_id → block number` for the most recent accepted rotation
+	/// proofs. The raw ABI-encoded proof bytes live in offchain storage under
+	/// [`rotation_offchain_key(set_id)`](crate::rotation_offchain_key); keys here and
+	/// in offchain storage move in lock-step (oldest evicted from both when the map
+	/// reaches `T::MaxStoredProofs`). BEEFY set ids are monotone, so `pop_first` gives
+	/// FIFO eviction for free.
 	#[pallet::storage]
-	pub type RecentProofs<T: Config> = StorageValue<
+	pub type RotationProofs<T: Config> = StorageValue<
 		_,
-		BoundedVec<ProofMetadata<T::AccountId, BlockNumberFor<T>>, T::MaxStoredProofs>,
+		BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>,
+		ValueQuery,
+	>;
+
+	/// Bounded map of `proven_height → block number` for the most recent accepted
+	/// messaging proofs. See [`messaging_offchain_key`](crate::messaging_offchain_key)
+	/// for the matching offchain-storage lookup.
+	#[pallet::storage]
+	pub type MessagingProofs<T: Config> = StorageValue<
+		_,
+		BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>,
 		ValueQuery,
 	>;
 
@@ -322,19 +364,49 @@ pub mod pallet {
 				zero
 			};
 
-			// Record metadata in the ring buffer.
-			let meta = ProofMetadata {
-				proven_height: outcome.proven_height,
-				validator_set_id: outcome.current_set_id,
-				submitter: payload.submitter.clone(),
-				created_at: frame_system::Pallet::<T>::block_number(),
-			};
-			RecentProofs::<T>::mutate(|proofs| {
-				if proofs.len() as u32 == T::MaxStoredProofs::get() {
-					proofs.remove(0);
-				}
-				let _ = proofs.try_push(meta);
-			});
+			// Fan out to offchain storage + on-chain metadata. Rotation and messaging
+			// are disjoint streams: a proof that rotates the authority set is only
+			// recorded on the rotation stream even if it also advances proven height.
+			// Matches the `validate_unsigned` classification (rotation preempts
+			// messaging in the pool), avoids storing the same proof bytes twice.
+			//
+			// BEEFY set ids and parachain heights are both strictly monotone, so the
+			// smallest key in each BoundedBTreeMap is always the oldest entry —
+			// `iter().next()` + `remove` gives FIFO eviction without an explicit
+			// insertion-order index.
+			let at = frame_system::Pallet::<T>::block_number();
+
+			if outcome.rotated {
+				let key = crate::rotation_offchain_key(outcome.current_set_id);
+				sp_io::offchain_index::set(&key, &payload.proof);
+
+				RotationProofs::<T>::mutate(|map| {
+					if map.len() as u32 == T::MaxStoredProofs::get() {
+						if let Some(evicted_set_id) = map.iter().next().map(|(k, _)| *k) {
+							let _ = map.remove(&evicted_set_id);
+							sp_io::offchain_index::clear(
+								&crate::rotation_offchain_key(evicted_set_id),
+							);
+						}
+					}
+					let _ = map.try_insert(outcome.current_set_id, at);
+				});
+			} else if outcome.proven_height > prev_proven {
+				let key = crate::messaging_offchain_key(outcome.proven_height);
+				sp_io::offchain_index::set(&key, &payload.proof);
+
+				MessagingProofs::<T>::mutate(|map| {
+					if map.len() as u32 == T::MaxStoredProofs::get() {
+						if let Some(evicted_height) = map.iter().next().map(|(k, _)| *k) {
+							let _ = map.remove(&evicted_height);
+							sp_io::offchain_index::clear(
+								&crate::messaging_offchain_key(evicted_height),
+							);
+						}
+					}
+					let _ = map.try_insert(outcome.proven_height, at);
+				});
+			}
 
 			Self::deposit_event(Event::ProofAccepted {
 				submitter: payload.submitter.clone(),

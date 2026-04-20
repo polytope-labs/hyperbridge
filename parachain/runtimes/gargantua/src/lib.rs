@@ -763,8 +763,9 @@ parameter_types! {
 	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
 	/// Maximum SCALE-encoded size of a `SubmitProofPayload`.
 	pub const MaxBeefyProofSize: u32 = 1_048_576;
-	/// Ring buffer size for `RecentProofs`.
-	pub const MaxStoredBeefyProofs: u32 = 128;
+	/// Shared ring-buffer size for `RotationProofs` and `MessagingProofs`. Also caps the
+	/// number of offchain proof blobs retained per stream.
+	pub const MaxStoredBeefyProofs: u32 = 512;
 }
 
 impl pallet_beefy_consensus_proofs::Config for Runtime {

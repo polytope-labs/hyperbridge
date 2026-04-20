@@ -45,7 +45,7 @@ const BENCH_KEY: KeyTypeId = KeyTypeId(*b"bnch");
 
 #[benchmarks(
 	where
-		T::AccountId: From<[u8; 32]> + AsRef<[u8]>,
+		T::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
 		<<T as pallet::Config>::Currency as frame_support::traits::fungible::Inspect<T::AccountId>>::Balance: From<u128>,
 )]
 mod benchmarks {
@@ -79,7 +79,10 @@ mod benchmarks {
 		#[extrinsic_call]
 		_(RawOrigin::None, payload, signature);
 
-		assert_eq!(pallet::RecentProofs::<T>::get().len(), 1);
+		// Fixture rewrites `next_authorities.id` to force the rotation path, so a
+		// rotation metadata entry is always recorded. Messaging side may or may not
+		// fire depending on whether the fixture carries a coprocessor-height update.
+		assert_eq!(pallet::RotationProofs::<T>::get().len(), 1);
 	}
 
 	#[benchmark]

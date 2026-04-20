@@ -228,10 +228,11 @@ async fn test_verify_consensus() {
 #[test]
 #[ignore]
 fn dump_sp1_fixture_scale_bytes() {
-	use alloy_sol_types::SolValue;
+	use alloy_sol_types::{SolType, SolValue, sol};
 	use beefy_verifier_primitives::{ConsensusState, PROOF_TYPE_SP1, Sp1BeefyProof};
 	use ismp_solidity_abi::{
-		beefy::Beefy::BeefyConsensusState, sp1_beefy::SP1Beefy::SP1BeefyProof,
+		beefy::Beefy::BeefyConsensusState,
+		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 
 	let state_bytes = hex!(
@@ -246,8 +247,26 @@ fn dump_sp1_fixture_scale_bytes() {
 	let trusted: ConsensusState = sol_state.into();
 	let trusted_scale = trusted.encode();
 
-	let sol_proof = <SP1BeefyProof as SolValue>::abi_decode(&proof_bytes).expect("decode proof");
-	let sp1_proof: Sp1BeefyProof = sol_proof.into();
+	// The solidity side encodes the SP1 proof as a tuple of top-level params
+	// (matches `abi.decode(proof, (MiniCommitment, PartialBeefyMmrLeaf,
+	// ParachainHeader[], bytes))` in SP1Beefy.sol). Decode as a sequence, not a
+	// struct, and assemble `Sp1BeefyProof` by hand.
+	type ProofTuple = sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes) };
+	let (commitment, leaf, headers, plonk_proof) =
+		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
+	let sp1_proof = Sp1BeefyProof {
+		block_number: commitment
+			.blockNumber
+			.try_into()
+			.expect("block number out of bounds"),
+		validator_set_id: commitment
+			.validatorSetId
+			.try_into()
+			.expect("validator set id out of bounds"),
+		mmr_leaf: leaf.into(),
+		headers: headers.into_iter().map(Into::into).collect(),
+		proof: plonk_proof.to_vec(),
+	};
 
 	let mut wire = vec![PROOF_TYPE_SP1];
 	sp1_proof.encode_to(&mut wire);
@@ -267,10 +286,11 @@ fn dump_sp1_fixture_scale_bytes() {
 /// our Rust [`crate::sp1::verify_sp1_consensus`].
 #[test]
 fn test_sp1_verify_consensus_accepts_solidity_fixture() {
-	use alloy_sol_types::SolValue;
+	use alloy_sol_types::{SolType, SolValue, sol};
 	use beefy_verifier_primitives::{ConsensusState, Sp1BeefyProof};
 	use ismp_solidity_abi::{
-		beefy::Beefy::BeefyConsensusState, sp1_beefy::SP1Beefy::SP1BeefyProof,
+		beefy::Beefy::BeefyConsensusState,
+		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 
 	// Fixtures copied verbatim from SP1BeefyTest.testVerifySp1Optional() in
@@ -286,8 +306,24 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 		<BeefyConsensusState as SolValue>::abi_decode(&state_bytes).expect("decode state");
 	let trusted: ConsensusState = sol_state.into();
 
-	let sol_proof = <SP1BeefyProof as SolValue>::abi_decode(&proof_bytes).expect("decode proof");
-	let sp1_proof: Sp1BeefyProof = sol_proof.into();
+	// Proof payload matches SP1Beefy.sol:verifyConsensus's `abi.decode(...)` call:
+	// a sequence of four top-level types, not a struct wrapper.
+	type ProofTuple = sol! { (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes) };
+	let (commitment, leaf, headers, plonk_proof) =
+		<ProofTuple as SolType>::abi_decode_sequence(&proof_bytes).expect("decode proof tuple");
+	let sp1_proof = Sp1BeefyProof {
+		block_number: commitment
+			.blockNumber
+			.try_into()
+			.expect("block number out of bounds"),
+		validator_set_id: commitment
+			.validatorSetId
+			.try_into()
+			.expect("validator set id out of bounds"),
+		mmr_leaf: leaf.into(),
+		headers: headers.into_iter().map(Into::into).collect(),
+		proof: plonk_proof.to_vec(),
+	};
 
 	// Matches the `verificationKey` in SP1BeefyTest.sol.
 	let vkey_hash = "0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c";

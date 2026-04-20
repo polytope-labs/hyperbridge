@@ -24,6 +24,7 @@ use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use pallet_beefy_consensus_proofs::types::SIGNATURE_DOMAIN;
 use sp_core::{sr25519, Pair};
 use std::{pin::Pin, sync::Arc};
 use subxt::{
@@ -32,9 +33,6 @@ use subxt::{
 };
 use tesseract_substrate::extrinsic::send_unsigned_extrinsic;
 use tokio::sync::RwLock;
-
-/// Domain separator matching `pallet_beefy_consensus_proofs::types::SIGNATURE_DOMAIN`.
-const SIGNATURE_DOMAIN: &[u8] = b"pallet_beefy_consensus_proofs";
 
 /// Proof backend that submits proofs directly to `pallet-beefy-consensus-proofs`
 /// on the hyperbridge parachain.

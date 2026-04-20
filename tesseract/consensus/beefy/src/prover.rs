@@ -56,7 +56,7 @@ use zk_beefy::BeefyProver as Sp1BeefyProverTrait;
 
 use crate::{
 	backend::{ConsensusProof, ProofBackend},
-	extract_para_id, VALIDATOR_SET_ID_KEY,
+	extract_para_id,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,7 +295,7 @@ where
 		};
 
 		let changes = relay_rpc
-			.state_query_storage(vec![&VALIDATOR_SET_ID_KEY[..]], from, Some(header.hash().into()))
+			.state_query_storage(vec![&BEEFY_VALIDATOR_SET_ID[..]], from, Some(header.hash().into()))
 			.await?;
 
 		let changes_iter = changes.into_iter().filter_map(|change| {

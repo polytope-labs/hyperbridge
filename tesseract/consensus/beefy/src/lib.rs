@@ -32,9 +32,6 @@ pub mod backend;
 pub mod host;
 pub mod prover;
 
-const VALIDATOR_SET_ID_KEY: [u8; 32] =
-	hex_literal::hex!("08c41974a97dbf15cfbec28365bea2da8f05bccc2f70ec66a32999c5761156be");
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyConfig {
 	// Configuration options for the BEEFY prover

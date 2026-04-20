@@ -1,7 +1,8 @@
 import { createSessionKeyStorage, createCancellationStorage, createUsedUserOpsStorage } from "@/storage"
 import { Swap } from "@/utils/swap"
+import { type ConsolaInstance, LogLevels, createConsola } from "consola"
 import type { TransactionReceipt } from "viem"
-import type { Order, HexString, CancelQuote } from "@/types"
+import type { Order, HexString, CancelQuote, IndexerQueryClient, OrderStatus, OrderWithStatus } from "@/types"
 import type {
 	PackedUserOperation,
 	SubmitBidOptions,
@@ -15,6 +16,7 @@ import type { ResumeIntentOrderOptions } from "@/types"
 import type { IEvmChain } from "@/chain"
 import type { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
 import type { IndexerClient } from "@/client"
+import { _queryOrderInternal } from "@/query-client"
 import type { IntentGatewayContext } from "./types"
 import type { CancelEvent } from "./types"
 import { CryptoUtils } from "./CryptoUtils"
@@ -25,7 +27,7 @@ import { BidManager } from "./BidManager"
 import { GasEstimator } from "./GasEstimator"
 import { OrderStatusChecker } from "./OrderStatusChecker"
 import type { ERC7821Call } from "@/types"
-import { DEFAULT_GRAFFITI, ADDRESS_ZERO } from "@/utils"
+import { DEFAULT_GRAFFITI, DEFAULT_POLL_INTERVAL, ADDRESS_ZERO, sleep } from "@/utils"
 
 /**
  * High-level facade for the IntentGatewayV2 protocol.
@@ -445,5 +447,110 @@ export class IntentGateway {
 	 */
 	async isOrderRefunded(order: Order): Promise<boolean> {
 		return this.orderStatusChecker.isOrderRefunded(order)
+	}
+
+	// ── Indexer-backed order status tracking ────────────────────────────
+
+	/**
+	 * Optional indexer context for {@link queryOrder} / {@link orderStatusStream}.
+	 * Configured via {@link withIndexer}; unset by default since not every
+	 * IntentGateway caller needs indexer access.
+	 */
+	private indexer?: {
+		queryClient: IndexerQueryClient
+		pollInterval: number
+		logger: ConsolaInstance
+	}
+
+	/**
+	 * Attaches an indexer GraphQL client to this IntentGateway so that
+	 * {@link queryOrder} and {@link orderStatusStream} become available.
+	 * Returns `this` for chaining.
+	 *
+	 * @example
+	 * ```ts
+	 * const gateway = (await IntentGateway.create(source, dest)).withIndexer(queryClient)
+	 * const order = await gateway.queryOrder("0x...")
+	 * ```
+	 */
+	withIndexer(
+		queryClient: IndexerQueryClient,
+		options: { pollInterval?: number; tracing?: boolean } = {},
+	): this {
+		const logger = createConsola({
+			level: LogLevels[options.tracing ? "trace" : "info"],
+			formatOptions: { columns: 80, colors: true, compact: true, date: false },
+		})
+		this.indexer = {
+			queryClient,
+			pollInterval: options.pollInterval ?? DEFAULT_POLL_INTERVAL,
+			logger,
+		}
+		return this
+	}
+
+	private requireIndexer(): NonNullable<IntentGateway["indexer"]> {
+		if (!this.indexer) {
+			throw new Error("IntentGateway: call withIndexer(queryClient) before using indexer-backed methods")
+		}
+		return this.indexer
+	}
+
+	/**
+	 * Queries an order by its commitment hash.
+	 *
+	 * Requires a prior call to {@link withIndexer}.
+	 */
+	async queryOrder(commitment: HexString): Promise<OrderWithStatus | undefined> {
+		const { queryClient, logger } = this.requireIndexer()
+		return _queryOrderInternal({ commitmentHash: commitment, queryClient, logger })
+	}
+
+	/**
+	 * Streams status updates for an order until it reaches a terminal state
+	 * (FILLED, REDEEMED, or REFUNDED).
+	 *
+	 * Requires a prior call to {@link withIndexer}.
+	 */
+	async *orderStatusStream(commitment: HexString): AsyncGenerator<
+		{
+			status: OrderStatus
+			metadata: {
+				blockHash: string
+				blockNumber: number
+				transactionHash: string
+				timestamp: bigint
+				filler?: string
+			}
+		},
+		void
+	> {
+		const { queryClient, pollInterval, logger } = this.requireIndexer()
+		const streamLogger = logger.withTag("[orderStatusStream]")
+		const TERMINAL = ["FILLED", "REDEEMED", "REFUNDED"] as const
+
+		let order: OrderWithStatus | undefined
+		while (!order) {
+			await sleep(pollInterval)
+			order = await _queryOrderInternal({ commitmentHash: commitment, queryClient, logger })
+		}
+
+		streamLogger.trace("`Order` found")
+		const latestStatus = order.statuses[order.statuses.length - 1]
+		yield { status: latestStatus.status, metadata: latestStatus.metadata }
+
+		if ((TERMINAL as readonly string[]).includes(latestStatus.status)) return
+
+		while (true) {
+			await sleep(pollInterval)
+			const updatedOrder = await _queryOrderInternal({ commitmentHash: commitment, queryClient, logger })
+			if (!updatedOrder) continue
+
+			const newLatestStatus = updatedOrder.statuses[updatedOrder.statuses.length - 1]
+			if (newLatestStatus.status !== latestStatus.status) {
+				yield { status: newLatestStatus.status, metadata: newLatestStatus.metadata }
+				if ((TERMINAL as readonly string[]).includes(newLatestStatus.status)) return
+			}
+		}
 	}
 }

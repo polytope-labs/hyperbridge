@@ -11,7 +11,7 @@ para_ids     = [4009]
 hashing      = "Keccak"
 rpc_ws       = "wss://hyperbridge-paseo-rpc.blockops.network"
 signer       = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
-zk_beefy     = false
+zk_beefy     = true
 
 [hyperbridge.host]
 consensus_state_id = [50, 41, 52, 41] # "2A4A"

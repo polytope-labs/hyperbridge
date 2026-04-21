@@ -767,6 +767,9 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			call_dispatcher: H160::random(),
 		};
 		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
+
+		// Initialize BEEFY consensus state in pallet-ismp storage for outbound proofs
+		pallet_ismp::ConsensusStates::<Test>::insert(*b"BEEF", vec![0u8; 32]);
 	});
 	ext
 }

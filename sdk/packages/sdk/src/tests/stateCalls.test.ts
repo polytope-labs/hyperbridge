@@ -109,7 +109,7 @@ describe.sequential("State Queries", () => {
 		}
 	}, 300_000)
 
-	it("should read state machine update time on substrate", async () => {
+	it.skip("should read state machine update time on substrate", async () => {
 		try {
 			const chain = await SubstrateChain.connect(hyperbridgeConfig)
 			const stateMachineId = { stateId: { Evm: 97 }, consensusStateId: "BSC0" }

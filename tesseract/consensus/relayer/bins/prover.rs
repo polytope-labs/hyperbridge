@@ -57,18 +57,20 @@ async fn main() -> Result<(), anyhow::Error> {
 		SubstrateClient::new(substrate_config.try_into()?).await?
 	};
 
-	let mut beefy_prover = {
+	let beefy_prover = {
 		let beefy_config: tesseract_beefy::prover::BeefyProverConfig = config
 			.remove("beefy")
 			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?
 			.try_into()?;
 
-		// Create Redis backend for prover
-		let redis_config = beefy_config
-			.redis
-			.as_ref()
-			.ok_or_else(|| anyhow::anyhow!("Redis configuration is required for prover"))?;
-		let mut redis_cfg = redis_config.clone();
+		// The prover binary submits through a Redis queue consumed by the host process —
+		// other backend variants don't apply here.
+		let tesseract_beefy::backend::ProofBackendConfig::Redis { config: ref redis_cfg } =
+			beefy_config.backend
+		else {
+			return Err(anyhow!("Redis backend is required for the beefy-prover binary"));
+		};
+		let mut redis_cfg = redis_cfg.clone();
 		redis_cfg.realtime = true;
 		let backend = Arc::new(tesseract_beefy::backend::RedisProofBackend::new(redis_cfg).await?);
 

@@ -846,15 +846,10 @@ where
 			.chain_get_block_hash(None)
 			.await?
 			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
-		let raw_value = self
-			.client
-			.storage()
-			.at(block_hash)
-			.fetch_raw(key.clone())
-			.await?
-			.ok_or_else(|| {
-				anyhow!("State commitment not present for state machine {:?}", height)
-			})?;
+		let raw_value =
+			self.client.storage().at(block_hash).fetch_raw(key.clone()).await?.ok_or_else(
+				|| anyhow!("State commitment not present for state machine {:?}", height),
+			)?;
 
 		let commitment = Decode::decode(&mut &*raw_value)?;
 		Ok(commitment)

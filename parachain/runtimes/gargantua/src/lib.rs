@@ -754,6 +754,31 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
+parameter_types! {
+	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
+	/// `BEEFY_CONSENSUS_ID`.
+	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"BEEF";
+	/// Unbonding period handed to `pallet-ismp` on first `initialize_state` (21 days in
+	/// seconds), aligning with other BEEFY clients in the runtime.
+	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
+	/// Maximum SCALE-encoded size of a `SubmitProofPayload`.
+	pub const MaxBeefyProofSize: u32 = 1_048_576;
+	/// Shared ring-buffer size for `RotationProofs` and `MessagingProofs`. Also caps the
+	/// number of offchain proof blobs retained per stream.
+	pub const MaxStoredBeefyProofs: u32 = 512;
+}
+
+impl pallet_beefy_consensus_proofs::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type Currency = Balances;
+	type TreasuryPalletId = TreasuryPalletId;
+	type MaxProofSize = MaxBeefyProofSize;
+	type MaxStoredProofs = MaxStoredBeefyProofs;
+	type ConsensusStateId = BeefyConsensusStateId;
+	type UnbondingPeriod = BeefyUnbondingPeriod;
+	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -873,6 +898,8 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type TxPause = pallet_tx_pause;
+	#[runtime::pallet_index(90)]
+	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }
@@ -907,6 +934,7 @@ mod benches {
 		[pallet_transaction_payment, TransactionPayment]
 		[pallet_vesting, Vesting]
 		[pallet_tx_pause, TxPause]
+		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
 	);
 }
 

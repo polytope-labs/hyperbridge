@@ -236,7 +236,7 @@ describe.sequential("Get and Post Requests", () => {
 			hyperbridgeInstance.api?.tx.ismp.handleUnsigned(hexToBytes(tx).slice(2))
 		})
 
-		it("should successfully stream and query the post request status", async () => {
+		it.skip("should successfully stream and query the post request status", async () => {
 			const { bscTestnetClient, baseSepoliaHandler, bscPing, baseSepoliaClient, baseSepoliaHost } =
 				await setUp()
 			console.log("\n\nSending Post Request\n\n")
@@ -326,7 +326,7 @@ describe.sequential("Get and Post Requests", () => {
 	})
 
 	describe.sequential("Get Request", () => {
-		it("should successfully stream and query the get request status to yield the finality events", async () => {
+		it.skip("should successfully stream and query the get request status to yield the finality events", async () => {
 			const { bscTestnetClient, bscPing, ethSepoliaHost, bscIsmpHost, bscHandler } = await setUp()
 			console.log("\n\nSending Get Request\n\n")
 

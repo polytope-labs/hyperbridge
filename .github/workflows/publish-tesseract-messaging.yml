@@ -136,7 +136,7 @@ jobs:
                     COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
                   fi
 
-                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "tesseract")
+                  CHANGELOG=$(git log --pretty=format:"* %s (%h)" $COMMIT_RANGE --reverse | grep -i "tesseract" || true)
 
                   echo "changelog<<EOF" >> $GITHUB_OUTPUT
                   echo "## What's Changed" >> $GITHUB_OUTPUT

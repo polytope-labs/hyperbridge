@@ -44,13 +44,11 @@ use crate::{
 pub struct BeefyHostConfig {
 	/// Consensus state id for the host on the counterparty
 	pub consensus_state_id: ConsensusStateId,
-	/// Optional Redis configuration for proof backend (if None, uses InMemoryProofBackend)
-	pub redis: Option<crate::backend::RedisConfig>,
 }
 
 /// The beefy host is responsible for receiving BEEFY proofs from the queue and submitting
 /// them to the counterparty.
-pub struct BeefyHost<R, P, B, Q>
+pub struct BeefyHost<R, P, B, Q: ?Sized>
 where
 	R: subxt::Config,
 	P: subxt::Config,
@@ -71,7 +69,7 @@ where
 	R: subxt::Config,
 	P: subxt::Config,
 	B: Sp1BeefyProverTrait,
-	Q: ProofBackend,
+	Q: ProofBackend + ?Sized,
 	P: subxt::Config + Send + Sync + Clone,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
@@ -125,7 +123,7 @@ where
 	R: subxt::Config + Send + Sync + Clone,
 	P: subxt::Config + Send + Sync + Clone,
 	B: Sp1BeefyProverTrait,
-	Q: ProofBackend,
+	Q: ProofBackend + ?Sized,
 	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 	P::Signature: From<MultiSignature> + Send + Sync,
 	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
@@ -265,7 +263,7 @@ where
 
 				let QueueMessage {
 					id,
-					proof: ConsensusProof { message, finalized_height, set_id },
+					proof: ConsensusProof { message, finalized_height, set_id, .. },
 				} = match item {
 					Ok(Some(message)) => message,
 					Ok(None) => break, // no new items in the queue

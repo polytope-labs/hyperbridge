@@ -264,7 +264,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 	assert!(matches!(
 		res,
 		Err(ismp::error::Error::StateCommitmentNotFound { .. }) |
-		Err(ismp::error::Error::Custom(_))
+			Err(ismp::error::Error::Custom(_))
 	));
 
 	let response_message = RequestResponse::Response(vec![Response::Post(PostResponse {
@@ -285,7 +285,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 	assert!(matches!(
 		res,
 		Err(ismp::error::Error::StateCommitmentNotFound { .. }) |
-		Err(ismp::error::Error::Custom(_))
+			Err(ismp::error::Error::Custom(_))
 	));
 
 	// Timeout mesaage handling check
@@ -298,7 +298,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 	assert!(matches!(
 		res,
 		Err(ismp::error::Error::StateCommitmentNotFound { .. }) |
-		Err(ismp::error::Error::Custom(_))
+			Err(ismp::error::Error::Custom(_))
 	));
 
 	Ok(())

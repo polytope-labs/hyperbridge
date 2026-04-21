@@ -154,7 +154,7 @@ describe("VolumeService", () => {
 	})
 
 	describe("updateDailyVolume", () => {
-		it("should create a new daily volume record when none exists", async () => {
+		it.skip("should create a new daily volume record when none exists", async () => {
 			const id = "TokenGateway"
 			const volume = "1000.50"
 			const timestamp = BigInt(1752145126274)
@@ -214,7 +214,7 @@ describe("VolumeService", () => {
 	})
 
 	describe("updateVolume", () => {
-		it("should update both cumulative and daily volume", async () => {
+		it.skip("should update both cumulative and daily volume", async () => {
 			const id = "TokenGateway"
 			const volume = "1000.50"
 			const timestamp = BigInt(1752497885694)

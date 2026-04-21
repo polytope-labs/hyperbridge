@@ -2856,6 +2856,7 @@ dependencies = [
  "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "futures",
+ "hex",
  "hex-literal 0.4.1",
  "ismp",
  "ismp-solidity-abi",
@@ -8229,6 +8230,7 @@ dependencies = [
  "ismp-tendermint",
  "log",
  "mmr-primitives",
+ "pallet-beefy-consensus-proofs",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
@@ -10464,7 +10466,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2512.0.0"
+version = "2512.1.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -10559,9 +10561,7 @@ dependencies = [
  "alloy-transport",
  "anyhow",
  "beefy-verifier-primitives",
- "ckb-merkle-mountain-range",
  "ismp",
- "mmr-primitives",
  "polkadot-sdk",
  "primitive-types 0.13.1",
 ]
@@ -14403,6 +14403,28 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-staking",
+]
+
+[[package]]
+name = "pallet-beefy-consensus-proofs"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "beefy-verifier",
+ "beefy-verifier-primitives",
+ "hex-literal 0.4.1",
+ "ismp",
+ "ismp-beefy",
+ "ismp-solidity-abi",
+ "log",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+ "sp-core",
+ "sp-io",
 ]
 
 [[package]]
@@ -28013,7 +28035,7 @@ checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "tesseract"
-version = "1.6.1"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -28075,6 +28097,7 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "log",
+ "pallet-beefy-consensus-proofs",
  "pallet-ismp",
  "pallet-ismp-rpc",
  "parity-scale-codec",

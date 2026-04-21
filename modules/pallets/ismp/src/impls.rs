@@ -157,6 +157,7 @@ impl<T: Config> Pallet<T> {
 			},
 		);
 		Responded::<T>::insert(req_commitment, true);
+
 		Ok(commitment)
 	}
 

@@ -27,6 +27,7 @@ ismp = { workspace = true }
 pallet-ismp = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-ismp-demo = { workspace = true }
+pallet-beefy-consensus-proofs = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
@@ -132,6 +133,7 @@ std = [
     "pallet-ismp/std",
     "pallet-ismp-runtime-api/std",
     "pallet-ismp-demo/std",
+    "pallet-beefy-consensus-proofs/std",
     "ismp-sync-committee/std",
     "ismp-bsc/std",
     "ismp-grandpa/std",
@@ -171,6 +173,7 @@ runtime-benchmarks = [
     "ismp-parachain/runtime-benchmarks",
     "pallet-messaging-fees/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
+    "pallet-beefy-consensus-proofs/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",
@@ -178,6 +181,7 @@ try-runtime = [
     "pallet-ismp/try-runtime",
     "ismp-sync-committee/try-runtime",
     "pallet-ismp-demo/try-runtime",
+    "pallet-beefy-consensus-proofs/try-runtime",
     "pallet-ismp-relayer/try-runtime",
     "pallet-ismp-host-executive/try-runtime",
     "pallet-mmr-tree/try-runtime",

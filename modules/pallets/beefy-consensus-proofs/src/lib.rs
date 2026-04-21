@@ -71,8 +71,8 @@ pub mod pallet {
 	use sp_runtime::{
 		traits::AccountIdConversion,
 		transaction_validity::{
-			InvalidTransaction, TransactionLongevity, TransactionSource,
-			TransactionValidity, TransactionValidityError, ValidTransaction,
+			InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
+			TransactionValidityError, ValidTransaction,
 		},
 	};
 

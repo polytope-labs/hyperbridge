@@ -81,25 +81,31 @@ export async function fetchStateCommitmentsSubstrate(params: {
 }): Promise<StateCommitment | null> {
 	const { api, stateMachineId, consensusStateId, height } = params
 
-	const state_machine_height: StateMachineHeight = {
-		id: {
-			state_id: getStateId(stateMachineId),
-			consensus_state_id: Array.from(new TextEncoder().encode(consensusStateId)),
-		},
-		height: height,
+	const state_machine_id = {
+		state_id: getStateId(stateMachineId),
+		consensus_state_id: Array.from(new TextEncoder().encode(consensusStateId)),
 	}
 
 	logger.info(
-		`Fetching state commitment for state machine height: ${JSON.stringify(state_machine_height, bigIntSerializer)}`,
+		`Fetching state commitment for state machine id: ${JSON.stringify(state_machine_id, bigIntSerializer)} at height: ${height}`,
 	)
 
 	const palletPrefix = xxhashAsU8a("Ismp", 128)
-	const storagePrefix = xxhashAsU8a("StateCommitments", 128)
+	const storagePrefix = xxhashAsU8a("BoundedStateCommitments", 128)
 
-	const encodedStateMachineHeight = StateMachineHeight.enc(state_machine_height)
-	const key = blake2AsU8a(encodedStateMachineHeight, 128)
+	const encodedStateMachineId = StateMachineId.enc(state_machine_id)
+	const encodedHeight = u64.enc(height)
+	const key1Hash = blake2AsU8a(encodedStateMachineId, 128)
+	const key2Hash = blake2AsU8a(encodedHeight, 128)
 
-	const full_key = new Uint8Array([...palletPrefix, ...storagePrefix, ...key, ...encodedStateMachineHeight])
+	const full_key = new Uint8Array([
+		...palletPrefix,
+		...storagePrefix,
+		...key1Hash,
+		...encodedStateMachineId,
+		...key2Hash,
+		...encodedHeight,
+	])
 	const hexKey = bytesToHex(full_key)
 
 	const storageValue = await api.rpc.state.getStorage<PolkadotOption<Codec>>(hexKey)

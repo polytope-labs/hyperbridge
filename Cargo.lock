@@ -28533,6 +28533,7 @@ dependencies = [
  "sp-consensus-beefy",
  "subxt 0.42.1",
  "subxt-utils",
+ "tempfile",
  "tesseract-beefy",
  "tesseract-config",
  "tesseract-consensus",

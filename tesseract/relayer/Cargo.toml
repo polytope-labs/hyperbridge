@@ -43,3 +43,7 @@ transaction-fees = { workspace = true }
 workspace = true
 default-features = true
 features = ["sc-service"]
+
+[dev-dependencies]
+tesseract-primitives = { workspace = true, features = ["testing"] }
+tempfile = "3.10"

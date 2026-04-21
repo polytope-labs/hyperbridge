@@ -72,63 +72,90 @@ impl Cli {
 		let hyperbridge_provider = hyperbridge_host.provider();
 		let hb_rpc_client = hyperbridge_host.client().rpc_client.clone();
 
-		let host_clients = create_client_map(config.consensus_config()).await?;
+		// Build the IsmpHost for every chain that opted into inbound consensus.
+		// `create_client_map` reads the filtered consensus sub-config produced
+		// by `HyperbridgeConfig::consensus_config`.
+		let consensus_hosts = create_client_map(config.consensus_config()).await?;
 
-		let mut provider_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
-			host_clients.iter().map(|(sm, host)| (*sm, host.provider())).collect();
+		// One `Arc<dyn IsmpProvider>` per chain. Chains with consensus reuse the
+		// consensus host's provider; chains without consensus build a dedicated
+		// messaging-only provider from their per-chain messaging config.
+		let mut providers: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();
+		for (sm, host) in &consensus_hosts {
+			providers.insert(*sm, host.provider());
+		}
+		for (sm, pc) in &config.chains {
+			if providers.contains_key(sm) {
+				continue;
+			}
+			let provider = pc
+				.messaging
+				.clone()
+				.into_client(hyperbridge_provider.clone())
+				.await
+				.with_context(|| format!("failed to build messaging client for {sm}"))?;
+			providers.insert(*sm, provider);
+		}
+
+		let mut provider_clients = providers.clone();
 		provider_clients.insert(coprocessor, hyperbridge_provider.clone());
 
 		let messaging_config: tesseract_primitives::config::RelayerConfig = relayer.clone().into();
 
-		for (state_machine, host) in &host_clients {
-			let messaging_in_scope = relayer.delivery_endpoints.is_empty() ||
-				relayer.delivery_endpoints.contains(&state_machine.to_string());
-			let provider = host.provider();
+		// Inbound consensus — only for chains whose config includes `[<chain>.consensus]`.
+		for (state_machine, host) in &consensus_hosts {
+			let hb = hyperbridge_provider.clone();
+			let name = format!("inbound-consensus-{}-{}", host.provider().name(), hb.name());
+			let host = host.clone();
 
-			if relayer.inbound_consensus_enabled(state_machine) {
-				let hb = hyperbridge_provider.clone();
-				let name = format!("inbound-consensus-{}-{}", provider.name(), hb.name());
-				let host = host.clone();
-
-				task_manager.spawn_essential_handle().spawn_blocking(
-					Box::leak(Box::new(name.clone())),
-					"consensus",
-					async move {
-						let res = host.start_consensus(hb).await;
-						log::error!(target: "tesseract", "{name} terminated: {res:?}");
-					}
-					.boxed(),
-				);
-			}
-
-			if messaging_in_scope {
-				let mut hb_for_messaging = tesseract_substrate::SubstrateClient::<
-					KeccakSubstrateChain,
-				>::new(config.hyperbridge.substrate_config())
-				.await?;
-				hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
-
-				tesseract_messaging::relay(
-					hb_for_messaging,
-					provider.clone(),
-					messaging_config.clone(),
-					coprocessor,
-					tx_payment.clone(),
-					provider_clients.clone(),
-					&task_manager,
-				)
-				.await?;
-			}
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name.clone())),
+				"consensus",
+				async move {
+					let res = host.start_consensus(hb).await;
+					log::error!(target: "tesseract", "{name} terminated: {res:?}");
+				}
+				.boxed(),
+			);
+			log::debug!(target: "tesseract", "spawned inbound-consensus for {state_machine}");
 		}
 
+		// Inbound messaging — runs for every chain in scope.
+		for (state_machine, provider) in &providers {
+			let messaging_in_scope = relayer.delivery_endpoints.is_empty() ||
+				relayer.delivery_endpoints.contains(&state_machine.to_string());
+			if !messaging_in_scope {
+				continue;
+			}
+
+			let mut hb_for_messaging =
+				tesseract_substrate::SubstrateClient::<KeccakSubstrateChain>::new(
+					config.hyperbridge.substrate_config(),
+				)
+				.await?;
+			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
+
+			tesseract_messaging::relay(
+				hb_for_messaging,
+				provider.clone(),
+				messaging_config.clone(),
+				coprocessor,
+				tx_payment.clone(),
+				provider_clients.clone(),
+				&task_manager,
+			)
+			.await?;
+		}
+
+		// Outbound — one global task, fans out over every destination.
 		if relayer.outbound {
-			let destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>> = host_clients
+			let destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>> = providers
 				.iter()
 				.filter(|(sm, _)| {
 					relayer.delivery_endpoints.is_empty() ||
 						relayer.delivery_endpoints.contains(&sm.to_string())
 				})
-				.map(|(sm, host)| (*sm, host.provider()))
+				.map(|(sm, p)| (*sm, p.clone()))
 				.collect();
 
 			if destinations.is_empty() {

@@ -27,11 +27,7 @@ use subxt::ext::subxt_rpcs::{rpc_params, RpcClient};
 pub trait ConsensusProofSource: Send + Sync {
 	/// Returns the raw `payload.proof` bytes for the accepted proof. Callers
 	/// wrap it in a [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
-	async fn fetch(
-		&self,
-		height: u64,
-		new_set_id: Option<u64>,
-	) -> Result<Vec<u8>, anyhow::Error>;
+	async fn fetch(&self, height: u64, new_set_id: Option<u64>) -> Result<Vec<u8>, anyhow::Error>;
 }
 
 pub struct OffchainProofSource {
@@ -46,11 +42,7 @@ impl OffchainProofSource {
 
 #[async_trait::async_trait]
 impl ConsensusProofSource for OffchainProofSource {
-	async fn fetch(
-		&self,
-		height: u64,
-		new_set_id: Option<u64>,
-	) -> Result<Vec<u8>, anyhow::Error> {
+	async fn fetch(&self, height: u64, new_set_id: Option<u64>) -> Result<Vec<u8>, anyhow::Error> {
 		let key = match new_set_id {
 			Some(set_id) => rotation_offchain_key(set_id),
 			None => messaging_offchain_key(height),

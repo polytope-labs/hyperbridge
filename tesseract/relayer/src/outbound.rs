@@ -223,3 +223,157 @@ fn partition_events_for_dest(
 	}
 	(requests, responses)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ismp::router::{PostRequest, PostResponse};
+	use std::sync::Arc;
+	use tesseract_primitives::mocks::MockHost;
+
+	const HB: StateMachine = StateMachine::Kusama(4009);
+	const DEST_A: StateMachine = StateMachine::Evm(1);
+	const DEST_B: StateMachine = StateMachine::Evm(42161);
+
+	fn post_req(source: StateMachine, dest: StateMachine, nonce: u64) -> PostRequest {
+		PostRequest {
+			source,
+			dest,
+			nonce,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
+		}
+	}
+
+	/// Build a PostResponse whose `dest_chain()` is `response_to`. A response
+	/// heads back to the *source* of the original request, so we put
+	/// `response_to` in the inner post's `source` field.
+	fn post_res(
+		response_to: StateMachine,
+		request_was_for: StateMachine,
+		nonce: u64,
+	) -> PostResponse {
+		PostResponse {
+			post: post_req(response_to, request_was_for, nonce),
+			response: vec![9],
+			timeout_timestamp: 0,
+		}
+	}
+
+	fn mock(state_machine: StateMachine) -> MockHost<()> {
+		MockHost::new((), 0, state_machine).with_address(vec![0xab])
+	}
+
+	fn hb_id() -> StateMachineId {
+		StateMachineId { state_id: HB, consensus_state_id: *b"BEEF" }
+	}
+
+	#[test]
+	fn partition_filters_by_destination() {
+		let events = vec![
+			Event::PostRequest(post_req(HB, DEST_A, 1)),
+			Event::PostRequest(post_req(HB, DEST_B, 2)),
+			Event::PostResponse(post_res(HB, DEST_A, 3)),
+			Event::PostResponse(post_res(DEST_A, HB, 4)),
+		];
+
+		let (reqs_a, res_a) = partition_events_for_dest(&events, DEST_A);
+		assert_eq!(reqs_a.len(), 1);
+		assert_eq!(reqs_a[0].nonce, 1);
+		assert_eq!(res_a.len(), 1);
+		assert_eq!(res_a[0].post.nonce, 4);
+
+		let (reqs_b, res_b) = partition_events_for_dest(&events, DEST_B);
+		assert_eq!(reqs_b.len(), 1);
+		assert_eq!(reqs_b[0].nonce, 2);
+		assert!(res_b.is_empty());
+	}
+
+	#[tokio::test]
+	async fn skips_when_no_messages_and_not_mandatory() {
+		let hb = Arc::new(mock(HB));
+		let dest = Arc::new(mock(DEST_A));
+
+		submit_for_dest(hb.clone(), dest.clone(), Vec::new(), vec![0xcc], false, 100, hb_id())
+			.await
+			.unwrap();
+
+		assert!(dest.submissions().is_empty(), "should not submit without messages or rotation");
+	}
+
+	#[tokio::test]
+	async fn submits_consensus_only_when_mandatory_no_messages() {
+		let hb = Arc::new(mock(HB));
+		let dest = Arc::new(mock(DEST_A));
+
+		submit_for_dest(hb.clone(), dest.clone(), Vec::new(), vec![0xcc], true, 100, hb_id())
+			.await
+			.unwrap();
+
+		let submissions = dest.submissions();
+		assert_eq!(submissions.len(), 1);
+		assert_eq!(submissions[0].len(), 1);
+		assert!(matches!(submissions[0][0], Message::Consensus(_)));
+	}
+
+	#[tokio::test]
+	async fn submits_full_batch_when_messages_present() {
+		let hb = Arc::new(mock(HB));
+		let dest = Arc::new(mock(DEST_A));
+
+		let events = vec![
+			Event::PostRequest(post_req(HB, DEST_A, 1)),
+			Event::PostResponse(post_res(DEST_A, HB, 2)),
+		];
+
+		submit_for_dest(hb.clone(), dest.clone(), events, vec![0xcc], false, 100, hb_id())
+			.await
+			.unwrap();
+
+		let submissions = dest.submissions();
+		assert_eq!(submissions.len(), 1);
+		assert_eq!(submissions[0].len(), 3, "consensus + request + response");
+		assert!(matches!(submissions[0][0], Message::Consensus(_)));
+		assert!(matches!(submissions[0][1], Message::Request(_)));
+		assert!(matches!(submissions[0][2], Message::Response(_)));
+	}
+
+	#[tokio::test]
+	async fn events_for_other_destinations_are_ignored() {
+		let hb = Arc::new(mock(HB));
+		let dest = Arc::new(mock(DEST_A));
+
+		// Only DEST_B-targeted events; messaging-only proof for DEST_A.
+		let events = vec![
+			Event::PostRequest(post_req(HB, DEST_B, 1)),
+			Event::PostResponse(post_res(DEST_B, HB, 2)),
+		];
+
+		submit_for_dest(hb.clone(), dest.clone(), events, vec![0xcc], false, 100, hb_id())
+			.await
+			.unwrap();
+
+		assert!(
+			dest.submissions().is_empty(),
+			"DEST_A should see nothing when events target DEST_B"
+		);
+	}
+
+	#[tokio::test]
+	async fn skips_when_request_proof_fails_non_mandatory() {
+		let hb = Arc::new(mock(HB).with_request_proof_fail());
+		let dest = Arc::new(mock(DEST_A));
+
+		// Requests only — if request proof fails and not mandatory, batch has only
+		// consensus and should not be submitted.
+		let events = vec![Event::PostRequest(post_req(HB, DEST_A, 1))];
+
+		submit_for_dest(hb.clone(), dest.clone(), events, vec![0xcc], false, 100, hb_id())
+			.await
+			.unwrap();
+
+		assert!(dest.submissions().is_empty());
+	}
+}

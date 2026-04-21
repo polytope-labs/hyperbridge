@@ -20,10 +20,9 @@ import type { Signer, SignerResult } from "@polkadot/api/types"
 import type { SignerPayloadRaw } from "@polkadot/types/types"
 import { hexToU8a, u8aToHex } from "@polkadot/util"
 import type { KeyringPair } from "@polkadot/keyring/types"
-import { encodeISMPMessage, EvmChain, SubstrateChain } from "@/chain"
+import { encodeISMPMessage } from "@/chain"
 import { __test, ADDRESS_ZERO, bytes20ToBytes32 } from "@/utils"
-import { createQueryClient } from "@/query-client"
-import { IndexerClient } from "@/client"
+import { createQueryClient } from "@/queryClient"
 import { privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
 import { baseSepolia, bscTestnet } from "viem/chains"
 import tokenGateway from "@/abis/tokenGateway"
@@ -221,13 +220,13 @@ describe.skip("teleport function", () => {
 			hasher: "Keccak" as const,
 		})
 
-		const indexer = new IndexerClient({
-			source: sourceChain,
-			dest: destChain,
-			hyperbridge: hyperbridgeChain,
-			queryClient: query_client,
-			pollInterval: 1_000,
-		})
+		// Keeps `hyperbridgeChain` referenced so it isn't tree-shaken from the test setup.
+		void hyperbridgeChain
+
+		const teleportTracker = new TokenGateway({ source: sourceChain, dest: destChain }).withQueryClient(
+			query_client,
+			{ pollInterval: 1_000 },
+		)
 
 		const amount = BigInt(200000000000)
 
@@ -288,7 +287,7 @@ describe.skip("teleport function", () => {
 		console.log("Teleport Commitment:", commitment)
 
 		// Stream the teleport status
-		for await (const status of indexer.tokenGatewayAssetTeleportedStatusStream(commitment)) {
+		for await (const status of teleportTracker.assetTeleportedStatusStream(commitment)) {
 			console.log(JSON.stringify(status, bigIntReplacer, 4))
 			switch (status.status) {
 				case "TELEPORTED": {
@@ -320,7 +319,7 @@ describe("TokenGateway SDK", () => {
 		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
 
 		// Set up source chain (BSC Mainnet)
-		const sourceChain = new EvmChain({
+		const sourceChain = EvmChain.fromParams({
 			chainId: 56,
 			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
 			host: bscMainnetIsmpHostAddress,
@@ -328,7 +327,7 @@ describe("TokenGateway SDK", () => {
 		})
 
 		// Set up destination chain (Base Mainnet)
-		const destChain = new EvmChain({
+		const destChain = EvmChain.fromParams({
 			chainId: 8453,
 			rpcUrl: process.env.BASE_MAINNET || "https://base-mainnet.public.blastapi.io",
 			host: baseIsmpHostAddress,
@@ -375,7 +374,7 @@ describe("TokenGateway SDK", () => {
 		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
 
 		// Set up source chain (BSC Mainnet)
-		const sourceChain = new EvmChain({
+		const sourceChain = EvmChain.fromParams({
 			chainId: 56,
 			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
 			host: bscMainnetIsmpHostAddress,
@@ -383,7 +382,7 @@ describe("TokenGateway SDK", () => {
 		})
 
 		// Set up destination chain (Base Mainnet)
-		const destChain = new EvmChain({
+		const destChain = EvmChain.fromParams({
 			chainId: 8453,
 			rpcUrl: process.env.BASE_MAINNET || "https://base-mainnet.public.blastapi.io",
 			host: baseIsmpHostAddress,
@@ -429,7 +428,7 @@ describe("TokenGateway SDK", () => {
 		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
 
 		// Set up source chain (BSC Mainnet)
-		const sourceChain = new EvmChain({
+		const sourceChain = EvmChain.fromParams({
 			chainId: 56,
 			rpcUrl: process.env.BSC_MAINNET || "https://binance.llamarpc.com",
 			host: bscMainnetIsmpHostAddress,
@@ -437,7 +436,7 @@ describe("TokenGateway SDK", () => {
 		})
 
 		// Set up destination as a Substrate chain (Hyperbridge/Paseo)
-		const destChain = new SubstrateChain({
+		const destChain = await SubstrateChain.connect({
 			stateMachineId: "KUSAMA-4009",
 			wsUrl: process.env.HYPERBRIDGE_GARGANTUA!,
 			hasher: "Keccak",

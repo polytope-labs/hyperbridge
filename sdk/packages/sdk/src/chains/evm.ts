@@ -10,6 +10,7 @@ import {
 	keccak256,
 	pad,
 	toBytes,
+	toFunctionSelector,
 	toHex,
 	maxUint256,
 } from "viem"
@@ -39,6 +40,7 @@ import type { GetProofParameters, Hex, TransactionReceipt } from "viem"
 import EvmHost from "@/abis/evmHost"
 import evmHost from "@/abis/evmHost"
 import HandlerV1 from "@/abis/handler"
+import HandlerV2 from "@/abis/handlerV2"
 import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import type {
@@ -91,6 +93,11 @@ const chains = {
  * This represents the zero address in EVM chains.
  */
 export const DEFAULT_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+/**
+ * ERC-165 interface ID for IHandlerV2 (bytes4(keccak256("batchCall(bytes[])"))).
+ */
+const HANDLER_V2_INTERFACE_ID = toFunctionSelector("function batchCall(bytes[])") as `0x${string}`
 
 /**
  * Parameters for an EVM chain.
@@ -231,6 +238,35 @@ export class EvmChain implements IChain {
 
 	get configService(): ChainConfigService {
 		return this.chainConfigService
+	}
+
+	private _handlerV2Cached: boolean | undefined
+
+	/**
+	 * Checks if the handler contract supports the IHandlerV2 interface via ERC-165.
+	 * Result is cached after the first call.
+	 */
+	async isHandlerV2(): Promise<boolean> {
+		if (this._handlerV2Cached !== undefined) return this._handlerV2Cached
+
+		try {
+			const hostParams = await this.publicClient.readContract({
+				address: this.params.host,
+				abi: EvmHost.ABI,
+				functionName: "hostParams",
+			})
+			const supports = await this.publicClient.readContract({
+				address: hostParams.handler,
+				abi: HandlerV2.ABI,
+				functionName: "supportsInterface",
+				args: [HANDLER_V2_INTERFACE_ID],
+			})
+			this._handlerV2Cached = supports
+		} catch {
+			this._handlerV2Cached = false
+		}
+
+		return this._handlerV2Cached
 	}
 
 	/**
@@ -542,6 +578,41 @@ export class EvmChain implements IChain {
 				})
 
 				return encoded
+			})
+			.with({ kind: "Consensus" }, (message) => {
+				return encodeFunctionData({
+					abi: HandlerV1.ABI,
+					functionName: "handleConsensus",
+					args: [this.params.host, message.consensusProof],
+				})
+			})
+			.with({ kind: "BatchConsensusAndPostRequest" }, (request) => {
+				const consensusCall = this.encode({ kind: "Consensus", consensusProof: request.consensusProof })
+				const postRequestCall = this.encode({
+					kind: "PostRequest",
+					requests: request.requests,
+					proof: request.proof,
+					signer: request.signer,
+				})
+				return encodeFunctionData({
+					abi: HandlerV2.ABI,
+					functionName: "batchCall",
+					args: [[consensusCall, postRequestCall]],
+				})
+			})
+			.with({ kind: "BatchConsensusAndGetResponse" }, (request) => {
+				const consensusCall = this.encode({ kind: "Consensus", consensusProof: request.consensusProof })
+				const getResponseCall = this.encode({
+					kind: "GetResponse",
+					responses: request.responses,
+					proof: request.proof,
+					signer: request.signer,
+				})
+				return encodeFunctionData({
+					abi: HandlerV2.ABI,
+					functionName: "batchCall",
+					args: [[consensusCall, getResponseCall]],
+				})
 			})
 			.with({ kind: "GetRequest" }, (message) => {
 				throw new Error("GetResponse is not yet supported on Substrate chains")

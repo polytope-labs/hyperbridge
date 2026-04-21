@@ -13,7 +13,7 @@ on:
             - ".github/workflows/evm.yml"
 
     pull_request_target:
-        types: [opened, synchronize]
+        types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "evm/**/*.sol"
             - "evm/**/foundry.toml"

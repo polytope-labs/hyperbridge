@@ -1,6 +1,4 @@
-// @ts-expect-error upstream driver types have export path resolution
 import indexedDBDriver from "unstorage/drivers/indexedb"
-// @ts-expect-error upstream driver types have export path resolution
 import localStorageDriver from "unstorage/drivers/localstorage"
 import type { LoadDriver } from "../types"
 

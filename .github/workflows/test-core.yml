@@ -10,6 +10,7 @@ on:
     pull_request_target:
         branches:
             - main
+        types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "sdk/packages/core/**"
             - ".github/workflows/test-core.yml"
@@ -24,6 +25,8 @@ env:
 jobs:
     compile:
         name: Compile
+        # Skip on draft pull requests; run on push, ready PRs, and manual dispatch.
+        if: github.event_name != 'pull_request_target' || github.event.pull_request.draft == false
         runs-on: ubuntu-latest
         defaults:
             run:

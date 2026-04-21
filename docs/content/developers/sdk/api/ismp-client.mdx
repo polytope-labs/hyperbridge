@@ -1,17 +1,17 @@
 ---
-title: IndexerClient
-description: API reference for the IndexerClient class - query the Hyperbridge indexer and monitor cross-chain request statuses.
+title: IsmpClient
+description: API reference for the IsmpClient class - query the Hyperbridge indexer and monitor cross-chain request statuses.
 ---
 
-# IndexerClient
+# IsmpClient
 
-The `IndexerClient` class provides methods for querying the Hyperbridge indexer and monitoring cross-chain request statuses in real-time.
+The `IsmpClient` class provides methods for querying the Hyperbridge indexer and monitoring cross-chain request statuses in real-time.
 
 ## Constructor
 
-### new IndexerClient(config)
+### new IsmpClient(config)
 
-Creates a new IndexerClient instance.
+Creates a new IsmpClient instance.
 
 **Parameters:**
 
@@ -23,12 +23,12 @@ Creates a new IndexerClient instance.
 | `config.dest` | `IChain` | Destination chain instance (EvmChain or SubstrateChain) |
 | `config.hyperbridge` | `IChain` | Hyperbridge chain instance (typically SubstrateChain) |
 
-**Returns:** `IndexerClient`
+**Returns:** `IsmpClient`
 
 **Example:**
 
 ```typescript lineNumbers
-const indexer = new IndexerClient({
+const indexer = new IsmpClient({
   queryClient: createQueryClient({ url: "https://indexer-url" }),
   pollInterval: 1_000,
   source: sourceChain,
@@ -207,7 +207,7 @@ if (getRequest) {
 
 ## Standalone Query Functions
 
-These functions allow querying the indexer directly without creating an IndexerClient instance.
+These functions allow querying the indexer directly without creating an IsmpClient instance.
 
 ### queryPostRequest(params)
 
@@ -524,4 +524,4 @@ The indexer automatically resolves the hash to the corresponding request.
 ## Related
 
 - [Tracking Requests](/developers/sdk/tracking/post-requests) - Detailed guide on tracking request lifecycles
-- [Getting Started](/developers/sdk/getting-started) - Initialize IndexerClient
+- [Getting Started](/developers/sdk/getting-started) - Initialize IsmpClient

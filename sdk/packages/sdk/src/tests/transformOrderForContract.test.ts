@@ -9,8 +9,8 @@ const NATIVE = "0x00000000000000000000000000000000000000000000000000000000000000
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
 		user: "0x" as HexString,
-		source: "EVM-1",
-		destination: "EVM-42161",
+		source: "EVM-1" as unknown as HexString,
+		destination: "EVM-42161" as unknown as HexString,
 		deadline: 100n,
 		nonce: 0n,
 		fees: 0n,

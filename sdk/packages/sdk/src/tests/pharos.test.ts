@@ -22,7 +22,7 @@ function compareBytes(a: number[], b: number[]): number {
 	return a.length - b.length
 }
 
-const PHAROS_RPC_URL = process.env.PHAROS_ATLANTIC_RPC
+const PHAROS_RPC_URL = process.env.PHAROS_ATLANTIC_RPC!
 
 /**
  * Staking contract address on Pharos Atlantic (testnet).

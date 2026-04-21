@@ -1,0 +1,48 @@
+[package]
+name = "tesseract-admin-relayer"
+version = "0.1.0"
+edition = "2021"
+description = "Admin-driven BEEFY mandatory consensus relayer for EVM chains"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+
+[lib]
+name = "tesseract_admin_relayer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tesseract-admin-relayer"
+path = "bins/relayer.rs"
+
+[dependencies]
+anyhow = "1.0.93"
+async-trait = "0.1.53"
+clap = { version = "4.3.5", features = ["derive"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+futures = "0.3.28"
+hex = { workspace = true }
+log = "0.4.19"
+rustls = { version = "0.23.23", features = ["ring"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
+std_serde_json = { package = "serde_json", version = "1.0" }
+tokio = { workspace = true, features = ["full"] }
+toml = "0.7.4"
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+primitive-types = { workspace = true }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-default-tls"] }
+alloy-primitives = { workspace = true, default-features = true }
+alloy-sol-types = { workspace = true, default-features = true }
+
+# ismp
+ismp = { workspace = true }
+ismp-solidity-abi = { workspace = true, default-features = true }
+beefy-verifier-primitives = { workspace = true }
+
+# tesseract
+tesseract-beefy = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-primitives = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime", "sc-service"]

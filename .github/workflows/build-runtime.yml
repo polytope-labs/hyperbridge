@@ -27,7 +27,7 @@ env:
 
 jobs:
   determine-runtime:
-    runs-on: arc-runner-set
+    runs-on: release-runner
     outputs:
       package: ${{ steps.runtime.outputs.package }}
       name: ${{ steps.runtime.outputs.name }}
@@ -56,7 +56,7 @@ jobs:
 
   build-runtime:
     needs: [determine-runtime]
-    runs-on: arc-runner-set
+    runs-on: release-runner
     outputs:
       spec_version: ${{ steps.info.outputs.spec_version }}
     steps:
@@ -206,7 +206,7 @@ jobs:
 
   publish-release:
     needs: [determine-runtime, build-runtime]
-    runs-on: arc-runner-set
+    runs-on: release-runner
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

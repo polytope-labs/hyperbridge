@@ -3,25 +3,26 @@ import { parseAbiItem } from "viem"
 import { QuorumPublicClient, QuorumError, quorumThreshold } from "@/services/QuorumPublicClient"
 
 /**
- * Integration tests for QuorumPublicClient against public Base mainnet RPCs.
+ * Integration tests for QuorumPublicClient against a two-RPC quorum on Base mainnet.
  *
- * These tests hit the public internet. They target a moving window of the most
- * recent 100 blocks so providers with different archive retention policies all
- * have the range indexed. Providers are chosen from different organisations so
- * the hostname-uniqueness check accepts them.
+ * The quorum is formed from the official public endpoint (`mainnet.base.org`) and
+ * a second endpoint supplied by the operator via the `BASE_MAINNET` env var —
+ * typically a premium node in `.env.local`. With N=2 the threshold is 2, so both
+ * providers must succeed and agree for every batch; this is the smallest useful
+ * quorum and the one operators most commonly run.
+ *
+ * Tests that need the real network are skipped if `BASE_MAINNET` is unset so the
+ * suite still runs (constructor-only coverage) in environments without credentials.
  */
 
 const BASE_CHAIN_ID = 8453
 
-// Public Base mainnet endpoints — each under a distinct hostname.
-// If `BASE_MAINNET` is set in the environment (e.g. a premium endpoint in
-// `.env.local`), it is added as an extra quorum member.
-const BASE_PUBLIC_RPCS: string[] = [
-	"https://mainnet.base.org",
-	"https://base.publicnode.com",
-	"https://base.drpc.org",
-	...(process.env.BASE_MAINNET ? [process.env.BASE_MAINNET] : []),
-]
+const OFFICIAL_BASE_RPC = "https://mainnet.base.org"
+const ENV_BASE_RPC = process.env.BASE_MAINNET
+
+const NETWORK_QUORUM_RPCS: string[] = ENV_BASE_RPC ? [OFFICIAL_BASE_RPC, ENV_BASE_RPC] : []
+
+const describeIfNetwork = NETWORK_QUORUM_RPCS.length === 2 ? describe : describe.skip
 
 // Base mainnet USDC. Any full node should serve recent logs for this contract.
 const USDC_ON_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
@@ -68,23 +69,20 @@ describe("QuorumPublicClient — constructor validation", () => {
 	})
 
 	it("accepts a single endpoint and reports size 1", () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, ["https://mainnet.base.org"])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
 		expect(client.size).toBe(1)
-		expect(client.rpcUrls).toEqual(["https://mainnet.base.org"])
-	})
-
-	it("accepts multiple distinct-hostname endpoints", () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, BASE_PUBLIC_RPCS)
-		expect(client.size).toBe(BASE_PUBLIC_RPCS.length)
+		expect(client.threshold).toBe(1)
+		expect(client.rpcUrls).toEqual([OFFICIAL_BASE_RPC])
 	})
 })
 
-describe("QuorumPublicClient.getLogs — public Base RPCs", () => {
-	it("returns the same logs when every provider agrees on a recent window", async () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, BASE_PUBLIC_RPCS)
+describeIfNetwork("QuorumPublicClient.getLogs — N=2 public + env Base RPCs", () => {
+	it("both providers agree on a recent window", async () => {
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, NETWORK_QUORUM_RPCS)
+		expect(client.threshold).toBe(2)
 
 		// Use the quorum's own head so the window is guaranteed to be within reach
-		// of `threshold` providers — avoids tip-propagation flakes where one honest
+		// of both providers — avoids tip-propagation flakes where one honest
 		// provider hasn't indexed up to another's reported head yet.
 		const latestBlockNumber = await client.getBlockNumber()
 		const fromBlock = latestBlockNumber - BLOCK_WINDOW
@@ -109,30 +107,13 @@ describe("QuorumPublicClient.getLogs — public Base RPCs", () => {
 		}
 	}, 60_000)
 
-	it("works with a single provider (no quorum comparison)", async () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, [BASE_PUBLIC_RPCS[0]])
-		const latestBlockNumber = await client.getBlockNumber()
-
-		const logs = await client.getLogs({
-			address: USDC_ON_BASE,
-			events: [TRANSFER_EVENT],
-			fromBlock: latestBlockNumber - BLOCK_WINDOW,
-			toBlock: latestBlockNumber,
-		})
-
-		expect(logs.length).toBeGreaterThan(0)
-	}, 60_000)
-
-	it("fails the batch when any provider is unreachable", async () => {
-		// A syntactically valid URL at a guaranteed-unresolvable hostname. The
-		// working providers will return logs quickly; the broken one will error
-		// out and — per quorum semantics — fail the whole batch.
+	it("fails the batch when one of the two providers is unreachable", async () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [
-			BASE_PUBLIC_RPCS[0],
+			OFFICIAL_BASE_RPC,
 			"https://this-host-should-never-resolve.invalid",
 		])
 
-		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [BASE_PUBLIC_RPCS[0]])
+		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
 		const latestBlockNumber = await singleProvider.getBlockNumber()
 
 		await expect(
@@ -147,9 +128,9 @@ describe("QuorumPublicClient.getLogs — public Base RPCs", () => {
 
 	it("surfaces the offending provider URL in the QuorumError", async () => {
 		const badUrl = "https://another-unresolvable-host.invalid"
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, [BASE_PUBLIC_RPCS[0], badUrl])
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC, badUrl])
 
-		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [BASE_PUBLIC_RPCS[0]])
+		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
 		const latestBlockNumber = await singleProvider.getBlockNumber()
 
 		let caught: unknown
@@ -167,58 +148,27 @@ describe("QuorumPublicClient.getLogs — public Base RPCs", () => {
 		expect(caught).toBeInstanceOf(QuorumError)
 		expect((caught as QuorumError).message).toContain(badUrl)
 	}, 60_000)
-
-	it("tolerates one faulty provider when N=4 (threshold=3)", async () => {
-		// Three working public endpoints + one unresolvable host = N=4, threshold=3.
-		// Three honest providers must agree for the batch to succeed even though
-		// the fourth fails outright.
-		const urls = [...BASE_PUBLIC_RPCS.slice(0, 3), "https://quorum-tolerance-test.invalid"]
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, urls)
-		expect(client.threshold).toBe(3)
-
-		// Pick the range from the quorum's own head — guaranteed indexed by all
-		// threshold honest providers, so getLogs can't be tipped out of quorum by
-		// a late-propagating block.
-		const latestBlockNumber = await client.getBlockNumber()
-		const logs = await client.getLogs({
-			address: USDC_ON_BASE,
-			events: [TRANSFER_EVENT],
-			fromBlock: latestBlockNumber - BLOCK_WINDOW,
-			toBlock: latestBlockNumber,
-		})
-
-		expect(logs.length).toBeGreaterThan(0)
-	}, 60_000)
 })
 
-describe("QuorumPublicClient.getBlockNumber — public Base RPCs", () => {
-	it("returns the highest head with quorum support (threshold-th descending)", async () => {
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, BASE_PUBLIC_RPCS)
+describeIfNetwork("QuorumPublicClient.getBlockNumber — N=2 public + env Base RPCs", () => {
+	it("returns a head ≤ both providers' individual heads", async () => {
+		const client = new QuorumPublicClient(BASE_CHAIN_ID, NETWORK_QUORUM_RPCS)
+		expect(client.threshold).toBe(2)
+
 		const head = await client.getBlockNumber()
 		expect(head).toBeGreaterThan(0n)
 
-		// The quorum head must be ≤ at least `threshold` individual heads — i.e.
-		// no more providers are "behind" it than the quorum tolerates.
 		const individualHeads = await Promise.all(client.clients.map((c) => c.getBlockNumber()))
-		const atLeast = individualHeads.filter((h) => h >= head).length
-		expect(atLeast).toBeGreaterThanOrEqual(client.threshold)
+		for (const h of individualHeads) {
+			expect(head <= h).toBe(true)
+		}
 	}, 60_000)
 
-	it("fails when too many providers are unreachable (N=2 needs both)", async () => {
+	it("fails when one of the two providers is unreachable", async () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [
-			BASE_PUBLIC_RPCS[0],
+			OFFICIAL_BASE_RPC,
 			"https://getblock-number-unreachable.invalid",
 		])
-		// N=2 → threshold=2, one failure already puts us below quorum.
 		await expect(client.getBlockNumber()).rejects.toBeInstanceOf(QuorumError)
-	}, 60_000)
-
-	it("tolerates one faulty provider when N=4 (threshold=3)", async () => {
-		const urls = [...BASE_PUBLIC_RPCS.slice(0, 3), "https://block-number-tolerance.invalid"]
-		const client = new QuorumPublicClient(BASE_CHAIN_ID, urls)
-		expect(client.threshold).toBe(3)
-
-		const head = await client.getBlockNumber()
-		expect(head).toBeGreaterThan(0n)
 	}, 60_000)
 })

@@ -400,11 +400,21 @@ pub async fn submit_batch_messages(
 	let call = handler_v2.batchCall(inner_calls);
 	let gas = call.estimate_gas().await.unwrap_or_else(|_| (chain_gas_limit * 8) / 10);
 	let calldata = call.calldata().clone();
+	let calldata_len = calldata.len();
 	let tx_request =
 		build_tx_request(from, handler_addr, calldata, gas_price, gas_with_buffer(gas));
 
 	let nonce = client.signer.get_transaction_count(from).await?;
 	let tx = tx_request.nonce(nonce).transaction_type(0);
+
+	tracing::info!(
+		chain = ?client.state_machine,
+		msgs = messages.len(),
+		calldata_bytes = calldata_len,
+		gas_estimate = gas,
+		nonce,
+		"dispatching HandlerV2.batchCall",
+	);
 
 	let pending = loop {
 		match client.signer.send_transaction(tx.clone()).await {
@@ -412,7 +422,7 @@ pub async fn submit_batch_messages(
 			Err(err) => {
 				let err = anyhow::Error::from(err);
 				if is_rate_limit_error(&err) {
-					tracing::info!(chain = ?client.state_machine, "Rate limited, retrying batchCall submission in 1s");
+					tracing::info!(chain = ?client.state_machine, "rate limited; retrying batchCall in 1s");
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				} else {
 					return Err(err);
@@ -429,6 +439,12 @@ pub async fn submit_batch_messages(
 			return Err(anyhow!("batchCall to {:?} was cancelled", client.state_machine));
 		},
 	};
+	tracing::info!(
+		chain = ?client.state_machine,
+		?tx_hash,
+		events = events.len(),
+		"batchCall included",
+	);
 
 	// Atomic semantics: if the tx succeeded every inner call did, so no
 	// per-message unsuccessful bucket.

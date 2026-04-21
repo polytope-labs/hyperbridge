@@ -30,6 +30,7 @@ use tesseract_primitives::{
 	config::RelayerConfig, IsmpProvider, ProofAccepted, StateMachineUpdated, TxReceipt,
 };
 use tokio::sync::mpsc::Sender;
+use tracing::Instrument;
 
 use crate::provider::ConsensusProofSource;
 
@@ -47,23 +48,23 @@ pub async fn run(
 ) -> Result<(), anyhow::Error> {
 	let hb_state_machine_id = hyperbridge.state_machine_id();
 	let coprocessor = hb_state_machine_id.state_id;
-	let hb_name = hyperbridge.name();
 	let mut stream = hyperbridge.proof_accepted_notification().await?;
 	let mut cursor: u64 = hyperbridge.initial_height();
 
-	tracing::info!("[outbound] {hb_name}: subscribed to ProofAccepted, cursor={cursor}");
+	tracing::info!(cursor, "subscribed to ProofAccepted");
 
 	while let Some(item) = stream.next().await {
 		let accepted: ProofAccepted = match item {
 			Ok(ev) => ev,
 			Err(err) => {
-				tracing::error!("[outbound] {hb_name}: proof_accepted stream: {err:?}");
+				tracing::error!(?err, "proof_accepted stream error");
 				continue;
 			},
 		};
 
 		let new_height = accepted.height;
 		let is_mandatory = accepted.new_set_id.is_some();
+		let new_set_id = accepted.new_set_id;
 
 		let synth = StateMachineUpdated {
 			state_machine_id: hb_state_machine_id,
@@ -73,9 +74,7 @@ pub async fn run(
 		let events = match hyperbridge.query_ismp_events(cursor, synth).await {
 			Ok(events) => events,
 			Err(err) => {
-				tracing::error!(
-					"[outbound] {hb_name}: query_ismp_events({cursor}..={new_height}): {err:?}"
-				);
+				tracing::error!(cursor, to = new_height, ?err, "query_ismp_events failed",);
 				continue;
 			},
 		};
@@ -84,46 +83,59 @@ pub async fn run(
 			Ok(bytes) => bytes,
 			Err(err) => {
 				tracing::error!(
-					"[outbound] {hb_name}: proof fetch (h={new_height} set={:?}): {err:?}",
-					accepted.new_set_id,
+					height = new_height,
+					set_id = ?new_set_id,
+					?err,
+					"proof fetch failed",
 				);
 				continue;
 			},
 		};
 
 		tracing::info!(
-			"[outbound] {hb_name}: ProofAccepted h={new_height} set={:?} mandatory={is_mandatory} events={}",
-			accepted.new_set_id,
-			events.len(),
+			height = new_height,
+			set_id = ?new_set_id,
+			mandatory = is_mandatory,
+			events = events.len(),
+			"ProofAccepted",
 		);
 
 		let mut tasks = FuturesUnordered::new();
 		for dest in destinations.values() {
 			let fee_sender = fee_senders.get(&dest.state_machine_id().state_id).cloned();
-			tasks.push(submit_for_dest(
-				hyperbridge.clone(),
-				dest.clone(),
-				events.clone(),
-				proof_bytes.clone(),
-				is_mandatory,
-				new_height,
-				hb_state_machine_id,
-				relayer_config.clone(),
-				coprocessor,
-				client_map.clone(),
-				fee_sender,
-			));
+			let dest_span = tracing::info_span!(
+				"dest",
+				chain = %dest.name(),
+				height = new_height,
+				mandatory = is_mandatory,
+			);
+			tasks.push(
+				submit_for_dest(
+					hyperbridge.clone(),
+					dest.clone(),
+					events.clone(),
+					proof_bytes.clone(),
+					is_mandatory,
+					new_height,
+					hb_state_machine_id,
+					relayer_config.clone(),
+					coprocessor,
+					client_map.clone(),
+					fee_sender,
+				)
+				.instrument(dest_span),
+			);
 		}
 		while let Some(res) = tasks.next().await {
 			if let Err(err) = res {
-				tracing::error!("[outbound] submit_for_dest: {err:?}");
+				tracing::error!(?err, "submit_for_dest failed");
 			}
 		}
 
 		cursor = new_height;
 	}
 
-	Err(anyhow::anyhow!("[outbound] {hb_name}: proof_accepted stream ended"))
+	Err(anyhow::anyhow!("proof_accepted stream ended"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -141,8 +153,6 @@ async fn submit_for_dest(
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
 ) -> Result<(), anyhow::Error> {
 	let dest_state_machine = dest.state_machine_id().state_id;
-	let dest_name = dest.name();
-	let hb_name = hyperbridge.name();
 
 	// Only events relevant to this destination matter; skip the RPC-heavy
 	// translate_events_to_messages entirely when there's nothing to do.
@@ -157,6 +167,7 @@ async fn submit_for_dest(
 		// Messaging-only proof with nothing for this chain — skip. Rotation
 		// proofs (mandatory) must propagate even without user messages so future
 		// messaging proofs remain verifiable on the destination.
+		tracing::trace!("skipping — no events for this chain, not mandatory");
 		return Ok(());
 	}
 
@@ -183,29 +194,22 @@ async fn submit_for_dest(
 		{
 			Ok((deliverable, unprofitable)) => {
 				if !unprofitable.is_empty() {
-					tracing::debug!(
-						"[outbound] {hb_name}->{dest_name}: dropping {} unprofitable msgs",
-						unprofitable.len(),
-					);
+					tracing::debug!(dropped = unprofitable.len(), "unprofitable messages dropped");
 				}
 				batch.extend(deliverable);
 			},
-			Err(err) => tracing::error!(
-				"[outbound] {hb_name}->{dest_name}: translate_events_to_messages: {err:?}"
-			),
+			Err(err) => tracing::error!(?err, "translate_events_to_messages failed"),
 		}
 	}
 
 	// If translate returned no deliverable messages we may be left with only
 	// the consensus entry — only worth sending on mandatory (rotation) proofs.
 	if batch.len() == 1 && !is_mandatory {
+		tracing::trace!("skipping — consensus-only batch, not mandatory");
 		return Ok(());
 	}
 
-	tracing::info!(
-		"[outbound] {hb_name}->{dest_name}: submit {} msgs at h={new_height} mandatory={is_mandatory}",
-		batch.len(),
-	);
+	tracing::info!(msgs = batch.len(), "submitting batch");
 	// `submit_batch` falls back to serial `submit` for chains that don't override
 	// it; EVM chains dispatch the whole batch in a single HandlerV2.batchCall tx.
 	let result = dest.submit_batch(batch, hb_state_machine_id.state_id).await?;
@@ -214,9 +218,7 @@ async fn submit_for_dest(
 	// closed if the relayer is shutting down).
 	if let (Some(sender), false) = (fee_sender, result.receipts.is_empty()) {
 		if let Err(err) = sender.send(result.receipts).await {
-			tracing::warn!(
-				"[outbound] {hb_name}->{dest_name}: fee-acc channel send failed: {err:?}"
-			);
+			tracing::warn!(?err, "fee-accumulation channel send failed");
 		}
 	}
 

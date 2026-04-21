@@ -45,7 +45,9 @@ impl OffchainProofSource {
 impl ConsensusProofSource for OffchainProofSource {
 	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error> {
 		let key = offchain_key(height);
-		let params = rpc_params!["PERSISTENT", format!("0x{}", hex::encode(&key))];
+		let hex_key = format!("0x{}", hex::encode(&key));
+		tracing::debug!(height, key = %hex_key, "offchain proof fetch");
+		let params = rpc_params!["PERSISTENT", hex_key];
 
 		let result: Option<String> = self
 			.rpc_client
@@ -54,6 +56,7 @@ impl ConsensusProofSource for OffchainProofSource {
 			.map_err(|err| anyhow!("offchain_localStorageGet failed: {err:?}"))?;
 
 		let hex_bytes = result.ok_or_else(|| {
+			tracing::warn!(height, "proof missing from HB offchain storage");
 			anyhow!(
 				"proof missing from HB offchain storage (h={height}). \
 				 Ensure the HB node exposes unsafe RPCs and was up when the proof was submitted."
@@ -61,6 +64,9 @@ impl ConsensusProofSource for OffchainProofSource {
 		})?;
 
 		let stripped = hex_bytes.strip_prefix("0x").unwrap_or(hex_bytes.as_str());
-		hex::decode(stripped).map_err(|err| anyhow!("offchain proof not valid hex: {err:?}"))
+		let bytes = hex::decode(stripped)
+			.map_err(|err| anyhow!("offchain proof not valid hex: {err:?}"))?;
+		tracing::debug!(height, bytes = bytes.len(), "proof fetched");
+		Ok(bytes)
 	}
 }

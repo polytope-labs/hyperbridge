@@ -26,6 +26,7 @@ use itertools::Itertools;
 use polkadot_sdk::sc_service::TaskManager;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
+use tracing::Instrument;
 
 use crate::{
 	events::{filter_events, translate_events_to_messages},
@@ -80,18 +81,19 @@ where
 	// chain_b → Hyperbridge inbound messaging.
 	{
 		let hyperbridge = Arc::new(hyperbridge.clone());
-		let chain_b = chain_b.clone();
+		let chain_b_inner = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
 		let sender = fee_acc_sender.clone();
 		let name = format!("messaging-{}-{}", chain_b.name(), hyperbridge.name());
+		let span = tracing::info_span!("inbound_messaging", chain = %chain_b.name(), hb = %hyperbridge.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
+			Box::leak(Box::new(name)),
 			"messaging",
 			async move {
 				let res = handle_notification(
-					chain_b,
+					chain_b_inner,
 					hyperbridge,
 					tx_payment,
 					config,
@@ -101,8 +103,9 @@ where
 					None,
 				)
 				.await;
-				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+				tracing::error!(?res, "task terminated");
 			}
+			.instrument(span)
 			.boxed(),
 		);
 	}
@@ -116,8 +119,9 @@ where
 		let config = config.clone();
 		let sender = fee_acc_sender.clone();
 		let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
+		let span = tracing::info_span!("retries", chain = %dest.name(), hb = %hyperbridge.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
+			Box::leak(Box::new(name)),
 			"messaging",
 			async move {
 				let res = retry_unprofitable_messages(
@@ -130,8 +134,9 @@ where
 					sender,
 				)
 				.await;
-				tracing::error!("{name} terminated with result {res:?}");
+				tracing::error!(?res, "task terminated");
 			}
+			.instrument(span)
 			.boxed(),
 		);
 	}
@@ -150,14 +155,20 @@ where
 		let hb_forwarder = Arc::new(hyperbridge.clone());
 		let chain_b_forwarder = chain_b.clone();
 		let name = format!("get-forwarder-{}-{}", chain_b.name(), hb_forwarder.name());
+		let span = tracing::info_span!(
+			"get_forwarder",
+			chain = %chain_b.name(),
+			hb = %hb_forwarder.name(),
+		);
 		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
+			Box::leak(Box::new(name)),
 			"messaging",
 			async move {
 				let res =
 					forward_get_requests(hb_forwarder, chain_b_forwarder, get_request_sender).await;
-				tracing::error!(target: "tesseract", "{name} terminated: {res:?}");
+				tracing::error!(?res, "task terminated");
 			}
+			.instrument(span)
 			.boxed(),
 		);
 
@@ -166,8 +177,10 @@ where
 		let source = chain_b.clone();
 		let client_map = client_map.clone();
 		let name = format!("get-processor-{}-{}", chain_b.name(), source.name());
+		let span =
+			tracing::info_span!("get_processor", chain = %source.name(), hb = %hb_processor.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
+			Box::leak(Box::new(name)),
 			"messaging",
 			async move {
 				let res = process_get_request_events(
@@ -177,8 +190,9 @@ where
 					client_map,
 				)
 				.await;
-				tracing::error!(target: "tesseract", "{name} terminated: {res:?}");
+				tracing::error!(?res, "task terminated");
 			}
+			.instrument(span)
 			.boxed(),
 		);
 	}
@@ -203,6 +217,7 @@ async fn forward_get_requests(
 		})?;
 
 	let mut previous_height = chain_b.initial_height();
+	tracing::debug!(initial_height = previous_height, "subscribed to state_machine_update");
 
 	while let Some(item) = stream.next().await {
 		match item {
@@ -215,9 +230,10 @@ async fn forward_get_requests(
 					Ok(events) => events,
 					Err(err) => {
 						tracing::error!(
-							target: "tesseract",
-							"get-forwarder: query_ismp_events on {}: {err:?}",
-							chain_b.name(),
+							from = previous_height,
+							to = update.latest_height,
+							?err,
+							"query_ismp_events failed",
 						);
 						continue;
 					},
@@ -232,6 +248,11 @@ async fn forward_get_requests(
 					.collect();
 
 				if !get_requests.is_empty() {
+					tracing::debug!(
+						count = get_requests.len(),
+						height = update.latest_height,
+						"forwarding GET requests",
+					);
 					if sender.send((get_requests, update.clone())).await.is_err() {
 						return Ok(());
 					}
@@ -240,11 +261,7 @@ async fn forward_get_requests(
 				previous_height = update.latest_height;
 			},
 			Err(err) => {
-				tracing::error!(
-					target: "tesseract",
-					"get-forwarder: state_machine_update stream error on {}: {err:?}",
-					hyperbridge.name(),
-				);
+				tracing::error!(?err, "state_machine_update stream error");
 				continue;
 			},
 		}

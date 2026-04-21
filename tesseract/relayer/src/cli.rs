@@ -27,6 +27,7 @@ use tesseract_consensus::cli::create_client_map;
 use tesseract_primitives::{IsmpProvider, TxReceipt};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::{self, Sender};
+use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
 use crate::{
@@ -69,10 +70,27 @@ pub struct Cli {
 	pub db: String,
 }
 
+const BANNER: &str = r"
+ ████████╗███████╗███████╗███████╗███████╗██████╗  █████╗  ██████╗████████╗
+ ╚══██╔══╝██╔════╝██╔════╝██╔════╝██╔════╝██╔══██╗██╔══██╗██╔════╝╚══██╔══╝
+    ██║   █████╗  ███████╗███████╗█████╗  ██████╔╝███████║██║        ██║
+    ██║   ██╔══╝  ╚════██║╚════██║██╔══╝  ██╔══██╗██╔══██║██║        ██║
+    ██║   ███████╗███████║███████║███████╗██║  ██║██║  ██║╚██████╗   ██║
+    ╚═╝   ╚══════╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝
+            inbound · outbound · consensus · fees — all in one
+                  chain ═══════════════════════> hyperbridge
+                  hyperbridge ════════════════> chain
+";
+
 impl Cli {
 	pub async fn run(self) -> Result<(), anyhow::Error> {
+		eprintln!("{BANNER}");
 		setup_logging()?;
-		log::info!("Initializing tesseract relayer");
+		tracing::info!(
+			version = env!("CARGO_PKG_VERSION"),
+			config = %self.config,
+			"starting tesseract-relayer",
+		);
 
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let relayer = config.relayer.clone();
@@ -94,11 +112,13 @@ impl Cli {
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let coprocessor = hyperbridge_provider.state_machine_id().state_id;
 		let hb_rpc_client = hyperbridge_substrate.rpc_client.clone();
+		tracing::info!(hb = %hyperbridge_provider.name(), %coprocessor, "connected to Hyperbridge");
 
 		// Build the IsmpHost for every chain that opted into inbound consensus.
 		// `create_client_map` reads the filtered consensus sub-config produced
 		// by `HyperbridgeConfig::consensus_config`.
 		let consensus_hosts = create_client_map(config.consensus_config()).await?;
+		tracing::info!(count = consensus_hosts.len(), "consensus hosts built");
 
 		// One `Arc<dyn IsmpProvider>` per chain. Chains with consensus reuse the
 		// consensus host's provider; chains without consensus build a dedicated
@@ -119,6 +139,7 @@ impl Cli {
 				.with_context(|| format!("failed to build messaging client for {sm}"))?;
 			providers.insert(*sm, provider);
 		}
+		tracing::info!(count = providers.len(), "chain providers built");
 
 		let mut provider_clients = providers.clone();
 		provider_clients.insert(coprocessor, hyperbridge_provider.clone());
@@ -131,17 +152,24 @@ impl Cli {
 			let hb = hyperbridge_provider.clone();
 			let name = format!("inbound-consensus-{}-{}", host.provider().name(), hb.name());
 			let host = host.clone();
+			let span = tracing::info_span!(
+				"inbound_consensus",
+				chain = %host.provider().name(),
+				hb = %hb.name(),
+			);
 
 			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
+				Box::leak(Box::new(name)),
 				"consensus",
 				async move {
+					tracing::debug!("task started");
 					let res = host.start_consensus(hb).await;
-					log::error!(target: "tesseract", "{name} terminated: {res:?}");
+					tracing::error!(?res, "task terminated");
 				}
+				.instrument(span)
 				.boxed(),
 			);
-			log::debug!(target: "tesseract", "spawned inbound-consensus for {state_machine}");
+			tracing::debug!(%state_machine, "spawned inbound-consensus");
 		}
 
 		// One fee-accumulation channel per chain. Both inbound messaging (chain→HB)
@@ -169,10 +197,16 @@ impl Cli {
 				let dest = provider.clone();
 				let client_map = provider_clients.clone();
 				let tx_payment = tx_payment.clone();
+				let span = tracing::info_span!(
+					"fee_accumulation",
+					chain = %provider.name(),
+					hb = %hyperbridge_provider.name(),
+				);
 				task_manager.spawn_essential_handle().spawn_blocking(
-					Box::leak(Box::new(name.clone())),
+					Box::leak(Box::new(name)),
 					"fees",
 					async move {
+						tracing::debug!("task started");
 						let res = tesseract_messaging::fee_accumulation(
 							fee_receiver,
 							dest,
@@ -181,8 +215,9 @@ impl Cli {
 							tx_payment,
 						)
 						.await;
-						log::error!(target: "tesseract", "{name} terminated: {res:?}");
+						tracing::error!(?res, "task terminated");
 					}
+					.instrument(span)
 					.boxed(),
 				);
 			}
@@ -210,10 +245,7 @@ impl Cli {
 			.collect();
 
 		if destinations.is_empty() {
-			log::info!(
-				target: "tesseract",
-				"no chains opted into outbound — skipping outbound task"
-			);
+			tracing::info!("no chains opted into outbound — skipping outbound task");
 		} else {
 			let proof_source: Arc<dyn ConsensusProofSource> =
 				Arc::new(OffchainProofSource::new(hb_rpc_client));
@@ -222,11 +254,14 @@ impl Cli {
 			let outbound_relayer_cfg = messaging_config.clone();
 			let outbound_client_map = provider_clients.clone();
 			let outbound_fee_senders_snapshot = outbound_fee_senders.clone();
+			let span =
+				tracing::info_span!("outbound", hb = %hb.name(), destinations = destinations.len());
 
 			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
+				Box::leak(Box::new(name)),
 				"outbound",
 				async move {
+					tracing::debug!("task started");
 					let res = outbound::run(
 						hb,
 						destinations,
@@ -236,8 +271,9 @@ impl Cli {
 						outbound_fee_senders_snapshot,
 					)
 					.await;
-					log::error!(target: "tesseract", "{name} terminated: {res:?}");
+					tracing::error!(?res, "task terminated");
 				}
+				.instrument(span)
 				.boxed(),
 			);
 		}
@@ -252,10 +288,12 @@ impl Cli {
 			let withdraw_cfg = messaging_config.clone();
 			let withdraw_db = tx_payment.clone();
 			let name = format!("fee-withdraw-{}", hyperbridge_provider.name());
+			let span = tracing::info_span!("fee_withdrawal", hb = %hyperbridge_provider.name());
 			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
+				Box::leak(Box::new(name)),
 				"fees",
 				async move {
+					tracing::debug!("task started");
 					let res = tesseract_messaging::fees::auto_withdraw(
 						hb_for_withdraw,
 						withdraw_clients,
@@ -263,13 +301,19 @@ impl Cli {
 						withdraw_db,
 					)
 					.await;
-					log::error!(target: "tesseract", "{name} terminated: {res:?}");
+					tracing::error!(?res, "task terminated");
 				}
+				.instrument(span)
 				.boxed(),
 			);
 		}
 
-		log::info!("Initialized relayer tasks");
+		tracing::info!(
+			chains = config.chains.len(),
+			consensus_enabled = consensus_hosts.len(),
+			fees = !fees_disabled,
+			"relayer tasks initialized",
+		);
 		task_manager.future().await?;
 		Ok(())
 	}

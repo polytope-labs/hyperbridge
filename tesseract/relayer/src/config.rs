@@ -267,6 +267,7 @@ async fn autofill_evm(name: &str, chain_table: &mut Table) -> Result<(), anyhow:
 	let has_state_machine = chain_table.contains_key("state_machine");
 	let has_ismp_host = chain_table.contains_key("ismp_host");
 	if has_state_machine && has_ismp_host {
+		tracing::debug!(chain = name, "autofill skipped — state_machine + ismp_host already set");
 		return Ok(());
 	}
 
@@ -289,7 +290,7 @@ async fn autofill_evm(name: &str, chain_table: &mut Table) -> Result<(), anyhow:
 
 	if !has_state_machine {
 		let value = format!("EVM-{chain_id}");
-		tracing::info!(target: "tesseract", "[{name}]: auto-derived state_machine = {value}");
+		tracing::info!(chain = name, state_machine = %value, "auto-derived state_machine");
 		chain_table.insert("state_machine".to_string(), Value::String(value));
 	}
 
@@ -301,7 +302,7 @@ async fn autofill_evm(name: &str, chain_table: &mut Table) -> Result<(), anyhow:
 			)
 		})?;
 		let hex = format!("0x{}", hex::encode(host.0));
-		tracing::info!(target: "tesseract", "[{name}]: auto-derived ismp_host = {hex}");
+		tracing::info!(chain = name, ismp_host = %hex, "auto-derived ismp_host");
 		chain_table.insert("ismp_host".to_string(), Value::String(hex));
 	}
 
@@ -310,6 +311,7 @@ async fn autofill_evm(name: &str, chain_table: &mut Table) -> Result<(), anyhow:
 
 async fn autofill_substrate(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
 	if chain_table.contains_key("state_machine") {
+		tracing::debug!(chain = name, "autofill skipped — state_machine already set");
 		return Ok(());
 	}
 
@@ -324,7 +326,7 @@ async fn autofill_substrate(name: &str, chain_table: &mut Table) -> Result<(), a
 		.with_context(|| format!("[{name}]: auto-derive via system_chain + ParachainInfo"))?;
 
 	let rendered = state_machine.to_string();
-	tracing::info!(target: "tesseract", "[{name}]: auto-derived state_machine = {rendered}");
+	tracing::info!(chain = name, state_machine = %rendered, "auto-derived state_machine");
 	chain_table.insert("state_machine".to_string(), Value::String(rendered));
 	Ok(())
 }

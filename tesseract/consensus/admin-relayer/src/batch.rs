@@ -118,13 +118,13 @@ pub async fn submit_mandatory_sequential(
 	let handler = resolve_handler(client).await?;
 	let chain = client.state_machine;
 
-	let unfreeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
+	let _unfreeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
 	let consensus_cd = Handler::handleConsensusCall {
 		host,
 		proof: Bytes::from(message.consensus_proof.clone()),
 	}
 	.abi_encode();
-	let freeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
+	let _freeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 
 	// log::info!("[{chain}] sequential step 1/3: unfreeze");
 	// send_and_await_receipt(client, eoa, host, unfreeze_cd, "unfreeze").await?;

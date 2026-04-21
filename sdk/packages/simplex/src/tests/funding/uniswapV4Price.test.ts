@@ -14,7 +14,7 @@ describe.skip("UniswapV4 FundingVenue — cNGN price on Base", () => {
 		const privateKey = process.env.PRIVATE_KEY as HexString
 		const solver = privateKeyToAccount(privateKey).address as HexString
 
-		const chainConfigs: ResolvedChainConfig[] = [{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET! }]
+		const chainConfigs: ResolvedChainConfig[] = [{ chainId: 8453, rpcUrls: [process.env.BASE_MAINNET!] }]
 
 		const configService = new FillerConfigService(chainConfigs)
 		const signer = await createSimplexSigner({ type: SignerType.PrivateKey, key: privateKey })

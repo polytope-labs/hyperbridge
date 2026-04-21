@@ -57,11 +57,11 @@ async function setUp() {
 	const testChainConfigs: ResolvedChainConfig[] = [
 		{
 			chainId: 80002, // Polygon Amoy
-			rpcUrl: process.env.POLYGON_AMOY!,
+			rpcUrls: [process.env.POLYGON_AMOY!],
 		},
 		{
 			chainId: 421614, // Arbitrum Sepolia
-			rpcUrl: process.env.ARBITRUM_SEPOLIA!,
+			rpcUrls: [process.env.ARBITRUM_SEPOLIA!],
 		},
 	]
 

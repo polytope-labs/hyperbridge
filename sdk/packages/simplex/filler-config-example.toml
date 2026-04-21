@@ -193,30 +193,35 @@ points = [
 
 
 # Chain configuration - RPC and bundler URLs are required
-# Chain IDs are resolved automatically from the RPC endpoint
-# All other chain data (addresses, assets, etc.) comes from the SDK automatically
+# Chain IDs are resolved automatically from the RPC endpoints.
+# All other chain data (addresses, assets, etc.) comes from the SDK automatically.
+#
+# `rpcUrls` is always an array. Providing more than one URL enables quorum-mode log scanning:
+# the event monitor fans every `eth_getLogs` batch out to all providers and requires identical
+# results. Any provider failure or divergence fails the batch. URLs must resolve to different
+# hostnames.
 [[chains]]
-rpcUrl = ""      # Ethereum Mainnet
-bundlerUrl = ""  # ERC-4337 bundler (e.g. Pimlico)
+rpcUrls = [""]      # Ethereum Mainnet — add more endpoints to enable quorum
+bundlerUrl = ""     # ERC-4337 bundler (e.g. Pimlico)
 
 [[chains]]
-rpcUrl = ""      # BSC Mainnet
+rpcUrls = [""]      # BSC Mainnet
 bundlerUrl = ""
 
 [[chains]]
-rpcUrl = ""      # Arbitrum Mainnet
+rpcUrls = [""]      # Arbitrum Mainnet
 bundlerUrl = ""
 
 [[chains]]
-rpcUrl = ""      # Base Mainnet
+rpcUrls = [""]      # Base Mainnet
 bundlerUrl = ""
 
 [[chains]]
-rpcUrl = ""      # Polygon Mainnet
+rpcUrls = [""]      # Polygon Mainnet
 bundlerUrl = ""
 
 [[chains]]
-rpcUrl = ""      # Unichain Mainnet
+rpcUrls = [""]      # Unichain Mainnet
 bundlerUrl = ""
 
 

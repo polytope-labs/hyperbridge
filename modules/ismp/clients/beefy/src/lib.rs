@@ -17,7 +17,7 @@
 
 extern crate alloc;
 extern crate core;
-mod consensus;
+pub mod consensus;
 
 pub use consensus::BeefyConsensusClient;
 

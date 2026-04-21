@@ -58,11 +58,11 @@ async function setUp() {
 	const testChainConfigs: ResolvedChainConfig[] = [
 		{
 			chainId: 42161, // Arbitrum
-			rpcUrl: process.env.ARBITRUM_MAINNET!,
+			rpcUrls: [process.env.ARBITRUM_MAINNET!],
 		},
 		{
 			chainId: 137, // Polygon
-			rpcUrl: process.env.POLYGON_MAINNET!,
+			rpcUrls: [process.env.POLYGON_MAINNET!],
 		},
 	]
 

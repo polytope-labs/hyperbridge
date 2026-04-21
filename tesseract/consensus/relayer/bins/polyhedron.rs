@@ -105,13 +105,9 @@ impl PolyhedronConfig {
 			);
 		}
 
-		// Ensure redis is not configured (we use in-memory backend)
-		if self.beefy.redis.is_some() {
-			log::warn!("Redis configuration detected in beefy config but will be ignored - Polyhedron uses in-memory backend");
-		}
-
-		if self.host.redis.is_some() {
-			log::warn!("Redis configuration detected in host config but will be ignored - Polyhedron uses in-memory backend");
+		// Ensure backend is set to in-memory — Polyhedron builds its own in-memory backend.
+		if !matches!(self.beefy.backend, tesseract_beefy::backend::ProofBackendConfig::InMemory) {
+			log::warn!("Non-in-memory backend configured in beefy config but will be ignored - Polyhedron uses in-memory backend");
 		}
 
 		// Ensure state_machines contains exactly the Tron state machine
@@ -230,7 +226,7 @@ async fn main() -> anyhow::Result<()> {
 	// Initialize BeefyProver with in-memory backend
 	let prover = Prover::new(config.prover.clone()).await.context("Failed to create prover")?;
 
-	let mut beefy_prover =
+	let beefy_prover =
 		BeefyProver::<
 			Blake2SubstrateChain,
 			KeccakSubstrateChain,

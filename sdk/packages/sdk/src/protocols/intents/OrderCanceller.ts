@@ -17,7 +17,7 @@ import { STORAGE_KEYS } from "@/storage"
 import type { Order, HexString, IGetRequest, IPostRequest, CancelQuote } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
 import type { IProof } from "@/chain"
-import type { IndexerClient } from "@/client"
+import type { IsmpClient } from "@/client"
 import type { SubstrateChain } from "@/chain"
 import { RequestStatus } from "@/types"
 import type { IntentGatewayContext } from "./types"
@@ -135,7 +135,7 @@ export class OrderCanceller {
 	 */
 	async *cancelOrder(
 		order: Order,
-		indexerClient: IndexerClient,
+		indexerClient: IsmpClient,
 		fromDest: boolean = false,
 	): AsyncGenerator<CancelEvent> {
 		if (fromDest) {
@@ -168,7 +168,7 @@ export class OrderCanceller {
 	 * @yields {@link CancelEvent} at each lifecycle stage.
 	 * @throws If the cancel transaction does not contain the expected on-chain event.
 	 */
-	private async *cancelOrderFromSource(order: Order, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
+	private async *cancelOrderFromSource(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
 		const orderId = order.id!
 		const isSameChain = order.source === order.destination
 		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayV2Address(
@@ -389,7 +389,7 @@ export class OrderCanceller {
 	 * @throws If the order is same-chain, or if the cancel transaction does not
 	 *   contain a `PostRequestEvent`.
 	 */
-	private async *cancelOrderFromDest(order: Order, indexerClient: IndexerClient): AsyncGenerator<CancelEvent> {
+	private async *cancelOrderFromDest(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
 		const orderId = order.id!
 
 		if (order.source === order.destination) {
@@ -504,7 +504,7 @@ export class OrderCanceller {
 	 */
 	private async *fetchDestinationProof(
 		order: Order,
-		indexerClient: IndexerClient,
+		indexerClient: IsmpClient,
 	): AsyncGenerator<CancelEvent, IProof, void> {
 		let latestHeight = 0n
 		let lastFailedHeight: bigint | null = null

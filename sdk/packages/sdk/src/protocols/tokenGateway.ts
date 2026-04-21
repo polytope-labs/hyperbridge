@@ -1,9 +1,19 @@
 import type { Address } from "viem"
 import { toHex, encodeAbiParameters, parseAbiParameters } from "viem"
+import { type ConsolaInstance, LogLevels, createConsola } from "consola"
 import { EvmChain } from "@/chains/evm"
 import { SubstrateChain } from "@/chains/substrate"
 import UniswapRouterV2 from "@/abis/uniswapRouterV2"
-import type { HexString, DispatchPost, IPostRequest } from "@/types"
+import type {
+	DispatchPost,
+	HexString,
+	IndexerQueryClient,
+	IPostRequest,
+	TeleportStatus,
+	TokenGatewayAssetTeleportedWithStatus,
+} from "@/types"
+import { _queryTokenGatewayAssetTeleportedInternal } from "@/queryClient"
+import { DEFAULT_POLL_INTERVAL, sleep } from "@/utils"
 
 /**
  * Result of the quoteNative fee estimation
@@ -240,5 +250,118 @@ export class TokenGateway {
 		})
 
 		return v2AmountOut.result[1]
+	}
+
+	// ── Indexer-backed asset teleported status tracking ────────────────
+
+	/**
+	 * Optional indexer context for {@link queryAssetTeleported} /
+	 * {@link assetTeleportedStatusStream}. Configured via {@link withQueryClient}.
+	 */
+	private indexer?: {
+		queryClient: IndexerQueryClient
+		pollInterval: number
+		logger: ConsolaInstance
+	}
+
+	/**
+	 * Attaches an indexer GraphQL client so {@link queryAssetTeleported} and
+	 * {@link assetTeleportedStatusStream} become available. Returns `this` for chaining.
+	 */
+	withQueryClient(
+		queryClient: IndexerQueryClient,
+		options: { pollInterval?: number; tracing?: boolean } = {},
+	): this {
+		const logger = createConsola({
+			level: LogLevels[options.tracing ? "trace" : "info"],
+			formatOptions: { columns: 80, colors: true, compact: true, date: false },
+		})
+		this.indexer = {
+			queryClient,
+			pollInterval: options.pollInterval ?? DEFAULT_POLL_INTERVAL,
+			logger,
+		}
+		return this
+	}
+
+	private requireIndexer(): NonNullable<TokenGateway["indexer"]> {
+		if (!this.indexer) {
+			throw new Error(
+				"TokenGateway: call withQueryClient(queryClient) before using indexer-backed methods",
+			)
+		}
+		return this.indexer
+	}
+
+	/**
+	 * Queries a token gateway asset-teleported event by commitment hash.
+	 *
+	 * Requires a prior call to {@link withQueryClient}.
+	 */
+	async queryAssetTeleported(
+		commitment: HexString,
+	): Promise<TokenGatewayAssetTeleportedWithStatus | undefined> {
+		const { queryClient, logger } = this.requireIndexer()
+		return _queryTokenGatewayAssetTeleportedInternal({ commitmentHash: commitment, queryClient, logger })
+	}
+
+	/**
+	 * Streams status updates for an asset-teleported event until a terminal
+	 * state (`RECEIVED` or `REFUNDED`).
+	 *
+	 * Requires a prior call to {@link withQueryClient}.
+	 */
+	async *assetTeleportedStatusStream(commitment: HexString): AsyncGenerator<
+		{
+			status: TeleportStatus
+			metadata: { blockHash: string; blockNumber: number; transactionHash: string; timestamp: bigint }
+		},
+		void
+	> {
+		const { queryClient, pollInterval, logger } = this.requireIndexer()
+		const streamLogger = logger.withTag("[assetTeleportedStatusStream]")
+		streamLogger.trace(`Starting stream for commitment ${commitment}`)
+
+		const TERMINAL = ["RECEIVED", "REFUNDED"] as const
+		let lastStatus: TeleportStatus | undefined
+		let lastBlockNumber: number | undefined
+
+		while (true) {
+			try {
+				const teleport = await _queryTokenGatewayAssetTeleportedInternal({
+					commitmentHash: commitment,
+					queryClient,
+					logger,
+				})
+				if (!teleport) {
+					await sleep(pollInterval)
+					continue
+				}
+
+				const statuses = teleport.statuses
+				if (statuses.length === 0) {
+					await sleep(pollInterval)
+					continue
+				}
+
+				const latestStatus = statuses[statuses.length - 1]
+				if (lastStatus === latestStatus.status && lastBlockNumber === latestStatus.metadata.blockNumber) {
+					await sleep(pollInterval)
+					continue
+				}
+
+				lastStatus = latestStatus.status
+				lastBlockNumber = latestStatus.metadata.blockNumber
+
+				yield latestStatus
+
+				if ((TERMINAL as readonly string[]).includes(latestStatus.status)) break
+
+				await sleep(pollInterval)
+			} catch (error) {
+				streamLogger.error("Error in asset teleported status stream:", error)
+				await sleep(pollInterval)
+			}
+		}
 	}
 }

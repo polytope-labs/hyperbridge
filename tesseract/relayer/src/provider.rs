@@ -20,14 +20,15 @@
 //! wasn't running when a proof was submitted will have no record of it.
 
 use anyhow::anyhow;
-use pallet_beefy_consensus_proofs::{messaging_offchain_key, rotation_offchain_key};
+use pallet_beefy_consensus_proofs::types::offchain_key;
 use subxt::ext::subxt_rpcs::{rpc_params, RpcClient};
 
 #[async_trait::async_trait]
 pub trait ConsensusProofSource: Send + Sync {
-	/// Returns the raw `payload.proof` bytes for the accepted proof. Callers
-	/// wrap it in a [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
-	async fn fetch(&self, height: u64, new_set_id: Option<u64>) -> Result<Vec<u8>, anyhow::Error>;
+	/// Returns the raw `payload.proof` bytes for the proof that advanced the
+	/// parachain to `height`. Callers wrap it in a
+	/// [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
+	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error>;
 }
 
 pub struct OffchainProofSource {
@@ -42,11 +43,8 @@ impl OffchainProofSource {
 
 #[async_trait::async_trait]
 impl ConsensusProofSource for OffchainProofSource {
-	async fn fetch(&self, height: u64, new_set_id: Option<u64>) -> Result<Vec<u8>, anyhow::Error> {
-		let key = match new_set_id {
-			Some(set_id) => rotation_offchain_key(set_id),
-			None => messaging_offchain_key(height),
-		};
+	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error> {
+		let key = offchain_key(height);
 		let params = rpc_params!["PERSISTENT", format!("0x{}", hex::encode(&key))];
 
 		let result: Option<String> = self
@@ -57,7 +55,7 @@ impl ConsensusProofSource for OffchainProofSource {
 
 		let hex_bytes = result.ok_or_else(|| {
 			anyhow!(
-				"proof missing from HB offchain storage (h={height}, set={new_set_id:?}). \
+				"proof missing from HB offchain storage (h={height}). \
 				 Ensure the HB node exposes unsafe RPCs and was up when the proof was submitted."
 			)
 		})?;

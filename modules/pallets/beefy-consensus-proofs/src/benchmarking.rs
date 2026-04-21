@@ -80,9 +80,9 @@ mod benchmarks {
 		_(RawOrigin::None, payload, signature);
 
 		// Fixture rewrites `next_authorities.id` to force the rotation path, so a
-		// rotation metadata entry is always recorded. Messaging side may or may not
-		// fire depending on whether the fixture carries a coprocessor-height update.
+		// single `RotationProofs` entry is recorded and `MessagingProofs` stays empty.
 		assert_eq!(pallet::RotationProofs::<T>::get().len(), 1);
+		assert_eq!(pallet::MessagingProofs::<T>::get().len(), 0);
 	}
 
 	#[benchmark]

@@ -33,6 +33,7 @@
 
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod types;
 pub mod weights;
@@ -42,48 +43,6 @@ use polkadot_sdk::*;
 pub use pallet::*;
 pub use types::{Signature, SubmitProofPayload};
 pub use weights::WeightInfo;
-
-/// Offchain-storage key for the rotation proof that advanced the authority set to
-/// `set_id`. Relayers reconstruct this key off of a [`RotationProofs`](crate::pallet::RotationProofs)
-/// entry's key and read the raw ABI-encoded proof bytes from node-local offchain storage.
-pub fn rotation_offchain_key(set_id: u64) -> alloc::vec::Vec<u8> {
-	let mut key = alloc::vec::Vec::with_capacity(
-		types::OFFCHAIN_PREFIX.len() + types::OFFCHAIN_ROT.len() + 8,
-	);
-	key.extend_from_slice(types::OFFCHAIN_PREFIX);
-	key.extend_from_slice(types::OFFCHAIN_ROT);
-	key.extend_from_slice(&set_id.to_be_bytes());
-	key
-}
-
-/// Offchain-storage key for the messaging proof that advanced the proven parachain
-/// height to `proven_height`. Relayers reconstruct this key off of a
-/// [`MessagingProofs`](crate::pallet::MessagingProofs) entry's key.
-pub fn messaging_offchain_key(proven_height: u64) -> alloc::vec::Vec<u8> {
-	let mut key = alloc::vec::Vec::with_capacity(
-		types::OFFCHAIN_PREFIX.len() + types::OFFCHAIN_MSG.len() + 8,
-	);
-	key.extend_from_slice(types::OFFCHAIN_PREFIX);
-	key.extend_from_slice(types::OFFCHAIN_MSG);
-	key.extend_from_slice(&proven_height.to_be_bytes());
-	key
-}
-
-/// BEEFY host-function backed crypto used by `beefy-verifier`.
-pub struct SubstrateCrypto;
-
-impl ismp::messaging::Keccak256 for SubstrateCrypto {
-	fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
-		sp_io::hashing::keccak_256(bytes).into()
-	}
-}
-
-impl beefy_verifier::EcdsaRecover for SubstrateCrypto {
-	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
-		sp_io::crypto::secp256k1_ecdsa_recover(signature, prehash)
-			.map_err(|_| anyhow::anyhow!("Failed to recover secp256k1 public key"))
-	}
-}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -112,20 +71,18 @@ pub mod pallet {
 	use sp_runtime::{
 		traits::AccountIdConversion,
 		transaction_validity::{
-			InvalidTransaction, TransactionLongevity, TransactionPriority, TransactionSource,
+			InvalidTransaction, TransactionLongevity, TransactionSource,
 			TransactionValidity, TransactionValidityError, ValidTransaction,
 		},
 	};
 
-	use crate::types::{
-		Signature, SubmitProofPayload, MSG_TAG, PROOF_TYPE_SP1, ROT_TAG, SIGNATURE_DOMAIN,
-	};
+	use crate::types::{Signature, SubmitProofPayload};
 
 	/// BEEFY consensus client id. Matches the solidity constant.
 	pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
 
-	/// Longevity for both messaging and rotation proofs, in blocks.
-	const PROOF_LONGEVITY: TransactionLongevity = 5;
+	/// Longevity for proofs in the tx pool, in blocks.
+	const PROOF_LONGEVITY: TransactionLongevity = 15;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -148,8 +105,9 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxProofSize: Get<u32>;
 
-		/// Shared cap on the `RotationProofs` and `MessagingProofs` on-chain ring buffers
-		/// (and, transitively, on the number of offchain proof blobs retained per stream).
+		/// Per-bucket cap on the `MessagingProofs` and `RotationProofs` on-chain ring
+		/// buffers (and, transitively, on the number of offchain proof blobs retained
+		/// per kind).
 		#[pallet::constant]
 		type MaxStoredProofs: Get<u32>;
 
@@ -185,28 +143,23 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Sp1VkeyHash<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
-	/// Bounded map of `set_id → block number` for the most recent accepted rotation
-	/// proofs. The raw ABI-encoded proof bytes live in offchain storage under
-	/// [`rotation_offchain_key(set_id)`](crate::rotation_offchain_key); keys here and
-	/// in offchain storage move in lock-step (oldest evicted from both when the map
-	/// reaches `T::MaxStoredProofs`). BEEFY set ids are monotone, so `pop_first` gives
-	/// FIFO eviction for free.
+	/// Heights of recent messaging proofs (no authority-set rotation). Values are
+	/// strictly increasing because every accepted proof advances `LastProvenHeight`,
+	/// so `vec[0]` is always the oldest — FIFO eviction via `remove(0)` when full.
+	/// The proof bytes live in offchain storage under
+	/// [`offchain_key(proven_height)`](types::offchain_key).
 	#[pallet::storage]
-	pub type RotationProofs<T: Config> = StorageValue<
-		_,
-		BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>,
-		ValueQuery,
-	>;
+	pub type MessagingProofs<T: Config> =
+		StorageValue<_, BoundedVec<u64, T::MaxStoredProofs>, ValueQuery>;
 
-	/// Bounded map of `proven_height → block number` for the most recent accepted
-	/// messaging proofs. See [`messaging_offchain_key`](crate::messaging_offchain_key)
-	/// for the matching offchain-storage lookup.
+	/// Map of `set_id → proven_height` for rotation proofs. Lets relayers catch a lagging
+	/// EVM destination up across multiple epochs: given the last-known authority set id,
+	/// walk entries forward, fetching each rotation proof from offchain storage under
+	/// [`offchain_key(proven_height)`](types::offchain_key). BEEFY set ids are monotone,
+	/// so `iter().next()` gives FIFO eviction on overflow.
 	#[pallet::storage]
-	pub type MessagingProofs<T: Config> = StorageValue<
-		_,
-		BoundedBTreeMap<u64, BlockNumberFor<T>, T::MaxStoredProofs>,
-		ValueQuery,
-	>;
+	pub type RotationProofs<T: Config> =
+		StorageValue<_, BoundedBTreeMap<u64, u64, T::MaxStoredProofs>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -218,8 +171,8 @@ pub mod pallet {
 		InvalidAccountId,
 		/// Signature did not verify against the signed message.
 		BadSignature,
-		/// Proof is stale (height ≤ `LastProvenHeight` for messaging, or not the expected
-		/// rotation).
+		/// Proof is stale: `proven_height ≤ LastProvenHeight`, or the proof rotated to
+		/// an unexpected authority set.
 		StaleProof,
 		/// First proof byte is not a recognized proof type.
 		UnknownProofType,
@@ -321,8 +274,6 @@ pub mod pallet {
 		) -> DispatchResult {
 			ensure_none(origin)?;
 
-			// Single verification path — same helper as `validate_unsigned`. Here the
-			// writes (new consensus state, parachain commitments) persist.
 			let outcome = Self::verify_and_apply(&payload, &signature)?;
 
 			// Determine reward eligibility.
@@ -333,7 +284,7 @@ pub mod pallet {
 			let messaging_reward =
 				Some(child_trie_root) != last_rewarded && outcome.proven_height > prev_proven;
 			let should_reward = outcome.rotated || messaging_reward;
-			
+
 			if !should_reward {
 				return Ok(());
 			}
@@ -368,48 +319,27 @@ pub mod pallet {
 				zero
 			};
 
-			// Fan out to offchain storage + on-chain metadata. Rotation and messaging
-			// are disjoint streams: a proof that rotates the authority set is only
-			// recorded on the rotation stream even if it also advances proven height.
-			// Matches the `validate_unsigned` classification (rotation preempts
-			// messaging in the pool), avoids storing the same proof bytes twice.
-			//
-			// BEEFY set ids and parachain heights are both strictly monotone, so the
-			// smallest key in each BoundedBTreeMap is always the oldest entry —
-			// `iter().next()` + `remove` gives FIFO eviction without an explicit
-			// insertion-order index.
-			let at = frame_system::Pallet::<T>::block_number();
-
-			if outcome.rotated {
-				let key = crate::rotation_offchain_key(outcome.current_set_id);
-				sp_io::offchain_index::set(&key, &payload.proof);
-
+			sp_io::offchain_index::set(&types::offchain_key(outcome.proven_height), &payload.proof);
+			let evicted_height = if outcome.rotated {
 				RotationProofs::<T>::mutate(|map| {
-					if map.len() as u32 == T::MaxStoredProofs::get() {
-						if let Some(evicted_set_id) = map.iter().next().map(|(k, _)| *k) {
-							let _ = map.remove(&evicted_set_id);
-							sp_io::offchain_index::clear(
-								&crate::rotation_offchain_key(evicted_set_id),
-							);
-						}
-					}
-					let _ = map.try_insert(outcome.current_set_id, at);
-				});
-			} else if outcome.proven_height > prev_proven {
-				let key = crate::messaging_offchain_key(outcome.proven_height);
-				sp_io::offchain_index::set(&key, &payload.proof);
+					let evicted = (map.len() as u32 == T::MaxStoredProofs::get())
+						.then(|| map.iter().next().map(|(k, _)| *k))
+						.flatten()
+						.and_then(|set_id| map.remove(&set_id));
+					let _ = map.try_insert(outcome.current_set_id, outcome.proven_height);
+					evicted
+				})
+			} else {
+				MessagingProofs::<T>::mutate(|vec| {
+					let evicted =
+						(vec.len() as u32 == T::MaxStoredProofs::get()).then(|| vec.remove(0));
+					let _ = vec.try_push(outcome.proven_height);
+					evicted
+				})
+			};
 
-				MessagingProofs::<T>::mutate(|map| {
-					if map.len() as u32 == T::MaxStoredProofs::get() {
-						if let Some(evicted_height) = map.iter().next().map(|(k, _)| *k) {
-							let _ = map.remove(&evicted_height);
-							sp_io::offchain_index::clear(
-								&crate::messaging_offchain_key(evicted_height),
-							);
-						}
-					}
-					let _ = map.try_insert(outcome.proven_height, at);
-				});
+			if let Some(height) = evicted_height {
+				sp_io::offchain_index::clear(&types::offchain_key(height));
 			}
 
 			Self::deposit_event(Event::ProofAccepted {
@@ -486,21 +416,12 @@ pub mod pallet {
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(code))
 			})?;
 
-			let builder = ValidTransaction::with_tag_prefix("BeefyConsensusProofs")
+			ValidTransaction::with_tag_prefix("BeefyConsensusProofs")
 				.longevity(PROOF_LONGEVITY)
-				.propagate(true);
-
-			let tx = if outcome.rotated {
-				// One slot per pending rotation target.
-				builder
-					.priority(TransactionPriority::MAX)
-					.and_provides((ROT_TAG, outcome.current_set_id).encode())
-			} else {
-				// Single fixed slot — highest `proven_height` wins.
-				builder.priority(outcome.proven_height).and_provides(MSG_TAG.encode())
-			};
-
-			tx.build()
+				.propagate(true)
+				.priority(outcome.proven_height)
+				.and_provides(types::PROOF_TAG.encode())
+				.build()
 		}
 	}
 
@@ -545,7 +466,7 @@ pub mod pallet {
 			// Signature.
 			let public = sr25519::Public::from(payload.submitter.clone().into());
 			let proof_digest = sp_io::hashing::keccak_256(&payload.proof);
-			let msg_preimage = (SIGNATURE_DOMAIN, &payload.submitter, proof_digest).encode();
+			let msg_preimage = (types::SIGNATURE_DOMAIN, &payload.submitter, proof_digest).encode();
 			let signed_msg = sp_io::hashing::keccak_256(&msg_preimage);
 			if !sp_io::crypto::sr25519_verify(signature, &signed_msg, &public) {
 				Err(Error::<T>::BadSignature)?
@@ -553,7 +474,7 @@ pub mod pallet {
 
 			// expects (proof type byte || SCALE-encoded proof).
 			let proof_type = *payload.proof.first().ok_or(Error::<T>::UnknownProofType)?;
-			if proof_type != PROOF_TYPE_SP1 {
+			if proof_type != types::PROOF_TYPE_SP1 {
 				Err(Error::<T>::UnknownProofType)?
 			}
 
@@ -605,23 +526,21 @@ pub mod pallet {
 			let new_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &new_state_bytes[..])
 					.map_err(|_| Error::<T>::VerificationFailed)?;
-			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
 
-			// BEEFY invariant: `next` is always `current + 1`. This also subsumes the
-			// N → N + 1 rotation check: when rotated, `new_current == prev_next ==
-			// prev_current + 1`, and `new_next == new_current + 1` is the same rule.
+			// BEEFY invariant: `next` is always `current + 1`.
 			if new_state.next_authorities.id != new_state.current_authorities.id.saturating_add(1) {
 				Err(Error::<T>::UnexpectedAuthoritySet)?;
 			}
-			// Messaging-only proofs must push height forward, otherwise it's a replay.
-			if !rotated && proven_height <= LastProvenHeight::<T>::get() {
+
+			// Every accepted proof must push parachain height forward.
+			if proven_height <= LastProvenHeight::<T>::get() {
 				Err(Error::<T>::StaleProof)?
 			}
 
 			Ok(VerifyOutcome {
 				proven_height,
 				current_set_id: new_state.current_authorities.id,
-				rotated,
+				rotated: new_state.current_authorities.id > prev_state.current_authorities.id,
 			})
 		}
 	}

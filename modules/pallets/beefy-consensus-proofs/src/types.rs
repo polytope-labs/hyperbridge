@@ -42,25 +42,50 @@ pub struct SubmitProofPayload<AccountId> {
 pub const SIGNATURE_DOMAIN: &[u8] = b"pallet_beefy_consensus_proofs";
 
 /// Offchain-storage prefix for raw verified proof bytes written by `submit_proof`.
-/// Combined with a stream discriminator and a `u64` (set_id or proven_height) to form
-/// the actual offchain key via blake2_128.
+/// Combined with the `proven_height` (`u64`, big-endian) to form the actual offchain key.
+/// All proofs — rotation and messaging alike — share this single namespace since both
+/// advance parachain height monotonically.
 pub const OFFCHAIN_PREFIX: &[u8] = b"beefy_consensus_proofs::";
-
-/// Offchain-storage discriminator for rotation proofs.
-pub const OFFCHAIN_ROT: &[u8] = b"rot";
-
-/// Offchain-storage discriminator for messaging proofs.
-pub const OFFCHAIN_MSG: &[u8] = b"msg";
 
 /// Proof type byte: naive BEEFY proof.
 pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 /// Proof type byte: SP1 ZK BEEFY proof.
 pub const PROOF_TYPE_SP1: u8 = 0x01;
 
-/// `provides` tag for messaging proofs (fixed — at most one in the pool).
-pub const MSG_TAG: &[u8] = b"beefy_message_proof";
-/// `provides` tag prefix for rotation proofs (`(prefix, next_set_id).encode()`).
-pub const ROT_TAG: &[u8] = b"beefy_rotation_proof";
+/// `provides` tag for BEEFY consensus proofs — a single fixed slot. At most one proof
+/// is retained in the pool at a time; higher `proven_height` wins. Unified across
+/// rotation and messaging proofs so that the pool never holds a rotation alongside a
+/// messaging proof that would supersede it on inclusion.
+pub const PROOF_TAG: &[u8] = b"beefy_consensus_proof";
 
 /// Signature type expected alongside [`SubmitProofPayload`].
 pub type Signature = sr25519::Signature;
+
+/// Offchain-storage key for a verified consensus proof keyed by `proven_height`.
+/// Relayers reconstruct this key off of a [`MessagingProofs`](crate::pallet::MessagingProofs)
+/// or [`RotationProofs`](crate::pallet::RotationProofs) entry and read the raw
+/// ABI-encoded proof bytes from node-local offchain storage. A single namespace
+/// covers both rotation and messaging proofs since both advance parachain height
+/// monotonically.
+pub fn offchain_key(proven_height: u64) -> alloc::vec::Vec<u8> {
+	let mut key = alloc::vec::Vec::with_capacity(OFFCHAIN_PREFIX.len() + 8);
+	key.extend_from_slice(OFFCHAIN_PREFIX);
+	key.extend_from_slice(&proven_height.to_be_bytes());
+	key
+}
+
+/// BEEFY host-function backed crypto used by `beefy-verifier`.
+pub struct SubstrateCrypto;
+
+impl ismp::messaging::Keccak256 for SubstrateCrypto {
+	fn keccak256(bytes: &[u8]) -> primitive_types::H256 {
+		sp_io::hashing::keccak_256(bytes).into()
+	}
+}
+
+impl beefy_verifier::EcdsaRecover for SubstrateCrypto {
+	fn secp256k1_recover(prehash: &[u8; 32], signature: &[u8; 65]) -> anyhow::Result<[u8; 64]> {
+		sp_io::crypto::secp256k1_ecdsa_recover(signature, prehash)
+			.map_err(|_| anyhow::anyhow!("Failed to recover secp256k1 public key"))
+	}
+}

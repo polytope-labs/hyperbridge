@@ -310,6 +310,46 @@ points = [
 Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[strategies.confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
 </Callout>
 
+### RPC Quorum
+
+Each `[[chains]]` entry declares its RPC endpoints as a non-empty array in `rpcUrls`. Simplex validates the array at startup and rejects it if any two URLs share a hostname, so a "quorum" of aliases pointing at the same upstream is caught before the filler starts.
+
+```toml lineNumbers
+[[chains]]  # Ethereum
+rpcUrls = [
+    "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "https://mainnet.infura.io/v3/YOUR_KEY",
+    "https://rpc.ankr.com/eth/YOUR_KEY",
+]
+bundlerUrl = "https://..."
+```
+
+When two or more URLs are configured, the event monitor fans every `eth_getLogs` batch out to all providers in parallel and accepts the batch once a **Byzantine-fault-tolerant quorum** of providers agree. The threshold is the standard BFT bound — strictly more than two thirds, i.e. `floor(2N/3) + 1` providers:
+
+| Providers (N) | Quorum threshold | Faults tolerated |
+|---|---|---|
+| 1 | 1 | 0 |
+| 2 | 2 | 0 |
+| 3 | 3 | 0 |
+| 4 | 3 | 1 |
+| 5 | 4 | 1 |
+| 7 | 5 | 2 |
+| 10 | 7 | 3 |
+
+Provider errors, timeouts, and divergent results are all tolerated up to the BFT bound. Beyond it, the batch fails with a `QuorumError` that enumerates each failing URL and the size of the largest agreeing group — the scan cursor does not advance, so the same range is retried on the next tick. Agreement is computed by sorting logs by `(blockNumber, logIndex, transactionHash)` and comparing only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`); provider-added extras such as `blockTimestamp` are deliberately excluded so debug metadata on one node does not manufacture a quorum failure. `getBlockNumber` resolves to the highest block at which `floor(2N/3) + 1` providers have indexed — preventing the scanner from running ahead of BFT-supported state.
+
+A single-entry `rpcUrls` array is legal and keeps the pre-existing single-provider behaviour; the quorum machinery only engages when you list more than one endpoint. **To actually tolerate a faulty or co-opted provider you need at least four endpoints** — with three, the threshold is still three and any single failure halts scanning.
+
+#### Why this matters for cross-chain orders
+
+On a cross-chain fill, Simplex observes an `OrderPlaced` (or `PartialFill` / `OrderFilled`) event on the source chain and then commits capital on the destination chain. Unlike same-chain fills — where the destination `fillOrder` call will revert if the source-chain order does not exist — cross-chain bids submitted through Hyperbridge are evaluated from the filler's own reading of source-chain state. A single RPC is therefore both an availability and an integrity choke point: if it lies about which orders were placed, the filler can be induced to pay out against events that never happened, and there is no on-chain safety net to catch it after the fact.
+
+<Callout type="warn">
+Co-opted RPC nodes are not hypothetical. LayerZero has publicly disclosed an incident where an RPC endpoint serving part of their relaying path was compromised — see [LayerZero's post-mortem thread](https://x.com/LayerZero_Core/status/2046081551574983137?s=20). Quorum queries turn that failure mode from "one bad node silently succeeds" into "one bad node fails the batch and halts the scan".
+</Callout>
+
+The practical guidance is to configure **at least two organisationally independent providers** (e.g. Alchemy **and** Infura, not two Alchemy regions) for every chain that can act as a source of a cross-chain order. Three or more is better for chains with large notional flow — each additional independent provider raises the bar for an attacker from "compromise one vendor" to "compromise all of them simultaneously for the duration of the fill window". The cost is a slightly higher RPC bill and the tail latency of the slowest provider in each batch; the benefit is that event-driven bids are only acted on when every independent witness agrees on what the source chain actually emitted.
+
 
 ## Setup
 
@@ -373,20 +413,34 @@ positions = [
     { chain = "EVM-8453", tokenId = "2087350" },
 ]
 
+# rpcUrls is always an array. Listing more than one independent endpoint
+# activates quorum log scanning — see "RPC Quorum" above.
 [[chains]]  # Ethereum
-rpcUrl     = "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+rpcUrls = [
+    "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
 bundlerUrl = "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 [[chains]]  # Base
-rpcUrl     = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+rpcUrls = [
+    "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://base-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
 bundlerUrl = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 [[chains]]  # Arbitrum
-rpcUrl     = "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+rpcUrls = [
+    "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
 bundlerUrl = "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 [[chains]]  # Polygon
-rpcUrl     = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+rpcUrls = [
+    "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://polygon-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
 bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 ```
 </Tab>
@@ -396,7 +450,7 @@ bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
 
 You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
 
-RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably.
+RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` so the event monitor runs in quorum mode — see [RPC Quorum](#rpc-quorum).
 
 ## Troubleshooting
 

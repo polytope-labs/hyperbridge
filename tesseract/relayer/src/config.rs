@@ -248,12 +248,11 @@ proof_variant = "naive"
 [hyperbridge.beefy]
 consensus_state_id = [80, 65, 82, 65]
 
-[hyperbridge.beefy.redis]
+[hyperbridge.redis]
 url = "127.0.0.1"
 port = 6379
 db = 0
 ns = "rsmq"
-tls = false
 realtime = false
 mandatory_queue = "m"
 messages_queue = "q"

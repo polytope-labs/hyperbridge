@@ -25,5 +25,5 @@ export function decodeReviveContractTrieId(accountData: Uint8Array): Uint8Array 
 	const {
 		account_type: { value },
 	} = ReviveAccountInfo.dec(accountData)
-	return value.trie_id
+	return new Uint8Array(value.trie_id)
 }

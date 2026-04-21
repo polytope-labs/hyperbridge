@@ -521,8 +521,8 @@ function validateConfig(config: FillerTomlConfig): void {
 
 	// Validate chain configurations
 	for (const chain of config.chains) {
-		if (!chain.rpcUrl) {
-			throw new Error("Each chain configuration must have rpcUrl")
+		if (!Array.isArray(chain.rpcUrls) || chain.rpcUrls.length === 0 || chain.rpcUrls.some((u) => !u)) {
+			throw new Error("Each chain configuration must have rpcUrls (a non-empty array of strings)")
 		}
 		if (!chain.bundlerUrl) {
 			throw new Error("Each chain configuration must have bundlerUrl")

@@ -394,10 +394,33 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
-	 * Returns the index of a pallet by its name, by looking up the pallets in the runtime metadata.
-	 * @param {string} name - The name of the pallet.
-	 * @returns {number} The index of the pallet.
+	 * Queries the LastProvenHeight from pallet-beefy-consensus-proofs.
 	 */
+	async queryLastProvenHeight(): Promise<bigint> {
+		if (!this.api) throw new Error("API not initialized")
+		const result = await (this.api.query as any).beefyConsensusProofs.lastProvenHeight()
+		return BigInt(result.toString())
+	}
+
+	/**
+	 * Queries the consensus proof from Hyperbridge's offchain storage for a given
+	 * proven height. The proof bytes can be passed directly to HandlerV2's
+	 * handleConsensus on EVM chains.
+	 *
+	 * All proofs — rotation and messaging alike — share a single offchain namespace
+	 * keyed by `proven_height`, so a single lookup suffices.
+	 */
+	async queryConsensusProof(neededHeight: bigint): Promise<{ proof: HexString; provenHeight: bigint } | undefined> {
+		const lastProvenHeight = await this.queryLastProvenHeight()
+		if (lastProvenHeight < neededHeight) return undefined
+
+		const key = beefyOffchainKey(lastProvenHeight)
+		const proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
+		if (!proof) return undefined
+
+		return { proof: proof as HexString, provenHeight: lastProvenHeight }
+	}
+
 	private getPalletIndex(name: string): number {
 		if (!this.api) throw new Error("API not initialized")
 		const pallets = this.api.runtimeMetadata.asLatest.pallets.entries()
@@ -412,6 +435,18 @@ export class SubstrateChain implements IChain {
 
 		throw new Error(`${name} not found in runtime`)
 	}
+}
+
+/**
+ * Constructs the offchain storage key for a verified consensus proof keyed by
+ * proven parachain height. Matches Rust's `offchain_key(proven_height)` in
+ * pallet-beefy-consensus-proofs: `OFFCHAIN_PREFIX || u64_be(proven_height)`.
+ */
+function beefyOffchainKey(provenHeight: bigint): HexString {
+	const prefix = new TextEncoder().encode("beefy_consensus_proofs::")
+	const heightBytes = new Uint8Array(8)
+	new DataView(heightBytes.buffer).setBigUint64(0, provenHeight, false)
+	return toHex(new Uint8Array([...prefix, ...heightBytes]))
 }
 
 function requestCommitmentStorageKey(key: HexString): number[] {
@@ -684,6 +719,15 @@ export function encodeISMPMessage(message: IIsmpMessage): Uint8Array {
 						},
 					},
 				])
+			})
+			.with({ kind: "Consensus" }, () => {
+				throw new Error("Consensus encoding is only supported on EVM chains")
+			})
+			.with({ kind: "BatchConsensusAndPostRequest" }, () => {
+				throw new Error("BatchConsensusAndPostRequest is only supported on EVM chains")
+			})
+			.with({ kind: "BatchConsensusAndGetResponse" }, () => {
+				throw new Error("BatchConsensusAndGetResponse is only supported on EVM chains")
 			})
 			.exhaustive()
 	} catch (error) {

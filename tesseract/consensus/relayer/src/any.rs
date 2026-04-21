@@ -138,6 +138,8 @@ pub enum ConsensusHost {
 		prover: ProverConfig,
 		// Host options for BEEFY
 		beefy: BeefyHostConfig,
+		// Redis config for the relayer's proof queue
+		redis: tesseract_beefy::backend::RedisConfig,
 	},
 	Grandpa(GrandpaConfig),
 }
@@ -178,18 +180,13 @@ impl HyperbridgeHostConfig {
 		R::AccountId: From<AccountId32> + Into<R::Address> + Clone + 'static + Send + Sync,
 	{
 		let host = match self.host {
-			ConsensusHost::Beefy { substrate, prover, beefy } => {
+			ConsensusHost::Beefy { substrate, prover, beefy, redis } => {
 				let client = SubstrateClient::<P>::new(substrate).await?;
 				let prover_instance =
 					Prover::<R, P, zk_beefy::LocalProver>::new(prover.clone()).await?;
 
-				// Create Redis backend (required for relayer)
-				let redis_config = beefy.redis.as_ref().ok_or_else(|| {
-					anyhow::anyhow!("Redis configuration is required for relayer")
-				})?;
-				let config = redis_config.clone();
 				let backend =
-					Arc::new(tesseract_beefy::backend::RedisProofBackend::new(config).await?);
+					Arc::new(tesseract_beefy::backend::RedisProofBackend::new(redis).await?);
 
 				AnyHost::Beefy(BeefyHost::new(beefy, prover_instance, client, backend).await?)
 			},

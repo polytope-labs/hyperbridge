@@ -23,7 +23,7 @@ import {
 import evmHost from "./abis/evmHost"
 import handler from "./abis/handler"
 import { type IChain, getStateCommitmentFieldSlot } from "./chain"
-import { _queryRequestInternal } from "./query-client"
+import { _queryRequestInternal } from "./queryClient"
 import { generateRootWithProof } from "./utils"
 import { ChainConfigService } from "./configs/ChainConfigService"
 

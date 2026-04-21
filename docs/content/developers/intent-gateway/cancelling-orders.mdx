@@ -7,7 +7,7 @@ description: How to cancel same-chain and cross-chain intent orders using the @h
 
 When a user wants to reclaim their escrowed tokens — because no solver filled the order, or the order expired — they call `cancelOrder` on the `IntentGatewayV2` contract. The contract checks that the order has not already been settled, then routes to the appropriate refund path depending on whether the order is same-chain or cross-chain, and which chain the call originates from.
 
-The `IntentGateway.cancelOrder()` SDK method abstracts over all three paths. You pass the order, an `IndexerClient` for proof fetching, and an optional `fromDest` boolean, and the SDK handles everything from proof retrieval to Hyperbridge submission. See the [SDK overview](/developers/sdk/overview) for full `IndexerClient` documentation.
+The `IntentGateway.cancelOrder()` SDK method abstracts over all three paths. You pass the order, an `IsmpClient` for proof fetching, and an optional `fromDest` boolean, and the SDK handles everything from proof retrieval to Hyperbridge submission. See the [SDK overview](/developers/sdk/overview) for full `IsmpClient` documentation.
 
 At each `AWAITING_CANCEL_TRANSACTION` yield, pass either a **serialized signed transaction** (raw bytes) or a **transaction hash** (`0x` + 64 hex chars) back via `gen.next()`. If you pass a hash, the SDK assumes the transaction has already been submitted and will wait for the receipt; if you pass raw bytes, it broadcasts first.
 
@@ -18,7 +18,7 @@ The settled status is set for both successfully filled orders **and** orders can
 ## Setup
 
 ```typescript lineNumbers title="setup.ts" icon="typescript"
-import { EvmChain, IntentsCoprocessor, IntentGateway, IndexerClient, createQueryClient } from "@hyperbridge/sdk"
+import { EvmChain, IntentsCoprocessor, IntentGateway, IsmpClient, createQueryClient } from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 
@@ -29,7 +29,7 @@ const coprocessor = await IntentsCoprocessor.connect("wss://nexus.ibp.network")
 const intentGateway   = await IntentGateway.create(sourceChain, destChain, coprocessor)
 
 const queryClient   = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
-const indexerClient = new IndexerClient({ queryClient, source: sourceChain, dest: destChain })
+const indexerClient = new IsmpClient({ queryClient, source: sourceChain, dest: destChain })
 
 const account      = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
 const sourceWallet = createWalletClient({ account, transport: http("https://eth-mainnet.g.alchemy.com/v2/demo") })

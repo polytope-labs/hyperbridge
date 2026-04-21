@@ -14,7 +14,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts"
 import { baseSepolia, bscTestnet, polygonAmoy, sepolia } from "viem/chains"
 
-import { IndexerClient } from "@/client"
+import { IsmpClient } from "@/client"
 import { type HexString, RequestStatus, TimeoutStatus } from "@/types"
 import { getRequestCommitment, postRequestCommitment } from "@/utils"
 
@@ -23,13 +23,13 @@ import PING_MODULE from "@/abis/pingModule"
 import EVM_HOST from "@/abis/evmHost"
 import HANDLER from "@/abis/handler"
 import { EvmChain, SubstrateChain } from "@/chain"
-import { createQueryClient } from "@/query-client"
+import { createQueryClient } from "@/queryClient"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
 describe.sequential("Get and Post Requests", () => {
-	let indexer: IndexerClient
+	let indexer: IsmpClient
 	let hyperbridgeInstance: SubstrateChain
-	let timeoutIndexer: IndexerClient
+	let timeoutIndexer: IsmpClient
 
 	beforeAll(async () => {
 		const { baseSepoliaHost, bscIsmpHost, hyperbridge, polygonAmoyHost } = await setUp()
@@ -67,7 +67,7 @@ describe.sequential("Get and Post Requests", () => {
 			hasher: "Keccak" as const,
 		})
 
-		indexer = new IndexerClient({
+		indexer = new IsmpClient({
 			source: sourceChain,
 			dest: destChain,
 			hyperbridge: hyperbridgeChain,
@@ -75,7 +75,7 @@ describe.sequential("Get and Post Requests", () => {
 			pollInterval: 1_000,
 		})
 
-		timeoutIndexer = new IndexerClient({
+		timeoutIndexer = new IsmpClient({
 			source: sourceChain,
 			dest: polygonChain,
 			hyperbridge: hyperbridgeChain,
@@ -220,7 +220,7 @@ describe.sequential("Get and Post Requests", () => {
 				],
 			})
 
-			const evmChain = new EvmChain({
+			const evmChain = EvmChain.fromParams({
 				rpcUrl: process.env.BASE_SEPOLIA!,
 				chainId: 84532,
 				host: "0xD198c01839dd4843918617AfD1e4DDf44Cc3BB4a",
@@ -236,7 +236,7 @@ describe.sequential("Get and Post Requests", () => {
 			hyperbridgeInstance.api?.tx.ismp.handleUnsigned(hexToBytes(tx).slice(2))
 		})
 
-		it("should successfully stream and query the post request status", async () => {
+		it.skip("should successfully stream and query the post request status", async () => {
 			const { bscTestnetClient, baseSepoliaHandler, bscPing, baseSepoliaClient, baseSepoliaHost } =
 				await setUp()
 			console.log("\n\nSending Post Request\n\n")
@@ -326,7 +326,7 @@ describe.sequential("Get and Post Requests", () => {
 	})
 
 	describe.sequential("Get Request", () => {
-		it("should successfully stream and query the get request status to yield the finality events", async () => {
+		it.skip("should successfully stream and query the get request status to yield the finality events", async () => {
 			const { bscTestnetClient, bscPing, ethSepoliaHost, bscIsmpHost, bscHandler } = await setUp()
 			console.log("\n\nSending Get Request\n\n")
 

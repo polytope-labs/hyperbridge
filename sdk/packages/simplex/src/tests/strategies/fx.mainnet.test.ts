@@ -1789,7 +1789,7 @@ async function setUpMainnetFx() {
 	const chains = [polygonMainnetId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 137, rpcUrl: process.env.POLYGON_MAINNET!, bundlerUrl: bundlerUrl(137) },
+		{ chainId: 137, rpcUrls: [process.env.POLYGON_MAINNET!], bundlerUrl: bundlerUrl(137) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -1841,7 +1841,7 @@ async function setUpMainnetFxBase() {
 	const chains = [baseMainnetId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET!, bundlerUrl: bundlerUrl(8453) },
+		{ chainId: 8453, rpcUrls: [process.env.BASE_MAINNET!], bundlerUrl: bundlerUrl(8453) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -1895,7 +1895,7 @@ async function setUpMainnetFxBsc() {
 	const chains = [bscMainnetId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 56, rpcUrl: process.env.BSC_MAINNET!, bundlerUrl: bundlerUrl(56) },
+		{ chainId: 56, rpcUrls: [process.env.BSC_MAINNET!], bundlerUrl: bundlerUrl(56) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -1947,7 +1947,7 @@ async function setUpMainnetFxArbitrum() {
 	const chains = [arbitrumMainnetId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 42161, rpcUrl: process.env.ARBITRUM_MAINNET!, bundlerUrl: bundlerUrl(42161) },
+		{ chainId: 42161, rpcUrls: [process.env.ARBITRUM_MAINNET!], bundlerUrl: bundlerUrl(42161) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -2000,8 +2000,8 @@ async function setUpMainnetFxArbitrumToBase() {
 	const chains = [arbitrumMainnetId, baseMainnetId]
 
 	const testChainConfigs: ResolvedChainConfig[] = [
-		{ chainId: 42161, rpcUrl: process.env.ARBITRUM_MAINNET!, bundlerUrl: bundlerUrl(42161) },
-		{ chainId: 8453, rpcUrl: process.env.BASE_MAINNET!, bundlerUrl: bundlerUrl(8453) },
+		{ chainId: 42161, rpcUrls: [process.env.ARBITRUM_MAINNET!], bundlerUrl: bundlerUrl(42161) },
+		{ chainId: 8453, rpcUrls: [process.env.BASE_MAINNET!], bundlerUrl: bundlerUrl(8453) },
 	]
 
 	const fillerConfigForService: FillerServiceConfig = {

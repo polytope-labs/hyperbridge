@@ -763,8 +763,7 @@ parameter_types! {
 	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
 	/// Maximum SCALE-encoded size of a `SubmitProofPayload`.
 	pub const MaxBeefyProofSize: u32 = 1_048_576;
-	/// Shared ring-buffer size for `RotationProofs` and `MessagingProofs`. Also caps the
-	/// number of offchain proof blobs retained per stream.
+	/// Per-bucket ring-buffer size for `MessagingProofs` and `RotationProofs`.
 	pub const MaxStoredBeefyProofs: u32 = 512;
 }
 

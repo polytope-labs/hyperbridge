@@ -24,7 +24,19 @@ export * from "@/chains/pharos"
 /**
  * Type representing an ISMP message.
  */
-export type IIsmpMessage = IRequestMessage | ITimeoutPostRequestMessage | IGetResponseMessage | IGetRequestMessage
+export type IIsmpMessage =
+	| IRequestMessage
+	| ITimeoutPostRequestMessage
+	| IGetResponseMessage
+	| IGetRequestMessage
+	| IConsensusMessage
+	| IBatchConsensusAndPostRequestMessage
+	| IBatchConsensusAndGetResponseMessage
+
+export interface IConsensusMessage {
+	kind: "Consensus"
+	consensusProof: HexString
+}
 
 export interface IRequestMessage {
 	/**
@@ -113,6 +125,22 @@ export interface ITimeoutPostRequestMessage {
 	 * The proof of the requests.
 	 */
 	proof: IProof
+}
+
+export interface IBatchConsensusAndPostRequestMessage {
+	kind: "BatchConsensusAndPostRequest"
+	consensusProof: HexString
+	requests: IPostRequest[]
+	proof: IProof
+	signer: HexString
+}
+
+export interface IBatchConsensusAndGetResponseMessage {
+	kind: "BatchConsensusAndGetResponse"
+	consensusProof: HexString
+	responses: IGetResponse[]
+	proof: IProof
+	signer: HexString
 }
 
 export interface IProof {

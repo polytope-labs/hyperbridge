@@ -21,8 +21,9 @@ import {
 import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet } from "viem/chains"
 import { DEFAULT_LOGGER, normalizeTimestamp, postRequestCommitment } from "@/utils"
-import { IndexerClient } from "@/client"
-import { createQueryClient } from "@/query-client"
+import { EvmChain, SubstrateChain } from "@/chain"
+import { IsmpClient } from "@/client"
+import { createQueryClient } from "@/queryClient"
 import { bigIntReplacer } from "@/helpers/data.helpers"
 
 const logger = DEFAULT_LOGGER.withTag("evm-substrate")
@@ -75,7 +76,7 @@ function assertIsToday(timestamp: bigint) {
 test.skip("EVM -> Substrate token transfer", { timeout: 5_400_000 }, async () => {
 	// get token data
 	const token = Token
-	const indexer = getIndexer()
+	const indexer = await getIndexer()
 
 	// setup account
 	// setup EVM account
@@ -160,29 +161,36 @@ const singleton = <T>(fn: () => T) => {
 	}
 }
 
-const getIndexer = singleton(() => {
+const getIndexer = singleton(async () => {
 	const query_client = createQueryClient({
 		url: process.env.INDEXER_URL as string,
 	})
 
-	return new IndexerClient({
-		source: {
-			consensusStateId: Source.consensus.stateId,
-			rpcUrl: Source.rpcUrls[0],
-			stateMachineId: Source.stateMachineId,
-			host: Source.ismpHost,
-		},
-		dest: {
-			hasher: "Blake2",
-			wsUrl: Destination.rpcUrls[0],
-			consensusStateId: Destination.consensus.stateId,
-			stateMachineId: Destination.chainId,
-		},
-		hyperbridge: {
-			consensusStateId: "PAS0",
-			stateMachineId: "KUSAMA-4009",
-			wsUrl: process.env.HYPERBRIDGE_GARGANTUA as string,
-		},
+	const source = EvmChain.fromParams({
+		chainId: Source.chainId,
+		rpcUrl: Source.rpcUrls[0],
+		host: Source.ismpHost as `0x${string}`,
+		consensusStateId: Source.consensus.stateId,
+	})
+
+	const dest = await SubstrateChain.connect({
+		wsUrl: Destination.rpcUrls[0],
+		consensusStateId: Destination.consensus.stateId,
+		stateMachineId: Destination.chainId,
+		hasher: "Blake2",
+	})
+
+	const hyperbridge = await SubstrateChain.connect({
+		consensusStateId: "PAS0",
+		stateMachineId: "KUSAMA-4009",
+		wsUrl: process.env.HYPERBRIDGE_GARGANTUA as string,
+		hasher: "Keccak",
+	})
+
+	return new IsmpClient({
+		source,
+		dest,
+		hyperbridge,
 		queryClient: query_client,
 		pollInterval: 1000,
 	})

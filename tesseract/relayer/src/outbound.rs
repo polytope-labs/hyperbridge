@@ -73,7 +73,7 @@ pub async fn run(
 			},
 		};
 
-		let proof_bytes = match proof_source.fetch(new_height, accepted.new_set_id).await {
+		let proof_bytes = match proof_source.fetch(new_height).await {
 			Ok(bytes) => bytes,
 			Err(err) => {
 				tracing::error!(

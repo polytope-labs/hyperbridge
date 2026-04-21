@@ -17,11 +17,11 @@ describe("BinanceRebalancer - CEX integration", () => {
 	const chainConfigs: ResolvedChainConfig[] = [
 		{
 			chainId: 56, // BSC mainnet
-			rpcUrl: process.env.BSC_MAINNET!,
+			rpcUrls: [process.env.BSC_MAINNET!],
 		},
 		{
 			chainId: 42161, // Arbitrum mainnet
-			rpcUrl: process.env.ARBITRUM_MAINNET!,
+			rpcUrls: [process.env.ARBITRUM_MAINNET!],
 		},
 	]
 

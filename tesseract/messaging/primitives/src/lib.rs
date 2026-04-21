@@ -344,6 +344,21 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		coprocessor: StateMachine,
 	) -> Result<TxResult, anyhow::Error>;
 
+	/// Submit a **batched** sequence of messages atomically in a single transaction.
+	///
+	/// EVM chains that expose `IHandlerV2.batchCall` can override this to ABI-encode
+	/// the inner handler calls and dispatch them in one `batchCall(bytes[])` transaction
+	/// — saving N-1 transactions when delivering consensus + requests + responses
+	/// from Hyperbridge. All other providers fall back to the existing serial
+	/// [`Self::submit`] pipeline.
+	async fn submit_batch(
+		&self,
+		messages: Vec<Message>,
+		coprocessor: StateMachine,
+	) -> Result<TxResult, anyhow::Error> {
+		self.submit(messages, coprocessor).await
+	}
+
 	/// This method should return the key used to be used to query the state proof for the request
 	/// commitment
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>>;

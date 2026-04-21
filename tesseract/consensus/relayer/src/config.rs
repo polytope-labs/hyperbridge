@@ -33,10 +33,15 @@ impl Default for RelayerConfig {
 }
 
 /// Defines the format of the tesseract config.toml file.
+///
+/// `hyperbridge` is optional: the consolidated `tesseract-relayer` doesn't
+/// run the BEEFY prover/host (that's a separate binary) and leaves this
+/// field as `None`. Callers that *do* need the full host config (like the
+/// standalone prover binary) populate it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HyperbridgeConfig {
 	/// Configuration options for hyperbridge.
-	pub hyperbridge: HyperbridgeHostConfig,
+	pub hyperbridge: Option<HyperbridgeHostConfig>,
 	/// Chains
 	pub chains: HashMap<StateMachine, AnyConfig>,
 	/// Additional Relayer configuration
@@ -77,7 +82,7 @@ impl HyperbridgeConfig {
 				chains.insert(any_conf.state_machine(), any_conf);
 			}
 		}
-		Ok(Self { hyperbridge, chains, relayer })
+		Ok(Self { hyperbridge: Some(hyperbridge), chains, relayer })
 	}
 }
 

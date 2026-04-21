@@ -98,6 +98,10 @@ impl Cli {
 
 			let coprocessor = hyperbridge_config.state_machine;
 
+			// Standalone messaging relayer: fee accumulation stays disabled at
+			// this layer (the consolidated `tesseract-relayer` is the target
+			// for new deployments and owns fee accumulation as a top-level
+			// task). Retiring this binary is tracked as follow-up work.
 			tesseract_messaging::relay(
 				new_hyperbridge.clone(),
 				client.clone(),
@@ -106,6 +110,7 @@ impl Cli {
 				tx_payment.clone(),
 				clients.clone(),
 				&task_manager,
+				None,
 			)
 			.await?;
 

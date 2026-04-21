@@ -49,6 +49,7 @@ impl LogMetatdata {
 		let hyperbridge = config
 			.hyperbridge
 			.clone()
+			.ok_or_else(|| anyhow!("[hyperbridge] section required for this subcommand"))?
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
@@ -117,6 +118,7 @@ impl LogMetatdata {
 		let hyperbridge = config
 			.hyperbridge
 			.clone()
+			.ok_or_else(|| anyhow!("[hyperbridge] section required for this subcommand"))?
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 

@@ -42,6 +42,7 @@ pub mod calls;
 pub mod config;
 pub mod extrinsic;
 mod provider;
+pub mod registry;
 
 #[cfg(feature = "testing")]
 mod testing;

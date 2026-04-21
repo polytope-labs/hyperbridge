@@ -67,7 +67,9 @@ use tesseract_primitives::{
 
 use crate::{
 	calls::RequestMetadata,
-	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner, ProofAcceptedEvent},
+	extrinsic::{
+		send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner, ProofAcceptedEvent,
+	},
 	SubstrateClient,
 };
 
@@ -658,9 +660,7 @@ where
 		Ok(Box::pin(stream))
 	}
 
-	async fn proof_accepted_notification(
-		&self,
-	) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
+	async fn proof_accepted_notification(&self) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
 		use futures::StreamExt;
 		let client = self.clone();
 		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(64);
@@ -675,15 +675,7 @@ where
 			loop {
 				tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 
-				let finalized_hash = match client.rpc.chain_get_finalized_head().await {
-					Ok(h) => h,
-					Err(err) => {
-						log::error!(target: "tesseract", "{state_machine:?} proof_accepted: finalized_head: {err:?}");
-						continue;
-					},
-				};
-
-				let header = match client.rpc.chain_get_header(Some(finalized_hash)).await {
+				let header = match client.rpc.chain_get_header(None).await {
 					Ok(Some(h)) => h,
 					Ok(None) => continue,
 					Err(err) => {

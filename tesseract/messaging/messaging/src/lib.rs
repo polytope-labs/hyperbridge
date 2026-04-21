@@ -15,7 +15,8 @@
 
 //! ISMP Message relay
 
-mod events;
+pub mod events;
+pub mod fees;
 mod get_requests;
 mod retries;
 
@@ -43,6 +44,23 @@ use transaction_fees::TransactionPayment;
 type FeeAccSender = Sender<Vec<TxReceipt>>;
 type GetReqSender = Sender<(Vec<GetRequest>, StateMachineUpdated)>;
 
+/// Spawn the chain_b → Hyperbridge inbound messaging pipeline and its retry
+/// loop for unprofitable messages.
+///
+/// **Explicitly NOT spawned here** (caller's responsibility in the consolidated
+/// relayer):
+/// - Outbound (Hyperbridge → chain_b) — handled by [`tesseract_relayer::outbound`] as a single
+///   event-driven fan-out task.
+/// - Fee accumulation — spawned once per chain in `tesseract-relayer/src/cli.rs`.
+/// - Fee withdrawal — spawned globally in `tesseract-relayer/src/cli.rs`.
+///
+/// `fee_acc_sender` is forwarded to both the inbound loop and the retry loop
+/// so `TxReceipt`s reach the caller's fee-accumulation task. Pass `None` to
+/// opt this chain out of fee accumulation entirely.
+///
+/// Known gap: HB → chain_b GET-response delivery is not yet wired up in the
+/// consolidated outbound task. Tracked as a follow-up; chains that rely on
+/// GET responses from HB will need it added to `outbound::run`.
 pub async fn relay<A>(
 	hyperbridge: A,
 	chain_b: Arc<dyn IsmpProvider>,
@@ -51,49 +69,19 @@ pub async fn relay<A>(
 	tx_payment: Arc<TransactionPayment>,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	task_manager: &TaskManager,
+	fee_acc_sender: Option<FeeAccSender>,
 ) -> Result<(), anyhow::Error>
 where
 	A: IsmpProvider + Clone + HyperbridgeClaim + HandleGetResponse + 'static,
 {
-	let (sender, receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
-	let (get_request_sender, get_request_receiver) =
-		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(64);
+	// chain_b → Hyperbridge inbound messaging.
 	{
 		let hyperbridge = Arc::new(hyperbridge.clone());
 		let chain_b = chain_b.clone();
 		let client_map = client_map.clone();
 		let tx_payment = tx_payment.clone();
 		let config = config.clone();
-		let get_request_sender = get_request_sender.clone();
-		let name = format!("messaging-{}-{}", hyperbridge.name(), chain_b.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name.clone())),
-			"messaging",
-			async move {
-				let res = handle_notification(
-					hyperbridge,
-					chain_b,
-					tx_payment,
-					config,
-					coprocessor,
-					client_map,
-					None,
-					Some(get_request_sender),
-				)
-				.await;
-				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
-			}
-			.boxed(),
-		)
-	}
-
-	{
-		let hyperbridge = Arc::new(hyperbridge.clone());
-		let chain_b = chain_b.clone();
-		let client_map = client_map.clone();
-		let tx_payment = tx_payment.clone();
-		let config = config.clone();
-		let sender = sender.clone();
+		let sender = fee_acc_sender.clone();
 		let name = format!("messaging-{}-{}", chain_b.name(), hyperbridge.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
 			Box::leak(Box::new(name.clone())),
@@ -103,14 +91,10 @@ where
 					chain_b,
 					hyperbridge,
 					tx_payment,
-					config.clone(),
+					config,
 					coprocessor,
 					client_map,
-					if !config.disable_fee_accumulation.unwrap_or_default() {
-						Some(sender)
-					} else {
-						None
-					},
+					sender,
 					None,
 				)
 				.await;
@@ -120,77 +104,27 @@ where
 		);
 	}
 
-	// Fee accumulation background task
-	{
-		if !config.disable_fee_accumulation.unwrap_or_default() {
-			let hyperbridge = hyperbridge.clone();
-			let dest = chain_b.clone();
-			let client_map = client_map.clone();
-			let tx_payment = tx_payment.clone();
-			let name = format!("fee-acc-{}-{}", dest.name(), hyperbridge.name());
-			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
-				"fees",
-				async move {
-					let res =
-						fee_accumulation(receiver, dest, hyperbridge, client_map, tx_payment).await;
-					tracing::error!("{name} terminated with result {res:?}");
-				}
-				.boxed(),
-			);
-		}
-	}
-
-	{
-		// Spawn retries for unprofitable messages
-		if config.unprofitable_retry_frequency.is_some() {
-			let hyperbridge = Arc::new(hyperbridge.clone());
-			let dest = chain_b.clone();
-			let client_map = client_map.clone();
-			let tx_payment = tx_payment.clone();
-			let config = config.clone();
-			let sender = sender.clone();
-			let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
-			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name.clone())),
-				"messaging",
-				async move {
-					let res = retry_unprofitable_messages(
-						dest,
-						hyperbridge,
-						client_map,
-						tx_payment,
-						config.clone(),
-						coprocessor,
-						if !config.disable_fee_accumulation.unwrap_or_default() {
-							Some(sender)
-						} else {
-							None
-						},
-					)
-					.await;
-					tracing::error!("{name} terminated with result {res:?}");
-				}
-				.boxed(),
-			);
-		}
-	}
-
-	// Get Request processing task
-	{
-		let hyperbridge = hyperbridge.clone();
-		let source = chain_b.clone();
+	// Retries for unprofitable chain_b → HB messages.
+	if config.unprofitable_retry_frequency.is_some() {
+		let hyperbridge = Arc::new(hyperbridge.clone());
+		let dest = chain_b.clone();
 		let client_map = client_map.clone();
-		let name = format!("get-request-{}-{}", source.name(), hyperbridge.name());
+		let tx_payment = tx_payment.clone();
+		let config = config.clone();
+		let sender = fee_acc_sender.clone();
+		let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
 		task_manager.spawn_essential_handle().spawn_blocking(
 			Box::leak(Box::new(name.clone())),
 			"messaging",
 			async move {
-				let res = process_get_request_events(
-					get_request_receiver,
-					source,
+				let res = retry_unprofitable_messages(
+					dest,
 					hyperbridge,
 					client_map,
+					tx_payment,
+					config,
+					coprocessor,
+					sender,
 				)
 				.await;
 				tracing::error!("{name} terminated with result {res:?}");
@@ -433,7 +367,7 @@ async fn handle_update(
 	Ok(())
 }
 
-async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + 'static>(
+pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim + 'static>(
 	mut receiver: Receiver<Vec<TxReceipt>>,
 	dest: Arc<dyn IsmpProvider>,
 	hyperbridge: A,

@@ -38,6 +38,7 @@ use tx::handle_message_submission;
 pub mod abi;
 mod byzantine;
 pub mod gas_oracle;
+pub mod registry;
 pub mod transport;
 use tx::wait_for_transaction_receipt;
 pub mod provider;

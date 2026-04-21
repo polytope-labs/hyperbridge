@@ -1,6 +1,7 @@
 use crate::{
-	BoxStream, ByzantineHandler, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost, IsmpProvider,
-	Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult, WithdrawFundsResult,
+	BoxStream, ByzantineHandler, Cost, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost,
+	IsmpProvider, Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult,
+	WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -239,9 +240,18 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 
 	async fn estimate_gas(
 		&self,
-		_msg: Vec<Message>,
+		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
-		todo!()
+		// Default: every message executes successfully at zero cost. Tests that
+		// need to exercise the unprofitable path should override behaviour via
+		// a dedicated flag rather than relying on this stub.
+		Ok(msg
+			.into_iter()
+			.map(|_| EstimateGasReturnParams {
+				execution_cost: Cost::default(),
+				successful_execution: true,
+			})
+			.collect())
 	}
 
 	async fn query_request_fee_metadata(&self, _hash: H256) -> Result<U256, anyhow::Error> {
@@ -330,11 +340,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		todo!()
+		Ok(Default::default())
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
-		todo!()
+		Ok(18)
 	}
 }
 

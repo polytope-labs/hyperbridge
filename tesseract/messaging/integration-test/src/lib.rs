@@ -262,6 +262,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		tx_payment,
 		client_map.clone(),
 		&task_manager,
+		None,
 	)
 	.await?;
 	// =========================== Accounts & keys =====================================

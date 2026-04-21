@@ -24,8 +24,8 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		HandlerInstance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
-		PostResponseMessage, Proof, StateMachineHeight,
+		handler_v2::HandlerV2Instance, HandlerInstance, PostRequestLeaf, PostRequestMessage,
+		PostResponseLeaf, PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
@@ -294,6 +294,147 @@ pub async fn generate_contract_calls(
 	Ok((txs, gas_price))
 }
 
+/// Build the per-message inner calldata array for an `IHandlerV2.batchCall`.
+///
+/// Each entry is an ABI-encoded HandlerV1 call (`handleConsensus`,
+/// `handlePostRequests`, `handlePostResponses`) — `batchCall` delegatecalls
+/// self so those selectors still dispatch correctly against HandlerV2.
+async fn build_batch_inner_calls(
+	client: &EvmClient,
+	messages: &[Message],
+) -> anyhow::Result<Vec<Bytes>> {
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
+
+	let mut inner = Vec::with_capacity(messages.len());
+	for msg in messages {
+		let calldata = match msg {
+			Message::Consensus(msg) => contract
+				.handleConsensus(ismp_host, Bytes::from(msg.consensus_proof.clone()))
+				.calldata()
+				.clone(),
+
+			Message::Request(msg) => {
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&msg.proof.proof)?;
+				let mut leaves: Vec<PostRequestLeaf> = msg
+					.requests
+					.iter()
+					.zip(&leaf_indices)
+					.map(|(post, &leaf_index)| PostRequestLeaf {
+						request: post.clone().into(),
+						index: AlloyU256::from(leaf_index),
+					})
+					.collect();
+				leaves.sort_by_key(|l| l.index);
+				let proof = build_solidity_proof(&mmr_proof, &msg.proof.height)?;
+				contract
+					.handlePostRequests(ismp_host, PostRequestMessage { proof, requests: leaves })
+					.calldata()
+					.clone()
+			},
+
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Response(responses),
+				proof,
+				..
+			}) => {
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
+				let mut leaves: Vec<PostResponseLeaf> = responses
+					.iter()
+					.zip(&leaf_indices)
+					.filter_map(|(res, &leaf_index)| match res {
+						Response::Post(res) => Some(PostResponseLeaf {
+							response: res.clone().into(),
+							index: AlloyU256::from(leaf_index),
+						}),
+						_ => None,
+					})
+					.collect();
+				leaves.sort_by_key(|l| l.index);
+				let solidity_proof = build_solidity_proof(&mmr_proof, &proof.height)?;
+				contract
+					.handlePostResponses(
+						ismp_host,
+						PostResponseMessage { proof: solidity_proof, responses: leaves },
+					)
+					.calldata()
+					.clone()
+			},
+
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Request(..), ..
+			}) => return Err(anyhow!("Get requests are not supported by batchCall")),
+
+			Message::Timeout(_) =>
+				return Err(anyhow!("Timeout messages are not supported by batchCall")),
+
+			Message::FraudProof(_) =>
+				return Err(anyhow!("Unexpected fraud proof message in batchCall")),
+		};
+		inner.push(calldata);
+	}
+	Ok(inner)
+}
+
+/// Submit a full batch of ISMP messages as a single `IHandlerV2.batchCall` transaction.
+///
+/// One tx replaces what would otherwise be N separate txs (one per message),
+/// cutting gas overhead and nonce management complexity. Atomic: if any
+/// inner call reverts, the whole transaction reverts.
+pub async fn submit_batch_messages(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
+	if messages.is_empty() {
+		return Ok((BTreeSet::new(), Vec::new()));
+	}
+
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let from = Address::from_slice(&client.address);
+	let gas_price = fetch_gas_price(client, false).await?;
+	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
+
+	let inner_calls = build_batch_inner_calls(client, &messages).await?;
+	let handler_v2 = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let call = handler_v2.batchCall(inner_calls);
+	let gas = call.estimate_gas().await.unwrap_or_else(|_| (chain_gas_limit * 8) / 10);
+	let calldata = call.calldata().clone();
+	let tx_request =
+		build_tx_request(from, handler_addr, calldata, gas_price, gas_with_buffer(gas));
+
+	let nonce = client.signer.get_transaction_count(from).await?;
+	let tx = tx_request.nonce(nonce).transaction_type(0);
+
+	let pending = loop {
+		match client.signer.send_transaction(tx.clone()).await {
+			Ok(p) => break p,
+			Err(err) => {
+				let err = anyhow::Error::from(err);
+				if is_rate_limit_error(&err) {
+					tracing::info!(chain = ?client.state_machine, "Rate limited, retrying batchCall submission in 1s");
+					tokio::time::sleep(Duration::from_secs(1)).await;
+				} else {
+					return Err(err);
+				}
+			},
+		}
+	};
+
+	let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
+	let events = match wait_for_success(client, tx_hash).await? {
+		Some(evs) => evs,
+		None => {
+			cancel_transaction(client, from, nonce, gas_price, tx_hash).await;
+			return Err(anyhow!("batchCall to {:?} was cancelled", client.state_machine));
+		},
+	};
+
+	// Atomic semantics: if the tx succeeded every inner call did, so no
+	// per-message unsuccessful bucket.
+	Ok((events, Vec::new()))
+}
+
 /// Send a zero-value self-transfer at 10× gas to evict a stuck transaction from the mempool.
 #[tracing::instrument(skip_all, fields(chain = ?client.state_machine))]
 async fn cancel_transaction(
@@ -413,14 +554,16 @@ pub async fn wait_for_success(
 	}
 }
 
-pub async fn handle_message_submission(
-	client: &EvmClient,
+/// Build `TxReceipt`s for every message in `messages` whose commitment
+/// appears in the on-chain event set `receipts`. Shared between serial and
+/// batched submission paths.
+fn build_tx_receipts(
+	receipts: BTreeSet<H256>,
+	unsuccessful: Vec<Message>,
 	messages: Vec<Message>,
-) -> anyhow::Result<TxResult> {
-	let (receipts, unsuccessful) = submit_messages(client, messages.clone()).await?;
-	let height = client.client.get_block_number().await?;
+	height: u64,
+) -> TxResult {
 	let mut results = vec![];
-
 	for msg in messages {
 		match msg {
 			Message::Request(req_msg) =>
@@ -462,8 +605,28 @@ pub async fn handle_message_submission(
 			_ => {},
 		}
 	}
+	TxResult { receipts: results, unsuccessful }
+}
 
-	Ok(TxResult { receipts: results, unsuccessful })
+/// Batch variant of [`handle_message_submission`]: submits the whole batch in
+/// a single `IHandlerV2.batchCall` transaction and builds `TxReceipt`s for
+/// every message whose commitment showed up in the emitted events.
+pub async fn handle_batch_submission(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> anyhow::Result<TxResult> {
+	let (receipts, unsuccessful) = submit_batch_messages(client, messages.clone()).await?;
+	let height = client.client.get_block_number().await?;
+	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
+}
+
+pub async fn handle_message_submission(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> anyhow::Result<TxResult> {
+	let (receipts, unsuccessful) = submit_messages(client, messages.clone()).await?;
+	let height = client.client.get_block_number().await?;
+	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
 }
 
 #[cfg(test)]

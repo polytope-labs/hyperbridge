@@ -28557,6 +28557,7 @@ dependencies = [
  "async-trait",
  "debounced",
  "futures",
+ "hex",
  "hex-literal 0.4.1",
  "ismp",
  "log",

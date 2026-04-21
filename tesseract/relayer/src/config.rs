@@ -16,12 +16,14 @@
 //! Consolidated relayer config. Shape:
 //!
 //! ```toml
-//! [hyperbridge]                          # HB host (substrate RPC, prover)
-//! ...
+//! [hyperbridge]                          # HB substrate RPC — just the client
+//! state_machine = "KUSAMA-4009"          # essentials, no prover/backend config.
+//! rpc_ws        = "ws://..."             # The BEEFY prover runs as a separate
+//! signer        = "0x..."                # binary; this relayer only consumes
+//! hashing       = "Keccak"               # its output from the chain.
 //!
-//! [relayer]                              # operator knobs + outbound toggle
+//! [relayer]                              # operator knobs
 //! delivery_endpoints = ["EVM-1"]
-//! outbound = true
 //!
 //! [<chain-name>]                         # one block per chain — messaging/host config
 //! type = "evm"
@@ -30,6 +32,8 @@
 //! ismp_host = "0x..."
 //! signer = "${SIG}"
 //! consensus_state_id = "ETH0"
+//! outbound = true                        # optional; default true — include this chain
+//!                                        # as a destination in the HB→chain fan-out.
 //!
 //! [<chain-name>.consensus]               # OPTIONAL — presence opts into inbound consensus.
 //! type = "ethereum"                      # consensus-side client type
@@ -39,15 +43,16 @@
 //! ```
 //!
 //! `delivery_endpoints` scopes inbound messaging; presence of `[chain.consensus]`
-//! is the sole signal to spawn inbound consensus for that chain; `outbound`
-//! toggles the HB → chain fan-out.
+//! is the sole signal to spawn inbound consensus for that chain; per-chain
+//! `outbound` toggles whether the chain receives HB→chain fan-out (default on).
 
 use anyhow::{anyhow, Context};
 use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_config::AnyConfig as MessagingConfig;
-use tesseract_consensus::any::{AnyConfig as ConsensusConfig, HyperbridgeHostConfig};
+use tesseract_consensus::any::AnyConfig as ConsensusConfig;
+use tesseract_substrate::SubstrateConfig;
 use toml::{Table, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,15 +69,6 @@ pub struct RelayerConfig {
 	pub unprofitable_retry_frequency: Option<u64>,
 	pub deliver_failed: Option<bool>,
 	pub disable_fee_accumulation: Option<bool>,
-
-	/// If `true` (the default), spawn the outbound (HB → destination) task that
-	/// drives off pallet-beefy-consensus-proofs `ProofAccepted` events.
-	#[serde(default = "default_true")]
-	pub outbound: bool,
-}
-
-fn default_true() -> bool {
-	true
 }
 
 impl Default for RelayerConfig {
@@ -87,7 +83,6 @@ impl Default for RelayerConfig {
 			unprofitable_retry_frequency: None,
 			deliver_failed: None,
 			disable_fee_accumulation: None,
-			outbound: true,
 		}
 	}
 }
@@ -112,15 +107,22 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 ///
 /// `messaging` is always present — it's the host config used for inbound
 /// messaging and outbound submission. `consensus` is optional: when present,
-/// that chain also runs an inbound-consensus task.
+/// that chain also runs an inbound-consensus task. `outbound` defaults to
+/// `true` and controls whether this chain is a destination for the
+/// HB→chain outbound fan-out.
 #[derive(Debug, Clone)]
 pub struct PerChainConfig {
 	pub messaging: MessagingConfig,
 	pub consensus: Option<ConsensusConfig>,
+	pub outbound: bool,
 }
 
+#[derive(Debug)]
 pub struct HyperbridgeConfig {
-	pub hyperbridge: HyperbridgeHostConfig,
+	/// Essentials only — substrate RPC + signer. The BEEFY prover/host is a
+	/// separate binary that pushes accepted proofs into pallet storage; this
+	/// relayer just consumes them via `offchain_localStorageGet`.
+	pub hyperbridge: SubstrateConfig,
 	pub chains: HashMap<StateMachine, PerChainConfig>,
 	pub relayer: RelayerConfig,
 }
@@ -128,6 +130,7 @@ pub struct HyperbridgeConfig {
 const HYPERBRIDGE: &str = "hyperbridge";
 const RELAYER: &str = "relayer";
 const CONSENSUS: &str = "consensus";
+const OUTBOUND: &str = "outbound";
 
 impl HyperbridgeConfig {
 	pub async fn parse_conf(config: &str) -> Result<Self, anyhow::Error> {
@@ -140,7 +143,7 @@ impl HyperbridgeConfig {
 			return Err(anyhow!("Missing [hyperbridge] or [relayer] section in config"));
 		}
 
-		let hyperbridge: HyperbridgeHostConfig =
+		let hyperbridge: SubstrateConfig =
 			table.get(HYPERBRIDGE).cloned().expect("checked above").try_into()?;
 
 		let relayer: RelayerConfig =
@@ -154,7 +157,7 @@ impl HyperbridgeConfig {
 			let chain_table = raw.as_table().ok_or_else(|| {
 				anyhow!("chain '{name}' must be a TOML table, got {}", raw.type_str())
 			})?;
-			let per_chain = parse_chain(name, chain_table)?;
+			let per_chain = parse_chain(name, chain_table).await?;
 			let state_machine = per_chain.messaging.state_machine();
 			if chains.insert(state_machine, per_chain).is_some() {
 				return Err(anyhow!("duplicate chain configured for state machine {state_machine}"));
@@ -166,6 +169,10 @@ impl HyperbridgeConfig {
 
 	/// Build the consensus relayer's config view, containing only the subset of
 	/// chains that opted into inbound consensus via `[<chain>.consensus]`.
+	///
+	/// `hyperbridge = None` here: the consolidated relayer doesn't run the
+	/// BEEFY prover/host — that's a separate binary. `create_client_map`
+	/// destructures only `chains`, so leaving the field empty is safe.
 	pub fn consensus_config(&self) -> tesseract_consensus::config::HyperbridgeConfig {
 		let chains = self
 			.chains
@@ -173,11 +180,7 @@ impl HyperbridgeConfig {
 			.filter_map(|(sm, pc)| pc.consensus.clone().map(|c| (*sm, c)))
 			.collect();
 
-		tesseract_consensus::config::HyperbridgeConfig {
-			hyperbridge: self.hyperbridge.clone(),
-			chains,
-			relayer: None,
-		}
+		tesseract_consensus::config::HyperbridgeConfig { hyperbridge: None, chains, relayer: None }
 	}
 }
 
@@ -185,9 +188,25 @@ impl HyperbridgeConfig {
 /// the messaging [`MessagingConfig`]; if a `[<chain>.consensus]` sub-table is
 /// present, the base fields are inherited into the consensus table before it's
 /// deserialized as a [`ConsensusConfig`] (so host essentials are specified once).
-fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, anyhow::Error> {
+/// A top-level `outbound` bool (default `true`) controls whether this chain
+/// is a destination for the HB→chain fan-out.
+///
+/// For EVM chains, `state_machine` and `ismp_host` are auto-derived from the
+/// RPC (`eth_chainId` + the [`tesseract_evm::registry`] table) when the user
+/// omits them; explicit values win over derivation.
+async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, anyhow::Error> {
 	let mut messaging_table = chain_table.clone();
 	let consensus_value = messaging_table.remove(CONSENSUS);
+
+	let outbound = match messaging_table.remove(OUTBOUND) {
+		None => true,
+		Some(Value::Boolean(b)) => b,
+		Some(other) => {
+			return Err(anyhow!("[{name}].outbound must be a boolean, got {}", other.type_str()));
+		},
+	};
+
+	autofill_missing_fields(name, &mut messaging_table).await?;
 
 	let messaging: MessagingConfig = Value::Table(messaging_table.clone())
 		.try_into()
@@ -218,7 +237,97 @@ fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, anyhow
 		},
 	};
 
-	Ok(PerChainConfig { messaging, consensus })
+	Ok(PerChainConfig { messaging, consensus, outbound })
+}
+
+/// Fills in fields the user omitted, using the chain's own RPC as the source
+/// of truth:
+///
+/// - **EVM family** (`type = "evm"` | `"pharos_evm"`): derives `state_machine` from `eth_chainId`
+///   and `ismp_host` from the [`tesseract_evm::registry`] table.
+/// - **Substrate** (`type = "substrate"`): derives `state_machine` from `system_chain` +
+///   `ParachainInfo::parachainId` storage (see [`tesseract_substrate::registry`]).
+///
+/// Explicit values always win over derivation; this helper only fills in
+/// keys that are absent. No-op for chain types without derivation support
+/// (e.g. tron).
+async fn autofill_missing_fields(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
+	let chain_type = match chain_table.get("type").and_then(Value::as_str) {
+		Some(t) => t.to_string(),
+		None => return Ok(()), // deserializer will reject later with a clearer error
+	};
+
+	match chain_type.as_str() {
+		"evm" | "pharos_evm" => autofill_evm(name, chain_table).await,
+		"substrate" => autofill_substrate(name, chain_table).await,
+		_ => Ok(()),
+	}
+}
+
+async fn autofill_evm(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
+	let has_state_machine = chain_table.contains_key("state_machine");
+	let has_ismp_host = chain_table.contains_key("ismp_host");
+	if has_state_machine && has_ismp_host {
+		return Ok(());
+	}
+
+	let rpc_url = chain_table
+		.get("rpc_urls")
+		.and_then(Value::as_array)
+		.and_then(|arr| arr.first())
+		.and_then(Value::as_str)
+		.ok_or_else(|| {
+			anyhow!(
+				"[{name}]: cannot auto-derive state_machine/ismp_host without at least one \
+				 entry in `rpc_urls`"
+			)
+		})?
+		.to_string();
+
+	let chain_id = tesseract_evm::registry::fetch_chain_id(&rpc_url)
+		.await
+		.with_context(|| format!("[{name}]: auto-derive via eth_chainId"))?;
+
+	if !has_state_machine {
+		let value = format!("EVM-{chain_id}");
+		tracing::info!(target: "tesseract", "[{name}]: auto-derived state_machine = {value}");
+		chain_table.insert("state_machine".to_string(), Value::String(value));
+	}
+
+	if !has_ismp_host {
+		let host = tesseract_evm::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
+			anyhow!(
+				"[{name}]: no known IsmpHost for chain_id={chain_id}. Set `ismp_host` explicitly \
+				 or add the chain to tesseract_evm::registry."
+			)
+		})?;
+		let hex = format!("0x{}", hex::encode(host.0));
+		tracing::info!(target: "tesseract", "[{name}]: auto-derived ismp_host = {hex}");
+		chain_table.insert("ismp_host".to_string(), Value::String(hex));
+	}
+
+	Ok(())
+}
+
+async fn autofill_substrate(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
+	if chain_table.contains_key("state_machine") {
+		return Ok(());
+	}
+
+	let rpc_ws = chain_table
+		.get("rpc_ws")
+		.and_then(Value::as_str)
+		.ok_or_else(|| anyhow!("[{name}]: cannot auto-derive state_machine without `rpc_ws`"))?
+		.to_string();
+
+	let state_machine = tesseract_substrate::registry::fetch_state_machine(&rpc_ws)
+		.await
+		.with_context(|| format!("[{name}]: auto-derive via system_chain + ParachainInfo"))?;
+
+	let rendered = state_machine.to_string();
+	tracing::info!(target: "tesseract", "[{name}]: auto-derived state_machine = {rendered}");
+	chain_table.insert("state_machine".to_string(), Value::String(rendered));
+	Ok(())
 }
 
 #[cfg(test)]
@@ -226,36 +335,13 @@ mod tests {
 	use super::*;
 	use std::io::Write;
 
-	/// Minimal hyperbridge section so `parse_conf`'s structural checks pass.
-	/// The substrate/beefy bits don't need to be syntactically valid clients
-	/// since parsing stops at `try_into()` for `HyperbridgeHostConfig`.
+	/// Minimal hyperbridge section — just a SubstrateConfig, no prover/backend.
 	const HB_HEADER: &str = r#"
 [hyperbridge]
-type = "beefy"
-
-[hyperbridge.substrate]
 state_machine = "KUSAMA-4009"
 hashing = "Keccak"
 rpc_ws = "ws://127.0.0.1:9001"
 signer = "0x00"
-
-[hyperbridge.prover]
-relay_rpc_ws = "ws://127.0.0.1:9944"
-para_rpc_ws = "ws://127.0.0.1:9001"
-para_ids = [4009]
-proof_variant = "naive"
-
-[hyperbridge.beefy]
-consensus_state_id = [80, 65, 82, 65]
-
-[hyperbridge.redis]
-url = "127.0.0.1"
-port = 6379
-db = 0
-ns = "rsmq"
-realtime = false
-mandatory_queue = "m"
-messages_queue = "q"
 
 [relayer]
 minimum_profit_percentage = 0
@@ -366,8 +452,159 @@ signer = "0x00"
 	}
 
 	#[tokio::test]
-	async fn relayer_outbound_defaults_to_true() {
-		let cfg = parse(r#""#).await.expect("parse should succeed");
-		assert!(cfg.relayer.outbound, "outbound defaults to true");
+	async fn per_chain_outbound_defaults_to_true() {
+		let cfg = parse(
+			r#"
+[chapel]
+type = "evm"
+state_machine = "EVM-97"
+rpc_urls = ["https://example.invalid"]
+consensus_state_id = "BSC0"
+ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
+signer = "0x00"
+"#,
+		)
+		.await
+		.expect("parse should succeed");
+
+		let pc = cfg.chains.get(&StateMachine::Evm(97)).expect("chain present");
+		assert!(pc.outbound, "per-chain outbound defaults to true");
+	}
+
+	#[tokio::test]
+	async fn per_chain_outbound_false_opts_chain_out() {
+		let cfg = parse(
+			r#"
+[chapel]
+type = "evm"
+state_machine = "EVM-97"
+rpc_urls = ["https://example.invalid"]
+consensus_state_id = "BSC0"
+ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
+signer = "0x00"
+outbound = false
+
+[base_sepolia]
+type = "evm"
+state_machine = "EVM-84532"
+rpc_urls = ["https://example2.invalid"]
+consensus_state_id = "ETH0"
+ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
+signer = "0x00"
+"#,
+		)
+		.await
+		.expect("parse should succeed");
+
+		let chapel = cfg.chains.get(&StateMachine::Evm(97)).expect("chapel present");
+		assert!(!chapel.outbound, "explicit outbound=false respected");
+
+		let base = cfg.chains.get(&StateMachine::Evm(84532)).expect("base present");
+		assert!(base.outbound, "omitted outbound still defaults to true");
+	}
+
+	#[tokio::test]
+	async fn outbound_key_is_stripped_before_messaging_parse() {
+		// Sanity check: `outbound` is pulled out before deserialising the
+		// messaging variant, so it doesn't leak into the inner EvmConfig.
+		let cfg = parse(
+			r#"
+[chapel]
+type = "evm"
+state_machine = "EVM-97"
+rpc_urls = ["https://example.invalid"]
+consensus_state_id = "BSC0"
+ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
+signer = "0x00"
+outbound = false
+"#,
+		)
+		.await
+		.expect("parse should succeed");
+
+		let pc = cfg.chains.get(&StateMachine::Evm(97)).expect("chain present");
+		assert!(matches!(pc.messaging, MessagingConfig::Evm(_)));
+	}
+
+	#[tokio::test]
+	async fn autofill_skipped_when_both_fields_present() {
+		// Both fields explicit → no RPC call, parse succeeds even though the
+		// URL is bogus (proves we short-circuited before network access).
+		let cfg = parse(
+			r#"
+[chapel]
+type = "evm"
+state_machine = "EVM-97"
+rpc_urls = ["https://definitely-not-a-real-host.invalid"]
+consensus_state_id = "BSC0"
+ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
+signer = "0x00"
+"#,
+		)
+		.await
+		.expect("parse should succeed without hitting the network");
+
+		assert!(cfg.chains.contains_key(&StateMachine::Evm(97)));
+	}
+
+	#[tokio::test]
+	async fn autofill_requires_rpc_urls_when_fields_missing() {
+		// Missing state_machine AND ismp_host with empty rpc_urls → clear error,
+		// not a network timeout.
+		let err = parse(
+			r#"
+[chapel]
+type = "evm"
+rpc_urls = []
+consensus_state_id = "BSC0"
+signer = "0x00"
+"#,
+		)
+		.await
+		.expect_err("should fail: no rpc url to query");
+
+		let msg = format!("{err:?}");
+		assert!(
+			msg.contains("rpc_urls") || msg.contains("auto-derive"),
+			"error should mention missing rpc_urls, got: {msg}"
+		);
+	}
+
+	#[tokio::test]
+	async fn substrate_autofill_skipped_when_state_machine_present() {
+		// Explicit state_machine → no RPC call (proven by the bogus rpc_ws).
+		let cfg = parse(
+			r#"
+[asset_hub]
+type = "substrate"
+state_machine = "POLKADOT-1000"
+rpc_ws = "ws://definitely-not-a-real-host.invalid"
+signer = "0x00"
+"#,
+		)
+		.await
+		.expect("parse should succeed without hitting the network");
+
+		assert!(cfg.chains.contains_key(&StateMachine::Polkadot(1000)));
+	}
+
+	#[tokio::test]
+	async fn substrate_autofill_requires_rpc_ws_when_missing() {
+		let err = parse(
+			r#"
+[asset_hub]
+type = "substrate"
+signer = "0x00"
+"#,
+		)
+		.await
+		.err()
+		.expect("should fail: no rpc_ws to query");
+
+		let msg = format!("{err:?}");
+		assert!(
+			msg.contains("rpc_ws") || msg.contains("auto-derive"),
+			"error should mention missing rpc_ws, got: {msg}"
+		);
 	}
 }

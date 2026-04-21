@@ -48,8 +48,13 @@ impl Cli {
 		log::info!("🧊 Initializing tesseract consensus");
 
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
-		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, chains, .. } =
-			config.clone();
+		let HyperbridgeConfig { hyperbridge, relayer, chains, .. } = config.clone();
+		// This binary drives consensus + the BEEFY prover/host — it requires
+		// the full `[hyperbridge]` section. The consolidated `tesseract-relayer`
+		// doesn't, which is why this field is `Option`.
+		let hyperbridge_config = hyperbridge.ok_or_else(|| {
+			anyhow!("[hyperbridge] section required for the consensus/prover binary")
+		})?;
 
 		let tokio_handle = tokio::runtime::Handle::current();
 		let mut task_manager = TaskManager::new(tokio_handle, None)?;

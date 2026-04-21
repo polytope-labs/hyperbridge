@@ -41,8 +41,7 @@ use crate::{
 	about = "Consolidated Hyperbridge relayer — inbound messaging, inbound consensus, and outbound fan-out in one process",
 	long_about = "Reads one TOML config and spawns:\n\
 	\n\
-	  • Inbound messaging (chain ↔ Hyperbridge) for every chain in [chains.*]. Scoped\n\
-	    by `relayer.delivery_endpoints` when set.\n\
+	  • Inbound messaging (chain → Hyperbridge) for every chain in [chains.*].\n\
 	\n\
 	  • Inbound consensus (chain → Hyperbridge) only for chains that declare a\n\
 	    [chains.X.consensus] sub-table. Host essentials (rpc_urls, signer, ...) are\n\
@@ -152,14 +151,10 @@ impl Cli {
 		let mut outbound_fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>> =
 			HashMap::new();
 
-		// Inbound messaging — runs for every chain in scope.
+		// Inbound messaging — every chain in `[chains.*]` gets an inbound
+		// messaging task. There's no opt-in gate: if you configured the chain,
+		// you want its inbound messages relayed.
 		for (state_machine, provider) in &providers {
-			let messaging_in_scope = relayer.delivery_endpoints.is_empty() ||
-				relayer.delivery_endpoints.contains(&state_machine.to_string());
-			if !messaging_in_scope {
-				continue;
-			}
-
 			let mut hb_for_messaging =
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;

@@ -23,7 +23,6 @@
 //! hashing       = "Keccak"               # its output from the chain.
 //!
 //! [relayer]                              # operator knobs
-//! delivery_endpoints = ["EVM-1"]
 //!
 //! [<chain-name>]                         # one block per chain — messaging/host config
 //! type = "evm"
@@ -42,9 +41,10 @@
 //! # are inherited from the parent and do not need to be re-specified.
 //! ```
 //!
-//! `delivery_endpoints` scopes inbound messaging; presence of `[chain.consensus]`
-//! is the sole signal to spawn inbound consensus for that chain; per-chain
-//! `outbound` toggles whether the chain receives HB→chain fan-out (default on).
+//! Every chain with a `[<chain-name>]` block gets inbound messaging spawned
+//! automatically; presence of `[chain.consensus]` is the sole signal to spawn
+//! inbound consensus for that chain; per-chain `outbound` toggles whether the
+//! chain receives HB→chain fan-out (default on).
 
 use anyhow::{anyhow, Context};
 use ismp::host::StateMachine;
@@ -61,8 +61,6 @@ pub struct RelayerConfig {
 	pub module_filter: Option<Vec<String>>,
 	#[serde(default)]
 	pub minimum_profit_percentage: u32,
-	#[serde(default)]
-	pub delivery_endpoints: Vec<String>,
 	pub fisherman: Option<bool>,
 	pub withdrawal_frequency: Option<u64>,
 	pub minimum_withdrawal_amount: Option<u64>,
@@ -76,7 +74,6 @@ impl Default for RelayerConfig {
 		Self {
 			module_filter: None,
 			minimum_profit_percentage: 0,
-			delivery_endpoints: Vec::new(),
 			fisherman: None,
 			withdrawal_frequency: None,
 			minimum_withdrawal_amount: None,
@@ -95,7 +92,9 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 			withdrawal_frequency: config.withdrawal_frequency,
 			minimum_withdrawal_amount: config.minimum_withdrawal_amount,
 			unprofitable_retry_frequency: config.unprofitable_retry_frequency,
-			delivery_endpoints: config.delivery_endpoints,
+			// Unused by the consolidated relayer — every chain in `[chains.*]`
+			// gets inbound messaging spawned automatically.
+			delivery_endpoints: Vec::new(),
 			deliver_failed: config.deliver_failed,
 			fisherman: config.fisherman,
 			disable_fee_accumulation: config.disable_fee_accumulation,
@@ -345,7 +344,6 @@ signer = "0x00"
 
 [relayer]
 minimum_profit_percentage = 0
-delivery_endpoints = ["EVM-97"]
 "#;
 
 	async fn parse(body: &str) -> Result<HyperbridgeConfig, anyhow::Error> {

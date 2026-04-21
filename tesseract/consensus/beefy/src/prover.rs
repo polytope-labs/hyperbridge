@@ -430,7 +430,6 @@ where
 
 						let message = ConsensusProof {
 							finalized_height: commitment.commitment.block_number,
-							finalized_parachain_height,
 							set_id: next_set_id,
 							message: ConsensusMessage {
 								consensus_proof,
@@ -557,7 +556,6 @@ where
 
 				let message = ConsensusProof {
 					finalized_height: commitment.commitment.block_number,
-					finalized_parachain_height: latest_parachain_height,
 					set_id,
 					message: ConsensusMessage {
 						consensus_proof,

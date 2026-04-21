@@ -1,0 +1,93 @@
+# Example config for `tesseract-mandatory-relayer`.
+#
+# Layout: a single [hyperbridge] section (tesseract_beefy::BeefyConfig) plus one
+# [chains.<label>] section per EVM chain (tesseract_evm::EvmConfig).
+
+[hyperbridge]
+state_machine = "KUSAMA-4009"
+relay_rpc_ws = "wss://hyperbridge-paseo-relay.blockops.network:443"
+para_rpc_ws  = "wss://hyperbridge-paseo-rpc.blockops.network"
+para_ids     = [4009]
+hashing      = "Keccak"
+rpc_ws       = "wss://hyperbridge-paseo-rpc.blockops.network"
+signer       = "0xfCA0c05bEb9564AC154f55173881B4DD221A18A8"
+zk_beefy     = false
+
+[hyperbridge.host]
+consensus_state_id = [50, 41, 52, 41] # "2A4A"
+
+[hyperbridge.backend]
+type = "redis"
+url  = "127.0.0.1"
+port = 3000
+username = "default"
+password = "default"
+db       = 0
+ns       = "rsmq"
+tls      = false
+realtime = true
+mandatory_queue = "mandatory"
+messages_queue  = "messages"
+
+[chains.ethereum]
+rpc_urls           = ["https://rpc.ankr.com/eth"]
+state_machine      = "EVM-1"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.arbitrum]
+rpc_urls           = ["https://arb1.arbitrum.io/rpc"]
+state_machine      = "EVM-42161"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.optimism]
+rpc_urls           = ["https://mainnet.optimism.io"]
+state_machine      = "EVM-10"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.bsc]
+rpc_urls           = ["https://bsc-dataseed.bnbchain.org"]
+state_machine      = "EVM-56"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.base]
+rpc_urls           = ["https://mainnet.base.org"]
+state_machine      = "EVM-8453"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.polygon]
+rpc_urls           = ["https://polygon-rpc.com"]
+state_machine      = "EVM-137"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.unichain]
+rpc_urls           = ["https://mainnet.unichain.org"]
+state_machine      = "EVM-130"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.soneium]
+rpc_urls           = ["https://rpc.soneium.org"]
+state_machine      = "EVM-1868"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"
+
+[chains.gnosis]
+rpc_urls           = ["https://rpc.gnosischain.com"]
+state_machine      = "EVM-100"
+consensus_state_id = "PARA"
+ismp_host          = "0x0000000000000000000000000000000000000000"
+signer             = "/run/secrets/relayer_key"

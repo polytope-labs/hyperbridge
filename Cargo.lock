@@ -28078,6 +28078,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-admin-relayer"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "alloy-primitives 1.5.7",
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "async-trait",
+ "beefy-verifier-primitives",
+ "clap",
+ "futures",
+ "hex",
+ "ismp",
+ "ismp-solidity-abi",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "rustls 0.23.36",
+ "serde",
+ "serde_json",
+ "tesseract-beefy",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tokio",
+ "toml 0.7.8",
+ "tracing",
+ "tracing-subscriber 0.3.22",
+]
+
+[[package]]
 name = "tesseract-beefy"
 version = "0.1.0"
 dependencies = [

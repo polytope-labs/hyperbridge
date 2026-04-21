@@ -55,8 +55,6 @@ pub enum ProofBackendConfig {
 pub struct ConsensusProof {
 	/// The relay chain height finalized by this consensus message
 	pub finalized_height: u32,
-	/// The parachain height finalized by this consensus message
-	pub finalized_parachain_height: u64,
 	/// The validator set id responsible for signing this message
 	pub set_id: u64,
 	/// The consensus message in question

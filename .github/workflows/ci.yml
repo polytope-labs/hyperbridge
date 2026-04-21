@@ -55,6 +55,46 @@ env:
     PHAROS_ATLANTIC_RPC: ${{secrets.PHAROS_ATLANTIC_RPC}}
 
 jobs:
+    detect-changes:
+        name: Detect Changed Paths
+        runs-on: ubuntu-22.04
+        if: github.event.pull_request.draft != true
+        outputs:
+            pharos: ${{ steps.filter.outputs.pharos }}
+            sync-committee: ${{ steps.filter.outputs.sync-committee }}
+            tendermint: ${{ steps.filter.outputs.tendermint }}
+            bsc: ${{ steps.filter.outputs.bsc }}
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  token: ${{ secrets.GH_TOKEN }}
+                  fetch-depth: 0
+
+            - uses: dorny/paths-filter@v3
+              id: filter
+              with:
+                  filters: |
+                      pharos:
+                        - 'modules/consensus/pharos/**'
+                        - 'modules/ismp/clients/pharos/**'
+                        - 'modules/ismp/state-machines/pharos/**'
+                        - 'tesseract/consensus/pharos/**'
+                        - 'tesseract/messaging/pharos-evm/**'
+                      sync-committee:
+                        - 'modules/consensus/sync-committee/**'
+                        - 'modules/ismp/clients/sync-committee/**'
+                        - 'tesseract/consensus/sync-committee/**'
+                      tendermint:
+                        - 'modules/consensus/tendermint/**'
+                        - 'modules/ismp/clients/tendermint/**'
+                        - 'tesseract/consensus/tendermint/**'
+                        - 'tesseract/messaging/evm-tendermint/**'
+                      bsc:
+                        - 'modules/consensus/bsc/**'
+                        - 'modules/ismp/clients/bsc/**'
+                        - 'tesseract/consensus/bsc/**'
+
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
@@ -404,8 +444,9 @@ jobs:
 
     ethereum-tests:
         name: Ethereum Sync Committee Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.sync-committee == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -497,8 +538,9 @@ jobs:
 
     bsc-tests:
         name: Binance Smart Chain Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.bsc == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -577,8 +619,9 @@ jobs:
 
     tendermint-tests:
         name: Tendermint Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.tendermint == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -657,8 +700,9 @@ jobs:
 
     pharos-tests:
         name: Pharos Tests
+        needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.pharos == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess

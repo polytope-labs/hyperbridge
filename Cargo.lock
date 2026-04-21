@@ -8219,6 +8219,7 @@ dependencies = [
  "hyperbridge-client-machine",
  "ismp",
  "ismp-arbitrum",
+ "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-optimism",

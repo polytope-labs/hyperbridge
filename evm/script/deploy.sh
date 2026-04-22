@@ -289,6 +289,9 @@ for chain in "${CHAIN_ARRAY[@]}"; do
         gnosis-chiado)
             VERIFIER_FLAGS="--verifier blockscout --verifier-url https://gnosis-chiado.blockscout.com/api/ --verifier-api-key $GNOSIS_BLOCKSCOUT_API_KEY"
             ;;
+        polkadot-testnet)
+            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://blockscout-testnet.polkadot.io/api/"
+            ;;
     esac
 
     # Add flags based on mode
@@ -299,8 +302,7 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     fi
 
     if [ "$MODE" = "verify" ]; then
-        # Verify mode: use forge verify-contract directly from broadcast artifacts
-        # Resolve chain ID from RPC
+        # Verify mode: use broadcast artifacts to get tx hashes and verify each contract
         CHAIN_ID=$(cast chain-id --rpc-url $chain 2>/dev/null)
         if [ -z "$CHAIN_ID" ]; then
             echo -e "${RED}Failed to resolve chain ID for $chain${NC}"
@@ -317,37 +319,51 @@ for chain in "${CHAIN_ARRAY[@]}"; do
 
         echo -e "${GREEN}Verifying contracts from: $BROADCAST_FILE${NC}"
 
-        # Extract CREATE2 transactions and verify each contract
         VERIFY_FAILED=false
-        CONTRACTS=$(python3 -c "
+
+        # Extract contracts with their creation tx hashes from broadcast
+        python3 -c "
 import json
 with open('$BROADCAST_FILE') as f:
     data = json.load(f)
 for tx in data.get('transactions', []):
-    if tx.get('transactionType') == 'CREATE2' and tx.get('contractName') and tx.get('contractAddress'):
-        print(f\"{tx['contractName']}|{tx['contractAddress']}\")
-" 2>/dev/null)
-
-        # Map RPC alias names to forge --chain names
-        FORGE_CHAIN_NAME="$chain"
-        case $chain in
-            ethereum) FORGE_CHAIN_NAME="mainnet" ;;
-            gnosis) FORGE_CHAIN_NAME="xdai" ;;
-            inkchain) FORGE_CHAIN_NAME="ink" ;;
-        esac
-
-        while IFS='|' read -r contract_name contract_address; do
+    if tx.get('transactionType') == 'CREATE2' and tx.get('contractName') and tx.get('contractAddress') and tx.get('hash'):
+        print(f\"{tx['contractName']}|{tx['contractAddress']}|{tx['hash']}\")
+" 2>/dev/null | while IFS='|' read -r contract_name contract_address tx_hash; do
             [ -z "$contract_name" ] && continue
-            echo -e "  ${YELLOW}Verifying $contract_name at $contract_address...${NC}"
+            echo -e "  ${YELLOW}Verifying $contract_name at $contract_address (tx: ${tx_hash:0:16}...)${NC}"
 
-            if forge verify-contract "$contract_address" "$contract_name" \
-                --rpc-url "$chain" --chain "$FORGE_CHAIN_NAME" --watch --guess-constructor-args $VERIFIER_FLAGS 2>&1; then
+            # Use fully qualified name for ambiguous contracts
+            VERIFY_NAME="$contract_name"
+            case $contract_name in
+                SP1Verifier) VERIFY_NAME="lib/sp1-contracts/contracts/src/v6.1.0/SP1VerifierGroth16.sol:SP1Verifier" ;;
+            esac
+
+            # Map RPC alias names to forge --chain names
+            FORGE_CHAIN_NAME="$chain"
+            case $chain in
+                ethereum) FORGE_CHAIN_NAME="mainnet" ;;
+                gnosis) FORGE_CHAIN_NAME="xdai" ;;
+                inkchain) FORGE_CHAIN_NAME="ink" ;;
+            esac
+
+            # Skip --chain when custom verifier-url is set, to prevent
+            # Foundry's built-in chain→explorer mapping from overriding it
+            CHAIN_FLAG="--chain $FORGE_CHAIN_NAME"
+            if [[ "$VERIFIER_FLAGS" == *"--verifier-url"* ]]; then
+                CHAIN_FLAG=""
+            fi
+
+            if forge verify-contract "$contract_address" "$VERIFY_NAME" \
+                --rpc-url "$chain" $CHAIN_FLAG --watch \
+                --creation-transaction-hash "$tx_hash" \
+                $VERIFIER_FLAGS 2>&1; then
                 echo -e "  ${GREEN}✓ $contract_name verified${NC}"
             else
                 echo -e "  ${RED}✗ $contract_name verification failed${NC}"
                 VERIFY_FAILED=true
             fi
-        done <<< "$CONTRACTS"
+        done
 
         if [ "$VERIFY_FAILED" = false ]; then
             SUCCESSFUL_CHAINS+=("$chain")
@@ -423,3 +439,4 @@ else
     echo -e "${RED}✗ Some deployments failed${NC}"
     exit 1
 fi
+

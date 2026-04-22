@@ -46,11 +46,12 @@ pub const GAME_IMPLS_SLOT: u64 = 101;
 /// Slot for the l2Outputs array in the L2Oracle contract
 pub const L2_OUTPUTS_SLOT: u64 = 3;
 
-/// Slot of `claimData[]` inside a FaultDisputeGame proxy, for the pinned commit `f707883...`.
-/// Offset 4 bytes into element 0 is `counteredBy`.
-pub const FAULT_DISPUTE_CLAIM_DATA_SLOT: u64 = 3;
-/// Byte offset of `counteredBy` within the `ClaimData` struct's first word.
-pub const FAULT_DISPUTE_COUNTERED_BY_OFFSET: usize = 4;
+/// Slot of `claimData[]` inside a FaultDisputeGame proxy. Offset 4 bytes into element 0 is
+/// `counteredBy`. Matches the FaultDisputeGame implementation currently deployed across the
+/// Superchain (mainnet impl `0x6dDBa0…7499`) where `createdAt`/`resolvedAt`/`status` and
+/// assorted flags pack into slot 0 and `l2BlockNumberChallenger` takes slot 1, leaving
+/// `claimData` at slot 2.
+pub const FAULT_DISPUTE_CLAIM_DATA_SLOT: u64 = 2;
 
 /// Slot of `counteredByIntermediateRootIndexPlusOne` inside Base's AggregateVerifier.
 /// The value is `0` for unchallenged games and `intermediateRootIndex + 1` once challenged.
@@ -449,11 +450,16 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// offset 4. Viewed as a big-endian byte array, parentIndex occupies word[28..32]
 			// and counteredBy occupies word[8..28]. Absence is invalid here — a registered
 			// game must have written its root claim.
-			let slot_key = H::keccak256(
+			//
+			// The MPT trie path for a storage slot is `keccak256(storage_key)`, so we hash
+			// once more here: the storage key for the array's first element is itself a
+			// keccak256 of the slot number.
+			let storage_key = H::keccak256(
 				&U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian(),
 			);
+			let trie_path = H::keccak256(&storage_key.0);
 			let value = get_value_from_proof::<H>(
-				slot_key.0.to_vec(),
+				trie_path.0.to_vec(),
 				proxy_storage_root,
 				challenge_proof,
 			)?
@@ -483,7 +489,8 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// offset 4 within the struct. In the 32-byte storage word (big-endian), fields are
 			// laid out right-to-left: counteredBy occupies bytes [8..28] from the left, parentIndex
 			// occupies bytes [28..32].
-			if word[8..28].iter().any(|b| *b != 0) {
+			const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
+			if &word[8..28] != ZERO_ADDRESS.as_slice() {
 				Err(Error::MembershipProofVerificationFailed(
 					"FaultDisputeGame has been challenged: claimData[0].counteredBy != 0"
 						.to_string(),
@@ -495,9 +502,12 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// `counteredByIntermediateRootIndexPlusOne` is a uint256 at a fixed slot.
 			// Unchallenged <=> value is zero, which in the storage trie means either absent or
 			// encoded as zero. `get_value_from_proof` returns `None` for absent keys.
-			let slot_key = H256(U256::from(AGGREGATE_VERIFIER_COUNTERED_BY_SLOT).to_big_endian());
+			//
+			// The MPT trie path for a direct storage slot is `keccak256(slot)`.
+			let storage_key = H256(U256::from(AGGREGATE_VERIFIER_COUNTERED_BY_SLOT).to_big_endian());
+			let trie_path = H::keccak256(&storage_key.0);
 			let value = get_value_from_proof::<H>(
-				slot_key.0.to_vec(),
+				trie_path.0.to_vec(),
 				proxy_storage_root,
 				challenge_proof,
 			)?;
@@ -513,7 +523,17 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 						})?
 						.0
 						.to_vec();
-					if raw.iter().any(|b| *b != 0) {
+					if raw.len() > 32 {
+						Err(Error::Custom(
+							"counteredByIntermediateRootIndexPlusOne value longer than 32 bytes"
+								.to_string(),
+						))?
+					}
+					// RLP strips leading zeros from the stored uint256. Compare against a slice
+					// of zeros of the same length: any non-zero byte means the value is non-zero
+					// and the game has been challenged.
+					const ZERO_WORD: [u8; 32] = [0u8; 32];
+					if raw.as_slice() != &ZERO_WORD[..raw.len()] {
 						Err(Error::MembershipProofVerificationFailed(
 							"AggregateVerifier game has been challenged: \
 							counteredByIntermediateRootIndexPlusOne != 0"

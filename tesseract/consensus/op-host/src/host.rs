@@ -26,7 +26,7 @@ use sync_committee_prover::{
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd, tx::get_chain_gas_limit, AlloySignerProvider,
 };
-use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
+use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated, StorageKey};
 
 use crate::{
 	abi::{DisputeGameFactory, FaultDisputeGame},
@@ -44,8 +44,8 @@ async fn fetch_game_type_configs(
 	counterparty: &Arc<dyn IsmpProvider>,
 	state_machine_id: StateMachineId,
 ) -> Result<Option<Vec<GameTypeConfig>>, anyhow::Error> {
-	let key = optimism_game_type_configs_storage_key(state_machine_id);
-	let Some(raw) = counterparty.query_pallet_storage(key).await? else {
+	let key = StorageKey::Substrate(optimism_game_type_configs_storage_key(state_machine_id));
+	let Some(raw) = counterparty.query_storage(key).await? else {
 		return Ok(None);
 	};
 	let (_factory, configs): (H160, Vec<GameTypeConfig>) = Decode::decode(&mut &*raw)
@@ -190,6 +190,7 @@ impl IsmpHost for OpHost {
 				consensus_state_id: self.l1_consensus_state_id,
 			},
 			optimism_consensus_type: Some(OpFaultProofGames),
+			game_type_configs: None,
 		};
 
 		state_machine_commitments.push((

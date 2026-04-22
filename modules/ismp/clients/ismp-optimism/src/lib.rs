@@ -35,8 +35,8 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use op_verifier::{
-	OptimismDisputeGameProof, OptimismPayloadProof, verify_optimism_dispute_game_proof,
-	verify_optimism_payload,
+	GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
+	verify_optimism_dispute_game_proof, verify_optimism_payload,
 };
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
@@ -47,6 +47,11 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
+	/// Per-game-type verification configuration for `OpFaultProofGames`. See
+	/// [`op_verifier::GameTypeConfig`]. The op-host reads the authoritative configuration from
+	/// the `IsmpOptimism` pallet on Hyperbridge; this field is retained as informational
+	/// metadata on the consensus state.
+	pub game_type_configs: Option<Vec<GameTypeConfig>>,
 }
 
 #[derive(Encode, Decode)]

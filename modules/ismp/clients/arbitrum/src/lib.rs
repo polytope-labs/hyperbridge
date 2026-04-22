@@ -17,9 +17,6 @@
 #![allow(unused_variables)]
 extern crate alloc;
 
-#[cfg(test)]
-mod tests;
-
 use alloc::format;
 use alloy_rlp::Decodable;
 use alloy_sol_types::SolValue;

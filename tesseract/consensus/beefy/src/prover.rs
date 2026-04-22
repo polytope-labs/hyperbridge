@@ -238,9 +238,9 @@ where
 				};
 
 				// filter out destinations that the prover isn't configured for
-				// empty state_machines means prove all
 				if self.config.state_machines.is_empty() {
-					return Some(event);
+					// When no state machines configured, prove all EVM destinations
+					return matches!(dest, StateMachine::Evm(_)).then_some(event);
 				}
 				self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
 			})

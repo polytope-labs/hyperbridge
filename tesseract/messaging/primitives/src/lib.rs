@@ -44,6 +44,33 @@ pub struct ProofAccepted {
 pub trait ConsensusProofSource: Send + Sync {
 	/// Fetch the proof bytes that advanced the parachain to `height`.
 	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// Return every stored rotation proof with `set_id > from_set_id`,
+	/// ordered ascending by set_id. Used by outbound to catch a lagging EVM
+	/// destination up across multiple authority-set epochs before submitting
+	/// the current update — BEEFY verification on the destination rejects a
+	/// messaging proof whose set_id is ahead of the locally-known authorities.
+	///
+	/// The default implementation returns an empty vec so mock / test
+	/// implementations don't have to care.
+	async fn rotation_proofs_from(
+		&self,
+		_from_set_id: u64,
+	) -> Result<Vec<RotationProof>, anyhow::Error> {
+		Ok(Vec::new())
+	}
+}
+
+/// One entry of [`ConsensusProofSource::rotation_proofs_from`]: a rotation
+/// proof plus the `(set_id, height)` it rotated the parachain to.
+#[derive(Debug, Clone)]
+pub struct RotationProof {
+	/// The BEEFY authority set id the parachain rotated to.
+	pub set_id: u64,
+	/// The parachain height the proof advanced to.
+	pub height: u64,
+	/// Raw `payload.proof` bytes to wrap in a `ConsensusMessage`.
+	pub proof: Vec<u8>,
 }
 
 /// BEEFY `ConsensusStateId` — matches the solidity `BEEFY_CONSENSUS_ID` and

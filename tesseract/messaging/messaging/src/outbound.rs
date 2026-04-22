@@ -18,6 +18,7 @@ use std::{
 	sync::Arc,
 };
 
+use codec::Decode;
 use futures::{stream::FuturesUnordered, StreamExt};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
@@ -26,13 +27,19 @@ use ismp::{
 	messaging::{ConsensusMessage, Message},
 };
 use tesseract_primitives::{
-	config::RelayerConfig, ConsensusProofSource, IsmpProvider, ProofAccepted, StateMachineUpdated,
-	TxReceipt, BEEFY_CONSENSUS_STATE_ID,
+	config::RelayerConfig, ConsensusProofSource, IsmpProvider, ProofAccepted, RotationProof,
+	StateMachineUpdated, TxReceipt, BEEFY_CONSENSUS_STATE_ID,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
 
 use crate::events::translate_events_to_messages;
+
+/// Cap on consensus proofs bundled into a single `submit` call. EVM destinations
+/// enforce calldata and gas limits that a large rotation catch-up would blow
+/// through — three BEEFY proofs is the empirical ceiling that still fits under
+/// mainnet block gas on the hottest destinations.
+const MAX_CONSENSUS_PROOFS_PER_BATCH: usize = 3;
 
 pub async fn run(
 	hyperbridge: Arc<dyn IsmpProvider>,
@@ -118,6 +125,7 @@ pub async fn run(
 					coprocessor,
 					client_map.clone(),
 					fee_sender,
+					proof_source.clone(),
 				)
 				.instrument(dest_span),
 			);
@@ -147,6 +155,7 @@ async fn submit_for_dest(
 	coprocessor: StateMachine,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
+	proof_source: Arc<dyn ConsensusProofSource>,
 ) -> Result<(), anyhow::Error> {
 	let dest_state_machine = dest.state_machine_id().state_id;
 
@@ -165,6 +174,20 @@ async fn submit_for_dest(
 		// messaging proofs remain verifiable on the destination.
 		tracing::trace!(target: "tesseract", "skipping — no events for this chain, not mandatory");
 		return Ok(());
+	}
+
+	// Bring the destination's BEEFY light client up to HB's current
+	// authority-set id before submitting the current update. A messaging
+	// proof whose set_id is ahead of the destination's locally-known
+	// authorities gets rejected by the BEEFY verifier, so any missing
+	// rotations have to land first. Best-effort: if we can't read the
+	// destination's consensus state we assume it's current and fall through.
+	if let Err(err) = catch_up_rotations(&hyperbridge, &dest, &proof_source).await {
+		tracing::warn!(
+			target: "tesseract",
+			?err,
+			"rotation catch-up failed; proceeding with current update",
+		);
 	}
 
 	let mut batch: Vec<Message> = vec![Message::Consensus(ConsensusMessage {
@@ -223,6 +246,104 @@ async fn submit_for_dest(
 	Ok(())
 }
 
+/// Read the BEEFY `current_authorities.id` out of a SCALE-encoded
+/// [`beefy_verifier_primitives::ConsensusState`]. Returns `None` when the
+/// bytes can't be decoded — treated by callers as "assume it's in sync".
+fn decode_current_set_id(encoded: &[u8]) -> Option<u64> {
+	beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
+		.ok()
+		.map(|s| s.current_authorities.id)
+}
+
+/// If the destination's BEEFY `current_authorities.id` is behind HB's, fetch
+/// every intervening rotation proof and submit them before the current update
+/// lands. Rotations are submitted in chunks of
+/// [`MAX_CONSENSUS_PROOFS_PER_BATCH`] to stay inside EVM calldata/gas limits.
+///
+/// This is a best-effort catch-up: any failure (stale offchain proofs, submit
+/// reverts on one chunk) is logged and surfaced to the caller, which then
+/// decides whether to still attempt the current update.
+async fn catch_up_rotations(
+	hyperbridge: &Arc<dyn IsmpProvider>,
+	dest: &Arc<dyn IsmpProvider>,
+	proof_source: &Arc<dyn ConsensusProofSource>,
+) -> Result<(), anyhow::Error> {
+	let dest_consensus = dest
+		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
+		.await
+		.map_err(|err| anyhow::anyhow!("query dest consensus_state: {err:?}"))?;
+	let Some(dest_set_id) = decode_current_set_id(&dest_consensus) else {
+		tracing::debug!(
+			target: "tesseract",
+			"dest consensus state undecodable; skipping rotation catch-up",
+		);
+		return Ok(());
+	};
+
+	let hb_consensus = hyperbridge
+		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
+		.await
+		.map_err(|err| anyhow::anyhow!("query hb consensus_state: {err:?}"))?;
+	let Some(hb_set_id) = decode_current_set_id(&hb_consensus) else {
+		tracing::debug!(
+			target: "tesseract",
+			"hb consensus state undecodable; skipping rotation catch-up",
+		);
+		return Ok(());
+	};
+
+	if dest_set_id >= hb_set_id {
+		return Ok(());
+	}
+
+	let rotations: Vec<RotationProof> = proof_source
+		.rotation_proofs_from(dest_set_id)
+		.await
+		.map_err(|err| anyhow::anyhow!("rotation_proofs_from({dest_set_id}): {err:?}"))?;
+	if rotations.is_empty() {
+		tracing::debug!(
+			target: "tesseract",
+			dest_set_id,
+			hb_set_id,
+			"dest is lagging but no rotation proofs are cached on HB",
+		);
+		return Ok(());
+	}
+
+	tracing::info!(
+		target: "tesseract",
+		dest_set_id,
+		hb_set_id,
+		rotations = rotations.len(),
+		"catching destination up across authority-set epochs",
+	);
+
+	for chunk in rotations.chunks(MAX_CONSENSUS_PROOFS_PER_BATCH) {
+		let batch: Vec<Message> = chunk
+			.iter()
+			.map(|r| {
+				Message::Consensus(ConsensusMessage {
+					consensus_proof: r.proof.clone(),
+					consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
+					signer: dest.address(),
+				})
+			})
+			.collect();
+		let first = chunk.first().map(|r| r.set_id).unwrap_or_default();
+		let last = chunk.last().map(|r| r.set_id).unwrap_or_default();
+		tracing::info!(
+			target: "tesseract",
+			from_set_id = first,
+			to_set_id = last,
+			msgs = batch.len(),
+			"submitting rotation batch",
+		);
+		dest.submit(batch, hyperbridge.state_machine_id().state_id).await?;
+	}
+
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -265,6 +386,23 @@ mod tests {
 		MockHost::new((), 0, state_machine).with_address(vec![0xab])
 	}
 
+	/// Test double for `ConsensusProofSource`: `fetch` returns a sentinel blob,
+	/// `rotation_proofs_from` hands back the empty vec (tests don't exercise
+	/// the catch-up path — `MockHost::query_consensus_state` returns bytes
+	/// that fail to decode as a BEEFY `ConsensusState`, so catch-up is
+	/// short-circuited before `rotation_proofs_from` would fire).
+	struct NoopProofSource;
+	#[async_trait::async_trait]
+	impl ConsensusProofSource for NoopProofSource {
+		async fn fetch(&self, _height: u64) -> Result<Vec<u8>, anyhow::Error> {
+			Ok(vec![0xcc])
+		}
+	}
+
+	fn proof_source() -> Arc<dyn ConsensusProofSource> {
+		Arc::new(NoopProofSource)
+	}
+
 	fn hb_id() -> StateMachineId {
 		StateMachineId { state_id: HB, consensus_state_id: *b"BEEF" }
 	}
@@ -299,6 +437,7 @@ mod tests {
 			HB,
 			client_map,
 			None,
+			proof_source(),
 		)
 		.await
 		.unwrap();
@@ -329,6 +468,7 @@ mod tests {
 			HB,
 			client_map,
 			None,
+			proof_source(),
 		)
 		.await
 		.unwrap();
@@ -364,6 +504,7 @@ mod tests {
 			HB,
 			client_map,
 			None,
+			proof_source(),
 		)
 		.await
 		.unwrap();
@@ -402,6 +543,7 @@ mod tests {
 			HB,
 			client_map,
 			None,
+			proof_source(),
 		)
 		.await
 		.unwrap();

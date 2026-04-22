@@ -28461,6 +28461,7 @@ name = "tesseract-messaging"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "beefy-verifier-primitives",
  "futures",
  "hex",
  "ismp",
@@ -28468,6 +28469,7 @@ dependencies = [
  "itertools 0.13.0",
  "pallet-ismp",
  "pallet-state-coprocessor",
+ "parity-scale-codec",
  "percentage",
  "polkadot-sdk",
  "primitive-types 0.13.1",
@@ -28592,6 +28594,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "serde",
  "sp-consensus-beefy",
+ "sp-core",
  "subxt 0.42.1",
  "subxt-utils",
  "tempfile",

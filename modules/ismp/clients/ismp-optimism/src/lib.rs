@@ -47,7 +47,6 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
-	pub respected_game_types: Option<Vec<u32>>,
 }
 
 #[derive(Encode, Decode)]
@@ -156,14 +155,14 @@ impl<
 				}
 			},
 			OptimismConsensusProof::OpFaultProofGames(dispute_proof) => {
-				if let Some((dispute_game_factory, respected_game_types)) =
+				if let Some((dispute_game_factory, game_type_configs)) =
 					Pallet::<T>::state_machines_dispute_game_factories_types(state_machine_id)
 				{
 					let state = verify_optimism_dispute_game_proof::<H>(
 						dispute_proof,
 						state_root,
 						dispute_game_factory,
-						respected_game_types,
+						game_type_configs,
 						consensus_state_id.clone(),
 					)?;
 

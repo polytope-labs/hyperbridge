@@ -13504,6 +13504,7 @@ dependencies = [
  "serde",
  "serde-hex-utils",
  "sp-core",
+ "subxt-utils",
  "sync-committee-primitives",
  "sync-committee-prover",
  "tesseract-evm",
@@ -13528,6 +13529,7 @@ dependencies = [
  "ismp",
  "parity-scale-codec",
  "primitive-types 0.13.1",
+ "scale-info",
 ]
 
 [[package]]

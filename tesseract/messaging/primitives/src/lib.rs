@@ -252,6 +252,16 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
+	/// Fetch the SCALE-encoded value at a substrate pallet storage key. L2 consensus hosts use
+	/// this to read configuration (e.g. dispute-game factory settings) from companion pallets on
+	/// Hyperbridge. Non-substrate implementations return an error.
+	async fn query_pallet_storage(
+		&self,
+		_key: Vec<u8>,
+	) -> Result<Option<Vec<u8>>, anyhow::Error> {
+		Err(anyhow!("query_pallet_storage is not supported on {}", self.name()))
+	}
+
 	/// Query all ismp events on naive that can be processed for a [`StateMachineUpdated`]
 	/// event on the counterparty
 	async fn query_ismp_events(

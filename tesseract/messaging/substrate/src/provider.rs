@@ -110,6 +110,19 @@ where
 		Ok(block.number().into())
 	}
 
+	async fn query_pallet_storage(
+		&self,
+		key: Vec<u8>,
+	) -> Result<Option<Vec<u8>>, anyhow::Error> {
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+		let raw = self.client.storage().at(block_hash).fetch_raw(key).await?;
+		Ok(raw)
+	}
+
 	async fn query_state_machine_update_time(
 		&self,
 		height: StateMachineHeight,

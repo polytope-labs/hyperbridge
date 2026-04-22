@@ -36,9 +36,6 @@ mod tests;
 pub struct OpConfig {
 	/// OpStack Host config
 	pub host: HostConfig,
-	/// General Evm client config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,15 +74,12 @@ pub struct ProposerConfig {
 }
 
 impl OpConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = OpHost::new(&self.host, &self.evm_config).await?;
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client = OpHost::new(&self.host, &evm_config).await?;
 
 		Ok(Arc::new(client))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
 	}
 }
 

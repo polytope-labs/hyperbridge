@@ -10,7 +10,10 @@ use std::{
 use substrate_state_machine::HashAlgorithm;
 use tesseract_beefy::backend::ProofBackend;
 use tesseract_primitives::IsmpHost;
-use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
+use tesseract_substrate::{
+	config::{Blake2SubstrateChain, KeccakSubstrateChain},
+	SubstrateConfig,
+};
 use tesseract_sync_committee::L2Config;
 
 use crate::{
@@ -72,7 +75,7 @@ impl Cli {
 			beefy_host.backend.init_queues(&state_machines).await?;
 		}
 
-		let clients = create_client_map(config.clone()).await?;
+		let clients = create_client_map(chains.clone()).await?;
 		let relayer = relayer.unwrap_or_default();
 
 		if let Some(ref state_machine_str) = self.base {
@@ -159,22 +162,48 @@ impl Cli {
 	}
 }
 
-/// Extract all Eth L2 configs from the configurations provided
+/// Host-side config paired with a consensus variant. EVM-family consensus
+/// clients need an [`EvmConfig`]; grandpa needs a [`SubstrateConfig`].
+#[derive(Debug, Clone)]
+pub enum HostKind {
+	Evm(tesseract_evm::EvmConfig),
+	Substrate(SubstrateConfig),
+}
+
+impl HostKind {
+	pub fn as_evm(&self) -> Option<&tesseract_evm::EvmConfig> {
+		match self {
+			HostKind::Evm(e) => Some(e),
+			_ => None,
+		}
+	}
+	pub fn as_substrate(&self) -> Option<&SubstrateConfig> {
+		match self {
+			HostKind::Substrate(s) => Some(s),
+			_ => None,
+		}
+	}
+}
+
+/// Extract all Eth L2 configs from the consensus/host pairings provided.
+/// Keeps the paired `EvmConfig` alongside each variant because the inner L2
+/// host constructors need it.
 fn extract_l2_configs(
 	supported_l2s: Vec<String>,
-	config_map: HashMap<StateMachine, AnyConfig>,
+	config_map: HashMap<StateMachine, (AnyConfig, HostKind)>,
 ) -> BTreeMap<StateMachine, L2Config> {
 	let mut map = BTreeMap::new();
-	for (state_machine, config) in config_map
+	for (state_machine, (config, host)) in config_map
 		.into_iter()
 		.filter(|(state_machine, ..)| supported_l2s.contains(&state_machine.to_string()))
 	{
+		let HostKind::Evm(evm) = host else { continue };
 		match config {
-			AnyConfig::ArbitrumOrbit(arb_orbit_config) => {
-				map.insert(state_machine, L2Config::ArbitrumOrbit(arb_orbit_config));
+			AnyConfig::ArbitrumOrbit(arb) => {
+				map.insert(state_machine, L2Config::ArbitrumOrbit(arb, evm));
 			},
-			AnyConfig::OpStack(op_config) => {
-				map.insert(state_machine, L2Config::OpStack(op_config));
+			AnyConfig::OpStack(op) => {
+				map.insert(state_machine, L2Config::OpStack(op, evm));
 			},
 			_ => {},
 		}
@@ -183,92 +212,69 @@ fn extract_l2_configs(
 	map
 }
 
-/// Create a map of all clients supplied in config
+/// Create a map of all clients supplied in config.
+///
+/// Each chain entry now comes as a `(AnyConfig, HostKind)` pair: the
+/// consensus variant and the host-side config (EVM or Substrate) the
+/// consensus struct no longer embeds itself.
 pub async fn create_client_map(
-	config: HyperbridgeConfig,
+	chains: HashMap<StateMachine, (AnyConfig, HostKind)>,
 ) -> anyhow::Result<HashMap<StateMachine, Arc<dyn IsmpHost>>> {
-	let HyperbridgeConfig { chains, .. } = config.clone();
 	let mut clients = HashMap::new();
 
-	for (state_machine, config) in chains.clone() {
-		let client = match config {
-			AnyConfig::Sepolia(config) => {
+	// Snapshot for l2 resolution (each call into_* consumes its entry).
+	let l2_source = chains.clone();
+
+	for (state_machine, (config, host)) in chains {
+		let client = match (config, host) {
+			(AnyConfig::Sepolia(config), HostKind::Evm(evm)) => {
 				let l2_configs = extract_l2_configs(
 					config.layer_twos.clone().unwrap_or_default(),
-					chains.clone(),
+					l2_source.clone(),
 				);
-				let client = config.into_sepolia(l2_configs).await?;
-				client
+				config.into_sepolia(evm, l2_configs).await?
 			},
-			AnyConfig::Ethereum(config) => {
+			(AnyConfig::Ethereum(config), HostKind::Evm(evm)) => {
 				let l2_configs = extract_l2_configs(
 					config.layer_twos.clone().unwrap_or_default(),
-					chains.clone(),
+					l2_source.clone(),
 				);
-				let client = config.into_mainnet(l2_configs).await?;
-				client
+				config.into_mainnet(evm, l2_configs).await?
 			},
-			AnyConfig::ArbitrumOrbit(config) => {
-				let client = config.into_client().await?;
-				client
+			(AnyConfig::ArbitrumOrbit(config), HostKind::Evm(evm)) =>
+				config.into_client(evm).await?,
+			(AnyConfig::OpStack(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
+			(AnyConfig::BscTestnet(config), HostKind::Evm(evm)) =>
+				config.into_client::<tesseract_bsc::Testnet>(evm).await?,
+			(AnyConfig::Bsc(config), HostKind::Evm(evm)) =>
+				config.into_client::<tesseract_bsc::Mainnet>(evm).await?,
+			(AnyConfig::Chiado(config), HostKind::Evm(evm)) => config.into_chiado(evm).await?,
+			(AnyConfig::Gnosis(config), HostKind::Evm(evm)) => config.into_gnosis(evm).await?,
+			(AnyConfig::Polygon(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
+			(AnyConfig::Tendermint(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
+			(AnyConfig::EvmHost(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
+			(AnyConfig::Pharos(config), HostKind::Evm(evm)) => match evm.state_machine {
+				StateMachine::Evm(688689) =>
+					config.into_client::<pharos_primitives::Testnet>(evm).await?,
+				_ => config.into_client::<pharos_primitives::Mainnet>(evm).await?,
 			},
-			AnyConfig::OpStack(config) => {
-				let client = config.into_client().await?;
-				client
+			(AnyConfig::Grandpa(config), HostKind::Substrate(substrate)) => {
+				match substrate.hashing {
+					Some(HashAlgorithm::Keccak) =>
+						config
+							.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(substrate)
+							.await?,
+					_ =>
+						config
+							.into_client::<Blake2SubstrateChain, Blake2SubstrateChain>(substrate)
+							.await?,
+				}
 			},
-			AnyConfig::BscTestnet(config) => {
-				let client = config.into_client::<tesseract_bsc::Testnet>().await?;
-				client
-			},
-			AnyConfig::Bsc(config) => {
-				let client = config.into_client::<tesseract_bsc::Mainnet>().await?;
-				client
-			},
-
-			AnyConfig::Chiado(config) => {
-				let client = config.into_chiado().await?;
-				client
-			},
-
-			AnyConfig::Gnosis(config) => {
-				let client = config.into_gnosis().await?;
-				client
-			},
-			AnyConfig::Polygon(config) => {
-				let client = config.into_client().await?;
-				client
-			},
-
-			AnyConfig::Tendermint(config) => {
-				let client = config.into_client().await?;
-				client
-			},
-
-			AnyConfig::EvmHost(config) => {
-				let client = config.into_client().await?;
-				client
-			},
-
-			AnyConfig::Pharos(config) => {
-				let client = match config.state_machine() {
-					StateMachine::Evm(688689) =>
-						config.into_client::<pharos_primitives::Testnet>().await?,
-					_ => config.into_client::<pharos_primitives::Mainnet>().await?,
-				};
-				client
-			},
-
-			AnyConfig::Grandpa(config) => match config.substrate.hashing {
-				Some(HashAlgorithm::Keccak) => {
-					let client =
-						config.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>().await?;
-					client
-				},
-				_ => {
-					let client =
-						config.into_client::<Blake2SubstrateChain, Blake2SubstrateChain>().await?;
-					client
-				},
+			(variant, host) => {
+				return Err(anyhow!(
+					"incompatible (consensus, host) pairing for {state_machine}: {variant:?} with \
+					 {host:?}"
+				));
 			},
 		};
 		clients.insert(state_machine, client);

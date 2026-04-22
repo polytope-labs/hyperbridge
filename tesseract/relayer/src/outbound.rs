@@ -210,9 +210,10 @@ async fn submit_for_dest(
 	}
 
 	tracing::info!(msgs = batch.len(), "submitting batch");
-	// `submit_batch` falls back to serial `submit` for chains that don't override
-	// it; EVM chains dispatch the whole batch in a single HandlerV2.batchCall tx.
-	let result = dest.submit_batch(batch, hb_state_machine_id.state_id).await?;
+	// `submit` transparently picks the right transport — EVM destinations
+	// whose handler supports IHandlerV2 dispatch the whole batch as a single
+	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
+	let result = dest.submit(batch, hb_state_machine_id.state_id).await?;
 
 	// Forward receipts for fee accumulation (best-effort — channel may be
 	// closed if the relayer is shutting down).

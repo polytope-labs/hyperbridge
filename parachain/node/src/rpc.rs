@@ -51,6 +51,11 @@ pub struct FullDeps<C, P, B> {
 }
 
 /// Instantiate all RPC extensions.
+///
+/// Runtime-specific extras (e.g. the BEEFY consensus proofs RPC which only
+/// exists on Gargantua) are not wired here — the node-side caller appends
+/// them via a runtime-specific closure so the trait bounds for optional
+/// runtime APIs don't leak into every runtime the node can host.
 pub fn create_full<C, P, B>(
 	deps: FullDeps<C, P, B>,
 ) -> Result<RpcExtension, Box<dyn std::error::Error + Send + Sync>>
@@ -99,4 +104,28 @@ where
 	)?;
 
 	Ok(module)
+}
+
+/// Merge the gargantua-only RPC extensions (currently: the BEEFY consensus
+/// proofs range-query RPC) into `module`. Called from the gargantua branch of
+/// the node's runtime dispatch so Nexus never sees the bound.
+pub fn extend_with_gargantua<C>(
+	module: &mut RpcExtension,
+	client: Arc<C>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+	C: ProvideRuntimeApi<Block>
+		+ HeaderBackend<Block>
+		+ BlockBackend<Block>
+		+ Send
+		+ Sync
+		+ 'static,
+	C::Api: pallet_beefy_consensus_proofs_runtime_api::BeefyConsensusProofsRuntimeApi<opaque::Block>,
+{
+	use pallet_beefy_consensus_proofs_rpc::{
+		BeefyConsensusProofsApiServer, BeefyConsensusProofsRpcHandler,
+	};
+
+	module.merge(BeefyConsensusProofsRpcHandler::new(client).into_rpc())?;
+	Ok(())
 }

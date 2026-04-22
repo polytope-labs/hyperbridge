@@ -11,6 +11,7 @@ publish = false
 codec = { workspace = true }
 scale-info = { workspace = true }
 log = { workspace = true }
+serde = { workspace = true, features = ["derive"], optional = true }
 
 # ismp
 ismp = { workspace = true, default-features = false }
@@ -49,6 +50,7 @@ std = [
     "codec/std",
     "scale-info/std",
     "log/std",
+    "serde",
     "ismp/std",
     "pallet-ismp/std",
     "ismp-beefy/std",

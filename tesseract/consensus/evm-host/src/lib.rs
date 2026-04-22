@@ -21,22 +21,17 @@ use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod host;
 
-/// Configuration for the EVM Host consensus client
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvmHostConfig {
-	/// General EVM config
-	#[serde(flatten)]
-	pub evm_config: EvmConfig,
-}
+/// Configuration for the EVM Host consensus client. Empty — this variant
+/// is a marker that the chain uses the generic EVM consensus-less path;
+/// the caller supplies the `EvmConfig` at construction time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EvmHostConfig {}
 
 impl EvmHostConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(EvmHost::new(&self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(EvmHost::new(&evm_config).await?))
 	}
 }
 

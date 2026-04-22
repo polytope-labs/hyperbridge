@@ -28,17 +28,15 @@ async fn test_payload_proof_verification() {
 		consensus_update_frequency: None,
 	};
 	let signing_key = std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
-	let config = OpConfig {
-		host: host.clone(),
-		evm_config: EvmConfig {
-			rpc_urls: vec![op_orl],
-			consensus_state_id: "ETH0".to_string(),
-			signer: signing_key,
-			..Default::default()
-		},
+	let evm_config = EvmConfig {
+		rpc_urls: vec![op_orl],
+		consensus_state_id: "ETH0".to_string(),
+		signer: signing_key,
+		..Default::default()
 	};
+	let _config = OpConfig { host: host.clone() };
 
-	let op_client = OpHost::new(&host, &config.evm_config).await.expect("Host creation failed");
+	let op_client = OpHost::new(&host, &evm_config).await.expect("Host creation failed");
 
 	let event = op_client
 		.latest_event(5519662, 5519662)
@@ -86,17 +84,15 @@ async fn test_dispute_game_proof_verification() {
 		consensus_update_frequency: None,
 	};
 	let signing_key = std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
-	let config = OpConfig {
-		host: host.clone(),
-		evm_config: EvmConfig {
-			rpc_urls: vec![op_orl],
-			consensus_state_id: "ETH0".to_string(),
-			signer: signing_key,
-			..Default::default()
-		},
+	let evm_config = EvmConfig {
+		rpc_urls: vec![op_orl],
+		consensus_state_id: "ETH0".to_string(),
+		signer: signing_key,
+		..Default::default()
 	};
+	let _config = OpConfig { host: host.clone() };
 
-	let op_client = OpHost::new(&host, &config.evm_config).await.expect("Host creation failed");
+	let op_client = OpHost::new(&host, &evm_config).await.expect("Host creation failed");
 
 	// Use recent L1 (Sepolia) block range where dispute game events exist.
 	let from_block = 10291800u64;

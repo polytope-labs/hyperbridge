@@ -5,28 +5,32 @@
 
 //! Auto-derivation helpers for substrate chains.
 //!
-//! Given just a WebSocket RPC URL, queries `system_chain` + ParachainInfo
-//! storage and produces the canonical ISMP [`StateMachine`] variant. Used by
-//! the consolidated relayer to spare operators from writing `state_machine =
-//! "POLKADOT-1000"` when the RPC already knows.
+//! Given just a WebSocket RPC URL, asks the chain's runtime for its canonical
+//! ISMP [`StateMachine`] via the `IsmpRuntimeApi::host_state_machine` runtime
+//! API. Used by the consolidated relayer to spare operators from writing
+//! `state_machine = "POLKADOT-1000"` when the runtime already knows.
+//!
+//! Requires the chain to expose `pallet-ismp` with its runtime API. Chains
+//! without ISMP cannot be auto-derived and must set `state_machine` explicitly.
 
 use anyhow::{anyhow, Context};
+use codec::Decode;
 use ismp::host::StateMachine;
 use subxt::{
 	backend::rpc::RpcClient,
 	ext::subxt_rpcs::{client::reconnecting_rpc_client::RpcClientBuilder, rpc_params},
 };
 
-/// twox_128("ParachainInfo") || twox_128("ParachainId") — the standard cumulus
-/// parachain id storage key. Constant across every parachain that carries the
-/// `parachain-info` pallet (i.e. every cumulus parachain).
-const PARACHAIN_ID_STORAGE_KEY: &str =
-	"0x0d715f2646c8f85767b5d2764bb2782604a74d81251e398fd8a0a4d55023bb3f";
+/// Runtime API method name. Substrate's `state_call` convention is
+/// `<TraitName>_<method_name>` (no parameters for this call).
+const HOST_STATE_MACHINE_CALL: &str = "IsmpRuntimeApi_host_state_machine";
 
-/// Resolves the ISMP [`StateMachine`] for a substrate chain by querying its
-/// WebSocket RPC. Works for cumulus parachains whose chain name starts with
-/// the relay chain's name (Polkadot / Kusama / Paseo) and for the known
-/// Hyperbridge testnet. Other chains should set `state_machine` explicitly.
+/// Resolves the ISMP [`StateMachine`] for a substrate chain by invoking
+/// `IsmpRuntimeApi::host_state_machine` over the chain's JSON-RPC `state_call`.
+/// This is the canonical source — the runtime itself declares which state
+/// machine it represents — so it sidesteps all the ambiguities of
+/// chain-name-based heuristics (e.g. parachains that run on both Polkadot and
+/// Kusama under the same name).
 pub async fn fetch_state_machine(rpc_ws: &str) -> anyhow::Result<StateMachine> {
 	let reconnecting = RpcClientBuilder::new()
 		.max_request_size(4 * 1024 * 1024)
@@ -36,146 +40,71 @@ pub async fn fetch_state_machine(rpc_ws: &str) -> anyhow::Result<StateMachine> {
 		.with_context(|| format!("failed to connect to substrate RPC {rpc_ws}"))?;
 	let rpc = RpcClient::new(reconnecting);
 
-	let chain: String = rpc
-		.request("system_chain", rpc_params![])
+	// `state_call(method, data, block_hash_opt)`:
+	//   - method = "<Trait>_<fn>"
+	//   - data   = hex-encoded SCALE-encoded args ("0x" for no args)
+	//   - block  = None → use the latest known block
+	let result_hex: String = rpc
+		.request("state_call", rpc_params![HOST_STATE_MACHINE_CALL, "0x"])
 		.await
-		.with_context(|| format!("system_chain({rpc_ws})"))?;
+		.with_context(|| {
+			format!(
+				"state_call({HOST_STATE_MACHINE_CALL}) failed — does this chain expose pallet-ismp's runtime API?"
+			)
+		})?;
 
-	// Parachain id is absent on relay chains; ok() folds the "storage key
-	// doesn't exist on this chain" case into `None`.
-	let para_bytes: Option<String> = rpc
-		.request("state_getStorage", rpc_params![PARACHAIN_ID_STORAGE_KEY])
-		.await
-		.ok()
-		.flatten();
-	let para_id = para_bytes.as_deref().and_then(parse_para_id);
-
-	state_machine_from_chain_name(&chain, para_id).ok_or_else(|| {
-		anyhow!(
-			"cannot auto-derive StateMachine for substrate chain '{chain}' (para_id={para_id:?}); \
-			 set `state_machine` explicitly in the chain's config block"
-		)
+	decode_state_machine(&result_hex).with_context(|| {
+		format!("failed to decode StateMachine from runtime API response `{result_hex}`")
 	})
 }
 
-fn parse_para_id(hex_str: &str) -> Option<u32> {
-	let stripped = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-	let bytes = hex::decode(stripped).ok()?;
-	if bytes.len() < 4 {
-		return None;
-	}
-	let mut arr = [0u8; 4];
-	arr.copy_from_slice(&bytes[..4]);
-	Some(u32::from_le_bytes(arr))
-}
-
-/// Map `system_chain` name → [`StateMachine`] variant.
-///
-/// Heuristic based on the chain name's prefix. Ambiguous cases (e.g. a
-/// parachain called "Bifrost" that runs on both Polkadot and Kusama) can't
-/// be resolved from the parachain's own RPC alone, so those return `None`
-/// and the caller errors out with a suggestion to set `state_machine`
-/// explicitly.
-fn state_machine_from_chain_name(name: &str, para_id: Option<u32>) -> Option<StateMachine> {
-	let lower = name.to_lowercase();
-	let pid = para_id?; // no para_id → relay/standalone chain; needs explicit config
-
-	if lower.starts_with("polkadot") {
-		return Some(StateMachine::Polkadot(pid));
-	}
-	if lower.starts_with("kusama") {
-		return Some(StateMachine::Kusama(pid));
-	}
-	if lower.starts_with("paseo") {
-		return Some(StateMachine::Relay { relay: *b"PAS0", para_id: pid });
-	}
-	// Hyperbridge testnet is hosted on Kusama (Gargantua); mainnet on Polkadot.
-	if lower.starts_with("hyperbridge gargantua") {
-		return Some(StateMachine::Kusama(pid));
-	}
-	if lower.starts_with("hyperbridge") {
-		return Some(StateMachine::Polkadot(pid));
-	}
-	None
+fn decode_state_machine(hex_bytes: &str) -> anyhow::Result<StateMachine> {
+	let stripped = hex_bytes.strip_prefix("0x").unwrap_or(hex_bytes);
+	let bytes = hex::decode(stripped).with_context(|| "runtime API result was not valid hex")?;
+	StateMachine::decode(&mut &bytes[..])
+		.map_err(|err| anyhow!("SCALE decode StateMachine: {err:?}"))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use codec::Encode;
 
 	#[test]
-	fn para_id_parses_little_endian_u32() {
-		// 1000 in LE bytes = [0xe8, 0x03, 0x00, 0x00]
-		assert_eq!(parse_para_id("0xe803000000"), Some(1000));
-		// Extra bytes ignored
-		assert_eq!(parse_para_id("0xe8030000deadbeef"), Some(1000));
-		// Without 0x prefix
-		assert_eq!(parse_para_id("e8030000"), Some(1000));
+	fn decodes_polkadot_parachain() {
+		let encoded = StateMachine::Polkadot(1000).encode();
+		let hex = format!("0x{}", hex::encode(encoded));
+		assert_eq!(decode_state_machine(&hex).unwrap(), StateMachine::Polkadot(1000));
 	}
 
 	#[test]
-	fn para_id_rejects_short_input() {
-		assert_eq!(parse_para_id("0xe8"), None);
-		assert_eq!(parse_para_id(""), None);
+	fn decodes_kusama_parachain() {
+		let encoded = StateMachine::Kusama(4009).encode();
+		let hex = format!("0x{}", hex::encode(encoded));
+		assert_eq!(decode_state_machine(&hex).unwrap(), StateMachine::Kusama(4009));
 	}
 
 	#[test]
-	fn chain_name_maps_polkadot_parachain() {
-		assert!(matches!(
-			state_machine_from_chain_name("Polkadot Asset Hub", Some(1000)),
-			Some(StateMachine::Polkadot(1000))
-		));
-		assert!(matches!(
-			state_machine_from_chain_name("polkadot bridge hub", Some(1002)),
-			Some(StateMachine::Polkadot(1002))
-		));
+	fn decodes_relay_variant() {
+		let sm = StateMachine::Relay { relay: *b"PAS0", para_id: 1000 };
+		let hex = format!("0x{}", hex::encode(sm.encode()));
+		assert_eq!(decode_state_machine(&hex).unwrap(), sm);
 	}
 
 	#[test]
-	fn chain_name_maps_kusama_parachain() {
-		assert!(matches!(
-			state_machine_from_chain_name("Kusama Asset Hub", Some(1000)),
-			Some(StateMachine::Kusama(1000))
-		));
+	fn decode_tolerates_missing_0x_prefix() {
+		let encoded = StateMachine::Polkadot(1000).encode();
+		let hex = hex::encode(encoded);
+		assert_eq!(decode_state_machine(&hex).unwrap(), StateMachine::Polkadot(1000));
 	}
 
 	#[test]
-	fn chain_name_maps_paseo_parachain_to_relay_variant() {
-		match state_machine_from_chain_name("Paseo Asset Hub", Some(1000)) {
-			Some(StateMachine::Relay { relay, para_id }) => {
-				assert_eq!(&relay, b"PAS0");
-				assert_eq!(para_id, 1000);
-			},
-			other => panic!("expected Relay variant, got {other:?}"),
-		}
+	fn decode_rejects_invalid_hex() {
+		assert!(decode_state_machine("0xnothex").is_err());
 	}
 
 	#[test]
-	fn chain_name_maps_hyperbridge_gargantua_to_kusama() {
-		assert!(matches!(
-			state_machine_from_chain_name("Hyperbridge Gargantua", Some(4009)),
-			Some(StateMachine::Kusama(4009))
-		));
-	}
-
-	#[test]
-	fn chain_name_maps_hyperbridge_mainnet_to_polkadot() {
-		assert!(matches!(
-			state_machine_from_chain_name("Hyperbridge", Some(3367)),
-			Some(StateMachine::Polkadot(3367))
-		));
-	}
-
-	#[test]
-	fn missing_para_id_returns_none() {
-		// Relay chains or standalone chains can't be auto-derived by this
-		// heuristic — user must set `state_machine` explicitly.
-		assert!(state_machine_from_chain_name("Polkadot", None).is_none());
-		assert!(state_machine_from_chain_name("Kusama", None).is_none());
-	}
-
-	#[test]
-	fn unknown_prefix_returns_none() {
-		assert!(state_machine_from_chain_name("Random Parachain", Some(2000)).is_none());
+	fn decode_rejects_short_input() {
+		assert!(decode_state_machine("0x00").is_err());
 	}
 }

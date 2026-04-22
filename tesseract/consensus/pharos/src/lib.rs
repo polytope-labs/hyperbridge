@@ -46,19 +46,16 @@ pub struct PharosHostConfig {
 pub struct PharosConfig {
 	/// Host configuration options
 	pub host: PharosHostConfig,
-	/// General EVM config
-	#[serde(flatten)]
-	pub evm_config: EvmConfig,
 }
 
 impl PharosConfig {
-	/// Convert the config into a client.
-	pub async fn into_client<C: Config + 'static>(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(PharosHost::<C>::new(&self.host, &self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config.
+	pub async fn into_client<C: Config + 'static>(
+		self,
+		evm_config: EvmConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(PharosHost::<C>::new(&self.host, &evm_config).await?))
 	}
 }
 

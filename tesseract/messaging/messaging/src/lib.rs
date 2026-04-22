@@ -18,7 +18,10 @@
 pub mod events;
 pub mod fees;
 mod get_requests;
-mod retries;
+/// Unprofitable-message retry loop. Kept public for callers that want to wire
+/// it up; **not** spawned by [`relay`] in the consolidated relayer — the design
+/// is that retrying unprofitable messages is the outbound task's concern.
+pub mod retries;
 
 use anyhow::anyhow;
 use get_requests::process_get_request_events;
@@ -28,10 +31,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::Instrument;
 
-use crate::{
-	events::{filter_events, translate_events_to_messages},
-	retries::retry_unprofitable_messages,
-};
+use crate::events::{filter_events, translate_events_to_messages};
 use futures::{FutureExt, StreamExt};
 use ismp::{consensus::StateMachineHeight, events::Event, host::StateMachine, router::GetRequest};
 use primitive_types::U256;
@@ -45,26 +45,27 @@ use transaction_fees::TransactionPayment;
 type FeeAccSender = Sender<Vec<TxReceipt>>;
 type GetReqSender = Sender<(Vec<GetRequest>, StateMachineUpdated)>;
 
-/// Spawn the chain_b → Hyperbridge inbound messaging pipeline, its retry
-/// loop for unprofitable messages, and the GET-request forwarder +
-/// processor.
+/// Spawn the chain_b → Hyperbridge inbound messaging pipeline and the
+/// GET-request processor.
 ///
-/// **Explicitly NOT spawned here** (caller's responsibility in the consolidated
-/// relayer):
+/// **Explicitly NOT spawned here** (caller's responsibility or explicitly
+/// descoped from this relayer):
 /// - Outbound (Hyperbridge → chain_b) POST delivery — handled by [`tesseract_relayer::outbound`] as
 ///   a single event-driven fan-out task.
 /// - Fee accumulation — spawned once per chain in `tesseract-relayer/src/cli.rs`.
 /// - Fee withdrawal — spawned globally in `tesseract-relayer/src/cli.rs`.
+/// - Unprofitable-message retries — the retry loop at
+///   [`crate::retries::retry_unprofitable_messages`] is kept in-tree but deliberately **not**
+///   spawned. Retrying unprofitable inbound messages is the outbound relayer's concern, not this
+///   one.
 ///
-/// GET request handling is kept here because it fundamentally belongs to the
-/// chain_b → HB direction: a GET is initiated by a contract on chain_b and the
-/// relayer carries the source proof (chain_b) + storage proof (destination) up
-/// to Hyperbridge which produces the response. The trigger — HB recording a
-/// new state for chain_b — is a chain_b-scoped event, not a fan-out event.
+/// The inbound messaging task already queries chain_b's events on every HB-side
+/// state-machine-update, so it also feeds the GET-request channel that
+/// [`process_get_request_events`] drains — no separate forwarder needed.
 ///
-/// `fee_acc_sender` is forwarded to both the inbound loop and the retry loop
-/// so `TxReceipt`s reach the caller's fee-accumulation task. Pass `None` to
-/// opt this chain out of fee accumulation entirely.
+/// `fee_acc_sender` is forwarded to the inbound loop so `TxReceipt`s reach the
+/// caller's fee-accumulation task. Pass `None` to opt this chain out of fee
+/// accumulation entirely.
 pub async fn relay<A>(
 	hyperbridge: A,
 	chain_b: Arc<dyn IsmpProvider>,
@@ -78,7 +79,14 @@ pub async fn relay<A>(
 where
 	A: IsmpProvider + Clone + HyperbridgeClaim + HandleGetResponse + 'static,
 {
-	// chain_b → Hyperbridge inbound messaging.
+	// Shared GET-request channel. The inbound messaging task populates it as a
+	// side effect of its normal event querying; the processor task drains it.
+	let (get_request_sender, get_request_receiver) =
+		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(64);
+
+	// chain_b → Hyperbridge inbound messaging. Also forwards any GET requests
+	// seen on chain_b into `get_request_sender` (via handle_update's built-in
+	// filter) so we don't need a separate forwarder task.
 	{
 		let hyperbridge = Arc::new(hyperbridge.clone());
 		let chain_b_inner = chain_b.clone();
@@ -100,7 +108,7 @@ where
 					coprocessor,
 					client_map,
 					sender,
-					None,
+					Some(get_request_sender),
 				)
 				.await;
 				tracing::error!(?res, "task terminated");
@@ -110,69 +118,10 @@ where
 		);
 	}
 
-	// Retries for unprofitable chain_b → HB messages.
-	if config.unprofitable_retry_frequency.is_some() {
-		let hyperbridge = Arc::new(hyperbridge.clone());
-		let dest = chain_b.clone();
-		let client_map = client_map.clone();
-		let tx_payment = tx_payment.clone();
-		let config = config.clone();
-		let sender = fee_acc_sender.clone();
-		let name = format!("retries-{}-{}", dest.name(), hyperbridge.name());
-		let span = tracing::info_span!("retries", chain = %dest.name(), hb = %hyperbridge.name());
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name)),
-			"messaging",
-			async move {
-				let res = retry_unprofitable_messages(
-					dest,
-					hyperbridge,
-					client_map,
-					tx_payment,
-					config,
-					coprocessor,
-					sender,
-				)
-				.await;
-				tracing::error!(?res, "task terminated");
-			}
-			.instrument(span)
-			.boxed(),
-		);
-	}
-
-	// GET-request pipeline for chain_b.
-	//
-	// A forwarder task subscribes to HB's view of chain_b's state and, on each
-	// update, pulls the GET events finalized in that range off chain_b. A
-	// second task drains the channel, builds source + storage proofs, and
-	// submits each as a `GetRequestsWithProof` to HB.
+	// GET-request processor: drains the channel fed by the inbound messaging
+	// task, builds source + storage proofs, and submits each as a
+	// `GetRequestsWithProof` to Hyperbridge.
 	{
-		let (get_request_sender, get_request_receiver) =
-			tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(64);
-
-		// Forwarder
-		let hb_forwarder = Arc::new(hyperbridge.clone());
-		let chain_b_forwarder = chain_b.clone();
-		let name = format!("get-forwarder-{}-{}", chain_b.name(), hb_forwarder.name());
-		let span = tracing::info_span!(
-			"get_forwarder",
-			chain = %chain_b.name(),
-			hb = %hb_forwarder.name(),
-		);
-		task_manager.spawn_essential_handle().spawn_blocking(
-			Box::leak(Box::new(name)),
-			"messaging",
-			async move {
-				let res =
-					forward_get_requests(hb_forwarder, chain_b_forwarder, get_request_sender).await;
-				tracing::error!(?res, "task terminated");
-			}
-			.instrument(span)
-			.boxed(),
-		);
-
-		// Processor
 		let hb_processor = hyperbridge.clone();
 		let source = chain_b.clone();
 		let client_map = client_map.clone();
@@ -198,76 +147,6 @@ where
 	}
 
 	Ok(())
-}
-
-/// Watch Hyperbridge's view of `chain_b`'s state machine; on every new
-/// `StateMachineUpdated` event, pull the GET requests that `chain_b` emitted
-/// in the now-finalised height range and forward them (paired with the
-/// update event) to [`process_get_request_events`].
-async fn forward_get_requests(
-	hyperbridge: Arc<dyn IsmpProvider>,
-	chain_b: Arc<dyn IsmpProvider>,
-	sender: GetReqSender,
-) -> Result<(), anyhow::Error> {
-	let mut stream = hyperbridge
-		.state_machine_update_notification(chain_b.state_machine_id())
-		.await
-		.map_err(|err| {
-			anyhow!("get-forwarder: state_machine_update subscription failed: {err:?}")
-		})?;
-
-	let mut previous_height = chain_b.initial_height();
-	tracing::debug!(initial_height = previous_height, "subscribed to state_machine_update");
-
-	while let Some(item) = stream.next().await {
-		match item {
-			Ok(update) => {
-				if sender.is_closed() {
-					return Ok(());
-				}
-				let events = match chain_b.query_ismp_events(previous_height, update.clone()).await
-				{
-					Ok(events) => events,
-					Err(err) => {
-						tracing::error!(
-							from = previous_height,
-							to = update.latest_height,
-							?err,
-							"query_ismp_events failed",
-						);
-						continue;
-					},
-				};
-
-				let get_requests: Vec<GetRequest> = events
-					.into_iter()
-					.filter_map(|ev| match ev {
-						Event::GetRequest(req) => Some(req),
-						_ => None,
-					})
-					.collect();
-
-				if !get_requests.is_empty() {
-					tracing::debug!(
-						count = get_requests.len(),
-						height = update.latest_height,
-						"forwarding GET requests",
-					);
-					if sender.send((get_requests, update.clone())).await.is_err() {
-						return Ok(());
-					}
-				}
-
-				previous_height = update.latest_height;
-			},
-			Err(err) => {
-				tracing::error!(?err, "state_machine_update stream error");
-				continue;
-			},
-		}
-	}
-
-	Err(anyhow!("get-forwarder: state_machine_update stream for {} ended", chain_b.name()))
 }
 
 async fn handle_notification(

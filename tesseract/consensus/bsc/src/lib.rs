@@ -37,9 +37,6 @@ pub use bsc_verifier::primitives::{Mainnet, Testnet};
 pub struct BscPosConfig {
 	/// Host configuration options
 	pub host: HostConfig,
-	/// General ethereum config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,13 +46,13 @@ pub struct HostConfig {
 }
 
 impl BscPosConfig {
-	/// Convert the config into a client.
-	pub async fn into_client<C: Config + 'static>(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client<C: Config + 'static>(
+		self,
+		evm_config: EvmConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &evm_config).await?))
 	}
 }
 

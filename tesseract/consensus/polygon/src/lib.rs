@@ -32,17 +32,11 @@ pub struct HostConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolygonPosConfig {
 	pub host: HostConfig,
-	#[serde(flatten)]
-	pub evm_config: EvmConfig,
 }
 
 impl PolygonPosConfig {
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(PolygonPosHost::new(&self.host, &self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(PolygonPosHost::new(&self.host, &evm_config).await?))
 	}
 }
 

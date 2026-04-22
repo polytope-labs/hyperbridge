@@ -68,6 +68,26 @@ pub struct Cli {
 	/// Path to the relayer database file (for fee tracking)
 	#[arg(short, long)]
 	pub db: String,
+
+	/// Optional subcommand. When absent, runs the relayer in the usual
+	/// long-running mode.
+	#[command(subcommand)]
+	pub subcommand: Option<Subcommand>,
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum Subcommand {
+	/// Fetch and print the initial ConsensusState for a given state machine,
+	/// hex-encoded.
+	LogConsensusState {
+		/// State machine whose consensus state should be logged, e.g.
+		/// `EVM-97`, `POLKADOT-1000`.
+		state_machine: String,
+	},
+	/// Run a one-shot fee-withdrawal pass over every configured destination,
+	/// then exit. Uses the same code path as the periodic `auto_withdraw`
+	/// loop; `relayer.minimum_withdrawal_amount` still gates.
+	Withdraw,
 }
 
 const BANNER: &str = r"
@@ -86,6 +106,19 @@ impl Cli {
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		eprintln!("{BANNER}");
 		setup_logging()?;
+
+		// Subcommand dispatch: short one-shot actions bypass the long-running
+		// relayer setup entirely.
+		match &self.subcommand {
+			Some(Subcommand::LogConsensusState { state_machine }) => {
+				return self.log_consensus_state(state_machine.clone()).await;
+			},
+			Some(Subcommand::Withdraw) => {
+				return self.withdraw_once().await;
+			},
+			None => {},
+		}
+
 		tracing::info!(
 			version = env!("CARGO_PKG_VERSION"),
 			config = %self.config,
@@ -115,9 +148,9 @@ impl Cli {
 		tracing::info!(hb = %hyperbridge_provider.name(), %coprocessor, "connected to Hyperbridge");
 
 		// Build the IsmpHost for every chain that opted into inbound consensus.
-		// `create_client_map` reads the filtered consensus sub-config produced
-		// by `HyperbridgeConfig::consensus_config`.
-		let consensus_hosts = create_client_map(config.consensus_config()).await?;
+		// `create_client_map` takes paired (consensus variant, host kind)
+		// entries — we assemble those from each chain's `PerChainConfig`.
+		let consensus_hosts = create_client_map(config.consensus_chains()).await?;
 		tracing::info!(count = consensus_hosts.len(), "consensus hosts built");
 
 		// One `Arc<dyn IsmpProvider>` per chain. Chains with consensus reuse the
@@ -172,55 +205,15 @@ impl Cli {
 			tracing::debug!(%state_machine, "spawned inbound-consensus");
 		}
 
-		// One fee-accumulation channel per chain. Both inbound messaging (chain→HB)
-		// and outbound (HB→chain) submissions push `TxReceipt`s into the same
-		// per-chain sender. A single fee-accumulation task per chain drains the
-		// receiver and claims the accumulated fees on Hyperbridge.
-		let mut outbound_fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>> =
-			HashMap::new();
-
 		// Inbound messaging — every chain in `[chains.*]` gets an inbound
 		// messaging task. There's no opt-in gate: if you configured the chain,
-		// you want its inbound messages relayed.
-		for (state_machine, provider) in &providers {
+		// you want its inbound messages relayed. Fee accumulation is NOT wired
+		// here — it's an outbound-relayer concern and is spawned below only for
+		// chains that opted into outbound.
+		for (_state_machine, provider) in &providers {
 			let mut hb_for_messaging =
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
-
-			// Fee receipts channel for this destination (shared with outbound).
-			let (fee_sender, fee_receiver) = mpsc::channel::<Vec<TxReceipt>>(64);
-			if !fees_disabled {
-				outbound_fee_senders.insert(*state_machine, fee_sender.clone());
-
-				let name = format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
-				let hb_for_fees = hb_for_messaging.clone();
-				let dest = provider.clone();
-				let client_map = provider_clients.clone();
-				let tx_payment = tx_payment.clone();
-				let span = tracing::info_span!(
-					"fee_accumulation",
-					chain = %provider.name(),
-					hb = %hyperbridge_provider.name(),
-				);
-				task_manager.spawn_essential_handle().spawn_blocking(
-					Box::leak(Box::new(name)),
-					"fees",
-					async move {
-						tracing::debug!("task started");
-						let res = tesseract_messaging::fee_accumulation(
-							fee_receiver,
-							dest,
-							hb_for_fees,
-							client_map,
-							tx_payment,
-						)
-						.await;
-						tracing::error!(?res, "task terminated");
-					}
-					.instrument(span)
-					.boxed(),
-				);
-			}
 
 			tesseract_messaging::relay(
 				hb_for_messaging,
@@ -230,13 +223,16 @@ impl Cli {
 				tx_payment.clone(),
 				provider_clients.clone(),
 				&task_manager,
-				(!fees_disabled).then_some(fee_sender),
+				None,
 			)
 			.await?;
 		}
 
 		// Outbound — one task, fans out over every chain that opted in via
-		// per-chain `outbound = true` (the default).
+		// per-chain `outbound = true` (the default). Fee accumulation is part
+		// of the outbound pipeline: each outbound-enabled chain gets a
+		// dedicated fee-accumulation task that drains the receipts the
+		// outbound fan-out produces after a successful destination submit.
 		let destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>> = config
 			.chains
 			.iter()
@@ -247,13 +243,55 @@ impl Cli {
 		if destinations.is_empty() {
 			tracing::info!("no chains opted into outbound — skipping outbound task");
 		} else {
+			// One fee-accumulation channel per outbound destination. Populated
+			// only when fees aren't globally disabled.
+			let mut outbound_fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>> =
+				HashMap::new();
+			if !fees_disabled {
+				for (sm, provider) in &destinations {
+					let (fee_sender, fee_receiver) = mpsc::channel::<Vec<TxReceipt>>(64);
+					outbound_fee_senders.insert(*sm, fee_sender);
+
+					let name =
+						format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
+					let hb_for_fees =
+						SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone())
+							.await?;
+					let dest = provider.clone();
+					let client_map = provider_clients.clone();
+					let tx_payment = tx_payment.clone();
+					let span = tracing::info_span!(
+						"fee_accumulation",
+						chain = %provider.name(),
+						hb = %hyperbridge_provider.name(),
+					);
+					task_manager.spawn_essential_handle().spawn_blocking(
+						Box::leak(Box::new(name)),
+						"fees",
+						async move {
+							tracing::debug!("task started");
+							let res = tesseract_messaging::fee_accumulation(
+								fee_receiver,
+								dest,
+								hb_for_fees,
+								client_map,
+								tx_payment,
+							)
+							.await;
+							tracing::error!(?res, "task terminated");
+						}
+						.instrument(span)
+						.boxed(),
+					);
+				}
+			}
+
 			let proof_source: Arc<dyn ConsensusProofSource> =
 				Arc::new(OffchainProofSource::new(hb_rpc_client));
 			let hb = hyperbridge_provider.clone();
 			let name = format!("outbound-{}", hb.name());
 			let outbound_relayer_cfg = messaging_config.clone();
 			let outbound_client_map = provider_clients.clone();
-			let outbound_fee_senders_snapshot = outbound_fee_senders.clone();
 			let span =
 				tracing::info_span!("outbound", hb = %hb.name(), destinations = destinations.len());
 
@@ -268,7 +306,7 @@ impl Cli {
 						proof_source,
 						outbound_relayer_cfg,
 						outbound_client_map,
-						outbound_fee_senders_snapshot,
+						outbound_fee_senders,
 					)
 					.await;
 					tracing::error!(?res, "task terminated");
@@ -315,6 +353,75 @@ impl Cli {
 			"relayer tasks initialized",
 		);
 		task_manager.future().await?;
+		Ok(())
+	}
+
+	/// `log-consensus-state <STATE_MACHINE>` — one-shot: fetch and print the
+	/// initial ConsensusState for the given chain hex-encoded.
+	async fn log_consensus_state(&self, state_machine_str: String) -> Result<(), anyhow::Error> {
+		use std::str::FromStr;
+		let state_machine = StateMachine::from_str(&state_machine_str)
+			.map_err(|err| anyhow::anyhow!("invalid state machine '{state_machine_str}': {err}"))?;
+
+		tracing::info!(%state_machine, "fetching consensus state");
+		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
+		let consensus_hosts = create_client_map(config.consensus_chains()).await?;
+		let host = consensus_hosts.get(&state_machine).ok_or_else(|| {
+			anyhow::anyhow!(
+				"no consensus host for {state_machine} — did you forget `[chains.{state_machine}.consensus]`?"
+			)
+		})?;
+
+		let consensus_state = host.query_initial_consensus_state().await?.ok_or_else(|| {
+			anyhow::anyhow!("{state_machine} has no queryable initial consensus state")
+		})?;
+		tracing::info!(
+			%state_machine,
+			"ConsensusState:\n0x{}",
+			hex::encode(&consensus_state.consensus_state)
+		);
+		Ok(())
+	}
+
+	/// `withdraw` — one-shot: run a single pass of fee withdrawal across every
+	/// configured destination, then exit. Uses the same logic as the periodic
+	/// `auto_withdraw` loop (threshold gating, DB persistence, etc.).
+	async fn withdraw_once(&self) -> Result<(), anyhow::Error> {
+		tracing::info!("one-shot withdrawal starting");
+		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
+		let messaging_config: tesseract_primitives::config::RelayerConfig =
+			config.relayer.clone().into();
+
+		let tx_payment = Arc::new(
+			TransactionPayment::initialize(&self.db)
+				.await
+				.context("Error initializing fee database")?,
+		);
+		let hyperbridge_substrate =
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
+		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
+
+		// Build one messaging client per configured chain so `withdraw_once`
+		// can deliver withdrawal receipts back to each destination.
+		let mut providers: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();
+		for (sm, pc) in &config.chains {
+			let provider = pc
+				.messaging
+				.clone()
+				.into_client(hyperbridge_provider.clone())
+				.await
+				.with_context(|| format!("failed to build messaging client for {sm}"))?;
+			providers.insert(*sm, provider);
+		}
+
+		tesseract_messaging::fees::withdraw_once(
+			&hyperbridge_substrate,
+			&providers,
+			&messaging_config,
+			&tx_payment,
+		)
+		.await;
+		tracing::info!("one-shot withdrawal complete");
 		Ok(())
 	}
 }

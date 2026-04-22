@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use polkadot_sdk::sp_runtime::traits::{One, Zero};
-use primitive_types::{H160, H256};
+use primitive_types::H256;
 use serde::{Deserialize, Serialize};
 use subxt::{
 	config::{ExtrinsicParams, HashFor, Header},
@@ -11,7 +11,7 @@ use subxt::{
 
 use arb_host::ArbConfig;
 use evm_host::EvmHostConfig;
-use ismp::{host::StateMachine, messaging::CreateConsensusState};
+use ismp::messaging::CreateConsensusState;
 use op_host::OpConfig;
 use tesseract_beefy::{
 	host::{BeefyHost, BeefyHostConfig},
@@ -141,7 +141,12 @@ pub enum ConsensusHost {
 		// Redis config for the relayer's proof queue
 		redis: tesseract_beefy::backend::RedisConfig,
 	},
-	Grandpa(GrandpaConfig),
+	Grandpa {
+		/// Substrate state machine config
+		substrate: SubstrateConfig,
+		/// Grandpa-specific host config
+		grandpa: GrandpaConfig,
+	},
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,7 +160,7 @@ impl HyperbridgeHostConfig {
 	pub fn substrate_config(&self) -> SubstrateConfig {
 		match &self.host {
 			ConsensusHost::Beefy { substrate, .. } => substrate.clone(),
-			ConsensusHost::Grandpa(grandpa) => grandpa.substrate.clone(),
+			ConsensusHost::Grandpa { substrate, .. } => substrate.clone(),
 		}
 	}
 }
@@ -190,50 +195,17 @@ impl HyperbridgeHostConfig {
 
 				AnyHost::Beefy(BeefyHost::new(beefy, prover_instance, client, backend).await?)
 			},
-			ConsensusHost::Grandpa(grandpa) =>
-				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&grandpa).await?),
+			ConsensusHost::Grandpa { substrate, grandpa } =>
+				AnyHost::Grandpa(GrandpaHost::<R, P>::new(&substrate, &grandpa).await?),
 		};
 
 		Ok(host)
 	}
 }
 
-impl AnyConfig {
-	/// Returns the state machine for the config
-	pub fn state_machine(&self) -> StateMachine {
-		match self {
-			AnyConfig::Sepolia(config) => config.evm_config.state_machine,
-			AnyConfig::Ethereum(config) => config.evm_config.state_machine,
-			AnyConfig::ArbitrumOrbit(config) => config.evm_config.state_machine,
-			AnyConfig::OpStack(config) => config.evm_config.state_machine,
-			AnyConfig::BscTestnet(config) => config.evm_config.state_machine,
-			AnyConfig::Bsc(config) => config.evm_config.state_machine,
-			AnyConfig::Chiado(config) => config.evm_config.state_machine,
-			AnyConfig::Gnosis(config) => config.evm_config.state_machine,
-			AnyConfig::Grandpa(config) => config.substrate.state_machine,
-			AnyConfig::Polygon(config) => config.evm_config.state_machine,
-			AnyConfig::Tendermint(config) => config.evm_config.state_machine,
-			AnyConfig::EvmHost(config) => config.evm_config.state_machine,
-			AnyConfig::Pharos(config) => config.state_machine(),
-		}
-	}
-
-	/// Returns the Ismp host contract address for EVM chains.
-	pub fn host_address(&self) -> Option<H160> {
-		match self {
-			AnyConfig::Bsc(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Sepolia(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::OpStack(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::ArbitrumOrbit(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Ethereum(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::BscTestnet(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Chiado(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Gnosis(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Grandpa(_) => None,
-			AnyConfig::Polygon(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Tendermint(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::EvmHost(c) => Some(c.evm_config.ismp_host.clone()),
-			AnyConfig::Pharos(c) => Some(c.evm_config.ismp_host.clone()),
-		}
-	}
-}
+// NOTE: The `state_machine()` / `host_address()` helpers that used to live here
+// were removed — the consensus config variants no longer embed `EvmConfig` /
+// `SubstrateConfig`, so the info needed to answer those queries now lives
+// alongside each consensus variant in the caller's pairing (see
+// `create_client_map`'s input). Callers should read `EvmConfig::state_machine`
+// / `.ismp_host` directly from the paired EVM host config.

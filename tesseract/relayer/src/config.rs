@@ -166,20 +166,34 @@ impl HyperbridgeConfig {
 		Ok(Self { hyperbridge, chains, relayer })
 	}
 
-	/// Build the consensus relayer's config view, containing only the subset of
+	/// Build the consensus relayer's per-chain pairings for the subset of
 	/// chains that opted into inbound consensus via `[<chain>.consensus]`.
-	///
-	/// `hyperbridge = None` here: the consolidated relayer doesn't run the
-	/// BEEFY prover/host — that's a separate binary. `create_client_map`
-	/// destructures only `chains`, so leaving the field empty is safe.
-	pub fn consensus_config(&self) -> tesseract_consensus::config::HyperbridgeConfig {
-		let chains = self
-			.chains
-			.iter()
-			.filter_map(|(sm, pc)| pc.consensus.clone().map(|c| (*sm, c)))
-			.collect();
+	/// Each pairing extracts the host config (EVM or substrate) from the
+	/// messaging side since consensus variants no longer embed it.
+	pub fn consensus_chains(
+		&self,
+	) -> HashMap<
+		StateMachine,
+		(tesseract_consensus::any::AnyConfig, tesseract_consensus::cli::HostKind),
+	> {
+		use tesseract_config::AnyConfig as Msg;
+		use tesseract_consensus::cli::HostKind;
 
-		tesseract_consensus::config::HyperbridgeConfig { hyperbridge: None, chains, relayer: None }
+		self.chains
+			.iter()
+			.filter_map(|(sm, pc)| {
+				let consensus = pc.consensus.clone()?;
+				let host = match &pc.messaging {
+					Msg::Evm(e) => HostKind::Evm(e.clone()),
+					Msg::PharosEvm(e) => HostKind::Evm(e.clone()),
+					Msg::Tendermint(t) => HostKind::Evm(t.evm_config.clone()),
+					Msg::SubstrateEvm(se) => HostKind::Evm(se.evm.clone()),
+					Msg::Substrate(s) => HostKind::Substrate(s.clone()),
+					Msg::Tron(_) => return None, // tron is not a supported consensus host
+				};
+				Some((*sm, (consensus, host)))
+			})
+			.collect()
 	}
 }
 
@@ -213,19 +227,13 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 
 	let consensus = match consensus_value {
 		None => None,
-		Some(Value::Table(mut cons_table)) => {
-			// Inherit every base field (except `type`, which the consensus
-			// variant discriminates on its own) that the consensus sub-table
-			// hasn't explicitly overridden. This lets users specify `rpc_urls`,
-			// `state_machine`, `ismp_host`, `signer`, `consensus_state_id`, etc.
-			// once at the chain level.
-			for (key, val) in messaging_table.iter() {
-				if key == "type" {
-					continue;
-				}
-				cons_table.entry(key.clone()).or_insert_with(|| val.clone());
-			}
-
+		Some(Value::Table(cons_table)) => {
+			// Consensus variants no longer embed EvmConfig/SubstrateConfig —
+			// the host config is threaded in separately at construction time
+			// (see `HyperbridgeConfig::consensus_chains`). So the consensus
+			// sub-table only needs the variant's own fields: `type` plus
+			// whatever nested tables that variant declares (`host`, `grandpa`,
+			// `layer_twos`, etc.).
 			let cfg: ConsensusConfig = Value::Table(cons_table)
 				.try_into()
 				.with_context(|| format!("failed to parse [{name}.consensus] sub-table"))?;
@@ -402,14 +410,13 @@ epoch_length = 200
 		let pc = cfg.chains.get(&StateMachine::Evm(97)).expect("EVM-97 chain present");
 		assert!(pc.consensus.is_some(), "[.consensus] present => consensus Some");
 
-		// The consensus variant must receive the inherited host fields
-		// (rpc_urls/state_machine/ismp_host/signer/consensus_state_id).
+		// Consensus variants no longer carry the EVM host config; the reviewer's
+		// refactor moved it to a constructor argument. Here we only check the
+		// consensus-specific fields arrived correctly.
 		match pc.consensus.as_ref().unwrap() {
 			ConsensusConfig::BscTestnet(bsc) => {
-				assert_eq!(bsc.evm_config.state_machine, StateMachine::Evm(97));
-				assert_eq!(bsc.evm_config.consensus_state_id, "BSC0");
-				assert_eq!(bsc.evm_config.rpc_urls, vec!["https://example.invalid".to_string()]);
 				assert_eq!(bsc.host.epoch_length, 200);
+				assert_eq!(bsc.host.consensus_update_frequency, Some(60));
 			},
 			other => panic!("expected BscTestnet variant, got {other:?}"),
 		}
@@ -446,9 +453,9 @@ signer = "0x00"
 		.await
 		.expect("parse should succeed");
 
-		let consensus_view = cfg.consensus_config();
-		assert!(consensus_view.chains.contains_key(&StateMachine::Evm(97)));
-		assert!(!consensus_view.chains.contains_key(&StateMachine::Evm(84532)));
+		let consensus_view = cfg.consensus_chains();
+		assert!(consensus_view.contains_key(&StateMachine::Evm(97)));
+		assert!(!consensus_view.contains_key(&StateMachine::Evm(84532)));
 	}
 
 	#[tokio::test]

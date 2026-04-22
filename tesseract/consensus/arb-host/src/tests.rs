@@ -28,17 +28,15 @@ async fn test_payload_proof_verification() {
 		consensus_update_frequency: None,
 	};
 	let signing_key = std::env::var("SIGNING_KEY").expect("SIGNING_KEY must be set.");
-	let config = ArbConfig {
-		host: host.clone(),
-		evm_config: EvmConfig {
-			rpc_urls: vec![arb_url],
-			consensus_state_id: "ETH0".to_string(),
-			signer: signing_key,
-			..Default::default()
-		},
+	let evm_config = EvmConfig {
+		rpc_urls: vec![arb_url],
+		consensus_state_id: "ETH0".to_string(),
+		signer: signing_key,
+		..Default::default()
 	};
+	let _config = ArbConfig { host: host.clone() };
 
-	let arb_client = ArbHost::new(&host, &config.evm_config).await.expect("Host creation failed");
+	let arb_client = ArbHost::new(&host, &evm_config).await.expect("Host creation failed");
 
 	let event = arb_client
 		.latest_event(5524107, 5524107)

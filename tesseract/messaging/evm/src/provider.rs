@@ -815,21 +815,6 @@ impl IsmpProvider for EvmClient {
 		queue.send(messages).await?
 	}
 
-	/// Batch submit via `IHandlerV2.batchCall`: a single transaction containing
-	/// every message in order. The outbound relayer is the sole caller today
-	/// (and runs on its own task, so nonce contention with the queue used by
-	/// [`Self::submit`] is not an issue).
-	async fn submit_batch(
-		&self,
-		messages: Vec<Message>,
-		_coprocessor: StateMachine,
-	) -> Result<TxResult, Error> {
-		if messages.is_empty() {
-			return Ok(TxResult::default());
-		}
-		Ok(crate::tx::handle_batch_submission(self, messages).await?)
-	}
-
 	fn request_commitment_full_key(&self, commitment: H256) -> Vec<Vec<u8>> {
 		let key_1 = self.request_commitment_key(commitment).0 .0.to_vec();
 		let key_2 = self.request_commitment_key(commitment).1 .0.to_vec();

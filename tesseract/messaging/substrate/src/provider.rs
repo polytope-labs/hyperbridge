@@ -67,11 +67,18 @@ use tesseract_primitives::{
 
 use crate::{
 	calls::RequestMetadata,
-	extrinsic::{
-		send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner, ProofAcceptedEvent,
-	},
+	extrinsic::{send_unsigned_extrinsic, system_dry_run_unsigned, InMemorySigner},
 	SubstrateClient,
 };
+
+/// Wire shape returned by the Gargantua node's `ismp_queryProofAcceptedEvents`
+/// RPC — mirrors `pallet_beefy_consensus_proofs::types::ProofAcceptedEvent`
+/// so the field names serialize identically in JSON.
+#[derive(Debug, serde::Deserialize)]
+struct ProofAcceptedRpc {
+	height: u64,
+	new_set_id: Option<u64>,
+}
 
 #[async_trait::async_trait]
 impl<C> IsmpProvider for SubstrateClient<C>
@@ -689,41 +696,52 @@ where
 					continue;
 				}
 
-				for block_num in (cursor + 1)..=tip {
-					let hash = match client.rpc.chain_get_block_hash(Some(block_num.into())).await {
-						Ok(Some(h)) => h,
-						_ => continue,
-					};
+				// Server-side range walk: one RPC over (cursor, tip]
+				// replaces the former per-block events fetch + decode loop.
+				let params = rpc_params![
+					BlockNumberOrHash::<H256>::Number((cursor + 1) as u32),
+					BlockNumberOrHash::<H256>::Number(tip as u32)
+				];
+				let response: Result<
+					HashMap<String, Vec<ProofAcceptedRpc>>,
+					_,
+				> = client
+					.rpc_client
+					.request("ismp_queryProofAcceptedEvents", params)
+					.await;
 
-					let events = match client.client.events().at(hash).await {
-						Ok(e) => e,
-						Err(err) => {
-							log::debug!(target: "tesseract", "{state_machine:?} proof_accepted: events at {block_num}: {err:?}");
-							continue;
-						},
-					};
-
-					for ev in events.iter() {
-						let ev = match ev {
-							Ok(e) => e,
-							Err(_) => continue,
-						};
-						match ev.as_event::<ProofAcceptedEvent>() {
-							Ok(Some(decoded)) => {
+				match response {
+					Ok(map) => {
+						// The server keys blocks by hash (opaque strings) so we
+						// can't sort by block number here; `ProofAccepted`
+						// consumers only care about `height`, not observation
+						// order, so we emit events as they come.
+						let mut sent_ok = true;
+						'outer: for events in map.values() {
+							for ev in events {
 								let out = ProofAccepted {
-									height: decoded.height,
-									new_set_id: decoded.new_set_id,
+									height: ev.height,
+									new_set_id: ev.new_set_id,
 								};
 								if tx.send(out).await.is_err() {
-									return;
+									sent_ok = false;
+									break 'outer;
 								}
-							},
-							Ok(None) => {},
-							Err(err) => {
-								log::warn!(target: "tesseract", "{state_machine:?} proof_accepted decode failed: {err:?}");
-							},
+							}
 						}
-					}
+						if !sent_ok {
+							return;
+						}
+					},
+					Err(err) => {
+						log::error!(
+							target: "tesseract",
+							"{state_machine:?} proof_accepted: queryProofAcceptedEvents({}, {}): {err:?}",
+							cursor + 1,
+							tip,
+						);
+						continue;
+					},
 				}
 
 				cursor = tip;

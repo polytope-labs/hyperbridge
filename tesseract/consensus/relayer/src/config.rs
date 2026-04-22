@@ -1,10 +1,15 @@
-use crate::any::{AnyConfig, HyperbridgeHostConfig};
+use crate::{
+	any::{AnyConfig, HyperbridgeHostConfig},
+	cli::HostKind,
+};
 use anyhow::anyhow;
 use ismp::{consensus::StateMachineId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tesseract_evm::EvmConfig;
+use tesseract_substrate::SubstrateConfig;
 
-use toml::Table;
+use toml::{Table, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayerConfig {
@@ -38,13 +43,17 @@ impl Default for RelayerConfig {
 /// run the BEEFY prover/host (that's a separate binary) and leaves this
 /// field as `None`. Callers that *do* need the full host config (like the
 /// standalone prover binary) populate it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Each chain entry is stored as a `(AnyConfig, HostKind)` pair because the
+/// consensus config variants no longer embed the EVM / substrate host config
+/// — callers supply it at construction time.
+#[derive(Debug, Clone)]
 pub struct HyperbridgeConfig {
 	/// Configuration options for hyperbridge.
 	pub hyperbridge: Option<HyperbridgeHostConfig>,
-	/// Chains
-	pub chains: HashMap<StateMachine, AnyConfig>,
-	/// Additional Relayer configuration
+	/// Per-chain (consensus variant, host config) pairs.
+	pub chains: HashMap<StateMachine, (AnyConfig, HostKind)>,
+	/// Additional Relayer configuration.
 	pub relayer: Option<RelayerConfig>,
 }
 
@@ -57,7 +66,7 @@ impl HyperbridgeConfig {
 			.await
 			.map_err(|err| anyhow!("Error occured while reading config file: {err:?}"))?;
 		let table = toml.parse::<Table>()?;
-		let mut chains: HashMap<StateMachine, AnyConfig> = HashMap::new();
+		let mut chains: HashMap<StateMachine, (AnyConfig, HostKind)> = HashMap::new();
 		if !table.contains_key(HYPERRIDGE) {
 			Err(anyhow!("Missing Hyperbridge Config, Check your toml file"))?
 		}
@@ -76,15 +85,46 @@ impl HyperbridgeConfig {
 			None
 		};
 
+		// Legacy TOML layout: consensus config (type + host fields) and the
+		// host-side config (EvmConfig fields, or a `substrate = { ... }`
+		// sub-table for grandpa) live side-by-side at the chain level. We
+		// parse each half separately. The consensus variants no longer carry
+		// a `#[serde(flatten)] evm_config`, so unrelated fields at the top
+		// level are simply ignored by the AnyConfig deserializer.
 		for (key, val) in table {
 			if &key != HYPERRIDGE && &key != RELAYER {
-				let any_conf: AnyConfig = val.try_into().unwrap();
-				chains.insert(any_conf.state_machine(), any_conf);
+				let any_conf: AnyConfig =
+					val.clone().try_into().map_err(|err| anyhow!("[{key}] consensus: {err}"))?;
+				let state_machine: StateMachine;
+				let host: HostKind;
+
+				if matches!(any_conf, AnyConfig::Grandpa(_)) {
+					// Grandpa expects `[<chain>.substrate] { ... }`.
+					let sub_val =
+						val.as_table().and_then(|t| t.get("substrate")).cloned().ok_or_else(
+							|| anyhow!("[{key}]: grandpa requires a [substrate] sub-table"),
+						)?;
+					let substrate: SubstrateConfig =
+						sub_val.try_into().map_err(|err| anyhow!("[{key}.substrate]: {err}"))?;
+					state_machine = substrate.state_machine;
+					host = HostKind::Substrate(substrate);
+				} else {
+					let evm: EvmConfig =
+						val.try_into().map_err(|err| anyhow!("[{key}] evm: {err}"))?;
+					state_machine = evm.state_machine;
+					host = HostKind::Evm(evm);
+				}
+
+				chains.insert(state_machine, (any_conf, host));
 			}
 		}
 		Ok(Self { hyperbridge: Some(hyperbridge), chains, relayer })
 	}
 }
+
+// keep `Value` import warning-free even if Value becomes unused after edits
+#[allow(dead_code)]
+fn _value_type_marker(_v: &Value) {}
 
 #[tokio::test]
 #[ignore]

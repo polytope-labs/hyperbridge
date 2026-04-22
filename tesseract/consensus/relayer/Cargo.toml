@@ -44,6 +44,7 @@ subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
 zk-beefy = { path = "../beefy/zk" }
 tesseract-bsc = { workspace = true }
+tesseract-evm = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 arb-host = { workspace = true }

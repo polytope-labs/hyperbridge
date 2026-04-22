@@ -8,12 +8,12 @@ use crate::{
 };
 use alloy::{
 	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
-	primitives::{Address, Bytes, B256, U256 as AlloyU256},
+	primitives::{Address, Bytes, FixedBytes, B256, U256 as AlloyU256},
 	providers::Provider,
 	rpc::types::{TransactionReceipt, TransactionRequest},
 	transports::TransportError,
 };
-use alloy_sol_types::SolEvent;
+use alloy_sol_types::{SolCall, SolEvent};
 use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
@@ -24,14 +24,19 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::{
-		handler_v2::HandlerV2Instance, HandlerInstance, PostRequestLeaf, PostRequestMessage,
-		PostResponseLeaf, PostResponseMessage, Proof, StateMachineHeight,
+		handler_v2::{batchCallCall, HandlerV2Instance},
+		HandlerInstance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use primitive_types::{H256, U256};
 use std::{collections::BTreeSet, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
+
+/// ERC-165 interface id for `IHandlerV2`. Since the interface contains only
+/// `batchCall(bytes[])`, the id equals that function's 4-byte selector.
+const IHANDLER_V2_INTERFACE_ID: FixedBytes<4> = FixedBytes::new(batchCallCall::SELECTOR);
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
@@ -416,13 +421,31 @@ pub async fn submit_batch_messages(
 		"dispatching HandlerV2.batchCall",
 	);
 
+	// Bounded rate-limit retry. If the remote is throttling for longer than
+	// MAX_RATE_LIMIT_RETRIES * 1s, give up and let the outbound task retry on
+	// the next ProofAccepted event — avoids pinning a task forever.
+	const MAX_RATE_LIMIT_RETRIES: u32 = 10;
+	let mut attempt = 0u32;
 	let pending = loop {
 		match client.signer.send_transaction(tx.clone()).await {
 			Ok(p) => break p,
 			Err(err) => {
 				let err = anyhow::Error::from(err);
 				if is_rate_limit_error(&err) {
-					tracing::info!(chain = ?client.state_machine, "rate limited; retrying batchCall in 1s");
+					attempt += 1;
+					if attempt > MAX_RATE_LIMIT_RETRIES {
+						return Err(anyhow!(
+							"batchCall to {:?} exceeded {} rate-limit retries",
+							client.state_machine,
+							MAX_RATE_LIMIT_RETRIES,
+						));
+					}
+					tracing::info!(
+						chain = ?client.state_machine,
+						attempt,
+						max = MAX_RATE_LIMIT_RETRIES,
+						"rate limited; retrying batchCall in 1s",
+					);
 					tokio::time::sleep(Duration::from_secs(1)).await;
 				} else {
 					return Err(err);
@@ -624,23 +647,77 @@ fn build_tx_receipts(
 	TxResult { receipts: results, unsuccessful }
 }
 
-/// Batch variant of [`handle_message_submission`]: submits the whole batch in
-/// a single `IHandlerV2.batchCall` transaction and builds `TxReceipt`s for
-/// every message whose commitment showed up in the emitted events.
-pub async fn handle_batch_submission(
-	client: &EvmClient,
-	messages: Vec<Message>,
-) -> anyhow::Result<TxResult> {
-	let (receipts, unsuccessful) = submit_batch_messages(client, messages.clone()).await?;
-	let height = client.client.get_block_number().await?;
-	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
+/// Probe (via ERC-165 `supportsInterface`) whether this chain's handler
+/// contract implements `IHandlerV2` and therefore supports `batchCall`.
+///
+/// Returns `false` on any failure (pre-ERC165 handler, RPC error, etc.) —
+/// the caller falls back to the serial submit path. Result should be cached
+/// on the client; see `EvmClient::supports_batch`.
+pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
+	let handler_addr = match client.handler().await {
+		Ok(h) => Address::from_slice(&h.0),
+		Err(err) => {
+			tracing::debug!(?err, "handler address lookup failed during batch probe");
+			return false;
+		},
+	};
+	let handler = HandlerInstance::new(handler_addr, client.signer.clone());
+	match handler.supportsInterface(IHANDLER_V2_INTERFACE_ID).call().await {
+		Ok(supported) => {
+			tracing::debug!(
+				chain = ?client.state_machine,
+				%handler_addr,
+				supported,
+				"IHandlerV2 supportsInterface probe",
+			);
+			supported
+		},
+		Err(err) => {
+			tracing::debug!(
+				chain = ?client.state_machine,
+				%handler_addr,
+				?err,
+				"supportsInterface call failed; assuming no IHandlerV2",
+			);
+			false
+		},
+	}
 }
 
+/// Top-level submission entry. Transparently dispatches through either
+/// `IHandlerV2.batchCall` (one tx for the whole batch) or the legacy
+/// one-tx-per-message path, depending on what the chain's handler supports.
+///
+/// The V2 capability is probed once via ERC-165 `supportsInterface` and cached
+/// on the client ([`EvmClient::supports_batch`]), so subsequent submissions
+/// skip the probe.
 pub async fn handle_message_submission(
 	client: &EvmClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<TxResult> {
-	let (receipts, unsuccessful) = submit_messages(client, messages.clone()).await?;
+	if messages.is_empty() {
+		return Ok(TxResult::default());
+	}
+
+	let supports_batch = match client.supports_batch.get() {
+		Some(cached) => *cached,
+		None => {
+			let probed = probe_handler_supports_batch(client).await;
+			let _ = client.supports_batch.set(probed);
+			probed
+		},
+	};
+
+	let (receipts, unsuccessful) = if supports_batch {
+		submit_batch_messages(client, messages.clone()).await?
+	} else {
+		tracing::debug!(
+			chain = ?client.state_machine,
+			msgs = messages.len(),
+			"handler doesn't support IHandlerV2; using serial submit",
+		);
+		submit_messages(client, messages.clone()).await?
+	};
 	let height = client.client.get_block_number().await?;
 	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
 }

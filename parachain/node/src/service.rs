@@ -168,13 +168,17 @@ where
 /// Start a node with the given parachain `Configuration` and relay chain `Configuration`.
 ///
 /// This is the actual implementation that is abstract over the executor and the runtime api.
+/// `extend_rpc` is a per-runtime hook for attaching RPCs that are not common to every
+/// runtime (e.g. Gargantua-only BEEFY consensus proof queries) so runtime-specific
+/// trait bounds don't leak into this generic entry point.
 #[sc_tracing::logging::prefix_logs_with("Parachain")]
-async fn start_node_impl<Runtime, T, Extra>(
+async fn start_node_impl<Runtime, T, Extra, F>(
 	parachain_config: Configuration,
 	polkadot_config: Configuration,
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	extend_rpc: F,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
@@ -186,6 +190,13 @@ where
 		+ codec::Decode,
 	T::AccountId: codec::Encode + From<[u8; 32]>,
 	Extra: codec::Decode + Send + 'static,
+	F: Fn(
+			&mut crate::rpc::RpcExtension,
+			Arc<FullClient<Runtime>>,
+		) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+		+ Send
+		+ Sync
+		+ 'static,
 {
 	let parachain_config = prepare_node_config(parachain_config);
 	let executor = sc_service::new_wasm_executor::<HostFunctions>(&parachain_config.executor);
@@ -279,6 +290,7 @@ where
 		let transaction_pool = transaction_pool.clone();
 		let bid_cache = bid_cache.clone();
 		let bid_sender = bid_sender.clone();
+		let extend_rpc = Arc::new(extend_rpc);
 
 		Box::new(move |_| {
 			let deps = crate::rpc::FullDeps {
@@ -289,7 +301,9 @@ where
 				bid_sender: bid_sender.clone(),
 			};
 
-			crate::rpc::create_full(deps).map_err(Into::into)
+			let mut module = crate::rpc::create_full(deps)?;
+			extend_rpc(&mut module, client.clone())?;
+			Ok(module)
 		})
 	};
 
@@ -543,14 +557,30 @@ pub async fn start_parachain_node(
 				gargantua_runtime::RuntimeApi,
 				gargantua_runtime::Runtime,
 				gargantua_runtime::SignedExtra,
-			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
+				_,
+			>(
+				parachain_config,
+				polkadot_config,
+				collator_options,
+				para_id,
+				hwbench,
+				crate::rpc::extend_with_gargantua,
+			)
 			.await,
 		chain if chain.contains("nexus") =>
 			start_node_impl::<
 				nexus_runtime::RuntimeApi,
 				nexus_runtime::Runtime,
 				nexus_runtime::SignedExtra,
-			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
+				_,
+			>(
+				parachain_config,
+				polkadot_config,
+				collator_options,
+				para_id,
+				hwbench,
+				|_, _| Ok(()),
+			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),
 	}

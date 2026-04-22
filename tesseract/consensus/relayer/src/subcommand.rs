@@ -53,7 +53,7 @@ impl LogMetatdata {
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
-		let clients = create_client_map(config.clone()).await?;
+		let clients = create_client_map(config.chains.clone()).await?;
 		let client = clients
 			.get(&state_machine)
 			.ok_or_else(|| anyhow!("Client for provided state machine was not found"))?;
@@ -66,8 +66,10 @@ impl LogMetatdata {
 			.chains
 			.get(&state_machine)
 			.ok_or_else(|| anyhow!("Config for {state_machine:?} not found"))?
-			.host_address()
-			.ok_or_else(|| anyhow!("Missing host address for {state_machine:?}"))?;
+			.1 // HostKind
+			.as_evm()
+			.map(|e| e.ismp_host.clone())
+			.ok_or_else(|| anyhow!("Missing EVM host address for {state_machine:?}"))?;
 		let evm_hosts: BTreeMap<_, _> = vec![(state_machine, host_address)].into_iter().collect();
 
 		// Call to set the HostParams
@@ -122,7 +124,7 @@ impl LogMetatdata {
 			.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>()
 			.await?;
 
-		let mut clients = create_client_map(config.clone()).await?;
+		let mut clients = create_client_map(config.chains.clone()).await?;
 
 		clients.insert(hyperbridge.provider().state_machine_id().state_id, Arc::new(hyperbridge));
 

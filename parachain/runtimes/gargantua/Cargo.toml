@@ -28,6 +28,7 @@ pallet-ismp = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-ismp-demo = { workspace = true }
 pallet-beefy-consensus-proofs = { workspace = true }
+pallet-beefy-consensus-proofs-runtime-api = { workspace = true }
 pallet-ismp-runtime-api = { workspace = true }
 ismp-sync-committee = { workspace = true }
 ismp-bsc = { workspace = true }
@@ -134,6 +135,7 @@ std = [
     "pallet-ismp-runtime-api/std",
     "pallet-ismp-demo/std",
     "pallet-beefy-consensus-proofs/std",
+    "pallet-beefy-consensus-proofs-runtime-api/std",
     "ismp-sync-committee/std",
     "ismp-bsc/std",
     "ismp-grandpa/std",

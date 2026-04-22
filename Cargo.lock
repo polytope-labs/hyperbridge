@@ -10453,6 +10453,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "log",
  "op-verifier",
  "pallet-ismp",
  "pallet-ismp-host-executive",

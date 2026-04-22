@@ -19,8 +19,16 @@
 
 extern crate alloc;
 
+pub mod migrations;
 pub mod pallet;
 use pallet::{Pallet, SupportedStateMachines};
+
+/// Current storage version of `pallet-ismp-optimism`. Bumped to `1` alongside the
+/// [`migrations::SeedDisputeGameConfigs`] migration that translates
+/// `StateMachinesDisputeGameFactoriesTypes` from `(H160, Vec<u32>)` to the richer
+/// `(H160, Vec<GameTypeConfig>)` layout and seeds the per-game-type verification configs.
+pub const STORAGE_VERSION: polkadot_sdk::frame_support::traits::StorageVersion =
+	polkadot_sdk::frame_support::traits::StorageVersion::new(1);
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
 use codec::{Decode, Encode};

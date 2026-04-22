@@ -14,6 +14,9 @@
 // limitations under the License.
 
 //! Traits and types required to compose the tesseract relayer
+
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-primitives";
 pub mod config;
 #[cfg(feature = "testing")]
 pub mod mocks;
@@ -526,7 +529,7 @@ pub async fn wait_for_challenge_period(
 	let challenge_period = client.query_challenge_period(counterparty_state_id).await?;
 	if challenge_period != Duration::ZERO {
 		log::info!(
-			target: "messaging-primitives", "Waiting for challenge period {challenge_period:?} for {} on {}",
+			target: LOG_TARGET, "Waiting for challenge period {challenge_period:?} for {} on {}",
 			counterparty_state_id.state_id,
 			client.name()
 		);
@@ -566,7 +569,7 @@ pub async fn wait_for_state_machine_update(
 					return Ok(event.latest_height);
 				},
 			Err(err) => {
-				log::error!(target: "messaging-primitives", "State machine update stream returned an error {err:?}")
+				log::error!(target: LOG_TARGET, "State machine update stream returned an error {err:?}")
 			},
 		}
 	}

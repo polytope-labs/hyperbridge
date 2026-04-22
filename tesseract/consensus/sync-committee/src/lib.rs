@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-sync-committee";
+
 use alloy::providers::Provider;
 use arb_host::{ArbConfig, ArbHost};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};

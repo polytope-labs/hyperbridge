@@ -28567,6 +28567,7 @@ dependencies = [
  "tesseract-config",
  "tesseract-consensus",
  "tesseract-evm",
+ "tesseract-fisherman",
  "tesseract-messaging",
  "tesseract-primitives",
  "tesseract-substrate",

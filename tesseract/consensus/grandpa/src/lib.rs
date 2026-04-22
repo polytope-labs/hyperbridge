@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-grandpa";
+
 use std::sync::Arc;
 
 use ::polkadot_sdk::sp_runtime::traits::{One, Zero};

@@ -1,4 +1,6 @@
 #![cfg(test)]
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-integration-tests";
 
 // mod ethereum;
 // mod grandpa;

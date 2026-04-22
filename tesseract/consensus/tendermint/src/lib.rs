@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-tendermint";
+
 use anyhow::Result;
 use codec::Encode;
 use ismp::{
@@ -129,7 +132,7 @@ impl IsmpHost for TendermintHost {
 						signer: counterparty.address(),
 					};
 					log::info!(
-						target: "consensus-tendermint",
+						target: LOG_TARGET,
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -141,7 +144,7 @@ impl IsmpHost for TendermintHost {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							target: "consensus-tendermint", "Failed to submit transaction to {}: {err:?}",
+							target: LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
@@ -150,7 +153,7 @@ impl IsmpHost for TendermintHost {
 					// No update to send, just continue
 				},
 				Err(e) => {
-					log::error!(target: "consensus-tendermint","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

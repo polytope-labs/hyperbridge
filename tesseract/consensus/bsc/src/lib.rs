@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-bsc";
+
 use alloy::providers::Provider;
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{

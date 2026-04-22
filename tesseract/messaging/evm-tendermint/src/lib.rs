@@ -14,6 +14,8 @@
 // limitations under the License.
 
 //! Tendermint EVM Client for ISMP
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-evm-tendermint";
 
 use anyhow::Error;
 use codec::Encode;

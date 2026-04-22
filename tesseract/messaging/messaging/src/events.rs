@@ -119,7 +119,7 @@ pub async fn translate_events_to_messages(
 								post.timeout_timestamp <= counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
-									target: "messaging-messaging", "Found timed out request, request: {}, counterparty: {}",
+									target: crate::LOG_TARGET, "Found timed out request, request: {}, counterparty: {}",
 									post.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
@@ -128,7 +128,7 @@ pub async fn translate_events_to_messages(
 
 							if !is_allowed_module(&config, &post.from) {
 								tracing::trace!(
-									target: "messaging-messaging", "Request from module {}, filtered by module filter",
+									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
 									hex::encode(&post.from),
 								);
 								return Ok(None);
@@ -166,7 +166,7 @@ pub async fn translate_events_to_messages(
 									counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
-									target: "messaging-messaging", "Found timed out request, request: {}, counterparty: {}",
+									target: crate::LOG_TARGET, "Found timed out request, request: {}, counterparty: {}",
 									post_response.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
@@ -175,7 +175,7 @@ pub async fn translate_events_to_messages(
 
 							if !is_allowed_module(&config, &post_response.source_module()) {
 								tracing::trace!(
-									target: "messaging-messaging", "Request from module {}, filtered by module filter",
+									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
 									hex::encode(&post_response.source_module()),
 								);
 								return Ok(None);
@@ -249,7 +249,7 @@ pub async fn translate_events_to_messages(
 	let (post_requests, post_request_queries, post_responses, response_queries) = {
 		if !request_messages.is_empty() || !response_messages.is_empty() {
 			tracing::trace!(
-				target: "messaging-messaging", "Tracing transactions to {:?}, from: {:?}",
+				target: crate::LOG_TARGET, "Tracing transactions to {:?}, from: {:?}",
 				sink.state_machine_id().state_id,
 				source.state_machine_id().state_id
 			);
@@ -331,7 +331,7 @@ pub async fn translate_events_to_messages(
 	let mut messages = vec![];
 
 	if !post_request_queries.is_empty() {
-		tracing::trace!(target: "messaging-messaging", "Querying request proof for batch length {}", post_request_queries.len());
+		tracing::trace!(target: crate::LOG_TARGET, "Querying request proof for batch length {}", post_request_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = post_request_queries.chunks(chunks);
 		let post_request_chunks = post_requests.chunks(chunks);
@@ -353,7 +353,7 @@ pub async fn translate_events_to_messages(
 	}
 
 	if !response_queries.is_empty() {
-		tracing::trace!(target: "messaging-messaging", "Querying response proof for batch length {}", response_queries.len());
+		tracing::trace!(target: crate::LOG_TARGET, "Querying response proof for batch length {}", response_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = response_queries.chunks(chunks);
 		let post_request_chunks = post_responses.chunks(chunks);
@@ -462,7 +462,7 @@ pub async fn return_successful_queries(
 				let client_map = client_map.clone();
 				async move {
 					if !est.successful_execution && !deliver_failed {
-						tracing::info!(target: "messaging-messaging", "Skipping Failed tx");
+						tracing::info!(target: crate::LOG_TARGET, "Skipping Failed tx");
 						// if msg has not been delivered return the message as retriable
 						let relayer = match &msg {
 							Message::Request(_) => {
@@ -485,7 +485,7 @@ pub async fn return_successful_queries(
 						let total_gas_to_be_expended_in_usd = est.execution_cost;
 						// what kind of message is this?
 						let Some(og_source)  = client_map.get(&query.source_chain) else {
-							tracing::info!(target: "messaging-messaging", "Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
+							tracing::info!(target: crate::LOG_TARGET, "Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
 							return Ok((None, None))
 						};
 
@@ -509,11 +509,11 @@ pub async fn return_successful_queries(
 						};
 
 						if fee_metadata < fee_with_profit {
-							tracing::info!(target: "messaging-messaging", "Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
+							tracing::info!(target: crate::LOG_TARGET, "Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
 							(None, Some(msg))
 						} else {
 							tracing::trace!(
-								target: "messaging-messaging", "Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
+								target: crate::LOG_TARGET, "Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
 									sink.state_machine_id().state_id, Cost(profit)
 							);
 							(Some(query), None)
@@ -521,7 +521,7 @@ pub async fn return_successful_queries(
 
 					} else {
 						// We only deliver sucessful messages to hyperbridge
-						tracing::trace!(target: "messaging-messaging", "Pushing tx to {:?}", sink.state_machine_id().state_id);
+						tracing::trace!(target: crate::LOG_TARGET, "Pushing tx to {:?}", sink.state_machine_id().state_id);
 						(Some(query), None)
 					};
 

@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-pharos-evm";
+
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use anyhow::Error;

@@ -1,7 +1,11 @@
 //! This module allows the relayer to maintain a local database
 //! of requests and responses the relayer has delivered successfully
+
 #![allow(unused_imports)]
 #![allow(unused)]
+
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-fees";
 use crate::db::{
 	deliveries::{Data, OrderByParam, UniqueWhereParam, WhereParam},
 	new_client_with_url,
@@ -499,7 +503,7 @@ impl TransactionPayment {
 		tokio::spawn(async move {
 			match tx.delete_claimed_entries(keys_to_delete).await {
 				Err(_) => {
-					tracing::error!(target: "messaging-fees", "An Error occurred while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+					tracing::error!(target: LOG_TARGET, "An Error occurred while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 				},
 				_ => {},
 			}

@@ -125,7 +125,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						let enactment_epoch = compute_epoch(rotation_block, epoch_length);
 
 						log::trace!(
-							target: "consensus-bsc", "Enacting Authority Set Rotation for {:?} on {}",
+							target: crate::LOG_TARGET, "Enacting Authority Set Rotation for {:?} on {}",
 							client.state_machine,
 							counterparty.state_machine_id().state_id
 						);
@@ -202,7 +202,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										(2 * next_validators.validators.len() / 3)
 									{
 										log::trace!(
-											target: "consensus-bsc", "Not enough participants in bsc update for block {block:?}"
+											target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
 										);
 										block += 1;
 										continue;
@@ -240,13 +240,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 									)),
 							}
 						}
-						log::trace!(target: "consensus-bsc", "No valid update found to enact authority set change");
+						log::trace!(target: crate::LOG_TARGET, "No valid update found to enact authority set change");
 						return Some((Ok(None), (interval, None)));
 					}
 					// Try to sync the client first
 					if attested_epoch > current_epoch && consensus_state.next_validators.is_none() {
 						log::info!(
-							target: "consensus-bsc", "Syncing {} on {}",
+							target: crate::LOG_TARGET, "Syncing {} on {}",
 							client.state_machine,
 							counterparty.state_machine_id().state_id
 						);
@@ -318,7 +318,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										(2 * consensus_state.current_validators.len() / 3)
 									{
 										log::trace!(
-											target: "consensus-bsc", "Not enough participants in bsc update for block {block:?}"
+											target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
 										);
 										block += 1;
 										continue;
@@ -381,7 +381,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 							}
 						}
 
-						log::trace!(target: "consensus-bsc", "No valid sync update found for {next_epoch}");
+						log::trace!(target: crate::LOG_TARGET, "No valid sync update found for {next_epoch}");
 						return Some((Ok(None), (interval, None)));
 					}
 
@@ -423,7 +423,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 			match item {
 				Ok(consensus_message) => {
 					log::info!(
-						target: "consensus-bsc",
+						target: crate::LOG_TARGET,
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -435,13 +435,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							target: "consensus-bsc", "Failed to submit transaction to {}: {err:?}",
+							target: crate::LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: "consensus-bsc","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

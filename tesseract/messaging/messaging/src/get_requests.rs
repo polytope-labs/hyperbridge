@@ -28,7 +28,7 @@ pub async fn process_get_request_events<
 			continue;
 		}
 
-		tracing::info!(target: "messaging-messaging", "Got {} get_requests from {}", get_requests.len(), state_machine_update.state_machine_id.state_id);
+		tracing::info!(target: crate::LOG_TARGET, "Got {} get_requests from {}", get_requests.len(), state_machine_update.state_machine_id.state_id);
 
 		// Group requests by destination chain and height
 		// Fetch source chain proofs
@@ -38,7 +38,7 @@ pub async fn process_get_request_events<
 		let hyperbridge_timestamp = match hyperbridge.query_timestamp().await {
 			Ok(timestamp) => timestamp,
 			Err(err) => {
-				tracing::error!(target: "messaging-messaging", "Failed to query timestamp of hyperbridge: {err:?}");
+				tracing::error!(target: crate::LOG_TARGET, "Failed to query timestamp of hyperbridge: {err:?}");
 				continue;
 			},
 		};
@@ -47,7 +47,7 @@ pub async fn process_get_request_events<
 			// Filter out timed out requests
             let full = Request::Get(req.clone());
 			if full.timed_out(hyperbridge_timestamp)  {
-                tracing::trace!(target: "messaging-messaging", "Skipping timed out get request from {} with nonce {}",req.source, req.nonce);
+                tracing::trace!(target: crate::LOG_TARGET, "Skipping timed out get request from {} with nonce {}",req.source, req.nonce);
 			} else {
                 let key = (req.dest, req.height);
 				let entry = groups.entry(key);
@@ -71,13 +71,13 @@ pub async fn process_get_request_events<
 				// 	let commitment = hash_request::<Hasher>(&full);
 				// 	if let Ok(fee) = source.query_request_fee_metadata(commitment).await {
 				// 		if fee.is_zero() {
-				// 			tracing::trace!(target: "messaging-messaging", "Skipping unprofitable  get
+				// 			tracing::trace!(target: crate::LOG_TARGET, "Skipping unprofitable  get
 				// request {:?}, fee provided {:?}", commitment, Cost(fee)); 		} else {
-				// 			tracing::trace!(target: "messaging-messaging", "Handling profitable  get
+				// 			tracing::trace!(target: crate::LOG_TARGET, "Handling profitable  get
 				// request {:?}, fee provided {:?}", commitment, Cost(fee));
 				// requests.push(req) 		}
 				// 	} else {
-				// 		tracing::error!(target: "messaging-messaging", "Failed to query fee for get
+				// 		tracing::error!(target: crate::LOG_TARGET, "Failed to query fee for get
 				// request {:?}", commitment); 		continue
 				// 	}
 				// }
@@ -94,7 +94,7 @@ pub async fn process_get_request_events<
 
 				let query = StateProofQueryType::Ismp(request_commitment_keys.flatten().collect());
 
-				tracing::trace!(target: "messaging-messaging", "Fetching source proofs for {} get_requests from {}", requests.len(), state_machine_update.state_machine_id.state_id);
+				tracing::trace!(target: crate::LOG_TARGET, "Fetching source proofs for {} get_requests from {}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let source_proof = match source
 					.query_state_proof(state_machine_update.latest_height, query)
 					.await
@@ -107,14 +107,14 @@ pub async fn process_get_request_events<
 						proof,
 					},
 					Err(err) => {
-						tracing::error!(target: "messaging-messaging", "Failed to fetch proofs for get requests: {err:?}");
+						tracing::error!(target: crate::LOG_TARGET, "Failed to fetch proofs for get requests: {err:?}");
 						continue;
 					},
 				};
 
 				let keys =
 					requests.iter().map(|req| req.keys.clone()).flatten().collect::<Vec<_>>();
-				tracing::trace!(target: "messaging-messaging", "Fetching state proofs for {} keys from {state_machine}", keys.len());
+				tracing::trace!(target: crate::LOG_TARGET, "Fetching state proofs for {} keys from {state_machine}", keys.len());
 				let storage_proof = match client
 					.query_state_proof(height, StateProofQueryType::Arbitrary(keys))
 					.await
@@ -124,12 +124,12 @@ pub async fn process_get_request_events<
 						proof,
 					},
 					Err(err) => {
-						tracing::error!(target: "messaging-messaging", "Failed to fetch get response proof: {err:?}");
+						tracing::error!(target: crate::LOG_TARGET, "Failed to fetch get response proof: {err:?}");
 						continue;
 					},
 				};
 
-				tracing::trace!(target: "messaging-messaging", "Handling {} get_requests for the chain pair {}:{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
+				tracing::trace!(target: crate::LOG_TARGET, "Handling {} get_requests for the chain pair {}:{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let msg = GetRequestsWithProof {
 					requests,
 					source: source_proof,
@@ -140,7 +140,7 @@ pub async fn process_get_request_events<
 				messages.push(msg)
 			} else {
 				tracing::debug!(
-					target: "messaging-messaging", "Skipping get requests because client for {} was not found",
+					target: crate::LOG_TARGET, "Skipping get requests because client for {} was not found",
 					state_machine
 				);
 			}
@@ -175,10 +175,10 @@ pub async fn process_get_request_events<
 
 							// Submit messages to Hyperbridge
 
-							tracing::trace!(target: "messaging-messaging", "Tracing get response message");
+							tracing::trace!(target: crate::LOG_TARGET, "Tracing get response message");
 							hyperbridge.dry_run_submission(msg.clone()).await?;
 
-							tracing::info!(target: "messaging-messaging", "Submitting get response",);
+							tracing::info!(target: crate::LOG_TARGET, "Submitting get response",);
 							hyperbridge.submit_get_response(msg).await?;
 
 							Ok::<_, anyhow::Error>(())
@@ -186,7 +186,7 @@ pub async fn process_get_request_events<
 						match lambda().await {
 							Ok(()) => {},
 							Err(err) => {
-								tracing::error!(target: "messaging-messaging", "Error submitting get response \n{err:?}");
+								tracing::error!(target: crate::LOG_TARGET, "Error submitting get response \n{err:?}");
 							},
 						}
 					}

@@ -103,7 +103,7 @@ where
 		send_unsigned_extrinsic(&self.client, tx, true).await?;
 
 		tracing::info!(
-			target: "consensus-beefy", "Successfully submitted proof to pallet-beefy-consensus-proofs (height: {})",
+			target: crate::LOG_TARGET, "Successfully submitted proof to pallet-beefy-consensus-proofs (height: {})",
 			proof.finalized_height
 		);
 
@@ -157,7 +157,7 @@ where
 		state_machine: &StateMachine,
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		tracing::info!(target: "consensus-beefy", "Submitting mandatory proof to pallet for {state_machine}");
+		tracing::info!(target: crate::LOG_TARGET, "Submitting mandatory proof to pallet for {state_machine}");
 		self.submit_to_pallet(&proof).await
 	}
 
@@ -166,7 +166,7 @@ where
 		state_machine: &StateMachine,
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		tracing::info!(target: "consensus-beefy", "Submitting messages proof to pallet for {state_machine}");
+		tracing::info!(target: crate::LOG_TARGET, "Submitting messages proof to pallet for {state_machine}");
 		self.submit_to_pallet(&proof).await
 	}
 

@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-evm";
+
 use crate::{
 	abi::{EvmHostInstance, PingModuleInstance},
 	transport::RpcTransport,
@@ -416,7 +419,7 @@ impl EvmClient {
 				.into();
 		}
 
-		log::info!(target: "messaging-evm", "Initialized height for {:?} at {}", self.state_machine, self.initial_height);
+		log::info!(target: LOG_TARGET, "Initialized height for {:?} at {}", self.state_machine, self.initial_height);
 
 		Ok(())
 	}

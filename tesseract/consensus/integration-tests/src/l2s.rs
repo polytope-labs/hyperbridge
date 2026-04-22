@@ -183,7 +183,7 @@ async fn setup_clients() -> Result<
 	let optimism_initial_consensus_state_message_for_other_chains =
 		optimism_chain.query_initial_consensus_state().await?.unwrap();
 
-	log::info!(target: "consensus-integration-tests", "🧊 Setting consensus states");
+	log::info!(target: crate::LOG_TARGET, "🧊 Setting consensus states");
 	hyperbridge_chain
 		.provider()
 		.set_initial_consensus_state(
@@ -274,7 +274,7 @@ pub async fn set_optimism_config_on_hyperbridge(
 async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
 	setup_logging();
 
-	log::info!(target: "consensus-integration-tests", "🧊 Initializing tesseract consensus");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract consensus");
 
 	let (hyperbridge_chain, sync_committee_chain, arbitrum_chain, optimism_chain) =
 		setup_clients().await?;
@@ -302,7 +302,7 @@ async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
 		async move { optimism_chain.start_consensus(hyperbridge_chain.provider()).await.unwrap() }
 	});
 
-	log::info!(target: "consensus-integration-tests", "🧊 Initialized consensus tasks");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initialized consensus tasks");
 
 	let _ = tokio::join!(handle_a, handle_b, handle_c);
 

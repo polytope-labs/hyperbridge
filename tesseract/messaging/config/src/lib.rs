@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-config";
+
 use std::sync::Arc;
 use substrate_state_machine::HashAlgorithm;
 use tendermint_primitives::keys::{DefaultEvmKeys, SeiEvmKeys};

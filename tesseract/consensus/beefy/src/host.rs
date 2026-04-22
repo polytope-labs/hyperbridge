@@ -141,7 +141,7 @@ where
 		while let Some(item) = notifications.next().await {
 			let Ok(ref message) = item else {
 				let error = item.unwrap_err();
-				tracing::error!(target: "consensus-beefy", "Error in queue notification stream: {:?}", error);
+				tracing::error!(target: crate::LOG_TARGET, "Error in queue notification stream: {:?}", error);
 
 				// Check if it's a Redis connection error and attempt reconnection
 				if let Some(redis_error) = error.downcast_ref::<redis_async::error::Error>() {
@@ -149,14 +149,14 @@ where
 						redis_error,
 						redis_async::error::Error::Connection(_) | redis_async::error::Error::IO(_)
 					) {
-						tracing::info!(target: "consensus-beefy", "Redis connection error detected, attempting to reconnect");
+						tracing::info!(target: crate::LOG_TARGET, "Redis connection error detected, attempting to reconnect");
 						if let Err(e) = self.backend.reconnect_notifier().await {
 							tracing::error!(
-								target: "consensus-beefy", "Failed to recreate notification subscription: {:?}",
+								target: crate::LOG_TARGET, "Failed to recreate notification subscription: {:?}",
 								e
 							);
 						} else {
-							tracing::info!(target: "consensus-beefy", "Successfully recreated notification subscription");
+							tracing::info!(target: crate::LOG_TARGET, "Successfully recreated notification subscription");
 						}
 					}
 				}
@@ -169,7 +169,7 @@ where
 				{
 					Ok(n) => n,
 					Err(e) => {
-						tracing::error!(target: "consensus-beefy", "Failed to recreate notification stream: {:?}", e);
+						tracing::error!(target: crate::LOG_TARGET, "Failed to recreate notification stream: {:?}", e);
 						tokio::time::sleep(Duration::from_secs(5)).await;
 						continue;
 					},
@@ -190,14 +190,14 @@ where
 							Ok(None) => break,
 							Err(err) => {
 								tracing::error!(
-									target: "consensus-beefy", "{counterparty_state_machine} error pulling from mandatory queue: {err:?}"
+									target: crate::LOG_TARGET, "{counterparty_state_machine} error pulling from mandatory queue: {err:?}"
 								);
 								// non-fatal error, keep trying
 								continue;
 							},
 						};
 
-					tracing::info!(target: "consensus-beefy", "{counterparty_state_machine} got authority set handover proof for {set_id}");
+					tracing::info!(target: crate::LOG_TARGET, "{counterparty_state_machine} got authority set handover proof for {set_id}");
 					let encoded = counterparty
 						.query_consensus_state(None, self.config.consensus_state_id)
 						.await
@@ -208,7 +208,7 @@ where
 					// just some sanity checks
 					if set_id < consensus_state.next_authorities.id {
 						tracing::error!(
-							target: "consensus-beefy", "{counterparty_state_machine} got proof with set_id: {set_id} < next_set_id:{}",
+							target: crate::LOG_TARGET, "{counterparty_state_machine} got proof with set_id: {set_id} < next_set_id:{}",
 							consensus_state.next_authorities.id
 						);
 						self.backend
@@ -224,7 +224,7 @@ where
 					// just some sanity checks
 					if set_id != consensus_state.next_authorities.id {
 						tracing::error!(
-							target: "consensus-beefy", "{counterparty_state_machine} consensus proof with set_id: {set_id} does not match next_set_id: {}",
+							target: crate::LOG_TARGET, "{counterparty_state_machine} consensus proof with set_id: {set_id} does not match next_set_id: {}",
 							consensus_state.next_authorities.id
 						);
 						// try to pull something else
@@ -239,7 +239,7 @@ where
 						.await
 					{
 						tracing::error!(
-							target: "consensus-beefy", "Error submitting consensus message to {counterparty_state_machine}: {err:?}",
+							target: crate::LOG_TARGET, "Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 						);
 
 						// non-fatal error, keep trying. This will pull it from the queue once more
@@ -247,7 +247,7 @@ where
 					};
 
 					tracing::info!(
-						target: "consensus-beefy", "Submitted mandatory proof to {counterparty_state_machine} for {set_id}"
+						target: crate::LOG_TARGET, "Submitted mandatory proof to {counterparty_state_machine} for {set_id}"
 					);
 					// this would be a fatal error
 					self.backend
@@ -271,14 +271,14 @@ where
 					Ok(Some(message)) => message,
 					Ok(None) => break, // no new items in the queue
 					Err(err) => {
-						tracing::error!(target: "consensus-beefy", "{counterparty_state_machine} error pulling from messages queue: {err:?}");
+						tracing::error!(target: crate::LOG_TARGET, "{counterparty_state_machine} error pulling from messages queue: {err:?}");
 						// non-fatal error, keep trying
 						continue;
 					},
 				};
 
 				tracing::info!(
-					target: "consensus-beefy", "{counterparty_state_machine} got messages proof for {finalized_height}"
+					target: crate::LOG_TARGET, "{counterparty_state_machine} got messages proof for {finalized_height}"
 				);
 				let encoded = counterparty
 					.query_consensus_state(None, self.config.consensus_state_id)
@@ -289,7 +289,7 @@ where
 				// check if the update is relevant to us.
 				if consensus_state.latest_beefy_height >= finalized_height {
 					tracing::info!(
-						target: "consensus-beefy", "{counterparty_state_machine} saw proof for stale height {finalized_height}, current: {}",
+						target: crate::LOG_TARGET, "{counterparty_state_machine} saw proof for stale height {finalized_height}, current: {}",
 						consensus_state.latest_beefy_height
 					);
 					// delete the message and pull another one
@@ -307,21 +307,21 @@ where
 					set_id != consensus_state.next_authorities.id
 				{
 					tracing::info!(
-						target: "consensus-beefy", "{counterparty_state_machine} saw proof for unknown set_id {set_id}, current: {}, next: {}",
+						target: crate::LOG_TARGET, "{counterparty_state_machine} saw proof for unknown set_id {set_id}, current: {}, next: {}",
 						consensus_state.current_authorities.id,
 						consensus_state.next_authorities.id,
 					);
 
 					if set_id > consensus_state.next_authorities.id {
 						tracing::info!(
-							target: "consensus-beefy", "{counterparty_state_machine} proof was for future set: {set_id}, next: {}",
+							target: crate::LOG_TARGET, "{counterparty_state_machine} proof was for future set: {set_id}, next: {}",
 							consensus_state.next_authorities.id,
 						);
 						// break so that we can process a mandatory update
 						break;
 					} else if set_id < consensus_state.current_authorities.id {
 						tracing::info!(
-							target: "consensus-beefy", "{counterparty_state_machine} proof was for older set: {set_id}, current: {}",
+							target: crate::LOG_TARGET, "{counterparty_state_machine} proof was for older set: {set_id}, current: {}",
 							consensus_state.current_authorities.id,
 						);
 						self.backend
@@ -343,7 +343,7 @@ where
 					.await
 				{
 					tracing::error!(
-						target: "consensus-beefy", "Error submitting consensus message to {counterparty_state_machine}: {err:?}",
+						target: crate::LOG_TARGET, "Error submitting consensus message to {counterparty_state_machine}: {err:?}",
 					);
 					// non-fatal error, keep trying. This will pull it from the queue once more
 					continue;

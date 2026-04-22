@@ -289,7 +289,7 @@ where
 				},
 				Err(err) => {
 					log::error!(
-						target: "messaging-substrate", "Error while querying events in range {}..{} from {:?}: {err:?}",
+						target: crate::LOG_TARGET, "Error while querying events in range {}..{} from {:?}: {err:?}",
 						start,
 						end,
 						self.state_machine
@@ -452,7 +452,7 @@ where
 							).into()))
 							.await
 						{
-							log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						continue;
@@ -477,7 +477,7 @@ where
 							).into()))
 							.await
 						{
-							log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						latest_height = header.number().into();
@@ -497,7 +497,7 @@ where
 				match event {
 					Some(event) => {
 						if let Err(err) = tx.send(Ok(event.clone())).await {
-							log::trace!(target: "messaging-substrate", "Failed to send state commitment veto event over channel on {state_machine:?} - {:?} \n {err:?}", update_height.id.state_id);
+							log::trace!(target: crate::LOG_TARGET, "Failed to send state commitment veto event over channel on {state_machine:?} - {:?} \n {err:?}", update_height.id.state_id);
 							return
 						};
 					},
@@ -546,7 +546,7 @@ where
 										"Error encountered while fetching finalized head"
 									).into()))
 								{
-									log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 									return
 								}
 								continue;
@@ -558,7 +558,7 @@ where
 									"Error encountered while fetching finalized head: {err:?}"
 								).into()))
 							{
-								log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
@@ -582,7 +582,7 @@ where
 									"Error encountered while querying ismp events {err:?}"
 								).into()))
 							{
-								log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							latest_height = header.number().into();
@@ -612,7 +612,7 @@ where
 											"Error encountered while querying state_machine_update_time {err:?}"
 										).into()))
 									{
-										log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+										log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 										return
 									}
 									latest_height = header.number().into();
@@ -628,22 +628,22 @@ where
 									match _res {
 										Ok(_) => {
 											if let Err(err) = tx.send(Ok(event.clone())) {
-												log::trace!(target: "messaging-substrate", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+												log::trace!(target: crate::LOG_TARGET, "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
 												return
 											};
 										}
 										Err(err) => {
-											log::error!(target: "messaging-substrate", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
+											log::error!(target: crate::LOG_TARGET, "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
 										}
 									}
 								}
 								_res = state_commitment_vetoed_stream.next() => {
 									match _res {
 										Some(Ok(_)) => {
-											log::info!(target: "messaging-substrate", "State Commitment for {event:?} was vetoed on {state_machine}");
+											log::info!(target: crate::LOG_TARGET, "State Commitment for {event:?} was vetoed on {state_machine}");
 										}
 										_ => {
-											log::error!(target: "messaging-substrate", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
+											log::error!(target: crate::LOG_TARGET, "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
 										}
 									}
 								}
@@ -686,7 +686,7 @@ where
 					Ok(Some(h)) => h,
 					Ok(None) => continue,
 					Err(err) => {
-						log::error!(target: "messaging-substrate", "{state_machine:?} proof_accepted: get_header: {err:?}");
+						log::error!(target: crate::LOG_TARGET, "{state_machine:?} proof_accepted: get_header: {err:?}");
 						continue;
 					},
 				};
@@ -753,7 +753,7 @@ where
 					},
 					Err(err) => {
 						log::error!(
-							target: "messaging-substrate",
+							target: crate::LOG_TARGET,
 							"{state_machine:?} proof_accepted: queryProofAcceptedEvents({}, {}): {err:?}",
 							cursor + 1,
 							tip,
@@ -811,13 +811,13 @@ where
 			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
 				20usize
 			{
-				log::trace!(target: "messaging-substrate", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
+				log::trace!(target: crate::LOG_TARGET, "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			} else {
 				let compressed_call = buffer[0..compressed_call_len].to_vec();
 				let call = vec![value!(compressed_call), value!(uncompressed_len as u32)];
 				let extrinsic = subxt::dynamic::tx("CallDecompressor", "decompress_call", call);
-				log::trace!(target: "messaging-substrate", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
+				log::trace!(target: crate::LOG_TARGET, "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			}
 		}

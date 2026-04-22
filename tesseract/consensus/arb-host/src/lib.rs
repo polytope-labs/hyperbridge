@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-arb-host";
+
 use abi::{IRollup, IRollupBold};
 use alloy::{
 	eips::BlockId,

@@ -60,7 +60,7 @@ where
 		10u128.pow(18))
 	.into();
 	tracing::info!(
-		target: "messaging-messaging", frequency_secs = frequency.as_secs(),
+		target: crate::LOG_TARGET, frequency_secs = frequency.as_secs(),
 		min_amount_usd = %Cost(min_amount_initial),
 		"auto-withdraw configured",
 	);
@@ -114,7 +114,7 @@ pub async fn withdraw_once<C>(
 					}
 					if let Err(err) = moved_db.delete_pending_withdrawals(ids).await {
 						tracing::error!(
-							target: "messaging-messaging", ?err,
+							target: crate::LOG_TARGET, ?err,
 							"failed to delete pending withdrawals (delivered ok)"
 						);
 					}
@@ -129,7 +129,7 @@ pub async fn withdraw_once<C>(
 					.into();
 					if amount < min_amount {
 						tracing::info!(
-							target: "messaging-messaging", unclaimed = %amount,
+							target: crate::LOG_TARGET, unclaimed = %amount,
 							min = %min_amount,
 							"balance below threshold; skipping",
 						);
@@ -137,9 +137,9 @@ pub async fn withdraw_once<C>(
 					}
 
 					let amount_usd = amount / U256::from(10u128.pow(fee_token_decimals.into()));
-					tracing::info!(target: "messaging-messaging", amount_usd = %amount_usd, "submitting withdrawal request");
+					tracing::info!(target: crate::LOG_TARGET, amount_usd = %amount_usd, "submitting withdrawal request");
 					let results = hyperbridge.withdraw_funds(client.clone(), chain).await?;
-					tracing::info!(target: "messaging-messaging", "withdrawal request accepted; delivering to destination");
+					tracing::info!(target: crate::LOG_TARGET, "withdrawal request accepted; delivering to destination");
 
 					// Persist so a crash before delivery doesn't lose the funds.
 					let ids = moved_db.store_pending_withdrawals(results.clone()).await?;
@@ -150,19 +150,19 @@ pub async fn withdraw_once<C>(
 						Ok(_) =>
 							if let Err(err) = moved_db.delete_pending_withdrawals(ids).await {
 								tracing::error!(
-									target: "messaging-messaging", ?err,
+									target: crate::LOG_TARGET, ?err,
 									"failed to delete pending withdrawals (delivered ok)"
 								);
 							},
 						Err(err) => {
-							tracing::info!(target: "messaging-messaging", ?err, "delivery failed; will be retried");
+							tracing::info!(target: crate::LOG_TARGET, ?err, "delivery failed; will be retried");
 						},
 					};
 					Ok(())
 				};
 
 				if let Err(err) = lambda().await {
-					tracing::error!(target: "messaging-messaging", ?err, "withdraw tick failed");
+					tracing::error!(target: crate::LOG_TARGET, ?err, "withdraw tick failed");
 				}
 			}
 			.instrument(span)
@@ -195,7 +195,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 		hyperbridge.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
 
 	if max_block > latest_height {
-		tracing::info!(target: "messaging-messaging", target_height = max_block, "waiting for proof accepted");
+		tracing::info!(target: crate::LOG_TARGET, target_height = max_block, "waiting for proof accepted");
 		let mut stream = hyperbridge.proof_accepted_notification().await?;
 
 		latest_height = loop {
@@ -204,11 +204,11 @@ async fn deliver_post_request<D: IsmpProvider>(
 					if event.height < max_block {
 						continue;
 					} else {
-						tracing::info!(target: "messaging-messaging", height = event.height, "proof accepted");
+						tracing::info!(target: crate::LOG_TARGET, height = event.height, "proof accepted");
 						break event.height;
 					},
 				Some(Err(_)) => {
-					tracing::error!(target: "messaging-messaging", chain = %dest_chain.name(), "proof_accepted error; retrying");
+					tracing::error!(target: crate::LOG_TARGET, chain = %dest_chain.name(), "proof_accepted error; retrying");
 				},
 				None => return Err(anyhow!("Proof accepted stream ended")),
 			}
@@ -236,7 +236,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 		.collect::<Vec<_>>();
 
 	let requests = results.iter().map(|r| r.post.clone()).collect::<Vec<_>>();
-	tracing::debug!(target: "messaging-messaging", height = latest_height, "querying request proof");
+	tracing::debug!(target: crate::LOG_TARGET, height = latest_height, "querying request proof");
 	let proof = hyperbridge
 		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
 		.await?;
@@ -259,10 +259,10 @@ async fn deliver_post_request<D: IsmpProvider>(
 		if let Err(err) =
 			dest_chain.submit(batch.clone(), hyperbridge.state_machine_id().state_id).await
 		{
-			tracing::info!(target: "messaging-messaging", ?err, retries_left = count, "withdrawal submit failed; retrying");
+			tracing::info!(target: crate::LOG_TARGET, ?err, retries_left = count, "withdrawal submit failed; retrying");
 			count -= 1;
 		} else {
-			tracing::info!(target: "messaging-messaging", "withdrawal delivered");
+			tracing::info!(target: crate::LOG_TARGET, "withdrawal delivered");
 			return Ok(());
 		}
 	}

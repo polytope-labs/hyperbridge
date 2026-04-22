@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-polygon";
+
 use anyhow::{anyhow, Result};
 use codec::Encode;
 use ismp::{
@@ -151,7 +154,7 @@ impl IsmpHost for PolygonPosHost {
 							signer: counterparty.address(),
 						};
 						log::info!(
-							target: "consensus-polygon",
+							target: LOG_TARGET,
 							"🛰️ Transmitting consensus message from {} to {}",
 							provider.name(), counterparty.name()
 						);
@@ -163,7 +166,7 @@ impl IsmpHost for PolygonPosHost {
 							.await;
 						if let Err(err) = res {
 							log::error!(
-								target: "consensus-polygon", "Failed to submit transaction to {}: {err:?}",
+								target: LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 								counterparty.name()
 							)
 						}
@@ -172,7 +175,7 @@ impl IsmpHost for PolygonPosHost {
 						// No update to send, just continue
 					},
 					Err(e) => {
-						log::error!(target: "consensus-polygon","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+						log::error!(target: LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 					},
 				}
 			}

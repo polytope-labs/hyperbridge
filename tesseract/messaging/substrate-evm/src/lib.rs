@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-substrate-evm";
+
 use anyhow::{Error, anyhow};
 use codec::{Decode, Encode};
 use evm_state_machine::{
@@ -449,7 +452,7 @@ where
 			// If block header is not found veto the state commitment
 
 			log::info!(
-				target: "messaging-substrate-evm", "Vetoing state commitment for {} on {}: block header not found for {}",
+				target: LOG_TARGET, "Vetoing state commitment for {} on {}: block header not found for {}",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id,
 				event.latest_height
@@ -472,7 +475,7 @@ where
 
 		if finalized_state_commitment.state_root != state_root.into() {
 			log::info!(
-				target: "messaging-substrate-evm", "Vetoing state commitment for {} on {}, state commitment mismatch",
+				target: LOG_TARGET, "Vetoing state commitment for {} on {}, state commitment mismatch",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id
 			);

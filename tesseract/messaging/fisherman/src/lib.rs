@@ -14,6 +14,8 @@
 // limitations under the License.
 
 //! Tesseract Fisherman
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-fisherman";
 
 use std::sync::Arc;
 
@@ -39,7 +41,7 @@ pub async fn fish(
 			"fisherman",
 			async move {
 				let res = handle_notification(chain_a, chain_b, coprocessor).await;
-				tracing::error!(target: "messaging-fisherman", "{name} has terminated with result {res:?}")
+				tracing::error!(target: LOG_TARGET, "{name} has terminated with result {res:?}")
 			},
 		)
 	}
@@ -69,11 +71,11 @@ async fn handle_notification(
 						)
 						.await;
 					if let Err(err) = res {
-						log::error!(target: "messaging-fisherman", "Failed to check for byzantine behavior: {err:?}")
+						log::error!(target: LOG_TARGET, "Failed to check for byzantine behavior: {err:?}")
 					}
 				},
 			Err(e) => {
-				log::error!(target: "messaging-fisherman","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
+				log::error!(target: LOG_TARGET,"Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},
 		}
 	}

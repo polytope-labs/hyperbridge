@@ -83,7 +83,7 @@ where
 					let consensus_state: ConsensusState =
 						codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 					log::trace!(
-						target: "consensus-grandpa", "Consensus state: {:#?}",
+						target: crate::LOG_TARGET, "Consensus state: {:#?}",
 						ConsensusState { current_authorities: vec![], ..consensus_state }
 					);
 					client.should_sync(consensus_state.current_set_id).await
@@ -116,7 +116,7 @@ where
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
 								log::trace!(
-									target: "consensus-grandpa", "Consensus state for {}: {:#?}",
+									target: crate::LOG_TARGET, "Consensus state for {}: {:#?}",
 									client.state_machine,
 									ConsensusState {
 										current_authorities: vec![],
@@ -181,7 +181,7 @@ where
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
 								log::trace!(
-									target: "consensus-grandpa", "Consensus state for {}: {:#?}",
+									target: crate::LOG_TARGET, "Consensus state for {}: {:#?}",
 									client.state_machine,
 									ConsensusState {
 										current_authorities: vec![],
@@ -246,7 +246,7 @@ where
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
 								log::trace!(
-									target: "consensus-grandpa", "Consensus state for {}: {:#?}",
+									target: crate::LOG_TARGET, "Consensus state for {}: {:#?}",
 									client.state_machine,
 									ConsensusState {
 										current_authorities: vec![],
@@ -316,7 +316,7 @@ where
 			match item {
 				Ok(consensus_message) => {
 					log::info!(
-						target: "consensus-grandpa",
+						target: crate::LOG_TARGET,
 						"🛰️ Transmitting consensus proof of size {} from {} to {}",
 						human_bytes::human_bytes(consensus_message.consensus_proof.len() as u32),
 						provider.name(), counterparty.name()
@@ -330,13 +330,13 @@ where
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							target: "consensus-grandpa", "Failed to submit transaction to {}: {err:?}",
+							target: crate::LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: "consensus-grandpa","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

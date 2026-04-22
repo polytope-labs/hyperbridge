@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-relayer";
+
 pub mod any;
 pub mod cli;
 pub mod config;

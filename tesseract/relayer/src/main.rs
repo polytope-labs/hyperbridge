@@ -13,9 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "tesseract";
+
 mod cli;
 mod config;
-mod outbound;
 mod provider;
 
 use clap::Parser;

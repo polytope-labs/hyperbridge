@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-op-host";
+
 use abi::{DisputeGameFactory, FaultDisputeGame, L2OutputOracle};
 use alloy::{
 	eips::BlockId,
@@ -273,12 +276,12 @@ impl OpHost {
 			// number exists
 			let current_block = self.op_execution_client.get_block_number().await?;
 			if alloy_u256_to_primitive(l2_block_number).as_u64() > current_block {
-				log::trace!(target: "consensus-op-host", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
+				log::trace!(target: LOG_TARGET, "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
 				continue;
 			}
 
 			if !respected_game_types.contains(&event.gameType) {
-				log::trace!(target: "consensus-op-host", "Found a dispute game event with wrong game type {}", event.gameType);
+				log::trace!(target: LOG_TARGET, "Found a dispute game event with wrong game type {}", event.gameType);
 				continue;
 			}
 
@@ -354,7 +357,7 @@ impl OpHost {
 			);
 
 			if output_root.0 != event.rootClaim.0 {
-				log::trace!(target: "consensus-op-host", "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
+				log::trace!(target: LOG_TARGET, "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
 				continue;
 			}
 

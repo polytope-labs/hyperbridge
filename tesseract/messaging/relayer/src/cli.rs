@@ -48,7 +48,7 @@ impl Cli {
 	/// Run the relayer
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		logging::setup()?;
-		log::info!(target: "messaging-relayer", "🧊 Initializing tesseract");
+		log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract");
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 
@@ -58,7 +58,7 @@ impl Cli {
 
 		if relayer.minimum_profit_percentage == 0 {
 			log::warn!(
-				target: "messaging-relayer", "Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
+				target: crate::LOG_TARGET, "Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
 			);
 		}
 
@@ -75,7 +75,7 @@ impl Cli {
 
 		if config.relayer.delivery_endpoints.is_empty() {
 			log::warn!(
-				target: "messaging-relayer", "Delivery endpoints not specified in relayer config, will deliver to all chains."
+				target: crate::LOG_TARGET, "Delivery endpoints not specified in relayer config, will deliver to all chains."
 			);
 		}
 
@@ -102,7 +102,7 @@ impl Cli {
 			// this layer (the consolidated `tesseract-relayer` is the target
 			// for new deployments and owns fee accumulation as a top-level
 			// task). Retiring this binary is tracked as follow-up work.
-			tesseract_messaging::relay(
+			tesseract_messaging::inbound(
 				new_hyperbridge.clone(),
 				client.clone(),
 				relayer.clone(),
@@ -141,7 +141,7 @@ impl Cli {
 			.boxed(),
 		);
 
-		log::info!(target: "messaging-relayer", "💬 Initialized messaging tasks");
+		log::info!(target: crate::LOG_TARGET, "💬 Initialized messaging tasks");
 
 		task_manager.future().await?;
 

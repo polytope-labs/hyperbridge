@@ -14,6 +14,8 @@
 // limitations under the License.
 
 //! Tesseract consensus relayer for Pharos Network.
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-pharos";
 
 use anyhow::Result;
 use codec::Encode;
@@ -182,7 +184,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 					};
 
 					log::info!(
-						target: "consensus-pharos",
+						target: LOG_TARGET,
 						"Transmitting consensus message from {} to {}",
 						provider.name(),
 						counterparty.name()
@@ -197,7 +199,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 
 					if let Err(err) = res {
 						log::error!(
-							target: "consensus-pharos", "Failed to submit transaction to {}: {err:?}",
+							target: LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
@@ -207,7 +209,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 				},
 				Err(e) => {
 					log::error!(
-						target: "consensus-pharos",
+						target: LOG_TARGET,
 						"Consensus task {}->{} encountered an error: {e:?}",
 						provider.name(),
 						counterparty.name()

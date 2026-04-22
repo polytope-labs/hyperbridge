@@ -1,4 +1,6 @@
 #![cfg(test)]
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-integration-test";
 
 use anyhow::anyhow;
 use futures::{FutureExt, StreamExt};
@@ -36,7 +38,7 @@ use subxt_utils::{
 	Extrinsic, Hyperbridge,
 };
 use tesseract::logging::setup as log_setup;
-use tesseract_messaging::relay;
+use tesseract_messaging::inbound;
 use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
 use tesseract_substrate::{
 	config::KeccakSubstrateChain, extrinsic::send_unsigned_extrinsic, SubstrateClient,
@@ -211,7 +213,7 @@ async fn wait_for_event_chain_b(client_b: OnlineClient<Hyperbridge>) -> Result<(
 			},
 			Err(err) => {
 				// Log the error and return it as a `Result` error
-				log::error!(target: "messaging-integration-test", "Error in finalized block stream: {:?}", err);
+				log::error!(target: LOG_TARGET, "Error in finalized block stream: {:?}", err);
 			},
 		}
 	}
@@ -224,7 +226,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 	log::info!(
-		target: "messaging-integration-test", "🧊integration test for para:{} to para {}: fund transfer",
+		target: LOG_TARGET, "🧊integration test for para:{} to para {}: fund transfer",
 		chain_a_sub_client.clone().state_machine_id().state_id,
 		chain_b_sub_client.clone().state_machine_id().state_id
 	);
@@ -319,7 +321,7 @@ async fn parachain_messaging() -> Result<(), anyhow::Error> {
 		.await?
 		.find_first::<RequestEventStatic>()?
 		.unwrap();
-	log::info!(target: "messaging-integration-test", "Tranfer request: {:?}", event);
+	log::info!(target: LOG_TARGET, "Tranfer request: {:?}", event);
 
 	// Asset burnt & transferred tokens in chain A
 	let alice_chain_a_new_balance = client_a
@@ -368,7 +370,7 @@ async fn get_request_works() -> Result<(), anyhow::Error> {
 	let _ = log_setup();
 	let (chain_a_sub_client, chain_b_sub_client) = create_clients().await?;
 
-	log::info!(target: "messaging-integration-test", "🧊integration test for para: 2000 to para 2001: get request \n");
+	log::info!(target: LOG_TARGET, "🧊integration test for para: 2000 to para 2001: get request \n");
 
 	// parachain info pallet fetching para id
 	let encoded_chain_b_id_storage_key =

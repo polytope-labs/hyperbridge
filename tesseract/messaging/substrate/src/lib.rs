@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-substrate";
+
 use anyhow::Context;
 use std::sync::Arc;
 
@@ -176,7 +179,7 @@ where
 			self.initial_height = self.query_finalized_height().await?.into();
 		}
 		log::info!(
-			target: "messaging-substrate", "Initialized height for {:?}->{name} at {}",
+			target: LOG_TARGET, "Initialized height for {:?}->{name} at {}",
 			self.state_machine,
 			self.initial_height
 		);

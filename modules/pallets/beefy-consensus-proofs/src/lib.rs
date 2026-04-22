@@ -481,7 +481,7 @@ pub mod pallet {
 			// ABI-decode the proof, convert to SCALE for verification by ismp_beefy.
 			let abi_payload = &payload.proof[1..];
 			let abi_proof =
-				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode(
+				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 					abi_payload,
 				)
 				.map_err(|_| Error::<T>::AbiDecodeFailed)?;

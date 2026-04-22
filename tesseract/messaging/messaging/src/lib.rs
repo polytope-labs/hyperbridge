@@ -111,7 +111,7 @@ where
 					Some(get_request_sender),
 				)
 				.await;
-				tracing::error!(?res, "task terminated");
+				tracing::error!(target: "messaging-messaging", ?res, "task terminated");
 			}
 			.instrument(span)
 			.boxed(),
@@ -139,7 +139,7 @@ where
 					client_map,
 				)
 				.await;
-				tracing::error!(?res, "task terminated");
+				tracing::error!(target: "messaging-messaging", ?res, "task terminated");
 			}
 			.instrument(span)
 			.boxed(),
@@ -184,14 +184,14 @@ async fn handle_notification(
 				.await
 				{
 					tracing::error!(
-						"Error while handling {} on {}: {err:?}",
+						target: "messaging-messaging", "Error while handling {} on {}: {err:?}",
 						state_machine_update.state_machine_id.state_id,
 						chain_a.name()
 					);
 				}
 			},
 			Err(e) => {
-				tracing::error!(target: "tesseract","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
+				tracing::error!(target: "messaging-messaging","Messaging task {}->{} encountered an error: {e:?}", chain_a.name(), chain_b.name());
 				continue;
 			},
 		}
@@ -246,7 +246,7 @@ async fn handle_update(
 		},
 		Err(err) => {
 			tracing::error!(
-				"Encountered an error querying events from {}: {err:?}",
+				target: "messaging-messaging", "Encountered an error querying events from {}: {err:?}",
 				chain_b.name()
 			);
 			Default::default()
@@ -256,7 +256,7 @@ async fn handle_update(
 	let state_machine = state_machine_update.state_machine_id.state_id;
 	if events.is_empty() {
 		tracing::info!(
-			"Skipping latest finalized height {} on {}, no new messages from {state_machine} in range {:?}",
+			target: "messaging-messaging", "Skipping latest finalized height {} on {}, no new messages from {state_machine} in range {:?}",
 			state_machine_update.latest_height,
 			chain_a.name(),
 			*previous_height..=state_machine_update.latest_height
@@ -279,7 +279,7 @@ async fn handle_update(
 		.fold(String::default(), |acc, (state_machine, items)| {
 			format!("{acc}{}->{}: {} messages, ", chain_b.name(), state_machine, items.count())
 		});
-	tracing::info!(target: "tesseract", "{log_events}");
+	tracing::info!(target: "messaging-messaging", "{log_events}");
 	let state_machine_height = StateMachineHeight {
 		id: state_machine_update.state_machine_id,
 		height: state_machine_update.latest_height,
@@ -298,7 +298,7 @@ async fn handle_update(
 
 	if !messages.is_empty() {
 		tracing::info!(
-			target: "tesseract",
+			target: "messaging-messaging",
 			"🛰️ Transmitting ismp messages from {} to {}",
 			chain_b.name(), chain_a.name()
 		);
@@ -316,10 +316,10 @@ async fn handle_update(
 							.collect::<Vec<_>>();
 						if !receipts.is_empty() {
 							// Store receipts in database before auto accumulation
-							tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), chain_b.name(), chain_a.name());
+							tracing::trace!(target: "messaging-messaging", "Persisting {} deliveries from {}->{} to the db", receipts.len(), chain_b.name(), chain_a.name());
 							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
 								tracing::error!(
-									"Failed to persist {} deliveries to database: {err:?}",
+									target: "messaging-messaging", "Failed to persist {} deliveries to database: {err:?}",
 									receipts.len()
 								)
 							}
@@ -327,7 +327,7 @@ async fn handle_update(
 							match sender.send(receipts).await {
 								Err(_sent) => {
 									tracing::error!(
-										"Fee auto accumulation failed You can try again manually"
+										target: "messaging-messaging", "Fee auto accumulation failed You can try again manually"
 									)
 								},
 								_ => {},
@@ -340,8 +340,8 @@ async fn handle_update(
 					config.unprofitable_retry_frequency.is_some() &&
 					chain_a.state_machine_id().state_id != coprocessor
 				{
-					tracing::error!(target: "tesseract", "Some transactions were cancelled and will be retried");
-					tracing::trace!(target: "tesseract", "Persisting {} cancelled transactions going to {} to the db", unsuccessful.len(), chain_a.name());
+					tracing::error!(target: "messaging-messaging", "Some transactions were cancelled and will be retried");
+					tracing::trace!(target: "messaging-messaging", "Persisting {} cancelled transactions going to {} to the db", unsuccessful.len(), chain_a.name());
 					if let Err(err) = tx_payment
 						.store_unprofitable_messages(
 							unsuccessful,
@@ -350,13 +350,13 @@ async fn handle_update(
 						.await
 					{
 						tracing::error!(
-						"Encountered an error while cancelled messages inside the database {err:?}"
-					)
+							target: "messaging-messaging", "Encountered an error while cancelled messages inside the database {err:?}"
+						)
 					}
 				}
 			},
 			Err(err) => {
-				tracing::error!("Failed to submit transaction to {}: {err:?}", chain_a.name())
+				tracing::error!(target: "messaging-messaging", "Failed to submit transaction to {}: {err:?}", chain_a.name())
 			},
 		}
 	}
@@ -366,13 +366,13 @@ async fn handle_update(
 		config.unprofitable_retry_frequency.is_some() &&
 		chain_a.state_machine_id().state_id != coprocessor
 	{
-		tracing::trace!(target: "tesseract", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
+		tracing::trace!(target: "messaging-messaging", "Persisting {} unprofitable messages going to {} to the db", unprofitable.len(), chain_a.name());
 		if let Err(err) = tx_payment
 			.store_unprofitable_messages(unprofitable, chain_a.state_machine_id().state_id)
 			.await
 		{
 			tracing::error!(
-				"Encountered an error while storing unprofitable messages inside the database {err:?}"
+				target: "messaging-messaging", "Encountered an error while storing unprofitable messages inside the database {err:?}"
 			)
 		}
 	}
@@ -412,12 +412,12 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 					Ok(_) => None,
 					Err(err) => {
 						tracing::warn!(
-							"Failed to query fee for receipt {:?}: {err:?}. Storing...",
+							target: "messaging-messaging", "Failed to query fee for receipt {:?}: {err:?}. Storing...",
 							receipt
 						);
 						if let Err(db_err) = tx_payment.store_messages(vec![receipt]).await {
 							tracing::error!(
-								"Failed to store receipt in DB after fee query error: {db_err:?}"
+								target: "messaging-messaging", "Failed to store receipt in DB after fee query error: {db_err:?}"
 							);
 						}
 						None
@@ -459,7 +459,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 
 		// Wait for destination chain's state machine update on hyperbridge
 		tracing::info!(
-			"Fee accumulation for {} messages submitted to {} has started",
+			target: "messaging-messaging", "Fee accumulation for {} messages submitted to {} has started",
 			receipts.len(),
 			dest.name()
 		);
@@ -473,9 +473,9 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 		{
 			Ok(height) => height,
 			Err(err) => {
-				tracing::error!("An error occurred while waiting for a state machine update, auto fee accumulation failed, Receipts have been stored in the db you can try again manually \n{err:?}");
+				tracing::error!(target: "messaging-messaging", "An error occurred while waiting for a state machine update, auto fee accumulation failed, Receipts have been stored in the db you can try again manually \n{err:?}");
 				if let Err(err) = tx_payment.store_messages(receipts).await {
-					tracing::error!("Failed to store some delivered messages to database: {err:?}")
+					tracing::error!(target: "messaging-messaging", "Failed to store some delivered messages to database: {err:?}")
 				}
 				continue;
 			},
@@ -492,7 +492,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 							let source_chain = source_chain.ok_or_else(|| anyhow!("Client for {source} not found in config, fees cannot be accumulated"))?;
 							let source_height = hyperbridge.query_latest_height(source_chain.state_machine_id()).await?;
 							// Create claim proof for deliveries from source to dest
-							tracing::info!("Creating withdrawal proofs from db for deliveries from {source}->{:?}", dest.name());
+							tracing::info!(target: "messaging-messaging", "Creating withdrawal proofs from db for deliveries from {source}->{:?}", dest.name());
 							let proofs = tx_payment
 							.create_proof_from_receipts(source_height.into(), dest_height, source_chain.clone(), dest.clone(), receipts.clone())
 							.await?;
@@ -503,7 +503,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 								commitments.extend_from_slice(&proof.commitments);
 								hyperbridge.accumulate_fees(proof).await?;
 							}
-							tracing::info!("Fee accumulation was sucessful");
+							tracing::info!(target: "messaging-messaging", "Fee accumulation was sucessful");
 							// If delete fails, not an issue, they'll be deleted whenever manual accumulation is triggered
 							let _ = tx_payment.delete_claimed_entries(commitments).await;
 							Ok::<_, anyhow::Error>(())
@@ -512,7 +512,7 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 						match lambda().await {
 							Ok(()) => {},
 							Err(err) => {
-								tracing::error!("Error accummulating some fees, receipts have been stored in the db, you can try again manually \n{err:?}");
+								tracing::error!(target: "messaging-messaging", "Error accummulating some fees, receipts have been stored in the db, you can try again manually \n{err:?}");
 							}
 						}
 					}

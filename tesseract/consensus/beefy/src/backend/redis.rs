@@ -33,7 +33,7 @@ impl TryFrom<RedisBytes> for ConsensusProof {
 	fn try_from(value: RedisBytes) -> Result<Self, Self::Error> {
 		let bytes = value.into_bytes();
 		Self::decode(&mut &bytes[..]).map_err(|err| {
-			tracing::error!("Failed to decode ConsensusProof: {err:?}");
+			tracing::error!(target: "consensus-beefy", "Failed to decode ConsensusProof: {err:?}");
 			bytes
 		})
 	}
@@ -148,28 +148,28 @@ impl RedisProofBackend {
 		// Check if it's an RsmqError with connection drop
 		if let Some(RsmqError::RedisError(redis_error)) = err.downcast_ref::<RsmqError>() {
 			if redis_error.is_connection_dropped() {
-				tracing::trace!("Redis connection dropped, recreating RSMQ client");
+				tracing::trace!(target: "consensus-beefy", "Redis connection dropped, recreating RSMQ client");
 				if let Err(e) = self.recreate_rsmq().await {
-					tracing::error!("Failed to recreate RSMQ client: {e:?}");
+					tracing::error!(target: "consensus-beefy", "Failed to recreate RSMQ client: {e:?}");
 				} else {
-					tracing::trace!("Successfully recreated RSMQ client");
+					tracing::trace!(target: "consensus-beefy", "Successfully recreated RSMQ client");
 				}
 			} else {
-				tracing::error!("Unhandled RSMQ error: {redis_error:?}");
+				tracing::error!(target: "consensus-beefy", "Unhandled RSMQ error: {redis_error:?}");
 			}
 		}
 
 		// Check if it's a direct RedisError with connection drop
 		if let Some(redis_error) = err.downcast_ref::<redis::RedisError>() {
 			if redis_error.is_connection_dropped() {
-				tracing::trace!("Redis connection dropped, recreating connection manager");
+				tracing::trace!(target: "consensus-beefy", "Redis connection dropped, recreating connection manager");
 				if let Err(e) = self.recreate_connection().await {
-					tracing::error!("Failed to recreate connection manager: {e:?}");
+					tracing::error!(target: "consensus-beefy", "Failed to recreate connection manager: {e:?}");
 				} else {
-					tracing::trace!("Successfully recreated connection manager");
+					tracing::trace!(target: "consensus-beefy", "Successfully recreated connection manager");
 				}
 			} else {
-				tracing::error!("Unhandled Redis error: {redis_error:?}");
+				tracing::error!(target: "consensus-beefy", "Unhandled Redis error: {redis_error:?}");
 			}
 		}
 	}

@@ -38,7 +38,7 @@ pub async fn consensus_notification<C: Config>(
 
 	if latest_block <= consensus_state.finalized_height {
 		log::trace!(
-			target: "tesseract-pharos",
+			target: "consensus-pharos",
 			"No new blocks to sync. Latest: {}, Finalized: {}",
 			latest_block,
 			consensus_state.finalized_height
@@ -54,7 +54,7 @@ pub async fn consensus_notification<C: Config>(
 		.map_err(|e| anyhow::anyhow!("Failed to read currentEpoch: {e}"))?;
 
 	log::info!(
-		target: "tesseract-pharos",
+		target: "consensus-pharos",
 		"New block available. Latest: {} (epoch {}), Finalized: {} (epoch {})",
 		latest_block,
 		latest_epoch,
@@ -73,7 +73,7 @@ pub async fn consensus_notification<C: Config>(
 			.map_err(|e| anyhow::anyhow!("Failed to find epoch boundary: {e}"))?;
 
 		log::info!(
-			target: "tesseract-pharos",
+			target: "consensus-pharos",
 			"Epoch boundary detected at block {}. Transition {} -> {}",
 			boundary,
 			current_epoch,
@@ -82,7 +82,7 @@ pub async fn consensus_notification<C: Config>(
 		boundary
 	} else {
 		log::trace!(
-			target: "tesseract-pharos",
+			target: "consensus-pharos",
 			"Same epoch. Syncing latest block {}",
 			latest_block
 		);
@@ -92,7 +92,7 @@ pub async fn consensus_notification<C: Config>(
 	let update = client.prover.fetch_block_update(target_block).await?;
 
 	log::trace!(
-		target: "tesseract-pharos",
+		target: "consensus-pharos",
 		"Fetched update for block {}{}",
 		target_block,
 		if update.validator_set_proof.is_some() { " (with validator set proof)" } else { "" }

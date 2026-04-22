@@ -182,7 +182,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 					};
 
 					log::info!(
-						target: "tesseract",
+						target: "consensus-pharos",
 						"Transmitting consensus message from {} to {}",
 						provider.name(),
 						counterparty.name()
@@ -197,7 +197,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "consensus-pharos", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
@@ -207,7 +207,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 				},
 				Err(e) => {
 					log::error!(
-						target: "tesseract",
+						target: "consensus-pharos",
 						"Consensus task {}->{} encountered an error: {e:?}",
 						provider.name(),
 						counterparty.name()

@@ -20,20 +20,21 @@ use futures::StreamExt;
 use ismp::{
 	consensus::StateMachineHeight,
 	host::StateMachine,
-	messaging::{hash_request, Message, Proof, RequestMessage},
+	messaging::{hash_request, ConsensusMessage, Message, Proof, RequestMessage},
 	router::Request,
 };
 use sp_core::U256;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
-	config::RelayerConfig, Cost, Hasher, HyperbridgeClaim, IsmpProvider, Query, WithdrawFundsResult,
+	config::RelayerConfig, ConsensusProofSource, Cost, Hasher, HyperbridgeClaim, IsmpProvider,
+	Query, WithdrawFundsResult, BEEFY_CONSENSUS_STATE_ID,
 };
+use tokio_stream::wrappers::IntervalStream;
 use tracing::{instrument, Instrument};
 use transaction_fees::TransactionPayment;
 
-/// Runs a withdrawal pass on every `ProofAccepted` event emitted by Hyperbridge,
-/// attempting to withdraw all unclaimed fees for every destination chain in
-/// `clients`.
+/// For every configured `withdrawal_frequency`, attempts to withdraw all
+/// unclaimed fees on hyperbridge for every destination chain in `clients`.
 ///
 /// - Delivers any pending (persisted) withdrawals from a previous run first.
 /// - Skips chains whose unclaimed balance is below `minimum_withdrawal_amount` (default 100 units
@@ -45,10 +46,13 @@ pub async fn auto_withdraw<C>(
 	clients: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	config: RelayerConfig,
 	db: Arc<TransactionPayment>,
+	proof_source: Arc<dyn ConsensusProofSource>,
 ) -> anyhow::Result<()>
 where
 	C: IsmpProvider + HyperbridgeClaim + Clone,
 {
+	// default to 1 day
+	let frequency = Duration::from_secs(config.withdrawal_frequency.unwrap_or(86_400));
 	let min_amount_initial: U256 = (config
 		.minimum_withdrawal_amount
 		.map(|val| std::cmp::max(val, 10))
@@ -56,16 +60,14 @@ where
 		10u128.pow(18))
 	.into();
 	tracing::info!(
+		target: "messaging-messaging", frequency_secs = frequency.as_secs(),
 		min_amount_usd = %Cost(min_amount_initial),
-		"auto-withdraw subscribed to ProofAccepted",
+		"auto-withdraw configured",
 	);
+	let mut interval = IntervalStream::new(tokio::time::interval(frequency));
 
-	let mut stream = hyperbridge.proof_accepted_notification().await?;
-	while let Some(item) = stream.next().await {
-		match item {
-			Ok(_) => withdraw_once(&hyperbridge, &clients, &config, &db).await,
-			Err(err) => tracing::error!(?err, "proof_accepted stream error"),
-		}
+	while let Some(_) = interval.next().await {
+		withdraw_once(&hyperbridge, &clients, &config, &db, &proof_source).await;
 	}
 
 	Ok(())
@@ -81,6 +83,7 @@ pub async fn withdraw_once<C>(
 	clients: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	config: &RelayerConfig,
 	db: &Arc<TransactionPayment>,
+	proof_source: &Arc<dyn ConsensusProofSource>,
 ) where
 	C: IsmpProvider + HyperbridgeClaim + Clone,
 {
@@ -92,6 +95,7 @@ pub async fn withdraw_once<C>(
 			let hyperbridge = hyperbridge.clone();
 			let moved_db = db.clone();
 			let config = config.clone();
+			let proof_source = proof_source.clone();
 			let span = tracing::info_span!("withdraw_tick", %chain);
 			async move {
 				let lambda = || async {
@@ -100,11 +104,17 @@ pub async fn withdraw_once<C>(
 					let (pending_withdrawals, ids): (Vec<_>, Vec<_>) =
 						moved_db.pending_withdrawals(&chain).await?.into_iter().unzip();
 					for pending in pending_withdrawals {
-						deliver_post_request(client.clone(), &hyperbridge, vec![pending]).await?;
+						deliver_post_request(
+							client.clone(),
+							&hyperbridge,
+							&proof_source,
+							vec![pending],
+						)
+						.await?;
 					}
 					if let Err(err) = moved_db.delete_pending_withdrawals(ids).await {
 						tracing::error!(
-							?err,
+							target: "messaging-messaging", ?err,
 							"failed to delete pending withdrawals (delivered ok)"
 						);
 					}
@@ -119,7 +129,7 @@ pub async fn withdraw_once<C>(
 					.into();
 					if amount < min_amount {
 						tracing::info!(
-							unclaimed = %amount,
+							target: "messaging-messaging", unclaimed = %amount,
 							min = %min_amount,
 							"balance below threshold; skipping",
 						);
@@ -127,30 +137,32 @@ pub async fn withdraw_once<C>(
 					}
 
 					let amount_usd = amount / U256::from(10u128.pow(fee_token_decimals.into()));
-					tracing::info!(amount_usd = %amount_usd, "submitting withdrawal request");
+					tracing::info!(target: "messaging-messaging", amount_usd = %amount_usd, "submitting withdrawal request");
 					let results = hyperbridge.withdraw_funds(client.clone(), chain).await?;
-					tracing::info!("withdrawal request accepted; delivering to destination");
+					tracing::info!(target: "messaging-messaging", "withdrawal request accepted; delivering to destination");
 
 					// Persist so a crash before delivery doesn't lose the funds.
 					let ids = moved_db.store_pending_withdrawals(results.clone()).await?;
 
-					match deliver_post_request(client.clone(), &hyperbridge, results).await {
+					match deliver_post_request(client.clone(), &hyperbridge, &proof_source, results)
+						.await
+					{
 						Ok(_) =>
 							if let Err(err) = moved_db.delete_pending_withdrawals(ids).await {
 								tracing::error!(
-									?err,
+									target: "messaging-messaging", ?err,
 									"failed to delete pending withdrawals (delivered ok)"
 								);
 							},
 						Err(err) => {
-							tracing::info!(?err, "delivery failed; will be retried");
+							tracing::info!(target: "messaging-messaging", ?err, "delivery failed; will be retried");
 						},
 					};
 					Ok(())
 				};
 
 				if let Err(err) = lambda().await {
-					tracing::error!(?err, "withdraw tick failed");
+					tracing::error!(target: "messaging-messaging", ?err, "withdraw tick failed");
 				}
 			}
 			.instrument(span)
@@ -166,6 +178,7 @@ pub async fn withdraw_once<C>(
 async fn deliver_post_request<D: IsmpProvider>(
 	dest_chain: Arc<dyn IsmpProvider>,
 	hyperbridge: &D,
+	proof_source: &Arc<dyn ConsensusProofSource>,
 	results: Vec<WithdrawFundsResult>,
 ) -> anyhow::Result<()> {
 	if results.is_empty() {
@@ -174,31 +187,43 @@ async fn deliver_post_request<D: IsmpProvider>(
 	let max_block =
 		results.iter().map(|r| r.block).max().expect("results non-empty, checked above");
 
+	// Wait for HB's own ProofAccepted to reach max_block — that's the signal
+	// that an accepted proof exists in offchain storage that we can bundle
+	// alongside the request message below, advancing the destination's view
+	// of HB high enough to verify the request proof in the same tx.
 	let mut latest_height =
-		dest_chain.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
+		hyperbridge.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
 
 	if max_block > latest_height {
-		tracing::info!(target_height = max_block, "waiting for state machine update");
-		let mut stream = dest_chain
-			.state_machine_update_notification(hyperbridge.state_machine_id())
-			.await?;
+		tracing::info!(target: "messaging-messaging", target_height = max_block, "waiting for proof accepted");
+		let mut stream = hyperbridge.proof_accepted_notification().await?;
 
 		latest_height = loop {
 			match stream.next().await {
 				Some(Ok(event)) =>
-					if event.latest_height < max_block {
+					if event.height < max_block {
 						continue;
 					} else {
-						tracing::info!(height = event.latest_height, "state machine update");
-						break event.latest_height;
+						tracing::info!(target: "messaging-messaging", height = event.height, "proof accepted");
+						break event.height;
 					},
 				Some(Err(_)) => {
-					tracing::error!(chain = %dest_chain.name(), "state_machine_update error; retrying");
+					tracing::error!(target: "messaging-messaging", chain = %dest_chain.name(), "proof_accepted error; retrying");
 				},
-				None => return Err(anyhow!("State machine update stream ended")),
+				None => return Err(anyhow!("Proof accepted stream ended")),
 			}
 		};
 	}
+
+	// Bundle the BEEFY consensus proof alongside the request message so
+	// destinations that haven't yet seen this HB height can verify both in
+	// one tx.
+	let consensus_proof = proof_source.fetch(latest_height).await?;
+	let consensus_msg = ConsensusMessage {
+		consensus_proof,
+		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
+		signer: dest_chain.address(),
+	};
 
 	let queries = results
 		.iter()
@@ -211,11 +236,11 @@ async fn deliver_post_request<D: IsmpProvider>(
 		.collect::<Vec<_>>();
 
 	let requests = results.iter().map(|r| r.post.clone()).collect::<Vec<_>>();
-	tracing::debug!(height = latest_height, "querying request proof");
+	tracing::debug!(target: "messaging-messaging", height = latest_height, "querying request proof");
 	let proof = hyperbridge
 		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
 		.await?;
-	let msg = RequestMessage {
+	let request_msg = RequestMessage {
 		requests,
 		proof: Proof {
 			height: StateMachineHeight {
@@ -227,16 +252,17 @@ async fn deliver_post_request<D: IsmpProvider>(
 		signer: dest_chain.address(),
 	};
 
+	let batch = vec![Message::Consensus(consensus_msg), Message::Request(request_msg)];
+
 	let mut count = 5;
 	while count != 0 {
-		if let Err(err) = dest_chain
-			.submit(vec![Message::Request(msg.clone())], hyperbridge.state_machine_id().state_id)
-			.await
+		if let Err(err) =
+			dest_chain.submit(batch.clone(), hyperbridge.state_machine_id().state_id).await
 		{
-			tracing::info!(?err, retries_left = count, "withdrawal submit failed; retrying");
+			tracing::info!(target: "messaging-messaging", ?err, retries_left = count, "withdrawal submit failed; retrying");
 			count -= 1;
 		} else {
-			tracing::info!("withdrawal delivered");
+			tracing::info!(target: "messaging-messaging", "withdrawal delivered");
 			return Ok(());
 		}
 	}

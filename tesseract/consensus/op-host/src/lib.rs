@@ -273,12 +273,12 @@ impl OpHost {
 			// number exists
 			let current_block = self.op_execution_client.get_block_number().await?;
 			if alloy_u256_to_primitive(l2_block_number).as_u64() > current_block {
-				log::trace!(target: "tesseract", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
+				log::trace!(target: "consensus-op-host", "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
 				continue;
 			}
 
 			if !respected_game_types.contains(&event.gameType) {
-				log::trace!(target: "tesseract", "Found a dispute game event with wrong game type {}", event.gameType);
+				log::trace!(target: "consensus-op-host", "Found a dispute game event with wrong game type {}", event.gameType);
 				continue;
 			}
 
@@ -354,7 +354,7 @@ impl OpHost {
 			);
 
 			if output_root.0 != event.rootClaim.0 {
-				log::trace!(target: "tesseract", "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
+				log::trace!(target: "consensus-op-host", "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
 				continue;
 			}
 

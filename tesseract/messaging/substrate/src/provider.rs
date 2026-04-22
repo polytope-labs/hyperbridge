@@ -289,7 +289,7 @@ where
 				},
 				Err(err) => {
 					log::error!(
-						"Error while querying events in range {}..{} from {:?}: {err:?}",
+						target: "messaging-substrate", "Error while querying events in range {}..{} from {:?}: {err:?}",
 						start,
 						end,
 						self.state_machine
@@ -452,7 +452,7 @@ where
 							).into()))
 							.await
 						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						continue;
@@ -477,7 +477,7 @@ where
 							).into()))
 							.await
 						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						latest_height = header.number().into();
@@ -497,7 +497,7 @@ where
 				match event {
 					Some(event) => {
 						if let Err(err) = tx.send(Ok(event.clone())).await {
-							log::trace!(target: "tesseract", "Failed to send state commitment veto event over channel on {state_machine:?} - {:?} \n {err:?}", update_height.id.state_id);
+							log::trace!(target: "messaging-substrate", "Failed to send state commitment veto event over channel on {state_machine:?} - {:?} \n {err:?}", update_height.id.state_id);
 							return
 						};
 					},
@@ -546,7 +546,7 @@ where
 										"Error encountered while fetching finalized head"
 									).into()))
 								{
-									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 									return
 								}
 								continue;
@@ -558,7 +558,7 @@ where
 									"Error encountered while fetching finalized head: {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
@@ -582,7 +582,7 @@ where
 									"Error encountered while querying ismp events {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							latest_height = header.number().into();
@@ -612,7 +612,7 @@ where
 											"Error encountered while querying state_machine_update_time {err:?}"
 										).into()))
 									{
-										log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+										log::error!(target: "messaging-substrate", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 										return
 									}
 									latest_height = header.number().into();
@@ -628,22 +628,22 @@ where
 									match _res {
 										Ok(_) => {
 											if let Err(err) = tx.send(Ok(event.clone())) {
-												log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+												log::trace!(target: "messaging-substrate", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
 												return
 											};
 										}
 										Err(err) => {
-											log::error!(target: "tesseract", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
+											log::error!(target: "messaging-substrate", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
 										}
 									}
 								}
 								_res = state_commitment_vetoed_stream.next() => {
 									match _res {
 										Some(Ok(_)) => {
-											log::info!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+											log::info!(target: "messaging-substrate", "State Commitment for {event:?} was vetoed on {state_machine}");
 										}
 										_ => {
-											log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
+											log::error!(target: "messaging-substrate", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
 										}
 									}
 								}
@@ -686,7 +686,7 @@ where
 					Ok(Some(h)) => h,
 					Ok(None) => continue,
 					Err(err) => {
-						log::error!(target: "tesseract", "{state_machine:?} proof_accepted: get_header: {err:?}");
+						log::error!(target: "messaging-substrate", "{state_machine:?} proof_accepted: get_header: {err:?}");
 						continue;
 					},
 				};
@@ -702,30 +702,48 @@ where
 					BlockNumberOrHash::<H256>::Number((cursor + 1) as u32),
 					BlockNumberOrHash::<H256>::Number(tip as u32)
 				];
-				let response: Result<
-					HashMap<String, Vec<ProofAcceptedRpc>>,
-					_,
-				> = client
-					.rpc_client
-					.request("ismp_queryProofAcceptedEvents", params)
-					.await;
+				let response: Result<HashMap<String, Vec<ProofAcceptedRpc>>, _> =
+					client.rpc_client.request("ismp_queryProofAcceptedEvents", params).await;
 
 				match response {
 					Ok(map) => {
-						// The server keys blocks by hash (opaque strings) so we
-						// can't sort by block number here; `ProofAccepted`
-						// consumers only care about `height`, not observation
-						// order, so we emit events as they come.
-						let mut sent_ok = true;
-						'outer: for events in map.values() {
+						// Reduce noise: every rotation proof (mandatory — carries an
+						// authority-set transition consumers must apply in order)
+						// is forwarded, but the run of plain messaging proofs in
+						// this window collapses to just the newest one, so
+						// downstream wakes up once per window instead of N times.
+						let mut mandatory: Vec<ProofAccepted> = Vec::new();
+						let mut latest_messaging: Option<ProofAccepted> = None;
+						for events in map.values() {
 							for ev in events {
-								let out = ProofAccepted {
-									height: ev.height,
-									new_set_id: ev.new_set_id,
-								};
-								if tx.send(out).await.is_err() {
+								let out =
+									ProofAccepted { height: ev.height, new_set_id: ev.new_set_id };
+								if out.new_set_id.is_some() {
+									mandatory.push(out);
+								} else if latest_messaging
+									.as_ref()
+									.map_or(true, |cur| out.height > cur.height)
+								{
+									latest_messaging = Some(out);
+								}
+							}
+						}
+						// Mandatory first, in ascending height order — the
+						// emission order must match the on-chain rotation order
+						// for consumers that apply rotations cumulatively.
+						mandatory.sort_by_key(|m| m.height);
+
+						let mut sent_ok = true;
+						for m in mandatory {
+							if tx.send(m).await.is_err() {
+								sent_ok = false;
+								break;
+							}
+						}
+						if sent_ok {
+							if let Some(latest) = latest_messaging {
+								if tx.send(latest).await.is_err() {
 									sent_ok = false;
-									break 'outer;
 								}
 							}
 						}
@@ -735,7 +753,7 @@ where
 					},
 					Err(err) => {
 						log::error!(
-							target: "tesseract",
+							target: "messaging-substrate",
 							"{state_machine:?} proof_accepted: queryProofAcceptedEvents({}, {}): {err:?}",
 							cursor + 1,
 							tip,
@@ -793,13 +811,13 @@ where
 			if (uncompressed_len.saturating_sub(compressed_call_len) * 100 / uncompressed_len) <
 				20usize
 			{
-				log::trace!(target: "tesseract", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
+				log::trace!(target: "messaging-substrate", "Submitting uncompressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			} else {
 				let compressed_call = buffer[0..compressed_call_len].to_vec();
 				let call = vec![value!(compressed_call), value!(uncompressed_len as u32)];
 				let extrinsic = subxt::dynamic::tx("CallDecompressor", "decompress_call", call);
-				log::trace!(target: "tesseract", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
+				log::trace!(target: "messaging-substrate", "Submitting compressed call: compressed:{}kb, uncompressed:{}kb", compressed_call_len / 1000,  uncompressed_len / 1000);
 				futs.push(send_unsigned_extrinsic(&self.client, extrinsic, false))
 			}
 		}

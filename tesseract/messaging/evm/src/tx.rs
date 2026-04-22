@@ -195,15 +195,16 @@ pub async fn wait_for_transaction_receipt(
 	loop {
 		match provider.get_transaction_receipt(B256::from_slice(&tx_hash.0)).await {
 			Ok(Some(receipt)) => {
-				tracing::trace!("Receipt available after {:?}", start.elapsed());
+				tracing::trace!(target: "messaging-evm", "Receipt available after {:?}", start.elapsed());
 				return Ok(Some(receipt));
 			},
-			Ok(None) => tracing::trace!("Receipt not yet available, retrying in 7s"),
-			Err(err) => tracing::warn!("Error querying receipt: {err:?}"),
+			Ok(None) =>
+				tracing::trace!(target: "messaging-evm", "Receipt not yet available, retrying in 7s"),
+			Err(err) => tracing::warn!(target: "messaging-evm", "Error querying receipt: {err:?}"),
 		}
 
 		if tokio::time::Instant::now() >= deadline {
-			tracing::error!("No receipt after 5 minutes");
+			tracing::error!(target: "messaging-evm", "No receipt after 5 minutes");
 			return Ok(None);
 		}
 
@@ -413,7 +414,7 @@ pub async fn submit_batch_messages(
 	let tx = tx_request.nonce(nonce).transaction_type(0);
 
 	tracing::info!(
-		chain = ?client.state_machine,
+		target: "messaging-evm", chain = ?client.state_machine,
 		msgs = messages.len(),
 		calldata_bytes = calldata_len,
 		gas_estimate = gas,
@@ -441,7 +442,7 @@ pub async fn submit_batch_messages(
 						));
 					}
 					tracing::info!(
-						chain = ?client.state_machine,
+						target: "messaging-evm", chain = ?client.state_machine,
 						attempt,
 						max = MAX_RATE_LIMIT_RETRIES,
 						"rate limited; retrying batchCall in 1s",
@@ -463,7 +464,7 @@ pub async fn submit_batch_messages(
 		},
 	};
 	tracing::info!(
-		chain = ?client.state_machine,
+		target: "messaging-evm", chain = ?client.state_machine,
 		?tx_hash,
 		events = events.len(),
 		"batchCall included",
@@ -483,7 +484,7 @@ async fn cancel_transaction(
 	gas_price: U256,
 	stuck_tx: H256,
 ) {
-	tracing::warn!("Cancelling stuck tx {stuck_tx:#?} at nonce {nonce}",);
+	tracing::warn!(target: "messaging-evm", "Cancelling stuck tx {stuck_tx:#?} at nonce {nonce}",);
 	let cancel_tx = TransactionRequest::default()
 		.to(from)
 		.value(AlloyU256::ZERO)
@@ -500,7 +501,7 @@ async fn cancel_transaction(
 		} else {
 			"reverted"
 		};
-		tracing::info!("Cancellation tx for {:?} {status}", client.state_machine);
+		tracing::info!(target: "messaging-evm", "Cancellation tx for {:?} {status}", client.state_machine);
 	}
 }
 
@@ -532,7 +533,7 @@ pub async fn submit_messages(
 				Err(err) => {
 					let err = anyhow::Error::from(err);
 					if is_rate_limit_error(&err) {
-						tracing::info!(chain = ?client.state_machine, "Rate limited, retrying submission in 1s");
+						tracing::info!(target: "messaging-evm", chain = ?client.state_machine, "Rate limited, retrying submission in 1s");
 						tokio::time::sleep(Duration::from_secs(1)).await;
 					} else {
 						return Err(err);
@@ -559,7 +560,7 @@ pub async fn submit_messages(
 
 	if !events.is_empty() {
 		tracing::trace!(
-			chain = ?client.state_machine,
+			target: "messaging-evm", chain = ?client.state_machine,
 			"Got {} receipts",
 			events.len(),
 		);
@@ -579,11 +580,11 @@ pub async fn wait_for_success(
 	match wait_for_transaction_receipt(tx_hash, client).await? {
 		Some(receipt) =>
 			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
-				tracing::info!("Tx for {:?} succeeded", client.state_machine);
+				tracing::info!(target: "messaging-evm", "Tx for {:?} succeeded", client.state_machine);
 				Ok(Some(extract_event_commitments(&receipt)))
 			} else {
 				tracing::info!(
-					"Tx {:?} for {:?} reverted",
+					target: "messaging-evm", "Tx {:?} for {:?} reverted",
 					receipt.transaction_hash,
 					client.state_machine
 				);
@@ -657,7 +658,7 @@ pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
 	let handler_addr = match client.handler().await {
 		Ok(h) => Address::from_slice(&h.0),
 		Err(err) => {
-			tracing::debug!(?err, "handler address lookup failed during batch probe");
+			tracing::debug!(target: "messaging-evm", ?err, "handler address lookup failed during batch probe");
 			return false;
 		},
 	};
@@ -665,7 +666,7 @@ pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
 	match handler.supportsInterface(IHANDLER_V2_INTERFACE_ID).call().await {
 		Ok(supported) => {
 			tracing::debug!(
-				chain = ?client.state_machine,
+				target: "messaging-evm", chain = ?client.state_machine,
 				%handler_addr,
 				supported,
 				"IHandlerV2 supportsInterface probe",
@@ -674,7 +675,7 @@ pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
 		},
 		Err(err) => {
 			tracing::debug!(
-				chain = ?client.state_machine,
+				target: "messaging-evm", chain = ?client.state_machine,
 				%handler_addr,
 				?err,
 				"supportsInterface call failed; assuming no IHandlerV2",
@@ -712,7 +713,7 @@ pub async fn handle_message_submission(
 		submit_batch_messages(client, messages.clone()).await?
 	} else {
 		tracing::debug!(
-			chain = ?client.state_machine,
+			target: "messaging-evm", chain = ?client.state_machine,
 			msgs = messages.len(),
 			"handler doesn't support IHandlerV2; using serial submit",
 		);

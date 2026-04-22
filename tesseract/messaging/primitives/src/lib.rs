@@ -31,6 +31,21 @@ pub struct ProofAccepted {
 	pub height: u64,
 	pub new_set_id: Option<u64>,
 }
+
+/// Pulls the raw `payload.proof` bytes for an accepted BEEFY consensus proof
+/// (keyed by the parachain height it advanced HB to). Implementations live
+/// downstream — the relayer binary reads from HB's offchain storage via RPC,
+/// but tests mock it. Callers wrap the returned bytes in a
+/// [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
+#[async_trait::async_trait]
+pub trait ConsensusProofSource: Send + Sync {
+	/// Fetch the proof bytes that advanced the parachain to `height`.
+	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error>;
+}
+
+/// BEEFY `ConsensusStateId` — matches the solidity `BEEFY_CONSENSUS_ID` and
+/// `pallet_beefy_consensus_proofs::BEEFY_CONSENSUS_ID`.
+pub const BEEFY_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -511,7 +526,7 @@ pub async fn wait_for_challenge_period(
 	let challenge_period = client.query_challenge_period(counterparty_state_id).await?;
 	if challenge_period != Duration::ZERO {
 		log::info!(
-			"Waiting for challenge period {challenge_period:?} for {} on {}",
+			target: "messaging-primitives", "Waiting for challenge period {challenge_period:?} for {} on {}",
 			counterparty_state_id.state_id,
 			client.name()
 		);
@@ -551,7 +566,7 @@ pub async fn wait_for_state_machine_update(
 					return Ok(event.latest_height);
 				},
 			Err(err) => {
-				log::error!("State machine update stream returned an error {err:?}")
+				log::error!(target: "messaging-primitives", "State machine update stream returned an error {err:?}")
 			},
 		}
 	}

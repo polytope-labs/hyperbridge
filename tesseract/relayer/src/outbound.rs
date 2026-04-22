@@ -51,13 +51,13 @@ pub async fn run(
 	let mut stream = hyperbridge.proof_accepted_notification().await?;
 	let mut cursor: u64 = hyperbridge.initial_height();
 
-	tracing::info!(cursor, "subscribed to ProofAccepted");
+	tracing::info!(target: "tesseract", cursor, "subscribed to ProofAccepted");
 
 	while let Some(item) = stream.next().await {
 		let accepted: ProofAccepted = match item {
 			Ok(ev) => ev,
 			Err(err) => {
-				tracing::error!(?err, "proof_accepted stream error");
+				tracing::error!(target: "tesseract", ?err, "proof_accepted stream error");
 				continue;
 			},
 		};
@@ -74,7 +74,7 @@ pub async fn run(
 		let events = match hyperbridge.query_ismp_events(cursor, synth).await {
 			Ok(events) => events,
 			Err(err) => {
-				tracing::error!(cursor, to = new_height, ?err, "query_ismp_events failed",);
+				tracing::error!(target: "tesseract", cursor, to = new_height, ?err, "query_ismp_events failed",);
 				continue;
 			},
 		};
@@ -83,7 +83,7 @@ pub async fn run(
 			Ok(bytes) => bytes,
 			Err(err) => {
 				tracing::error!(
-					height = new_height,
+					target: "tesseract", height = new_height,
 					set_id = ?new_set_id,
 					?err,
 					"proof fetch failed",
@@ -93,7 +93,7 @@ pub async fn run(
 		};
 
 		tracing::info!(
-			height = new_height,
+			target: "tesseract", height = new_height,
 			set_id = ?new_set_id,
 			mandatory = is_mandatory,
 			events = events.len(),
@@ -128,7 +128,7 @@ pub async fn run(
 		}
 		while let Some(res) = tasks.next().await {
 			if let Err(err) = res {
-				tracing::error!(?err, "submit_for_dest failed");
+				tracing::error!(target: "tesseract", ?err, "submit_for_dest failed");
 			}
 		}
 
@@ -167,7 +167,7 @@ async fn submit_for_dest(
 		// Messaging-only proof with nothing for this chain — skip. Rotation
 		// proofs (mandatory) must propagate even without user messages so future
 		// messaging proofs remain verifiable on the destination.
-		tracing::trace!("skipping — no events for this chain, not mandatory");
+		tracing::trace!(target: "tesseract", "skipping — no events for this chain, not mandatory");
 		return Ok(());
 	}
 
@@ -194,22 +194,22 @@ async fn submit_for_dest(
 		{
 			Ok((deliverable, unprofitable)) => {
 				if !unprofitable.is_empty() {
-					tracing::debug!(dropped = unprofitable.len(), "unprofitable messages dropped");
+					tracing::debug!(target: "tesseract", dropped = unprofitable.len(), "unprofitable messages dropped");
 				}
 				batch.extend(deliverable);
 			},
-			Err(err) => tracing::error!(?err, "translate_events_to_messages failed"),
+			Err(err) => tracing::error!(target: "tesseract", ?err, "translate_events_to_messages failed"),
 		}
 	}
 
 	// If translate returned no deliverable messages we may be left with only
 	// the consensus entry — only worth sending on mandatory (rotation) proofs.
 	if batch.len() == 1 && !is_mandatory {
-		tracing::trace!("skipping — consensus-only batch, not mandatory");
+		tracing::trace!(target: "tesseract", "skipping — consensus-only batch, not mandatory");
 		return Ok(());
 	}
 
-	tracing::info!(msgs = batch.len(), "submitting batch");
+	tracing::info!(target: "tesseract", msgs = batch.len(), "submitting batch");
 	// `submit` transparently picks the right transport — EVM destinations
 	// whose handler supports IHandlerV2 dispatch the whole batch as a single
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
@@ -219,7 +219,7 @@ async fn submit_for_dest(
 	// closed if the relayer is shutting down).
 	if let (Some(sender), false) = (fee_sender, result.receipts.is_empty()) {
 		if let Err(err) = sender.send(result.receipts).await {
-			tracing::warn!(?err, "fee-accumulation channel send failed");
+			tracing::warn!(target: "tesseract", ?err, "fee-accumulation channel send failed");
 		}
 	}
 

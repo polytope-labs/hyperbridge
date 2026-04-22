@@ -48,7 +48,7 @@ impl Cli {
 	/// Start the consensus and optionally fisherman tasks
 	pub async fn start_consensus(&self) -> Result<(), anyhow::Error> {
 		logging::setup()?;
-		log::info!("🧊 Initializing tesseract consensus");
+		log::info!(target: "consensus-relayer", "🧊 Initializing tesseract consensus");
 
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let HyperbridgeConfig { hyperbridge, relayer, chains, .. } = config.clone();
@@ -81,7 +81,7 @@ impl Cli {
 		if let Some(ref state_machine_str) = self.base {
 			let state_machine = StateMachine::from_str(state_machine_str.as_str())
 				.map_err(|err| anyhow!("{err}"))?;
-			log::info!("Setting base consensus state from base state machine: {state_machine}");
+			log::info!(target: "consensus-relayer", "Setting base consensus state from base state machine: {state_machine}");
 			let client = clients.get(&state_machine).ok_or_else(|| anyhow!("Client not found"))?;
 			let consensus_state_bytes =
 				client.provider().query_consensus_state(None, *b"PARA").await?;
@@ -110,7 +110,7 @@ impl Cli {
 						let client = client.clone();
 						async move {
 							let res = hyperbridge.start_consensus(client.provider()).await;
-							log::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+							log::error!(target: "consensus-relayer", "{name} has terminated with result {res:?}")
 						}
 						.boxed()
 					},
@@ -128,7 +128,7 @@ impl Cli {
 						.await?;
 					async move {
 						let res = client.start_consensus(hyperbridge.provider()).await;
-						log::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+						log::error!(target: "consensus-relayer", "{name} has terminated with result {res:?}")
 					}
 				},
 			);
@@ -137,7 +137,7 @@ impl Cli {
 		// If there is a configuration for the maximum interval between consensus updates, then
 		// spawn monitoring task
 		if relayer.clone().maximum_update_intervals.is_some_and(|val| !val.is_empty()) {
-			log::info!("Initializing consensus update monitoring task");
+			log::info!(target: "consensus-relayer", "Initializing consensus update monitoring task");
 			task_manager.spawn_essential_handle().spawn("monitoring", "consensus", {
 				async move {
 					let _res = monitor_clients(
@@ -146,17 +146,17 @@ impl Cli {
 						relayer.maximum_update_intervals.expect("Is Some"),
 					)
 					.await;
-					log::error!(target: "tesseract", "monitoring task has terminated")
+					log::error!(target: "consensus-relayer", "monitoring task has terminated")
 				}
 				.boxed()
 			});
 		}
 
-		log::info!("Initialized consensus tasks");
+		log::info!(target: "consensus-relayer", "Initialized consensus tasks");
 
 		task_manager.future().await?;
 
-		log::info!("Consensus Tasks aborted, restart relayer");
+		log::info!(target: "consensus-relayer", "Consensus Tasks aborted, restart relayer");
 
 		Ok(())
 	}

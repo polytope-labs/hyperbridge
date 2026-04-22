@@ -58,7 +58,7 @@ impl LogMetatdata {
 			.get(&state_machine)
 			.ok_or_else(|| anyhow!("Client for provided state machine was not found"))?;
 
-		log::info!("Fetching host params for {state_machine}");
+		log::info!(target: "consensus-relayer", "Fetching host params for {state_machine}");
 		let host_param = client.provider().query_host_params(state_machine).await?;
 		let host_params: BTreeMap<_, _> = vec![(state_machine, host_param)].into_iter().collect();
 
@@ -103,7 +103,7 @@ impl LogMetatdata {
 			batch
 		};
 
-		log::info!("HostExecutive call for {state_machine:?}:\n0x{}", hex::encode(&proposal));
+		log::info!(target: "consensus-relayer", "HostExecutive call for {state_machine:?}:\n0x{}", hex::encode(&proposal));
 
 		Ok(())
 	}
@@ -114,7 +114,7 @@ impl LogMetatdata {
 		let state_machine = StateMachine::from_str(&self.state_machine)
 			.map_err(|_| anyhow!("Failed to deserialize state machine"))?;
 
-		log::info!("🧊 Fetching consensus state for {state_machine}");
+		log::info!(target: "consensus-relayer", "🧊 Fetching consensus state for {state_machine}");
 		let config = HyperbridgeConfig::parse_conf(&config_path).await?;
 
 		let hyperbridge = config
@@ -138,7 +138,7 @@ impl LogMetatdata {
 			.ok_or_else(|| anyhow!("The state machine provided does not have a consensus state"))?;
 
 		log::info!(
-			"ConsensusState for {state_machine}:\n0x{}",
+			target: "consensus-relayer", "ConsensusState for {state_machine}:\n0x{}",
 			hex::encode(&consensus_state.consensus_state)
 		);
 

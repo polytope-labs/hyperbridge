@@ -167,7 +167,7 @@ impl IsmpHost for ArbHost {
 			match item {
 				Ok(consensus_message) => {
 					log::info!(
-						target: "tesseract",
+						target: "consensus-arb-host",
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -179,13 +179,13 @@ impl IsmpHost for ArbHost {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "consensus-arb-host", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: "consensus-arb-host","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

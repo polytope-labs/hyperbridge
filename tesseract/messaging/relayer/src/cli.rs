@@ -48,7 +48,7 @@ impl Cli {
 	/// Run the relayer
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		logging::setup()?;
-		log::info!("🧊 Initializing tesseract");
+		log::info!(target: "messaging-relayer", "🧊 Initializing tesseract");
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 
@@ -58,7 +58,7 @@ impl Cli {
 
 		if relayer.minimum_profit_percentage == 0 {
 			log::warn!(
-				"Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
+				target: "messaging-relayer", "Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
 			);
 		}
 
@@ -75,7 +75,7 @@ impl Cli {
 
 		if config.relayer.delivery_endpoints.is_empty() {
 			log::warn!(
-				"Delivery endpoints not specified in relayer config, will deliver to all chains."
+				target: "messaging-relayer", "Delivery endpoints not specified in relayer config, will deliver to all chains."
 			);
 		}
 
@@ -141,7 +141,7 @@ impl Cli {
 			.boxed(),
 		);
 
-		log::info!("💬 Initialized messaging tasks");
+		log::info!(target: "messaging-relayer", "💬 Initialized messaging tasks");
 
 		task_manager.future().await?;
 

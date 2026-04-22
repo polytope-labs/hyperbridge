@@ -449,7 +449,7 @@ where
 			// If block header is not found veto the state commitment
 
 			log::info!(
-				"Vetoing state commitment for {} on {}: block header not found for {}",
+				target: "messaging-substrate-evm", "Vetoing state commitment for {} on {}: block header not found for {}",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id,
 				event.latest_height
@@ -472,7 +472,7 @@ where
 
 		if finalized_state_commitment.state_root != state_root.into() {
 			log::info!(
-				"Vetoing state commitment for {} on {}, state commitment mismatch",
+				target: "messaging-substrate-evm", "Vetoing state commitment for {} on {}, state commitment mismatch",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id
 			);

@@ -223,10 +223,10 @@ impl TronClient {
 				timeout: std::time::Duration::from_secs(config.tron_api_timeout_secs),
 				..Default::default()
 			};
-			log::info!("CatFee integration enabled: {:#?}", catfee_config);
+			log::info!(target: "messaging-tron", "CatFee integration enabled: {:#?}", catfee_config);
 			Some(CatFeeClient::new(catfee_config)?)
 		} else {
-			log::info!("CatFee integration disabled (API credentials not provided)");
+			log::info!(target: "messaging-tron", "CatFee integration disabled (API credentials not provided)");
 			None
 		};
 
@@ -255,7 +255,7 @@ impl TronClient {
 		client.queue = Some(Arc::new(queue));
 
 		log::info!(
-			"Initialized TronClient for {:?} (host={}, relayer={})",
+			target: "messaging-tron", "Initialized TronClient for {:?} (host={}, relayer={})",
 			client.evm.state_machine,
 			client.ismp_host_address,
 			client.owner_address,

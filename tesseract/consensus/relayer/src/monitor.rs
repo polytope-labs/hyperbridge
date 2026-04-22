@@ -30,7 +30,7 @@ pub async fn monitor_clients(
 			if id == hyperbridge_provider.state_machine_id() {
 				continue;
 			}
-			log::trace!(target: "tesseract", "Checking update interval for {:?} on {:?}", id.state_id, hyperbridge_provider.state_machine_id().state_id);
+			log::trace!(target: "consensus-relayer", "Checking update interval for {:?} on {:?}", id.state_id, hyperbridge_provider.state_machine_id().state_id);
 			let latest_height = hyperbridge_provider.query_latest_height(id).await?;
 			let state_machine_height = StateMachineHeight { id, height: latest_height.into() };
 			let last_state_machine_update_time = hyperbridge_provider
@@ -44,7 +44,7 @@ pub async fn monitor_clients(
 				.saturating_sub(last_state_machine_update_time.as_secs()) >=
 				max_interval
 			{
-				log::trace!(target: "tesseract", "{:?} -> {:?} Has stalled shutting down", id.state_id, hyperbridge_provider.state_machine_id().state_id);
+				log::trace!(target: "consensus-relayer", "{:?} -> {:?} Has stalled shutting down", id.state_id, hyperbridge_provider.state_machine_id().state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);
 			}
 
@@ -53,7 +53,7 @@ pub async fn monitor_clients(
 				continue;
 			}
 
-			log::trace!(target: "tesseract", "Checking update interval for {:?} on {:?}", hyperbridge_provider.state_machine_id().state_id, id.state_id);
+			log::trace!(target: "consensus-relayer", "Checking update interval for {:?} on {:?}", hyperbridge_provider.state_machine_id().state_id, id.state_id);
 			let provider = client_map
 				.get(&id.state_id)
 				.cloned()
@@ -75,7 +75,7 @@ pub async fn monitor_clients(
 				.saturating_sub(last_state_machine_update_time.as_secs()) >=
 				max_interval
 			{
-				log::trace!(target: "tesseract", "{:?} -> {:?} Has stalled shutting down", hyperbridge_provider.state_machine_id().state_id, id.state_id);
+				log::trace!(target: "consensus-relayer", "{:?} -> {:?} Has stalled shutting down", hyperbridge_provider.state_machine_id().state_id, id.state_id);
 				return Ok::<_, anyhow::Error>(HealthStat::Restart);
 			}
 		}

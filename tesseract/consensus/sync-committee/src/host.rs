@@ -66,7 +66,7 @@ impl<
 					if !(state_period..=(state_period + 1)).contains(&signature_period) {
 						let next_period = state_period + 1;
 						log::trace!(
-							"Fetching sync update for sync committee period: {next_period}"
+							target: "consensus-sync-committee", "Fetching sync update for sync committee period: {next_period}"
 						);
 						let update = client.prover.latest_update_for_period(next_period).await?;
 						let message = BeaconClientUpdate { consensus_update: update };
@@ -80,7 +80,7 @@ impl<
 					.retry(|| {
 						sync().map_err(|err| {
 							log::error!(
-								"Error trying to fetch sync message for {:?}: {err:?}",
+								target: "consensus-sync-committee", "Error trying to fetch sync message for {:?}: {err:?}",
 								client.state_machine
 							);
 							err
@@ -115,7 +115,7 @@ impl<
 					.retry(|| {
 						client.prover.fetch_finalized_checkpoint(Some("head")).map_err(|err| {
 							log::error!(
-								"Failed to fetch latest finalized header for {:?}: {err:?}",
+								target: "consensus-sync-committee", "Failed to fetch latest finalized header for {:?}: {err:?}",
 								client.state_machine
 							);
 							err
@@ -126,7 +126,7 @@ impl<
 					Ok(head) => head.finalized,
 					Err(err) => {
 						log::error!(
-							"Failed to fetch latest finalized header for {:?}: {err:?}",
+							target: "consensus-sync-committee", "Failed to fetch latest finalized header for {:?}: {err:?}",
 							client.state_machine
 						);
 						return Some((Ok::<_, Error>(None), interval));
@@ -139,7 +139,7 @@ impl<
 						consensus_notification(&client, counterparty.clone(), checkpoint.clone())
 							.map_err(|err| {
 								log::error!(
-									"Failed to fetch consensus proof for {:?}: {err:?}",
+									target: "consensus-sync-committee", "Failed to fetch consensus proof for {:?}: {err:?}",
 									client.state_machine
 								);
 								err
@@ -182,7 +182,7 @@ impl<
 			match item {
 				Ok(consensus_message) => {
 					log::info!(
-						target: "tesseract",
+						target: "consensus-sync-committee",
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -194,13 +194,13 @@ impl<
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "consensus-sync-committee", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: "consensus-sync-committee","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

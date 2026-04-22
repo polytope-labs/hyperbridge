@@ -151,7 +151,7 @@ impl IsmpHost for PolygonPosHost {
 							signer: counterparty.address(),
 						};
 						log::info!(
-							target: "tesseract",
+							target: "consensus-polygon",
 							"🛰️ Transmitting consensus message from {} to {}",
 							provider.name(), counterparty.name()
 						);
@@ -163,7 +163,7 @@ impl IsmpHost for PolygonPosHost {
 							.await;
 						if let Err(err) = res {
 							log::error!(
-								"Failed to submit transaction to {}: {err:?}",
+								target: "consensus-polygon", "Failed to submit transaction to {}: {err:?}",
 								counterparty.name()
 							)
 						}
@@ -172,7 +172,7 @@ impl IsmpHost for PolygonPosHost {
 						// No update to send, just continue
 					},
 					Err(e) => {
-						log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+						log::error!(target: "consensus-polygon","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 					},
 				}
 			}

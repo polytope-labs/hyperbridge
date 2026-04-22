@@ -39,7 +39,7 @@ pub async fn consensus_notification(
 
 	match validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
 		true => {
-			log::trace!(target: "tesseract", "Onchain Validator set matches signed header, constructing consensus proof");
+			log::trace!(target: "consensus-tendermint", "Onchain Validator set matches signed header, constructing consensus proof");
 			let next_validators = client.prover.next_validators(latest_height).await?;
 
 			return Ok(Some(TendermintConsensusUpdate {
@@ -54,17 +54,17 @@ pub async fn consensus_notification(
 			}));
 		},
 		false => {
-			log::trace!(target: "tesseract", "No match found between onchain validator set latest header, will begin syncing");
+			log::trace!(target: "consensus-tendermint", "No match found between onchain validator set latest header, will begin syncing");
 			// Backward traversal
 			let mut height = latest_height - 1;
 			let mut matched_header = None;
 			while height > trusted_state.height {
-				log::trace!(target: "tesseract", "Checking for validator set match at {height}");
+				log::trace!(target: "consensus-tendermint", "Checking for validator set match at {height}");
 				let header_res = client.prover.signed_header(height).await;
 				let header = match header_res {
 					Ok(h) => h,
 					Err(e) => {
-						log::trace!(target: "tesseract", "Error fetching tendermint header for {height}, will retry \n {e:?}");
+						log::trace!(target: "consensus-tendermint", "Error fetching tendermint header for {height}, will retry \n {e:?}");
 						continue;
 					},
 				};
@@ -80,7 +80,7 @@ pub async fn consensus_notification(
 					true,
 				);
 				if validator_set_hash_match.is_ok() && next_validator_set_hash_match.is_ok() {
-					log::trace!(target: "tesseract", "validator set match found at {height}");
+					log::trace!(target: "consensus-tendermint", "validator set match found at {height}");
 					matched_header = Some(header);
 					break;
 				}
@@ -103,10 +103,10 @@ pub async fn consensus_notification(
 					)),
 				}));
 			} else {
-				log::error!(target: "tesseract", "Fatal error, failed to find any header that matches onchain validator set");
+				log::error!(target: "consensus-tendermint", "Fatal error, failed to find any header that matches onchain validator set");
 			}
 		},
 	}
-	log::trace!(target: "tesseract", "No new update found");
+	log::trace!(target: "consensus-tendermint", "No new update found");
 	Ok(None)
 }

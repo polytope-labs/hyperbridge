@@ -31,7 +31,7 @@ impl ByzantineHandler for EvmClient {
 		let Some(header) = self.client.get_block(event.latest_height.into()).await? else {
 			// If block header is not found veto the state commitment
 			log::info!(
-				"Vetoing State Machine Update for {} on {}",
+				target: "messaging-evm", "Vetoing State Machine Update for {} on {}",
 				self.state_machine,
 				counterparty.state_machine_id().state_id
 			);
@@ -42,7 +42,7 @@ impl ByzantineHandler for EvmClient {
 		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
 		if header.header.state_root.0 != state_machine_commitment.state_root.0 {
 			log::info!(
-				"Vetoing State Machine Update for {} on {}",
+				target: "messaging-evm", "Vetoing State Machine Update for {} on {}",
 				self.state_machine,
 				counterparty.state_machine_id().state_id
 			);
@@ -76,7 +76,7 @@ impl ByzantineHandler for EvmClient {
 									"Error fetching latest block height on {state_machine:?} {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
@@ -100,7 +100,7 @@ impl ByzantineHandler for EvmClient {
 									"Error encountered while querying ismp events {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							latest_height = block_number;
@@ -119,7 +119,7 @@ impl ByzantineHandler for EvmClient {
 						if let Err(err) = tx
 									.send(Ok(events))
 								{
-									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 									return
 								}
 					}

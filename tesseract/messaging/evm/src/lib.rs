@@ -416,7 +416,7 @@ impl EvmClient {
 				.into();
 		}
 
-		log::info!("Initialized height for {:?} at {}", self.state_machine, self.initial_height);
+		log::info!(target: "messaging-evm", "Initialized height for {:?} at {}", self.state_machine, self.initial_height);
 
 		Ok(())
 	}

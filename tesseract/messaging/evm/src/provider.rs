@@ -334,7 +334,7 @@ impl IsmpProvider for EvmClient {
 				Ok(batch) => events.extend(batch),
 				Err(err) => {
 					log::error!(
-						"Error while querying events in range {}..{} from {:?}: {err:?}",
+						target: "messaging-evm", "Error while querying events in range {}..{} from {:?}: {err:?}",
 						start,
 						end,
 						self.state_machine
@@ -465,7 +465,7 @@ impl IsmpProvider for EvmClient {
 										);
 										if !successful_execution {
 											log::trace!(
-												"debug_traceCall request message failed on {:?}",
+												target: "messaging-evm", "debug_traceCall request message failed on {:?}",
 												client.state_machine
 											);
 										}
@@ -477,7 +477,7 @@ impl IsmpProvider for EvmClient {
 										);
 										if !successful_execution {
 											log::trace!(
-												"debug_traceCall response message failed on {:?}",
+												target: "messaging-evm", "debug_traceCall response message failed on {:?}",
 												client.state_machine
 											);
 										}
@@ -500,11 +500,11 @@ impl IsmpProvider for EvmClient {
 								}
 							},
 							Ok(trace) => {
-								log::error!("Unexpected geth trace variant: {trace:?}");
+								log::error!(target: "messaging-evm", "Unexpected geth trace variant: {trace:?}");
 							},
 							Err(err) => {
 								log::error!(
-									"debug_traceCall failed on {:?}: {err:?}",
+									target: "messaging-evm", "debug_traceCall failed on {:?}: {err:?}",
 									client.state_machine
 								);
 							},
@@ -608,7 +608,7 @@ impl IsmpProvider for EvmClient {
 							).into()))
 							.await
 						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						continue;
@@ -633,7 +633,7 @@ impl IsmpProvider for EvmClient {
 							).into()))
 							.await
 						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						latest_height = block_number;
@@ -650,7 +650,7 @@ impl IsmpProvider for EvmClient {
 
 				if let Some(event) = event {
 					if let Err(err) = tx.send(Ok(event.clone())).await {
-						log::trace!(target: "tesseract", "Failed to send state commitment vetoed event over channel on {state_machine:?}->{:?} \n {err:?}", update_height.id.state_id);
+						log::trace!(target: "messaging-evm", "Failed to send state commitment vetoed event over channel on {state_machine:?}->{:?} \n {err:?}", update_height.id.state_id);
 						return
 					};
 				}
@@ -697,7 +697,7 @@ impl IsmpProvider for EvmClient {
 									"Error fetching latest block height on {state_machine:?} {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
@@ -721,7 +721,7 @@ impl IsmpProvider for EvmClient {
 									"Error encountered while querying ismp events {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							latest_height = block_number;
@@ -748,7 +748,7 @@ impl IsmpProvider for EvmClient {
 										"Error encountered while querying state_machine_update_time {err:?}"
 									).into()))
 								{
-									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									log::error!(target: "messaging-evm", "Failed to send message over channel on {state_machine:?} \n {err:?}");
 									return
 								}
 								latest_height = block_number;
@@ -764,12 +764,12 @@ impl IsmpProvider for EvmClient {
 								match _res {
 									Ok(_) => {
 										if let Err(err) = tx.send(Ok(event.clone())) {
-											log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+											log::trace!(target: "messaging-evm", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
 											return
 										};
 									}
 									Err(err) => {
-										log::error!(target: "tesseract", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
+										log::error!(target: "messaging-evm", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
 									}
 								}
 							}
@@ -777,11 +777,11 @@ impl IsmpProvider for EvmClient {
 							_res = state_commitment_vetoed_stream.next() => {
 								match _res {
 									Some(Ok(_)) => {
-										log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+										log::error!(target: "messaging-evm", "State Commitment for {event:?} was vetoed on {state_machine}");
 									}
 
 									_ => {
-										log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
+										log::error!(target: "messaging-evm", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
 									}
 								}
 							}
@@ -884,8 +884,8 @@ impl IsmpProvider for EvmClient {
 		// 	.await?
 		// 	.await?
 		// {
-		// 	log::info!("Frozen consensus client on {:?}", self.state_machine);
-		// }
+		// 	log::info!(target: "messaging-evm", "Frozen consensus client on {:?}",
+		// self.state_machine); }
 		Ok(())
 	}
 
@@ -965,13 +965,13 @@ pub fn check_trace_for_event(
 	use alloy::primitives::LogData;
 
 	if let Some(ref error) = call_frame.revert_reason {
-		log::error!("Error in main call frame: {error}");
+		log::error!(target: "messaging-evm", "Error in main call frame: {error}");
 	}
 
 	// Check the last inner call frame's logs for the expected event
 	if let Some(last_call_frame) = call_frame.calls.last() {
 		if let Some(ref error) = last_call_frame.error {
-			log::error!("Error in inner call frame: {error}");
+			log::error!(target: "messaging-evm", "Error in inner call frame: {error}");
 		}
 
 		for log in &last_call_frame.logs {
@@ -989,7 +989,7 @@ pub fn check_trace_for_event(
 							Ok(_) => return true,
 							Err(err) => {
 								log::error!(
-									"Failed to parse {:?} trace log: {err:?}",
+									target: "messaging-evm", "Failed to parse {:?} trace log: {err:?}",
 									last_call_frame.to
 								);
 							},
@@ -1000,7 +1000,7 @@ pub fn check_trace_for_event(
 							Ok(_) => return true,
 							Err(err) => {
 								log::error!(
-									"Failed to parse {:?} trace log: {err:?}",
+									target: "messaging-evm", "Failed to parse {:?} trace log: {err:?}",
 									last_call_frame.to
 								);
 							},
@@ -1010,7 +1010,7 @@ pub fn check_trace_for_event(
 			}
 		}
 	} else {
-		log::error!("Debug trace frame not found!");
+		log::error!(target: "messaging-evm", "Debug trace frame not found!");
 	}
 
 	false

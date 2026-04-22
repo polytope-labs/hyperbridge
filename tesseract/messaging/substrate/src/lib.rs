@@ -176,7 +176,7 @@ where
 			self.initial_height = self.query_finalized_height().await?.into();
 		}
 		log::info!(
-			"Initialized height for {:?}->{name} at {}",
+			target: "messaging-substrate", "Initialized height for {:?}->{name} at {}",
 			self.state_machine,
 			self.initial_height
 		);

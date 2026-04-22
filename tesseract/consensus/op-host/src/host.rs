@@ -14,7 +14,7 @@ use ismp_optimism::{
 	ConsensusState, OptimismConsensusProof, OptimismConsensusType, OptimismUpdate,
 	OPTIMISM_CONSENSUS_CLIENT_ID,
 };
-use op_verifier::{calculate_output_root, _PERMISSIONED, CANNON};
+use op_verifier::{calculate_output_root, CANNON, _PERMISSIONED};
 use reqwest::Url;
 use sp_core::{bytes::from_hex, Encode, H160, H256, U256};
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
@@ -87,7 +87,7 @@ impl IsmpHost for OpHost {
 				let proposer_loop = async move {
 					let proposer_config = proposer_config_clone.clone();
 					let mut latest_height = initial_height;
-					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", proposer_client.evm.state_machine());
+					log::trace!(target: "consensus-op-host", "Started Proposer for {:?} at {latest_height}", proposer_client.evm.state_machine());
 
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
@@ -102,12 +102,12 @@ impl IsmpHost for OpHost {
 						{
 							Ok(Some(proposal)) =>
 								if let Err(err) = tx.send(proposal) {
-									log::error!(target: "tesseract", "Failed to send state proposal: {err:?}");
+									log::error!(target: "consensus-op-host", "Failed to send state proposal: {err:?}");
 									break;
 								},
 							Ok(None) => {}, // No proposal to send
 							Err(e) => {
-								log::error!(target: "tesseract", "Error constructing state proposal: {e:?}");
+								log::error!(target: "consensus-op-host", "Error constructing state proposal: {e:?}");
 							},
 						}
 					}
@@ -125,11 +125,11 @@ impl IsmpHost for OpHost {
 								)
 								.await
 								{
-									log::error!(target: "tesseract", "Error submitting state proposal: {err:?}");
+									log::error!(target: "consensus-op-host", "Error submitting state proposal: {err:?}");
 								}
 							},
 							Err(e) => {
-								log::error!(target: "tesseract", "Proposal stream error: {e:?}");
+								log::error!(target: "consensus-op-host", "Proposal stream error: {e:?}");
 							},
 						}
 					}
@@ -240,7 +240,7 @@ async fn construct_state_proposal(
 		let beacon_block_id = get_block_id(parent_beacon_root);
 		let beacon_header = fetch_beacon_header(client, proposer_config, &beacon_block_id).await?;
 		let parent_beacon_epoch = beacon_header.slot / 32;
-		log::trace!(target: "tesseract",
+		log::trace!(target: "consensus-op-host",
 			"{} Proposer: waiting until parent beacon block is finalized before proposing;  beacon block header -> {:?}",
 			client.provider.state_machine_id().state_id,
 			parent_beacon_root
@@ -257,7 +257,7 @@ async fn construct_state_proposal(
 			let finalized_epoch =
 				fetch_finalized_checkpoint(client, proposer_config, "head").await?.epoch;
 			if finalized_epoch >= parent_beacon_epoch {
-				log::trace!(target: "tesseract", "Constructing state proposal for {:?} at block {:?}", client.provider.state_machine_id().state_id, latest_height);
+				log::trace!(target: "consensus-op-host", "Constructing state proposal for {:?} at block {:?}", client.provider.state_machine_id().state_id, latest_height);
 				// refetch the l2 header incase there has been a reorg
 				let l2_header = client
 					.op_execution_client
@@ -368,7 +368,7 @@ async fn construct_state_proposal(
 					// If the latest game block number is greater than our block and its root claim
 					// is correct exit
 					if latest_valid_game.l2_block_number > commitment_block_number {
-						log::trace!(target: "tesseract","Latest proposed block {} > commitment block{commitment_block_number}", latest_valid_game.l2_block_number);
+						log::trace!(target: "consensus-op-host","Latest proposed block {} > commitment block{commitment_block_number}", latest_valid_game.l2_block_number);
 						break proposal;
 					}
 
@@ -381,7 +381,7 @@ async fn construct_state_proposal(
 
 					// If game exists exit
 					if proxy_addr.0 .0 != H160::zero().0 {
-						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
+						log::trace!(target: "consensus-op-host","State commitment for {commitment_block_number} has already been proposed");
 						break proposal;
 					}
 
@@ -410,7 +410,7 @@ async fn construct_state_proposal(
 					if creator.0.to_vec() == op_proposer &&
 						diff >= (3 * proposer_config.proposer_interval / 4)
 					{
-						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds",
+						log::trace!(target: "consensus-op-host","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds",
 							proposer_config.proposer_interval.saturating_sub((3 * proposer_config.proposer_interval )/ 4));
 						break proposal;
 					}
@@ -431,7 +431,7 @@ async fn construct_state_proposal(
 
 					break proposal;
 				} else {
-					log::trace!(target: "tesseract","Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
+					log::trace!(target: "consensus-op-host","Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
 					let bond = contract
 						.initBonds(respected_game_type)
 						.block(BlockId::latest())
@@ -462,7 +462,7 @@ async fn submit_state_proposal(
 	proposer: Arc<AlloySignerProvider>,
 	proposal: StateProposal,
 ) -> Result<(), anyhow::Error> {
-	log::trace!(target: "tesseract",
+	log::trace!(target: "consensus-op-host",
 		"Proposing state commitment for {:?}, block {:?}",
 		client.provider.state_machine_id().state_id,
 		proposal.block_number
@@ -496,7 +496,7 @@ async fn submit_state_proposal(
 		return Err(anyhow!("Transaction failed"));
 	}
 
-	log::trace!(target: "tesseract", "State proposal submitted successfully for block {:?}", proposal.block_number);
+	log::trace!(target: "consensus-op-host", "State proposal submitted successfully for block {:?}", proposal.block_number);
 
 	Ok(())
 }
@@ -719,7 +719,7 @@ async fn submit_consensus_update(
 		match item {
 			Ok(consensus_message) => {
 				log::info!(
-					target: "tesseract",
+					target: "consensus-op-host",
 					"🛰️ Transmitting consensus message from {} to {}",
 					provider.name(), counterparty.name()
 				);
@@ -730,11 +730,11 @@ async fn submit_consensus_update(
 					)
 					.await;
 				if let Err(err) = res {
-					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
+					log::error!(target: "consensus-op-host", "Failed to submit transaction to {}: {err:?}", counterparty.name())
 				}
 			},
 			Err(e) => {
-				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+				log::error!(target: "consensus-op-host","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 			},
 		}
 	}

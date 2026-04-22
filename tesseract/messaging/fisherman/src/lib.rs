@@ -39,7 +39,7 @@ pub async fn fish(
 			"fisherman",
 			async move {
 				let res = handle_notification(chain_a, chain_b, coprocessor).await;
-				tracing::error!(target: "tesseract", "{name} has terminated with result {res:?}")
+				tracing::error!(target: "messaging-fisherman", "{name} has terminated with result {res:?}")
 			},
 		)
 	}
@@ -69,11 +69,11 @@ async fn handle_notification(
 						)
 						.await;
 					if let Err(err) = res {
-						log::error!("Failed to check for byzantine behavior: {err:?}")
+						log::error!(target: "messaging-fisherman", "Failed to check for byzantine behavior: {err:?}")
 					}
 				},
 			Err(e) => {
-				log::error!(target: "tesseract","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
+				log::error!(target: "messaging-fisherman","Fisherman task {}-{} encountered an error: {e:?}", chain_a.name(), chain_b.name())
 			},
 		}
 	}

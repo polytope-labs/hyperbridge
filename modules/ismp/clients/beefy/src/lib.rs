@@ -19,6 +19,8 @@ extern crate alloc;
 extern crate core;
 pub mod consensus;
 
+pub use consensus::BeefyConsensusClient;
+
 use polkadot_sdk::*;
 
 /// Crypto implementation using substrate host functions

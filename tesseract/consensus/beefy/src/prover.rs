@@ -65,7 +65,8 @@ pub struct BeefyProverConfig {
 	pub consensus_state_id: ConsensusStateId,
 	/// Minimum height that must be enacted before we prove finality for new messages
 	pub minimum_finalization_height: u64,
-	/// State machines we are proving for
+	/// State machines we are proving for. If empty or omitted, prove all.
+	#[serde(default)]
 	pub state_machines: Vec<StateMachine>,
 	/// Which proof backend the prover (and the corresponding host) should use.
 	pub backend: crate::backend::ProofBackendConfig,
@@ -237,6 +238,10 @@ where
 				};
 
 				// filter out destinations that the prover isn't configured for
+				// empty state_machines means prove all
+				if self.config.state_machines.is_empty() {
+					return Some(event);
+				}
 				self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
 			})
 			.collect::<Vec<_>>();
@@ -430,7 +435,6 @@ where
 
 						let message = ConsensusProof {
 							finalized_height: commitment.commitment.block_number,
-							finalized_parachain_height,
 							set_id: next_set_id,
 							message: ConsensusMessage {
 								consensus_proof,
@@ -439,13 +443,23 @@ where
 							},
 						};
 
-						for state_machine in self.config.state_machines.iter() {
+						if self.config.state_machines.is_empty() {
+							let host = self.client.state_machine_id().state_id;
 							tracing::info!(
-								target: crate::LOG_TARGET, "Sending mandatory consensus proof to {state_machine}"
+								target: crate::LOG_TARGET,
+								"Sending mandatory consensus proof for {host}"
 							);
-							self.backend
-								.send_mandatory_proof(state_machine, message.clone())
-								.await?;
+							self.backend.send_mandatory_proof(&host, message.clone()).await?;
+						} else {
+							for state_machine in self.config.state_machines.iter() {
+								tracing::info!(
+									target: crate::LOG_TARGET,
+									"Sending mandatory consensus proof to {state_machine}"
+								);
+								self.backend
+									.send_mandatory_proof(state_machine, message.clone())
+									.await?;
+							}
 						}
 
 						// Advance the locally-computed view and persist it to the backend.
@@ -557,7 +571,6 @@ where
 
 				let message = ConsensusProof {
 					finalized_height: commitment.commitment.block_number,
-					finalized_parachain_height: latest_parachain_height,
 					set_id,
 					message: ConsensusMessage {
 						consensus_proof,

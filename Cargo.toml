@@ -127,6 +127,7 @@ members = [
     "tesseract/consensus/beefy",
     "tesseract/consensus/beefy/zk",
     "tesseract/consensus/relayer",
+    "tesseract/consensus/admin-relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
     "tesseract/consensus/pharos",
@@ -374,6 +375,7 @@ tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
 tesseract-consensus = { path = "tesseract/consensus/relayer" }
+tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }

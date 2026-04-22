@@ -63,22 +63,27 @@ async fn main() -> Result<(), anyhow::Error> {
 			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?
 			.try_into()?;
 
-		// The prover binary submits through a Redis queue consumed by the host process —
-		// other backend variants don't apply here.
-		let tesseract_beefy::backend::ProofBackendConfig::Redis { config: ref redis_cfg } =
-			beefy_config.backend
-		else {
-			return Err(anyhow!("Redis backend is required for the beefy-prover binary"));
+		let backend: Arc<dyn tesseract_beefy::backend::ProofBackend> = match beefy_config.backend {
+			tesseract_beefy::backend::ProofBackendConfig::Redis { ref config } => {
+				let mut cfg = config.clone();
+				cfg.realtime = true;
+				Arc::new(tesseract_beefy::backend::RedisProofBackend::new(cfg).await?)
+			},
+			tesseract_beefy::backend::ProofBackendConfig::Onchain =>
+				Arc::new(tesseract_beefy::backend::OnchainBackend::<KeccakSubstrateChain>::new(
+					substrate.client.clone(),
+					substrate.rpc_client.clone(),
+					substrate.signer.clone(),
+					beefy_config.consensus_state_id,
+				)),
+			ref b => Err(anyhow!("Unsupported backend configuration: {b:?}"))?,
 		};
-		let mut redis_cfg = redis_cfg.clone();
-		redis_cfg.realtime = true;
-		let backend = Arc::new(tesseract_beefy::backend::RedisProofBackend::new(redis_cfg).await?);
 
 		BeefyProver::<
 			Blake2SubstrateChain,
 			KeccakSubstrateChain,
 			zk_beefy::LocalProver,
-			tesseract_beefy::backend::RedisProofBackend,
+			dyn tesseract_beefy::backend::ProofBackend,
 		>::new(beefy_config, substrate, prover, backend)
 		.await?
 	};

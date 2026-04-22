@@ -45,8 +45,7 @@ use crate::{BeefyClientConfig, SubstrateCrypto};
 pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
 
 /// Beefy consensus client implementation
-pub struct BeefyConsensusClient<H, C, S = SubstrateStateMachine<H>>(PhantomData<(H, C, S)>);
-
+pub struct BeefyConsensusClient<H, C, S = SubstrateStateMachine<C>>(PhantomData<(H, C, S)>);
 impl<
 	H: IsmpHost + Send + Sync + Default + 'static,
 	C: BeefyClientConfig + 'static,

@@ -472,13 +472,24 @@ pub mod pallet {
 				Err(Error::<T>::BadSignature)?
 			}
 
-			// expects (proof type byte || SCALE-encoded proof).
+			// expects (proof type byte || ABI-encoded SP1BeefyProof).
 			let proof_type = *payload.proof.first().ok_or(Error::<T>::UnknownProofType)?;
 			if proof_type != types::PROOF_TYPE_SP1 {
 				Err(Error::<T>::UnknownProofType)?
 			}
 
-			// Hand off to pallet-ismp.
+			// ABI-decode the proof, convert to SCALE for verification by ismp_beefy.
+			let abi_payload = &payload.proof[1..];
+			let abi_proof =
+				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+					abi_payload,
+				)
+				.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+			let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
+			let consensus_proof =
+				[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat();
+
+			// Hand off to pallet-ismp with SCALE-encoded proof for verification.
 			let host = pallet_ismp::Pallet::<T>::default();
 			let prev_state_bytes = host
 				.consensus_state(BEEFY_CONSENSUS_ID)
@@ -489,7 +500,7 @@ pub mod pallet {
 			let result = handlers::handle_incoming_message(
 				&host,
 				Message::Consensus(IsmpConsensusMessage {
-					consensus_proof: payload.proof.clone(),
+					consensus_proof,
 					consensus_state_id: T::ConsensusStateId::get(),
 					signer: public.to_vec(),
 				}),

@@ -27,7 +27,7 @@ env:
 
 jobs:
   determine-runtime:
-    runs-on: arc-runner-set
+    runs-on: release-runner
     outputs:
       package: ${{ steps.runtime.outputs.package }}
       name: ${{ steps.runtime.outputs.name }}
@@ -56,7 +56,7 @@ jobs:
 
   build-runtime:
     needs: [determine-runtime]
-    runs-on: arc-runner-set
+    runs-on: release-runner
     outputs:
       spec_version: ${{ steps.info.outputs.spec_version }}
     steps:
@@ -92,6 +92,30 @@ jobs:
         run: |
           curl -L -o subwasm.deb https://github.com/chevdor/subwasm/releases/download/v0.21.3/subwasm_linux_amd64_v0.21.3.deb
           sudo dpkg -i subwasm.deb
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+          cache-dependency-path: "evm/pnpm-lock.yaml"
+          cache: "pnpm"
+
+      - name: Install npm dependencies
+        working-directory: evm
+        run: pnpm install
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Build Foundry artifacts
+        working-directory: evm
+        run: forge build
 
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
@@ -182,7 +206,7 @@ jobs:
 
   publish-release:
     needs: [determine-runtime, build-runtime]
-    runs-on: arc-runner-set
+    runs-on: release-runner
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

@@ -292,6 +292,9 @@ for chain in "${CHAIN_ARRAY[@]}"; do
         polkadot-testnet)
             VERIFIER_FLAGS="--verifier blockscout --verifier-url https://blockscout-testnet.polkadot.io/api/"
             ;;
+        pharos-testnet)
+            VERIFIER_FLAGS="--verifier custom --verifier-url $PHAROS_EXPLORER_API_URL --verifier-api-key verifyContract"
+            ;;
     esac
 
     # Add flags based on mode
@@ -340,22 +343,17 @@ for tx in data.get('transactions', []):
             esac
 
             # Map RPC alias names to forge --chain names
+            # Use chain ID for chains not in Foundry's built-in list
             FORGE_CHAIN_NAME="$chain"
             case $chain in
                 ethereum) FORGE_CHAIN_NAME="mainnet" ;;
                 gnosis) FORGE_CHAIN_NAME="xdai" ;;
                 inkchain) FORGE_CHAIN_NAME="ink" ;;
+                pharos-testnet) FORGE_CHAIN_NAME="$CHAIN_ID" ;;
             esac
 
-            # Skip --chain when custom verifier-url is set, to prevent
-            # Foundry's built-in chain→explorer mapping from overriding it
-            CHAIN_FLAG="--chain $FORGE_CHAIN_NAME"
-            if [[ "$VERIFIER_FLAGS" == *"--verifier-url"* ]]; then
-                CHAIN_FLAG=""
-            fi
-
             if forge verify-contract "$contract_address" "$VERIFY_NAME" \
-                --rpc-url "$chain" $CHAIN_FLAG --watch \
+                --rpc-url "$chain" --chain "$FORGE_CHAIN_NAME" --watch \
                 --creation-transaction-hash "$tx_hash" \
                 $VERIFIER_FLAGS 2>&1; then
                 echo -e "  ${GREEN}✓ $contract_name verified${NC}"

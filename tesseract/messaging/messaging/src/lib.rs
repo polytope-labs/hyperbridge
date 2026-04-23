@@ -122,6 +122,38 @@ where
 		);
 	}
 
+	// Hyperbridge → chain_b outbound messaging only for substrate chains
+	if chain_b.state_machine_id().state_id.is_substrate() {
+		let hyperbridge = Arc::new(hyperbridge.clone());
+		let chain_b_inner = chain_b.clone();
+		let client_map = client_map.clone();
+		let tx_payment = tx_payment.clone();
+		let config = config.clone();
+		let sender = fee_acc_sender.clone();
+		let name = format!("messaging-{}-{}", chain_b.name(), hyperbridge.name());
+		let span = tracing::info_span!("inbound_messaging", chain = %chain_b.name(), hb = %hyperbridge.name());
+		task_manager.spawn_essential_handle().spawn_blocking(
+			Box::leak(Box::new(name)),
+			"messaging",
+			async move {
+				let res = handle_notification(
+				chain_b_inner,
+					hyperbridge,
+					tx_payment,
+					config,
+					coprocessor,
+					client_map,
+					sender,
+				None,
+				)
+				.await;
+				tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+			}
+			.instrument(span)
+			.boxed(),
+		);
+	}
+
 	// GET-request processor: drains the channel fed by the inbound messaging
 	// task, builds source + storage proofs, and submits each as a
 	// `GetRequestsWithProof` to Hyperbridge.

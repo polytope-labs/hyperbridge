@@ -185,10 +185,10 @@ impl HyperbridgeConfig {
 		&self,
 	) -> HashMap<
 		StateMachine,
-		(tesseract_consensus_config::AnyConfig, tesseract_consensus::cli::HostKind),
+		(tesseract_consensus_config::AnyConfig, tesseract_consensus_config::HostKind),
 	> {
 		use tesseract_config::AnyConfig as Msg;
-		use tesseract_consensus::cli::HostKind;
+		use tesseract_consensus_config::HostKind;
 
 		self.chains
 			.iter()

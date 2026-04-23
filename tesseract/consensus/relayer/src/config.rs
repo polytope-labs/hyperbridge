@@ -1,11 +1,9 @@
-use crate::{
-	any::{AnyConfig, HyperbridgeHostConfig},
-	cli::HostKind,
-};
+use crate::any::{AnyConfig, HyperbridgeHostConfig};
 use anyhow::anyhow;
 use ismp::{consensus::StateMachineId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tesseract_consensus_config::HostKind;
 use tesseract_evm::EvmConfig;
 use tesseract_substrate::SubstrateConfig;
 

@@ -34,19 +34,19 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
 	// let _polygon_url = std::env::var("POLYGON_URL").expect("OP_URL was missing in env
 	// variables");
-	let _arb_url = std::env::var("ARBITRUM_URL").expect("ARB_URL was missing in env variables");
+	// let _arb_url = std::env::var("ARBITRUM_URL").expect("ARB_URL was missing in env variables");
 	let _sepolia_url = std::env::var("SEPOLIA_URL").expect("GETH_URL was missing in env variables");
 	let _bsc_url = std::env::var("BSC_URL").expect("BSC_URL was missing in env variables");
 	let respond = option_env!("RESPOND");
 
-	println!("{_arb_url}\n{_sepolia_url}\n{_bsc_url}");
+	// println!("{_arb_url}\n{_sepolia_url}\n{_bsc_url}");
 
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
 	let chains = vec![
 		(StateMachine::Evm(11155111), _sepolia_url, 6328728),
-		(StateMachine::Evm(421614), _arb_url, 64565289),
+		// (StateMachine::Evm(421614), _arb_url, 64565289),
 		// (StateMachine::Evm(11155420), _op_url, 14717202),
 		// (StateMachine::Evm(84532), _base_url, 10218678),
 		(StateMachine::Evm(97), _bsc_url, 42173080),
@@ -58,9 +58,9 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 		max_rpc_payload_size: None,
 		hashing: Some(HashAlgorithm::Keccak),
 		consensus_state_id: Some("PAS0".to_string()),
-		// rpc_ws: "wss://hyperbridge-paseo-rpc.blockops.network:443".to_string(),
-		rpc_ws: "ws://127.0.0.1:9001".to_string(),
-		signer: format!("{:?}", H256::random()),
+		rpc_ws: "wss://gargantua.rpc.polytope.technology".to_string(),
+		// rpc_ws: "ws://127.0.0.1:9001".to_string(),
+		signer: Some(format!("{:?}", H256::random())),
 		initial_height: None,
 		poll_interval: None,
 		max_concurent_queries: None,
@@ -99,7 +99,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 						ismp_host: H160::from_slice(host_addr.as_slice()),
 						state_machine: chain.clone(),
 						consensus_state_id: "PAS0".to_string(),
-						signer: signing_key.clone(),
+						signer: Some(signing_key.clone()),
 						tracing_batch_size: Default::default(),
 						query_batch_size: Default::default(),
 						poll_interval: Default::default(),
@@ -191,13 +191,13 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 						.context(format!("Failed to approve {PING_ADDR} in {chain}"))?;
 
 					for (chain, _, _) in chains_clone.iter().filter(|(c, _, _)| chain != *c) {
-						for _ in 0..5 {
+						for _ in 0..1 {
 							let call = ping.ping(PingMessage {
 								dest: chain.to_string().as_bytes().to_vec().into(),
 								module: PING_ADDR,
 								timeout: 10 * 60 * 60,
 								fee: AlloyU256::from(30_000_000_000_000_000_000u128),
-								count: AlloyU256::from(50),
+								count: AlloyU256::from(5),
 							});
 							let gas = call
 								.estimate_gas()

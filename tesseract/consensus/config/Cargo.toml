@@ -16,13 +16,17 @@ serde = { workspace = true, features = ["derive"] }
 subxt = { workspace = true, default-features = false }
 
 ismp = { workspace = true, default-features = true }
+substrate-state-machine = { workspace = true, default-features = true }
 
 arb-host = { workspace = true }
 evm-host = { path = "../evm-host" }
 op-host = { workspace = true }
+pharos-primitives = { workspace = true, default-features = true }
 tesseract-beefy = { path = "../beefy" }
 tesseract-bsc = { workspace = true }
+tesseract-evm = { workspace = true }
 tesseract-grandpa = { workspace = true }
+tesseract-parachain = { workspace = true }
 tesseract-pharos = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 tesseract-primitives = { workspace = true }

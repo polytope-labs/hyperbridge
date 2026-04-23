@@ -23,7 +23,7 @@ use clap::Parser;
 use futures::FutureExt;
 use ismp::host::StateMachine;
 use polkadot_sdk::sc_service::TaskManager;
-use tesseract_consensus::cli::create_client_map;
+use tesseract_consensus_config::create_client_map;
 use tesseract_primitives::{IsmpProvider, TxReceipt};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::{self, Sender};
@@ -195,7 +195,9 @@ impl Cli {
 				.instrument(span)
 				.boxed(),
 			);
-			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "spawned inbound-consensus");
+
+			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "initialized consensus task");
+
 		}
 
 		// Inbound messaging — every chain in `[chains.*]` gets an inbound
@@ -226,12 +228,7 @@ impl Cli {
 			// true`. Vetoes need to write to the chain (e.g. an EVM veto call
 			// reads the relayer's `address` slot), so the fisherman task is
 			// only spawned for chains with a signer configured.
-			let chain_has_signer = config
-				.chains
-				.get(state_machine)
-				.map(|pc| pc.outbound_enabled())
-				.unwrap_or(false);
-			if fisherman_enabled && chain_has_signer {
+			if fisherman_enabled {
 				let hb_for_fisherman: Arc<dyn IsmpProvider> = Arc::new(
 					SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone())
 						.await?,
@@ -243,12 +240,9 @@ impl Cli {
 					coprocessor,
 				)
 				.await?;
-			} else if fisherman_enabled {
-				tracing::info!(
-					target: crate::LOG_TARGET, %state_machine,
-					"fisherman skipped: chain has no signer configured (vetoes require one)",
-				);
 			}
+
+			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "initialized inbound messaging task");
 		}
 
 		// Outbound: one task, fans out over every chain that has a non-empty
@@ -335,6 +329,8 @@ impl Cli {
 				}
 				.boxed(),
 			);
+
+			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "initialized outbound messaging task");
 		}
 
 		// Fee withdrawal: one global task, periodic per
@@ -343,7 +339,7 @@ impl Cli {
 		// threshold is crossed. The withdrawal POST that comes back is
 		// delivered by the relayer on the destination chain, so it requires
 		// a signer there. Skip chains without one.
-		if !fees_disabled {
+		{
 			let hb_for_withdraw =
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
 			let withdraw_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = config

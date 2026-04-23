@@ -30,8 +30,11 @@ use subxt::{
 	OnlineClient,
 };
 
+use std::sync::Arc;
+
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use ismp_parachain::parachain_consensus_state_id;
+use tesseract_primitives::IsmpHost;
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
 mod host;
@@ -47,6 +50,31 @@ pub const CONSENSUS_UPDATE_FREQUENCY: u64 = 30;
 pub struct ParachainConfig {
 	/// Relay chain WebSocket RPC URL.
 	pub relay_rpc_ws: String,
+}
+
+impl ParachainConfig {
+	/// Convert the config into an `IsmpHost` client. Caller supplies the self
+	/// chain's [`SubstrateConfig`]; that's paired with this config the same
+	/// way `GrandpaConfig::into_client` is — the two live alongside each other
+	/// in the consolidated relayer's per-chain section.
+	pub async fn into_client<S, R>(
+		&self,
+		substrate: SubstrateConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>>
+	where
+		S: subxt::Config + Send + Sync + Clone + 'static,
+		S::Header: Send + Sync,
+		S::AccountId: From<AccountId32> + Into<S::Address> + Clone + 'static + Send + Sync,
+		S::Signature: From<MultiSignature> + Send + Sync,
+		<S::ExtrinsicParams as ExtrinsicParams<S>>::Params: Send + Sync + DefaultParams,
+		H256: From<HashFor<S>>,
+		R: subxt::Config + Send + Sync + Clone + 'static,
+		R::Header: Send + Sync,
+		HashFor<R>: From<H256>,
+	{
+		let host = ParachainHost::<S, R>::new(&substrate, self).await?;
+		Ok(Arc::new(host))
+	}
 }
 
 /// A parachain-consensus relayer host.

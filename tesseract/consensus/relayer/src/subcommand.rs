@@ -11,7 +11,9 @@ use subxt_utils::values::{
 use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
-use crate::{cli::create_client_map, config::HyperbridgeConfig, logging};
+use tesseract_consensus_config::create_client_map;
+
+use crate::{config::HyperbridgeConfig, logging};
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {

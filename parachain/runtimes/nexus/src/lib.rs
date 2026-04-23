@@ -174,6 +174,7 @@ pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
 	pallet_token_governor::migrations::ResetTokenGatewayState<Runtime>,
 	pallet_token_gateway_inspector::migrations::ResetTokenGatewayInspectorState<Runtime>,
+	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 );
 
 /// Handles converting a weight scalar to a fee value, based on the scale and granularity of the

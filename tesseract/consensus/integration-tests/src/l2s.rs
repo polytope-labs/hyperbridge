@@ -21,6 +21,7 @@ use ismp::{
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
 };
 use op_host::OpHost;
+use op_verifier::{DisputeGameImpl, GameTypeConfig};
 use pallet_ismp::weights::IsmpModuleWeight;
 use substrate_state_machine::HashAlgorithm;
 use subxt_utils::{
@@ -237,7 +238,7 @@ pub async fn set_optimism_config_on_hyperbridge(
 	hyperbridge_chain: GrandpaHost<Blake2SubstrateChain, Hyperbridge>,
 	state_machine_id: StateMachineId,
 	dispute_game_factory: H160,
-	respected_game_types: Vec<u32>,
+	game_type_configs: Vec<GameTypeConfig>,
 ) -> Result<(), anyhow::Error> {
 	println!("trying to set optimism config");
 
@@ -256,10 +257,12 @@ pub async fn set_optimism_config_on_hyperbridge(
 	let state_machine_id_value = state_machine_id_to_value(&state_machine_id);
 
 	let dispute_game_factory_value = Value::from_bytes(dispute_game_factory.0.to_vec());
-	let respected_game_types_value = value!(respected_game_types);
+	let game_type_configs_value = Value::unnamed_composite(
+		game_type_configs.iter().map(game_type_config_to_value).collect::<Vec<_>>(),
+	);
 
 	let inner_tx_args =
-		vec![state_machine_id_value, dispute_game_factory_value, respected_game_types_value];
+		vec![state_machine_id_value, dispute_game_factory_value, game_type_configs_value];
 
 	let call = subxt::dynamic::tx("IsmpOptimism", "set_dispute_game_factories", inner_tx_args);
 	println!("constructing sudo call");
@@ -267,6 +270,21 @@ pub async fn set_optimism_config_on_hyperbridge(
 	send_extrinsic(&client.client, &signer, &tx, None).await?;
 
 	Ok(())
+}
+
+fn game_type_config_to_value(config: &GameTypeConfig) -> Value {
+	let kind = match config.kind {
+		DisputeGameImpl::OPSuccinct => Value::unnamed_variant("OPSuccinct", Vec::<Value>::new()),
+		DisputeGameImpl::FaultDisputeGame =>
+			Value::unnamed_variant("FaultDisputeGame", Vec::<Value>::new()),
+		DisputeGameImpl::AggregateVerifier =>
+			Value::unnamed_variant("AggregateVerifier", Vec::<Value>::new()),
+	};
+	Value::named_composite(vec![
+		("game_type", value!(config.game_type)),
+		("expected_impl", Value::from_bytes(config.expected_impl.0.to_vec())),
+		("kind", kind),
+	])
 }
 
 #[tokio::test]

@@ -31,8 +31,6 @@ pallet-ismp-rpc = { workspace = true }
 pallet-intents-rpc = { workspace = true }
 pallet-intents-coprocessor = { workspace = true, default-features = true }
 pallet-mmr-rpc = { workspace = true }
-pallet-beefy-consensus-proofs-rpc = { workspace = true, default-features = true }
-pallet-beefy-consensus-proofs-runtime-api = { workspace = true, default-features = true }
 pallet-ismp-runtime-api = { workspace = true }
 mmr-gadget = { workspace = true }
 mmr-primitives = { workspace = true, default-features = true }

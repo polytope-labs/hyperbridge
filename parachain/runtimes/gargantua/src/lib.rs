@@ -1170,12 +1170,6 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl pallet_beefy_consensus_proofs_runtime_api::BeefyConsensusProofsRuntimeApi<Block> for Runtime {
-		fn proof_accepted_events() -> Vec<pallet_beefy_consensus_proofs::types::ProofAcceptedEvent> {
-			BeefyConsensusProofs::block_proof_accepted_events()
-		}
-	}
-
 	impl cumulus_primitives_core::CollectCollationInfo<Block> for Runtime {
 		fn collect_collation_info(header: &<Block as BlockT>::Header) -> cumulus_primitives_core::CollationInfo {
 			ParachainSystem::collect_collation_info(header)

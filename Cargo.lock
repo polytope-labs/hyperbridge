@@ -8232,7 +8232,6 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-beefy-consensus-proofs",
- "pallet-beefy-consensus-proofs-runtime-api",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-fishermen",
@@ -9271,8 +9270,6 @@ dependencies = [
  "mmr-gadget 29.0.1",
  "mmr-primitives",
  "nexus-runtime",
- "pallet-beefy-consensus-proofs-rpc",
- "pallet-beefy-consensus-proofs-runtime-api",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
  "pallet-ismp",
@@ -14433,29 +14430,6 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-io",
-]
-
-[[package]]
-name = "pallet-beefy-consensus-proofs-rpc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "jsonrpsee 0.24.10",
- "pallet-beefy-consensus-proofs",
- "pallet-beefy-consensus-proofs-runtime-api",
- "pallet-ismp-rpc",
- "parity-scale-codec",
- "polkadot-sdk",
- "serde",
-]
-
-[[package]]
-name = "pallet-beefy-consensus-proofs-runtime-api"
-version = "0.1.0"
-dependencies = [
- "pallet-beefy-consensus-proofs",
- "parity-scale-codec",
- "polkadot-sdk",
 ]
 
 [[package]]

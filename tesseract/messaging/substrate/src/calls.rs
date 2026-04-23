@@ -70,8 +70,7 @@ where
 		&self,
 		message: CreateConsensusState,
 	) -> Result<(), anyhow::Error> {
-		let pair = self.require_signer()?;
-		let binding = pair.public();
+		let binding = self.signer.public();
 		let public_key_slice: &[u8] = binding.as_ref();
 
 		let public_key_array: [u8; 32] =
@@ -79,7 +78,7 @@ where
 
 		let account_id = AccountId32::from(public_key_array);
 
-		let signer = InMemorySigner { account_id: account_id.into(), signer: pair.clone() };
+		let signer = InMemorySigner { account_id: account_id.into(), signer: self.signer.clone() };
 
 		let call = subxt::dynamic::tx(
 			"Ismp",
@@ -104,7 +103,7 @@ where
 		);
 		let sudo_payload =
 			subxt::dynamic::tx("Sudo", "sudo", vec![host_executive_payload.into_value()]);
-		let signer = InMemorySigner::new(self.require_signer()?.clone());
+		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
 		Ok(())
@@ -164,16 +163,8 @@ where
 		chain: StateMachine,
 	) -> anyhow::Result<Vec<WithdrawFundsResult>> {
 		let mut results = Vec::new();
-		// `withdraw_funds` is invoked on the Hyperbridge SubstrateClient,
-		// which always has a signer configured. `require_address` returns
-		// an error here only if the operator misconfigured `[hyperbridge]`.
-		let hyperbridge_account_balance = relayer_account_balance(
-			&self.client,
-			&self.rpc,
-			chain,
-			self.require_address()?.to_vec(),
-		)
-		.await?;
+		let hyperbridge_account_balance =
+			relayer_account_balance(&self.client, &self.rpc, chain, self.address.clone()).await?;
 
 		let fee_token_decimals = &counterparty.fee_token_decimals().await?;
 
@@ -181,7 +172,7 @@ where
 			U256::from(10u128 * 10u128.pow((*fee_token_decimals).into()))
 		{
 			// withdraws funds accumulated into hyperbridge address
-			let key = relayer_nonce_storage_key(self.require_address()?.to_vec(), chain);
+			let key = relayer_nonce_storage_key(self.address.clone(), chain);
 			let block_hash = self
 				.rpc
 				.chain_get_block_hash(None)

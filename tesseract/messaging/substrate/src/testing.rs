@@ -60,7 +60,7 @@ where
 			vec![transfer_params_to_value::<C>(&params)],
 		);
 
-		let signer = InMemorySigner::new(self.require_signer()?.clone());
+		let signer = InMemorySigner::new(self.signer.clone());
 		let tx_block_hash = send_extrinsic(&self.client, &signer, &call, None).await?;
 		Ok(tx_block_hash)
 	}
@@ -68,7 +68,7 @@ where
 	pub async fn dispatch_to_evm(&self, params: EvmParams) -> Result<(), anyhow::Error> {
 		let call =
 			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
-		let signer = InMemorySigner::new(self.require_signer()?.clone());
+		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &call, None).await?;
 
 		Ok(())
@@ -80,7 +80,7 @@ where
 			"get_request",
 			vec![get_request_ismp_demo_to_value(&get_req)],
 		);
-		let signer = InMemorySigner::new(self.require_signer()?.clone());
+		let signer = InMemorySigner::new(self.signer.clone());
 		let tx_block_hash = send_extrinsic(&self.client, &signer, &tx, None).await?;
 
 		Ok(tx_block_hash)

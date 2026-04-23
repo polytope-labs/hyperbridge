@@ -185,28 +185,29 @@ impl TronClient {
 	/// This initialises an [`EvmClient`] for JSON-RPC reads and a [`TronApi`]
 	/// for TRON-native transaction submission.
 	pub async fn new(mut config: TronConfig) -> anyhow::Result<Self> {
-		// TRON is always an active destination chain. Inbound-only TRON is not
-		// supported, so we fail loudly when no signer is configured.
-		let raw_signer = config.evm.signer.as_deref().ok_or_else(|| {
-			anyhow!(
-				"TRON chain {:?} requires a signer; set `signer` in the chain block",
-				config.evm.state_machine
-			)
-		})?;
-		let key_bytes = match sp_core::bytes::from_hex(raw_signer) {
-			Ok(bytes) => bytes,
-			Err(_) => {
-				let contents = tokio::fs::read_to_string(raw_signer).await?;
-				sp_core::bytes::from_hex(contents.trim())?
+		// If the operator configured a signer, parse it; otherwise generate a
+		// throwaway one so a TRON chain can still be declared in the config
+		// for inbound-only relaying. The relayer's `outbound_enabled()`
+		// filter keeps signer-less chains out of any task that would
+		// actually broadcast a TRON transaction.
+		let secret_key = match config.evm.signer.as_deref() {
+			Some(raw_signer) => {
+				let key_bytes = match sp_core::bytes::from_hex(raw_signer) {
+					Ok(bytes) => bytes,
+					Err(_) => {
+						let contents = tokio::fs::read_to_string(raw_signer).await?;
+						sp_core::bytes::from_hex(contents.trim())?
+					},
+				};
+				if key_bytes.len() != 32 {
+					return Err(anyhow!("Signer key must be 32 bytes, got {}", key_bytes.len()));
+				}
+				let mut secret_key = [0u8; 32];
+				secret_key.copy_from_slice(&key_bytes);
+				secret_key
 			},
+			None => sp_core::ecdsa::Pair::generate().1,
 		};
-
-		if key_bytes.len() != 32 {
-			return Err(anyhow!("Signer key must be 32 bytes, got {}", key_bytes.len()));
-		}
-
-		let mut secret_key = [0u8; 32];
-		secret_key.copy_from_slice(&key_bytes);
 
 		// Derive the TRON hex address from the secret key.
 		let pair = sp_core::ecdsa::Pair::from_seed_slice(&secret_key)?;

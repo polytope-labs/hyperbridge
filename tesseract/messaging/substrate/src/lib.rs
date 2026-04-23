@@ -93,11 +93,13 @@ pub struct SubstrateClient<C: subxt::Config> {
 	state_machine: StateMachine,
 	/// The hashing algorithm that substrate chain uses.
 	hashing: HashAlgorithm,
-	/// Private key of the signing account. `None` for inbound-only chains
-	/// where the operator did not configure a signer.
-	pub signer: Option<sr25519::Pair>,
-	/// Relayer's public-key-derived account on this chain. Empty when no
-	/// signer is configured.
+	/// Private key of the signing account. For chains the operator did not
+	/// configure a signer for, this is freshly generated. The relayer's
+	/// `outbound_enabled()` filter keeps signer-less chains out of any task
+	/// that would actually broadcast an extrinsic, so the dummy is never
+	/// used to send anything.
+	pub signer: sr25519::Pair,
+	/// Public Address
 	pub address: Vec<u8>,
 	/// Initial height from which to start querying messages
 	initial_height: u64,
@@ -137,19 +139,20 @@ where
 				.number()
 				.into()
 		};
-		// Parse the signer if one is configured. A chain without a signer
-		// runs in inbound-only mode: extrinsics are read, but the relayer
-		// cannot submit on it, so it stays out of outbound, fees, and
-		// fisherman roles.
-		let (signer, address) = match config.signer.as_deref() {
-			None => (None, Vec::new()),
+		// If the operator configured a signer, parse it; otherwise generate a
+		// throwaway one so all the signer-shaped fields downstream still
+		// type-check. Inbound-only chains never reach a path that signs,
+		// because the relayer's `outbound_enabled()` filter keeps them out
+		// of outbound, fee-withdrawal, and fisherman tasks before any
+		// signing call.
+		let signer = match config.signer.as_deref() {
 			Some(raw) => {
 				let bytes = from_hex(raw).context("Signer must be a valid hex-encoded String")?;
-				let pair = sr25519::Pair::from_seed_slice(&bytes)?;
-				let addr = pair.public().0.to_vec();
-				(Some(pair), addr)
+				sr25519::Pair::from_seed_slice(&bytes)?
 			},
+			None => sr25519::Pair::generate().0,
 		};
+		let address = signer.public().0.to_vec();
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id
 			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("DOT0".into()).as_bytes());
@@ -169,43 +172,12 @@ where
 		})
 	}
 
-	/// Returns the signer pair, or an error if this chain runs inbound-only.
-	pub fn require_signer(&self) -> anyhow::Result<&sr25519::Pair> {
-		self.signer.as_ref().ok_or_else(|| {
-			anyhow::anyhow!(
-				"chain {:?} has no signer configured and cannot submit extrinsics",
-				self.state_machine
-			)
-		})
-	}
-
-	/// Returns the relayer's address on this chain, or an error when no
-	/// signer is configured (the relayer has no account on an inbound-only
-	/// chain).
-	pub fn require_address(&self) -> anyhow::Result<&[u8]> {
-		if self.address.is_empty() {
-			Err(anyhow::anyhow!(
-				"chain {:?} has no signer configured; no relayer address available",
-				self.state_machine
-			))
-		} else {
-			Ok(&self.address)
-		}
-	}
-
 	pub fn signer(&self) -> sr25519::Pair {
-		self.require_signer()
-			.expect(
-				"signer() called on chain with no signer configured; use require_signer instead",
-			)
-			.clone()
+		self.signer.clone()
 	}
 
 	pub fn account(&self) -> C::AccountId {
-		let signer = self.require_signer().expect(
-			"account() called on chain with no signer configured; use require_signer instead",
-		);
-		let binding = signer.public();
+		let binding = self.signer.public();
 		let public_key_slice: &[u8] = binding.as_ref();
 
 		let public_key_array: [u8; 32] =

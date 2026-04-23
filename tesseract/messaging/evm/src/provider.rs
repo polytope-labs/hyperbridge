@@ -364,7 +364,7 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
-		let host_contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let address = host_contract
 			.requestReceipts(B256::from_slice(&hash.0))
 			.block(BlockId::latest())
@@ -375,7 +375,7 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
-		let host_contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let address = host_contract
 			.responseReceipts(B256::from_slice(&hash.0))
 			.block(BlockId::latest())
@@ -439,10 +439,7 @@ impl IsmpProvider for EvmClient {
 
 		let handler = self.handler().await?;
 		let handler_addr = Address::from_slice(&handler.0);
-		// Cost estimation models a transaction the relayer would submit.
-		// Inbound-only chains have no signer and therefore no `from` address;
-		// callers that ask for cost on such chains will get a clear error.
-		let from_address = Address::from_slice(self.require_address()?);
+		let from_address = Address::from_slice(&self.address);
 
 		let gas_breakdown = get_current_gas_cost_in_usd(
 			self.state_machine,
@@ -578,7 +575,7 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
-		let host_contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let fee_metadata = host_contract
 			.requestCommitments(B256::from_slice(&hash.0))
 			.block(BlockId::latest())
@@ -590,7 +587,7 @@ impl IsmpProvider for EvmClient {
 
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
-		let host_contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let fee_metadata = host_contract
 			.responseCommitments(B256::from_slice(&hash.0))
 			.block(BlockId::latest())
@@ -860,15 +857,9 @@ impl IsmpProvider for EvmClient {
 
 	fn sign(&self, msg: &[u8]) -> Signature {
 		use alloy::signers::SignerSync;
-		// Calling `sign` on an inbound-only chain (no signer configured) is a
-		// programming error: the relayer wiring should filter such chains out
-		// of any path that needs a relayer signature. We surface that loudly
-		// rather than fabricating a bogus signature.
-		let private_key_signer = self.private_key_signer.as_ref().unwrap_or_else(|| {
-			panic!("sign() called on chain {:?} which has no signer configured", self.state_machine)
-		});
 		let hash = B256::from_slice(msg);
-		let signature = private_key_signer
+		let signature = self
+			.private_key_signer
 			.sign_hash_sync(&hash)
 			.expect("Infallible")
 			.as_bytes()

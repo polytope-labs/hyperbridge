@@ -182,11 +182,13 @@ impl Default for EvmConfig {
 pub struct EvmClient {
 	/// Execution Rpc client
 	pub client: Arc<AlloyProvider>,
-	/// Transaction signer provider. `None` for inbound-only chains where the
-	/// operator did not configure a signer.
-	pub signer: Option<Arc<AlloySignerProvider>>,
-	/// Relayer's public-key-derived account on this chain. Empty when no
-	/// signer is configured.
+	/// Transaction signer provider. For chains the operator did not configure
+	/// a signer for, this is built from a randomly generated key. The
+	/// relayer's spawn-time filter (`PerChainConfig::outbound_enabled`) keeps
+	/// signer-less chains out of any task that would actually broadcast a
+	/// transaction, so the dummy is never used to send anything.
+	pub signer: Arc<AlloySignerProvider>,
+	/// Public Key Address
 	pub address: Vec<u8>,
 	/// Consensus state Id
 	pub consensus_state_id: ConsensusStateId,
@@ -200,9 +202,9 @@ pub struct EvmClient {
 	pub chain_id: u64,
 	/// Client type
 	pub client_type: ClientType,
-	/// Private key signer for synchronous signing operations. `None` for
-	/// inbound-only chains.
-	pub private_key_signer: Option<PrivateKeySigner>,
+	/// Private key signer for synchronous signing operations. Same dummy-key
+	/// note as `signer`.
+	pub private_key_signer: PrivateKeySigner,
 	/// Producer for state machine updated stream
 	state_machine_update_sender: Arc<
 		tokio::sync::Mutex<
@@ -218,49 +220,15 @@ pub struct EvmClient {
 }
 
 impl EvmClient {
-	/// Returns the write-capable provider, or an error if this chain runs
-	/// inbound-only (no signer configured). Callers on the signing path
-	/// should use this rather than touching `self.signer` directly.
-	pub fn require_signer(&self) -> anyhow::Result<&Arc<AlloySignerProvider>> {
-		self.signer.as_ref().ok_or_else(|| {
-			anyhow::anyhow!(
-				"chain {:?} has no signer configured and cannot submit transactions",
-				self.state_machine
-			)
-		})
-	}
-
-	/// Returns the sync signer, or an error if this chain runs inbound-only.
-	pub fn require_private_key_signer(&self) -> anyhow::Result<&PrivateKeySigner> {
-		self.private_key_signer.as_ref().ok_or_else(|| {
-			anyhow::anyhow!(
-				"chain {:?} has no signer configured and cannot produce relayer signatures",
-				self.state_machine
-			)
-		})
-	}
-
-	/// Returns the relayer's address on this chain, or an error when no
-	/// signer is configured (the relayer has no account on an inbound-only
-	/// chain).
-	pub fn require_address(&self) -> anyhow::Result<&[u8]> {
-		if self.address.is_empty() {
-			Err(anyhow::anyhow!(
-				"chain {:?} has no signer configured; no relayer address available",
-				self.state_machine
-			))
-		} else {
-			Ok(&self.address)
-		}
-	}
-
 	pub async fn new(config: EvmConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
-		// Parse the signer if one is configured. A chain without a signer
-		// runs in inbound-only mode: events are read, but it cannot submit
-		// outbound deliveries, fee-withdrawal POSTs, or fisherman vetoes.
-		let parsed_signer = match config.signer.as_deref() {
-			None => None,
+		// If the operator configured a signer, parse it; otherwise generate a
+		// throwaway one so all the signer-shaped fields downstream still
+		// type-check. Inbound-only chains never reach a path that signs,
+		// because the relayer's `outbound_enabled()` filter keeps them out
+		// of outbound, fee-withdrawal, and fisherman tasks before any
+		// signing call.
+		let signer_pair = match config.signer.as_deref() {
 			Some(raw) => {
 				let bytes = match from_hex(raw) {
 					Ok(bytes) => bytes,
@@ -270,12 +238,11 @@ impl EvmClient {
 						from_hex(contents.as_str())?
 					},
 				};
-				let pair = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
-				let address = pair.public().to_eth_address().expect("Infallible").to_vec();
-				Some((pair, address))
+				sp_core::ecdsa::Pair::from_seed_slice(&bytes)?
 			},
+			None => sp_core::ecdsa::Pair::generate().0,
 		};
-		let address = parsed_signer.as_ref().map(|(_, addr)| addr.clone()).unwrap_or_default();
+		let address = signer_pair.public().to_eth_address().expect("Infallible").to_vec();
 
 		if config.rpc_urls.is_empty() {
 			return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
@@ -331,19 +298,13 @@ impl EvmClient {
 		let client = Arc::new(root_provider.clone());
 		let chain_id = client.get_chain_id().await?;
 
-		// Build the signer provider only if a signer is configured. For
-		// inbound-only chains we keep the read-only `client` and leave both
-		// `signer` and `private_key_signer` as `None`.
-		let (signer, private_key_signer) = match parsed_signer {
-			None => (None, None),
-			Some((pair, _)) => {
-				let private_key_signer = PrivateKeySigner::from_slice(pair.seed().as_slice())?;
-				let wallet = EthereumWallet::from(private_key_signer.clone());
-				let signer_provider =
-					ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
-				(Some(Arc::new(signer_provider)), Some(private_key_signer))
-			},
-		};
+		// Build the signer provider. Whether `signer_pair` was parsed from
+		// the configured key or freshly generated for an inbound-only chain,
+		// the type shape is the same downstream.
+		let private_key_signer = PrivateKeySigner::from_slice(signer_pair.seed().as_slice())?;
+		let wallet = EthereumWallet::from(private_key_signer.clone());
+		let signer_provider = ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
+		let signer = Arc::new(signer_provider);
 
 		let consensus_state_id = {
 			let mut consensus_state_id: ConsensusStateId = Default::default();
@@ -439,7 +400,7 @@ impl EvmClient {
 		use alloy::primitives::Bytes;
 
 		let host_addr = Address::from_slice(&self.config.ismp_host.0);
-		let contract = EvmHostInstance::new(host_addr, self.require_signer()?.clone());
+		let contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let call = contract.setConsensusState(Bytes::from(consensus_state), height, commitment);
 
 		let gas = call.estimate_gas().await?;
@@ -457,7 +418,7 @@ impl EvmClient {
 		para_id: u32,
 	) -> Result<(), anyhow::Error> {
 		let ping_addr = Address::from_slice(&address.0);
-		let contract = PingModuleInstance::new(ping_addr, self.require_signer()?.clone());
+		let contract = PingModuleInstance::new(ping_addr, self.signer.clone());
 		let call = contract.dispatchToParachain(AlloyU256::from(para_id));
 
 		let gas = call.estimate_gas().await?;

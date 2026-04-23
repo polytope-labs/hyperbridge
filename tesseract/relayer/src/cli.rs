@@ -34,7 +34,7 @@ use crate::{
 	config::HyperbridgeConfig,
 	provider::{ConsensusProofSource, OffchainProofSource},
 };
-use tesseract_messaging::outbound;
+use messaging::outbound;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -155,7 +155,8 @@ impl Cli {
 		// `create_client_map` takes paired (consensus variant, host kind)
 		// entries — we assemble those from each chain's `PerChainConfig`.
 		let consensus_hosts = create_client_map(config.consensus_chains()).await?;
-		tracing::info!(target: crate::LOG_TARGET, count = consensus_hosts.len(), "consensus hosts built");
+		// Redundant with the final "relayer tasks initialized" summary below.
+		tracing::trace!(target: crate::LOG_TARGET, count = consensus_hosts.len(), "consensus hosts built");
 
 		// One `Arc<dyn IsmpProvider>` per chain. Chains with consensus reuse the
 		// consensus host's provider; chains without consensus build a dedicated
@@ -176,7 +177,7 @@ impl Cli {
 				.with_context(|| format!("failed to build messaging client for {sm}"))?;
 			providers.insert(*sm, provider);
 		}
-		tracing::info!(target: crate::LOG_TARGET, count = providers.len(), "chain providers built");
+		tracing::trace!(target: crate::LOG_TARGET, count = providers.len(), "chain providers built");
 
 		let mut provider_clients = providers.clone();
 		provider_clients.insert(coprocessor, hyperbridge_provider.clone());
@@ -199,14 +200,14 @@ impl Cli {
 				Box::leak(Box::new(name)),
 				"consensus",
 				async move {
-					tracing::debug!(target: crate::LOG_TARGET, "task started");
+					tracing::trace!(target: crate::LOG_TARGET, "task started");
 					let res = host.start_consensus(hb).await;
 					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
 				}
 				.instrument(span)
 				.boxed(),
 			);
-			tracing::debug!(target: crate::LOG_TARGET, %state_machine, "spawned inbound-consensus");
+			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "spawned inbound-consensus");
 		}
 
 		// Inbound messaging — every chain in `[chains.*]` gets an inbound
@@ -220,7 +221,7 @@ impl Cli {
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
 
-			tesseract_messaging::inbound(
+			messaging::inbound(
 				hb_for_messaging,
 				provider.clone(),
 				messaging_config.clone(),
@@ -290,8 +291,8 @@ impl Cli {
 						Box::leak(Box::new(name)),
 						"fees",
 						async move {
-							tracing::debug!(target: crate::LOG_TARGET, "task started");
-							let res = tesseract_messaging::fee_accumulation(
+							tracing::trace!(target: crate::LOG_TARGET, "task started");
+							let res = messaging::fee_accumulation(
 								fee_receiver,
 								dest,
 								hb_for_fees,
@@ -319,7 +320,7 @@ impl Cli {
 				Box::leak(Box::new(name)),
 				"outbound",
 				async move {
-					tracing::debug!(target: crate::LOG_TARGET, "task started");
+					tracing::trace!(target: crate::LOG_TARGET, "task started");
 					let res = outbound::run(
 						hb,
 						destinations,
@@ -352,8 +353,8 @@ impl Cli {
 				Box::leak(Box::new(name)),
 				"fees",
 				async move {
-					tracing::debug!(target: crate::LOG_TARGET, "task started");
-					let res = tesseract_messaging::fees::auto_withdraw(
+					tracing::trace!(target: crate::LOG_TARGET, "task started");
+					let res = messaging::fees::auto_withdraw(
 						hb_for_withdraw,
 						withdraw_clients,
 						withdraw_cfg,
@@ -438,7 +439,7 @@ impl Cli {
 			providers.insert(*sm, provider);
 		}
 
-		tesseract_messaging::fees::withdraw_once(
+		messaging::fees::withdraw_once(
 			&hyperbridge_substrate,
 			&providers,
 			&messaging_config,

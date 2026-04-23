@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-messaging"
+name = "messaging"
 version = "0.1.0"
 edition = "2021"
 description = "Chain agnostic ISMP request/response relay"

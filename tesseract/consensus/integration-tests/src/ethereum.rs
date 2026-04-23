@@ -226,7 +226,7 @@ use tesseract_sync_committee::{HostConfig as SyncHostConfig, SyncCommitteeHost};
 // 	let _messaging = tokio::spawn({
 // 		let hyperbridge = hyperbridge.clone();
 // 		async move {
-// 			tesseract_messaging::relay(
+// 			messaging::relay(
 // 				hyperbridge,
 // 				chain_b_provider.clone(),
 // 				Default::default(),
@@ -487,7 +487,7 @@ use tesseract_sync_committee::{HostConfig as SyncHostConfig, SyncCommitteeHost};
 // 		let chain_b = chain_b.clone();
 // 		let hyperbridge = hyperbridge.clone();
 // 		async move {
-// 			tesseract_messaging::relay(
+// 			messaging::relay(
 // 				hyperbridge,
 // 				chain_b.provider(),
 // 				Default::default(),

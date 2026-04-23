@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-relayer"
+name = "tesseract"
 version = "0.1.0"
 edition = "2021"
 description = "Consolidated Hyperbridge relayer — inbound and outbound consensus + messaging"
@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [[bin]]
-name = "tesseract-relayer"
+name = "tesseract"
 path = "src/main.rs"
 
 [dependencies]
@@ -36,7 +36,7 @@ tesseract-config = { workspace = true }
 tesseract-consensus = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-fisherman = { workspace = true }
-tesseract-messaging = { workspace = true }
+messaging = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }
 transaction-fees = { workspace = true }

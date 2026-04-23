@@ -1,5 +1,5 @@
 [package]
-name = "tesseract"
+name = "tesseract-messaging"
 version = "1.7.0"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"
@@ -12,7 +12,7 @@ dist = true
 [dependencies]
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
-tesseract-messaging = { workspace = true }
+messaging = { workspace = true }
 tesseract-fisherman = { workspace = true }
 tesseract-evm = { workspace = true }
 transaction-fees = { workspace = true }

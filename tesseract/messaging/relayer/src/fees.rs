@@ -65,7 +65,7 @@ impl AccumulateFees {
 		}
 
 		let tx_payment = TransactionPayment::initialize(&db).await?;
-		log::info!(target: crate::LOG_TARGET, "Initialized database");
+		log::trace!(target: crate::LOG_TARGET, "Initialized database");
 		let stream = futures::stream::iter(tx_payment.distinct_deliveries().await?.into_iter());
 		stream.for_each_concurrent(None, |delivery| {
 			let source_chain = StateMachine::from_str(&delivery.source_chain)
@@ -102,7 +102,7 @@ impl AccumulateFees {
 					if highest_delivery_height_to_dest.is_none() &&
 						highest_delivery_height_to_source.is_none()
 					{
-						log::info!(target: crate::LOG_TARGET, "No deliveries found in db for {source_chain}->{dest_chain}");
+						log::trace!(target: crate::LOG_TARGET, "No deliveries found in db for {source_chain}->{dest_chain}");
 						return Ok::<_, anyhow::Error>(())
 					}
 
@@ -131,7 +131,7 @@ impl AccumulateFees {
 									.await?;
 
 								if proofs.is_empty() {
-									log::info!(target: crate::LOG_TARGET, "All fees in the database for  {source_chain}->{dest_chain} have been successfully accumulated in a previous attempt")
+									log::trace!(target: crate::LOG_TARGET, "All fees in the database for  {source_chain}->{dest_chain} have been successfully accumulated in a previous attempt")
 								} else {
 									observe_challenge_period(dest.clone(), Arc::new(hyperbridge.clone()), height).await?;
 								}
@@ -183,7 +183,7 @@ impl AccumulateFees {
 									.await?;
 
 								if proofs.is_empty() {
-									log::info!(target: crate::LOG_TARGET, "All fees in the database for  {dest_chain}->{source_chain} have been successfully accumulated in a previous attempt")
+									log::trace!(target: crate::LOG_TARGET, "All fees in the database for  {dest_chain}->{source_chain} have been successfully accumulated in a previous attempt")
 								}
 								else {
 									observe_challenge_period(source.clone(), Arc::new(hyperbridge.clone()), height).await?;
@@ -423,7 +423,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 					if event.latest_height < max_block {
 						continue;
 					} else {
-						log::info!(target: crate::LOG_TARGET, "Found a state machine update: {}", event.latest_height);
+						log::trace!(target: crate::LOG_TARGET, "Found a state machine update: {}", event.latest_height);
 						break event.latest_height;
 					},
 				Some(Err(_)) => {
@@ -474,9 +474,9 @@ async fn deliver_post_request<D: IsmpProvider>(
 			.await
 		{
 			log::info!(
-					target: crate::LOG_TARGET, "Encountered error trying to submit withdrawal request to {}.\n{e:?}\nWill retry {count} more times.",
-					dest_chain.state_machine_id().state_id
-				);
+				target: crate::LOG_TARGET, "Encountered error trying to submit withdrawal request to {}.\n{e:?}\nWill retry {count} more times.",
+				dest_chain.state_machine_id().state_id
+			);
 			count -= 1;
 		} else {
 			log::info!(

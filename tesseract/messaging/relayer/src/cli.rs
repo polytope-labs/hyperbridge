@@ -102,7 +102,7 @@ impl Cli {
 			// this layer (the consolidated `tesseract-relayer` is the target
 			// for new deployments and owns fee accumulation as a top-level
 			// task). Retiring this binary is tracked as follow-up work.
-			tesseract_messaging::inbound(
+			messaging::inbound(
 				new_hyperbridge.clone(),
 				client.clone(),
 				relayer.clone(),

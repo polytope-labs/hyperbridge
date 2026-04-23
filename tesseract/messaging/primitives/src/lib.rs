@@ -326,7 +326,15 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// [`StorageKey::Substrate`] variant as a full pallet storage key; EVM backends consume
 	/// [`StorageKey::Evm`] as an `eth_getStorageAt(address, slot)` call. Providers return an
 	/// error when asked for a variant they don't support.
-	async fn query_storage(&self, _key: StorageKey) -> Result<Option<Vec<u8>>, anyhow::Error> {
+	///
+	/// `at` anchors the read at a specific block number (finalized is the
+	/// typical caller intent). `None` defaults to the chain tip — callers
+	/// racing with unfinalized reorgs should pass a finalized height.
+	async fn query_storage(
+		&self,
+		_key: StorageKey,
+		_at: Option<u64>,
+	) -> Result<Option<Vec<u8>>, anyhow::Error> {
 		Err(anyhow!("query_storage is not supported on {}", self.name()))
 	}
 

@@ -64,4 +64,4 @@ evm/subgraph/generated
 package-lock.json
 parachain/simtests/gargantua-runtime-new.wasm
 parachain/simtests/hyperbridge-main-binary
-*/config.example.toml
+**/config.example.toml

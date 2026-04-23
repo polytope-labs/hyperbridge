@@ -45,7 +45,7 @@ async fn fetch_game_type_configs(
 	state_machine_id: StateMachineId,
 ) -> Result<Option<Vec<GameTypeConfig>>, anyhow::Error> {
 	let key = StorageKey::Substrate(optimism_game_type_configs_storage_key(state_machine_id));
-	let Some(raw) = counterparty.query_storage(key).await? else {
+	let Some(raw) = counterparty.query_storage(key, None).await? else {
 		return Ok(None);
 	};
 	let (_factory, configs): (H160, Vec<GameTypeConfig>) = Decode::decode(&mut &*raw)

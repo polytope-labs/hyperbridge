@@ -28496,6 +28496,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "tesseract-parachain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "hex",
+ "ismp",
+ "ismp-parachain",
+ "log",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "serde",
+ "sp-core",
+ "subxt 0.42.1",
+ "subxt-utils",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
 name = "tesseract-pharos"
 version = "0.1.0"
 dependencies = [

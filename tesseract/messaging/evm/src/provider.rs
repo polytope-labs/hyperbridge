@@ -89,16 +89,24 @@ impl IsmpProvider for EvmClient {
 		Ok(value)
 	}
 
-	async fn query_storage(&self, key: StorageKey) -> Result<Option<Vec<u8>>, Error> {
+	async fn query_storage(
+		&self,
+		key: StorageKey,
+		at: Option<u64>,
+	) -> Result<Option<Vec<u8>>, Error> {
 		match key {
 			StorageKey::Substrate(_) =>
 				Err(anyhow!("StorageKey::Substrate not supported on EVM provider")),
 			StorageKey::Evm { contract, slot } => {
 				let addr = Address::from_slice(&contract.0);
+				let block_id = match at {
+					Some(h) => BlockId::number(h),
+					None => BlockId::latest(),
+				};
 				let value = self
 					.client
 					.get_storage_at(addr, B256::from_slice(&slot.0).into())
-					.block_id(BlockId::latest())
+					.block_id(block_id)
 					.await?;
 				Ok(Some(value.to_be_bytes::<32>().to_vec()))
 			},

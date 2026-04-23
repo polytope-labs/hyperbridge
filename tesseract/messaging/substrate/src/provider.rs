@@ -197,17 +197,22 @@ where
 	async fn query_storage(
 		&self,
 		key: TesseractStorageKey,
+		at: Option<u64>,
 	) -> Result<Option<Vec<u8>>, anyhow::Error> {
 		let key = match key {
 			TesseractStorageKey::Substrate(k) => k,
 			TesseractStorageKey::Evm { .. } =>
 				return Err(anyhow!("StorageKey::Evm not supported on substrate provider")),
 		};
+		let block_number = at.map(Into::into);
 		let block_hash = self
 			.rpc
-			.chain_get_block_hash(None)
+			.chain_get_block_hash(block_number)
 			.await?
-			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+			.ok_or_else(|| match at {
+				Some(h) => anyhow!("No block hash found for height {h}"),
+				None => anyhow!("Failed to query latest block hash"),
+			})?;
 		let raw = self.client.storage().at(block_hash).fetch_raw(key).await?;
 		Ok(raw)
 	}
@@ -1122,8 +1127,8 @@ mod tests {
 			rpc_ws: "ws://localhost:9944".to_string(),
 			max_rpc_payload_size: None,
 			// Dummy seed — the test never signs or submits anything.
-			signer: "0x0000000000000000000000000000000000000000000000000000000000000001"
-				.to_string(),
+			signer: Some("0x0000000000000000000000000000000000000000000000000000000000000001"
+				.to_string()),
 			initial_height: None,
 			max_concurent_queries: None,
 			poll_interval: None,

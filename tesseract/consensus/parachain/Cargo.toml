@@ -1,0 +1,33 @@
+[package]
+name = "tesseract-parachain"
+version = "0.1.0"
+edition = "2021"
+description = "Parachain consensus client for the tesseract relayer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1.53"
+codec = { workspace = true, default-features = true, features = ["derive"] }
+futures = "0.3.28"
+hex = "0.4.3"
+log = "0.4.19"
+tracing = "0.1.40"
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true }
+
+sp-core = { workspace = true, default-features = true, features = ["full_crypto"] }
+subxt = { workspace = true, default-features = true }
+
+ismp = { workspace = true, default-features = true }
+ismp-parachain = { workspace = true, default-features = true }
+subxt-utils = { workspace = true, default-features = true }
+tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sp-runtime"]

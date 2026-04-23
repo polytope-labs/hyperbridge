@@ -1,0 +1,71 @@
+---
+title: Outbound Relayers
+description: The outbound responsibility of the tesseract relayer fans accepted Hyperbridge consensus proofs and messages out to every configured destination chain. It is event driven, mandatory for authority set rotations, and incentivized. The BEEFY proof acceptance step that triggers each outbound flight is rewarded on Hyperbridge by `pallet-beefy-consensus-proofs`, and direct per delivery relayer incentivization is on the roadmap.
+---
+
+# Outbound Relayers
+
+<figure>
+  <img src="/relayers.png" alt="Hyperbridge relayers" />
+  <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
+</figure>
+
+Outbound delivery is one of three responsibilities the [tesseract relayer](/developers/network/relayer) carries out. The other two are [consensus relaying](/developers/explore/relayers/consensus-relayers) and [messaging relaying](/developers/explore/relayers/messaging-relayers). Where the other two roles bring proofs **into** Hyperbridge, the outbound role pushes them **out**. It fans accepted Hyperbridge consensus updates and messages back to every configured destination chain, so those chains can in turn verify cross chain requests originating on Hyperbridge.
+
+## What Outbound Delivers
+
+Each outbound submission to a destination chain is a batched payload of two things:
+
+* **Consensus proof.** A BEEFY proof attesting to a Hyperbridge state advancement, so the destination's on chain consensus client can update its view of Hyperbridge.
+* **Messages.** Any cross chain requests or responses originating from Hyperbridge that target the destination chain, accompanying the consensus proof that authorises them.
+
+The two travel together in a single transaction, so the destination's view of Hyperbridge is always advanced atomically with the messages whose authority depends on it.
+
+## Trigger and Pacing
+
+The outbound task is event driven, not interval polling. Tesseract subscribes to `ProofAccepted` events emitted by the `pallet-beefy-consensus-proofs` pallet on Hyperbridge. Each accepted BEEFY proof represents a new authority set rotation or messaging proof that is now ready to be propagated. On every event, the relayer fetches the proof from the Hyperbridge node's offchain storage and fans out a batched `(consensus + messages)` submission to every opted in destination concurrently.
+
+This means the outbound task spends most of its time idle, waking only when Hyperbridge accepts a new proof. The Hyperbridge node it connects to MUST expose `offchain_localStorageGet` (typically by running the node with `--rpc-methods=Unsafe`), since that is how the relayer reads accepted BEEFY proofs out of offchain storage.
+
+### Mandatory vs Opportunistic Submissions
+
+Not every accepted proof reaches every chain.
+
+* **Authority set rotations (mandatory).** When the Hyperbridge validator set rotates, every destination chain must be notified or its on chain client will fall behind and stop accepting Hyperbridge proofs altogether. The outbound task always propagates these to every opted in destination, even if there are no messages targeting that chain.
+* **Messaging only proofs (opportunistic).** When an accepted proof carries no authority set change, the relayer skips destinations that have no pending messages, avoiding gas costs on chains that would gain nothing from the update.
+
+## Economic Model
+
+Outbound delivery is incentivized by Hyperbridge through two complementary mechanisms. One is already live, and one is on the roadmap.
+
+### Mandatory Proof Reward (Live)
+
+The proof acceptance step that triggers every outbound flight is itself rewarded on Hyperbridge by `pallet-beefy-consensus-proofs`. Whenever a valid BEEFY proof is accepted via `submit_proof`, the runtime pays a fixed `ProofReward` from the Hyperbridge treasury pallet to the proof submitter, in two cases.
+
+* **Rotation proofs.** The BEEFY validator set has changed, and the proof rotates the on chain authority set forward. Every destination chain must eventually see a rotation or its on chain client falls behind, so the protocol pays the operator that brings the new authority set on chain first.
+* **New messaging proofs.** The proof advances the proven height AND carries a new dispatch child trie root. In other words, new outbound messages exist that have not been covered by an earlier accepted proof. The first submitter for each new dispatch root is rewarded; later submitters for the same root receive nothing.
+
+The reward amount is governance set, via the root only `set_proof_reward` extrinsic. The recipient is the account named on the proof payload, which is whichever operator side process actually pushes the proof to Hyperbridge. The currency is the runtime configured `Currency` type, typically `$BRIDGE` on Hyperbridge mainnet and testnet.
+
+In the typical deployment topology, the same operator runs the BEEFY prover binary that feeds tesseract. That means this reward effectively flows to the same party doing the destination chain delivery downstream. See the Hyperbridge config notes in [Running a Hyperbridge Relayer](/developers/network/relayer) for the BEEFY prover as separate binary architecture.
+
+### Direct Relayer Incentivization
+
+The destination chain submission itself, where tesseract reads the accepted proof from Hyperbridge's offchain storage and broadcasts `(consensus + messages)` to each opted in chain, does not yet carry a direct per delivery reward of its own. Explicit incentivization is added for that step, so that outbound work which advances destinations without immediately producing inbound messaging revenue is not net negative for the operator.
+
+In the meantime, the destination side gas cost is offset by the inbound messaging fees the same relayer collects on the destination once outbound has caught the chain up. Outbound is the prerequisite for inbound earnings on that chain. See [Messaging Relayers](/developers/explore/relayers/messaging-relayers).
+
+## Per Chain Opt Out
+
+Outbound is enabled by default for every chain declared in a relayer's config. Operators who want to skip a chain can disable it with a single flag in that chain's config block. This is useful, for example, when an operator only runs inbound for some destinations, or when collaborating with another relayer who handles outbound for that chain.
+
+```toml
+[some-chain]
+type = "evm"
+# ...
+outbound = false
+```
+
+When `outbound = false`, the relayer continues to handle inbound messaging for that chain, and inbound consensus too (subject to the usual `[<chain>.consensus]` opt in), but it excludes the chain from the outbound fan out.
+
+For instructions on running the relayer, see [Running a Hyperbridge Relayer](/developers/network/relayer).

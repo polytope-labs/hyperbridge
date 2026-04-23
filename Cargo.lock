@@ -28228,7 +28228,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "anyhow",
  "arb-host",

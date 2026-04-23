@@ -443,24 +443,9 @@ where
 							},
 						};
 
-						if self.config.state_machines.is_empty() {
-							let host = self.client.state_machine_id().state_id;
-							tracing::info!(
-								target: crate::LOG_TARGET,
-								"Sending mandatory consensus proof for {host}"
-							);
-							self.backend.send_mandatory_proof(&host, message.clone()).await?;
-						} else {
-							for state_machine in self.config.state_machines.iter() {
-								tracing::info!(
-									target: crate::LOG_TARGET,
-									"Sending mandatory consensus proof to {state_machine}"
-								);
-								self.backend
-									.send_mandatory_proof(state_machine, message.clone())
-									.await?;
-							}
-						}
+						let destinations: Vec<StateMachine> = self.config.state_machines.clone();
+						tracing::info!("Sending mandatory consensus proof");
+						self.backend.send_mandatory_proof(&destinations, message).await?;
 
 						// Advance the locally-computed view and persist it to the backend.
 						// Rotate authorities inline: new current = old next, new next =
@@ -579,12 +564,11 @@ where
 					},
 				};
 
-				for state_machine in state_machines {
-					tracing::info!(
-						target: crate::LOG_TARGET, "Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {state_machine}"
-					);
-					self.backend.send_messages_proof(&state_machine, message.clone()).await?;
-				}
+				let destinations: Vec<StateMachine> = state_machines.into_iter().collect();
+				tracing::info!(
+					"Sending consensus proof for new messages in range {lowest_message_height}..{latest_parachain_height} to {destinations:?}"
+				);
+				self.backend.send_messages_proof(&destinations, message).await?;
 
 				consensus_state.inner.latest_beefy_height = *latest_beefy_header.number();
 				consensus_state.finalized_parachain_height = latest_parachain_height;

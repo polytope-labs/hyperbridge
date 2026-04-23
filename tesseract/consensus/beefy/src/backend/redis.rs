@@ -212,21 +212,23 @@ impl ProofBackend for RedisProofBackend {
 
 	async fn send_mandatory_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		let queue = self.config.mandatory_queue(state_machine);
-		let result = self
-			.rsmq
-			.lock()
-			.await
-			.send_message(queue.as_str(), proof, Some(Duration::ZERO))
-			.await;
+		for state_machine in state_machines {
+			let queue = self.config.mandatory_queue(state_machine);
+			let result = self
+				.rsmq
+				.lock()
+				.await
+				.send_message(queue.as_str(), proof.clone(), Some(Duration::ZERO))
+				.await;
 
-		if let Err(err) = result {
-			let anyhow_err = anyhow::Error::from(err);
-			self.handle_redis_error(&anyhow_err).await;
-			return Err(anyhow_err);
+			if let Err(err) = result {
+				let anyhow_err = anyhow::Error::from(err);
+				self.handle_redis_error(&anyhow_err).await;
+				return Err(anyhow_err);
+			}
 		}
 
 		Ok(())
@@ -234,21 +236,23 @@ impl ProofBackend for RedisProofBackend {
 
 	async fn send_messages_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		let queue = self.config.messages_queue(state_machine);
-		let result = self
-			.rsmq
-			.lock()
-			.await
-			.send_message(queue.as_str(), proof, Some(Duration::ZERO))
-			.await;
+		for state_machine in state_machines {
+			let queue = self.config.messages_queue(state_machine);
+			let result = self
+				.rsmq
+				.lock()
+				.await
+				.send_message(queue.as_str(), proof.clone(), Some(Duration::ZERO))
+				.await;
 
-		if let Err(err) = result {
-			let anyhow_err = anyhow::Error::from(err);
-			self.handle_redis_error(&anyhow_err).await;
-			return Err(anyhow_err);
+			if let Err(err) = result {
+				let anyhow_err = anyhow::Error::from(err);
+				self.handle_redis_error(&anyhow_err).await;
+				return Err(anyhow_err);
+			}
 		}
 
 		Ok(())

@@ -59,6 +59,23 @@ impl AnyConfig {
 			Self::Tron(config) => config.state_machine(),
 		}
 	}
+
+	/// The chain's signing key as configured. Returns the raw string from the
+	/// per-chain TOML block, which is the secp256k1 private key (EVM family) or
+	/// SR25519 seed (Substrate). `None` signals that this chain does not
+	/// participate in roles that require signing (outbound delivery, fee
+	/// withdrawal POSTs, fisherman vetoes), and the relayer skips it for
+	/// those tasks.
+	pub fn signer(&self) -> Option<&str> {
+		match self {
+			Self::Substrate(config) => config.signer.as_deref(),
+			Self::Evm(config) => config.signer.as_deref(),
+			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.signer.as_deref(),
+			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.signer.as_deref(),
+			Self::PharosEvm(config) => config.signer.as_deref(),
+			Self::Tron(config) => config.evm.signer.as_deref(),
+		}
+	}
 }
 
 impl AnyConfig {

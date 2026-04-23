@@ -223,9 +223,9 @@ pub async fn generate_contract_calls(
 	debug_trace: bool,
 ) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
 	let handler_addr = Address::from_slice(&client.handler().await?.0);
-	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let contract = HandlerInstance::new(handler_addr, client.require_signer()?.clone());
 	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
-	let from = Address::from_slice(&client.address);
+	let from = Address::from_slice(client.require_address()?);
 	let gas_price = fetch_gas_price(client, debug_trace).await?;
 	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
 
@@ -311,7 +311,7 @@ async fn build_batch_inner_calls(
 	messages: &[Message],
 ) -> anyhow::Result<Vec<Bytes>> {
 	let handler_addr = Address::from_slice(&client.handler().await?.0);
-	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let contract = HandlerInstance::new(handler_addr, client.require_signer()?.clone());
 	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
 
 	let mut inner = Vec::with_capacity(messages.len());
@@ -398,12 +398,12 @@ pub async fn submit_batch_messages(
 	}
 
 	let handler_addr = Address::from_slice(&client.handler().await?.0);
-	let from = Address::from_slice(&client.address);
+	let from = Address::from_slice(client.require_address()?);
 	let gas_price = fetch_gas_price(client, false).await?;
 	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
 
 	let inner_calls = build_batch_inner_calls(client, &messages).await?;
-	let handler_v2 = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let handler_v2 = HandlerV2Instance::new(handler_addr, client.require_signer()?.clone());
 	let call = handler_v2.batchCall(inner_calls);
 	let gas = call.estimate_gas().await.unwrap_or_else(|_| (chain_gas_limit * 8) / 10);
 	let calldata = call.calldata().clone();
@@ -411,7 +411,8 @@ pub async fn submit_batch_messages(
 	let tx_request =
 		build_tx_request(from, handler_addr, calldata, gas_price, gas_with_buffer(gas));
 
-	let nonce = client.signer.get_transaction_count(from).await?;
+	// Read-only nonce lookup; the read provider is always available.
+	let nonce = client.client.get_transaction_count(from).await?;
 	let tx = tx_request.nonce(nonce).transaction_type(0);
 
 	tracing::info!(
@@ -428,8 +429,9 @@ pub async fn submit_batch_messages(
 	// the next ProofAccepted event — avoids pinning a task forever.
 	const MAX_RATE_LIMIT_RETRIES: u32 = 5;
 	let mut attempt = 0u32;
+	let signer = client.require_signer()?;
 	let pending = loop {
-		match client.signer.send_transaction(tx.clone()).await {
+		match signer.send_transaction(tx.clone()).await {
 			Ok(p) => break p,
 			Err(err) => {
 				let err = anyhow::Error::from(err);
@@ -493,7 +495,10 @@ async fn cancel_transaction(
 		.nonce(nonce)
 		.transaction_type(0);
 
-	let Ok(pending) = client.signer.send_transaction(cancel_tx).await else { return };
+	// `cancel_transaction` is only called from the inbound submit path, which
+	// requires a signer to have reached it. Skip silently if absent.
+	let Some(signer) = client.signer.as_ref() else { return };
+	let Ok(pending) = signer.send_transaction(cancel_tx).await else { return };
 	let cancel_hash = H256::from_slice(pending.tx_hash().as_slice());
 
 	if let Ok(Some(receipt)) = wait_for_transaction_receipt(cancel_hash, client).await {
@@ -520,16 +525,18 @@ pub async fn submit_messages(
 	let mut events = BTreeSet::new();
 	let mut unsuccessful = Vec::new();
 
-	let from = Address::from_slice(&client.address);
+	let from = Address::from_slice(client.require_address()?);
+	let signer = client.require_signer()?;
 
 	for (idx, tx) in tx_requests.into_iter().enumerate() {
 		// Fetch the pending nonce upfront so we can reuse it if the tx gets stuck.
-		let nonce = client.signer.get_transaction_count(from).await?;
+		// Read-only; the read provider is always available.
+		let nonce = client.client.get_transaction_count(from).await?;
 		let tx = tx.nonce(nonce).transaction_type(0);
 
 		// Retry the send on rate limits.
 		let pending = loop {
-			match client.signer.send_transaction(tx.clone()).await {
+			match signer.send_transaction(tx.clone()).await {
 				Ok(p) => break p,
 				Err(err) => {
 					let err = anyhow::Error::from(err);
@@ -663,7 +670,9 @@ pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
 			return false;
 		},
 	};
-	let handler = HandlerInstance::new(handler_addr, client.signer.clone());
+	// Read-only probe; use the read provider so signer-less chains can still
+	// answer "does the handler support v2?" if anyone ever asks.
+	let handler = HandlerInstance::new(handler_addr, client.client.clone());
 	match handler.supportsInterface(IHANDLER_V2_INTERFACE_ID).call().await {
 		Ok(supported) => {
 			tracing::debug!(

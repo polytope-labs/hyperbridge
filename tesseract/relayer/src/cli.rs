@@ -52,17 +52,17 @@ use messaging::outbound;
 	  • Outbound (Hyperbridge → chain). A single task subscribed to pallet\n\
 	    `beefy-consensus-proofs::ProofAccepted` events on Hyperbridge; on each event\n\
 	    it fetches the accepted proof from the HB node's offchain storage and fans\n\
-	    out a batched (consensus + messages) submission to every chain whose\n\
-	    per-chain `outbound` flag is true (the default). Authority-set rotations\n\
-	    (mandatory proofs) always propagate; messaging-only proofs skip chains with\n\
-	    no pending messages.\n\
+	    out a batched (consensus + messages) submission to every chain that has a\n\
+	    non-empty `signer` configured (signer presence is the toggle).\n\
+	    Authority-set rotations (mandatory proofs) always propagate; messaging-only\n\
+	    proofs skip chains with no pending messages.\n\
 	\n\
 	The Hyperbridge node must expose `offchain_localStorageGet` for outbound to read proofs\n\
 	(typically requires `--rpc-methods Unsafe`). See `docs/` or module-level docs in\n\
 	`tesseract/relayer/src/{config,outbound,provider}.rs` for full details."
 )]
 pub struct Cli {
-   	/// Optional subcommand. When absent, runs the relayer in the usual
+	/// Optional subcommand. When absent, runs the relayer in the usual
 	/// long-running mode.
 	#[command(subcommand)]
 	pub subcommand: Option<Subcommand>,
@@ -100,9 +100,6 @@ const BANNER: &str = r"
     ██║   ██╔══╝  ╚════██║╚════██║██╔══╝  ██╔══██╗██╔══██║██║        ██║
     ██║   ███████╗███████║███████║███████╗██║  ██║██║  ██║╚██████╗   ██║
     ╚═╝   ╚══════╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝   ╚═╝
-            inbound · outbound · consensus · fees — all in one
-                  chain ═══════════════════════> hyperbridge
-                  hyperbridge ════════════════> chain
 ";
 
 impl Cli {
@@ -207,7 +204,7 @@ impl Cli {
 		// here — it's an outbound-relayer concern and is spawned below only for
 		// chains that opted into outbound.
 		let fisherman_enabled = relayer.fisherman.unwrap_or(false);
-		for (_state_machine, provider) in &providers {
+		for (state_machine, provider) in &providers {
 			let mut hb_for_messaging =
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
@@ -225,8 +222,16 @@ impl Cli {
 			.await?;
 
 			// Fisherman watches chain_b ↔ HB for byzantine state-machine updates
-			// and dispatches veto extrinsics. Opt-in via `relayer.fisherman = true`.
-			if fisherman_enabled {
+			// and dispatches veto extrinsics. Opt-in via `relayer.fisherman =
+			// true`. Vetoes need to write to the chain (e.g. an EVM veto call
+			// reads the relayer's `address` slot), so the fisherman task is
+			// only spawned for chains with a signer configured.
+			let chain_has_signer = config
+				.chains
+				.get(state_machine)
+				.map(|pc| pc.outbound_enabled())
+				.unwrap_or(false);
+			if fisherman_enabled && chain_has_signer {
 				let hb_for_fisherman: Arc<dyn IsmpProvider> = Arc::new(
 					SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone())
 						.await?,
@@ -238,23 +243,30 @@ impl Cli {
 					coprocessor,
 				)
 				.await?;
+			} else if fisherman_enabled {
+				tracing::info!(
+					target: crate::LOG_TARGET, %state_machine,
+					"fisherman skipped: chain has no signer configured (vetoes require one)",
+				);
 			}
 		}
 
-		// Outbound — one task, fans out over every chain that opted in via
-		// per-chain `outbound = true` (the default). Fee accumulation is part
-		// of the outbound pipeline: each outbound-enabled chain gets a
-		// dedicated fee-accumulation task that drains the receipts the
-		// outbound fan-out produces after a successful destination submit.
+		// Outbound: one task, fans out over every chain that has a non-empty
+		// signer configured. The signer's presence is the toggle (a chain
+		// without a signer cannot submit transactions, so it stays inbound
+		// only). Fee accumulation is part of the outbound pipeline: each
+		// outbound-enabled chain gets a dedicated fee-accumulation task that
+		// drains the receipts the outbound fan-out produces after a
+		// successful destination submit.
 		let destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>> = config
 			.chains
 			.iter()
-			.filter(|(_, pc)| pc.outbound)
+			.filter(|(_, pc)| pc.outbound_enabled())
 			.filter_map(|(sm, _)| providers.get(sm).map(|p| (*sm, p.clone())))
 			.collect();
 
 		if destinations.is_empty() {
-			tracing::info!(target: crate::LOG_TARGET, "no chains opted into outbound — skipping outbound task");
+			tracing::info!(target: crate::LOG_TARGET, "no chains have a signer configured, skipping outbound task");
 		} else {
 			// One fee-accumulation channel per outbound destination. Populated
 			// only when fees aren't globally disabled.
@@ -325,13 +337,21 @@ impl Cli {
 			);
 		}
 
-		// Fee withdrawal — one global task, periodic per `relayer.withdrawal_frequency`.
-		// Queries each destination's unclaimed balance on HB, submits a withdrawal
-		// request once the minimum threshold is crossed.
+		// Fee withdrawal: one global task, periodic per
+		// `relayer.withdrawal_frequency`. Queries each destination's unclaimed
+		// balance on HB, submits a withdrawal request once the minimum
+		// threshold is crossed. The withdrawal POST that comes back is
+		// delivered by the relayer on the destination chain, so it requires
+		// a signer there. Skip chains without one.
 		if !fees_disabled {
 			let hb_for_withdraw =
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
-			let withdraw_clients = providers.clone();
+			let withdraw_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = config
+				.chains
+				.iter()
+				.filter(|(_, pc)| pc.outbound_enabled())
+				.filter_map(|(sm, _)| providers.get(sm).map(|p| (*sm, p.clone())))
+				.collect();
 			let withdraw_cfg = messaging_config.clone();
 			let withdraw_db = tx_payment.clone();
 			let withdraw_proof_source = proof_source.clone();

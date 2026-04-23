@@ -185,10 +185,18 @@ impl TronClient {
 	/// This initialises an [`EvmClient`] for JSON-RPC reads and a [`TronApi`]
 	/// for TRON-native transaction submission.
 	pub async fn new(mut config: TronConfig) -> anyhow::Result<Self> {
-		let key_bytes = match sp_core::bytes::from_hex(&config.evm.signer) {
+		// TRON is always an active destination chain. Inbound-only TRON is not
+		// supported, so we fail loudly when no signer is configured.
+		let raw_signer = config.evm.signer.as_deref().ok_or_else(|| {
+			anyhow!(
+				"TRON chain {:?} requires a signer; set `signer` in the chain block",
+				config.evm.state_machine
+			)
+		})?;
+		let key_bytes = match sp_core::bytes::from_hex(raw_signer) {
 			Ok(bytes) => bytes,
 			Err(_) => {
-				let contents = tokio::fs::read_to_string(&config.evm.signer).await?;
+				let contents = tokio::fs::read_to_string(raw_signer).await?;
 				sp_core::bytes::from_hex(contents.trim())?
 			},
 		};

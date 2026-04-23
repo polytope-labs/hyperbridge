@@ -57,15 +57,17 @@ In the meantime, the destination side gas cost is offset by the inbound messagin
 
 ## Per Chain Opt Out
 
-Outbound is enabled by default for every chain declared in a relayer's config. Operators who want to skip a chain can disable it with a single flag in that chain's config block. This is useful, for example, when an operator only runs inbound for some destinations, or when collaborating with another relayer who handles outbound for that chain.
+Outbound is enabled for every chain whose config block includes a `signer`. The signer's presence is the toggle, since outbound is the role that actually submits transactions on the destination chain. Without a signer there is nothing for the relayer to sign with, so the chain stays inbound only.
+
+To skip a chain in the outbound fan out, simply omit the `signer` field from that chain's config block. This is useful, for example, when an operator only relays events from a chain into Hyperbridge without funding a wallet on that chain, or when collaborating with another relayer who handles outbound there.
 
 ```toml
 [some-chain]
 type = "evm"
-# ...
-outbound = false
+rpc_urls = ["https://..."]
+# no signer set, this chain runs in inbound-only mode
 ```
 
-When `outbound = false`, the relayer continues to handle inbound messaging for that chain, and inbound consensus too (subject to the usual `[<chain>.consensus]` opt in), but it excludes the chain from the outbound fan out.
+When `signer` is omitted, the relayer continues to handle inbound messaging for that chain, and inbound consensus too (subject to the usual `[<chain>.consensus]` opt in). Both inbound paths submit extrinsics on Hyperbridge using the `[hyperbridge]` signer, so no chain side signer is needed for them. Outbound delivery, fee withdrawal POSTs, and fisherman vetoes are all skipped for the chain, since each of those would require a destination side transaction.
 
 For instructions on running the relayer, see [Running a Hyperbridge Relayer](/developers/network/relayer).

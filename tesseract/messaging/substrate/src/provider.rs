@@ -972,7 +972,14 @@ where
 	}
 
 	fn sign(&self, msg: &[u8]) -> tesseract_primitives::Signature {
-		let signature = self.signer.sign(msg).0.to_vec();
+		// Calling `sign` on an inbound-only chain (no signer configured) is a
+		// programming error: the relayer wiring should filter such chains out
+		// of any path that needs a relayer signature. We surface that loudly
+		// rather than fabricating a bogus signature.
+		let signer = self.signer.as_ref().unwrap_or_else(|| {
+			panic!("sign() called on chain {:?} which has no signer configured", self.state_machine)
+		});
+		let signature = signer.sign(msg).0.to_vec();
 		Signature::Sr25519 { public_key: self.address.clone(), signature }
 	}
 
@@ -1022,7 +1029,10 @@ where
 			return Ok(());
 		}
 
-		let binding = self.signer.public();
+		// Veto runs through the fisherman task, which is only spawned for
+		// chains with a signer configured.
+		let pair = self.require_signer()?;
+		let binding = pair.public();
 
 		let public_key_slice: &[u8] = binding.as_ref();
 
@@ -1031,7 +1041,7 @@ where
 
 		let account_id = AccountId32::from(public_key_array);
 
-		let signer = InMemorySigner { account_id: account_id.into(), signer: self.signer.clone() };
+		let signer = InMemorySigner { account_id: account_id.into(), signer: pair.clone() };
 
 		let call = subxt::dynamic::tx(
 			"Fishermen",

@@ -25,10 +25,7 @@ use tesseract_primitives::{
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use transaction_fees::TransactionPayment;
 
-use crate::{
-	config::HyperbridgeConfig,
-	provider::OffchainProofSource,
-};
+use crate::{config::HyperbridgeConfig, provider::OffchainProofSource};
 
 #[derive(Debug, clap::Args)]
 #[command(
@@ -85,9 +82,22 @@ impl AccumulateFees {
 				Arc::new(OffchainProofSource::new(hyperbridge.rpc_client.clone()));
 			let relayer_config: tesseract_primitives::config::RelayerConfig =
 				config.relayer.clone().into();
+			// Withdrawals emit a POST request from Hyperbridge back to each
+			// destination, and the destination side of the flow eventually
+			// asks the destination provider to sign (see
+			// `tesseract-substrate::calls::withdraw_funds`). Signer-less
+			// chains cannot sign, so they must be excluded here or the call
+			// panics on the first one. The relayer's long-running
+			// auto-withdraw applies the same filter.
+			let withdraw_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = config
+				.chains
+				.iter()
+				.filter(|(_, pc)| pc.outbound_enabled())
+				.filter_map(|(sm, _)| clients.get(sm).map(|p| (*sm, p.clone())))
+				.collect();
 			messaging::fees::withdraw_once(
 				&hyperbridge,
-				&clients,
+				&withdraw_clients,
 				&relayer_config,
 				&tx_payment,
 				&proof_source,

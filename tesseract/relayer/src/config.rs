@@ -24,17 +24,17 @@
 //!
 //! [relayer]                              # operator knobs
 //!
-//! [<chain-name>]                         # one block per chain — messaging/host config
+//! [<chain-name>]                         # one block per chain, messaging/host config
 //! type = "evm"
 //! rpc_urls = ["https://..."]
-//! state_machine = "EVM-1"
-//! ismp_host = "0x..."
-//! signer = "${SIG}"
+//! # state_machine and ismp_host auto-derive at startup from eth_chainId plus
+//! # the relayer's built-in registry; set either explicitly to override.
 //! consensus_state_id = "ETH0"
-//! outbound = true                        # optional; default true — include this chain
-//!                                        # as a destination in the HB→chain fan-out.
+//! signer = "${SIG}"                      # presence of `signer` toggles outbound:
+//!                                        # set it to include this chain in the
+//!                                        # HB->chain fan-out, omit it for inbound only.
 //!
-//! [<chain-name>.consensus]               # OPTIONAL — presence opts into inbound consensus.
+//! [<chain-name>.consensus]               # OPTIONAL. Presence opts into inbound consensus.
 //! type = "ethereum"                      # consensus-side client type
 //! host = { ... }                         # consensus-only knobs
 //! # Host fields (rpc_urls, state_machine, ismp_host, signer, consensus_state_id, ...)
@@ -42,9 +42,10 @@
 //! ```
 //!
 //! Every chain with a `[<chain-name>]` block gets inbound messaging spawned
-//! automatically; presence of `[chain.consensus]` is the sole signal to spawn
-//! inbound consensus for that chain; per-chain `outbound` toggles whether the
-//! chain receives HB→chain fan-out (default on).
+//! automatically. Presence of `[chain.consensus]` is the sole signal to spawn
+//! inbound consensus for that chain. Presence of a non-empty `signer` is the
+//! sole signal that this chain participates in the HB->chain outbound fan-out
+//! (and the related fee-withdrawal and fisherman roles).
 
 use anyhow::{anyhow, Context};
 use ismp::host::StateMachine;
@@ -104,16 +105,27 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 
 /// Per-chain configuration in the consolidated relayer.
 ///
-/// `messaging` is always present — it's the host config used for inbound
+/// `messaging` is always present, it's the host config used for inbound
 /// messaging and outbound submission. `consensus` is optional: when present,
-/// that chain also runs an inbound-consensus task. `outbound` defaults to
-/// `true` and controls whether this chain is a destination for the
-/// HB→chain outbound fan-out.
+/// that chain also runs an inbound-consensus task. Whether this chain is a
+/// destination for the HB->chain outbound fan-out is derived from the messaging
+/// config's signer: a non-empty `signer` opts the chain into outbound, an empty
+/// or absent one keeps it inbound only.
 #[derive(Debug, Clone)]
 pub struct PerChainConfig {
 	pub messaging: MessagingConfig,
 	pub consensus: Option<ConsensusConfig>,
-	pub outbound: bool,
+}
+
+impl PerChainConfig {
+	/// True when this chain participates in the HB->chain outbound fan-out
+	/// (and the related fee-withdrawal and fisherman roles). The toggle is
+	/// the messaging signer's presence: a configured non-empty signer means
+	/// the operator has provisioned a key to submit transactions on this
+	/// chain.
+	pub fn outbound_enabled(&self) -> bool {
+		self.messaging.signer().is_some_and(|s| !s.is_empty())
+	}
 }
 
 #[derive(Debug)]
@@ -129,7 +141,6 @@ pub struct HyperbridgeConfig {
 const HYPERBRIDGE: &str = "hyperbridge";
 const RELAYER: &str = "relayer";
 const CONSENSUS: &str = "consensus";
-const OUTBOUND: &str = "outbound";
 
 impl HyperbridgeConfig {
 	pub async fn parse_conf(config: &str) -> Result<Self, anyhow::Error> {
@@ -201,8 +212,10 @@ impl HyperbridgeConfig {
 /// the messaging [`MessagingConfig`]; if a `[<chain>.consensus]` sub-table is
 /// present, the base fields are inherited into the consensus table before it's
 /// deserialized as a [`ConsensusConfig`] (so host essentials are specified once).
-/// A top-level `outbound` bool (default `true`) controls whether this chain
-/// is a destination for the HB→chain fan-out.
+///
+/// Outbound participation is derived from the messaging config's `signer`
+/// (see [`PerChainConfig::outbound_enabled`]); there is no separate
+/// `outbound` toggle.
 ///
 /// For EVM chains, `state_machine` and `ismp_host` are auto-derived from the
 /// RPC (`eth_chainId` + the [`tesseract_evm::registry`] table) when the user
@@ -210,14 +223,6 @@ impl HyperbridgeConfig {
 async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, anyhow::Error> {
 	let mut messaging_table = chain_table.clone();
 	let consensus_value = messaging_table.remove(CONSENSUS);
-
-	let outbound = match messaging_table.remove(OUTBOUND) {
-		None => true,
-		Some(Value::Boolean(b)) => b,
-		Some(other) => {
-			return Err(anyhow!("[{name}].outbound must be a boolean, got {}", other.type_str()));
-		},
-	};
 
 	autofill_missing_fields(name, &mut messaging_table).await?;
 
@@ -228,8 +233,8 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 	let consensus = match consensus_value {
 		None => None,
 		Some(Value::Table(cons_table)) => {
-			// Consensus variants no longer embed EvmConfig/SubstrateConfig —
-			// the host config is threaded in separately at construction time
+			// Consensus variants no longer embed EvmConfig/SubstrateConfig.
+			// The host config is threaded in separately at construction time
 			// (see `HyperbridgeConfig::consensus_chains`). So the consensus
 			// sub-table only needs the variant's own fields: `type` plus
 			// whatever nested tables that variant declares (`host`, `grandpa`,
@@ -244,7 +249,7 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 		},
 	};
 
-	Ok(PerChainConfig { messaging, consensus, outbound })
+	Ok(PerChainConfig { messaging, consensus })
 }
 
 /// Fills in fields the user omitted, using the chain's own RPC as the source
@@ -459,7 +464,7 @@ signer = "0x00"
 	}
 
 	#[tokio::test]
-	async fn per_chain_outbound_defaults_to_true() {
+	async fn outbound_enabled_when_signer_is_set() {
 		let cfg = parse(
 			r#"
 [chapel]
@@ -475,11 +480,14 @@ signer = "0x00"
 		.expect("parse should succeed");
 
 		let pc = cfg.chains.get(&StateMachine::Evm(97)).expect("chain present");
-		assert!(pc.outbound, "per-chain outbound defaults to true");
+		assert!(pc.outbound_enabled(), "non-empty signer opts the chain into outbound");
 	}
 
 	#[tokio::test]
-	async fn per_chain_outbound_false_opts_chain_out() {
+	async fn outbound_disabled_when_signer_is_empty() {
+		// Empty signer keeps the chain inbound only. Note: the underlying
+		// chain client may still reject construction with an empty signer
+		// today, this test just covers the relayer-level toggle semantics.
 		let cfg = parse(
 			r#"
 [chapel]
@@ -488,8 +496,7 @@ state_machine = "EVM-97"
 rpc_urls = ["https://example.invalid"]
 consensus_state_id = "BSC0"
 ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
-signer = "0x00"
-outbound = false
+signer = ""
 
 [base_sepolia]
 type = "evm"
@@ -504,33 +511,10 @@ signer = "0x00"
 		.expect("parse should succeed");
 
 		let chapel = cfg.chains.get(&StateMachine::Evm(97)).expect("chapel present");
-		assert!(!chapel.outbound, "explicit outbound=false respected");
+		assert!(!chapel.outbound_enabled(), "empty signer keeps the chain inbound only");
 
 		let base = cfg.chains.get(&StateMachine::Evm(84532)).expect("base present");
-		assert!(base.outbound, "omitted outbound still defaults to true");
-	}
-
-	#[tokio::test]
-	async fn outbound_key_is_stripped_before_messaging_parse() {
-		// Sanity check: `outbound` is pulled out before deserialising the
-		// messaging variant, so it doesn't leak into the inner EvmConfig.
-		let cfg = parse(
-			r#"
-[chapel]
-type = "evm"
-state_machine = "EVM-97"
-rpc_urls = ["https://example.invalid"]
-consensus_state_id = "BSC0"
-ismp_host = "0xFE9f23F0F2fE83b8B9576d3FC94e9a7458DdDD35"
-signer = "0x00"
-outbound = false
-"#,
-		)
-		.await
-		.expect("parse should succeed");
-
-		let pc = cfg.chains.get(&StateMachine::Evm(97)).expect("chain present");
-		assert!(matches!(pc.messaging, MessagingConfig::Evm(_)));
+		assert!(base.outbound_enabled(), "non-empty signer opts the chain into outbound");
 	}
 
 	#[tokio::test]

@@ -77,7 +77,7 @@ impl BeefyConfig {
 			backend::ProofBackendConfig::Onchain => Arc::new(backend::OnchainBackend::<P>::new(
 				client.client.clone(),
 				client.rpc_client.clone(),
-				client.signer.clone(),
+				client.require_signer()?.clone(),
 				self.host.consensus_state_id,
 			)),
 			backend::ProofBackendConfig::InMemory => {

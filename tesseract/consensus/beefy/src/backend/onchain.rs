@@ -100,7 +100,7 @@ where
 			vec![payload_value, signature_value],
 		);
 
-		send_unsigned_extrinsic(&self.client, tx, true).await?;
+		send_unsigned_extrinsic(&self.client, tx, false).await?;
 
 		tracing::info!(
 			"Successfully submitted proof to pallet-beefy-consensus-proofs (height: {})",
@@ -154,19 +154,19 @@ where
 
 	async fn send_mandatory_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		tracing::info!("Submitting mandatory proof to pallet for {state_machine}");
+		tracing::info!("Submitting mandatory proof to pallet for {state_machines:?}");
 		self.submit_to_pallet(&proof).await
 	}
 
 	async fn send_messages_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		tracing::info!("Submitting messages proof to pallet for {state_machine}");
+		tracing::info!("Submitting messages proof to pallet for {state_machines:?}");
 		self.submit_to_pallet(&proof).await
 	}
 

@@ -60,13 +60,14 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::{ConsensusClientId, ConsensusStateId},
+		consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight},
 		events::StateMachineUpdated,
 		handlers,
 		host::IsmpHost,
 		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
 	};
 	use ismp_solidity_abi::beefy::BeefyConsensusState as SolBeefyConsensusState;
+	use primitive_types::H256;
 	use sp_core::sr25519;
 	use sp_runtime::{
 		traits::AccountIdConversion,
@@ -130,8 +131,7 @@ pub mod pallet {
 	/// `ChildTrieRoot` snapshot at the last messaging reward — dirty-bit for "new dispatches
 	/// exist since we last paid".
 	#[pallet::storage]
-	pub type LastRewardedDispatchRoot<T: Config> =
-		StorageValue<_, <T as frame_system::Config>::Hash, OptionQuery>;
+	pub type LastRewardedDispatchRoot<T: Config> = StorageValue<_, H256, OptionQuery>;
 
 	/// Fixed reward amount per eligible proof.
 	#[pallet::storage]
@@ -186,6 +186,8 @@ pub mod pallet {
 		RewardTransferFailed,
 		/// `pallet-ismp` rejected the consensus message.
 		IsmpUpdateFailed,
+		/// The child trie root was not provided in the proof.
+		MissingChildTrieRoot,
 	}
 
 	#[pallet::event]
@@ -277,12 +279,11 @@ pub mod pallet {
 			let outcome = Self::verify_and_apply(&payload, &signature)?;
 
 			// Determine reward eligibility.
-			let child_trie_root = pallet_ismp::ChildTrieRoot::<T>::get();
-			let last_rewarded = LastRewardedDispatchRoot::<T>::get();
+			let last_rewarded = LastRewardedDispatchRoot::<T>::get().unwrap_or_default();
 			let prev_proven = LastProvenHeight::<T>::get();
 
 			let messaging_reward =
-				Some(child_trie_root) != last_rewarded && outcome.proven_height > prev_proven;
+				outcome.child_trie_root != last_rewarded && outcome.proven_height > prev_proven;
 			let should_reward = outcome.rotated || messaging_reward;
 
 			if !should_reward {
@@ -290,7 +291,7 @@ pub mod pallet {
 			}
 
 			if messaging_reward {
-				LastRewardedDispatchRoot::<T>::put(child_trie_root);
+				LastRewardedDispatchRoot::<T>::put(outcome.child_trie_root);
 			}
 			if outcome.proven_height > prev_proven {
 				LastProvenHeight::<T>::put(outcome.proven_height);
@@ -433,6 +434,8 @@ pub mod pallet {
 		pub current_set_id: u64,
 		/// True iff the proof rotated the current authority set.
 		pub rotated: bool,
+		/// Root of the child trie verified by this proof.
+		pub child_trie_root: H256,
 	}
 
 	impl<T: Config> Pallet<T>
@@ -518,17 +521,23 @@ pub mod pallet {
 				Err(Error::<T>::StaleProof)?
 			};
 			let coprocessor = T::Coprocessor::get().unwrap();
-			let proven_height = events
+			let (proven_height, state_commitment) = events
 				.into_iter()
 				.filter_map(|ev| match ev {
 					ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 						latest_height,
 						state_machine_id,
-					}) if state_machine_id.state_id == coprocessor => Some(latest_height),
+					}) if state_machine_id.state_id == coprocessor => host
+						.state_machine_commitment(StateMachineHeight {
+							height: latest_height,
+							id: state_machine_id,
+						})
+						.ok()
+						.map(|c| (latest_height, c)),
 					_ => None,
 				})
-				.max()
-				.unwrap_or(0);
+				.max_by_key(|c| c.0)
+				.unwrap_or((0, Default::default()));
 
 			// Read post-update consensus state to derive the new set id.
 			let new_state_bytes = host
@@ -552,6 +561,9 @@ pub mod pallet {
 				proven_height,
 				current_set_id: new_state.current_authorities.id,
 				rotated: new_state.current_authorities.id > prev_state.current_authorities.id,
+				child_trie_root: state_commitment
+					.overlay_root
+					.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?,
 			})
 		}
 	}

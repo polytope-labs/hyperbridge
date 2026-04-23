@@ -454,9 +454,8 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// The MPT trie path for a storage slot is `keccak256(storage_key)`, so we hash
 			// once more here: the storage key for the array's first element is itself a
 			// keccak256 of the slot number.
-			let storage_key = H::keccak256(
-				&U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian(),
-			);
+			let storage_key =
+				H::keccak256(&U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian());
 			let trie_path = H::keccak256(&storage_key.0);
 			let value = get_value_from_proof::<H>(
 				trie_path.0.to_vec(),
@@ -475,9 +474,7 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 				.0
 				.to_vec();
 			if raw.len() > 32 {
-				Err(Error::Custom(
-					"claimData[0] storage value longer than 32 bytes".to_string(),
-				))?
+				Err(Error::Custom("claimData[0] storage value longer than 32 bytes".to_string()))?
 			}
 			let mut word = vec![0u8; 32 - raw.len()];
 			word.extend_from_slice(&raw);
@@ -504,7 +501,8 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// encoded as zero. `get_value_from_proof` returns `None` for absent keys.
 			//
 			// The MPT trie path for a direct storage slot is `keccak256(slot)`.
-			let storage_key = H256(U256::from(AGGREGATE_VERIFIER_COUNTERED_BY_SLOT).to_big_endian());
+			let storage_key =
+				H256(U256::from(AGGREGATE_VERIFIER_COUNTERED_BY_SLOT).to_big_endian());
 			let trie_path = H::keccak256(&storage_key.0);
 			let value = get_value_from_proof::<H>(
 				trie_path.0.to_vec(),

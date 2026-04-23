@@ -17,8 +17,7 @@ const ROLLUP_CORE: [u8; 20] = hex!("d80810638dbDF9081b72C1B33c65375e807281C8");
 /// Placeholder secp256k1 key for read-only tests. `EvmClient::new` requires a valid signer to
 /// construct, but none of the consensus-verification flow this file exercises actually signs
 /// or sends transactions.
-const DUMMY_SIGNING_KEY: &str =
-	"0000000000000000000000000000000000000000000000000000000000000001";
+const DUMMY_SIGNING_KEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 
 #[derive(RlpDecodable, RlpEncodable, Debug, Clone)]
 pub struct Block {
@@ -178,13 +177,8 @@ async fn test_arbitrum_bold_assertion_verification() {
 		.await
 		.expect("fetch_arbitrum_bold_payload");
 
-	verify_arbitrum_bold::<Hasher>(
-		payload,
-		l1_state_root,
-		host.rollup_core,
-		Default::default(),
-	)
-	.expect("Arbitrum BoLD assertion proof must verify at latest L1 head");
+	verify_arbitrum_bold::<Hasher>(payload, l1_state_root, host.rollup_core, Default::default())
+		.expect("Arbitrum BoLD assertion proof must verify at latest L1 head");
 }
 
 #[test]

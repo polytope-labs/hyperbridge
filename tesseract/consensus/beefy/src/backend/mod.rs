@@ -68,17 +68,23 @@ pub trait ProofBackend: Send + Sync {
 	/// Initialize the queues for the given state machines
 	async fn init_queues(&self, state_machines: &[StateMachine]) -> Result<(), anyhow::Error>;
 
-	/// Send a mandatory consensus proof (authority set changes)
+	/// Send a mandatory consensus proof (authority set changes) targeted at the given
+	/// state machines. Backends are responsible for fanning the proof out to each
+	/// destination (queue-backed implementations) or submitting it once on behalf of
+	/// all destinations (on-chain implementations).
 	async fn send_mandatory_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error>;
 
-	/// Send a messages consensus proof (new messages finalized)
+	/// Send a messages consensus proof (new messages finalized) targeted at the given
+	/// state machines. Backends are responsible for fanning the proof out to each
+	/// destination (queue-backed implementations) or submitting it once on behalf of
+	/// all destinations (on-chain implementations).
 	async fn send_messages_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error>;
 

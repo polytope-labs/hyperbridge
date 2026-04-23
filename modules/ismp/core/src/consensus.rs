@@ -47,6 +47,7 @@ pub type ConsensusClientId = [u8; 4];
 	PartialEq,
 	Hash,
 	Eq,
+	Default,
 	serde::Deserialize,
 	serde::Serialize,
 )]

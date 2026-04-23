@@ -22,8 +22,8 @@
 //! handles on-chain storage-version gating and bumping automatically.
 
 use crate::{
-	pallet::{Config, StateMachinesDisputeGameFactoriesTypes},
 	Pallet,
+	pallet::{Config, StateMachinesDisputeGameFactoriesTypes},
 };
 use alloc::{vec, vec::Vec};
 use core::marker::PhantomData;
@@ -126,17 +126,17 @@ mod version_unchecked {
 			let mut dropped: u64 = 0;
 
 			StateMachinesDisputeGameFactoriesTypes::<T>::translate::<(H160, Vec<u32>), _>(
-				|state_machine_id, (factory, _old_game_types)| {
-					match configs_for(&state_machine_id.state_id) {
-						Some(configs) => {
-							translated = translated.saturating_add(1);
-							Some((factory, configs))
-						},
-						None => {
-							dropped = dropped.saturating_add(1);
-							None
-						},
-					}
+				|state_machine_id, (factory, _old_game_types)| match configs_for(
+					&state_machine_id.state_id,
+				) {
+					Some(configs) => {
+						translated = translated.saturating_add(1);
+						Some((factory, configs))
+					},
+					None => {
+						dropped = dropped.saturating_add(1);
+						None
+					},
 				},
 			);
 

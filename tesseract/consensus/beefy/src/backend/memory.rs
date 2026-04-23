@@ -60,28 +60,34 @@ impl ProofBackend for InMemoryProofBackend {
 
 	async fn send_mandatory_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
 		let mut queues = self.mandatory_queues.write().await;
-		queues.entry(*state_machine).or_insert_with(VecDeque::new).push_back(proof);
-
-		// Notify consumers
-		let _ = self.notifier.send((*state_machine, StreamMessage::EpochChanged));
+		for state_machine in state_machines {
+			queues
+				.entry(*state_machine)
+				.or_insert_with(VecDeque::new)
+				.push_back(proof.clone());
+			let _ = self.notifier.send((*state_machine, StreamMessage::EpochChanged));
+		}
 
 		Ok(())
 	}
 
 	async fn send_messages_proof(
 		&self,
-		state_machine: &StateMachine,
+		state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
 		let mut queues = self.messages_queues.write().await;
-		queues.entry(*state_machine).or_insert_with(VecDeque::new).push_back(proof);
-
-		// Notify consumers
-		let _ = self.notifier.send((*state_machine, StreamMessage::NewMessages));
+		for state_machine in state_machines {
+			queues
+				.entry(*state_machine)
+				.or_insert_with(VecDeque::new)
+				.push_back(proof.clone());
+			let _ = self.notifier.send((*state_machine, StreamMessage::NewMessages));
+		}
 
 		Ok(())
 	}

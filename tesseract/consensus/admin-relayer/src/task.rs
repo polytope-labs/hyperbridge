@@ -107,9 +107,7 @@ pub async fn run_mandatory_task(
 			);
 
 			// Sanity-check against the counterparty's current view of consensus.
-			let encoded_state = match provider
-				.query_consensus_state(None, consensus_state_id)
-				.await
+			let encoded_state = match provider.query_consensus_state(None, consensus_state_id).await
 			{
 				Ok(s) => s,
 				Err(err) => {

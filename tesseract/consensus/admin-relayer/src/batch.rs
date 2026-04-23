@@ -5,12 +5,10 @@
 //!
 //! Two modes are supported via [`crate::config::SubmissionMode`]:
 //!
-//! * `Batched` — one ERC-7821 batch tx `[unfreeze, handleConsensus, freeze]`
-//!   dispatched from the relayer EOA that has been EIP-7702 delegated to a
-//!   per-chain Executor.
-//! * `Sequential` — three plain EOA txs (`setFrozenState(None)` →
-//!   `handleConsensus` → `setFrozenState(All)`) for chains that don't yet
-//!   accept EIP-7702 transactions.
+//! * `Batched` — one ERC-7821 batch tx `[unfreeze, handleConsensus, freeze]` dispatched from the
+//!   relayer EOA that has been EIP-7702 delegated to a per-chain Executor.
+//! * `Sequential` — three plain EOA txs (`setFrozenState(None)` → `handleConsensus` →
+//!   `setFrozenState(All)`) for chains that don't yet accept EIP-7702 transactions.
 //!
 //! In both modes every tx is awaited to full receipt before the next one is
 //! constructed — the caller observes the strict `submit → await receipt → next`
@@ -82,11 +80,9 @@ pub async fn submit_mandatory_batch(
 	let handler = resolve_handler(client).await?;
 
 	let unfreeze = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
-	let consensus = Handler::handleConsensusCall {
-		host,
-		proof: Bytes::from(message.consensus_proof.clone()),
-	}
-	.abi_encode();
+	let consensus =
+		Handler::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
+			.abi_encode();
 	let freeze = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 
 	let calls = vec![
@@ -96,11 +92,9 @@ pub async fn submit_mandatory_batch(
 	];
 
 	let execution_data = <Vec<Erc7821Call> as SolValue>::abi_encode(&calls);
-	let calldata = executeCall {
-		mode: ERC7821_BATCH_MODE,
-		executionData: Bytes::from(execution_data),
-	}
-	.abi_encode();
+	let calldata =
+		executeCall { mode: ERC7821_BATCH_MODE, executionData: Bytes::from(execution_data) }
+			.abi_encode();
 
 	send_and_await_receipt(client, eoa, eoa, calldata, "consensus batch").await
 }
@@ -119,11 +113,9 @@ pub async fn submit_mandatory_sequential(
 	let chain = client.state_machine;
 
 	let _unfreeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
-	let consensus_cd = Handler::handleConsensusCall {
-		host,
-		proof: Bytes::from(message.consensus_proof.clone()),
-	}
-	.abi_encode();
+	let consensus_cd =
+		Handler::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
+			.abi_encode();
 	let _freeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 
 	// log::info!("[{chain}] sequential step 1/3: unfreeze");
@@ -194,10 +186,7 @@ async fn send_and_await_receipt(
 	if !receipt.status() {
 		return Err(anyhow!("{label} reverted: {tx_hash:?}"));
 	}
-	log::info!(
-		"[{chain}] {label} confirmed in block {:?}: {tx_hash:?}",
-		receipt.block_number
-	);
+	log::info!("[{chain}] {label} confirmed in block {:?}: {tx_hash:?}", receipt.block_number);
 	Ok(tx_hash)
 }
 

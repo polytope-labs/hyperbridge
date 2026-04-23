@@ -44,5 +44,8 @@ workspace = true
 default-features = true
 features = ["sp-runtime"]
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
 [features]
 testing = []

@@ -426,7 +426,7 @@ pub async fn submit_batch_messages(
 	// Bounded rate-limit retry. If the remote is throttling for longer than
 	// MAX_RATE_LIMIT_RETRIES * 1s, give up and let the outbound task retry on
 	// the next ProofAccepted event — avoids pinning a task forever.
-	const MAX_RATE_LIMIT_RETRIES: u32 = 10;
+	const MAX_RATE_LIMIT_RETRIES: u32 = 5;
 	let mut attempt = 0u32;
 	let pending = loop {
 		match client.signer.send_transaction(tx.clone()).await {
@@ -448,7 +448,7 @@ pub async fn submit_batch_messages(
 						max = MAX_RATE_LIMIT_RETRIES,
 						"rate limited; retrying batchCall in 1s",
 					);
-					tokio::time::sleep(Duration::from_secs(1)).await;
+					tokio::time::sleep(Duration::from_secs(10)).await;
 				} else {
 					return Err(err);
 				}

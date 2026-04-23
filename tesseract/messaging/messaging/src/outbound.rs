@@ -351,12 +351,10 @@ async fn catch_up_rotations(
 				})
 			})
 			.collect();
-		let first = chunk.first().map(|r| r.set_id).unwrap_or_default();
-		let last = chunk.last().map(|r| r.set_id).unwrap_or_default();
+		let set_ids: Vec<u64> = chunk.iter().map(|r| r.set_id).collect();
 		tracing::info!(
 			target: LOG_TARGET,
-			from_set_id = first,
-			to_set_id = last,
+			?set_ids,
 			msgs = batch.len(),
 			"🛰️ Transmitting Mandatory Consensus Message to {dest_name}",
 		);

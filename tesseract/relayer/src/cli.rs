@@ -305,10 +305,14 @@ impl Cli {
 		// outbound-enabled chain gets a dedicated fee-accumulation task that
 		// drains the receipts the outbound fan-out produces after a
 		// successful destination submit.
+		// Outbound fan-out only targets EVM destinations. The HB→substrate
+		// consensus path runs through the dedicated parachain-consensus task
+		// spawned above; outbound messaging is currently an EVM-only flow
+		// driven by the BEEFY consensus proofs pipeline.
 		let destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>> = config
 			.chains
 			.iter()
-			.filter(|(_, pc)| pc.outbound_enabled())
+			.filter(|(sm, pc)| matches!(sm, StateMachine::Evm(_)) && pc.outbound_enabled())
 			.filter_map(|(sm, _)| providers.get(sm).map(|p| (*sm, p.clone())))
 			.collect();
 

@@ -88,7 +88,7 @@ use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
-use primitive_types::{H256, U256};
+use primitive_types::{H160, H256, U256};
 use sp_core::keccak_256;
 use std::{
 	fmt::{Debug, Display, Formatter},
@@ -214,6 +214,22 @@ pub enum StateProofQueryType {
 	Arbitrary(Vec<Vec<u8>>),
 }
 
+/// Chain-agnostic storage read target. The provider's [`IsmpProvider::query_storage`]
+/// implementation chooses the appropriate access pattern (substrate `state_getStorage` vs EVM
+/// `eth_getStorageAt`) based on the variant supplied.
+#[derive(Debug, Clone)]
+pub enum StorageKey {
+	/// Full substrate pallet storage key (pallet prefix + item prefix + hashed map keys).
+	Substrate(Vec<u8>),
+	/// EVM contract storage slot, read via `eth_getStorageAt(contract, slot, latest)`.
+	Evm {
+		/// Contract address.
+		contract: H160,
+		/// 32-byte storage slot key.
+		slot: H256,
+	},
+}
+
 /// Cloneable error, used in place of `anyhow::Error`` which does not implement `Clone` required by
 /// tokio::sync::broadcast
 #[derive(Clone, Debug)]
@@ -305,6 +321,17 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		at: u64,
 		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// Fetch a raw storage value from the underlying chain. Substrate backends consume the
+	/// [`StorageKey::Substrate`] variant as a full pallet storage key; EVM backends consume
+	/// [`StorageKey::Evm`] as an `eth_getStorageAt(address, slot)` call. Providers return an
+	/// error when asked for a variant they don't support.
+	async fn query_storage(
+		&self,
+		_key: StorageKey,
+	) -> Result<Option<Vec<u8>>, anyhow::Error> {
+		Err(anyhow!("query_storage is not supported on {}", self.name()))
+	}
 
 	/// Query all ismp events on naive that can be processed for a [`StateMachineUpdated`]
 	/// event on the counterparty

@@ -13,7 +13,10 @@ use subxt::{
 	utils::{AccountId32, MultiAddress, H256},
 };
 
-use ismp::{consensus::StateMachineHeight, host::StateMachine};
+use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
+	host::StateMachine,
+};
 #[cfg(feature = "std")]
 pub use signer::*;
 
@@ -183,6 +186,17 @@ pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<
 
 	[pallet_prefix, storage_prefix, key_1, height.id.encode(), key_2, height.height.encode()]
 		.concat()
+}
+
+/// Storage key for `pallet_ismp_optimism::StateMachinesDisputeGameFactoriesTypes` at
+/// `state_machine_id`. The map uses `Blake2_128Concat` hashing.
+pub fn optimism_game_type_configs_storage_key(state_machine_id: StateMachineId) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"IsmpOptimism").to_vec();
+	let storage_prefix = twox_128(b"StateMachinesDisputeGameFactoriesTypes").to_vec();
+	let encoded = state_machine_id.encode();
+	let hashed = blake2_128(&encoded).to_vec();
+
+	[pallet_prefix, storage_prefix, hashed, encoded].concat()
 }
 
 pub fn state_machine_commitment_storage_key(height: StateMachineHeight) -> Vec<u8> {

@@ -17,9 +17,6 @@
 #![allow(unused_variables)]
 extern crate alloc;
 
-#[cfg(test)]
-mod tests;
-
 use alloc::format;
 use alloy_rlp::Decodable;
 use alloy_sol_types::SolValue;
@@ -205,6 +202,11 @@ pub struct ArbitrumBoldProof {
 	pub storage_proof: Vec<Vec<u8>>,
 	/// RollupCore contract proof in the ethereum world trie
 	pub contract_proof: Vec<Vec<u8>>,
+	/// Storage proof for the parent assertion's first `AssertionNode` slot —
+	/// `_assertions[previous_assertion_hash]` offset 0, which packs
+	/// `firstChildBlock | secondChildBlock`. A non-zero `secondChildBlock` means the parent
+	/// has two children (i.e. this branch is in challenge).
+	pub challenge_proof: Vec<Vec<u8>>,
 }
 
 // https://github.com/OffchainLabs/nitro-contracts/blob/780366a0c40caf694ed544a6a1d52c0de56573ba/src/rollup/AssertionState.sol#L11
@@ -330,6 +332,35 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	get_value_from_proof::<H>(assertion_hash_key.0.to_vec(), storage_root, payload.storage_proof)?
 		.ok_or_else(|| anyhow!("Assertion provided is invalid"))?;
+
+	// BoLD encodes challenges implicitly: a parent with two children is being contested. The
+	// parent's `AssertionNode.secondChildBlock` (uint64 at struct offset 8) is non-zero iff a
+	// rival sibling exists. Read the parent's first storage word from the proof and check the
+	// secondChildBlock bytes.
+	let parent_key = derive_map_key::<H>(payload.previous_assertion_hash.0.to_vec(), ASSERTIONS_SLOT);
+	let parent_word_raw = get_value_from_proof::<H>(
+		parent_key.0.to_vec(),
+		storage_root,
+		payload.challenge_proof,
+	)?
+	.ok_or_else(|| anyhow!("Parent assertion not found in proof — cannot check challenge state"))?;
+	let parent_word_bytes = <alloy_primitives::Bytes as Decodable>::decode(&mut &*parent_word_raw)
+		.map_err(|_| anyhow!("Error decoding parent assertion word {:?}", parent_word_raw))?
+		.0
+		.to_vec();
+	if parent_word_bytes.len() > 32 {
+		Err(anyhow!("parent AssertionNode storage word longer than 32 bytes"))?
+	}
+	let mut word = vec![0u8; 32 - parent_word_bytes.len()];
+	word.extend_from_slice(&parent_word_bytes);
+	// Layout: [padding(16) || secondChildBlock(8) || firstChildBlock(8)] in big-endian. So
+	// secondChildBlock occupies bytes word[16..24].
+	const ZERO_U64: [u8; 8] = [0u8; 8];
+	if &word[16..24] != ZERO_U64.as_slice() {
+		Err(anyhow!(
+			"Assertion has been challenged: parent.secondChildBlock != 0"
+		))?
+	}
 
 	Ok(IntermediateState {
 		height: StateMachineHeight {

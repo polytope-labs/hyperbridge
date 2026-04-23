@@ -32,6 +32,7 @@ sync-committee-prover = { workspace = true }
 sync-committee-primitives = { workspace = true }
 primitive-types = { workspace = true }
 ismp-optimism = { workspace = true }
+subxt-utils = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 alloy-rlp = { workspace = true }

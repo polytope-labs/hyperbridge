@@ -40,7 +40,7 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, TxResult,
+	StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
 };
 
 use ismp_solidity_abi::beefy::BeefyConsensusState;
@@ -87,6 +87,22 @@ impl IsmpProvider for EvmClient {
 	async fn query_finalized_height(&self) -> Result<u64, Error> {
 		let value = self.client.get_block_number().await?;
 		Ok(value)
+	}
+
+	async fn query_storage(&self, key: StorageKey) -> Result<Option<Vec<u8>>, Error> {
+		match key {
+			StorageKey::Substrate(_) =>
+				Err(anyhow!("StorageKey::Substrate not supported on EVM provider")),
+			StorageKey::Evm { contract, slot } => {
+				let addr = Address::from_slice(&contract.0);
+				let value = self
+					.client
+					.get_storage_at(addr, B256::from_slice(&slot.0).into())
+					.block_id(BlockId::latest())
+					.await?;
+				Ok(Some(value.to_be_bytes::<32>().to_vec()))
+			},
+		}
 	}
 
 	async fn query_state_machine_commitment(

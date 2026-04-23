@@ -12233,6 +12233,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "messaging"
+version = "0.1.0"
+dependencies = [
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "beefy-verifier-primitives",
+ "futures",
+ "hex",
+ "ismp",
+ "ismp-solidity-abi",
+ "itertools 0.13.0",
+ "pallet-ismp",
+ "pallet-state-coprocessor",
+ "parity-scale-codec",
+ "percentage",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "sp-core",
+ "tesseract-primitives",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "transaction-fees",
+]
+
+[[package]]
 name = "metrics"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -28049,6 +28075,7 @@ dependencies = [
  "hex",
  "ismp",
  "log",
+ "messaging",
  "pallet-beefy-consensus-proofs",
  "parity-scale-codec",
  "polkadot-sdk",
@@ -28064,7 +28091,6 @@ dependencies = [
  "tesseract-consensus",
  "tesseract-evm",
  "tesseract-fisherman",
- "tesseract-messaging",
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
@@ -28394,6 +28420,7 @@ dependencies = [
  "ismp-pharos",
  "ismp-solidity-abi",
  "log",
+ "messaging",
  "mmr-primitives",
  "op-host",
  "pallet-ismp",
@@ -28414,7 +28441,6 @@ dependencies = [
  "tesseract-config",
  "tesseract-evm",
  "tesseract-grandpa",
- "tesseract-messaging",
  "tesseract-pharos",
  "tesseract-polygon",
  "tesseract-primitives",
@@ -28427,27 +28453,45 @@ dependencies = [
 
 [[package]]
 name = "tesseract-messaging"
-version = "0.1.0"
+version = "1.7.0"
 dependencies = [
- "alloy-sol-types 1.5.7",
  "anyhow",
- "beefy-verifier-primitives",
+ "async-trait",
+ "clap",
+ "console-subscriber",
+ "divide_range",
+ "env_logger 0.10.2",
  "futures",
  "hex",
  "ismp",
- "ismp-solidity-abi",
- "itertools 0.13.0",
+ "ismp-sync-committee",
+ "itertools 0.12.1",
+ "log",
+ "messaging",
+ "pallet-hyperbridge",
  "pallet-ismp",
- "pallet-state-coprocessor",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-rpc",
  "parity-scale-codec",
- "percentage",
  "polkadot-sdk",
  "primitive-types 0.13.1",
+ "rust_socketio 0.6.0",
+ "serde",
+ "serde_json",
  "sp-core",
+ "subxt 0.42.1",
+ "telemetry-server",
+ "tesseract-config",
+ "tesseract-evm",
+ "tesseract-fisherman",
  "tesseract-primitives",
+ "tesseract-substrate",
  "tokio",
  "tokio-stream",
+ "toml 0.7.8",
  "tracing",
+ "tracing-indicatif",
+ "tracing-subscriber 0.3.22",
  "transaction-fees",
 ]
 
@@ -28545,50 +28589,6 @@ dependencies = [
  "sp-core",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "tesseract-relayer"
-version = "1.7.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "clap",
- "console-subscriber",
- "divide_range",
- "env_logger 0.10.2",
- "futures",
- "hex",
- "ismp",
- "ismp-sync-committee",
- "itertools 0.12.1",
- "log",
- "pallet-hyperbridge",
- "pallet-ismp",
- "pallet-ismp-host-executive",
- "pallet-ismp-rpc",
- "parity-scale-codec",
- "polkadot-sdk",
- "primitive-types 0.13.1",
- "rust_socketio 0.6.0",
- "serde",
- "serde_json",
- "sp-core",
- "subxt 0.42.1",
- "telemetry-server",
- "tesseract-config",
- "tesseract-evm",
- "tesseract-fisherman",
- "tesseract-messaging",
- "tesseract-primitives",
- "tesseract-substrate",
- "tokio",
- "tokio-stream",
- "toml 0.7.8",
- "tracing",
- "tracing-indicatif",
- "tracing-subscriber 0.3.22",
- "transaction-fees",
 ]
 
 [[package]]

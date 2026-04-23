@@ -10,6 +10,7 @@ use ismp::{
 	messaging::{Message, Proof, ResponseMessage},
 	router::{Request, RequestResponse},
 };
+use messaging::inbound;
 use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
 use pallet_ismp_demo as IsmpPalletDemo;
 use pallet_ismp_host_executive::HostParam;
@@ -38,7 +39,6 @@ use subxt_utils::{
 	Extrinsic, Hyperbridge,
 };
 use tesseract::logging::setup as log_setup;
-use tesseract_messaging::inbound;
 use tesseract_primitives::{config::RelayerConfig, IsmpProvider};
 use tesseract_substrate::{
 	config::KeccakSubstrateChain, extrinsic::send_unsigned_extrinsic, SubstrateClient,

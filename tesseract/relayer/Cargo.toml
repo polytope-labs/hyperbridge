@@ -36,7 +36,7 @@ tesseract-config = { workspace = true }
 tesseract-consensus = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-fisherman = { workspace = true }
-tesseract-messaging = { workspace = true }
+messaging = { workspace = true }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }
 transaction-fees = { workspace = true }

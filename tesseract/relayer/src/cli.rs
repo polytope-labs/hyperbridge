@@ -304,8 +304,6 @@ impl Cli {
 			let outbound_relayer_cfg = messaging_config.clone();
 			let outbound_client_map = provider_clients.clone();
 			let outbound_proof_source = proof_source.clone();
-			let span =
-				tracing::info_span!("outbound", hb = %hb.name(), destinations = destinations.len());
 
 			task_manager.spawn_essential_handle().spawn_blocking(
 				Box::leak(Box::new(name)),
@@ -323,7 +321,6 @@ impl Cli {
 					.await;
 					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
 				}
-				.instrument(span)
 				.boxed(),
 			);
 		}

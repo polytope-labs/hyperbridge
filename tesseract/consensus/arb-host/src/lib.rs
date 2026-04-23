@@ -172,20 +172,16 @@ impl ArbHost {
 		// `eth_getStorageAt`.
 		let mut events = Vec::with_capacity(candidates.len());
 		for event in candidates {
-			let parent_key = derive_map_key(
-				event.parentAssertionHash.0.to_vec(),
-				ASSERTIONS_SLOT as u64,
-			);
+			let parent_key =
+				derive_map_key(event.parentAssertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
 			let word = self
 				.beacon_execution_client
-				.get_storage_at(
-					rollup_addr,
-					alloy::primitives::U256::from_be_slice(&parent_key.0),
-				)
+				.get_storage_at(rollup_addr, alloy::primitives::U256::from_be_slice(&parent_key.0))
 				.block_id(to.into())
 				.await?;
-			// AssertionNode slot 0 packs `[padding(16) || secondChildBlock(8) || firstChildBlock(8)]`
-			// (big-endian); secondChildBlock occupies bytes [16..24]. Non-zero = challenged.
+			// AssertionNode slot 0 packs `[padding(16) || secondChildBlock(8) ||
+			// firstChildBlock(8)]` (big-endian); secondChildBlock occupies bytes [16..24].
+			// Non-zero = challenged.
 			const ZERO_U64: [u8; 8] = [0u8; 8];
 			let bytes = word.to_be_bytes::<32>();
 			if &bytes[16..24] != ZERO_U64.as_slice() {
@@ -305,12 +301,7 @@ impl ArbHost {
 			previous_assertion_hash: event.parentAssertionHash.0.into(),
 			sequencer_batch_acc: event.afterInboxBatchAcc.0.into(),
 			storage_proof: storage_proof_entry(0, "assertion hash")?,
-			contract_proof: proof
-				.account_proof
-				.iter()
-				.cloned()
-				.map(|node| node.to_vec())
-				.collect(),
+			contract_proof: proof.account_proof.iter().cloned().map(|node| node.to_vec()).collect(),
 			challenge_proof: storage_proof_entry(1, "parent assertion")?,
 		};
 

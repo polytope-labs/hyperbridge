@@ -72,13 +72,87 @@ use crate::{
 	SubstrateClient,
 };
 
-/// Wire shape returned by the Gargantua node's `ismp_queryProofAcceptedEvents`
-/// RPC — mirrors `pallet_beefy_consensus_proofs::types::ProofAcceptedEvent`
-/// so the field names serialize identically in JSON.
-#[derive(Debug, serde::Deserialize)]
-struct ProofAcceptedRpc {
+/// SCALE-decoded prefix of `pallet_beefy_consensus_proofs::Event::ProofAccepted`'s
+/// field tuple. The trailing `rewarded` balance is intentionally not decoded —
+/// the consumer doesn't need it and skipping it keeps this decoder independent
+/// of the runtime's `Balance` type.
+#[derive(Debug, Decode)]
+struct ProofAcceptedFields {
+	_submitter: AccountId32,
 	height: u64,
 	new_set_id: Option<u64>,
+}
+
+impl<C> SubstrateClient<C>
+where
+	C: subxt::Config + Send + Sync + Clone,
+{
+	/// Scans `frame_system::Events` across parachain blocks `(cursor, tip]` in
+	/// a single `state_queryStorage` call, decodes every
+	/// `pallet_beefy_consensus_proofs::Event::ProofAccepted` found, and
+	/// coalesces them: all mandatory (rotation) proofs are preserved in
+	/// ascending height order, followed by at most one messaging proof (the
+	/// newest in the window). This is the per-window body of
+	/// [`IsmpProvider::proof_accepted_notification`], extracted so tests can
+	/// exercise it against historical ranges without driving the polling loop.
+	pub async fn proof_accepted_in_range(
+		&self,
+		cursor: u64,
+		tip: u64,
+	) -> Result<Vec<ProofAccepted>, anyhow::Error> {
+		use subxt::events::Events;
+
+		let from_hash = self
+			.rpc
+			.chain_get_block_hash(Some(((cursor + 1) as u64).into()))
+			.await?
+			.ok_or_else(|| anyhow!("block {} not found", cursor + 1))?;
+		let to_hash = self
+			.rpc
+			.chain_get_block_hash(Some(tip.into()))
+			.await?
+			.ok_or_else(|| anyhow!("block {tip} not found"))?;
+
+		let events_key = system_events_key();
+		let changes = self
+			.rpc
+			.state_query_storage(vec![&events_key.0[..]], from_hash, Some(to_hash))
+			.await?;
+
+		let metadata = self.client.metadata();
+		let mut mandatory: Vec<ProofAccepted> = Vec::new();
+		let mut latest_messaging: Option<ProofAccepted> = None;
+		for change in changes {
+			let Some(events_data) = change.changes.into_iter().find_map(|(_, data)| data) else {
+				continue;
+			};
+			let events = Events::<C>::decode_from(events_data.0, metadata.clone());
+			for ev in events.iter() {
+				let ev = ev?;
+				if ev.pallet_name() != "BeefyConsensusProofs" ||
+					ev.variant_name() != "ProofAccepted"
+				{
+					continue;
+				}
+				let fields = ProofAcceptedFields::decode(&mut ev.field_bytes())?;
+				let out = ProofAccepted { height: fields.height, new_set_id: fields.new_set_id };
+				if out.new_set_id.is_some() {
+					mandatory.push(out);
+				} else if latest_messaging.as_ref().map_or(true, |cur| out.height > cur.height) {
+					latest_messaging = Some(out);
+				}
+			}
+		}
+
+		// Mandatory first, ascending — emission order must match the on-chain
+		// rotation order for consumers that apply rotations cumulatively. The
+		// coalesced latest messaging proof, if any, goes last.
+		mandatory.sort_by_key(|m| m.height);
+		if let Some(latest) = latest_messaging {
+			mandatory.push(latest);
+		}
+		Ok(mandatory)
+	}
 }
 
 #[async_trait::async_trait]
@@ -688,6 +762,7 @@ where
 
 	async fn proof_accepted_notification(&self) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
 		use futures::StreamExt;
+
 		let client = self.clone();
 		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(64);
 
@@ -701,84 +776,33 @@ where
 			loop {
 				tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 
-				let header = match client.rpc.chain_get_header(None).await {
-					Ok(Some(h)) => h,
-					Ok(None) => continue,
+				let tip = match client.query_finalized_height().await {
+					Ok(h) => h,
 					Err(err) => {
-						log::error!(target: crate::LOG_TARGET, "{state_machine:?} proof_accepted: get_header: {err:?}");
+						log::error!(target: crate::LOG_TARGET, "{state_machine:?} proof_accepted: query_finalized_height: {err:?}");
 						continue;
 					},
 				};
-
-				let tip: u64 = header.number().into();
 				if tip <= cursor {
 					continue;
 				}
 
-				// Server-side range walk: one RPC over (cursor, tip]
-				// replaces the former per-block events fetch + decode loop.
-				let params = rpc_params![
-					BlockNumberOrHash::<H256>::Number((cursor + 1) as u32),
-					BlockNumberOrHash::<H256>::Number(tip as u32)
-				];
-				let response: Result<HashMap<String, Vec<ProofAcceptedRpc>>, _> =
-					client.rpc_client.request("ismp_queryProofAcceptedEvents", params).await;
-
-				match response {
-					Ok(map) => {
-						// Reduce noise: every rotation proof (mandatory — carries an
-						// authority-set transition consumers must apply in order)
-						// is forwarded, but the run of plain messaging proofs in
-						// this window collapses to just the newest one, so
-						// downstream wakes up once per window instead of N times.
-						let mut mandatory: Vec<ProofAccepted> = Vec::new();
-						let mut latest_messaging: Option<ProofAccepted> = None;
-						for events in map.values() {
-							for ev in events {
-								let out =
-									ProofAccepted { height: ev.height, new_set_id: ev.new_set_id };
-								if out.new_set_id.is_some() {
-									mandatory.push(out);
-								} else if latest_messaging
-									.as_ref()
-									.map_or(true, |cur| out.height > cur.height)
-								{
-									latest_messaging = Some(out);
-								}
-							}
-						}
-						// Mandatory first, in ascending height order — the
-						// emission order must match the on-chain rotation order
-						// for consumers that apply rotations cumulatively.
-						mandatory.sort_by_key(|m| m.height);
-
-						let mut sent_ok = true;
-						for m in mandatory {
-							if tx.send(m).await.is_err() {
-								sent_ok = false;
-								break;
-							}
-						}
-						if sent_ok {
-							if let Some(latest) = latest_messaging {
-								if tx.send(latest).await.is_err() {
-									sent_ok = false;
-								}
-							}
-						}
-						if !sent_ok {
-							return;
-						}
-					},
+				let proofs = match client.proof_accepted_in_range(cursor, tip).await {
+					Ok(p) => p,
 					Err(err) => {
 						log::error!(
 							target: crate::LOG_TARGET,
-							"{state_machine:?} proof_accepted: queryProofAcceptedEvents({}, {}): {err:?}",
+							"{state_machine:?} proof_accepted_in_range({}, {tip}): {err:?}",
 							cursor + 1,
-							tip,
 						);
 						continue;
 					},
+				};
+
+				for proof in proofs {
+					if tx.send(proof).await.is_err() {
+						return;
+					}
 				}
 
 				cursor = tip;
@@ -1066,4 +1090,84 @@ fn encode_message(msg: &Message) -> Option<[u8; 32]> {
 			Some(keccak_256(&consensus_message.consensus_proof)),
 		Message::FraudProof(_) | Message::Timeout(_) => None,
 	};
+}
+
+#[cfg(test)]
+mod tests {
+	use ismp::host::StateMachine;
+	use subxt_utils::Hyperbridge;
+	use tesseract_primitives::ProofAccepted;
+
+	use crate::{SubstrateClient, SubstrateConfig};
+
+	/// Drives the per-window body of `proof_accepted_notification` against
+	/// parachain blocks 8753269..=8753274 on live Gargantua and asserts the
+	/// `ProofAccepted { height: 8753260, new_set_id: Some(19044) }` event is
+	/// recovered.
+	///
+	/// Hits a remote RPC — gated with `#[ignore]` so CI skips it. Run with
+	/// `cargo test -p tesseract-substrate -- --ignored proof_accepted_range`.
+	#[tokio::test]
+	#[ignore]
+	async fn proof_accepted_range_gargantua() {
+		const FROM_BLOCK: u64 = 8753269;
+		const TO_BLOCK: u64 = 8753274;
+		const EXPECTED_HEIGHT: u64 = 8753260;
+		const EXPECTED_SET_ID: u64 = 19044;
+
+		let config = SubstrateConfig {
+			state_machine: StateMachine::Kusama(4009),
+			hashing: None,
+			consensus_state_id: None,
+			rpc_ws: "ws://localhost:9944".to_string(),
+			max_rpc_payload_size: None,
+			// Dummy seed — the test never signs or submits anything.
+			signer: "0x0000000000000000000000000000000000000000000000000000000000000001"
+				.to_string(),
+			initial_height: None,
+			max_concurent_queries: None,
+			poll_interval: None,
+			fee_token_decimals: None,
+		};
+
+		let client =
+			SubstrateClient::<Hyperbridge>::new(config).await.expect("connect to gargantua");
+
+		// `proof_accepted_in_range(cursor, tip)` is the exact per-window body
+		// that `proof_accepted_notification` dispatches each poll tick, so
+		// asserting on its output is asserting on the stream's output for that
+		// window.
+		let proofs = client
+			.proof_accepted_in_range(FROM_BLOCK - 1, TO_BLOCK)
+			.await
+			.expect("proof_accepted_in_range ok");
+
+		assert!(
+			proofs.iter().any(|p| p.height == EXPECTED_HEIGHT &&
+				p.new_set_id == Some(EXPECTED_SET_ID)),
+			"expected ProofAccepted(height={EXPECTED_HEIGHT}, new_set_id=Some({EXPECTED_SET_ID})) in blocks {FROM_BLOCK}..={TO_BLOCK}, got: {proofs:?}",
+		);
+
+		// Sanity-check the stream's ordering contract: mandatory (rotation)
+		// proofs come first in ascending height order, and at most one
+		// messaging proof — the newest in the window — trails them.
+		let mandatory_count = proofs.iter().filter(|p| p.new_set_id.is_some()).count();
+		let messaging_count = proofs.iter().filter(|p| p.new_set_id.is_none()).count();
+		assert!(messaging_count <= 1, "messaging proofs should be coalesced to at most one");
+		for pair in proofs[..mandatory_count].windows(2) {
+			assert!(pair[0].height <= pair[1].height, "mandatory proofs out of order");
+		}
+		if messaging_count == 1 {
+			assert!(
+				proofs.last().and_then(|p| p.new_set_id).is_none(),
+				"messaging proof must be the last entry",
+			);
+		}
+	}
+
+	// Compile-time nudge so we notice if ProofAccepted's shape drifts.
+	#[allow(dead_code)]
+	fn _proof_accepted_shape(p: ProofAccepted) -> (u64, Option<u64>) {
+		(p.height, p.new_set_id)
+	}
 }

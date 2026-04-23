@@ -53,12 +53,12 @@ pub fn delegation_target(chain_id: u64) -> anyhow::Result<Address> {
 	} else if chain_id == 100 {
 		"0xd4d594C99f23b1Fb9d65fdd9062854B1A1C5780b"
 	} else {
-		return Err(anyhow!(
-			"no ERC-7821 delegation target is configured for chain id {chain_id}"
-		));
+		return Err(anyhow!("no ERC-7821 delegation target is configured for chain id {chain_id}"));
 	};
 
-	hex_addr.parse::<Address>().map_err(|e| anyhow!("invalid delegation address literal: {e}"))
+	hex_addr
+		.parse::<Address>()
+		.map_err(|e| anyhow!("invalid delegation address literal: {e}"))
 }
 
 /// Check whether `eoa` is already delegated to `target` via EIP-7702 on the chain
@@ -107,11 +107,8 @@ pub async fn ensure_delegated(client: &EvmClient) -> anyhow::Result<()> {
 		.checked_add(1)
 		.ok_or_else(|| anyhow!("nonce overflow while preparing authorization"))?;
 
-	let authorization = Authorization {
-		chain_id: U256::from(chain_id),
-		address: target,
-		nonce: auth_nonce,
-	};
+	let authorization =
+		Authorization { chain_id: U256::from(chain_id), address: target, nonce: auth_nonce };
 
 	let sig_hash: B256 = authorization.signature_hash();
 	let signature = client
@@ -127,8 +124,11 @@ pub async fn ensure_delegated(client: &EvmClient) -> anyhow::Result<()> {
 		.gas_limit(DELEGATION_TX_GAS_FLOOR);
 	tx.authorization_list = Some(vec![signed]);
 
-	let pending =
-		client.signer.send_transaction(tx).await.context("sending delegation tx failed")?;
+	let pending = client
+		.signer
+		.send_transaction(tx)
+		.await
+		.context("sending delegation tx failed")?;
 	let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
 	log::info!("[{chain}] delegation tx submitted: {tx_hash:?}");
 

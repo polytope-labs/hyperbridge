@@ -295,8 +295,7 @@ impl OpHost {
 		// `eth_getProof`, which `fetch_dispute_game_payload` does anyway for payloads we keep).
 		let mut events = Vec::with_capacity(candidates.len());
 		for event in candidates {
-			let Some(config) =
-				game_type_configs.iter().find(|c| c.game_type == event.gameType)
+			let Some(config) = game_type_configs.iter().find(|c| c.game_type == event.gameType)
 			else {
 				continue;
 			};
@@ -305,7 +304,10 @@ impl OpHost {
 				Some(slot) => {
 					let value = self
 						.beacon_execution_client
-						.get_storage_at(event.disputeProxy, alloy::primitives::U256::from_be_slice(slot.as_slice()))
+						.get_storage_at(
+							event.disputeProxy,
+							alloy::primitives::U256::from_be_slice(slot.as_slice()),
+						)
 						.block_id(to.into())
 						.await?;
 					game_is_challenged(&config.kind, value)
@@ -347,8 +349,9 @@ impl OpHost {
 				log::trace!(target: "tesseract", "Skipping dispute game with extraData shorter than 32 bytes ({} bytes)", extra_data.len());
 				continue;
 			}
-			let l2_block_num =
-				alloy::primitives::U256::from_be_slice(&extra_data[..32]).try_into().unwrap_or(u64::MAX);
+			let l2_block_num = alloy::primitives::U256::from_be_slice(&extra_data[..32])
+				.try_into()
+				.unwrap_or(u64::MAX);
 
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
@@ -385,10 +388,7 @@ impl OpHost {
 				.beacon_execution_client
 				.get_proof(
 					factory_addr,
-					vec![
-						B256::from_slice(&dispute_game_key.0),
-						B256::from_slice(&game_impl_key.0),
-					],
+					vec![B256::from_slice(&dispute_game_key.0), B256::from_slice(&game_impl_key.0)],
 				)
 				.block_id(at.into())
 				.await?;

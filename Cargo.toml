@@ -79,8 +79,6 @@ members = [
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-fees",
     "modules/pallets/beefy-consensus-proofs",
-    "modules/pallets/beefy-consensus-proofs/runtime-api",
-    "modules/pallets/beefy-consensus-proofs/rpc",
 
     # evm stuff
     # "evm/integration-tests",
@@ -326,8 +324,6 @@ pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default
 pallet-consensus-incentives = { path = "modules/pallets/consensus-incentives", default-features = false }
 pallet-messaging-fees= { path = "modules/pallets/messaging-fees", default-features = false }
 pallet-beefy-consensus-proofs = { path = "modules/pallets/beefy-consensus-proofs", default-features = false }
-pallet-beefy-consensus-proofs-runtime-api = { path = "modules/pallets/beefy-consensus-proofs/runtime-api", default-features = false }
-pallet-beefy-consensus-proofs-rpc = { path = "modules/pallets/beefy-consensus-proofs/rpc", default-features = false }
 pallet-collator-manager = { path = "modules/pallets/collator-manager", default-features = false }
 pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
@@ -360,7 +356,7 @@ tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
-tesseract-messaging = { path = "tesseract/messaging/relayer" }
+tesseract-relayer = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -379,6 +375,7 @@ tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
+tesseract = { path = "tesseract/relayer" }
 
 
 [workspace.dependencies.codec]

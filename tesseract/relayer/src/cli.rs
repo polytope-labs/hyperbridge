@@ -129,7 +129,7 @@ impl Cli {
 		// The prover lives in a separate binary; this relayer only consumes its
 		// output (accepted consensus proofs in the pallet's offchain storage).
 		let hyperbridge_substrate =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let coprocessor = hyperbridge_provider.state_machine_id().state_id;
 		let hb_rpc_client = hyperbridge_substrate.rpc_client.clone();
@@ -173,8 +173,20 @@ impl Cli {
 		let messaging_config: tesseract_primitives::config::RelayerConfig = relayer.clone().into();
 		let fees_disabled = messaging_config.disable_fee_accumulation.unwrap_or_default();
 
-		// Inbound consensus — only for chains whose config includes `[<chain>.consensus]`.
+		// Hyperbridge's own consensus host (if `[hyperbridge.consensus]` is
+		// set) gets pulled out of the map first — we don't want it to appear
+		// in the chain→hyperbridge loop (that would submit HB proofs to HB
+		// itself) and we need it separately to fan out HB→substrate
+		// counterparty tasks below.
+		let hb_state_machine = hyperbridge_provider.state_machine_id().state_id;
+		let hb_consensus_host = consensus_hosts.get(&hb_state_machine).cloned();
+
+		// Inbound consensus — chain → hyperbridge. One task per chain with a
+		// `[<chain>.consensus]` sub-table, excluding hyperbridge itself.
 		for (state_machine, host) in &consensus_hosts {
+			if *state_machine == hb_state_machine {
+				continue;
+			}
 			let hb = hyperbridge_provider.clone();
 			let name = format!("inbound-consensus-{}-{}", host.provider().name(), hb.name());
 			let host = host.clone();
@@ -197,7 +209,48 @@ impl Cli {
 			);
 
 			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "initialized consensus task");
+		}
 
+		// Hyperbridge → substrate counterparty consensus. When
+		// `[hyperbridge.consensus]` is configured, spawn one task per
+		// substrate counterparty that ships hyperbridge's own consensus
+		// proofs (e.g. parachain headers) to that counterparty. EVM
+		// counterparties are skipped — their hyperbridge consensus path runs
+		// via the BEEFY consensus proofs pipeline, not this one.
+		if let Some(hb_host) = hb_consensus_host {
+			for (state_machine, provider) in &providers {
+				if *state_machine == hb_state_machine || !state_machine.is_substrate() {
+					continue;
+				}
+				let host = hb_host.clone();
+				let counterparty = provider.clone();
+				let name = format!(
+					"outbound-consensus-{}-{}",
+					hb_host.provider().name(),
+					counterparty.name(),
+				);
+				let span = tracing::info_span!(
+					"outbound_consensus",
+					hb = %hb_host.provider().name(),
+					chain = %counterparty.name(),
+				);
+				task_manager.spawn_essential_handle().spawn_blocking(
+					Box::leak(Box::new(name)),
+					"consensus",
+					async move {
+						tracing::trace!(target: crate::LOG_TARGET, "task started");
+						let res = host.start_consensus(counterparty).await;
+						tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
+					}
+					.instrument(span)
+					.boxed(),
+				);
+				tracing::trace!(
+					target: crate::LOG_TARGET,
+					%state_machine,
+					"initialized hyperbridge->substrate consensus task",
+				);
+			}
 		}
 
 		// Inbound messaging — every chain in `[chains.*]` gets an inbound
@@ -208,7 +261,7 @@ impl Cli {
 		let fisherman_enabled = relayer.fisherman.unwrap_or(false);
 		for (state_machine, provider) in &providers {
 			let mut hb_for_messaging =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
 
 			messaging::inbound(
@@ -230,7 +283,7 @@ impl Cli {
 			// only spawned for chains with a signer configured.
 			if fisherman_enabled {
 				let hb_for_fisherman: Arc<dyn IsmpProvider> = Arc::new(
-					SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone())
+					SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
 						.await?,
 				);
 				tesseract_fisherman::fish(
@@ -274,7 +327,7 @@ impl Cli {
 					let name =
 						format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
 					let hb_for_fees =
-						SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone())
+						SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
 							.await?;
 					let dest = provider.clone();
 					let client_map = provider_clients.clone();
@@ -310,6 +363,7 @@ impl Cli {
 			let outbound_relayer_cfg = messaging_config.clone();
 			let outbound_client_map = provider_clients.clone();
 			let outbound_proof_source = proof_source.clone();
+			let destinations_len = destinations.len();
 
 			task_manager.spawn_essential_handle().spawn_blocking(
 				Box::leak(Box::new(name)),
@@ -330,7 +384,7 @@ impl Cli {
 				.boxed(),
 			);
 
-			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "initialized outbound messaging task");
+			tracing::trace!(target: crate::LOG_TARGET, destinations = destinations_len, "initialized outbound messaging task");
 		}
 
 		// Fee withdrawal: one global task, periodic per
@@ -341,7 +395,7 @@ impl Cli {
 		// a signer there. Skip chains without one.
 		{
 			let hb_for_withdraw =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
 			let withdraw_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = config
 				.chains
 				.iter()
@@ -428,7 +482,7 @@ impl Cli {
 				.context("Error initializing fee database")?,
 		);
 		let hyperbridge_substrate =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let proof_source: Arc<dyn ConsensusProofSource> =
 			Arc::new(OffchainProofSource::new(hyperbridge_substrate.rpc_client.clone()));

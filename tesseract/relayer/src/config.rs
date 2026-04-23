@@ -130,12 +130,33 @@ impl PerChainConfig {
 
 #[derive(Debug)]
 pub struct HyperbridgeConfig {
+	/// Hyperbridge's own substrate host config, optionally paired with a
+	/// consensus sub-config when the operator wants this relayer to ship
+	/// hyperbridge's own consensus updates (e.g. parachain proofs) to the
+	/// counterparty chains it talks to.
+	pub hyperbridge: HyperbridgeSection,
+	pub chains: HashMap<StateMachine, PerChainConfig>,
+	pub relayer: RelayerConfig,
+}
+
+/// Grouping of hyperbridge's substrate config and an optional consensus
+/// pairing. Shaped like [`PerChainConfig`] but carries a plain
+/// [`SubstrateConfig`] rather than the messaging-agnostic `AnyConfig`, since
+/// hyperbridge is always substrate-native.
+///
+/// TOML surface: the `[hyperbridge]` table holds the substrate fields
+/// directly; an optional `[hyperbridge.consensus]` sub-table carries a
+/// [`ConsensusConfig`] (just like `[<chain>.consensus]` does for peers).
+#[derive(Debug, Clone)]
+pub struct HyperbridgeSection {
 	/// Essentials only — substrate RPC + signer. The BEEFY prover/host is a
 	/// separate binary that pushes accepted proofs into pallet storage; this
 	/// relayer just consumes them via `offchain_localStorageGet`.
-	pub hyperbridge: SubstrateConfig,
-	pub chains: HashMap<StateMachine, PerChainConfig>,
-	pub relayer: RelayerConfig,
+	pub substrate: SubstrateConfig,
+	/// Optional inbound-consensus config for hyperbridge itself — e.g. a
+	/// `parachain` variant that ships hyperbridge's own parachain-header
+	/// proofs to other chains.
+	pub consensus: Option<ConsensusConfig>,
 }
 
 const HYPERBRIDGE: &str = "hyperbridge";
@@ -153,8 +174,9 @@ impl HyperbridgeConfig {
 			return Err(anyhow!("Missing [hyperbridge] or [relayer] section in config"));
 		}
 
-		let hyperbridge: SubstrateConfig =
-			table.get(HYPERBRIDGE).cloned().expect("checked above").try_into()?;
+		let hyperbridge = parse_hyperbridge_section(
+			table.get(HYPERBRIDGE).cloned().expect("checked above"),
+		)?;
 
 		let relayer: RelayerConfig =
 			table.get(RELAYER).cloned().expect("checked above").try_into()?;
@@ -177,9 +199,10 @@ impl HyperbridgeConfig {
 		Ok(Self { hyperbridge, chains, relayer })
 	}
 
-	/// Build the consensus relayer's per-chain pairings for the subset of
-	/// chains that opted into inbound consensus via `[<chain>.consensus]`.
-	/// Each pairing extracts the host config (EVM or substrate) from the
+	/// Build the consensus relayer's per-chain pairings for every chain (and
+	/// hyperbridge itself) that opted into inbound consensus via a
+	/// `[<chain>.consensus]` / `[hyperbridge.consensus]` sub-table. Each
+	/// pairing extracts the host config (EVM or substrate) from the
 	/// messaging side since consensus variants no longer embed it.
 	pub fn consensus_chains(
 		&self,
@@ -190,7 +213,11 @@ impl HyperbridgeConfig {
 		use tesseract_config::AnyConfig as Msg;
 		use tesseract_consensus_config::HostKind;
 
-		self.chains
+		let mut out: HashMap<
+			StateMachine,
+			(tesseract_consensus_config::AnyConfig, tesseract_consensus_config::HostKind),
+		> = self
+			.chains
 			.iter()
 			.filter_map(|(sm, pc)| {
 				let consensus = pc.consensus.clone()?;
@@ -204,7 +231,20 @@ impl HyperbridgeConfig {
 				};
 				Some((*sm, (consensus, host)))
 			})
-			.collect()
+			.collect();
+
+		// Hyperbridge itself — include it only if the operator supplied a
+		// consensus sub-table under `[hyperbridge.consensus]`. Hyperbridge is
+		// always substrate-native so the host kind is unconditionally
+		// `HostKind::Substrate`.
+		if let Some(consensus) = self.hyperbridge.consensus.clone() {
+			out.insert(
+				self.hyperbridge.substrate.state_machine,
+				(consensus, HostKind::Substrate(self.hyperbridge.substrate.clone())),
+			);
+		}
+
+		out
 	}
 }
 
@@ -250,6 +290,42 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 	};
 
 	Ok(PerChainConfig { messaging, consensus })
+}
+
+/// Parse the top-level `[hyperbridge]` TOML section into a
+/// [`HyperbridgeSection`]. Mirrors [`parse_chain`]: strips any
+/// `[hyperbridge.consensus]` sub-table before deserialising the remaining
+/// fields as a [`SubstrateConfig`].
+fn parse_hyperbridge_section(raw: Value) -> Result<HyperbridgeSection, anyhow::Error> {
+	let Value::Table(mut table) = raw else {
+		return Err(anyhow!(
+			"[hyperbridge] must be a table, got {}",
+			raw.type_str(),
+		));
+	};
+	let consensus_value = table.remove(CONSENSUS);
+
+	let substrate: SubstrateConfig = Value::Table(table)
+		.try_into()
+		.with_context(|| "failed to parse [hyperbridge] substrate fields")?;
+
+	let consensus = match consensus_value {
+		None => None,
+		Some(Value::Table(cons_table)) => {
+			let cfg: ConsensusConfig = Value::Table(cons_table)
+				.try_into()
+				.with_context(|| "failed to parse [hyperbridge.consensus] sub-table")?;
+			Some(cfg)
+		},
+		Some(other) => {
+			return Err(anyhow!(
+				"[hyperbridge.consensus] must be a table, got {}",
+				other.type_str(),
+			));
+		},
+	};
+
+	Ok(HyperbridgeSection { substrate, consensus })
 }
 
 /// Fills in fields the user omitted, using the chain's own RPC as the source

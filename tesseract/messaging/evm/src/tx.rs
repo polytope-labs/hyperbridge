@@ -414,9 +414,16 @@ pub async fn submit_batch_messages(
 	let nonce = client.signer.get_transaction_count(from).await?;
 	let tx = tx_request.nonce(nonce).transaction_type(0);
 
+	// Consensus updates and application messages share the batch — count the
+	// latter separately so logs make it obvious when a tx is carrying real
+	// work vs. just advancing the light client.
+	let non_consensus_msgs =
+		messages.iter().filter(|m| !matches!(m, Message::Consensus(_))).count();
+
 	tracing::info!(
 		target: crate::LOG_TARGET, chain = ?client.state_machine,
 		msgs = messages.len(),
+		non_consensus_msgs,
 		calldata_bytes = calldata_len,
 		gas_estimate = gas,
 		nonce,

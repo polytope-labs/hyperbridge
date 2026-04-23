@@ -30,37 +30,85 @@ use zk_beefy;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-/// Various chain configurations supported by consensus task
+/// Various chain configurations supported by consensus task.
+///
+/// Every variant is a struct variant with a single `#[serde(flatten)] inner`
+/// field. Flattening keeps the TOML surface identical to the old tuple
+/// shape — a `[<chain>.consensus]` table contains `type = "..."` plus the
+/// inner config's fields at the same level, no extra nesting under
+/// `inner = { ... }`.
 pub enum AnyConfig {
 	/// Ethereum Sepolia sync committee config
-	Sepolia(SyncCommitteeConfig),
+	Sepolia {
+		#[serde(flatten)]
+		inner: SyncCommitteeConfig,
+	},
 	/// Ethereum Mainnet sync committee config
-	Ethereum(SyncCommitteeConfig),
+	Ethereum {
+		#[serde(flatten)]
+		inner: SyncCommitteeConfig,
+	},
 	/// Any Arbitrum orbit chain config
-	ArbitrumOrbit(ArbConfig),
+	ArbitrumOrbit {
+		#[serde(flatten)]
+		inner: ArbConfig,
+	},
 	/// Any Opstack chain config
-	OpStack(OpConfig),
+	OpStack {
+		#[serde(flatten)]
+		inner: OpConfig,
+	},
 	/// Bsc testnet chain config
-	BscTestnet(BscPosConfig),
+	BscTestnet {
+		#[serde(flatten)]
+		inner: BscPosConfig,
+	},
 	/// Bsc mainnet chain config
-	Bsc(BscPosConfig),
+	Bsc {
+		#[serde(flatten)]
+		inner: BscPosConfig,
+	},
 	/// Gnosis Chiado testnet sync committee config
-	Chiado(SyncCommitteeConfig),
+	Chiado {
+		#[serde(flatten)]
+		inner: SyncCommitteeConfig,
+	},
 	/// Gnosis Mainnet sync committee config
-	Gnosis(SyncCommitteeConfig),
+	Gnosis {
+		#[serde(flatten)]
+		inner: SyncCommitteeConfig,
+	},
 	/// Grandpa committee config
-	Grandpa(GrandpaConfig),
+	Grandpa {
+		#[serde(flatten)]
+		inner: GrandpaConfig,
+	},
 	/// Parachain consensus config — relayed from one parachain (self) to another
 	/// parachain counterparty via relay-chain storage proofs.
-	Parachain(ParachainConfig),
+	Parachain {
+		#[serde(flatten)]
+		inner: ParachainConfig,
+	},
 	/// Polygon POS chain config
-	Polygon(PolygonPosConfig),
+	Polygon {
+		#[serde(flatten)]
+		inner: PolygonPosConfig,
+	},
 	/// Tendermint Config
-	Tendermint(TendermintConfig),
+	Tendermint {
+		#[serde(flatten)]
+		inner: TendermintConfig,
+	},
 	/// EVM Host chain config
-	EvmHost(EvmHostConfig),
+	EvmHost {
+		#[serde(flatten)]
+		inner: EvmHostConfig,
+	},
 	/// Pharos chain config
-	Pharos(PharosConfig),
+	Pharos {
+		#[serde(flatten)]
+		inner: PharosConfig,
+	},
 }
 
 pub enum AnyHost<R: subxt::Config, P: subxt::Config> {
@@ -260,11 +308,11 @@ fn extract_l2_configs(
 	{
 		let HostKind::Evm(evm) = host else { continue };
 		match config {
-			AnyConfig::ArbitrumOrbit(arb) => {
-				map.insert(state_machine, L2Config::ArbitrumOrbit(arb, evm));
+			AnyConfig::ArbitrumOrbit { inner } => {
+				map.insert(state_machine, L2Config::ArbitrumOrbit(inner, evm));
 			},
-			AnyConfig::OpStack(op) => {
-				map.insert(state_machine, L2Config::OpStack(op, evm));
+			AnyConfig::OpStack { inner } => {
+				map.insert(state_machine, L2Config::OpStack(inner, evm));
 			},
 			_ => {},
 		}
@@ -290,61 +338,62 @@ pub async fn create_client_map(
 
 	for (state_machine, (config, host)) in chains {
 		let client = match (config, host) {
-			(AnyConfig::Sepolia(config), HostKind::Evm(evm)) => {
+			(AnyConfig::Sepolia { inner }, HostKind::Evm(evm)) => {
 				let l2_configs = extract_l2_configs(
-					config.layer_twos.clone().unwrap_or_default(),
+					inner.layer_twos.clone().unwrap_or_default(),
 					l2_source.clone(),
 				);
-				config.into_sepolia(evm, l2_configs).await?
+				inner.into_sepolia(evm, l2_configs).await?
 			},
-			(AnyConfig::Ethereum(config), HostKind::Evm(evm)) => {
+			(AnyConfig::Ethereum { inner }, HostKind::Evm(evm)) => {
 				let l2_configs = extract_l2_configs(
-					config.layer_twos.clone().unwrap_or_default(),
+					inner.layer_twos.clone().unwrap_or_default(),
 					l2_source.clone(),
 				);
-				config.into_mainnet(evm, l2_configs).await?
+				inner.into_mainnet(evm, l2_configs).await?
 			},
-			(AnyConfig::ArbitrumOrbit(config), HostKind::Evm(evm)) =>
-				config.into_client(evm).await?,
-			(AnyConfig::OpStack(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
-			(AnyConfig::BscTestnet(config), HostKind::Evm(evm)) =>
-				config.into_client::<tesseract_bsc::Testnet>(evm).await?,
-			(AnyConfig::Bsc(config), HostKind::Evm(evm)) =>
-				config.into_client::<tesseract_bsc::Mainnet>(evm).await?,
-			(AnyConfig::Chiado(config), HostKind::Evm(evm)) => config.into_chiado(evm).await?,
-			(AnyConfig::Gnosis(config), HostKind::Evm(evm)) => config.into_gnosis(evm).await?,
-			(AnyConfig::Polygon(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
-			(AnyConfig::Tendermint(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
-			(AnyConfig::EvmHost(config), HostKind::Evm(evm)) => config.into_client(evm).await?,
-			(AnyConfig::Pharos(config), HostKind::Evm(evm)) => match evm.state_machine {
+			(AnyConfig::ArbitrumOrbit { inner }, HostKind::Evm(evm)) =>
+				inner.into_client(evm).await?,
+			(AnyConfig::OpStack { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
+			(AnyConfig::BscTestnet { inner }, HostKind::Evm(evm)) =>
+				inner.into_client::<tesseract_bsc::Testnet>(evm).await?,
+			(AnyConfig::Bsc { inner }, HostKind::Evm(evm)) =>
+				inner.into_client::<tesseract_bsc::Mainnet>(evm).await?,
+			(AnyConfig::Chiado { inner }, HostKind::Evm(evm)) => inner.into_chiado(evm).await?,
+			(AnyConfig::Gnosis { inner }, HostKind::Evm(evm)) => inner.into_gnosis(evm).await?,
+			(AnyConfig::Polygon { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
+			(AnyConfig::Tendermint { inner }, HostKind::Evm(evm)) =>
+				inner.into_client(evm).await?,
+			(AnyConfig::EvmHost { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
+			(AnyConfig::Pharos { inner }, HostKind::Evm(evm)) => match evm.state_machine {
 				StateMachine::Evm(688689) =>
-					config.into_client::<pharos_primitives::Testnet>(evm).await?,
-				_ => config.into_client::<pharos_primitives::Mainnet>(evm).await?,
+					inner.into_client::<pharos_primitives::Testnet>(evm).await?,
+				_ => inner.into_client::<pharos_primitives::Mainnet>(evm).await?,
 			},
-			(AnyConfig::Grandpa(config), HostKind::Substrate(substrate)) => {
+			(AnyConfig::Grandpa { inner }, HostKind::Substrate(substrate)) => {
 				match substrate.hashing {
 					Some(HashAlgorithm::Keccak) =>
-						config
+						inner
 							.into_client::<Blake2SubstrateChain, KeccakSubstrateChain>(substrate)
 							.await?,
 					_ =>
-						config
+						inner
 							.into_client::<Blake2SubstrateChain, Blake2SubstrateChain>(substrate)
 							.await?,
 				}
 			},
-			(AnyConfig::Parachain(config), HostKind::Substrate(substrate)) => {
+			(AnyConfig::Parachain { inner }, HostKind::Substrate(substrate)) => {
 				// S is the parachain's own subxt config (hasher chosen by its
 				// `hashing` setting); R is the relay chain subxt config — always
 				// `Blake2SubstrateChain` since Polkadot/Kusama/Paseo all use
 				// BlakeTwo256.
 				match substrate.hashing {
 					Some(HashAlgorithm::Keccak) =>
-						config
+						inner
 							.into_client::<KeccakSubstrateChain, Blake2SubstrateChain>(substrate)
 							.await?,
 					_ =>
-						config
+						inner
 							.into_client::<Blake2SubstrateChain, Blake2SubstrateChain>(substrate)
 							.await?,
 				}

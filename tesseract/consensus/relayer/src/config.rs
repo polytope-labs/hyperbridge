@@ -96,7 +96,7 @@ impl HyperbridgeConfig {
 				let state_machine: StateMachine;
 				let host: HostKind;
 
-				if matches!(any_conf, AnyConfig::Grandpa(_)) {
+				if matches!(any_conf, AnyConfig::Grandpa { .. }) {
 					// Grandpa expects `[<chain>.substrate] { ... }`.
 					let sub_val =
 						val.as_table().and_then(|t| t.get("substrate")).cloned().ok_or_else(

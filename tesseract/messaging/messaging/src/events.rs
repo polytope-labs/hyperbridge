@@ -78,9 +78,19 @@ impl From<IsmpEvent> for Event {
 
 /// Translates events emitted from [`source`] into messages to be submitted to the counterparty
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
-/// the counterparty chain
+/// the counterparty chain.
+///
+/// `consensus_prelude` is the source-side consensus update that will land in
+/// the same batch as these messages (the outbound fan-out passes the
+/// `Message::Consensus` it built from the current `ProofAccepted` event).
+/// When present, it's passed through to gas estimation so each per-message
+/// estimate reflects the post-update state — without it, EVM sinks would
+/// simulate messages against the pre-update state commitment and either
+/// misestimate or fail the success check. Callers that don't submit a
+/// consensus message alongside (inbound pipeline) pass `None`.
+///
 /// Returns a tuple where the first item are messages to be submitted to the sink
-/// and the second tuple are currently unprofitable messages
+/// and the second tuple are currently unprofitable messages.
 pub async fn translate_events_to_messages(
 	source: Arc<dyn IsmpProvider>,
 	sink: Arc<dyn IsmpProvider>,
@@ -89,6 +99,7 @@ pub async fn translate_events_to_messages(
 	config: RelayerConfig,
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	consensus_prelude: Option<Message>,
 ) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
 	let mut post_request_queries = vec![];
 	let mut response_queries = vec![];
@@ -263,6 +274,7 @@ pub async fn translate_events_to_messages(
 			coprocessor,
 			&client_map,
 			config.deliver_failed.unwrap_or_default(),
+			consensus_prelude.clone(),
 		)
 		.await?;
 
@@ -296,6 +308,7 @@ pub async fn translate_events_to_messages(
 			coprocessor,
 			&client_map,
 			config.deliver_failed.unwrap_or_default(),
+			consensus_prelude.clone(),
 		)
 		.await?;
 
@@ -430,6 +443,7 @@ pub async fn return_successful_queries(
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	deliver_failed: bool,
+	consensus_prelude: Option<Message>,
 ) -> Result<ProfitabilityResult, anyhow::Error> {
 	if messages.is_empty() {
 		return Ok(Default::default());
@@ -437,7 +451,11 @@ pub async fn return_successful_queries(
 
 	let mut queries_to_be_relayed = Vec::new();
 	let mut retriable_messages = Vec::new();
-	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
+	// Estimate each message together with the consensus update it rides in
+	// with; EVM sinks use `batchCall([prelude, msg])` so the simulation sees
+	// the post-update state commitment.
+	let gas_estimates =
+		sink.estimate_gas_batched(consensus_prelude, messages.clone()).await?;
 
 	// We'll be querying from possibly multiple chains, Let's use the lowest tracing batch size
 	// from all clients(except the coprocessor) and use that as the max concurrency

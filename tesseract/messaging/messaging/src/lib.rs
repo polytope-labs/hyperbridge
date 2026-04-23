@@ -347,6 +347,9 @@ async fn handle_update(
 		config.clone(),
 		coprocessor,
 		&client_map,
+		// Inbound pipeline doesn't batch a consensus message alongside — the
+		// dest's light client is advanced by a separate consensus task.
+		None,
 	)
 	.await?;
 

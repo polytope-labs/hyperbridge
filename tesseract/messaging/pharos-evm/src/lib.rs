@@ -315,6 +315,14 @@ impl IsmpProvider for PharosEvmClient {
 		self.evm.estimate_gas(msg).await
 	}
 
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		self.evm.estimate_gas_batched(prelude, msgs).await
+	}
+
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		self.evm.query_request_fee_metadata(hash).await
 	}

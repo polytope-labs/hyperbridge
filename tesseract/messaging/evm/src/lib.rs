@@ -213,10 +213,6 @@ pub struct EvmClient {
 	>,
 	/// Tx submission pipeline
 	queue: Option<Arc<PipelineQueue<Vec<Message>, anyhow::Result<TxResult>>>>,
-	/// Cached result of the ERC-165 probe for `IHandlerV2` support on this
-	/// chain's handler contract. Probed once on first use, then reused so
-	/// every outbound batch doesn't incur an extra `supportsInterface` RPC.
-	supports_batch: Arc<tokio::sync::OnceCell<bool>>,
 }
 
 impl EvmClient {
@@ -330,7 +326,6 @@ impl EvmClient {
 			private_key_signer,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
 			queue: None,
-			supports_batch: Arc::new(tokio::sync::OnceCell::new()),
 		};
 
 		let partial_client_clone = partial_client.clone();
@@ -547,7 +542,6 @@ impl Clone for EvmClient {
 			private_key_signer: self.private_key_signer.clone(),
 			state_machine_update_sender: self.state_machine_update_sender.clone(),
 			queue: self.queue.clone(),
-			supports_batch: self.supports_batch.clone(),
 		}
 	}
 }

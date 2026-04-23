@@ -366,6 +366,27 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error>;
 
+	/// Estimate gas for a list of messages where each non-consensus entry is
+	/// simulated *together with* the supplied consensus prelude in the same
+	/// batch call. Used by the outbound fan-out so per-message estimates
+	/// reflect the light-client update that lands alongside them in the same
+	/// tx — on EVM chains that's materially different from estimating the
+	/// message against the pre-update state, because the state commitment
+	/// the verifier reads is only written by the consensus call.
+	///
+	/// The default implementation ignores `prelude` and delegates to
+	/// [`estimate_gas`] — substrate-family providers submit consensus and
+	/// messages as separate pallet extrinsics rather than a batched call, so
+	/// standalone estimation is already accurate there.
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
+		let _ = prelude;
+		self.estimate_gas(msgs).await
+	}
+
 	/// Should return fee relayer would be recieving to relay a request mesage giving a hash
 	/// (message commiment)
 	/// Should return Erc20 standard type with 18 decimals value

@@ -18,7 +18,7 @@
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::{
-	consensus::StateMachineHeight,
+	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	messaging::{hash_request, ConsensusMessage, Message, Proof, RequestMessage},
 	router::Request,
@@ -170,6 +170,24 @@ pub async fn withdraw_once<C>(
 		.await;
 }
 
+/// Dispatch the withdrawal delivery along the path that matches the
+/// destination family:
+///
+/// - **EVM destinations** get the "bundle a BEEFY consensus proof alongside
+///   the request" path ([`deliver_post_request_evm`]): waits for HB to emit
+///   a `ProofAccepted` at or above `max_block`, fetches the accepted proof,
+///   builds a `ConsensusMessage` + `RequestMessage` batch, and submits both
+///   in one tx so destinations that haven't yet seen this HB height can
+///   verify both atomically. Every `hyperbridge.state_machine_id()` call on
+///   this path has its `consensus_state_id` swapped for
+///   [`BEEFY_CONSENSUS_STATE_ID`] — EVM hosts track the BEEFY client, not
+///   the parachain one.
+/// - **Non-EVM (substrate) destinations** go through
+///   [`deliver_post_request_substrate`]: they don't need the consensus
+///   bundle because an independent consensus task advances their light
+///   client; we just wait for the destination's own
+///   `StateMachineUpdated` to cross `max_block`, then submit the request
+///   alone.
 #[instrument(
 	name = "deliver_post_request",
 	skip_all,
@@ -181,18 +199,42 @@ async fn deliver_post_request<D: IsmpProvider>(
 	proof_source: &Arc<dyn ConsensusProofSource>,
 	results: Vec<WithdrawFundsResult>,
 ) -> anyhow::Result<()> {
+	if matches!(dest_chain.state_machine_id().state_id, StateMachine::Evm(_)) {
+		deliver_post_request_evm(dest_chain, hyperbridge, proof_source, results).await
+	} else {
+		deliver_post_request_substrate(dest_chain, hyperbridge, results).await
+	}
+}
+
+/// EVM-destination delivery: bundle the BEEFY consensus proof + request in
+/// one submission. Every reference to Hyperbridge's state machine id uses
+/// [`BEEFY_CONSENSUS_STATE_ID`] as the consensus id — the EVM host verifies
+/// against the BEEFY light client, not the parachain one that HB's own
+/// `state_machine_id()` returns.
+async fn deliver_post_request_evm<D: IsmpProvider>(
+	dest_chain: Arc<dyn IsmpProvider>,
+	hyperbridge: &D,
+	proof_source: &Arc<dyn ConsensusProofSource>,
+	results: Vec<WithdrawFundsResult>,
+) -> anyhow::Result<()> {
 	if results.is_empty() {
 		return Ok(());
 	}
 	let max_block =
 		results.iter().map(|r| r.block).max().expect("results non-empty, checked above");
 
+	// Same state-id as `hyperbridge.state_machine_id()` but with the
+	// consensus id retargeted at the destination's BEEFY client.
+	let hb_state_machine_id = StateMachineId {
+		state_id: hyperbridge.state_machine_id().state_id,
+		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
+	};
+
 	// Wait for HB's own ProofAccepted to reach max_block — that's the signal
 	// that an accepted proof exists in offchain storage that we can bundle
 	// alongside the request message below, advancing the destination's view
 	// of HB high enough to verify the request proof in the same tx.
-	let mut latest_height =
-		hyperbridge.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
+	let mut latest_height = hyperbridge.query_latest_height(hb_state_machine_id).await? as u64;
 
 	if max_block > latest_height {
 		tracing::info!(target: crate::LOG_TARGET, target_height = max_block, "waiting for proof accepted");
@@ -243,10 +285,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 	let request_msg = RequestMessage {
 		requests,
 		proof: Proof {
-			height: StateMachineHeight {
-				id: hyperbridge.state_machine_id(),
-				height: latest_height,
-			},
+			height: StateMachineHeight { id: hb_state_machine_id, height: latest_height },
 			proof,
 		},
 		signer: dest_chain.address(),
@@ -256,10 +295,119 @@ async fn deliver_post_request<D: IsmpProvider>(
 
 	let mut count = 5;
 	while count != 0 {
-		if let Err(err) =
-			dest_chain.submit(batch.clone(), hyperbridge.state_machine_id().state_id).await
-		{
+		if let Err(err) = dest_chain.submit(batch.clone(), hb_state_machine_id.state_id).await {
 			tracing::info!(target: crate::LOG_TARGET, ?err, retries_left = count, "withdrawal submit failed; retrying");
+			count -= 1;
+		} else {
+			tracing::info!(target: crate::LOG_TARGET, "withdrawal delivered");
+			return Ok(());
+		}
+	}
+
+	Err(anyhow!("Failed to deliver post request"))
+}
+
+/// Substrate-destination delivery: no consensus bundle needed — an
+/// independent consensus task already advances the destination's
+/// hyperbridge light client. We wait for the destination's own
+/// `StateMachineUpdated` for HB to cross `max_block`, then submit the
+/// request message standalone.
+///
+/// Ported from the legacy `tesseract/messaging/relayer/src/fees.rs` path.
+async fn deliver_post_request_substrate<D: IsmpProvider>(
+	dest_chain: Arc<dyn IsmpProvider>,
+	hyperbridge: &D,
+	results: Vec<WithdrawFundsResult>,
+) -> anyhow::Result<()> {
+	if results.is_empty() {
+		return Ok(());
+	}
+	let max_block = results
+		.iter()
+		.map(|r| r.block)
+		.max()
+		.expect("results non-empty, checked above");
+
+	let mut latest_height =
+		dest_chain.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
+
+	if max_block > latest_height {
+		tracing::info!(
+			target: crate::LOG_TARGET,
+			target_height = max_block,
+			"waiting for state machine update finalizing withdraw height",
+		);
+		let mut stream =
+			dest_chain.state_machine_update_notification(hyperbridge.state_machine_id()).await?;
+
+		latest_height = loop {
+			match stream.next().await {
+				Some(Ok(event)) =>
+					if event.latest_height < max_block {
+						continue;
+					} else {
+						tracing::trace!(
+							target: crate::LOG_TARGET,
+							height = event.latest_height,
+							"found state machine update",
+						);
+						break event.latest_height;
+					},
+				Some(Err(_)) => {
+					tracing::error!(
+						target: crate::LOG_TARGET,
+						chain = %dest_chain.name(),
+						"state machine update stream error; retrying",
+					);
+				},
+				None => return Err(anyhow!("state machine update stream ended")),
+			}
+		};
+	}
+
+	let queries = results
+		.iter()
+		.map(|result| Query {
+			source_chain: result.post.source,
+			dest_chain: result.post.dest,
+			nonce: result.post.nonce,
+			commitment: hash_request::<Hasher>(&Request::Post(result.post.clone())),
+		})
+		.collect::<Vec<_>>();
+
+	let requests = results.iter().map(|r| r.post.clone()).collect::<Vec<_>>();
+	tracing::info!(
+		target: crate::LOG_TARGET,
+		height = latest_height,
+		"querying request proof from hyperbridge",
+	);
+	let proof = hyperbridge
+		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
+		.await?;
+	let msg = RequestMessage {
+		requests,
+		proof: Proof {
+			height: StateMachineHeight {
+				id: hyperbridge.state_machine_id(),
+				height: latest_height,
+			},
+			proof,
+		},
+		signer: dest_chain.address(),
+	};
+
+	let mut count = 5;
+	while count != 0 {
+		if let Err(err) = dest_chain
+			.submit(vec![Message::Request(msg.clone())], hyperbridge.state_machine_id().state_id)
+			.await
+		{
+			tracing::info!(
+				target: crate::LOG_TARGET,
+				?err,
+				retries_left = count,
+				"withdrawal submit failed; retrying",
+			);
 			count -= 1;
 		} else {
 			tracing::info!(target: crate::LOG_TARGET, "withdrawal delivered");

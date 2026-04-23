@@ -224,6 +224,10 @@ pub async fn retry_unprofitable_messages(
 				coprocessor,
 				&client_map,
 				config.deliver_failed.unwrap_or_default(),
+				// Retry loop doesn't carry a fresh consensus update — by the
+				// time it runs the light client is already at whatever height
+				// the original delivery saw.
+				None,
 			)
 			.await
 			{
@@ -296,6 +300,7 @@ pub async fn retry_unprofitable_messages(
 				coprocessor,
 				&client_map,
 				config.deliver_failed.unwrap_or_default(),
+				None,
 			)
 			.await
 			{

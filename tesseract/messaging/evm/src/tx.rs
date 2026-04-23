@@ -8,12 +8,12 @@ use crate::{
 };
 use alloy::{
 	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
-	primitives::{Address, Bytes, FixedBytes, B256, U256 as AlloyU256},
+	primitives::{Address, Bytes, B256, U256 as AlloyU256},
 	providers::Provider,
 	rpc::types::{TransactionReceipt, TransactionRequest},
 	transports::TransportError,
 };
-use alloy_sol_types::{SolCall, SolEvent};
+use alloy_sol_types::SolEvent;
 use anyhow::anyhow;
 use codec::Decode;
 use ismp::{
@@ -24,7 +24,7 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::handler_v2::{
-		batchCallCall, HandlerV2Instance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		HandlerV2Instance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
 		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
@@ -32,10 +32,6 @@ use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use primitive_types::{H256, U256};
 use std::{collections::BTreeSet, time::Duration};
 use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
-
-/// ERC-165 interface id for `IHandlerV2`. Since the interface contains only
-/// `batchCall(bytes[])`, the id equals that function's 4-byte selector.
-const IHANDLER_V2_INTERFACE_ID: FixedBytes<4> = FixedBytes::new(batchCallCall::SELECTOR);
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
@@ -383,6 +379,57 @@ async fn build_batch_inner_calls(
 	Ok(inner)
 }
 
+/// Build per-message `batchCall([prelude, msg_i])` [`TransactionRequest`]s —
+/// used for gas estimation so each non-consensus message is traced alongside
+/// the consensus update that will land with it in the same tx. Without the
+/// prelude the request's proof verification would simulate against the old
+/// state commitment and either underestimate or silently mis-trace.
+///
+/// If the prelude is `None`, falls through to [`generate_contract_calls`].
+pub async fn generate_batched_contract_calls(
+	client: &EvmClient,
+	prelude: Option<&Message>,
+	messages: &[Message],
+	debug_trace: bool,
+) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
+	let Some(prelude) = prelude else {
+		return generate_contract_calls(client, messages, debug_trace).await;
+	};
+
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let contract = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let from = Address::from_slice(&client.address);
+	let gas_price = fetch_gas_price(client, debug_trace).await?;
+	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
+
+	// Single-entry list so we can reuse `build_batch_inner_calls` to encode
+	// the prelude into its HandlerV1-shaped calldata.
+	let prelude_inner =
+		build_batch_inner_calls(client, std::slice::from_ref(prelude)).await?;
+	let prelude_calldata = prelude_inner.into_iter().next().expect("one prelude in, one out");
+
+	let mut txs = Vec::with_capacity(messages.len());
+	for msg in messages {
+		// Rebuild the single-message inner calldata the same way
+		// `build_batch_inner_calls` does — reuses the same encoding path the
+		// real submission will use.
+		let msg_inner = build_batch_inner_calls(client, std::slice::from_ref(msg)).await?;
+		let msg_calldata = msg_inner.into_iter().next().expect("one msg in, one out");
+
+		let call = contract.batchCall(vec![prelude_calldata.clone(), msg_calldata]);
+		let gas = call.estimate_gas().await.unwrap_or_else(|_| (chain_gas_limit * 8) / 10);
+		txs.push(build_tx_request(
+			from,
+			handler_addr,
+			call.calldata().clone(),
+			gas_price,
+			gas_with_buffer(gas),
+		));
+	}
+
+	Ok((txs, gas_price))
+}
+
 /// Submit a full batch of ISMP messages as a single `IHandlerV2.batchCall` transaction.
 ///
 /// One tx replaces what would otherwise be N separate txs (one per message),
@@ -655,50 +702,10 @@ fn build_tx_receipts(
 	TxResult { receipts: results, unsuccessful }
 }
 
-/// Probe (via ERC-165 `supportsInterface`) whether this chain's handler
-/// contract implements `IHandlerV2` and therefore supports `batchCall`.
-///
-/// Returns `false` on any failure (pre-ERC165 handler, RPC error, etc.) —
-/// the caller falls back to the serial submit path. Result should be cached
-/// on the client; see `EvmClient::supports_batch`.
-pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
-	let handler_addr = match client.handler().await {
-		Ok(h) => Address::from_slice(&h.0),
-		Err(err) => {
-			tracing::debug!(target: crate::LOG_TARGET, ?err, "handler address lookup failed during batch probe");
-			return false;
-		},
-	};
-	let handler = HandlerV2Instance::new(handler_addr, client.signer.clone());
-	match handler.supportsInterface(IHANDLER_V2_INTERFACE_ID).call().await {
-		Ok(supported) => {
-			tracing::debug!(
-				target: crate::LOG_TARGET, chain = ?client.state_machine,
-				%handler_addr,
-				supported,
-				"IHandlerV2 supportsInterface probe",
-			);
-			supported
-		},
-		Err(err) => {
-			tracing::debug!(
-				target: crate::LOG_TARGET, chain = ?client.state_machine,
-				%handler_addr,
-				?err,
-				"supportsInterface call failed; assuming no IHandlerV2",
-			);
-			false
-		},
-	}
-}
-
-/// Top-level submission entry. Transparently dispatches through either
-/// `IHandlerV2.batchCall` (one tx for the whole batch) or the legacy
-/// one-tx-per-message path, depending on what the chain's handler supports.
-///
-/// The V2 capability is probed once via ERC-165 `supportsInterface` and cached
-/// on the client ([`EvmClient::supports_batch`]), so subsequent submissions
-/// skip the probe.
+/// Top-level submission entry. Always dispatches through
+/// `IHandlerV2.batchCall` (one tx for the whole batch). Chains whose handler
+/// doesn't implement `IHandlerV2` will revert at the handler address — the
+/// legacy serial-submit fallback is no longer supported.
 pub async fn handle_message_submission(
 	client: &EvmClient,
 	messages: Vec<Message>,
@@ -707,25 +714,7 @@ pub async fn handle_message_submission(
 		return Ok(TxResult::default());
 	}
 
-	let supports_batch = match client.supports_batch.get() {
-		Some(cached) => *cached,
-		None => {
-			let probed = probe_handler_supports_batch(client).await;
-			let _ = client.supports_batch.set(probed);
-			probed
-		},
-	};
-
-	let (receipts, unsuccessful) = if supports_batch {
-		submit_batch_messages(client, messages.clone()).await?
-	} else {
-		tracing::debug!(
-			target: crate::LOG_TARGET, chain = ?client.state_machine,
-			msgs = messages.len(),
-			"handler doesn't support IHandlerV2; using serial submit",
-		);
-		submit_messages(client, messages.clone()).await?
-	};
+	let (receipts, unsuccessful) = submit_batch_messages(client, messages.clone()).await?;
 	let height = client.client.get_block_number().await?;
 	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
 }

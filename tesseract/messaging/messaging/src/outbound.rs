@@ -216,11 +216,12 @@ async fn submit_for_dest(
 		return Ok(());
 	}
 
-	let mut batch: Vec<Message> = vec![Message::Consensus(ConsensusMessage {
+	let consensus_msg = Message::Consensus(ConsensusMessage {
 		consensus_proof: proof_bytes,
 		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
 		signer: dest.address(),
-	})];
+	});
+	let mut batch: Vec<Message> = vec![consensus_msg.clone()];
 
 	if has_events_for_dest {
 		let state_machine_height =
@@ -234,6 +235,10 @@ async fn submit_for_dest(
 			relayer_config,
 			coprocessor,
 			&client_map,
+			// Pass the consensus update as the gas-estimation prelude so EVM
+			// sinks simulate each message inside `batchCall([consensus, msg])`
+			// — matching the real on-chain dispatch order.
+			Some(consensus_msg),
 		)
 		.await
 		{

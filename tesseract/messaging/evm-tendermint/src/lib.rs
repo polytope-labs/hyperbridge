@@ -277,6 +277,14 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		self.inner.estimate_gas(msg).await
 	}
 
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		self.inner.estimate_gas_batched(prelude, msgs).await
+	}
+
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
 		self.inner.query_request_fee_metadata(hash).await
 	}

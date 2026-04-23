@@ -412,173 +412,24 @@ impl IsmpProvider for EvmClient {
 	/// Returns gas estimate for message execution and it's value in USD.
 	/// Uses debug_traceCall to verify that the message would actually be handled successfully.
 	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<Vec<EstimateGasReturnParams>, Error> {
-		use crate::{gas_oracle::is_orbit_chain, tx::generate_contract_calls};
-		use alloy::{
-			providers::ext::DebugApi,
-			rpc::types::{
-				trace::geth::{
-					CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-					GethDebugTracerType, GethDebugTracingCallOptions, GethDebugTracingOptions,
-					GethDefaultTracingOptions, GethTrace,
-				},
-				TransactionRequest,
-			},
-		};
-
+		use crate::tx::generate_contract_calls;
 		let (tx_requests, _) = generate_contract_calls(self, &msg, true).await?;
+		estimate_gas_for_tx_requests(self, &tx_requests, &msg).await
+	}
 
-		// Setup debug trace call options with the call tracer
-		let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
-		let debug_trace_call_options = GethDebugTracingCallOptions {
-			tracing_options: GethDebugTracingOptions {
-				config: GethDefaultTracingOptions {
-					disable_storage: Some(true),
-					enable_memory: Some(false),
-					..Default::default()
-				},
-				tracer: Some(GethDebugTracerType::BuiltInTracer(
-					GethDebugBuiltInTracerType::CallTracer,
-				)),
-				tracer_config: GethDebugTracerConfig(serde_json::to_value(call_config)?),
-				..Default::default()
-			},
-			..Default::default()
-		};
-
-		let handler = self.handler().await?;
-		let handler_addr = Address::from_slice(&handler.0);
-		let from_address = Address::from_slice(&self.address);
-
-		let gas_breakdown = get_current_gas_cost_in_usd(
-			self.state_machine,
-			self.config.ismp_host.0.into(),
-			self.client.clone(),
-		)
-		.await?;
-		let mut gas_estimates = vec![];
-		let batch_size = self.config.tracing_batch_size.unwrap_or(10);
-
-		for (tx_batch, msgs) in tx_requests.chunks(batch_size).zip(msg.chunks(batch_size)) {
-			let processes = tx_batch
-				.iter()
-				.zip(msgs)
-				.map(|(tx_req, _msg)| {
-					let client = self.clone();
-					let debug_trace_call_options = debug_trace_call_options.clone();
-					let gas_breakdown_unit_wei_cost = gas_breakdown.unit_wei_cost;
-					let gas_breakdown_gas_price_cost = gas_breakdown.gas_price_cost;
-					let calldata = tx_req.input.input().cloned().unwrap_or_default().to_vec();
-					let tx_req = tx_req.clone();
-					let _msg = _msg.clone();
-					tokio::spawn(async move {
-						let call_debug = client
-							.client
-							.debug_trace_call(tx_req, BlockId::latest(), debug_trace_call_options)
-							.await;
-
-						let mut gas_to_be_used = U256::zero();
-						let mut successful_execution = false;
-
-						match call_debug {
-							Ok(GethTrace::CallTracer(call_frame)) => {
-								match _msg {
-									Message::Request(_) => {
-										successful_execution = check_trace_for_event(
-											&call_frame,
-											CheckTraceForEventParams::Request,
-										);
-										if !successful_execution {
-											log::trace!(
-												target: crate::LOG_TARGET, "debug_traceCall request message failed on {:?}",
-												client.state_machine
-											);
-										}
-									},
-									Message::Response(_) => {
-										successful_execution = check_trace_for_event(
-											&call_frame,
-											CheckTraceForEventParams::Response,
-										);
-										if !successful_execution {
-											log::trace!(
-												target: crate::LOG_TARGET, "debug_traceCall response message failed on {:?}",
-												client.state_machine
-											);
-										}
-									},
-									_ => unreachable!("Only request/responses are estimated"),
-								};
-
-								if successful_execution && is_orbit_chain(client.chain_id as u32) {
-									let estimate_tx = TransactionRequest::default()
-										.from(from_address)
-										.to(handler_addr)
-										.input(
-											alloy::primitives::Bytes::from(calldata.clone()).into(),
-										);
-									let estimated_gas =
-										client.client.estimate_gas(estimate_tx).await?;
-									gas_to_be_used = U256::from(estimated_gas);
-								} else {
-									gas_to_be_used = alloy_u256_to_primitive(call_frame.gas_used);
-								}
-							},
-							Ok(trace) => {
-								log::error!(target: crate::LOG_TARGET, "Unexpected geth trace variant: {trace:?}");
-							},
-							Err(err) => {
-								log::error!(
-									target: crate::LOG_TARGET, "debug_traceCall failed on {:?}: {err:?}",
-									client.state_machine
-								);
-							},
-						};
-
-						let gas_cost_for_data_in_usd = match client.state_machine {
-							StateMachine::Evm(_) => {
-								use alloy::{consensus::TxLegacy, primitives::TxKind};
-								use alloy_rlp::Encodable;
-
-								let unsigned_tx = TxLegacy {
-									to: TxKind::Call(handler_addr),
-									input: alloy::primitives::Bytes::from(calldata),
-									..Default::default()
-								};
-								let mut rlp_buf = Vec::new();
-								unsigned_tx.encode(&mut rlp_buf);
-
-								get_l2_data_cost(
-									rlp_buf.into(),
-									client.state_machine,
-									client.client.clone(),
-									gas_breakdown_unit_wei_cost,
-								)
-								.await?
-							},
-							_ => U256::zero().into(),
-						};
-
-						let execution_cost = (gas_breakdown_gas_price_cost * gas_to_be_used) +
-							gas_cost_for_data_in_usd;
-						Ok::<_, Error>(EstimateGasReturnParams {
-							execution_cost,
-							successful_execution,
-						})
-					})
-				})
-				.collect::<FuturesOrdered<_>>();
-
-			use futures::StreamExt;
-			let estimates_result: Vec<_> = processes.collect().await;
-			let estimates_result = estimates_result
-				.into_iter()
-				.map(|r| r.map_err(|e| anyhow!("Join error: {e:?}"))?)
-				.collect::<Result<Vec<_>, Error>>()?;
-
-			gas_estimates.extend(estimates_result);
-		}
-
-		Ok(gas_estimates)
+	/// Returns gas estimates where each non-consensus message is simulated
+	/// inside a `batchCall([prelude, msg])` so the estimate reflects the
+	/// light-client update that will land in the same tx. Falls back to
+	/// standalone estimation when `prelude` is `None`.
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		use crate::tx::generate_batched_contract_calls;
+		let (tx_requests, _) =
+			generate_batched_contract_calls(self, prelude.as_ref(), &msgs, true).await?;
+		estimate_gas_for_tx_requests(self, &tx_requests, &msgs).await
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
@@ -986,56 +837,249 @@ pub fn check_trace_for_event(
 	call_frame: &alloy::rpc::types::trace::geth::CallFrame,
 	event_in: CheckTraceForEventParams,
 ) -> bool {
-	use alloy::primitives::LogData;
-
 	if let Some(ref error) = call_frame.revert_reason {
 		log::error!(target: crate::LOG_TARGET, "Error in main call frame: {error}");
 	}
+	any_frame_has_event(call_frame, &event_in)
+}
 
-	// Check the last inner call frame's logs for the expected event
-	if let Some(last_call_frame) = call_frame.calls.last() {
-		if let Some(ref error) = last_call_frame.error {
-			log::error!(target: crate::LOG_TARGET, "Error in inner call frame: {error}");
+/// Walk the full call tree (DFS, pre-order) and return `true` as soon as any
+/// frame emits the target event. The pre-batchCall version of this check
+/// only looked at the last direct inner call — that worked when the handler
+/// function was the top-level call and the host emitted its
+/// `PostRequestHandled` / `PostResponseHandled` log one level down. With
+/// `IHandlerV2.batchCall([consensus, msg])` the structure is:
+///
+/// ```text
+/// batchCall (handler_addr)
+/// ├── delegatecall — handleConsensus
+/// │    └── call — host.handleConsensus (consensus logs)
+/// └── delegatecall — handlePost{Requests,Responses}
+///      └── call — host.dispatchPost…
+///          └── call — module.onAccept
+///              └── log: PostRequest/ResponseHandled (from host)
+/// ```
+///
+/// The event log can land in any frame depending on where the host emitted
+/// it — `.calls.last().logs` would miss it. We recurse over the whole tree
+/// and also log any sub-frame errors so failures are surfaced regardless of
+/// depth.
+fn any_frame_has_event(
+	frame: &alloy::rpc::types::trace::geth::CallFrame,
+	event_in: &CheckTraceForEventParams,
+) -> bool {
+	use alloy::primitives::LogData;
+
+	if let Some(ref error) = frame.error {
+		log::error!(target: crate::LOG_TARGET, "Error in call frame {:?}: {error}", frame.to);
+	}
+
+	for log in &frame.logs {
+		let topics = log.topics.clone().unwrap_or_default();
+		let data = log.data.clone().unwrap_or_default();
+		let Some(log_data) = LogData::new(topics, data) else { continue };
+		let prim_log = alloy::primitives::Log {
+			address: log.address.unwrap_or_default(),
+			data: log_data,
+		};
+		let matched = match event_in {
+			CheckTraceForEventParams::Request =>
+				PostRequestHandled::decode_log(&prim_log).is_ok(),
+			CheckTraceForEventParams::Response =>
+				PostResponseHandled::decode_log(&prim_log).is_ok(),
+		};
+		if matched {
+			return true;
 		}
+	}
 
-		for log in &last_call_frame.logs {
-			let topics = log.topics.clone().unwrap_or_default();
-			let data = log.data.clone().unwrap_or_default();
-			if let Some(log_data) = LogData::new(topics, data) {
-				let prim_log = alloy::primitives::Log {
-					address: log.address.unwrap_or_default(),
-					data: log_data,
-				};
-
-				match event_in {
-					CheckTraceForEventParams::Request => {
-						match PostRequestHandled::decode_log(&prim_log) {
-							Ok(_) => return true,
-							Err(err) => {
-								log::error!(
-									target: crate::LOG_TARGET, "Failed to parse {:?} trace log: {err:?}",
-									last_call_frame.to
-								);
-							},
-						}
-					},
-					CheckTraceForEventParams::Response => {
-						match PostResponseHandled::decode_log(&prim_log) {
-							Ok(_) => return true,
-							Err(err) => {
-								log::error!(
-									target: crate::LOG_TARGET, "Failed to parse {:?} trace log: {err:?}",
-									last_call_frame.to
-								);
-							},
-						}
-					},
-				}
-			}
+	for child in &frame.calls {
+		if any_frame_has_event(child, event_in) {
+			return true;
 		}
-	} else {
-		log::error!(target: crate::LOG_TARGET, "Debug trace frame not found!");
 	}
 
 	false
+}
+
+/// Shared body of gas estimation for a pre-built `Vec<TransactionRequest>`
+/// + the matching `Vec<Message>`. Splits into `tracing_batch_size` chunks,
+/// fires `debug_traceCall` per entry, walks each trace to confirm the
+/// `PostRequest/PostResponseHandled` event is emitted, and computes the
+/// actual gas used (+ L2 calldata-fee padding).
+///
+/// Called from both [`IsmpProvider::estimate_gas`] (one tx per message) and
+/// [`IsmpProvider::estimate_gas_batched`] (one `batchCall([prelude, msg])`
+/// tx per message). In the batched case the trace still surfaces the inner
+/// `PostRequest/PostResponseHandled` event emitted by the handler's
+/// delegate-call, so the same success-check works for both shapes.
+async fn estimate_gas_for_tx_requests(
+	client_outer: &EvmClient,
+	tx_requests: &[alloy::rpc::types::TransactionRequest],
+	msg: &[Message],
+) -> Result<Vec<EstimateGasReturnParams>, Error> {
+	use crate::gas_oracle::is_orbit_chain;
+	use alloy::{
+		providers::ext::DebugApi,
+		rpc::types::{
+			trace::geth::{
+				CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
+				GethDebugTracerType, GethDebugTracingCallOptions, GethDebugTracingOptions,
+				GethDefaultTracingOptions, GethTrace,
+			},
+			TransactionRequest,
+		},
+	};
+
+	let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
+	let debug_trace_call_options = GethDebugTracingCallOptions {
+		tracing_options: GethDebugTracingOptions {
+			config: GethDefaultTracingOptions {
+				disable_storage: Some(true),
+				enable_memory: Some(false),
+				..Default::default()
+			},
+			tracer: Some(GethDebugTracerType::BuiltInTracer(
+				GethDebugBuiltInTracerType::CallTracer,
+			)),
+			tracer_config: GethDebugTracerConfig(serde_json::to_value(call_config)?),
+			..Default::default()
+		},
+		..Default::default()
+	};
+
+	let handler = client_outer.handler().await?;
+	let handler_addr = Address::from_slice(&handler.0);
+	let from_address = Address::from_slice(&client_outer.address);
+
+	let gas_breakdown = get_current_gas_cost_in_usd(
+		client_outer.state_machine,
+		client_outer.config.ismp_host.0.into(),
+		client_outer.client.clone(),
+	)
+	.await?;
+	let mut gas_estimates = vec![];
+	let batch_size = client_outer.config.tracing_batch_size.unwrap_or(10);
+
+	for (tx_batch, msgs) in tx_requests.chunks(batch_size).zip(msg.chunks(batch_size)) {
+		let processes = tx_batch
+			.iter()
+			.zip(msgs)
+			.map(|(tx_req, _msg)| {
+				let client = client_outer.clone();
+				let debug_trace_call_options = debug_trace_call_options.clone();
+				let gas_breakdown_unit_wei_cost = gas_breakdown.unit_wei_cost;
+				let gas_breakdown_gas_price_cost = gas_breakdown.gas_price_cost;
+				let calldata = tx_req.input.input().cloned().unwrap_or_default().to_vec();
+				let tx_req = tx_req.clone();
+				let _msg = _msg.clone();
+				tokio::spawn(async move {
+					let call_debug = client
+						.client
+						.debug_trace_call(tx_req, BlockId::latest(), debug_trace_call_options)
+						.await;
+
+					let mut gas_to_be_used = U256::zero();
+					let mut successful_execution = false;
+
+					match call_debug {
+						Ok(GethTrace::CallTracer(call_frame)) => {
+							match _msg {
+								Message::Request(_) => {
+									successful_execution = check_trace_for_event(
+										&call_frame,
+										CheckTraceForEventParams::Request,
+									);
+									if !successful_execution {
+										log::trace!(
+											target: crate::LOG_TARGET, "debug_traceCall request message failed on {:?}",
+											client.state_machine
+										);
+									}
+								},
+								Message::Response(_) => {
+									successful_execution = check_trace_for_event(
+										&call_frame,
+										CheckTraceForEventParams::Response,
+									);
+									if !successful_execution {
+										log::trace!(
+											target: crate::LOG_TARGET, "debug_traceCall response message failed on {:?}",
+											client.state_machine
+										);
+									}
+								},
+								_ => unreachable!("Only request/responses are estimated"),
+							};
+
+							if successful_execution && is_orbit_chain(client.chain_id as u32) {
+								let estimate_tx = TransactionRequest::default()
+									.from(from_address)
+									.to(handler_addr)
+									.input(
+										alloy::primitives::Bytes::from(calldata.clone()).into(),
+									);
+								let estimated_gas =
+									client.client.estimate_gas(estimate_tx).await?;
+								gas_to_be_used = U256::from(estimated_gas);
+							} else {
+								gas_to_be_used = alloy_u256_to_primitive(call_frame.gas_used);
+							}
+						},
+						Ok(trace) => {
+							log::error!(target: crate::LOG_TARGET, "Unexpected geth trace variant: {trace:?}");
+						},
+						Err(err) => {
+							log::error!(
+								target: crate::LOG_TARGET, "debug_traceCall failed on {:?}: {err:?}",
+								client.state_machine
+							);
+						},
+					};
+
+					let gas_cost_for_data_in_usd = match client.state_machine {
+						StateMachine::Evm(_) => {
+							use alloy::{consensus::TxLegacy, primitives::TxKind};
+							use alloy_rlp::Encodable;
+
+							let unsigned_tx = TxLegacy {
+								to: TxKind::Call(handler_addr),
+								input: alloy::primitives::Bytes::from(calldata),
+								..Default::default()
+							};
+							let mut rlp_buf = Vec::new();
+							unsigned_tx.encode(&mut rlp_buf);
+
+							get_l2_data_cost(
+								rlp_buf.into(),
+								client.state_machine,
+								client.client.clone(),
+								gas_breakdown_unit_wei_cost,
+							)
+							.await?
+						},
+						_ => U256::zero().into(),
+					};
+
+					let execution_cost = (gas_breakdown_gas_price_cost * gas_to_be_used) +
+						gas_cost_for_data_in_usd;
+					Ok::<_, Error>(EstimateGasReturnParams {
+						execution_cost,
+						successful_execution,
+					})
+				})
+			})
+			.collect::<FuturesOrdered<_>>();
+
+		use futures::StreamExt;
+		let estimates_result: Vec<_> = processes.collect().await;
+		let estimates_result = estimates_result
+			.into_iter()
+			.map(|r| r.map_err(|e| anyhow!("Join error: {e:?}"))?)
+			.collect::<Result<Vec<_>, Error>>()?;
+
+		gas_estimates.extend(estimates_result);
+	}
+
+	Ok(gas_estimates)
 }

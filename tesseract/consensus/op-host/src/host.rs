@@ -15,9 +15,9 @@ use ismp_optimism::{
 	OPTIMISM_CONSENSUS_CLIENT_ID,
 };
 use op_verifier::{calculate_output_root, GameTypeConfig, CANNON};
-use subxt_utils::optimism_game_type_configs_storage_key;
 use reqwest::Url;
 use sp_core::{bytes::from_hex, Encode, H160, H256, U256};
+use subxt_utils::optimism_game_type_configs_storage_key;
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
 use sync_committee_prover::{
 	responses::{self, finality_checkpoint_response::FinalityCheckpoint},

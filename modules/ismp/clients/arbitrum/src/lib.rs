@@ -337,13 +337,13 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	// parent's `AssertionNode.secondChildBlock` (uint64 at struct offset 8) is non-zero iff a
 	// rival sibling exists. Read the parent's first storage word from the proof and check the
 	// secondChildBlock bytes.
-	let parent_key = derive_map_key::<H>(payload.previous_assertion_hash.0.to_vec(), ASSERTIONS_SLOT);
-	let parent_word_raw = get_value_from_proof::<H>(
-		parent_key.0.to_vec(),
-		storage_root,
-		payload.challenge_proof,
-	)?
-	.ok_or_else(|| anyhow!("Parent assertion not found in proof — cannot check challenge state"))?;
+	let parent_key =
+		derive_map_key::<H>(payload.previous_assertion_hash.0.to_vec(), ASSERTIONS_SLOT);
+	let parent_word_raw =
+		get_value_from_proof::<H>(parent_key.0.to_vec(), storage_root, payload.challenge_proof)?
+			.ok_or_else(|| {
+				anyhow!("Parent assertion not found in proof — cannot check challenge state")
+			})?;
 	let parent_word_bytes = <alloy_primitives::Bytes as Decodable>::decode(&mut &*parent_word_raw)
 		.map_err(|_| anyhow!("Error decoding parent assertion word {:?}", parent_word_raw))?
 		.0
@@ -357,9 +357,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	// secondChildBlock occupies bytes word[16..24].
 	const ZERO_U64: [u8; 8] = [0u8; 8];
 	if &word[16..24] != ZERO_U64.as_slice() {
-		Err(anyhow!(
-			"Assertion has been challenged: parent.secondChildBlock != 0"
-		))?
+		Err(anyhow!("Assertion has been challenged: parent.secondChildBlock != 0"))?
 	}
 
 	Ok(IntermediateState {

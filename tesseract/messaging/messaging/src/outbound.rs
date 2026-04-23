@@ -191,7 +191,6 @@ async fn submit_for_dest(
 	// rotations have to land first. Best-effort: if we can't read the
 	// destination's consensus state we assume it's current and fall through.
 	if let Err(err) = catch_up_rotations(&hyperbridge, &dest, &proof_source).await {
-
 		tracing::warn!(
 			target: LOG_TARGET,
 			dest = %dest_name,
@@ -216,7 +215,6 @@ async fn submit_for_dest(
 		tracing::trace!(target: LOG_TARGET, dest = %dest_name, "skipping — no events for this chain, not mandatory");
 		return Ok(());
 	}
-
 
 	let mut batch: Vec<Message> = vec![Message::Consensus(ConsensusMessage {
 		consensus_proof: proof_bytes,
@@ -307,7 +305,7 @@ async fn catch_up_rotations(
 	dest: &Arc<dyn IsmpProvider>,
 	proof_source: &Arc<dyn ConsensusProofSource>,
 ) -> Result<(), anyhow::Error> {
-    let dest_name =  dest.name();
+	let dest_name = dest.name();
 	let dest_consensus = dest
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
 		.await
@@ -371,7 +369,7 @@ async fn catch_up_rotations(
 			from_set_id = first,
 			to_set_id = last,
 			msgs = batch.len(),
-			"Transmitting Mandatory Consensus Message to {dest_name}",
+			"🛰️ Transmitting Mandatory Consensus Message to {dest_name}",
 		);
 		dest.submit(batch, hyperbridge.state_machine_id().state_id).await?;
 	}

@@ -10,9 +10,7 @@ use primitive_types::{H160, H256};
 // use op_verifier::{verify_optimism_dispute_game_proof, verify_optimism_payload};
 use crate::abi::DisputeGameFactory::DisputeGameCreated;
 use ismp::host::StateMachine;
-use op_verifier::{
-	verify_optimism_dispute_game_proof, DisputeGameImpl, GameTypeConfig,
-};
+use op_verifier::{verify_optimism_dispute_game_proof, DisputeGameImpl, GameTypeConfig};
 use tesseract_evm::EvmConfig;
 use tesseract_primitives::Hasher;
 
@@ -21,8 +19,7 @@ const MESSAGE_PARSER: [u8; 20] = hex!("4200000000000000000000000000000000000016"
 /// Placeholder secp256k1 key for read-only tests. `EvmClient::new` requires a valid signer to
 /// construct, but none of the consensus-verification flow this file exercises actually signs or
 /// sends transactions.
-const DUMMY_SIGNING_KEY: &str =
-	"0000000000000000000000000000000000000000000000000000000000000001";
+const DUMMY_SIGNING_KEY: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 /// Verify a real `DisputeGameCreated` event against the factory on L1 at the latest block head
 /// by round-tripping through the host's own proof-construction path.
 ///
@@ -109,9 +106,7 @@ async fn test_aggregate_verifier_dispute_game_verification() {
 		.expect("BASE_SEPOLIA_RPC_URL must be set to a Base Sepolia RPC endpoint");
 
 	let event = DisputeGameCreated {
-		disputeProxy: Address::from_slice(&hex!(
-			"2c9ece6a5856ab7f5f2c49072e9f7a4f00d4c1e6"
-		)),
+		disputeProxy: Address::from_slice(&hex!("2c9ece6a5856ab7f5f2c49072e9f7a4f00d4c1e6")),
 		gameType: 621,
 		rootClaim: B256::from(hex!(
 			"a76fa38fcef8c7e910fb80064b2b98c275569a84c8db3c4e04141b9457867b95"
@@ -151,9 +146,7 @@ async fn test_cannon_dispute_game_verification() {
 		.expect("OP_MAINNET_RPC_URL must be set to an Optimism mainnet RPC endpoint");
 
 	let event = DisputeGameCreated {
-		disputeProxy: Address::from_slice(&hex!(
-			"e6512d19e2bac97a2ed17e2cc1c5df96e29d3ea8"
-		)),
+		disputeProxy: Address::from_slice(&hex!("e6512d19e2bac97a2ed17e2cc1c5df96e29d3ea8")),
 		gameType: 0,
 		rootClaim: B256::from(hex!(
 			"76b0808a7d3244f52677f7fec036a25faad2fb80ee4d9504c5458775a7024ffa"
@@ -168,6 +161,5 @@ async fn test_cannon_dispute_game_verification() {
 	}];
 
 	// Ethereum mainnet chain id = 1.
-	run_dispute_game_verification(l1_url, l2_url, 1, factory_addr, event, game_type_configs)
-		.await;
+	run_dispute_game_verification(l1_url, l2_url, 1, factory_addr, event, game_type_configs).await;
 }

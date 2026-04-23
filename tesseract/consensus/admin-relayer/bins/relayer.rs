@@ -78,9 +78,7 @@ async fn main() -> anyhow::Result<()> {
 	for (label, chain_cfg) in &config.chains {
 		let state_machine = chain_cfg.evm.state_machine;
 		if !matches!(state_machine, StateMachine::Evm(_)) {
-			return Err(anyhow!(
-				"[{label}] expected EVM state machine, got {state_machine}"
-			));
+			return Err(anyhow!("[{label}] expected EVM state machine, got {state_machine}"));
 		}
 		let client = EvmClient::new(chain_cfg.evm.clone())
 			.await
@@ -108,9 +106,8 @@ async fn main() -> anyhow::Result<()> {
 	for (state_machine, client, mode) in &clients {
 		match mode {
 			SubmissionMode::Batched => ensure_delegated(client).await?,
-			SubmissionMode::Sequential => log::info!(
-				"[{state_machine}] sequential mode — skipping EIP-7702 delegation"
-			),
+			SubmissionMode::Sequential =>
+				log::info!("[{state_machine}] sequential mode — skipping EIP-7702 delegation"),
 		}
 	}
 

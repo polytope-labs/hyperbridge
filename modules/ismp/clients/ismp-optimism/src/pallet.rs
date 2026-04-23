@@ -60,13 +60,8 @@ pub mod pallet {
 	// challenged" check during verification.
 	#[pallet::storage]
 	#[pallet::getter(fn state_machines_dispute_game_factories_types)]
-	pub type StateMachinesDisputeGameFactoriesTypes<T: Config> = StorageMap<
-		_,
-		Blake2_128Concat,
-		StateMachineId,
-		(H160, Vec<GameTypeConfig>),
-		OptionQuery,
-	>;
+	pub type StateMachinesDisputeGameFactoriesTypes<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachineId, (H160, Vec<GameTypeConfig>), OptionQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn supported_state_machines)]

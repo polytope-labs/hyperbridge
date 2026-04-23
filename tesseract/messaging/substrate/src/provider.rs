@@ -135,12 +135,10 @@ where
 					continue;
 				}
 				let fields = ProofAcceptedFields::decode(&mut ev.field_bytes())?;
-				let out =
-					ProofAccepted { height: fields.height, new_set_id: fields.new_set_id };
+				let out = ProofAccepted { height: fields.height, new_set_id: fields.new_set_id };
 				if out.new_set_id.is_some() {
 					mandatory.push(out);
-				} else if latest_messaging.as_ref().map_or(true, |cur| out.height > cur.height)
-				{
+				} else if latest_messaging.as_ref().map_or(true, |cur| out.height > cur.height) {
 					latest_messaging = Some(out);
 				}
 			}
@@ -1132,9 +1130,8 @@ mod tests {
 			fee_token_decimals: None,
 		};
 
-		let client = SubstrateClient::<Hyperbridge>::new(config)
-			.await
-			.expect("connect to gargantua");
+		let client =
+			SubstrateClient::<Hyperbridge>::new(config).await.expect("connect to gargantua");
 
 		// `proof_accepted_in_range(cursor, tip)` is the exact per-window body
 		// that `proof_accepted_notification` dispatches each poll tick, so

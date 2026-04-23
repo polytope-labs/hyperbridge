@@ -326,10 +326,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// [`StorageKey::Substrate`] variant as a full pallet storage key; EVM backends consume
 	/// [`StorageKey::Evm`] as an `eth_getStorageAt(address, slot)` call. Providers return an
 	/// error when asked for a variant they don't support.
-	async fn query_storage(
-		&self,
-		_key: StorageKey,
-	) -> Result<Option<Vec<u8>>, anyhow::Error> {
+	async fn query_storage(&self, _key: StorageKey) -> Result<Option<Vec<u8>>, anyhow::Error> {
 		Err(anyhow!("query_storage is not supported on {}", self.name()))
 	}
 
@@ -389,9 +386,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// Return a stream of [`ProofAccepted`] events emitted by
 	/// `pallet-beefy-consensus-proofs`. Only Hyperbridge runs this pallet — other
 	/// providers fall back to the default implementation which errors.
-	async fn proof_accepted_notification(
-		&self,
-	) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
+	async fn proof_accepted_notification(&self) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
 		Err(anyhow!(
 			"proof_accepted_notification is only supported on Hyperbridge substrate clients"
 		))

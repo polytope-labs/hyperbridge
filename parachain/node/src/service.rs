@@ -544,26 +544,14 @@ pub async fn start_parachain_node(
 				gargantua_runtime::RuntimeApi,
 				gargantua_runtime::Runtime,
 				gargantua_runtime::SignedExtra,
-			>(
-				parachain_config,
-				polkadot_config,
-				collator_options,
-				para_id,
-				hwbench,
-			)
+			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
 			.await,
 		chain if chain.contains("nexus") =>
 			start_node_impl::<
 				nexus_runtime::RuntimeApi,
 				nexus_runtime::Runtime,
 				nexus_runtime::SignedExtra,
-			>(
-				parachain_config,
-				polkadot_config,
-				collator_options,
-				para_id,
-				hwbench,
-			)
+			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),
 	}

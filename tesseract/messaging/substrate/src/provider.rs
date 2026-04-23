@@ -61,9 +61,9 @@ use subxt_utils::{
 	values::{messages_to_value, state_machine_height_to_value},
 };
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
-	StateMachineUpdated, StateProofQueryType, StorageKey as TesseractStorageKey, TxReceipt,
-	TxResult,
+	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider,
+	ProofAccepted, Query, StateMachineUpdated, StateProofQueryType,
+	StorageKey as TesseractStorageKey, TxReceipt, TxResult,
 };
 
 use crate::{

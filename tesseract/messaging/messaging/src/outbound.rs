@@ -18,6 +18,7 @@ use std::{
 	sync::Arc,
 };
 
+use anyhow::anyhow;
 use codec::Decode;
 use futures::{stream::FuturesUnordered, StreamExt};
 use ismp::{
@@ -54,13 +55,13 @@ pub async fn run(
 	let mut stream = hyperbridge.proof_accepted_notification().await?;
 	let mut cursor: u64 = hyperbridge.initial_height();
 
-	tracing::info!(target: "tesseract", cursor, "subscribed to ProofAccepted");
+	tracing::info!(target: crate::LOG_TARGET, cursor, "subscribed to ProofAccepted");
 
 	while let Some(item) = stream.next().await {
 		let accepted: ProofAccepted = match item {
 			Ok(ev) => ev,
 			Err(err) => {
-				tracing::error!(target: "tesseract", ?err, "proof_accepted stream error");
+				tracing::error!(target: crate::LOG_TARGET, ?err, "proof_accepted stream error");
 				continue;
 			},
 		};
@@ -77,7 +78,7 @@ pub async fn run(
 		let events = match hyperbridge.query_ismp_events(cursor, synth).await {
 			Ok(events) => events,
 			Err(err) => {
-				tracing::error!(target: "tesseract", cursor, to = new_height, ?err, "query_ismp_events failed",);
+				tracing::error!(target: crate::LOG_TARGET, cursor, to = new_height, ?err, "query_ismp_events failed",);
 				continue;
 			},
 		};
@@ -86,7 +87,7 @@ pub async fn run(
 			Ok(bytes) => bytes,
 			Err(err) => {
 				tracing::error!(
-					target: "tesseract", height = new_height,
+					target: crate::LOG_TARGET, height = new_height,
 					set_id = ?new_set_id,
 					?err,
 					"proof fetch failed",
@@ -96,7 +97,7 @@ pub async fn run(
 		};
 
 		tracing::info!(
-			target: "tesseract", height = new_height,
+			target: crate::LOG_TARGET, height = new_height,
 			set_id = ?new_set_id,
 			mandatory = is_mandatory,
 			events = events.len(),
@@ -132,7 +133,7 @@ pub async fn run(
 		}
 		while let Some(res) = tasks.next().await {
 			if let Err(err) = res {
-				tracing::error!(target: "tesseract", ?err, "submit_for_dest failed");
+				tracing::error!(target: crate::LOG_TARGET, ?err, "submit_for_dest failed");
 			}
 		}
 
@@ -172,7 +173,7 @@ async fn submit_for_dest(
 		// Messaging-only proof with nothing for this chain — skip. Rotation
 		// proofs (mandatory) must propagate even without user messages so future
 		// messaging proofs remain verifiable on the destination.
-		tracing::trace!(target: "tesseract", "skipping — no events for this chain, not mandatory");
+		tracing::trace!(target: crate::LOG_TARGET, "skipping — no events for this chain, not mandatory");
 		return Ok(());
 	}
 
@@ -184,7 +185,7 @@ async fn submit_for_dest(
 	// destination's consensus state we assume it's current and fall through.
 	if let Err(err) = catch_up_rotations(&hyperbridge, &dest, &proof_source).await {
 		tracing::warn!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			?err,
 			"rotation catch-up failed; proceeding with current update",
 		);
@@ -213,23 +214,23 @@ async fn submit_for_dest(
 		{
 			Ok((deliverable, unprofitable)) => {
 				if !unprofitable.is_empty() {
-					tracing::debug!(target: "tesseract", dropped = unprofitable.len(), "unprofitable messages dropped");
+					tracing::debug!(target: crate::LOG_TARGET, dropped = unprofitable.len(), "unprofitable messages dropped");
 				}
 				batch.extend(deliverable);
 			},
 			Err(err) =>
-				tracing::error!(target: "tesseract", ?err, "translate_events_to_messages failed"),
+				tracing::error!(target: crate::LOG_TARGET, ?err, "translate_events_to_messages failed"),
 		}
 	}
 
 	// If translate returned no deliverable messages we may be left with only
 	// the consensus entry — only worth sending on mandatory (rotation) proofs.
 	if batch.len() == 1 && !is_mandatory {
-		tracing::trace!(target: "tesseract", "skipping — consensus-only batch, not mandatory");
+		tracing::trace!(target: crate::LOG_TARGET, "skipping — consensus-only batch, not mandatory");
 		return Ok(());
 	}
 
-	tracing::info!(target: "tesseract", msgs = batch.len(), "submitting batch");
+	tracing::info!(target: crate::LOG_TARGET, msgs = batch.len(), "submitting batch");
 	// `submit` transparently picks the right transport — EVM destinations
 	// whose handler supports IHandlerV2 dispatch the whole batch as a single
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
@@ -239,7 +240,7 @@ async fn submit_for_dest(
 	// closed if the relayer is shutting down).
 	if let (Some(sender), false) = (fee_sender, result.receipts.is_empty()) {
 		if let Err(err) = sender.send(result.receipts).await {
-			tracing::warn!(target: "tesseract", ?err, "fee-accumulation channel send failed");
+			tracing::warn!(target: crate::LOG_TARGET, ?err, "fee-accumulation channel send failed");
 		}
 	}
 
@@ -249,10 +250,21 @@ async fn submit_for_dest(
 /// Read the BEEFY `current_authorities.id` out of a SCALE-encoded
 /// [`beefy_verifier_primitives::ConsensusState`]. Returns `None` when the
 /// bytes can't be decoded — treated by callers as "assume it's in sync".
-fn decode_current_set_id(encoded: &[u8]) -> Option<u64> {
+fn decode_current_set_id_scale(encoded: &[u8]) -> Option<u64> {
 	beefy_verifier_primitives::ConsensusState::decode(&mut &encoded[..])
 		.ok()
 		.map(|s| s.current_authorities.id)
+}
+
+/// Read the BEEFY `currentAuthoritySet.id` out of an ABI-encoded
+/// [`ismp_solidity_abi::beefy::BeefyConsensusState`]. Returns `None` when the
+/// bytes can't be decoded or the id doesn't fit in a `u64`.
+fn decode_current_set_id_abi(encoded: &[u8]) -> Option<u64> {
+	use alloy_sol_types::SolType;
+	use ismp_solidity_abi::beefy::BeefyConsensusState;
+	<BeefyConsensusState as SolType>::abi_decode(&mut &encoded[..])
+		.ok()
+		.and_then(|s| s.currentAuthoritySet.id.try_into().ok())
 }
 
 /// If the destination's BEEFY `current_authorities.id` is behind HB's, fetch
@@ -272,9 +284,9 @@ async fn catch_up_rotations(
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
 		.await
 		.map_err(|err| anyhow::anyhow!("query dest consensus_state: {err:?}"))?;
-	let Some(dest_set_id) = decode_current_set_id(&dest_consensus) else {
+	let Some(dest_set_id) = decode_current_set_id_abi(&dest_consensus) else {
 		tracing::debug!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			"dest consensus state undecodable; skipping rotation catch-up",
 		);
 		return Ok(());
@@ -284,9 +296,9 @@ async fn catch_up_rotations(
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
 		.await
 		.map_err(|err| anyhow::anyhow!("query hb consensus_state: {err:?}"))?;
-	let Some(hb_set_id) = decode_current_set_id(&hb_consensus) else {
+	let Some(hb_set_id) = decode_current_set_id_scale(&hb_consensus) else {
 		tracing::debug!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			"hb consensus state undecodable; skipping rotation catch-up",
 		);
 		return Ok(());
@@ -301,17 +313,11 @@ async fn catch_up_rotations(
 		.await
 		.map_err(|err| anyhow::anyhow!("rotation_proofs_from({dest_set_id}): {err:?}"))?;
 	if rotations.is_empty() {
-		tracing::debug!(
-			target: "tesseract",
-			dest_set_id,
-			hb_set_id,
-			"dest is lagging but no rotation proofs are cached on HB",
-		);
-		return Ok(());
+		return Err(anyhow!("dest is lagging but no rotation proofs are cached on HB"));
 	}
 
 	tracing::info!(
-		target: "tesseract",
+		target: crate::LOG_TARGET,
 		dest_set_id,
 		hb_set_id,
 		rotations = rotations.len(),
@@ -332,7 +338,7 @@ async fn catch_up_rotations(
 		let first = chunk.first().map(|r| r.set_id).unwrap_or_default();
 		let last = chunk.last().map(|r| r.set_id).unwrap_or_default();
 		tracing::info!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			from_set_id = first,
 			to_set_id = last,
 			msgs = batch.len(),

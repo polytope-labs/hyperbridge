@@ -360,7 +360,7 @@ tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
-tesseract = { path = "tesseract/messaging/relayer" }
+tesseract-relayer = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -379,6 +379,7 @@ tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
+tesseract = { path = "tesseract/relayer" }
 
 
 [workspace.dependencies.codec]

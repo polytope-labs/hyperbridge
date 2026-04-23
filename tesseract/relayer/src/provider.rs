@@ -105,25 +105,20 @@ impl ConsensusProofSource for OffchainProofSource {
 		let map: BTreeMap<u64, u64> = Decode::decode(&mut &bytes[..])
 			.map_err(|err| anyhow!("decode RotationProofs BTreeMap: {err:?}"))?;
 
+		let next_set_id = from_set_id + 1;
+		if !map.contains_key(&next_set_id) {
+			return Err(anyhow!(
+				"RotationProofs missing entry for set_id {next_set_id} (catching up from {from_set_id})"
+			));
+		}
+
 		// Walk ascending so the caller can submit rotations in order.
 		let mut out = Vec::new();
 		for (set_id, height) in map.into_iter().filter(|(set_id, _)| *set_id > from_set_id) {
-			match self.fetch(height).await {
-				Ok(proof) => out.push(RotationProof { set_id, height, proof }),
-				Err(err) => {
-					// A rotation listed in the on-chain map but missing from
-					// this node's offchain storage means the destination is
-					// stuck at an epoch this node can't prove for. Log and
-					// continue — later entries may still be fetchable.
-					tracing::warn!(
-						target: crate::LOG_TARGET,
-						set_id,
-						height,
-						?err,
-						"rotation proof missing from offchain storage",
-					);
-				},
-			}
+			let proof = self.fetch(height).await.map_err(|err| {
+				anyhow!("rotation proof missing from offchain storage (set_id={set_id}, height={height}): {err:?}")
+			})?;
+			out.push(RotationProof { set_id, height, proof });
 		}
 		Ok(out)
 	}

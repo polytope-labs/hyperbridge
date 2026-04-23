@@ -1,5 +1,5 @@
 [package]
-name = "tesseract"
+name = "tesseract-relayer"
 version = "1.7.0"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"

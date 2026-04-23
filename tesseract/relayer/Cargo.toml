@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-relayer"
+name = "tesseract"
 version = "0.1.0"
 edition = "2021"
 description = "Consolidated Hyperbridge relayer — inbound and outbound consensus + messaging"
@@ -7,7 +7,7 @@ authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 
 [[bin]]
-name = "tesseract-relayer"
+name = "tesseract"
 path = "src/main.rs"
 
 [dependencies]

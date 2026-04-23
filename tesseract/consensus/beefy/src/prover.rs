@@ -65,7 +65,8 @@ pub struct BeefyProverConfig {
 	pub consensus_state_id: ConsensusStateId,
 	/// Minimum height that must be enacted before we prove finality for new messages
 	pub minimum_finalization_height: u64,
-	/// State machines we are proving for
+	/// State machines we are proving for. If empty or omitted, prove all.
+	#[serde(default)]
 	pub state_machines: Vec<StateMachine>,
 	/// Which proof backend the prover (and the corresponding host) should use.
 	pub backend: crate::backend::ProofBackendConfig,
@@ -237,7 +238,11 @@ where
 				};
 
 				// filter out destinations that the prover isn't configured for
-				self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
+				if self.config.state_machines.is_empty() {
+					matches!(dest, StateMachine::Evm(_)).then_some(event)
+				} else {
+					self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
+				}
 			})
 			.collect::<Vec<_>>();
 
@@ -438,13 +443,19 @@ where
 							},
 						};
 
-						for state_machine in self.config.state_machines.iter() {
-							tracing::info!(
-								"Sending mandatory consensus proof to {state_machine}"
-							);
-							self.backend
-								.send_mandatory_proof(state_machine, message.clone())
-								.await?;
+						if self.config.state_machines.is_empty() {
+							let host = self.client.state_machine_id().state_id;
+							tracing::info!("Sending mandatory consensus proof for {host}");
+							self.backend.send_mandatory_proof(&host, message.clone()).await?;
+						} else {
+							for state_machine in self.config.state_machines.iter() {
+								tracing::info!(
+									"Sending mandatory consensus proof to {state_machine}"
+								);
+								self.backend
+									.send_mandatory_proof(state_machine, message.clone())
+									.await?;
+							}
 						}
 
 						// Advance the locally-computed view and persist it to the backend.

@@ -39,6 +39,7 @@ pub use bsc_verifier::primitives::{Mainnet, Testnet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BscPosConfig {
 	/// Host configuration options
+	#[serde(flatten)]
 	pub host: HostConfig,
 }
 

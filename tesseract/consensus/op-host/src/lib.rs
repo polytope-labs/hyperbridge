@@ -39,6 +39,7 @@ mod tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpConfig {
 	/// OpStack Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
 }
 

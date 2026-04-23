@@ -47,6 +47,7 @@ mod notification;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeConfig {
 	/// Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
 	/// Supported L2s
 	pub layer_twos: Option<Vec<String>>,

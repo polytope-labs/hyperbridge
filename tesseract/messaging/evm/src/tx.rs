@@ -23,9 +23,8 @@ use ismp::{
 };
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
-	handler::{
-		handler_v2::{batchCallCall, HandlerV2Instance},
-		HandlerInstance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+	handler::handler_v2::{
+		batchCallCall, HandlerV2Instance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
 		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
@@ -223,7 +222,7 @@ pub async fn generate_contract_calls(
 	debug_trace: bool,
 ) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
 	let handler_addr = Address::from_slice(&client.handler().await?.0);
-	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let contract = HandlerV2Instance::new(handler_addr, client.signer.clone());
 	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
 	let from = Address::from_slice(&client.address);
 	let gas_price = fetch_gas_price(client, debug_trace).await?;
@@ -311,7 +310,7 @@ async fn build_batch_inner_calls(
 	messages: &[Message],
 ) -> anyhow::Result<Vec<Bytes>> {
 	let handler_addr = Address::from_slice(&client.handler().await?.0);
-	let contract = HandlerInstance::new(handler_addr, client.signer.clone());
+	let contract = HandlerV2Instance::new(handler_addr, client.signer.clone());
 	let ismp_host = Address::from_slice(&client.config.ismp_host.0);
 
 	let mut inner = Vec::with_capacity(messages.len());
@@ -670,7 +669,7 @@ pub async fn probe_handler_supports_batch(client: &EvmClient) -> bool {
 			return false;
 		},
 	};
-	let handler = HandlerInstance::new(handler_addr, client.signer.clone());
+	let handler = HandlerV2Instance::new(handler_addr, client.signer.clone());
 	match handler.supportsInterface(IHANDLER_V2_INTERFACE_ID).call().await {
 		Ok(supported) => {
 			tracing::debug!(

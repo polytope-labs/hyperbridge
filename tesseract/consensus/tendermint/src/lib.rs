@@ -34,6 +34,7 @@ pub struct TendermintHostConfig {
 /// Top-level config for Tendermint relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TendermintConfig {
+	#[serde(flatten)]
 	pub host: TendermintHostConfig,
 }
 

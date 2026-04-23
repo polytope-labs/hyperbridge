@@ -48,7 +48,10 @@ pub mod handler_v2 {
 		"../out/HandlerV2.sol/HandlerV2.json"
 	);
 
-	pub use HandlerV2::batchCallCall;
+	pub use HandlerV2::{
+		batchCallCall, PostRequestLeaf, PostRequestMessage, PostResponseLeaf, PostResponseMessage,
+		Proof, StateMachineHeight,
+	};
 	// `HandlerV2Instance` is only generated when `#[sol(rpc, ...)]` is enabled —
 	// i.e. in `std` builds. no_std consumers only need the call-type selectors,
 	// not the rpc helpers.

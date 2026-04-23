@@ -47,6 +47,7 @@ pub struct PharosHostConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PharosConfig {
 	/// Host configuration options
+	#[serde(flatten)]
 	pub host: PharosHostConfig,
 }
 

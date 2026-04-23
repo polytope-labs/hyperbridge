@@ -34,6 +34,7 @@ pub struct HostConfig {
 /// Top-level config for Polygon POS relayer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolygonPosConfig {
+	#[serde(flatten)]
 	pub host: HostConfig,
 }
 

@@ -41,6 +41,7 @@ const DEFAULT_BLOCK_RANGE: u32 = 2400;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrandpaConfig {
 	/// Host config
+	#[serde(flatten)]
 	pub grandpa: HostConfig,
 }
 

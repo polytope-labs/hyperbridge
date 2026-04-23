@@ -29,6 +29,7 @@ mod tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
 	/// Arbitrum Orbit Chain Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
 }
 

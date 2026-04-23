@@ -105,8 +105,8 @@ where
 			"messaging",
 			async move {
 				let res = handle_notification(
-					chain_b_inner,
 					hyperbridge,
+					chain_b_inner,
 					tx_payment,
 					config,
 					coprocessor,

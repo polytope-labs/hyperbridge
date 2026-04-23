@@ -32,6 +32,7 @@ use transaction_fees::TransactionPayment;
 
 use crate::{
 	config::HyperbridgeConfig,
+	fees::AccumulateFees,
 	provider::{ConsensusProofSource, OffchainProofSource},
 };
 use messaging::outbound;
@@ -61,18 +62,16 @@ use messaging::outbound;
 	`tesseract/relayer/src/{config,outbound,provider}.rs` for full details."
 )]
 pub struct Cli {
-	/// Path to the relayer config file
-	#[arg(short, long)]
-	pub config: String,
-
-	/// Path to the relayer database file (for fee tracking)
-	#[arg(short, long)]
-	pub db: String,
-
-	/// Optional subcommand. When absent, runs the relayer in the usual
+   	/// Optional subcommand. When absent, runs the relayer in the usual
 	/// long-running mode.
 	#[command(subcommand)]
 	pub subcommand: Option<Subcommand>,
+	/// Path to the relayer config file
+	#[arg(short, long)]
+	pub config: String,
+	/// Path to the relayer database file (for fee tracking)
+	#[arg(short, long)]
+	pub db: String,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -88,6 +87,10 @@ pub enum Subcommand {
 	/// then exit. Uses the same code path as the periodic `auto_withdraw`
 	/// loop; `relayer.minimum_withdrawal_amount` still gates.
 	Withdraw,
+	/// Claim fees for every past delivery recorded in the local DB, in both
+	/// directions, and (optionally) withdraw the resulting hyperbridge
+	/// balance to each destination.
+	AccumulateFees(AccumulateFees),
 }
 
 const BANNER: &str = r"
@@ -106,18 +109,6 @@ impl Cli {
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		eprintln!("{BANNER}");
 		setup_logging()?;
-
-		// Subcommand dispatch: short one-shot actions bypass the long-running
-		// relayer setup entirely.
-		match &self.subcommand {
-			Some(Subcommand::LogConsensusState { state_machine }) => {
-				return self.log_consensus_state(state_machine.clone()).await;
-			},
-			Some(Subcommand::Withdraw) => {
-				return self.withdraw_once().await;
-			},
-			None => {},
-		}
 
 		tracing::info!(
 			target: crate::LOG_TARGET, version = env!("CARGO_PKG_VERSION"),
@@ -381,7 +372,10 @@ impl Cli {
 
 	/// `log-consensus-state <STATE_MACHINE>` — one-shot: fetch and print the
 	/// initial ConsensusState for the given chain hex-encoded.
-	async fn log_consensus_state(&self, state_machine_str: String) -> Result<(), anyhow::Error> {
+	pub async fn log_consensus_state(
+		&self,
+		state_machine_str: String,
+	) -> Result<(), anyhow::Error> {
 		use std::str::FromStr;
 		let state_machine = StateMachine::from_str(&state_machine_str)
 			.map_err(|err| anyhow::anyhow!("invalid state machine '{state_machine_str}': {err}"))?;
@@ -409,7 +403,7 @@ impl Cli {
 	/// `withdraw` — one-shot: run a single pass of fee withdrawal across every
 	/// configured destination, then exit. Uses the same logic as the periodic
 	/// `auto_withdraw` loop (threshold gating, DB persistence, etc.).
-	async fn withdraw_once(&self) -> Result<(), anyhow::Error> {
+	pub async fn withdraw_once(&self) -> Result<(), anyhow::Error> {
 		tracing::info!(target: crate::LOG_TARGET, "one-shot withdrawal starting");
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let messaging_config: tesseract_primitives::config::RelayerConfig =

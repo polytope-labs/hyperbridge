@@ -18,12 +18,27 @@ pub const LOG_TARGET: &str = "tesseract";
 
 mod cli;
 mod config;
+mod fees;
 mod provider;
 
 use clap::Parser;
 
+use crate::cli::{Cli, Subcommand};
+
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-	let cli = cli::Cli::parse();
+	let cli = Cli::parse();
+
+	// Short one-shot subcommands bypass the long-running relayer setup.
+	// Matching on `&cli.subcommand` rather than moving it keeps `cli` intact
+	// so we can still call `.run()` on the `None` arm below.
+	match &cli.subcommand {
+		Some(Subcommand::LogConsensusState { state_machine }) =>
+			return cli.log_consensus_state(state_machine.clone()).await,
+		Some(Subcommand::Withdraw) => return cli.withdraw_once().await,
+		Some(Subcommand::AccumulateFees(cmd)) => return cmd.run(&cli.config, &cli.db).await,
+		None => {},
+	}
+
 	cli.run().await
 }

@@ -281,17 +281,6 @@ fn decode_current_set_id_scale(encoded: &[u8]) -> Option<u64> {
 		.map(|s| s.current_authorities.id)
 }
 
-/// Read the BEEFY `currentAuthoritySet.id` out of an ABI-encoded
-/// [`ismp_solidity_abi::beefy::BeefyConsensusState`]. Returns `None` when the
-/// bytes can't be decoded or the id doesn't fit in a `u64`.
-fn decode_current_set_id_abi(encoded: &[u8]) -> Option<u64> {
-	use alloy_sol_types::SolType;
-	use ismp_solidity_abi::beefy::BeefyConsensusState;
-	<BeefyConsensusState as SolType>::abi_decode(&mut &encoded[..])
-		.ok()
-		.and_then(|s| s.currentAuthoritySet.id.try_into().ok())
-}
-
 /// If the destination's BEEFY `current_authorities.id` is behind HB's, fetch
 /// every intervening rotation proof and submit them before the current update
 /// lands. Rotations are submitted in chunks of
@@ -310,7 +299,7 @@ async fn catch_up_rotations(
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
 		.await
 		.map_err(|err| anyhow::anyhow!("query dest consensus_state: {err:?}"))?;
-	let Some(dest_set_id) = decode_current_set_id_abi(&dest_consensus) else {
+	let Some(dest_set_id) = decode_current_set_id_scale(&dest_consensus) else {
 		tracing::debug!(
 			target: LOG_TARGET,
 			"dest consensus state undecodable; skipping rotation catch-up",

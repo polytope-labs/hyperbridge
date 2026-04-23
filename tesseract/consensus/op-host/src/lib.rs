@@ -15,8 +15,9 @@ use anyhow::anyhow;
 use geth_primitives::{alloy_u256_to_primitive, Header};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use op_verifier::{
-	calculate_output_root, get_game_uuid, OptimismDisputeGameProof, OptimismPayloadProof,
-	DISPUTE_GAMES_SLOT, L2_OUTPUTS_SLOT,
+	calculate_output_root, get_game_uuid, DisputeGameImpl, GameTypeConfig,
+	OptimismDisputeGameProof, OptimismPayloadProof, AGGREGATE_VERIFIER_COUNTERED_BY_SLOT,
+	DISPUTE_GAMES_SLOT, FAULT_DISPUTE_CLAIM_DATA_SLOT, GAME_IMPLS_SLOT, L2_OUTPUTS_SLOT,
 };
 use primitive_types::{H160, H256, U256};
 use reqwest::Client;
@@ -129,6 +130,45 @@ pub fn derive_array_item_key(index_in_array: u64, offset: u64) -> H256 {
 	pos.into()
 }
 
+/// Whether the game's "not challenged" storage slot, read as a 32-byte big-endian word,
+/// indicates the game has been challenged. `OPSuccinct` games have no challenge mechanism and
+/// are never challenged. For the other two kinds the check follows the verifier's on-chain
+/// contract layouts exactly so filtered games are precisely those that `verify_not_challenged`
+/// would reject.
+pub fn game_is_challenged(kind: &DisputeGameImpl, slot_value: alloy::primitives::U256) -> bool {
+	const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
+	match kind {
+		DisputeGameImpl::OPSuccinct => false,
+		DisputeGameImpl::FaultDisputeGame => {
+			// claimData[0] packs (uint32 parentIndex, address counteredBy, ...) with
+			// counteredBy at bytes [8..28] of the 32-byte word viewed big-endian.
+			let bytes = slot_value.to_be_bytes::<32>();
+			&bytes[8..28] != ZERO_ADDRESS.as_slice()
+		},
+		// `counteredByIntermediateRootIndexPlusOne == 0` iff unchallenged.
+		DisputeGameImpl::AggregateVerifier => !slot_value.is_zero(),
+	}
+}
+
+/// The storage slot(s) to prove on the game proxy to establish "not challenged". Returned as
+/// `B256` keys for `eth_getProof`. Empty for `OPSuccinct` games, which have no challenge state.
+pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
+	match kind {
+		DisputeGameImpl::OPSuccinct => Vec::new(),
+		DisputeGameImpl::FaultDisputeGame => {
+			// claimData[0] lives at keccak256(abi.encode(claimDataSlot)).
+			let slot = U256::from(FAULT_DISPUTE_CLAIM_DATA_SLOT).to_big_endian();
+			let hash = keccak_256(&slot);
+			vec![B256::from_slice(&hash)]
+		},
+		DisputeGameImpl::AggregateVerifier => {
+			let mut key = [0u8; 32];
+			key[24..].copy_from_slice(&AGGREGATE_VERIFIER_COUNTERED_BY_SLOT.to_be_bytes());
+			vec![B256::from_slice(&key)]
+		},
+	}
+}
+
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
@@ -228,7 +268,7 @@ impl OpHost {
 		&self,
 		from: u64,
 		to: u64,
-		respected_game_types: Vec<u32>,
+		game_type_configs: Vec<GameTypeConfig>,
 	) -> Result<Vec<DisputeGameFactory::DisputeGameCreated>, anyhow::Error> {
 		if from > to {
 			return Ok(Default::default());
@@ -242,12 +282,41 @@ impl OpHost {
 
 		let logs = self.beacon_execution_client.get_logs(&filter).await?;
 
-		let events: Vec<DisputeGameFactory::DisputeGameCreated> = logs
+		let candidates: Vec<DisputeGameFactory::DisputeGameCreated> = logs
 			.into_iter()
 			.filter_map(|log| DisputeGameFactory::DisputeGameCreated::decode_log(&log.inner).ok())
 			.map(|log| log.data)
-			.filter(|a| respected_game_types.contains(&a.gameType))
+			.filter(|a| game_type_configs.iter().any(|c| c.game_type == a.gameType))
 			.collect();
+
+		// Drop events whose game has already been challenged — they will always fail
+		// verification downstream, so there's no point carrying them further. Reads the proxy's
+		// "not challenged" storage slot directly via `eth_getStorageAt` (cheaper than
+		// `eth_getProof`, which `fetch_dispute_game_payload` does anyway for payloads we keep).
+		let mut events = Vec::with_capacity(candidates.len());
+		for event in candidates {
+			let Some(config) =
+				game_type_configs.iter().find(|c| c.game_type == event.gameType)
+			else {
+				continue;
+			};
+			let challenged = match challenge_slot_keys(&config.kind).first() {
+				None => false,
+				Some(slot) => {
+					let value = self
+						.beacon_execution_client
+						.get_storage_at(event.disputeProxy, alloy::primitives::U256::from_be_slice(slot.as_slice()))
+						.block_id(to.into())
+						.await?;
+					game_is_challenged(&config.kind, value)
+				},
+			};
+			if challenged {
+				log::trace!(target: "tesseract", "Skipping challenged dispute game {:?} (game_type {})", event.disputeProxy, event.gameType);
+				continue;
+			}
+			events.push(event);
+		}
 
 		Ok(events)
 	}
@@ -255,7 +324,7 @@ impl OpHost {
 	pub async fn fetch_dispute_game_payload(
 		&self,
 		at: u64,
-		respected_game_types: Vec<u32>,
+		game_type_configs: Vec<GameTypeConfig>,
 		events: Vec<DisputeGameFactory::DisputeGameCreated>,
 	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
 		let mut payloads = vec![];
@@ -269,21 +338,33 @@ impl OpHost {
 
 			let extra_data = contract.extraData().block(BlockId::latest()).call().await?;
 			let timestamp = contract.createdAt().block(BlockId::latest()).call().await?;
-			let l2_block_number =
-				contract.l2SequenceNumber().block(BlockId::latest()).call().await?;
+
+			// All game types we support lay out their `extraData` with the L2 block number as
+			// the first 32 bytes: Cannon encodes it alone, AggregateVerifier prefixes it before
+			// the intermediate roots and final root claim. Decoding here avoids depending on
+			// a top-level `l2SequenceNumber()` getter that not every implementation exposes.
+			if extra_data.len() < 32 {
+				log::trace!(target: "tesseract", "Skipping dispute game with extraData shorter than 32 bytes ({} bytes)", extra_data.len());
+				continue;
+			}
+			let l2_block_num =
+				alloy::primitives::U256::from_be_slice(&extra_data[..32]).try_into().unwrap_or(u64::MAX);
 
 			// Since anyone can create dispute games including bots we need to be sure the block
 			// number exists
 			let current_block = self.op_execution_client.get_block_number().await?;
-			if alloy_u256_to_primitive(l2_block_number).as_u64() > current_block {
-				log::trace!(target: LOG_TARGET, "Found a dispute game event with a block number that does not exist {l2_block_number:?}");
+			if l2_block_num > current_block {
+				log::trace!(target: "tesseract", "Found a dispute game event with a block number that does not exist {l2_block_num}");
 				continue;
 			}
 
-			if !respected_game_types.contains(&event.gameType) {
-				log::trace!(target: LOG_TARGET, "Found a dispute game event with wrong game type {}", event.gameType);
-				continue;
-			}
+			let config = match game_type_configs.iter().find(|c| c.game_type == event.gameType) {
+				Some(config) => config.clone(),
+				None => {
+					log::trace!(target: "tesseract", "Found a dispute game event with wrong game type {}", event.gameType);
+					continue;
+				},
+			};
 
 			let game_uuid = get_game_uuid::<Hasher>(
 				event.gameType,
@@ -292,16 +373,29 @@ impl OpHost {
 			);
 			let dispute_game_key = derive_map_key(game_uuid.0.to_vec(), DISPUTE_GAMES_SLOT);
 
+			// Build the key for gameImpls[game_type]: keccak256(keccak256(padded_u32 . slot)).
+			let game_impl_key = {
+				let mut k = vec![0u8; 32];
+				k[28..].copy_from_slice(&event.gameType.to_be_bytes());
+				derive_map_key(k, GAME_IMPLS_SLOT)
+			};
+
 			let factory_addr = Address::from_slice(&dispute_game_factory.0);
-			let proof = self
+			let factory_proof = self
 				.beacon_execution_client
-				.get_proof(factory_addr, vec![B256::from_slice(&dispute_game_key.0)])
+				.get_proof(
+					factory_addr,
+					vec![
+						B256::from_slice(&dispute_game_key.0),
+						B256::from_slice(&game_impl_key.0),
+					],
+				)
 				.block_id(at.into())
 				.await?;
 
-			let dispute_game_proof = proof
+			let dispute_game_proof = factory_proof
 				.storage_proof
-				.first()
+				.get(0)
 				.cloned()
 				.ok_or_else(|| anyhow!("Storage proof not found for dispute game"))?
 				.proof
@@ -309,16 +403,52 @@ impl OpHost {
 				.map(|node| node.to_vec())
 				.collect();
 
-			let l2_block_num = alloy_u256_to_primitive(l2_block_number).as_u64();
+			let game_impl_proof = factory_proof
+				.storage_proof
+				.get(1)
+				.cloned()
+				.ok_or_else(|| anyhow!("Storage proof not found for gameImpls[gameType]"))?
+				.proof
+				.into_iter()
+				.map(|node| node.to_vec())
+				.collect();
+
+			// Account + storage proof for the proxy's "not challenged" slot.
+			let challenge_slots = challenge_slot_keys(&config.kind);
+			let proxy_proof = self
+				.beacon_execution_client
+				.get_proof(proxy_addr, challenge_slots.clone())
+				.block_id(at.into())
+				.await?;
+			let proxy_account_proof = proxy_proof
+				.account_proof
+				.iter()
+				.cloned()
+				.map(|n| n.to_vec())
+				.collect::<Vec<_>>();
+			let challenge_proof = if challenge_slots.is_empty() {
+				Vec::new()
+			} else {
+				proxy_proof
+					.storage_proof
+					.get(0)
+					.cloned()
+					.ok_or_else(|| anyhow!("Storage proof not found for challenge slot"))?
+					.proof
+					.into_iter()
+					.map(|node| node.to_vec())
+					.collect()
+			};
+
 			let block = self
 				.op_execution_client
 				.get_block(BlockId::number(l2_block_num))
 				.await?
 				.ok_or_else(|| {
 					anyhow!(
-						"{:?} Header not found for {:?}",
+						"{:?} Header not found for L2 block {}",
 						self.evm.state_machine,
-						l2_block_number
+						l2_block_num,
 					)
 				})?;
 
@@ -335,12 +465,16 @@ impl OpHost {
 				withdrawal_storage_root: message_parser_proof.storage_hash.0.into(),
 				// Version bytes is still the default value
 				version: H256::zero(),
-				dispute_factory_proof: proof
+				dispute_factory_proof: factory_proof
 					.account_proof
-					.into_iter()
+					.iter()
+					.cloned()
 					.map(|node| node.to_vec())
 					.collect(),
 				dispute_game_proof,
+				game_impl_proof,
+				proxy_account_proof,
+				challenge_proof,
 				timestamp,
 				header,
 				proxy: proxy_addr.0 .0.into(),

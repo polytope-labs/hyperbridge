@@ -238,11 +238,11 @@ where
 				};
 
 				// filter out destinations that the prover isn't configured for
-				// empty state_machines means prove all
 				if self.config.state_machines.is_empty() {
-					return Some(event);
+					matches!(dest, StateMachine::Evm(_)).then_some(event)
+				} else {
+					self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
 				}
-				self.config.state_machines.iter().find(|s| **s == dest).map(|_| event)
 			})
 			.collect::<Vec<_>>();
 

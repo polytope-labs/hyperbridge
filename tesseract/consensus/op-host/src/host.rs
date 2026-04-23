@@ -14,7 +14,8 @@ use ismp_optimism::{
 	ConsensusState, OptimismConsensusProof, OptimismConsensusType, OptimismUpdate,
 	OPTIMISM_CONSENSUS_CLIENT_ID,
 };
-use op_verifier::{calculate_output_root, CANNON, _PERMISSIONED};
+use op_verifier::{calculate_output_root, GameTypeConfig, CANNON};
+use subxt_utils::optimism_game_type_configs_storage_key;
 use reqwest::Url;
 use sp_core::{bytes::from_hex, Encode, H160, H256, U256};
 use sync_committee_primitives::consensus_types::{BeaconBlockHeader, Checkpoint};
@@ -25,7 +26,7 @@ use sync_committee_prover::{
 use tesseract_evm::{
 	gas_oracle::get_current_gas_cost_in_usd, tx::get_chain_gas_limit, AlloySignerProvider,
 };
-use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated};
+use tesseract_primitives::{Hasher, IsmpHost, IsmpProvider, StateMachineUpdated, StorageKey};
 
 use crate::{
 	abi::{DisputeGameFactory, FaultDisputeGame},
@@ -34,6 +35,23 @@ use crate::{
 use codec::Decode;
 use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
 use log::trace;
+
+/// Read the per-game-type verification configuration installed in
+/// `pallet_ismp_optimism::StateMachinesDisputeGameFactoriesTypes` on Hyperbridge for this
+/// relayer's L2. Returns `None` if the admin has not yet configured a factory for this state
+/// machine.
+async fn fetch_game_type_configs(
+	counterparty: &Arc<dyn IsmpProvider>,
+	state_machine_id: StateMachineId,
+) -> Result<Option<Vec<GameTypeConfig>>, anyhow::Error> {
+	let key = StorageKey::Substrate(optimism_game_type_configs_storage_key(state_machine_id));
+	let Some(raw) = counterparty.query_storage(key).await? else {
+		return Ok(None);
+	};
+	let (_factory, configs): (H160, Vec<GameTypeConfig>) = Decode::decode(&mut &*raw)
+		.map_err(|e| anyhow!("Failed to decode dispute-game factory config: {e:?}"))?;
+	Ok(Some(configs))
+}
 
 #[derive(Debug, Clone)]
 pub struct StateProposal {
@@ -172,7 +190,7 @@ impl IsmpHost for OpHost {
 				consensus_state_id: self.l1_consensus_state_id,
 			},
 			optimism_consensus_type: Some(OpFaultProofGames),
-			respected_game_types: Some(vec![CANNON, _PERMISSIONED]),
+			game_type_configs: None,
 		};
 
 		state_machine_commitments.push((
@@ -661,44 +679,54 @@ async fn submit_consensus_update(
 					}
 				}
 				Some(OptimismConsensusType::OpFaultProofGames) => {
-					if let Some(respected_game_types) = consensus_state.respected_game_types.clone()
-					{
-						match client.latest_dispute_games(previous_height + 1, current_height, respected_game_types.clone()).await {
-							Ok(event) => {
-								trace!(target: "op-host", "{state_machine:?}: -> fetching op fault proof games payload");
-								match client.fetch_dispute_game_payload(current_height, respected_game_types, event).await {
-									Ok(maybe_payload) => {
-										if let Some(payload) = maybe_payload {
-											let update = OptimismUpdate {
-												state_machine_id: StateMachineId {
-													state_id: client.evm.state_machine,
-													consensus_state_id: client.consensus_state_id,
-												},
-												l1_height: current_height,
-												proof: OptimismConsensusProof::OpFaultProofGames(payload),
-											};
-
-											let consensus_message = ConsensusMessage {
-												consensus_proof: update.encode(),
+					let l2_state_machine_id = StateMachineId {
+						state_id: client.evm.state_machine,
+						consensus_state_id: client.consensus_state_id,
+					};
+					let game_type_configs = match fetch_game_type_configs(&counterparty, l2_state_machine_id).await {
+						Ok(Some(configs)) => configs,
+						Ok(None) => {
+							trace!(target: "op-host", "{state_machine:?}: -> no dispute-game factory config installed for this state machine");
+							return Some((Ok(None), (interval, previous_height)));
+						},
+						Err(e) => return Some((
+							Err(anyhow!("Not a fatal error: failed to fetch dispute-game factory config: {e:?}")),
+							(interval, latest_height),
+						)),
+					};
+					match client.latest_dispute_games(previous_height + 1, current_height, game_type_configs.clone()).await {
+						Ok(event) => {
+							trace!(target: "op-host", "{state_machine:?}: -> fetching op fault proof games payload");
+							match client.fetch_dispute_game_payload(current_height, game_type_configs, event).await {
+								Ok(maybe_payload) => {
+									if let Some(payload) = maybe_payload {
+										let update = OptimismUpdate {
+											state_machine_id: StateMachineId {
+												state_id: client.evm.state_machine,
 												consensus_state_id: client.consensus_state_id,
-												signer: counterparty.address(),
-											};
+											},
+											l1_height: current_height,
+											proof: OptimismConsensusProof::OpFaultProofGames(payload),
+										};
 
-											trace!(target: "op-host", "{state_machine:?}: -> gotten update");
+										let consensus_message = ConsensusMessage {
+											consensus_proof: update.encode(),
+											consensus_state_id: client.consensus_state_id,
+											signer: counterparty.address(),
+										};
 
-											Some((Ok::<_, Error>(Some(consensus_message)), (interval, current_height)))
-										} else {
+										trace!(target: "op-host", "{state_machine:?}: -> gotten update");
+
+										Some((Ok::<_, Error>(Some(consensus_message)), (interval, current_height)))
+									} else {
 										trace!(target: "op-host", "{state_machine:?}: -> No dispute game updates between {previous_height:?} -> {current_height:?}");
-											Some((Ok::<_, Error>(None), (interval, current_height)))
-										}
+										Some((Ok::<_, Error>(None), (interval, current_height)))
 									}
-									Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault proof game payload at height {current_height:?}\n{e:?}")), (interval, latest_height),)),
 								}
+								Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching op fault proof game payload at height {current_height:?}\n{e:?}")), (interval, latest_height),)),
 							}
-							Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching dispute game events at height {current_height:?}\n{e:?}")), (interval, latest_height),)),
 						}
-					} else {
-						Some((Err(anyhow!("Fatal error: Respected game types not present")), (interval, latest_height),))
+						Err(e) => Some((Err(anyhow!("Not a fatal error: Error fetching dispute game events at height {current_height:?}\n{e:?}")), (interval, latest_height),)),
 					}
 				}
 				_ => return Some((Err(anyhow!("Fatal error: No op stack consensus type in consensus state")), (interval, latest_height),))

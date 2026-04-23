@@ -61,8 +61,9 @@ use subxt_utils::{
 	values::{messages_to_value, state_machine_height_to_value},
 };
 use tesseract_primitives::{
-	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider,
-	ProofAccepted, Query, StateMachineUpdated, StateProofQueryType, TxReceipt, TxResult,
+	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, Hasher, IsmpProvider, Query,
+	StateMachineUpdated, StateProofQueryType, StorageKey as TesseractStorageKey, TxReceipt,
+	TxResult,
 };
 
 use crate::{
@@ -117,6 +118,24 @@ where
 			.await?
 			.ok_or_else(|| anyhow!("Finalized header should exist {finalized:?}"))?;
 		Ok(block.number().into())
+	}
+
+	async fn query_storage(
+		&self,
+		key: TesseractStorageKey,
+	) -> Result<Option<Vec<u8>>, anyhow::Error> {
+		let key = match key {
+			TesseractStorageKey::Substrate(k) => k,
+			TesseractStorageKey::Evm { .. } =>
+				return Err(anyhow!("StorageKey::Evm not supported on substrate provider")),
+		};
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow!("Failed to query latest block hash"))?;
+		let raw = self.client.storage().at(block_hash).fetch_raw(key).await?;
+		Ok(raw)
 	}
 
 	async fn query_state_machine_update_time(

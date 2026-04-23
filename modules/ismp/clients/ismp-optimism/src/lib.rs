@@ -19,8 +19,16 @@
 
 extern crate alloc;
 
+pub mod migrations;
 pub mod pallet;
 use pallet::{Pallet, SupportedStateMachines};
+
+/// Current storage version of `pallet-ismp-optimism`. Bumped to `1` alongside the
+/// [`migrations::SeedDisputeGameConfigs`] migration that translates
+/// `StateMachinesDisputeGameFactoriesTypes` from `(H160, Vec<u32>)` to the richer
+/// `(H160, Vec<GameTypeConfig>)` layout and seeds the per-game-type verification configs.
+pub const STORAGE_VERSION: polkadot_sdk::frame_support::traits::StorageVersion =
+	polkadot_sdk::frame_support::traits::StorageVersion::new(1);
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -35,8 +43,8 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use op_verifier::{
-	OptimismDisputeGameProof, OptimismPayloadProof, verify_optimism_dispute_game_proof,
-	verify_optimism_payload,
+	GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
+	verify_optimism_dispute_game_proof, verify_optimism_payload,
 };
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
@@ -47,7 +55,11 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
-	pub respected_game_types: Option<Vec<u32>>,
+	/// Per-game-type verification configuration for `OpFaultProofGames`. See
+	/// [`op_verifier::GameTypeConfig`]. The op-host reads the authoritative configuration from
+	/// the `IsmpOptimism` pallet on Hyperbridge; this field is retained as informational
+	/// metadata on the consensus state.
+	pub game_type_configs: Option<Vec<GameTypeConfig>>,
 }
 
 #[derive(Encode, Decode)]
@@ -156,14 +168,14 @@ impl<
 				}
 			},
 			OptimismConsensusProof::OpFaultProofGames(dispute_proof) => {
-				if let Some((dispute_game_factory, respected_game_types)) =
+				if let Some((dispute_game_factory, game_type_configs)) =
 					Pallet::<T>::state_machines_dispute_game_factories_types(state_machine_id)
 				{
 					let state = verify_optimism_dispute_game_proof::<H>(
 						dispute_proof,
 						state_root,
 						dispute_game_factory,
-						respected_game_types,
+						game_type_configs,
 						consensus_state_id.clone(),
 					)?;
 

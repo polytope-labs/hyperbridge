@@ -160,11 +160,40 @@ impl ArbHost {
 
 		let logs = self.beacon_execution_client.get_logs(&filter).await?;
 
-		let events: Vec<IRollupBold::AssertionCreated> = logs
+		let candidates: Vec<IRollupBold::AssertionCreated> = logs
 			.into_iter()
 			.filter_map(|log| IRollupBold::AssertionCreated::decode_log(&log.inner).ok())
 			.map(|log| log.data)
 			.collect();
+
+		// Drop events whose parent assertion already has two children — in BoLD that's the
+		// on-chain signal that this branch is being contested, and the verifier would reject
+		// the proof anyway. Reads the parent assertion's first storage word directly via
+		// `eth_getStorageAt`.
+		let mut events = Vec::with_capacity(candidates.len());
+		for event in candidates {
+			let parent_key = derive_map_key(
+				event.parentAssertionHash.0.to_vec(),
+				ASSERTIONS_SLOT as u64,
+			);
+			let word = self
+				.beacon_execution_client
+				.get_storage_at(
+					rollup_addr,
+					alloy::primitives::U256::from_be_slice(&parent_key.0),
+				)
+				.block_id(to.into())
+				.await?;
+			// AssertionNode slot 0 packs `[padding(16) || secondChildBlock(8) || firstChildBlock(8)]`
+			// (big-endian); secondChildBlock occupies bytes [16..24]. Non-zero = challenged.
+			const ZERO_U64: [u8; 8] = [0u8; 8];
+			let bytes = word.to_be_bytes::<32>();
+			if &bytes[16..24] != ZERO_U64.as_slice() {
+				log::trace!(target: "arb-host", "Skipping challenged assertion {:?} (parent {:?} has second child)", event.assertionHash, event.parentAssertionHash);
+				continue;
+			}
+			events.push(event);
+		}
 
 		Ok(events.last().cloned())
 	}
@@ -220,10 +249,20 @@ impl ArbHost {
 	) -> Result<ArbitrumBoldProof, anyhow::Error> {
 		let assertion_hash_key =
 			derive_map_key(event.assertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
+		// `_assertions[parent]` storage key — first struct slot holds `firstChildBlock` and
+		// `secondChildBlock` and is what the verifier inspects to prove "not challenged".
+		let parent_assertion_key =
+			derive_map_key(event.parentAssertionHash.0.to_vec(), ASSERTIONS_SLOT as u64);
 		let rollup_addr = Address::from_slice(&self.rollup_core.0);
 		let proof = self
 			.beacon_execution_client
-			.get_proof(rollup_addr, vec![B256::from_slice(&assertion_hash_key.0)])
+			.get_proof(
+				rollup_addr,
+				vec![
+					B256::from_slice(&assertion_hash_key.0),
+					B256::from_slice(&parent_assertion_key.0),
+				],
+			)
 			.block_id(at.into())
 			.await?;
 		let arb_block_hash: H256 = event.assertion.afterState.globalState.bytes32Vals[0].0.into();
@@ -248,21 +287,31 @@ impl ArbHost {
 			end_history_root: event.assertion.afterState.endHistoryRoot.0.into(),
 		};
 
+		let storage_proof_entry = |idx: usize, what: &str| -> Result<Vec<Vec<u8>>, anyhow::Error> {
+			Ok(proof
+				.storage_proof
+				.get(idx)
+				.cloned()
+				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum {what}"))?
+				.proof
+				.into_iter()
+				.map(|node| node.to_vec())
+				.collect())
+		};
+
 		let payload = ArbitrumBoldProof {
 			arbitrum_header,
 			after_state,
 			previous_assertion_hash: event.parentAssertionHash.0.into(),
 			sequencer_batch_acc: event.afterInboxBatchAcc.0.into(),
-			storage_proof: proof
-				.storage_proof
-				.first()
+			storage_proof: storage_proof_entry(0, "assertion hash")?,
+			contract_proof: proof
+				.account_proof
+				.iter()
 				.cloned()
-				.ok_or_else(|| anyhow!("Storage proof not found for arbitrum assertion hash"))?
-				.proof
-				.into_iter()
 				.map(|node| node.to_vec())
 				.collect(),
-			contract_proof: proof.account_proof.into_iter().map(|node| node.to_vec()).collect(),
+			challenge_proof: storage_proof_entry(1, "parent assertion")?,
 		};
 
 		Ok(payload)

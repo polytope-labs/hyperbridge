@@ -160,6 +160,20 @@ async fn submit_for_dest(
 ) -> Result<(), anyhow::Error> {
 	let dest_state_machine = dest.state_machine_id().state_id;
 
+	// Bring the destination's BEEFY light client up to HB's current
+	// authority-set id before submitting the current update. A messaging
+	// proof whose set_id is ahead of the destination's locally-known
+	// authorities gets rejected by the BEEFY verifier, so any missing
+	// rotations have to land first. Best-effort: if we can't read the
+	// destination's consensus state we assume it's current and fall through.
+	if let Err(err) = catch_up_rotations(&hyperbridge, &dest, &proof_source).await {
+		tracing::warn!(
+			target: crate::LOG_TARGET,
+			?err,
+			"rotation catch-up failed; proceeding with current update",
+		);
+	}
+
 	// Only events relevant to this destination matter; skip the RPC-heavy
 	// translate_events_to_messages entirely when there's nothing to do.
 	let has_events_for_dest = events.iter().any(|ev| {
@@ -177,19 +191,6 @@ async fn submit_for_dest(
 		return Ok(());
 	}
 
-	// Bring the destination's BEEFY light client up to HB's current
-	// authority-set id before submitting the current update. A messaging
-	// proof whose set_id is ahead of the destination's locally-known
-	// authorities gets rejected by the BEEFY verifier, so any missing
-	// rotations have to land first. Best-effort: if we can't read the
-	// destination's consensus state we assume it's current and fall through.
-	if let Err(err) = catch_up_rotations(&hyperbridge, &dest, &proof_source).await {
-		tracing::warn!(
-			target: crate::LOG_TARGET,
-			?err,
-			"rotation catch-up failed; proceeding with current update",
-		);
-	}
 
 	let mut batch: Vec<Message> = vec![Message::Consensus(ConsensusMessage {
 		consensus_proof: proof_bytes,

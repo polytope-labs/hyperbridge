@@ -21,7 +21,7 @@ import { getRequestCommitment, postRequestCommitment } from "@/utils"
 import ERC6160 from "@/abis/erc6160"
 import PING_MODULE from "@/abis/pingModule"
 import EVM_HOST from "@/abis/evmHost"
-import HANDLER from "@/abis/handler"
+import HANDLER from "@/abis/handlerV2"
 import { EvmChain, SubstrateChain } from "@/chain"
 import { createQueryClient } from "@/queryClient"
 import { bigIntReplacer } from "@/helpers/data.helpers"
@@ -69,10 +69,11 @@ describe.sequential("Get and Post Requests", () => {
 
 		indexer = new IsmpClient({
 			source: sourceChain,
-			dest: destChain,
+			dest: polygonChain,
 			hyperbridge: hyperbridgeChain,
 			queryClient: query_client,
 			pollInterval: 1_000,
+			tracing: true,
 		})
 
 		timeoutIndexer = new IsmpClient({
@@ -81,6 +82,7 @@ describe.sequential("Get and Post Requests", () => {
 			hyperbridge: hyperbridgeChain,
 			queryClient: query_client,
 			pollInterval: 1_000,
+			tracing: true,
 		})
 
 		hyperbridgeInstance = hyperbridge
@@ -236,14 +238,30 @@ describe.sequential("Get and Post Requests", () => {
 			hyperbridgeInstance.api?.tx.ismp.handleUnsigned(hexToBytes(tx).slice(2))
 		})
 
-		it.skip("should successfully stream and query the post request status", async () => {
-			const { bscTestnetClient, baseSepoliaHandler, bscPing, baseSepoliaClient, baseSepoliaHost } =
+		it("should successfully stream and query the post request status", async () => {
+			const { bscTestnetClient, bscPing, bscFeeToken, tokenFaucet, polygonAmoyClient, polygonAmoyWallet, polygonAmoyHandler, polygonAmoyHost } =
 				await setUp()
+
+			// Drip fee tokens and approve the ping module to spend them
+			console.log("Dripping fee tokens and approving...")
+			try {
+				const dripHash = await tokenFaucet.write.drip([bscFeeToken.address])
+				await bscTestnetClient.waitForTransactionReceipt({ hash: dripHash, confirmations: 1 })
+			} catch (e) {
+				console.log("Faucet drip skipped (already dripped today)")
+			}
+
+			const approveHash = await bscFeeToken.write.approve([
+				process.env.PING_MODULE_ADDRESS! as HexString,
+				BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+			])
+			await bscTestnetClient.waitForTransactionReceipt({ hash: approveHash, confirmations: 1 })
+
 			console.log("\n\nSending Post Request\n\n")
 
 			const hash = await bscPing.write.ping([
 				{
-					dest: await baseSepoliaHost.read.host(),
+					dest: await polygonAmoyHost.read.host(),
 					count: BigInt(1),
 					fee: BigInt(0),
 					module: process.env.PING_MODULE_ADDRESS! as HexString,
@@ -287,23 +305,22 @@ describe.sequential("Get and Post Requests", () => {
 					}
 					case RequestStatus.HYPERBRIDGE_FINALIZED: {
 						console.log(
-							`Status ${status.status}, Transaction: https://sepolia.basescan.org/tx/${status.metadata.transactionHash}`,
+							`Status ${status.status}`,
 						)
-						const { args, functionName } = decodeFunctionData({
-							abi: HANDLER.ABI,
-							data: status.metadata.calldata,
-						})
-
-						expect(functionName).toBe("handlePostRequests")
 
 						try {
-							const hash = await baseSepoliaHandler.write.handlePostRequests(args as any)
-							await baseSepoliaClient.waitForTransactionReceipt({
+							// The SDK produces a batchCall(handleConsensus + handlePostRequests)
+							// calldata when the destination has HandlerV2. Send it directly.
+							const hash = await polygonAmoyWallet.sendTransaction({
+								to: polygonAmoyHandler.address,
+								data: status.metadata.calldata as HexString,
+							})
+							await polygonAmoyClient.waitForTransactionReceipt({
 								hash,
 								confirmations: 1,
 							})
 
-							console.log(`Transaction submitted: https://sepolia.basescan.org/tx/${hash}`)
+							console.log(`Transaction submitted: https://amoy.polygonscan.com/tx/${hash}`)
 						} catch (e) {
 							console.error("Error self-relaying: ", e)
 						}
@@ -312,7 +329,7 @@ describe.sequential("Get and Post Requests", () => {
 					}
 					case RequestStatus.DESTINATION: {
 						console.log(
-							`Status ${status.status}, Transaction: https://sepolia.basescan.org/tx/${status.metadata.transactionHash}`,
+							`Status ${status.status}, Transaction: https://amoy.polygonscan.com/tx/${status.metadata.transactionHash}`,
 						)
 						break
 					}
@@ -589,10 +606,24 @@ async function setUp() {
 		client: ethSepoliaClient,
 	})
 
+	const polygonAmoyWallet = createWalletClient({
+		chain: polygonAmoy,
+		account,
+		transport: http(process.env.POLYGON_AMOY),
+	})
+
 	const polygonAmoyHost = getContract({
 		address: "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE",
 		abi: EVM_HOST.ABI,
 		client: polygonAmoyClient,
+	})
+
+	const polygonAmoyHostParams = await polygonAmoyHost.read.hostParams()
+
+	const polygonAmoyHandler = getContract({
+		address: polygonAmoyHostParams.handler,
+		abi: HANDLER.ABI,
+		client: { public: polygonAmoyClient, wallet: polygonAmoyWallet },
 	})
 
 	const baseSepoliaHostParams = await baseSepoliaHost.read.hostParams()
@@ -604,7 +635,7 @@ async function setUp() {
 	})
 
 	const tokenFaucet = getContract({
-		address: "0x17d8cc0859fbA942A7af243c3EBB69AbBfe0a320",
+		address: "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3",
 		abi: parseAbi(["function drip(address token) public"]),
 		client: { public: bscTestnetClient, wallet: bscWalletClient },
 	})
@@ -624,11 +655,15 @@ async function setUp() {
 		account,
 		tokenFaucet,
 		baseSepoliaHandler,
+		baseSepoliaWallet,
 		bscHandler,
 		bscPing,
 		baseSepoliaPing,
 		baseSepoliaClient,
 		baseSepoliaHost,
+		polygonAmoyClient,
+		polygonAmoyWallet,
+		polygonAmoyHandler,
 		bscIsmpHost,
 		hyperbridge,
 		polygonAmoyHost,

@@ -240,7 +240,7 @@ export class GetRequestClient {
 	/**
 	 * Snapshot helper: returns the `HYPERBRIDGE_FINALIZED` event with source-chain
 	 * calldata if prerequisites are met, or `undefined` if we're still waiting
-	 * for a consensus proof (HandlerV2) or state machine update (HandlerV1).
+	 * for a consensus proof.
 	 * Requires the matching response to already exist in the indexer.
 	 */
 	private async buildFinalized(
@@ -250,12 +250,13 @@ export class GetRequestClient {
 	): Promise<RequestStatusWithMetadata | undefined> {
 		const sourceChain = this.ctx.config.source
 		const hyperbridge = this.ctx.config.hyperbridge
-		const useHandlerV2 = sourceChain instanceof EvmChain && (await sourceChain.isHandlerV2())
 
-		if (useHandlerV2) {
+		if (sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
-			const consensusResult = await hyperbridgeSubstrate.queryConsensusProof(
+			const currentEpoch = await sourceChain.currentEpoch()
+			const consensusResult = await hyperbridgeSubstrate.queryConsensusProofs(
 				BigInt(hyperbridgeDelivered.metadata.blockNumber),
+				currentEpoch,
 			)
 			if (!consensusResult) return undefined
 
@@ -267,7 +268,7 @@ export class GetRequestClient {
 
 			const calldata = sourceChain.encode({
 				kind: "BatchConsensusAndGetResponse",
-				consensusProof: consensusResult.proof,
+				consensusProofs: consensusResult.proofs,
 				proof: {
 					stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
 					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
@@ -299,6 +300,7 @@ export class GetRequestClient {
 			}
 		}
 
+		// Substrate source: use state machine update from indexer
 		const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
@@ -360,15 +362,15 @@ export class GetRequestClient {
 	): Promise<RequestStatusWithMetadata> {
 		const sourceChain = this.ctx.config.source
 		const hyperbridge = this.ctx.config.hyperbridge
-		const useHandlerV2 = sourceChain instanceof EvmChain && (await sourceChain.isHandlerV2())
 		const stateMachineId = this.ctx.config.hyperbridge.config.stateMachineId
 		const neededHeight = BigInt(request.statuses[hyperbridgeDeliveredIndex].metadata.blockNumber)
 
-		if (useHandlerV2) {
+		if (sourceChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+			const currentEpoch = await sourceChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
 				signal,
-				promise: () => hyperbridgeSubstrate.queryConsensusProof(neededHeight),
+				promise: () => hyperbridgeSubstrate.queryConsensusProofs(neededHeight, currentEpoch),
 			})
 
 			const proof = await hyperbridge.queryProof(
@@ -379,9 +381,9 @@ export class GetRequestClient {
 
 			const calldata = sourceChain.encode({
 				kind: "BatchConsensusAndGetResponse",
-				consensusProof: consensusResult.proof,
+				consensusProofs: consensusResult.proofs,
 				proof: {
-					stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
+					stateMachine: stateMachineId,
 					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
 					proof,
 					height: consensusResult.provenHeight,
@@ -411,6 +413,7 @@ export class GetRequestClient {
 			}
 		}
 
+		// Substrate source: wait for state machine update
 		const hyperbridgeFinalized = await waitOrAbort(this.ctx, {
 			signal,
 			promise: () =>
@@ -430,7 +433,7 @@ export class GetRequestClient {
 		const calldata = sourceChain.encode({
 			kind: "GetResponse",
 			proof: {
-				stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
+				stateMachine: stateMachineId,
 				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
 				proof,
 				height: BigInt(hyperbridgeFinalized.height),

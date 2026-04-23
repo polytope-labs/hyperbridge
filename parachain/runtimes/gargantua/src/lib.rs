@@ -768,6 +768,13 @@ parameter_types! {
 	pub const MaxStoredBeefyProofs: u32 = 512;
 }
 
+parameter_types! {
+	pub const AllowedBeefyProofTypes: &'static [u8] = &[
+		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
+		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
+	];
+}
+
 impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type AdminOrigin = EnsureRoot<AccountId>;
 	type Currency = Balances;
@@ -776,6 +783,7 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
+	type AllowedProofTypes = AllowedBeefyProofTypes;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }
 

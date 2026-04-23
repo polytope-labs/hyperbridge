@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 /// Which proof backend the BEEFY prover/host should use.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProofBackendConfig {
 	/// Persistent Redis-backed queue. The prover writes proofs into RSMQ queues
@@ -44,6 +44,7 @@ pub enum ProofBackendConfig {
 	/// On-chain backend. The prover submits proofs directly to
 	/// `pallet-beefy-consensus-proofs` via unsigned extrinsics — no separate
 	/// host process is needed.
+	#[default]
 	Onchain,
 	/// In-process queue shared between prover and host. Single-process only,
 	/// not persisted across restarts.

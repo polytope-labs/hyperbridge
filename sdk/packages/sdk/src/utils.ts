@@ -21,7 +21,7 @@ import {
 	toHex,
 } from "viem"
 import evmHost from "./abis/evmHost"
-import handler from "./abis/handler"
+import handler from "./abis/handlerV2"
 import { type IChain, getStateCommitmentFieldSlot } from "./chain"
 import { _queryRequestInternal } from "./queryClient"
 import { generateRootWithProof } from "./utils"

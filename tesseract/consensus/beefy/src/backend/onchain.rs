@@ -19,13 +19,16 @@
 //! unsigned extrinsics.
 
 use super::{ConsensusProof, ProofBackend, QueueMessage, StreamMessage};
+use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use futures::Stream;
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 use pallet_beefy_consensus_proofs::types::SIGNATURE_DOMAIN;
+use polkadot_sdk::*;
 use sp_core::{sr25519, Pair};
+use sp_runtime::{generic::Header, traits::Header as _};
 use std::{pin::Pin, sync::Arc};
 use subxt::{
 	dynamic::Value,
@@ -90,7 +93,7 @@ where
 		// Construct the dynamic extrinsic
 		let payload_value = Value::named_composite([
 			("submitter", Value::from_bytes(submitter_bytes)),
-			("proof", Value::from_bytes(proof_bytes)),
+			("proof", Value::from_bytes(proof_bytes.clone())),
 		]);
 		let signature_value = Value::from_bytes(signature.0);
 
@@ -100,11 +103,19 @@ where
 			vec![payload_value, signature_value],
 		);
 
-		send_unsigned_extrinsic(&self.client, tx, false).await?;
+		let result = send_unsigned_extrinsic(&self.client, tx, false).await;
+
+		// Wait one block so that load_state() on the next iteration sees the
+		// updated LastProvenHeight written by the pallet in the previous block.
+		let mut blocks = self.client.blocks().subscribe_best().await?;
+		let _ = blocks.next().await;
+
+		result?;
 
 		tracing::info!(
-			"Successfully submitted proof to pallet-beefy-consensus-proofs (height: {})",
-			proof.finalized_height
+			"Successfully submitted proof for (relay_height: {}, parachain_height: {})",
+			proof.finalized_height,
+			extract_parachain_height(&proof_bytes).map_or("null".to_string(), |h| h.to_string()),
 		);
 
 		Ok(())
@@ -154,10 +165,9 @@ where
 
 	async fn send_mandatory_proof(
 		&self,
-		state_machines: &[StateMachine],
+		_state_machines: &[StateMachine],
 		proof: ConsensusProof,
 	) -> Result<(), anyhow::Error> {
-		tracing::info!("Submitting mandatory proof to pallet for {state_machines:?}");
 		self.submit_to_pallet(&proof).await
 	}
 
@@ -185,7 +195,10 @@ where
 	/// pallet has ever accepted a proof for.
 	async fn load_state(&self) -> Result<crate::prover::ProverConsensusState, anyhow::Error> {
 		let inner = self.fetch_onchain_consensus_state().await?;
-		let finalized_parachain_height = self.fetch_last_proven_height().await?;
+		let onchain_height = self.fetch_last_proven_height().await?;
+		let local_height =
+			self.state.read().await.as_ref().map_or(0, |s| s.finalized_parachain_height);
+		let finalized_parachain_height = core::cmp::max(onchain_height, local_height);
 
 		let state = crate::prover::ProverConsensusState { inner, finalized_parachain_height };
 		*self.state.write().await = Some(state.clone());
@@ -229,4 +242,38 @@ where
 		// No queue messages to delete.
 		Ok(())
 	}
+}
+
+/// Extracts the parachain block number from the consensus proof bytes.
+/// The proof format is `proof_type_byte || ABI-encoded proof`. The parachain
+/// header is SCALE-encoded `sp_runtime::generic::Header<u32, H256>`.
+fn extract_parachain_height(proof_bytes: &[u8]) -> Option<u32> {
+	use pallet_beefy_consensus_proofs::types::{PROOF_TYPE_NAIVE, PROOF_TYPE_SP1};
+
+	let proof_type = *proof_bytes.first()?;
+	let abi_payload = &proof_bytes[1..];
+
+	let header_bytes: Vec<u8> = match proof_type {
+		PROOF_TYPE_SP1 => {
+			let proof =
+				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+					abi_payload,
+				)
+				.ok()?;
+			proof.headers.first()?.header.to_vec()
+		},
+		PROOF_TYPE_NAIVE => {
+			let proof =
+				<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+					abi_payload,
+				)
+				.ok()?;
+			proof.parachain.parachains.first()?.header.to_vec()
+		},
+		_ => return None,
+	};
+
+	let header =
+		Header::<u32, sp_runtime::traits::Keccak256>::decode(&mut &header_bytes[..]).ok()?;
+	Some(*header.number())
 }

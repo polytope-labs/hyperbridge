@@ -69,6 +69,8 @@ pub struct BeefyProverConfig {
 	#[serde(default)]
 	pub state_machines: Vec<StateMachine>,
 	/// Which proof backend the prover (and the corresponding host) should use.
+	/// Defaults to `Onchain` if not specified.
+	#[serde(default)]
 	pub backend: crate::backend::ProofBackendConfig,
 }
 

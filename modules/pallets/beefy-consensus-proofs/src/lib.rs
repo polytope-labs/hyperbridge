@@ -120,6 +120,12 @@ pub mod pallet {
 		#[pallet::constant]
 		type UnbondingPeriod: Get<u64>;
 
+		/// Allowed proof types. Controls which consensus proof formats the pallet
+		/// will accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
+		/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`.
+		#[pallet::constant]
+		type AllowedProofTypes: Get<&'static [u8]>;
+
 		/// Weight info.
 		type WeightInfo: crate::weights::WeightInfo;
 	}
@@ -475,22 +481,33 @@ pub mod pallet {
 				Err(Error::<T>::BadSignature)?
 			}
 
-			// expects (proof type byte || ABI-encoded SP1BeefyProof).
 			let proof_type = *payload.proof.first().ok_or(Error::<T>::UnknownProofType)?;
-			if proof_type != types::PROOF_TYPE_SP1 {
+			if !T::AllowedProofTypes::get().contains(&proof_type) {
 				Err(Error::<T>::UnknownProofType)?
 			}
-
-			// ABI-decode the proof, convert to SCALE for verification by ismp_beefy.
 			let abi_payload = &payload.proof[1..];
-			let abi_proof =
-				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
-					abi_payload,
-				)
-				.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-			let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
-			let consensus_proof =
-				[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat();
+
+			let consensus_proof = match proof_type {
+				types::PROOF_TYPE_SP1 => {
+					let abi_proof =
+						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+							abi_payload,
+						)
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
+					[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat()
+				},
+				types::PROOF_TYPE_NAIVE => {
+					let abi_proof =
+						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+							abi_payload,
+						)
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					let scale_proof: beefy_verifier_primitives::ConsensusMessage = abi_proof.into();
+					[&[types::PROOF_TYPE_NAIVE], scale_proof.encode().as_slice()].concat()
+				},
+				_ => Err(Error::<T>::UnknownProofType)?,
+			};
 
 			// Hand off to pallet-ismp with SCALE-encoded proof for verification.
 			let host = pallet_ismp::Pallet::<T>::default();

@@ -1,0 +1,36 @@
+[package]
+name = "tesseract-consensus-config"
+version = "0.1.0"
+edition = "2021"
+description = "Consensus host configs shared across the tesseract binaries"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1.53"
+codec = { workspace = true, default-features = true, features = ["derive"] }
+finality-grandpa = "0.16.2"
+primitive-types = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+subxt = { workspace = true, default-features = false }
+
+ismp = { workspace = true, default-features = true }
+
+arb-host = { workspace = true }
+evm-host = { path = "../evm-host" }
+op-host = { workspace = true }
+tesseract-beefy = { path = "../beefy" }
+tesseract-bsc = { workspace = true }
+tesseract-grandpa = { workspace = true }
+tesseract-pharos = { workspace = true }
+tesseract-polygon = { path = "../polygon" }
+tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+tesseract-sync-committee = { workspace = true }
+tesseract-tendermint = { workspace = true }
+zk-beefy = { path = "../beefy/zk" }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["sp-runtime"]

@@ -52,7 +52,7 @@ use ismp::host::StateMachine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_config::AnyConfig as MessagingConfig;
-use tesseract_consensus::any::AnyConfig as ConsensusConfig;
+use tesseract_consensus_config::AnyConfig as ConsensusConfig;
 use tesseract_substrate::SubstrateConfig;
 use toml::{Table, Value};
 
@@ -185,7 +185,7 @@ impl HyperbridgeConfig {
 		&self,
 	) -> HashMap<
 		StateMachine,
-		(tesseract_consensus::any::AnyConfig, tesseract_consensus::cli::HostKind),
+		(tesseract_consensus_config::AnyConfig, tesseract_consensus::cli::HostKind),
 	> {
 		use tesseract_config::AnyConfig as Msg;
 		use tesseract_consensus::cli::HostKind;

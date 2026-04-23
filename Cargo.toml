@@ -130,6 +130,7 @@ members = [
     "tesseract/consensus/tendermint",
     "tesseract/consensus/pharos",
     "tesseract/consensus/parachain",
+    "tesseract/consensus/config",
 
     "tesseract/relayer",
 
@@ -377,6 +378,7 @@ tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
 tesseract-parachain = { path = "tesseract/consensus/parachain" }
+tesseract-consensus-config = { path = "tesseract/consensus/config" }
 tesseract = { path = "tesseract/relayer" }
 
 

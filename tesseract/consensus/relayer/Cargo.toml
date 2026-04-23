@@ -42,6 +42,7 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 
 subxt-utils = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
+tesseract-consensus-config = { workspace = true }
 zk-beefy = { path = "../beefy/zk" }
 tesseract-bsc = { workspace = true }
 tesseract-evm = { workspace = true }

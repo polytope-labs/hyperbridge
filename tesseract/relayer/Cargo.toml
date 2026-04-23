@@ -34,6 +34,7 @@ subxt-utils = { workspace = true }
 tesseract-beefy = { workspace = true }
 tesseract-config = { workspace = true }
 tesseract-consensus = { workspace = true }
+tesseract-consensus-config = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-fisherman = { workspace = true }
 messaging = { workspace = true }

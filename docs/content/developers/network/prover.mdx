@@ -1,0 +1,160 @@
+---
+title: Provers
+description: Running a Hyperbridge BEEFY consensus prover
+---
+
+# Consensus Provers
+
+## Overview
+
+The Hyperbridge prover generates cryptographic consensus proofs that attest to the finality of cross-chain messages on the Hyperbridge parachain. These proofs are submitted to `pallet-beefy-consensus-proofs` on-chain, which verifies them and advances the protocol's knowledge of finalized state. Once accepted, the proofs are hosted by the Hyperbridge network in offchain storage, making them available to relayers, users and applications that need to prove their cross-chain messages to destination chains.
+
+Without provers, cross-chain messages dispatched through Hyperbridge cannot be delivered to their destination chains. Provers are essential infrastructure that bridge the gap between BEEFY consensus finality on the relay chain and the state commitments that EVM destination chains need to verify incoming messages.
+
+## How it works
+
+The prover watches the relay chain for BEEFY authority set rotations and monitors Hyperbridge for newly dispatched cross-chain messages that need to be proven. When new messages are found, it generates a consensus proof covering the parachain block range that includes them and submits it as an unsigned extrinsic to the Hyperbridge runtime. Once the runtime verifies and accepts the proof, it is persisted in offchain storage where relayers and applications can fetch it to deliver messages to their destination chains.
+
+![Prover flow](/images/prover-flow.svg)
+
+## Proof types
+
+The prover supports two proof strategies:
+
+- **Naive** — Includes the full 2/3+1 BEEFY ECDSA validator signatures which are verified on-chain. No special hardware required. Suitable for testnets.
+- **ZK (SP1)** — Delegates signature verification to an SP1 zero-knowledge program, producing a compact Groth16 proof. Requires a CUDA-capable GPU (e.g. RTX 5090). Used on mainnet for gas efficiency.
+
+## Incentives
+
+Provers are rewarded with $BRIDGE tokens from the Hyperbridge treasury for each accepted proof that does useful work:
+
+- **Rotation proofs** — Proofs that carry a new BEEFY authority set transition
+- **Messaging proofs** — Proofs of new cross-chain messages dispatched through Hyperbridge
+
+The reward amount is configurable via governance through `pallet-beefy-consensus-proofs::set_proof_reward`.
+
+## Running with Docker
+
+The prover is available at the official Docker repository [`polytopelabs/prover`](https://hub.docker.com/r/polytopelabs/prover).
+
+```bash lineNumbers
+docker pull polytopelabs/prover:latest
+```
+
+### Configuration
+
+Create a `config.toml` file:
+
+```toml lineNumbers
+[prover]
+# Relay chain (Paseo) RPC websocket endpoint
+relay_rpc_ws = "wss://paseo-rpc.polkadot.io"
+# Hyperbridge parachain RPC websocket endpoint
+para_rpc_ws = "wss://gargantua.rpc.polytope.technology"
+# Hyperbridge parachain ID on the relay chain
+para_ids = [4009]
+# Proof strategy: "naive" (no GPU) or "zk" (requires CUDA GPU)
+proof_variant = "naive"
+
+[substrate]
+# Hyperbridge state machine identifier
+state_machine = "KUSAMA-4009"
+# Hyperbridge parachain RPC
+rpc_ws = "wss://gargantua.rpc.polytope.technology"
+# Hashing algorithm used by the chain
+hashing = "Keccak"
+# SR25519 secret key for signing proof submissions (hex-encoded)
+signer = "0x<your_sr25519_secret_key>"
+
+[beefy]
+# Consensus state identifier used by pallet-ismp
+consensus_state_id = "PAS0"
+# Minimum number of blocks after a message before proving finality (0 = prove immediately)
+minimum_finalization_height = 0
+```
+
+<Callout type="warn">
+The `signer` field is the SR25519 secret key that will sign proof submissions. The corresponding account does not need any balance — proof submission uses unsigned extrinsics.
+</Callout>
+
+### Docker Compose
+
+Create a `docker-compose.yml`:
+
+```yaml lineNumbers
+services:
+  beefy-prover:
+    image: polytopelabs/prover:latest
+    restart: always
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+    environment:
+      RUST_LOG: info,moongate_core=off
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/app/beefy-prover --config /app/config.toml 2>&1 | tee /app/prover.log"]
+```
+
+Start the prover:
+
+```bash lineNumbers
+docker compose up -d
+```
+
+View logs:
+
+```bash lineNumbers
+docker compose logs -f beefy-prover
+```
+
+### System Requirements
+
+#### Naive proofs (testnets)
+
+| Resource | Minimum |
+|----------|---------|
+| CPU | 4 cores |
+| RAM | 8 GB |
+| Network | 50 Mb/s |
+| GPU | Not required |
+
+#### ZK proofs (mainnet)
+
+| Resource | Minimum |
+|----------|---------|
+| CPU | 32 cores |
+| RAM | 64 GB |
+| Network | 100 Mb/s |
+| GPU | NVIDIA RTX 4090 or newer (CUDA required) |
+
+<Callout type="info">
+ZK proof generation downloads ~8 GB of SP1 circuit artifacts on first run. These are cached in `/root/.sp1` inside the container. Mount a volume at this path to persist them across restarts.
+</Callout>
+
+### Persisting SP1 artifacts (ZK mode)
+
+When running with `proof_variant = "zk"`, add a volume for the SP1 cache to avoid re-downloading circuit artifacts on each restart:
+
+```yaml lineNumbers
+services:
+  beefy-prover:
+    image: polytopelabs/prover:latest
+    restart: always
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - sp1-cache:/root/.sp1
+    environment:
+      RUST_LOG: info,moongate_core=off
+    command: ["--config", "/app/config.toml"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  sp1-cache:
+```

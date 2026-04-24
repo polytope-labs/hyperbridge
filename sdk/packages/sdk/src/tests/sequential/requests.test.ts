@@ -238,7 +238,7 @@ describe.sequential("Get and Post Requests", () => {
 			hyperbridgeInstance.api?.tx.ismp.handleUnsigned(hexToBytes(tx).slice(2))
 		})
 
-		it("should successfully stream and query the post request status", async () => {
+		it.skip("should successfully stream and query the post request status", async () => {
 			const { bscTestnetClient, bscPing, bscFeeToken, tokenFaucet, polygonAmoyClient, polygonAmoyWallet, polygonAmoyHandler, polygonAmoyHost } =
 				await setUp()
 

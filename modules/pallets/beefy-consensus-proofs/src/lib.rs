@@ -194,6 +194,9 @@ pub mod pallet {
 		IsmpUpdateFailed,
 		/// The child trie root was not provided in the proof.
 		MissingChildTrieRoot,
+		/// The proof does not advance state: no authority set rotation and no new
+		/// messages since the last rewarded proof.
+		NoNewWork,
 	}
 
 	#[pallet::event]
@@ -284,19 +287,11 @@ pub mod pallet {
 
 			let outcome = Self::verify_and_apply(&payload, &signature)?;
 
-			// Determine reward eligibility.
-			let last_rewarded = LastRewardedDispatchRoot::<T>::get().unwrap_or_default();
+			// verify_and_apply already rejected proofs with no new work,
+			// so if we're here, the proof is useful.
 			let prev_proven = LastProvenHeight::<T>::get();
 
-			let messaging_reward =
-				outcome.child_trie_root != last_rewarded && outcome.proven_height > prev_proven;
-			let should_reward = outcome.rotated || messaging_reward;
-
-			if !should_reward {
-				return Ok(());
-			}
-
-			if messaging_reward {
+			if outcome.has_new_messages {
 				LastRewardedDispatchRoot::<T>::put(outcome.child_trie_root);
 			}
 			if outcome.proven_height > prev_proven {
@@ -305,7 +300,7 @@ pub mod pallet {
 
 			let zero = <<T as Config>::Currency as Inspect<T::AccountId>>::Balance::default();
 			let reward = ProofReward::<T>::get();
-			let reward_paid = if should_reward && reward > zero {
+			let reward_paid = if reward > zero {
 				let treasury: T::AccountId =
 					<T as Config>::TreasuryPalletId::get().into_account_truncating();
 				<T as Config>::Currency::transfer(
@@ -418,6 +413,7 @@ pub mod pallet {
 					Error::<T>::VerificationFailed => 7,
 					Error::<T>::UnexpectedAuthoritySet => 8,
 					Error::<T>::StaleProof => 9,
+					Error::<T>::NoNewWork => 10,
 					_ => 0,
 				};
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(code))
@@ -440,6 +436,8 @@ pub mod pallet {
 		pub current_set_id: u64,
 		/// True iff the proof rotated the current authority set.
 		pub rotated: bool,
+		/// True iff the child trie root changed since the last rewarded proof.
+		pub has_new_messages: bool,
 		/// Root of the child trie verified by this proof.
 		pub child_trie_root: H256,
 	}
@@ -570,17 +568,28 @@ pub mod pallet {
 			}
 
 			// Every accepted proof must push parachain height forward.
-			if proven_height <= LastProvenHeight::<T>::get() {
+			let prev_proven = LastProvenHeight::<T>::get();
+			if proven_height <= prev_proven {
 				Err(Error::<T>::StaleProof)?
+			}
+
+			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
+			let child_trie_root =
+				state_commitment.overlay_root.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?;
+
+			// Reject proofs that would be no-ops: no rotation and no new messages.
+			let last_rewarded = LastRewardedDispatchRoot::<T>::get().unwrap_or_default();
+			let has_new_messages = child_trie_root != last_rewarded && proven_height > prev_proven;
+			if !rotated && !has_new_messages {
+				Err(Error::<T>::NoNewWork)?
 			}
 
 			Ok(VerifyOutcome {
 				proven_height,
 				current_set_id: new_state.current_authorities.id,
-				rotated: new_state.current_authorities.id > prev_state.current_authorities.id,
-				child_trie_root: state_commitment
-					.overlay_root
-					.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?,
+				rotated,
+				has_new_messages,
+				child_trie_root,
 			})
 		}
 	}

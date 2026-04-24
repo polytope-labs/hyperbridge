@@ -79,7 +79,6 @@ impl BeefyConfig {
 					client.client.clone(),
 					client.rpc_client.clone(),
 					client.signer.clone(),
-					self.host.consensus_state_id,
 					sm_id,
 				))
 			},

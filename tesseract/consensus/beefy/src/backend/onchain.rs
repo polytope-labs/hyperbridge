@@ -60,8 +60,6 @@ pub struct OnchainBackend<P: subxt::Config> {
 	rpc_client: RpcClient,
 	/// SR25519 keypair used to sign proof payloads
 	signer: sr25519::Pair,
-	/// Consensus state id under which the BEEFY state is stored in `pallet-ismp`
-	consensus_state_id: ConsensusStateId,
 	/// The coprocessor (hyperbridge) state machine ID
 	state_machine_id: StateMachineId,
 	/// In-memory cache of the last saved consensus state
@@ -73,17 +71,9 @@ impl<P: subxt::Config> OnchainBackend<P> {
 		client: OnlineClient<P>,
 		rpc_client: RpcClient,
 		signer: sr25519::Pair,
-		consensus_state_id: ConsensusStateId,
 		state_machine_id: StateMachineId,
 	) -> Self {
-		Self {
-			client,
-			rpc_client,
-			signer,
-			consensus_state_id,
-			state_machine_id,
-			state: Arc::new(RwLock::new(None)),
-		}
+		Self { client, rpc_client, signer, state_machine_id, state: Arc::new(RwLock::new(None)) }
 	}
 }
 
@@ -136,7 +126,7 @@ where
 
 	/// Fetch the BEEFY consensus state from `pallet-ismp` via the `ismp_queryConsensusState` RPC.
 	async fn fetch_onchain_consensus_state(&self) -> Result<ConsensusState, anyhow::Error> {
-		let params = rpc_params![None::<u32>, self.consensus_state_id];
+		let params = rpc_params![None::<u32>, ismp_beefy::BEEFY_CONSENSUS_ID];
 		let encoded: Vec<u8> = self
 			.rpc_client
 			.request("ismp_queryConsensusState", params)

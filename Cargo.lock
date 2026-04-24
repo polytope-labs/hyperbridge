@@ -28165,6 +28165,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-beefy",
  "ismp-solidity-abi",
  "log",
  "pallet-beefy-consensus-proofs",

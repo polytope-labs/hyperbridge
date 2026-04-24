@@ -62,6 +62,44 @@ pub struct ConsensusState {
 	pub game_type_configs: Option<Vec<GameTypeConfig>>,
 }
 
+impl ConsensusState {
+	/// SCALE-decode the consensus state while tolerating schema drift in the
+	/// trailing `game_type_configs` field.
+	///
+	/// `GameTypeConfig` gained the `expected_impl: H160` field after consensus
+	/// states had already been seeded. Stored entries encoded before that
+	/// change have 20 fewer bytes per config than the current struct expects,
+	/// so a strict decode fails with "Not enough data to fill buffer" partway
+	/// through the last field. Since the authoritative game-type configuration
+	/// for verification is read from pallet storage (see
+	/// `Pallet::state_machines_dispute_game_factories_types` in
+	/// [`verify_consensus`]) rather than from this blob, we can safely treat
+	/// the last field as `None` on old entries and let the consensus loop
+	/// reseed the state over time.
+	pub fn decode_tolerant(bytes: &[u8]) -> Result<Self, codec::Error> {
+		if let Ok(state) = Self::decode(&mut &*bytes) {
+			return Ok(state);
+		}
+
+		#[derive(codec::Decode)]
+		struct PrefixOnly {
+			finalized_height: u64,
+			state_machine_id: StateMachineId,
+			l1_state_machine_id: StateMachineId,
+			optimism_consensus_type: Option<OptimismConsensusType>,
+		}
+
+		let prefix = PrefixOnly::decode(&mut &*bytes)?;
+		Ok(Self {
+			finalized_height: prefix.finalized_height,
+			state_machine_id: prefix.state_machine_id,
+			l1_state_machine_id: prefix.l1_state_machine_id,
+			optimism_consensus_type: prefix.optimism_consensus_type,
+			game_type_configs: None,
+		})
+	}
+}
+
 #[derive(Encode, Decode)]
 pub struct OptimismUpdate {
 	pub state_machine_id: StateMachineId,
@@ -123,7 +161,7 @@ impl<
 			OptimismUpdate::decode(&mut &consensus_proof[..])
 				.map_err(|_| Error::Custom("Cannot decode optimism update".to_string()))?;
 
-		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
+		let mut consensus_state = ConsensusState::decode_tolerant(&trusted_consensus_state)
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
 		let l1_state_machine_height =

@@ -242,7 +242,7 @@ pub mod pallet {
 				ismp::messaging::CreateConsensusState {
 					consensus_state: state.encode(),
 					consensus_client_id: ismp_beefy::BEEFY_CONSENSUS_ID,
-					consensus_state_id: T::ConsensusStateId::get(),
+					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 					unbonding_period: T::UnbondingPeriod::get(),
 					challenge_periods: Default::default(),
 					state_machine_commitments: Default::default(),
@@ -506,7 +506,7 @@ pub mod pallet {
 			// Hand off to pallet-ismp with SCALE-encoded proof for verification.
 			let host = pallet_ismp::Pallet::<T>::default();
 			let prev_state_bytes = host
-				.consensus_state(T::ConsensusStateId::get())
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::NotInitialized)?;
 			let prev_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &prev_state_bytes[..])
@@ -516,7 +516,7 @@ pub mod pallet {
 				&host,
 				Message::Consensus(IsmpConsensusMessage {
 					consensus_proof,
-					consensus_state_id: T::ConsensusStateId::get(),
+					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 					signer: public.to_vec(),
 				}),
 			)
@@ -557,7 +557,7 @@ pub mod pallet {
 
 			// Read post-update consensus state to derive the new set id.
 			let new_state_bytes = host
-				.consensus_state(T::ConsensusStateId::get())
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::VerificationFailed)?;
 			let new_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &new_state_bytes[..])

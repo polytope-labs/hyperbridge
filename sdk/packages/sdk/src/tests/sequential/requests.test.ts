@@ -34,6 +34,7 @@ describe.sequential("Get and Post Requests", () => {
 	beforeAll(async () => {
 		const { baseSepoliaHost, bscIsmpHost, hyperbridge, polygonAmoyHost } = await setUp()
 
+
 		const query_client = createQueryClient({
 			url: process.env.INDEXER_URL!,
 		})
@@ -86,7 +87,7 @@ describe.sequential("Get and Post Requests", () => {
 		})
 
 		hyperbridgeInstance = hyperbridge
-	})
+	}, 60_000)
 
 	afterAll(async () => {
 		await hyperbridgeInstance.disconnect()

@@ -137,14 +137,14 @@ where
 			"messaging",
 			async move {
 				let res = handle_notification(
-				chain_b_inner,
+					chain_b_inner,
 					hyperbridge,
 					tx_payment,
 					config,
 					coprocessor,
 					client_map,
 					sender,
-				None,
+					None,
 				)
 				.await;
 				tracing::error!(target: LOG_TARGET, ?res, "task terminated");

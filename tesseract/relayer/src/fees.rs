@@ -25,7 +25,10 @@ use tesseract_primitives::{
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use transaction_fees::TransactionPayment;
 
-use crate::{config::HyperbridgeConfig, provider::OffchainProofSource};
+use crate::{
+	config::{setup_logging, HyperbridgeConfig},
+	provider::OffchainProofSource,
+};
 
 #[derive(Debug, clap::Args)]
 #[command(
@@ -55,9 +58,11 @@ impl AccumulateFees {
 	/// client per chain, and runs either the claim sweep or (if `--withdraw`)
 	/// the withdrawal pass.
 	pub async fn run(&self, config_path: &str, db: &str) -> anyhow::Result<()> {
+		let _ = setup_logging();
 		let config = HyperbridgeConfig::parse_conf(config_path).await?;
 		let hyperbridge =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+				.await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge.clone());
 
 		let mut clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();

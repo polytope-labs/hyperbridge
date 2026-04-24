@@ -5,8 +5,8 @@
 
 //! # Parachain consensus client — relayer side
 //!
-//! Ships `ConsensusMessage`s of type [`ismp_parachain::consensus::ParachainConsensusProof`] from one
-//! parachain (this host) to another (the counterparty — typically Hyperbridge).
+//! Ships `ConsensusMessage`s of type [`ismp_parachain::consensus::ParachainConsensusProof`] from
+//! one parachain (this host) to another (the counterparty — typically Hyperbridge).
 //!
 //! The counterparty's `pallet-ismp-parachain` maintains a bounded registry of recently-seen relay
 //! chain state roots in [`KnownRelayHeights`]. A proof produced here references one of those relay
@@ -166,4 +166,3 @@ where
 		}
 	}
 }
-

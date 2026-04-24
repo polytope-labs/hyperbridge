@@ -151,7 +151,7 @@ async fn test_arbitrum_bold_assertion_verification() {
 		l1_state_machine: StateMachine::Evm(1),
 		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
-		consensus_state_id: "ARB0".to_string()
+		consensus_state_id: "ARB0".to_string(),
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],

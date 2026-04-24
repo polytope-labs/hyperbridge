@@ -31,7 +31,7 @@ use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
 use crate::{
-	config::HyperbridgeConfig,
+	config::{setup_logging, HyperbridgeConfig},
 	fees::AccumulateFees,
 	provider::{ConsensusProofSource, OffchainProofSource},
 };
@@ -129,7 +129,8 @@ impl Cli {
 		// The prover lives in a separate binary; this relayer only consumes its
 		// output (accepted consensus proofs in the pallet's offchain storage).
 		let hyperbridge_substrate =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+				.await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let coprocessor = hyperbridge_provider.state_machine_id().state_id;
 		let hb_rpc_client = hyperbridge_substrate.rpc_client.clone();
@@ -261,7 +262,8 @@ impl Cli {
 		let fisherman_enabled = relayer.fisherman.unwrap_or(false);
 		for (state_machine, provider) in &providers {
 			let mut hb_for_messaging =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+					.await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
 
 			messaging::inbound(
@@ -283,8 +285,10 @@ impl Cli {
 			// only spawned for chains with a signer configured.
 			if fisherman_enabled {
 				let hb_for_fisherman: Arc<dyn IsmpProvider> = Arc::new(
-					SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
-						.await?,
+					SubstrateClient::<KeccakSubstrateChain>::new(
+						config.hyperbridge.substrate.clone(),
+					)
+					.await?,
 				);
 				tesseract_fisherman::fish(
 					hb_for_fisherman,
@@ -330,9 +334,10 @@ impl Cli {
 
 					let name =
 						format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
-					let hb_for_fees =
-						SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
-							.await?;
+					let hb_for_fees = SubstrateClient::<KeccakSubstrateChain>::new(
+						config.hyperbridge.substrate.clone(),
+					)
+					.await?;
 					let dest = provider.clone();
 					let client_map = provider_clients.clone();
 					let tx_payment = tx_payment.clone();
@@ -399,7 +404,8 @@ impl Cli {
 		// a signer there. Skip chains without one.
 		{
 			let hb_for_withdraw =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+					.await?;
 			let withdraw_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = config
 				.chains
 				.iter()
@@ -476,6 +482,7 @@ impl Cli {
 	/// configured destination, then exit. Uses the same logic as the periodic
 	/// `auto_withdraw` loop (threshold gating, DB persistence, etc.).
 	pub async fn withdraw_once(&self) -> Result<(), anyhow::Error> {
+		let _ = setup_logging();
 		tracing::info!(target: crate::LOG_TARGET, "one-shot withdrawal starting");
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let messaging_config: tesseract_primitives::config::RelayerConfig =
@@ -487,7 +494,8 @@ impl Cli {
 				.context("Error initializing fee database")?,
 		);
 		let hyperbridge_substrate =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+				.await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let proof_source: Arc<dyn ConsensusProofSource> =
 			Arc::new(OffchainProofSource::new(hyperbridge_substrate.rpc_client.clone()));
@@ -516,13 +524,4 @@ impl Cli {
 		tracing::info!(target: crate::LOG_TARGET, "one-shot withdrawal complete");
 		Ok(())
 	}
-}
-
-fn setup_logging() -> Result<(), anyhow::Error> {
-	use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-
-	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-	tracing_subscriber::registry().with(fmt::layer()).with(filter).init();
-
-	Ok(())
 }

@@ -878,13 +878,10 @@ fn any_frame_has_event(
 		let topics = log.topics.clone().unwrap_or_default();
 		let data = log.data.clone().unwrap_or_default();
 		let Some(log_data) = LogData::new(topics, data) else { continue };
-		let prim_log = alloy::primitives::Log {
-			address: log.address.unwrap_or_default(),
-			data: log_data,
-		};
+		let prim_log =
+			alloy::primitives::Log { address: log.address.unwrap_or_default(), data: log_data };
 		let matched = match event_in {
-			CheckTraceForEventParams::Request =>
-				PostRequestHandled::decode_log(&prim_log).is_ok(),
+			CheckTraceForEventParams::Request => PostRequestHandled::decode_log(&prim_log).is_ok(),
 			CheckTraceForEventParams::Response =>
 				PostResponseHandled::decode_log(&prim_log).is_ok(),
 		};
@@ -923,9 +920,9 @@ async fn estimate_gas_for_tx_requests(
 		providers::ext::DebugApi,
 		rpc::types::{
 			trace::geth::{
-				CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-				GethDebugTracerType, GethDebugTracingCallOptions, GethDebugTracingOptions,
-				GethDefaultTracingOptions, GethTrace,
+				CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+				GethDebugTracingCallOptions, GethDebugTracingOptions, GethDefaultTracingOptions,
+				GethTrace,
 			},
 			TransactionRequest,
 		},
@@ -1016,11 +1013,8 @@ async fn estimate_gas_for_tx_requests(
 								let estimate_tx = TransactionRequest::default()
 									.from(from_address)
 									.to(handler_addr)
-									.input(
-										alloy::primitives::Bytes::from(calldata.clone()).into(),
-									);
-								let estimated_gas =
-									client.client.estimate_gas(estimate_tx).await?;
+									.input(alloy::primitives::Bytes::from(calldata.clone()).into());
+								let estimated_gas = client.client.estimate_gas(estimate_tx).await?;
 								gas_to_be_used = U256::from(estimated_gas);
 							} else {
 								gas_to_be_used = alloy_u256_to_primitive(call_frame.gas_used);
@@ -1061,12 +1055,9 @@ async fn estimate_gas_for_tx_requests(
 						_ => U256::zero().into(),
 					};
 
-					let execution_cost = (gas_breakdown_gas_price_cost * gas_to_be_used) +
-						gas_cost_for_data_in_usd;
-					Ok::<_, Error>(EstimateGasReturnParams {
-						execution_cost,
-						successful_execution,
-					})
+					let execution_cost =
+						(gas_breakdown_gas_price_cost * gas_to_be_used) + gas_cost_for_data_in_usd;
+					Ok::<_, Error>(EstimateGasReturnParams { execution_cost, successful_execution })
 				})
 			})
 			.collect::<FuturesOrdered<_>>();

@@ -404,8 +404,7 @@ pub async fn generate_batched_contract_calls(
 
 	// Single-entry list so we can reuse `build_batch_inner_calls` to encode
 	// the prelude into its HandlerV1-shaped calldata.
-	let prelude_inner =
-		build_batch_inner_calls(client, std::slice::from_ref(prelude)).await?;
+	let prelude_inner = build_batch_inner_calls(client, std::slice::from_ref(prelude)).await?;
 	let prelude_calldata = prelude_inner.into_iter().next().expect("one prelude in, one out");
 
 	let mut txs = Vec::with_capacity(messages.len());

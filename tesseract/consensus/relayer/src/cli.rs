@@ -9,10 +9,7 @@ use tesseract_primitives::IsmpHost;
 use tesseract_substrate::config::{Blake2SubstrateChain, KeccakSubstrateChain};
 
 use crate::{
-	any::AnyHost,
-	config::HyperbridgeConfig,
-	logging,
-	monitor::monitor_clients,
+	any::AnyHost, config::HyperbridgeConfig, logging, monitor::monitor_clients,
 	subcommand::Subcommand,
 };
 use futures::FutureExt;
@@ -153,4 +150,3 @@ impl Cli {
 		Ok(())
 	}
 }
-

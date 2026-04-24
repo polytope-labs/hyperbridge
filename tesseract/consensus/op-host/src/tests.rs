@@ -42,7 +42,7 @@ async fn run_dispute_game_verification(
 		l1_state_machine: StateMachine::Evm(l1_chain_id),
 		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
-		consensus_state_id: "OPT0".to_string()
+		consensus_state_id: "OPT0".to_string(),
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
@@ -219,29 +219,18 @@ async fn test_base_sepolia_latest_and_verify() {
 
 	// Widen the range to capture multiple game types so the diagnostic surfaces any Cannon
 	// or Permissioned events alongside the AggregateVerifier ones.
-	let to_block = op_client
-		.beacon_execution_client
-		.get_block_number()
-		.await
-		.expect("L1 head") - 8;
+	let to_block = op_client.beacon_execution_client.get_block_number().await.expect("L1 head") - 8;
 	let from_block = to_block.saturating_sub(2000);
 
 	// Walk the same steps `latest_dispute_games` does, printing each stage, so we can see
 	// whether a valid game is being filtered out as "challenged".
 	{
-		use alloy::rpc::types::Filter;
-		use alloy::sol_types::SolEvent;
-		use crate::abi::DisputeGameFactory;
-		use crate::challenge_slot_keys;
-		use crate::game_is_challenged;
+		use crate::{abi::DisputeGameFactory, challenge_slot_keys, game_is_challenged};
+		use alloy::{rpc::types::Filter, sol_types::SolEvent};
 
 		let rollup_addr = Address::from_slice(&factory_addr.0);
 		let filter = Filter::new().address(rollup_addr).from_block(from_block).to_block(to_block);
-		let logs = op_client
-			.beacon_execution_client
-			.get_logs(&filter)
-			.await
-			.expect("get_logs");
+		let logs = op_client.beacon_execution_client.get_logs(&filter).await.expect("get_logs");
 		println!("raw logs in {from_block}..={to_block}: {} total", logs.len());
 
 		let candidates: Vec<_> = logs
@@ -254,14 +243,15 @@ async fn test_base_sepolia_latest_and_verify() {
 
 		for ev in &candidates {
 			let config = game_type_configs.iter().find(|c| c.game_type == ev.gameType).unwrap();
-			let slot = challenge_slot_keys(&config.kind)
-				.into_iter()
-				.next();
+			let slot = challenge_slot_keys(&config.kind).into_iter().next();
 			let slot_value = match slot {
 				None => alloy::primitives::U256::ZERO,
 				Some(s) => op_client
 					.beacon_execution_client
-					.get_storage_at(ev.disputeProxy, alloy::primitives::U256::from_be_slice(s.as_slice()))
+					.get_storage_at(
+						ev.disputeProxy,
+						alloy::primitives::U256::from_be_slice(s.as_slice()),
+					)
 					.block_id(to_block.into())
 					.await
 					.expect("get_storage_at"),
@@ -285,7 +275,10 @@ async fn test_base_sepolia_latest_and_verify() {
 		.expect("latest_dispute_games");
 	println!("latest_dispute_games returned {} events", events.len());
 	for ev in &events {
-		println!("  proxy={:?} gameType={} rootClaim={:?}", ev.disputeProxy, ev.gameType, ev.rootClaim);
+		println!(
+			"  proxy={:?} gameType={} rootClaim={:?}",
+			ev.disputeProxy, ev.gameType, ev.rootClaim
+		);
 	}
 	assert!(
 		!events.is_empty(),

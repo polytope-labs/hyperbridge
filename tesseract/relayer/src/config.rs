@@ -174,9 +174,8 @@ impl HyperbridgeConfig {
 			return Err(anyhow!("Missing [hyperbridge] or [relayer] section in config"));
 		}
 
-		let hyperbridge = parse_hyperbridge_section(
-			table.get(HYPERBRIDGE).cloned().expect("checked above"),
-		)?;
+		let hyperbridge =
+			parse_hyperbridge_section(table.get(HYPERBRIDGE).cloned().expect("checked above"))?;
 
 		let relayer: RelayerConfig =
 			table.get(RELAYER).cloned().expect("checked above").try_into()?;
@@ -298,10 +297,7 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 /// fields as a [`SubstrateConfig`].
 fn parse_hyperbridge_section(raw: Value) -> Result<HyperbridgeSection, anyhow::Error> {
 	let Value::Table(mut table) = raw else {
-		return Err(anyhow!(
-			"[hyperbridge] must be a table, got {}",
-			raw.type_str(),
-		));
+		return Err(anyhow!("[hyperbridge] must be a table, got {}", raw.type_str(),));
 	};
 	let consensus_value = table.remove(CONSENSUS);
 
@@ -417,6 +413,15 @@ async fn autofill_substrate(name: &str, chain_table: &mut Table) -> Result<(), a
 	let rendered = state_machine.to_string();
 	tracing::info!(target: crate::LOG_TARGET, chain = name, state_machine = %rendered, "auto-derived state_machine");
 	chain_table.insert("state_machine".to_string(), Value::String(rendered));
+	Ok(())
+}
+
+pub fn setup_logging() -> Result<(), anyhow::Error> {
+	use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+	tracing_subscriber::registry().with(fmt::layer()).with(filter).init();
+
 	Ok(())
 }
 

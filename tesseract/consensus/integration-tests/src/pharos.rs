@@ -40,7 +40,9 @@ async fn pharos_consensus_updates() -> anyhow::Result<()> {
 		state_machine: StateMachine::Evm(688689),
 		consensus_state_id: "PHAR".to_string(),
 		ismp_host: Default::default(),
-		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+		signer: Some(
+			"2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+		),
 		tracing_batch_size: None,
 		query_batch_size: None,
 		poll_interval: None,
@@ -62,7 +64,9 @@ async fn pharos_consensus_updates() -> anyhow::Result<()> {
 		consensus_state_id: Some("PARA".to_string()),
 		rpc_ws: "ws://localhost:9990".to_string(),
 		max_rpc_payload_size: None,
-		signer: "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+		signer: Some(
+			"0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string(),
+		),
 		initial_height: None,
 		max_concurent_queries: None,
 		poll_interval: None,

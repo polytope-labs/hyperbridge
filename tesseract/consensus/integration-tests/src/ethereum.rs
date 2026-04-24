@@ -664,7 +664,9 @@ async fn sync_committee_tests() -> Result<(), anyhow::Error> {
 			state_machine: StateMachine::Evm(10200),
 			consensus_state_id: "GNO0".to_string(),
 			ismp_host: hex!("7BdE4Ce065400eE332C20f7df3a35d66674165f6").into(),
-			signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+			signer: Some(
+				"2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+			),
 			..Default::default()
 		};
 

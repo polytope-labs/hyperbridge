@@ -331,8 +331,9 @@ mod tests {
 				rpc_urls: vec!["https://nile.trongrid.io/jsonrpc".to_string()],
 				state_machine: StateMachine::Evm(3448148188),
 				ismp_host,
-				signer: "65d95d3cb8538740f9302c34d8527a20c3260717282b9921b72e90c253457018"
-					.to_string(),
+				signer: Some(
+					"65d95d3cb8538740f9302c34d8527a20c3260717282b9921b72e90c253457018".to_string(),
+				),
 				consensus_state_id: "TRX0".to_string(),
 				transport: RpcTransport::Tron,
 				..Default::default()

@@ -12222,6 +12222,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-sol-types 1.5.7",
  "anyhow",
+ "async-trait",
  "beefy-verifier-primitives",
  "futures",
  "hex",

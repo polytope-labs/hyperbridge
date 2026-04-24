@@ -137,8 +137,8 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IHandlerV2).interfaceId || interfaceId == bytes4(0x687b1a5c)
-            || super.supportsInterface(interfaceId);
+        return interfaceId == type(IHandlerV2).interfaceId || interfaceId == type(IHandler).interfaceId
+            || interfaceId == bytes4(0x687b1a5c) || super.supportsInterface(interfaceId);
     }
 
     /**

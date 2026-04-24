@@ -360,7 +360,7 @@ export async function estimateGasForPost(params: {
 		functionName: "hostParams",
 	})
 
-	const { root, proof, index, kIndex, treeSize } = await generateRootWithProof(params.postRequest, 2n ** 10n)
+	const { root, proof, index, treeSize } = await generateRootWithProof(params.postRequest, 2n ** 10n)
 	const latestStateMachineHeight = params.hostLatestStateMachineHeight
 	const overlayRootSlot = getStateCommitmentFieldSlot(
 		BigInt(4009n), // Hyperbridge chain id
@@ -388,7 +388,6 @@ export async function estimateGasForPost(params: {
 						dest: toHex(params.postRequest.dest),
 					},
 					index,
-					kIndex,
 				},
 			],
 		},

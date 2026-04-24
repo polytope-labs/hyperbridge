@@ -24,7 +24,7 @@ use futures::FutureExt;
 use ismp::host::StateMachine;
 use polkadot_sdk::sc_service::TaskManager;
 use tesseract_consensus_config::create_client_map;
-use tesseract_primitives::{IsmpProvider, TxReceipt};
+use tesseract_primitives::{IsmpProvider, PendingConsensusDeliveryClaim, TxReceipt};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::{self, Sender};
 use tracing::Instrument;
@@ -129,7 +129,8 @@ impl Cli {
 		// The prover lives in a separate binary; this relayer only consumes its
 		// output (accepted consensus proofs in the pallet's offchain storage).
 		let hyperbridge_substrate =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+				.await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let coprocessor = hyperbridge_provider.state_machine_id().state_id;
 		let hb_rpc_client = hyperbridge_substrate.rpc_client.clone();
@@ -261,7 +262,8 @@ impl Cli {
 		let fisherman_enabled = relayer.fisherman.unwrap_or(false);
 		for (state_machine, provider) in &providers {
 			let mut hb_for_messaging =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+					.await?;
 			hb_for_messaging.set_latest_finalized_height(provider.clone()).await?;
 
 			messaging::inbound(
@@ -283,8 +285,10 @@ impl Cli {
 			// only spawned for chains with a signer configured.
 			if fisherman_enabled {
 				let hb_for_fisherman: Arc<dyn IsmpProvider> = Arc::new(
-					SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
-						.await?,
+					SubstrateClient::<KeccakSubstrateChain>::new(
+						config.hyperbridge.substrate.clone(),
+					)
+					.await?,
 				);
 				tesseract_fisherman::fish(
 					hb_for_fisherman,
@@ -330,9 +334,10 @@ impl Cli {
 
 					let name =
 						format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
-					let hb_for_fees =
-						SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
-							.await?;
+					let hb_for_fees = SubstrateClient::<KeccakSubstrateChain>::new(
+						config.hyperbridge.substrate.clone(),
+					)
+					.await?;
 					let dest = provider.clone();
 					let client_map = provider_clients.clone();
 					let tx_payment = tx_payment.clone();
@@ -369,6 +374,89 @@ impl Cli {
 			let outbound_proof_source = proof_source.clone();
 			let destinations_len = destinations.len();
 
+			// Outbound consensus delivery reward claims: pair the outbound
+			// task with a background worker that consumes
+			// `PendingConsensusDeliveryClaim` messages, waits for HB to see
+			// the destination, builds the state proof, and submits the
+			// claim extrinsic on HB.
+			let (claim_sender, claim_receiver) = mpsc::channel::<PendingConsensusDeliveryClaim>(64);
+			let claim_hb =
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+					.await?;
+			let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
+				destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
+
+			// Startup replay: any claim rows left in `pending` (i.e. the
+			// relayer crashed or restarted between delivery and claim
+			// submission) get pushed back into the channel here so the
+			// claim task can pick up where it left off. The pallet-side
+			// `(dest, set_id)` idempotency tag makes duplicate submission
+			// safe; the worst case is a wasted extrinsic that the pallet
+			// rejects with `OutboundRotationAlreadyClaimed`.
+			match tx_payment.list_pending_rotation_claims().await {
+				Ok(rows) if !rows.is_empty() => {
+					tracing::info!(
+						target: crate::LOG_TARGET,
+						count = rows.len(),
+						"replaying pending outbound consensus delivery claims from db",
+					);
+					for row in rows {
+						use std::str::FromStr;
+						let Ok(destination) = StateMachine::from_str(&row.dest) else {
+							tracing::warn!(
+								target: crate::LOG_TARGET,
+								dest = %row.dest,
+								"skipping pending claim row with unparseable state machine",
+							);
+							continue;
+						};
+						let claim = PendingConsensusDeliveryClaim {
+							destination,
+							rotation_height: row.rotation_height as u64,
+							new_set_id: row.set_id as u64,
+						};
+						if let Err(err) = claim_sender.try_send(claim) {
+							tracing::warn!(
+								target: crate::LOG_TARGET,
+								?err,
+								"claim channel refused replayed pending claim",
+							);
+						}
+					}
+				},
+				Ok(_) => {},
+				Err(err) => {
+					tracing::warn!(
+						target: crate::LOG_TARGET,
+						?err,
+						"list_pending_rotation_claims failed; skipping startup replay",
+					);
+				},
+			}
+
+			let claim_name = format!("outbound-claim-{}", hyperbridge_provider.name());
+			let claim_span =
+				tracing::info_span!("outbound_claim", hb = %hyperbridge_provider.name());
+			let claim_tx_payment = tx_payment.clone();
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(claim_name)),
+				"outbound",
+				async move {
+					tracing::trace!(target: crate::LOG_TARGET, "task started");
+					let res = messaging::outbound_claim::run(
+						claim_hb,
+						claim_destinations,
+						claim_receiver,
+						Some(claim_tx_payment),
+					)
+					.await;
+					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
+				}
+				.instrument(claim_span)
+				.boxed(),
+			);
+
+			let outbound_claim_tx_payment = tx_payment.clone();
 			task_manager.spawn_essential_handle().spawn_blocking(
 				Box::leak(Box::new(name)),
 				"outbound",
@@ -381,6 +469,8 @@ impl Cli {
 						outbound_relayer_cfg,
 						outbound_client_map,
 						outbound_fee_senders,
+						Some(claim_sender),
+						Some(outbound_claim_tx_payment),
 					)
 					.await;
 					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
@@ -399,7 +489,8 @@ impl Cli {
 		// a signer there. Skip chains without one.
 		{
 			let hb_for_withdraw =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+					.await?;
 			let withdraw_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = config
 				.chains
 				.iter()
@@ -486,7 +577,8 @@ impl Cli {
 				.context("Error initializing fee database")?,
 		);
 		let hyperbridge_substrate =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+				.await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge_substrate.clone());
 		let proof_source: Arc<dyn ConsensusProofSource> =
 			Arc::new(OffchainProofSource::new(hyperbridge_substrate.rpc_client.clone()));

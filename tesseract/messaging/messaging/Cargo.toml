@@ -23,6 +23,8 @@ pallet-state-coprocessor = { workspace = true, default-features = true }
 
 transaction-fees = { workspace = true }
 tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
 ismp-solidity-abi = { workspace = true, default-features = true }
 alloy-sol-types = { workspace = true, default-features = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }

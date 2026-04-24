@@ -33,9 +33,18 @@ use evm_state_machine::{
 	},
 	utils::{add_off_set_to_map_key, derive_unhashed_map_key},
 };
-use frame_support::{dispatch::DispatchResult, ensure};
+use frame_support::{
+	dispatch::DispatchResult,
+	ensure,
+	traits::tokens::{
+		fungible::{Inspect, Mutate},
+		Preservation,
+	},
+	PalletId,
+};
 use frame_system::pallet_prelude::OriginFor;
 use ismp::{
+	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
@@ -46,8 +55,88 @@ use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
 use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{withdrawal::*, HostParam, HostParams};
 use polkadot_sdk::*;
-use sp_core::{Get, H256, U256};
-use sp_runtime::{AccountId32, DispatchError};
+use sp_core::{sr25519, Get, H256, U256};
+use sp_runtime::{traits::AccountIdConversion, AccountId32, DispatchError};
+
+/// Convenience alias for the configured currency's balance.
+///
+/// This is `pallet-ismp`'s currency balance, which is the runtime's BRIDGE
+/// token in production. Reusing `pallet-ismp::Currency` rather than declaring
+/// a new `type Currency` on this pallet's `Config` avoids ambiguous
+/// associated-type errors in downstream pallets that bound on
+/// `pallet_ismp_relayer::Config` (e.g. `pallet-messaging-fees`).
+pub type BalanceOf<T> = <T as pallet_ismp::Config>::Balance;
+
+/// Lookup over the on-chain record of accepted authority-set rotations.
+///
+/// The runtime provides an implementation that delegates to
+/// `pallet-beefy-consensus-proofs::RotationProofs`. Abstracting it here keeps
+/// `pallet-ismp-relayer` from pulling that pallet's `Config` into its
+/// supertrait stack, which would conflict with associated types
+/// (`Currency`, `WeightInfo`) of other pallets that bound on
+/// `pallet_ismp_relayer::Config` (e.g. `pallet-messaging-fees`).
+pub trait RotationOracle {
+	/// Returns the Hyperbridge block height at which `set_id` was rotated
+	/// in, or `None` if no such rotation is recorded.
+	fn rotation_height(set_id: u64) -> Option<u64>;
+}
+
+/// A no-op [`RotationOracle`] for runtimes that don't track BEEFY rotations
+/// (e.g. those without `pallet-beefy-consensus-proofs`). Always returns
+/// `None`, which makes every outbound-consensus-delivery claim fail with
+/// `OutboundRotationNotKnown`. Effectively disables the reward for that
+/// runtime without breaking the `Config` shape.
+pub struct NoopRotationOracle;
+impl RotationOracle for NoopRotationOracle {
+	fn rotation_height(_set_id: u64) -> Option<u64> {
+		None
+	}
+}
+
+/// Claim payload for [`Pallet::claim_outbound_consensus_delivery_reward`].
+///
+/// A relayer who has just delivered a *mandatory* (authority-set rotation)
+/// consensus proof to a destination chain submits one of these on Hyperbridge
+/// to collect the per-chain `OutboundConsensusDeliveryReward`. The pallet
+/// verifies that:
+///
+/// 1. The rotation actually happened on Hyperbridge at `rotation_height` bringing in `new_set_id`
+///    (cross-checked against [`pallet_beefy_consensus_proofs::RotationProofs`]).
+/// 2. The destination chain's `pallet-ismp::StateCommitments` storage at the proven height contains
+///    an entry for that rotation height under Hyperbridge's state machine id (proves the
+///    destination accepted the delivery).
+/// 3. The signature recovers `claimer`, pinning the reward to a specific Hyperbridge account.
+/// 4. `(destination, new_set_id)` has not already been claimed.
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	Eq,
+	codec::Encode,
+	codec::Decode,
+	codec::DecodeWithMemTracking,
+	scale_info::TypeInfo,
+)]
+pub struct OutboundConsensusDeliveryClaim {
+	/// State proof of the destination chain at the height the relayer is
+	/// proving against. Must be a height Hyperbridge has already verified
+	/// via its own consensus client for `state_proof.height.id.state_id`.
+	/// `state_proof.height.id.state_id` is the destination chain.
+	pub state_proof: Proof,
+	/// The Hyperbridge block height where the rotation occurred (= the height
+	/// at which `new_set_id` first became active on HB).
+	pub rotation_height: u64,
+	/// The new authority set id brought in by the rotation. Together with the
+	/// destination, forms the idempotency tag `(destination, new_set_id)`.
+	pub new_set_id: u64,
+	/// The destination's local `consensus_state_id` for Hyperbridge. Needed
+	/// to derive the destination's `pallet-ismp::StateCommitments` storage
+	/// key for the rotation entry.
+	pub hb_consensus_state_id: ConsensusStateId,
+	/// SR25519 public key of the relayer's Hyperbridge account. Must match
+	/// the `signature` passed alongside this claim.
+	pub claimer: [u8; 32],
+}
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 
@@ -77,6 +166,18 @@ pub mod pallet {
 
 		/// Origin for privileged actions
 		type RelayerOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+		/// Treasury account derivation. Outbound consensus delivery rewards
+		/// are transferred from the account derived from this `PalletId`.
+		/// The treasury must be funded in the same currency as
+		/// `pallet-ismp::Config::Currency`.
+		#[pallet::constant]
+		type TreasuryPalletId: Get<PalletId>;
+
+		/// Provides the recorded rotation height for a given authority set
+		/// id. The runtime wires this to
+		/// `pallet-beefy-consensus-proofs::RotationProofs`.
+		type RotationOracle: super::RotationOracle;
 	}
 
 	/// double map of address to source chain, which holds the amount of the relayer address
@@ -120,6 +221,23 @@ pub mod pallet {
 	pub type MinimumWithdrawalAmount<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, U256, OptionQuery>;
 
+	/// Per-destination reward, in the runtime's [`Config::Currency`], paid to
+	/// the relayer that delivers a mandatory (authority-set rotation)
+	/// consensus proof to that destination. `0` (the default) means rewards
+	/// are off for the chain.
+	#[pallet::storage]
+	#[pallet::getter(fn outbound_consensus_delivery_reward)]
+	pub type OutboundConsensusDeliveryReward<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, BalanceOf<T>, ValueQuery>;
+
+	/// Idempotency map for outbound consensus delivery claims. The presence
+	/// of `(destination, set_id)` means some relayer has already collected
+	/// the reward for that rotation on that destination.
+	#[pallet::storage]
+	#[pallet::getter(fn outbound_consensus_rotations_claimed)]
+	pub type OutboundConsensusRotationsClaimed<T: Config> =
+		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Blake2_128Concat, u64, (), OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Withdrawal Proof Validation Error
@@ -146,6 +264,34 @@ pub mod pallet {
 		IncompleteProof,
 		/// Signature Decoding Error
 		SignatureDecodingError,
+		/// The claimed rotation is not recorded in
+		/// `pallet_beefy_consensus_proofs::RotationProofs` at the claimed
+		/// height.
+		OutboundRotationNotKnown,
+		/// `(destination, set_id)` has already been claimed by some relayer.
+		OutboundRotationAlreadyClaimed,
+		/// Hyperbridge does not yet know a state commitment for the
+		/// destination at the proof height. Retry once HB's consensus
+		/// client for the destination has advanced past the rotation
+		/// landing.
+		OutboundDestinationStateNotKnown,
+		/// The state proof did not produce an entry at the destination's
+		/// `pallet-ismp::StateCommitments` slot for the claimed rotation.
+		OutboundDeliveryNotProven,
+		/// Treasury → relayer transfer failed (typically because the
+		/// treasury balance is below the configured reward).
+		OutboundRewardTransferFailed,
+		/// No reward is configured for the destination
+		/// (`OutboundConsensusDeliveryReward` is `0`).
+		OutboundNoRewardConfigured,
+		/// The claimed destination is EVM but no `EvmHost` address is
+		/// recorded for it in `pallet-ismp-host-executive`, so we can't
+		/// derive the contract-scoped storage key to verify against.
+		OutboundEvmHostNotKnown,
+		/// Hyperbridge's own state machine id is not Polkadot or Kusama,
+		/// so it cannot be encoded as the uint256 id the EVM
+		/// `_stateCommitments` mapping expects.
+		OutboundInvalidHbStateMachine,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -171,6 +317,26 @@ pub mod pallet {
 			state_machine: StateMachine,
 			/// Amount withdrawn
 			amount: U256,
+		},
+		/// A relayer has been paid for delivering a mandatory consensus
+		/// proof (authority-set rotation) to a destination chain.
+		OutboundConsensusDeliveryRewarded {
+			/// Destination chain the rotation was delivered to.
+			state_machine: StateMachine,
+			/// New authority set id brought in by the rotation.
+			set_id: u64,
+			/// Hyperbridge account credited.
+			relayer: BoundedVec<u8, ConstU32<32>>,
+			/// Amount paid out, in the runtime's `Currency`.
+			amount: BalanceOf<T>,
+		},
+		/// Governance updated the per-chain outbound consensus delivery
+		/// reward.
+		OutboundConsensusDeliveryRewardUpdated {
+			/// Destination chain whose reward was updated.
+			state_machine: StateMachine,
+			/// New reward amount.
+			new_reward: BalanceOf<T>,
 		},
 	}
 
@@ -213,6 +379,41 @@ pub mod pallet {
 			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}
+
+		/// Pay the configured `OutboundConsensusDeliveryReward` to a relayer
+		/// who delivered a mandatory consensus proof to a destination chain.
+		///
+		/// Unsigned. Spam-protected by `validate_unsigned` (the encoded
+		/// payload becomes a unique tag, so a duplicate submission with the
+		/// same `(destination, set_id)` is rejected at the txpool stage).
+		#[pallet::call_index(3)]
+		#[pallet::weight({1_000_000})]
+		pub fn claim_outbound_consensus_delivery_reward(
+			origin: OriginFor<T>,
+			claim: OutboundConsensusDeliveryClaim,
+			signature: Vec<u8>,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+			Self::process_outbound_consensus_delivery_claim(claim, signature)
+		}
+
+		/// Governance-set per-chain reward for delivering mandatory consensus
+		/// proofs to that destination.
+		#[pallet::call_index(4)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
+		pub fn set_outbound_consensus_delivery_reward(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			T::RelayerOrigin::ensure_origin(origin)?;
+			OutboundConsensusDeliveryReward::<T>::insert(state_machine, amount);
+			Self::deposit_event(Event::OutboundConsensusDeliveryRewardUpdated {
+				state_machine,
+				new_reward: amount,
+			});
+			Ok(())
+		}
 	}
 
 	#[pallet::validate_unsigned]
@@ -234,6 +435,11 @@ pub mod pallet {
 				Call::accumulate_fees { withdrawal_proof } =>
 					Self::accumulate(withdrawal_proof.clone()),
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
+				Call::claim_outbound_consensus_delivery_reward { claim, signature } =>
+					Self::process_outbound_consensus_delivery_claim(
+						claim.clone(),
+						signature.clone(),
+					),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
@@ -245,6 +451,8 @@ pub mod pallet {
 			let encoding = match call {
 				Call::accumulate_fees { withdrawal_proof } => withdrawal_proof.encode(),
 				Call::withdraw_fees { withdrawal_data } => withdrawal_data.encode(),
+				Call::claim_outbound_consensus_delivery_reward { claim, signature } =>
+					(claim, signature).encode(),
 				_ => unreachable!(),
 			};
 
@@ -267,6 +475,158 @@ where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	T::Balance: Into<u128>,
 {
+	/// Verify and pay out an outbound-consensus delivery claim.
+	///
+	/// See [`OutboundConsensusDeliveryClaim`] for the verification steps.
+	pub fn process_outbound_consensus_delivery_claim(
+		claim: OutboundConsensusDeliveryClaim,
+		signature: Vec<u8>,
+	) -> DispatchResult {
+		let destination = claim.state_proof.height.id.state_id;
+
+		ensure!(
+			!OutboundConsensusRotationsClaimed::<T>::contains_key(destination, claim.new_set_id,),
+			Error::<T>::OutboundRotationAlreadyClaimed,
+		);
+
+		let recorded_height = <T as Config>::RotationOracle::rotation_height(claim.new_set_id)
+			.ok_or(Error::<T>::OutboundRotationNotKnown)?;
+		ensure!(recorded_height == claim.rotation_height, Error::<T>::OutboundRotationNotKnown,);
+
+		let payload =
+			(b"outbound-consensus-delivery-reward", destination, claim.new_set_id, claim.claimer)
+				.encode();
+		let msg_hash = sp_io::hashing::keccak_256(&payload);
+		let sig = sr25519::Signature::try_from(signature.as_slice())
+			.map_err(|_| Error::<T>::SignatureDecodingError)?;
+		let pubkey = sr25519::Public::from_raw(claim.claimer);
+		ensure!(
+			sp_io::crypto::sr25519_verify(&sig, &msg_hash, &pubkey),
+			Error::<T>::InvalidSignature,
+		);
+
+		// Destination-type-aware state-commitment key: substrate and EVM
+		// record the entry in different storage layouts.
+		let key = match destination {
+			StateMachine::Evm(_) =>
+				Self::destination_hb_evm_state_commitments_key(destination, claim.rotation_height)?,
+			_ => Self::destination_hb_state_commitments_key(
+				claim.hb_consensus_state_id,
+				claim.rotation_height,
+			),
+		};
+		let proof_results = Self::verify_withdrawal_proof(&claim.state_proof, vec![key.clone()])
+			.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let value = proof_results
+			.get(&key)
+			.cloned()
+			.flatten()
+			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
+		// For substrate the value is a SCALE-encoded `StateCommitment`
+		// whose timestamp is non-zero for any real rotation. For EVM the
+		// value is the raw 32-byte timestamp slot, which is all zeros for
+		// an unset entry. A single non-zero byte is the shared
+		// "entry exists" signal.
+		ensure!(value.iter().any(|b| *b != 0), Error::<T>::OutboundDeliveryNotProven);
+
+		let reward = OutboundConsensusDeliveryReward::<T>::get(destination);
+		ensure!(reward > BalanceOf::<T>::default(), Error::<T>::OutboundNoRewardConfigured,);
+
+		let treasury: T::AccountId =
+			<T as Config>::TreasuryPalletId::get().into_account_truncating();
+		let claimer_account: T::AccountId = claim.claimer.into();
+		<<T as pallet_ismp::Config>::Currency as Mutate<T::AccountId>>::transfer(
+			&treasury,
+			&claimer_account,
+			reward,
+			Preservation::Preserve,
+		)
+		.map_err(|_| Error::<T>::OutboundRewardTransferFailed)?;
+
+		OutboundConsensusRotationsClaimed::<T>::insert(destination, claim.new_set_id, ());
+
+		let bounded_relayer = frame_support::BoundedVec::try_from(claim.claimer.to_vec())
+			.expect("32 bytes always fits in a 32-cap BoundedVec; qed");
+		Self::deposit_event(Event::OutboundConsensusDeliveryRewarded {
+			state_machine: destination,
+			set_id: claim.new_set_id,
+			relayer: bounded_relayer,
+			amount: reward,
+		});
+
+		Ok(())
+	}
+
+	/// Derive the destination chain's `EvmHost::_stateCommitments` storage
+	/// key for the entry that records "Hyperbridge has been updated to
+	/// `rotation_height`". Returns the 52-byte key the
+	/// `StateProofQueryType::Arbitrary` EVM path expects: the contract
+	/// address (20 bytes) concatenated with the timestamp slot hash (32
+	/// bytes).
+	///
+	/// The timestamp slot is offset 0 in the `StateCommitment` struct;
+	/// it's zero for an unset entry and non-zero for any real rotation,
+	/// which is what the existence check keys off of.
+	fn destination_hb_evm_state_commitments_key(
+		destination: StateMachine,
+		rotation_height: u64,
+	) -> Result<Vec<u8>, DispatchError> {
+		let evm_host = pallet_ismp_host_executive::EvmHosts::<T>::get(destination)
+			.ok_or(Error::<T>::OutboundEvmHostNotKnown)?;
+
+		// Hyperbridge's state machine id as the uint256 the EVM
+		// `_stateCommitments[stateMachineId][height]` mapping expects.
+		let hb_id_u256 = match <T as pallet_ismp::Config>::HostStateMachine::get() {
+			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => U256::from(id),
+			_ => return Err(Error::<T>::OutboundInvalidHbStateMachine.into()),
+		};
+
+		let (timestamp_slot, _overlay_root_slot, _state_root_slot) =
+			evm_state_machine::utils::state_comitment_key(hb_id_u256, U256::from(rotation_height));
+
+		let mut key = Vec::with_capacity(52);
+		key.extend_from_slice(&evm_host.0);
+		key.extend_from_slice(&timestamp_slot.0);
+		Ok(key)
+	}
+
+	/// Derive the destination chain's `pallet-ismp::BoundedStateCommitments`
+	/// storage key for the entry that records "Hyperbridge has been updated
+	/// to `rotation_height`". This is the key the relayer's state proof
+	/// must resolve to a non-empty value at.
+	///
+	/// `BoundedStateCommitments` is a `StorageDoubleMap<StateMachineId, u64,
+	/// StateCommitment>` with `Blake2_128Concat` on both keys, so the key
+	/// layout is:
+	///
+	/// `twox_128("Ismp") ++ twox_128("BoundedStateCommitments") ++
+	///  blake2_128_concat(scale_encode(StateMachineId)) ++
+	///  blake2_128_concat(scale_encode(u64 height))`
+	///
+	/// (The legacy single-key `StateCommitments` map is being drained and
+	/// no longer receives writes; pointing at it would silently fail to
+	/// verify any new rotation deliveries.)
+	fn destination_hb_state_commitments_key(
+		hb_consensus_state_id: ConsensusStateId,
+		rotation_height: u64,
+	) -> Vec<u8> {
+		use sp_io::hashing::{blake2_128, twox_128};
+		let id = StateMachineId {
+			state_id: <T as pallet_ismp::Config>::HostStateMachine::get(),
+			consensus_state_id: hb_consensus_state_id,
+		};
+		let id_encoded = id.encode();
+		let height_encoded = rotation_height.encode();
+		let mut key = Vec::with_capacity(64 + id_encoded.len() + height_encoded.len());
+		key.extend_from_slice(&twox_128(b"Ismp"));
+		key.extend_from_slice(&twox_128(b"BoundedStateCommitments"));
+		key.extend_from_slice(&blake2_128(&id_encoded));
+		key.extend_from_slice(&id_encoded);
+		key.extend_from_slice(&blake2_128(&height_encoded));
+		key.extend_from_slice(&height_encoded);
+		key
+	}
+
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
 		let address = match &withdrawal_data.signature {
 			Signature::Evm { address, .. } => address.clone(),

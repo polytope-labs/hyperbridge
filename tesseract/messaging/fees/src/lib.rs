@@ -41,6 +41,27 @@ pub struct TransactionPayment {
 	pub db: Arc<PrismaClient>,
 }
 
+/// Status values for [`OutboundRotationClaims`] rows. Kept as string constants
+/// (not a Rust enum) because the persistence layer stores them as text for
+/// easy inspection with `sqlite3` or similar tooling.
+pub mod outbound_rotation_claim_status {
+	pub const PENDING: &str = "pending";
+	pub const CLAIMED: &str = "claimed";
+	pub const ABANDONED: &str = "abandoned";
+}
+
+/// Row view of a persisted outbound-consensus delivery claim. Mirrors the
+/// `OutboundRotationClaims` prisma model but built by hand so we don't
+/// depend on the generated client having been refreshed yet.
+#[derive(Debug, Clone, ::serde::Deserialize)]
+pub struct OutboundRotationClaimRow {
+	pub dest: String,
+	pub set_id: i64,
+	pub rotation_height: i64,
+	pub status: String,
+	pub note: Option<String>,
+}
+
 impl TransactionPayment {
 	/// Create the local database if it does not exist
 	pub async fn initialize(url: &str) -> anyhow::Result<Self> {
@@ -51,6 +72,142 @@ impl TransactionPayment {
 		#[cfg(not(debug_assertions))]
 		client._migrate_deploy().await?;
 		Ok(Self { db: Arc::new(client) })
+	}
+
+	/// Record a newly-delivered mandatory rotation as a pending claim. The
+	/// outbound task calls this immediately after a successful delivery so
+	/// the claim survives a relayer restart. The `upsert` with an empty
+	/// update vec makes the call idempotent on the `(dest, set_id)` unique
+	/// key — a retry for the same rotation is a no-op, which lets the
+	/// caller be sloppy about deduplicating.
+	pub async fn insert_pending_rotation_claim(
+		&self,
+		destination: &str,
+		set_id: u64,
+		rotation_height: u64,
+	) -> anyhow::Result<()> {
+		use crate::db::outbound_rotation_claims;
+		let now = chrono::Utc::now().timestamp() as i32;
+		self.db
+			.outbound_rotation_claims()
+			.upsert(
+				outbound_rotation_claims::UniqueWhereParam::DestSetIdEquals(
+					destination.to_string(),
+					set_id as i64,
+				),
+				outbound_rotation_claims::create(
+					destination.to_string(),
+					set_id as i64,
+					rotation_height as i64,
+					outbound_rotation_claim_status::PENDING.to_string(),
+					now,
+					now,
+					vec![],
+				),
+				vec![],
+			)
+			.exec()
+			.await?;
+		Ok(())
+	}
+
+	/// Flip a pending claim to `claimed` after the extrinsic lands on
+	/// Hyperbridge.
+	pub async fn mark_rotation_claimed(
+		&self,
+		destination: &str,
+		set_id: u64,
+	) -> anyhow::Result<()> {
+		self.update_rotation_status(
+			destination,
+			set_id,
+			outbound_rotation_claim_status::CLAIMED,
+			None,
+		)
+		.await
+	}
+
+	/// Flip a pending claim to `abandoned` when the claim permanently
+	/// cannot succeed (e.g. another relayer won the race, so the pallet
+	/// returns `OutboundRotationAlreadyClaimed`). Keeps the row for audit
+	/// but stops the startup replay from retrying it.
+	pub async fn mark_rotation_abandoned(
+		&self,
+		destination: &str,
+		set_id: u64,
+		note: &str,
+	) -> anyhow::Result<()> {
+		self.update_rotation_status(
+			destination,
+			set_id,
+			outbound_rotation_claim_status::ABANDONED,
+			Some(note),
+		)
+		.await
+	}
+
+	async fn update_rotation_status(
+		&self,
+		destination: &str,
+		set_id: u64,
+		status: &str,
+		note: Option<&str>,
+	) -> anyhow::Result<()> {
+		use crate::db::{
+			outbound_rotation_claims::{SetParam, WhereParam},
+			read_filters::{BigIntFilter, StringFilter},
+		};
+		let now = chrono::Utc::now().timestamp() as i32;
+		let mut params = vec![SetParam::SetStatus(status.to_string()), SetParam::SetUpdatedAt(now)];
+		if let Some(n) = note {
+			params.push(SetParam::SetNote(Some(n.to_string())));
+		}
+		// `update` errors if the row is absent; `update_many` silently
+		// affects zero rows in that case, which is the behaviour the
+		// caller relies on (mark_* is a best-effort status flip).
+		self.db
+			.outbound_rotation_claims()
+			.update_many(
+				vec![
+					WhereParam::Dest(StringFilter::Equals(destination.to_string())),
+					WhereParam::SetId(BigIntFilter::Equals(set_id as i64)),
+				],
+				params,
+			)
+			.exec()
+			.await?;
+		Ok(())
+	}
+
+	/// Load every claim still in `pending`, ordered by creation time. The
+	/// claim task calls this at startup and replays each one through its
+	/// normal processing path.
+	pub async fn list_pending_rotation_claims(
+		&self,
+	) -> anyhow::Result<Vec<OutboundRotationClaimRow>> {
+		use crate::db::{
+			outbound_rotation_claims::{OrderByParam, WhereParam},
+			read_filters::StringFilter,
+		};
+		let rows = self
+			.db
+			.outbound_rotation_claims()
+			.find_many(vec![WhereParam::Status(StringFilter::Equals(
+				outbound_rotation_claim_status::PENDING.to_string(),
+			))])
+			.order_by(OrderByParam::CreatedAt(prisma_client_rust::Direction::Asc))
+			.exec()
+			.await?;
+		Ok(rows
+			.into_iter()
+			.map(|data| OutboundRotationClaimRow {
+				dest: data.dest,
+				set_id: data.set_id,
+				rotation_height: data.rotation_height,
+				status: data.status,
+				note: data.note,
+			})
+			.collect())
 	}
 
 	/// Query all deliveries in the db and make them unique by the source & destination pair

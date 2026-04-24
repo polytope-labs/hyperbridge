@@ -173,21 +173,17 @@ pub async fn withdraw_once<C>(
 /// Dispatch the withdrawal delivery along the path that matches the
 /// destination family:
 ///
-/// - **EVM destinations** get the "bundle a BEEFY consensus proof alongside
-///   the request" path ([`deliver_post_request_evm`]): waits for HB to emit
-///   a `ProofAccepted` at or above `max_block`, fetches the accepted proof,
-///   builds a `ConsensusMessage` + `RequestMessage` batch, and submits both
-///   in one tx so destinations that haven't yet seen this HB height can
-///   verify both atomically. Every `hyperbridge.state_machine_id()` call on
-///   this path has its `consensus_state_id` swapped for
-///   [`BEEFY_CONSENSUS_STATE_ID`] — EVM hosts track the BEEFY client, not
-///   the parachain one.
-/// - **Non-EVM (substrate) destinations** go through
-///   [`deliver_post_request_substrate`]: they don't need the consensus
-///   bundle because an independent consensus task advances their light
-///   client; we just wait for the destination's own
-///   `StateMachineUpdated` to cross `max_block`, then submit the request
-///   alone.
+/// - **EVM destinations** get the "bundle a BEEFY consensus proof alongside the request" path
+///   ([`deliver_post_request_evm`]): waits for HB to emit a `ProofAccepted` at or above
+///   `max_block`, fetches the accepted proof, builds a `ConsensusMessage` + `RequestMessage` batch,
+///   and submits both in one tx so destinations that haven't yet seen this HB height can verify
+///   both atomically. Every `hyperbridge.state_machine_id()` call on this path has its
+///   `consensus_state_id` swapped for [`BEEFY_CONSENSUS_STATE_ID`] — EVM hosts track the BEEFY
+///   client, not the parachain one.
+/// - **Non-EVM (substrate) destinations** go through [`deliver_post_request_substrate`]: they don't
+///   need the consensus bundle because an independent consensus task advances their light client;
+///   we just wait for the destination's own `StateMachineUpdated` to cross `max_block`, then submit
+///   the request alone.
 #[instrument(
 	name = "deliver_post_request",
 	skip_all,
@@ -322,11 +318,8 @@ async fn deliver_post_request_substrate<D: IsmpProvider>(
 	if results.is_empty() {
 		return Ok(());
 	}
-	let max_block = results
-		.iter()
-		.map(|r| r.block)
-		.max()
-		.expect("results non-empty, checked above");
+	let max_block =
+		results.iter().map(|r| r.block).max().expect("results non-empty, checked above");
 
 	let mut latest_height =
 		dest_chain.query_latest_height(hyperbridge.state_machine_id()).await? as u64;
@@ -337,8 +330,9 @@ async fn deliver_post_request_substrate<D: IsmpProvider>(
 			target_height = max_block,
 			"waiting for state machine update finalizing withdraw height",
 		);
-		let mut stream =
-			dest_chain.state_machine_update_notification(hyperbridge.state_machine_id()).await?;
+		let mut stream = dest_chain
+			.state_machine_update_notification(hyperbridge.state_machine_id())
+			.await?;
 
 		latest_height = loop {
 			match stream.next().await {

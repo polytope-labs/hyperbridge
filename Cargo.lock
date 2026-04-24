@@ -12245,6 +12245,7 @@ dependencies = [
  "ismp-solidity-abi",
  "itertools 0.13.0",
  "pallet-ismp",
+ "pallet-ismp-relayer",
  "pallet-state-coprocessor",
  "parity-scale-codec",
  "percentage",
@@ -12252,6 +12253,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "sp-core",
  "tesseract-primitives",
+ "tesseract-substrate",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -15335,6 +15337,7 @@ version = "0.1.1"
 dependencies = [
  "alloy",
  "alloy-primitives 1.5.7",
+ "alloy-rlp",
  "alloy-sol-types 1.5.7",
  "anyhow",
  "beefy-prover",

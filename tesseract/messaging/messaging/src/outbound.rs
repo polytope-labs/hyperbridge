@@ -28,11 +28,12 @@ use ismp::{
 	messaging::{ConsensusMessage, Message},
 };
 use tesseract_primitives::{
-	config::RelayerConfig, ConsensusProofSource, IsmpProvider, ProofAccepted, RotationProof,
-	StateMachineUpdated, TxReceipt, BEEFY_CONSENSUS_STATE_ID,
+	config::RelayerConfig, ConsensusProofSource, IsmpProvider, PendingConsensusDeliveryClaim,
+	ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt, BEEFY_CONSENSUS_STATE_ID,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
+use transaction_fees::TransactionPayment;
 
 use crate::events::translate_events_to_messages;
 
@@ -52,6 +53,8 @@ pub async fn run(
 	relayer_config: RelayerConfig,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>>,
+	claim_sender: Option<Sender<PendingConsensusDeliveryClaim>>,
+	claim_tx_payment: Option<Arc<TransactionPayment>>,
 ) -> Result<(), anyhow::Error> {
 	let hb_state_machine_id = hyperbridge.state_machine_id();
 	let coprocessor = hb_state_machine_id.state_id;
@@ -138,11 +141,14 @@ pub async fn run(
 					proof_bytes.clone(),
 					is_mandatory,
 					new_height,
+					new_set_id,
 					hb_state_machine_id,
 					relayer_config.clone(),
 					coprocessor,
 					client_map.clone(),
 					fee_sender,
+					claim_sender.clone(),
+					claim_tx_payment.clone(),
 					proof_source.clone(),
 				)
 				.instrument(dest_span)
@@ -175,11 +181,14 @@ async fn submit_for_dest(
 	proof_bytes: Vec<u8>,
 	is_mandatory: bool,
 	new_height: u64,
+	new_set_id: Option<u64>,
 	hb_state_machine_id: StateMachineId,
 	relayer_config: RelayerConfig,
 	coprocessor: StateMachine,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
+	claim_sender: Option<Sender<PendingConsensusDeliveryClaim>>,
+	claim_tx_payment: Option<Arc<TransactionPayment>>,
 	proof_source: Arc<dyn ConsensusProofSource>,
 ) -> Result<(), anyhow::Error> {
 	let dest_state_machine = dest.state_machine_id().state_id;
@@ -266,11 +275,52 @@ async fn submit_for_dest(
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
 	let result = dest.submit(batch, hb_state_machine_id.state_id).await?;
 
-	// Forward receipts for fee accumulation (best-effort — channel may be
+	// Forward receipts for fee accumulation (best-effort, channel may be
 	// closed if the relayer is shutting down).
 	if let (Some(sender), false) = (fee_sender, result.receipts.is_empty()) {
 		if let Err(err) = sender.send(result.receipts).await {
 			tracing::warn!(target: LOG_TARGET, ?err, "fee-accumulation channel send failed");
+		}
+	}
+
+	// Forward a claim for the outbound consensus delivery reward. Only
+	// mandatory rotations are eligible (messaging-only proofs already earn
+	// the relayer inbound fees on this chain), and only when a claim task
+	// is wired up. The persistence side is attempted first so a crash
+	// between here and the channel push still survives: on the next
+	// startup the pending row is replayed into the channel.
+	if let (true, Some(set_id), Some(sender)) = (is_mandatory, new_set_id, claim_sender) {
+		if let Some(tx_payment) = &claim_tx_payment {
+			if let Err(err) = tx_payment
+				.insert_pending_rotation_claim(&dest_state_machine.to_string(), set_id, new_height)
+				.await
+			{
+				tracing::warn!(
+					target: LOG_TARGET,
+					?err,
+					dest = %dest_name,
+					height = new_height,
+					set_id,
+					"failed to persist outbound-consensus claim; the channel send may still \
+					 succeed but the claim will not survive a restart",
+				);
+			}
+		}
+
+		let claim = PendingConsensusDeliveryClaim {
+			destination: dest_state_machine,
+			rotation_height: new_height,
+			new_set_id: set_id,
+		};
+		if let Err(err) = sender.send(claim).await {
+			tracing::warn!(
+				target: LOG_TARGET,
+				?err,
+				dest = %dest_name,
+				height = new_height,
+				set_id,
+				"outbound-consensus claim channel send failed",
+			);
 		}
 	}
 
@@ -457,10 +507,13 @@ mod tests {
 			vec![0xcc],
 			false,
 			100,
+			None,
 			hb_id(),
 			RelayerConfig::default(),
 			HB,
 			client_map,
+			None,
+			None,
 			None,
 			proof_source(),
 		)
@@ -488,10 +541,13 @@ mod tests {
 			vec![0xcc],
 			true,
 			100,
+			Some(1),
 			hb_id(),
 			RelayerConfig::default(),
 			HB,
 			client_map,
+			None,
+			None,
 			None,
 			proof_source(),
 		)
@@ -524,10 +580,13 @@ mod tests {
 			vec![0xcc],
 			false,
 			100,
+			None,
 			hb_id(),
 			RelayerConfig::default(),
 			HB,
 			client_map,
+			None,
+			None,
 			None,
 			proof_source(),
 		)
@@ -563,10 +622,13 @@ mod tests {
 			vec![0xcc],
 			false,
 			100,
+			None,
 			hb_id(),
 			RelayerConfig::default(),
 			HB,
 			client_map,
+			None,
+			None,
 			None,
 			proof_source(),
 		)

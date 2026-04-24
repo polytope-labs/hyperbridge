@@ -174,9 +174,8 @@ impl HyperbridgeConfig {
 			return Err(anyhow!("Missing [hyperbridge] or [relayer] section in config"));
 		}
 
-		let hyperbridge = parse_hyperbridge_section(
-			table.get(HYPERBRIDGE).cloned().expect("checked above"),
-		)?;
+		let hyperbridge =
+			parse_hyperbridge_section(table.get(HYPERBRIDGE).cloned().expect("checked above"))?;
 
 		let relayer: RelayerConfig =
 			table.get(RELAYER).cloned().expect("checked above").try_into()?;
@@ -298,10 +297,7 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 /// fields as a [`SubstrateConfig`].
 fn parse_hyperbridge_section(raw: Value) -> Result<HyperbridgeSection, anyhow::Error> {
 	let Value::Table(mut table) = raw else {
-		return Err(anyhow!(
-			"[hyperbridge] must be a table, got {}",
-			raw.type_str(),
-		));
+		return Err(anyhow!("[hyperbridge] must be a table, got {}", raw.type_str(),));
 	};
 	let consensus_value = table.remove(CONSENSUS);
 
@@ -479,8 +475,6 @@ signer = "0x00"
 
 [bsc_chapel.consensus]
 type = "bsc_testnet"
-
-[bsc_chapel.consensus.host]
 consensus_update_frequency = 60
 epoch_length = 200
 "#,
@@ -495,9 +489,9 @@ epoch_length = 200
 		// refactor moved it to a constructor argument. Here we only check the
 		// consensus-specific fields arrived correctly.
 		match pc.consensus.as_ref().unwrap() {
-			ConsensusConfig::BscTestnet(bsc) => {
-				assert_eq!(bsc.host.epoch_length, 200);
-				assert_eq!(bsc.host.consensus_update_frequency, Some(60));
+			ConsensusConfig::BscTestnet { inner } => {
+				assert_eq!(inner.host.epoch_length, 200);
+				assert_eq!(inner.host.consensus_update_frequency, Some(60));
 			},
 			other => panic!("expected BscTestnet variant, got {other:?}"),
 		}
@@ -517,8 +511,6 @@ signer = "0x00"
 
 [chapel.consensus]
 type = "bsc_testnet"
-
-[chapel.consensus.host]
 consensus_update_frequency = 60
 epoch_length = 200
 

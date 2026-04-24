@@ -29,3 +29,37 @@ model UnprofitableMessages {
   dest      String
   encoded   Bytes
 }
+
+// In-flight outbound consensus delivery reward claims.
+//
+// Rows are inserted (status = "pending") the moment the outbound task
+// finishes delivering a mandatory rotation to a destination. The claim
+// task picks them up, waits for Hyperbridge to see the destination, builds
+// the state proof, submits the extrinsic, and flips status to "claimed"
+// on success. On relayer startup, any rows still in "pending" are replayed
+// so a crash between delivery and extrinsic submission does not leave
+// rewards on the table.
+//
+// Status string values:
+//   "pending"    – in flight, replay on startup
+//   "claimed"    – extrinsic landed successfully
+//   "abandoned"  – another relayer won the race or some other permanent
+//                  failure (e.g. OutboundRotationAlreadyClaimed); keep
+//                  the row for audit but do not replay
+//
+// (dest, set_id) is the natural unique key. We keep `id` as the real PK
+// to match the other tables' shape and add a composite index for
+// replay lookups.
+model OutboundRotationClaims {
+  id              Int    @id @default(autoincrement())
+  dest            String
+  set_id          BigInt
+  rotation_height BigInt
+  status          String
+  created_at      Int
+  updated_at      Int
+  note            String?
+
+  @@unique([dest, set_id], name: "dest_set_id")
+  @@index([status])
+}

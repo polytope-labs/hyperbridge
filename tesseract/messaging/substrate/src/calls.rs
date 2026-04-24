@@ -17,6 +17,7 @@ use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::{
 	message,
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	OutboundConsensusDeliveryClaim,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use polkadot_sdk::sp_core::Pair;
@@ -40,7 +41,8 @@ use subxt_utils::{
 	relayer_account_balance_storage_key, relayer_nonce_storage_key, send_extrinsic,
 	values::{
 		create_consensus_state_to_value, get_requests_with_proof_to_value,
-		host_params_btreemap_to_value, withdrawal_input_data_to_value, withdrawal_proof_to_value,
+		host_params_btreemap_to_value, outbound_consensus_delivery_claim_to_value,
+		withdrawal_input_data_to_value, withdrawal_proof_to_value,
 	},
 };
 use tesseract_primitives::{
@@ -106,6 +108,25 @@ where
 		let signer = InMemorySigner::new(self.signer.clone());
 		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
 
+		Ok(())
+	}
+
+	/// Submit `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`
+	/// on Hyperbridge. The extrinsic is unsigned (validated via
+	/// `validate_unsigned`); its `(claim, signature)` arguments authenticate
+	/// the relayer and prove the rotation landed on the destination chain.
+	pub async fn submit_outbound_consensus_delivery_claim(
+		&self,
+		claim: OutboundConsensusDeliveryClaim,
+		signature: Vec<u8>,
+	) -> anyhow::Result<()> {
+		use subxt::ext::scale_value::value;
+		let payload = subxt::dynamic::tx(
+			"Relayer",
+			"claim_outbound_consensus_delivery_reward",
+			vec![outbound_consensus_delivery_claim_to_value(&claim), value!(signature)],
+		);
+		send_unsigned_extrinsic(&self.client, payload, true).await?;
 		Ok(())
 	}
 }

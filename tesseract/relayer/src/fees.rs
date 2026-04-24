@@ -57,7 +57,8 @@ impl AccumulateFees {
 	pub async fn run(&self, config_path: &str, db: &str) -> anyhow::Result<()> {
 		let config = HyperbridgeConfig::parse_conf(config_path).await?;
 		let hyperbridge =
-			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone()).await?;
+			SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
+				.await?;
 		let hyperbridge_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge.clone());
 
 		let mut clients: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();

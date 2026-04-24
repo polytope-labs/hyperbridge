@@ -454,8 +454,7 @@ pub async fn return_successful_queries(
 	// Estimate each message together with the consensus update it rides in
 	// with; EVM sinks use `batchCall([prelude, msg])` so the simulation sees
 	// the post-update state commitment.
-	let gas_estimates =
-		sink.estimate_gas_batched(consensus_prelude, messages.clone()).await?;
+	let gas_estimates = sink.estimate_gas_batched(consensus_prelude, messages.clone()).await?;
 
 	// We'll be querying from possibly multiple chains, Let's use the lowest tracing batch size
 	// from all clients(except the coprocessor) and use that as the max concurrency

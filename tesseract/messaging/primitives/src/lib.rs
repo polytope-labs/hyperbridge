@@ -76,6 +76,24 @@ pub struct RotationProof {
 /// BEEFY `ConsensusStateId` — matches the solidity `BEEFY_CONSENSUS_ID` and
 /// `pallet_beefy_consensus_proofs::BEEFY_CONSENSUS_ID`.
 pub const BEEFY_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
+
+/// Receipt emitted by the outbound pipeline after a successful delivery of a
+/// mandatory (authority-set rotation) consensus proof to a destination chain.
+///
+/// The claim task consumes these, waits for Hyperbridge's consensus client for
+/// `destination` to advance past `rotation_height`, builds a state proof of
+/// the destination's `pallet-ismp::StateCommitments` entry for that rotation,
+/// signs with the Hyperbridge sr25519 key, and submits
+/// `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`.
+#[derive(Debug, Clone)]
+pub struct PendingConsensusDeliveryClaim {
+	/// Destination chain the rotation was delivered to.
+	pub destination: StateMachine,
+	/// The Hyperbridge block height at which `new_set_id` rotated in.
+	pub rotation_height: u64,
+	/// The new BEEFY authority set id brought in by the rotation.
+	pub new_set_id: u64,
+}
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -352,6 +370,16 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// State Machine Id for this client which would be it's state machine id
 	/// on the counterparty chain
 	fn state_machine_id(&self) -> StateMachineId;
+
+	/// The address of the `IsmpHost` contract on this chain, for EVM
+	/// destinations. Returns `None` for chains that don't expose an on-chain
+	/// contract address (substrate). Used by the outbound-consensus claim
+	/// task to derive the destination-side storage slot for
+	/// `_stateCommitments[hbStateMachineId][rotation_height]`, which is
+	/// what the pallet's state proof verifier looks up.
+	fn ismp_host_contract(&self) -> Option<sp_core::H160> {
+		None
+	}
 
 	/// Should return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;

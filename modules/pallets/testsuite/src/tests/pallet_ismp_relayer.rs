@@ -34,6 +34,7 @@ use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
 	self as pallet_ismp_relayer, message,
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	OutboundConsensusDeliveryClaim,
 };
 use sp_core::{keccak_256, Pair, H256, U256};
 use sp_trie::LayoutV0;
@@ -670,4 +671,462 @@ fn test_withdrawal_fees_evm() {
 		)
 		.is_err());
 	})
+}
+
+// ── outbound consensus delivery reward tests ────────────────────────────────
+//
+// These exercise `claim_outbound_consensus_delivery_reward`: build a real
+// in-memory trie containing the destination's
+// `pallet-ismp::StateCommitments` entry for a Hyperbridge rotation, store
+// the destination state root on `Ismp` so the pallet's state-proof
+// verifier can find it, set the per-chain reward, populate the rotation
+// oracle, fund the treasury, and submit the claim.
+
+mod outbound_consensus_delivery {
+	use super::*;
+	use crate::runtime::{
+		clear_test_rotations, set_test_rotation, Balances, OutboundRewardTreasury,
+	};
+	use frame_support::traits::{fungible::Inspect, tokens::fungible::Mutate as FungibleMutate};
+	use pallet_ismp_relayer::{
+		Error, OutboundConsensusDeliveryReward, OutboundConsensusRotationsClaimed,
+	};
+	use polkadot_sdk::{
+		frame_support::traits::Get,
+		sp_io::hashing::blake2_128,
+		sp_runtime::{traits::AccountIdConversion, AccountId32},
+	};
+
+	const DEST: StateMachine = StateMachine::Kusama(2001);
+	const HB_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
+	const REWARD: u128 = 1_000_000_000_000;
+	const DEST_HEIGHT: u64 = 42;
+	const ROTATION_HEIGHT: u64 = 7;
+	const NEW_SET_ID: u64 = 3;
+
+	fn state_commitments_key(rotation_height: u64) -> Vec<u8> {
+		use polkadot_sdk::sp_io::hashing::twox_128;
+		let id = StateMachineId {
+			state_id: <<Test as pallet_ismp::Config>::HostStateMachine as Get<StateMachine>>::get(),
+			consensus_state_id: HB_CONSENSUS_STATE_ID,
+		};
+		let id_encoded = id.encode();
+		let height_encoded = rotation_height.encode();
+		let mut key = Vec::with_capacity(64 + id_encoded.len() + height_encoded.len());
+		key.extend_from_slice(&twox_128(b"Ismp"));
+		key.extend_from_slice(&twox_128(b"BoundedStateCommitments"));
+		key.extend_from_slice(&blake2_128(&id_encoded));
+		key.extend_from_slice(&id_encoded);
+		key.extend_from_slice(&blake2_128(&height_encoded));
+		key.extend_from_slice(&height_encoded);
+		key
+	}
+
+	fn build_proof_for_rotation(rotation_height: u64, dest_height: u64) -> Proof {
+		let key = state_commitments_key(rotation_height);
+		let fake_value =
+			StateCommitment { timestamp: 1, overlay_root: None, state_root: Default::default() }
+				.encode();
+
+		let mut state_root = H256::default();
+		let mut db = MemoryDB::<KeccakHasher>::default();
+		{
+			let mut trie =
+				TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut db, &mut state_root).build();
+			trie.insert(&key, &fake_value).unwrap();
+		}
+
+		let mut recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		{
+			let trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&db, &state_root)
+				.with_recorder(&mut recorder)
+				.build();
+			trie.get(&key).unwrap();
+		}
+		let storage_proof: Vec<Vec<u8>> = recorder.drain().into_iter().map(|f| f.data).collect();
+
+		Ismp::default()
+			.store_state_machine_commitment(
+				StateMachineHeight {
+					id: StateMachineId {
+						state_id: DEST,
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: dest_height,
+				},
+				StateCommitment { timestamp: 100, overlay_root: None, state_root },
+			)
+			.unwrap();
+		Ismp::default()
+			.store_state_machine_update_time(
+				StateMachineHeight {
+					id: StateMachineId {
+						state_id: DEST,
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: dest_height,
+				},
+				Duration::from_secs(100),
+			)
+			.unwrap();
+		Ismp::default()
+			.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default())
+			.unwrap();
+		Ismp::default()
+			.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+			.unwrap();
+		Ismp::default()
+			.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000)
+			.unwrap();
+		Ismp::default()
+			.store_challenge_period(
+				StateMachineId { state_id: DEST, consensus_state_id: MOCK_CONSENSUS_STATE_ID },
+				0,
+			)
+			.unwrap();
+
+		Proof {
+			height: StateMachineHeight {
+				id: StateMachineId { state_id: DEST, consensus_state_id: MOCK_CONSENSUS_STATE_ID },
+				height: dest_height,
+			},
+			proof: SubstrateStateProof::StateProof(StateMachineProof {
+				hasher: HashAlgorithm::Keccak,
+				storage_proof,
+			})
+			.encode(),
+		}
+	}
+
+	fn setup_and_build_claim() -> (sp_core::sr25519::Pair, OutboundConsensusDeliveryClaim, Vec<u8>)
+	{
+		clear_test_rotations();
+		set_test_rotation(NEW_SET_ID, ROTATION_HEIGHT);
+		OutboundConsensusDeliveryReward::<Test>::insert(DEST, REWARD);
+
+		let treasury: AccountId32 = <Test as pallet_ismp_relayer::Config>::TreasuryPalletId::get()
+			.into_account_truncating();
+		Balances::mint_into(&treasury, REWARD * 10).unwrap();
+
+		let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+		let claimer = pair.public().0;
+
+		let state_proof = build_proof_for_rotation(ROTATION_HEIGHT, DEST_HEIGHT);
+		let claim = OutboundConsensusDeliveryClaim {
+			state_proof,
+			rotation_height: ROTATION_HEIGHT,
+			new_set_id: NEW_SET_ID,
+			hb_consensus_state_id: HB_CONSENSUS_STATE_ID,
+			claimer,
+		};
+		let payload = (b"outbound-consensus-delivery-reward", DEST, NEW_SET_ID, claimer).encode();
+		let signature = pair.sign(&keccak_256(&payload)).0.to_vec();
+
+		(pair, claim, signature)
+	}
+
+	#[test]
+	fn happy_path_pays_out_and_marks_claimed() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let (pair, claim, signature) = setup_and_build_claim();
+			let claimer: AccountId32 = pair.public().0.into();
+			let starting_balance = Balances::balance(&claimer);
+
+			pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+				RuntimeOrigin::none(),
+				claim.clone(),
+				signature,
+			)
+			.unwrap();
+
+			assert_eq!(
+				Balances::balance(&claimer),
+				starting_balance + REWARD,
+				"claimer should receive the reward from the treasury",
+			);
+			assert!(
+				OutboundConsensusRotationsClaimed::<Test>::contains_key(DEST, NEW_SET_ID),
+				"idempotency tag should be inserted",
+			);
+		})
+	}
+
+	#[test]
+	fn second_claim_for_same_rotation_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let (_pair, claim, signature) = setup_and_build_claim();
+
+			pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+				RuntimeOrigin::none(),
+				claim.clone(),
+				signature.clone(),
+			)
+			.unwrap();
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRotationAlreadyClaimed.into());
+		})
+	}
+
+	#[test]
+	fn unknown_rotation_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let (_pair, mut claim, signature) = setup_and_build_claim();
+			clear_test_rotations();
+			claim.new_set_id = 999;
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRotationNotKnown.into());
+		})
+	}
+
+	#[test]
+	fn height_mismatch_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let (_pair, mut claim, signature) = setup_and_build_claim();
+			claim.rotation_height = ROTATION_HEIGHT + 1;
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRotationNotKnown.into());
+		})
+	}
+
+	#[test]
+	fn invalid_signature_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let (_pair, claim, _real_sig) = setup_and_build_claim();
+			let imposter =
+				sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let payload =
+				(b"outbound-consensus-delivery-reward", DEST, NEW_SET_ID, claim.claimer).encode();
+			let bogus = imposter.sign(&keccak_256(&payload)).0.to_vec();
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					bogus,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::InvalidSignature.into());
+		})
+	}
+
+	#[test]
+	fn zero_reward_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let (_pair, claim, signature) = setup_and_build_claim();
+			OutboundConsensusDeliveryReward::<Test>::remove(DEST);
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundNoRewardConfigured.into());
+		})
+	}
+}
+
+// ── EVM-destination tests ───────────────────────────────────────────────────
+//
+// The pallet's claim extrinsic has a `match destination` on
+// `StateMachine::Evm(_)` that derives a contract-scoped storage key instead
+// of the substrate `BoundedStateCommitments` key. These tests exercise the
+// EVM branch. We don't construct a real Ethereum Patricia trie (that's a
+// multi-hundred-line setup with account tries and RLP-encoded accounts);
+// instead we assert the EVM-specific pre-verification errors fire, and that
+// the branch is reachable end-to-end. The substrate tests above already
+// cover the post-verification flow (reward transfer, idempotency, event),
+// and the two branches converge to the same code after key derivation.
+
+mod outbound_consensus_delivery_evm {
+	use super::*;
+	use crate::runtime::{
+		clear_test_rotations, set_test_rotation, Balances, OutboundRewardTreasury,
+	};
+	use frame_support::traits::{fungible::Inspect, tokens::fungible::Mutate as FungibleMutate};
+	use pallet_ismp_host_executive::EvmHosts;
+	use pallet_ismp_relayer::{Error, OutboundConsensusDeliveryReward};
+	use polkadot_sdk::{
+		frame_support::traits::Get,
+		sp_runtime::{traits::AccountIdConversion, AccountId32},
+	};
+
+	/// EVM destination chain id used across the tests. Uses a real EVM
+	/// state machine tag so the pallet's `match destination` takes the
+	/// `StateMachine::Evm(_)` arm.
+	const DEST: StateMachine = StateMachine::Evm(11155111);
+	const HB_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
+	const REWARD: u128 = 1_000_000_000_000;
+	const ROTATION_HEIGHT: u64 = 9;
+	const NEW_SET_ID: u64 = 4;
+	const EVM_HOST: [u8; 20] = [0xCAu8; 20];
+
+	fn dummy_claim(pair: &sp_core::sr25519::Pair) -> (OutboundConsensusDeliveryClaim, Vec<u8>) {
+		// EVM destinations need a state proof, but every error path we can
+		// reach here (no EvmHost, already claimed, unknown rotation,
+		// invalid signature, no reward) fires before proof verification.
+		// A placeholder proof is fine.
+		let claim = OutboundConsensusDeliveryClaim {
+			state_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: DEST,
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: 100,
+				},
+				proof: vec![],
+			},
+			rotation_height: ROTATION_HEIGHT,
+			new_set_id: NEW_SET_ID,
+			hb_consensus_state_id: HB_CONSENSUS_STATE_ID,
+			claimer: pair.public().0,
+		};
+		let payload =
+			(b"outbound-consensus-delivery-reward", DEST, NEW_SET_ID, pair.public().0).encode();
+		let signature = pair.sign(&keccak_256(&payload)).0.to_vec();
+		(claim, signature)
+	}
+
+	#[test]
+	fn missing_evm_host_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			clear_test_rotations();
+			set_test_rotation(NEW_SET_ID, ROTATION_HEIGHT);
+			OutboundConsensusDeliveryReward::<Test>::insert(DEST, REWARD);
+
+			let treasury: AccountId32 =
+				<Test as pallet_ismp_relayer::Config>::TreasuryPalletId::get()
+					.into_account_truncating();
+			Balances::mint_into(&treasury, REWARD * 10).unwrap();
+
+			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let (claim, signature) = dummy_claim(&pair);
+
+			// No EvmHosts entry registered for DEST. The key-derivation
+			// helper should fail with OutboundEvmHostNotKnown before any
+			// proof verification is attempted.
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundEvmHostNotKnown.into());
+		})
+	}
+
+	#[test]
+	fn evm_branch_reaches_proof_verification() {
+		// Confirms the EVM key-derivation succeeds (EvmHost registered,
+		// rotation oracle matches, signature verifies) and the pallet
+		// advances to the proof step. With a placeholder empty proof, the
+		// destination's state commitment isn't known to Ismp, so we get
+		// `OutboundDestinationStateNotKnown` — not any earlier error. This
+		// is the "EVM branch is reachable" smoke test.
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			clear_test_rotations();
+			set_test_rotation(NEW_SET_ID, ROTATION_HEIGHT);
+			OutboundConsensusDeliveryReward::<Test>::insert(DEST, REWARD);
+			EvmHosts::<Test>::insert(DEST, sp_core::H160::from(EVM_HOST));
+
+			let treasury: AccountId32 =
+				<Test as pallet_ismp_relayer::Config>::TreasuryPalletId::get()
+					.into_account_truncating();
+			Balances::mint_into(&treasury, REWARD * 10).unwrap();
+
+			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let (claim, signature) = dummy_claim(&pair);
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundDestinationStateNotKnown.into());
+		})
+	}
+
+	#[test]
+	fn evm_unknown_rotation_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			clear_test_rotations();
+			OutboundConsensusDeliveryReward::<Test>::insert(DEST, REWARD);
+			EvmHosts::<Test>::insert(DEST, sp_core::H160::from(EVM_HOST));
+
+			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let (claim, signature) = dummy_claim(&pair);
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					signature,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRotationNotKnown.into());
+		})
+	}
+
+	#[test]
+	fn evm_invalid_signature_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			clear_test_rotations();
+			set_test_rotation(NEW_SET_ID, ROTATION_HEIGHT);
+			OutboundConsensusDeliveryReward::<Test>::insert(DEST, REWARD);
+			EvmHosts::<Test>::insert(DEST, sp_core::H160::from(EVM_HOST));
+
+			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let (claim, _) = dummy_claim(&pair);
+			let imposter =
+				sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let payload =
+				(b"outbound-consensus-delivery-reward", DEST, NEW_SET_ID, claim.claimer).encode();
+			let bogus = imposter.sign(&keccak_256(&payload)).0.to_vec();
+
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+					bogus,
+				)
+				.unwrap_err();
+			assert_eq!(err, Error::<Test>::InvalidSignature.into());
+		})
+	}
 }

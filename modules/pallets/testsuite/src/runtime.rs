@@ -461,9 +461,49 @@ impl pallet_mmr_tree::Config for Test {
 	type ForkIdentifierProvider = Ismp;
 }
 
+parameter_types! {
+	pub const OutboundRewardTreasury: PalletId = PalletId(*b"ob/rwrds");
+}
+
+/// Test oracle for outbound-consensus-delivery rotation lookups. Backed by
+/// a thread-local map tests populate via [`set_test_rotation`] so each
+/// parallel test has its own isolated view. Keeps us from having to pull
+/// `pallet-beefy-consensus-proofs` into the testsuite.
+pub struct TestRotationOracle;
+impl pallet_ismp_relayer::RotationOracle for TestRotationOracle {
+	fn rotation_height(set_id: u64) -> Option<u64> {
+		TEST_ROTATIONS.with(|m| m.borrow().get(&set_id).copied())
+	}
+}
+
+thread_local! {
+	static TEST_ROTATIONS: std::cell::RefCell<std::collections::HashMap<u64, u64>> =
+		std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Record that `set_id` rotated in at `height`. Tests call this before
+/// submitting a claim; the oracle returns the same value so the pallet's
+/// rotation cross-check passes.
+pub fn set_test_rotation(set_id: u64, height: u64) {
+	TEST_ROTATIONS.with(|m| {
+		m.borrow_mut().insert(set_id, height);
+	});
+}
+
+/// Clear all recorded rotations in the current thread. Parallel tests
+/// each have their own map, so this is only needed within a single test
+/// that wants to mid-run revoke an entry.
+pub fn clear_test_rotations() {
+	TEST_ROTATIONS.with(|m| {
+		m.borrow_mut().clear();
+	});
+}
+
 impl pallet_ismp_relayer::Config for Test {
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId32>;
+	type TreasuryPalletId = OutboundRewardTreasury;
+	type RotationOracle = TestRotationOracle;
 }
 
 impl pallet_ismp_host_executive::Config for Test {

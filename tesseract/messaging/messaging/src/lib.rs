@@ -21,6 +21,7 @@ pub mod events;
 pub mod fees;
 mod get_requests;
 pub mod outbound;
+pub mod outbound_claim;
 /// Unprofitable-message retry loop. Kept public for callers that want to wire
 /// it up; **not** spawned by [`inbound`] in the consolidated relayer — the
 /// design is that retrying unprofitable messages is the outbound task's
@@ -137,14 +138,14 @@ where
 			"messaging",
 			async move {
 				let res = handle_notification(
-				chain_b_inner,
+					chain_b_inner,
 					hyperbridge,
 					tx_payment,
 					config,
 					coprocessor,
 					client_map,
 					sender,
-				None,
+					None,
 				)
 				.await;
 				tracing::error!(target: LOG_TARGET, ?res, "task terminated");

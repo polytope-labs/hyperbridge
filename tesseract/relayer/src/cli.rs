@@ -31,7 +31,7 @@ use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
 use crate::{
-	config::HyperbridgeConfig,
+	config::{setup_logging, HyperbridgeConfig},
 	fees::AccumulateFees,
 	provider::{ConsensusProofSource, OffchainProofSource},
 };
@@ -538,6 +538,7 @@ impl Cli {
 		&self,
 		state_machine_str: String,
 	) -> Result<(), anyhow::Error> {
+		setup_logging()?;
 		use std::str::FromStr;
 		let state_machine = StateMachine::from_str(&state_machine_str)
 			.map_err(|err| anyhow::anyhow!("invalid state machine '{state_machine_str}': {err}"))?;
@@ -566,6 +567,7 @@ impl Cli {
 	/// configured destination, then exit. Uses the same logic as the periodic
 	/// `auto_withdraw` loop (threshold gating, DB persistence, etc.).
 	pub async fn withdraw_once(&self) -> Result<(), anyhow::Error> {
+		let _ = setup_logging();
 		tracing::info!(target: crate::LOG_TARGET, "one-shot withdrawal starting");
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let messaging_config: tesseract_primitives::config::RelayerConfig =
@@ -607,13 +609,4 @@ impl Cli {
 		tracing::info!(target: crate::LOG_TARGET, "one-shot withdrawal complete");
 		Ok(())
 	}
-}
-
-fn setup_logging() -> Result<(), anyhow::Error> {
-	use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-
-	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-	tracing_subscriber::registry().with(fmt::layer()).with(filter).init();
-
-	Ok(())
 }

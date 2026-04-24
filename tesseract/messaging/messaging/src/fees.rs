@@ -203,10 +203,7 @@ async fn deliver_post_request<D: IsmpProvider>(
 }
 
 /// EVM-destination delivery: bundle the BEEFY consensus proof + request in
-/// one submission. Every reference to Hyperbridge's state machine id uses
-/// [`BEEFY_CONSENSUS_STATE_ID`] as the consensus id — the EVM host verifies
-/// against the BEEFY light client, not the parachain one that HB's own
-/// `state_machine_id()` returns.
+/// one submission.
 async fn deliver_post_request_evm<D: IsmpProvider>(
 	dest_chain: Arc<dyn IsmpProvider>,
 	hyperbridge: &D,
@@ -219,12 +216,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 	let max_block =
 		results.iter().map(|r| r.block).max().expect("results non-empty, checked above");
 
-	// Same state-id as `hyperbridge.state_machine_id()` but with the
-	// consensus id retargeted at the destination's BEEFY client.
-	let hb_state_machine_id = StateMachineId {
-		state_id: hyperbridge.state_machine_id().state_id,
-		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
-	};
+	let hb_state_machine_id = hyperbridge.state_machine_id();
 
 	// Wait for HB's own ProofAccepted to reach max_block — that's the signal
 	// that an accepted proof exists in offchain storage that we can bundle

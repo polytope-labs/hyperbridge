@@ -362,8 +362,7 @@ pub async fn create_client_map(
 			(AnyConfig::Chiado { inner }, HostKind::Evm(evm)) => inner.into_chiado(evm).await?,
 			(AnyConfig::Gnosis { inner }, HostKind::Evm(evm)) => inner.into_gnosis(evm).await?,
 			(AnyConfig::Polygon { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
-			(AnyConfig::Tendermint { inner }, HostKind::Evm(evm)) =>
-				inner.into_client(evm).await?,
+			(AnyConfig::Tendermint { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::EvmHost { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Pharos { inner }, HostKind::Evm(evm)) => match evm.state_machine {
 				StateMachine::Evm(688689) =>

@@ -36,51 +36,6 @@ use codec::Decode;
 use ismp_optimism::OptimismConsensusType::OpFaultProofGames;
 use log::trace;
 
-/// SCALE-decode the op-host's counterparty-stored `ConsensusState` while
-/// tolerating schema drift in the trailing `game_type_configs` field.
-///
-/// Background: `GameTypeConfig` gained the `expected_impl: H160` field after
-/// consensus states had already been seeded on Hyperbridge. Those older
-/// entries have 20 fewer bytes per config than the new struct expects, so a
-/// strict decode fails with "Not enough data to fill buffer" partway through
-/// the last field.
-///
-/// The op-host only actually reads `finalized_height`,
-/// `state_machine_id`, `l1_state_machine_id`, and `optimism_consensus_type`
-/// from the decoded state — `game_type_configs` is re-fetched authoritatively
-/// from pallet storage via `fetch_game_type_configs`. So on a trailing-field
-/// decode failure we fall back to a prefix decode and synthesize
-/// `game_type_configs: None`, which keeps the loop running until the admin
-/// reseeds the consensus state in the new shape.
-fn decode_consensus_state_tolerant(bytes: &[u8]) -> Result<ConsensusState, codec::Error> {
-	if let Ok(state) = ConsensusState::decode(&mut &*bytes) {
-		return Ok(state);
-	}
-
-	#[derive(codec::Decode)]
-	struct PrefixOnly {
-		finalized_height: u64,
-		state_machine_id: StateMachineId,
-		l1_state_machine_id: StateMachineId,
-		optimism_consensus_type: Option<OptimismConsensusType>,
-	}
-
-	let prefix = PrefixOnly::decode(&mut &*bytes)?;
-	log::warn!(
-		target: "op-host",
-		"ConsensusState full decode failed; falling back to prefix-only decode and treating \
-		 game_type_configs as None. Seed a fresh ConsensusState with the new GameTypeConfig \
-		 shape to clear this warning.",
-	);
-	Ok(ConsensusState {
-		finalized_height: prefix.finalized_height,
-		state_machine_id: prefix.state_machine_id,
-		l1_state_machine_id: prefix.l1_state_machine_id,
-		optimism_consensus_type: prefix.optimism_consensus_type,
-		game_type_configs: None,
-	})
-}
-
 /// Read the per-game-type verification configuration installed in
 /// `pallet_ismp_optimism::StateMachinesDisputeGameFactoriesTypes` on Hyperbridge for this
 /// relayer's L2. Returns `None` if the admin has not yet configured a factory for this state
@@ -639,7 +594,10 @@ async fn submit_consensus_update(
 ) -> Result<(), anyhow::Error> {
 	let consensus_state =
 		counterparty.query_consensus_state(None, client.consensus_state_id).await?;
-	let consensus_state = decode_consensus_state_tolerant(&consensus_state)?;
+	// Tolerant decode: old entries encoded before `GameTypeConfig.expected_impl`
+	// was added fall back to prefix-only, treating `game_type_configs` as None.
+	// Authoritative game configs are re-fetched from pallet storage anyway.
+	let consensus_state = ConsensusState::decode_tolerant(&consensus_state)?;
 
 	let l1_state_machine_id = StateMachineId {
 		state_id: client.l1_state_machine,

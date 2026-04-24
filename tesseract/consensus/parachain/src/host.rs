@@ -51,12 +51,10 @@ where
 
 		// --- initial cursors ---------------------------------------------------
 		// 1. Last known relay height tracked by the counterparty — read from its
-		//    `IsmpParachain::KnownRelayHeights` storage value at its latest
-		//    *finalized* block (we anchor every read at the finalized head so
-		//    we don't chase a height that's still reorg-eligible on the
-		//    counterparty). The bounded set iterates ascending, so the last
-		//    entry is the most recent relay block the counterparty has a state
-		//    root for.
+		//    `IsmpParachain::KnownRelayHeights` storage value at its latest *finalized* block (we
+		//    anchor every read at the finalized head so we don't chase a height that's still
+		//    reorg-eligible on the counterparty). The bounded set iterates ascending, so the last
+		//    entry is the most recent relay block the counterparty has a state root for.
 		let counterparty_finalized = counterparty.query_finalized_height().await?;
 		let mut last_relay_height =
 			query_latest_known_relay_height(&*counterparty, counterparty_finalized)
@@ -83,9 +81,7 @@ where
 		loop {
 			interval.tick().await;
 
-			let step = self
-				.tick(&*counterparty, last_relay_height, last_self_height)
-				.await;
+			let step = self.tick(&*counterparty, last_relay_height, last_self_height).await;
 			match step {
 				Ok(None) => continue,
 				Ok(Some(TickOutcome { new_relay_height, new_self_height, message })) => {
@@ -174,8 +170,8 @@ where
 		last_relay_height: u32,
 		last_self_height: u64,
 	) -> Result<Option<TickOutcome>, anyhow::Error> {
-		// 1. Latest relay height the counterparty has a state root for, read
-		//    at the counterparty's latest finalized block.
+		// 1. Latest relay height the counterparty has a state root for, read at the counterparty's
+		//    latest finalized block.
 		let counterparty_finalized = counterparty.query_finalized_height().await?;
 		let latest_relay_height =
 			match query_latest_known_relay_height(counterparty, counterparty_finalized).await? {
@@ -256,8 +252,8 @@ where
 			}));
 		}
 
-		// 4. Build the state-proof for `Paras::Heads[self_para_id]` against the
-		//    relay block — same shape the parachain inherent provider produces.
+		// 4. Build the state-proof for `Paras::Heads[self_para_id]` against the relay block — same
+		//    shape the parachain inherent provider produces.
 		let read_proof = self
 			.relay_rpc
 			.state_get_read_proof(vec![&head_key.0[..]], Some(relay_block_hash))
@@ -318,9 +314,6 @@ fn known_relay_heights_storage_key() -> Vec<u8> {
 /// consensus proof on their own.
 fn has_relay_worthy_events(events: &[Event]) -> bool {
 	events.iter().any(|ev| {
-		matches!(
-			ev,
-			Event::PostRequest(_) | Event::PostResponse(_) | Event::GetRequest(_)
-		)
+		matches!(ev, Event::PostRequest(_) | Event::PostResponse(_) | Event::GetRequest(_))
 	})
 }

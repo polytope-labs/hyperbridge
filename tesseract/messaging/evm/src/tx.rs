@@ -701,10 +701,15 @@ fn build_tx_receipts(
 	TxResult { receipts: results, unsuccessful }
 }
 
-/// Top-level submission entry. Always dispatches through
-/// `IHandlerV2.batchCall` (one tx for the whole batch). Chains whose handler
-/// doesn't implement `IHandlerV2` will revert at the handler address — the
-/// legacy serial-submit fallback is no longer supported.
+/// Top-level submission entry.
+///
+/// - **Batch of 1** (e.g. the mandatory-consensus-only chunks from the outbound rotation catch-up)
+///   routes through the legacy per-message [`submit_messages`] path. Wrapping a single call in
+///   `IHandlerV2.batchCall` adds a self-delegatecall frame with no upside, costs extra gas, and
+///   makes the receipt harder to interpret downstream.
+/// - **Batch of ≥2** dispatches through [`submit_batch_messages`], the atomic `IHandlerV2.batchCall`
+///   path. Chains whose handler doesn't implement `IHandlerV2` will revert at the handler address —
+///   the legacy serial-submit fallback is no longer supported for real batches.
 pub async fn handle_message_submission(
 	client: &EvmClient,
 	messages: Vec<Message>,
@@ -713,7 +718,11 @@ pub async fn handle_message_submission(
 		return Ok(TxResult::default());
 	}
 
-	let (receipts, unsuccessful) = submit_batch_messages(client, messages.clone()).await?;
+	let (receipts, unsuccessful) = if messages.len() == 1 {
+		submit_messages(client, messages.clone()).await?
+	} else {
+		submit_batch_messages(client, messages.clone()).await?
+	};
 	let height = client.client.get_block_number().await?;
 	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
 }

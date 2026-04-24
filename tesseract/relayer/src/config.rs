@@ -416,6 +416,15 @@ async fn autofill_substrate(name: &str, chain_table: &mut Table) -> Result<(), a
 	Ok(())
 }
 
+pub fn setup_logging() -> Result<(), anyhow::Error> {
+	use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+	tracing_subscriber::registry().with(fmt::layer()).with(filter).init();
+
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

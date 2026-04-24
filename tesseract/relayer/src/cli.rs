@@ -447,6 +447,7 @@ impl Cli {
 		&self,
 		state_machine_str: String,
 	) -> Result<(), anyhow::Error> {
+		setup_logging()?;
 		use std::str::FromStr;
 		let state_machine = StateMachine::from_str(&state_machine_str)
 			.map_err(|err| anyhow::anyhow!("invalid state machine '{state_machine_str}': {err}"))?;

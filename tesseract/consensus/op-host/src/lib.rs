@@ -60,6 +60,11 @@ pub struct HostConfig {
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
 	pub l1_consensus_state_id: String,
+	/// Consensus state id used by this op-host consensus client. Always
+	/// overrides the paired `EvmConfig.consensus_state_id` for both the
+	/// host's own queries **and** the underlying `EvmClient` provider, so the
+	/// messaging and consensus paths agree on the same id.
+	pub consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,
 }
@@ -172,6 +177,16 @@ pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
 
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		// Always overwrite the EvmConfig's consensus state id with the
+		// host-level value so the underlying `EvmClient` and the op-host
+		// agree on the same id.
+		let evm_owned = {
+			let mut evm_override = evm.clone();
+			evm_override.consensus_state_id = host.consensus_state_id.clone();
+			evm_override
+		};
+		let evm: &EvmConfig = &evm_owned;
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 

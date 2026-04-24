@@ -9263,7 +9263,6 @@ dependencies = [
  "futures",
  "gargantua-runtime",
  "ismp-parachain",
- "ismp-parachain-inherent",
  "ismp-parachain-runtime-api",
  "jsonrpsee 0.24.10",
  "log",
@@ -10468,7 +10467,7 @@ dependencies = [
 
 [[package]]
 name = "ismp-parachain"
-version = "2512.1.0"
+version = "2512.2.0"
 dependencies = [
  "hex",
  "hex-literal 0.4.1",
@@ -10481,21 +10480,6 @@ dependencies = [
  "scale-info",
  "serde",
  "substrate-state-machine",
-]
-
-[[package]]
-name = "ismp-parachain-inherent"
-version = "2512.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "ismp",
- "ismp-parachain",
- "ismp-parachain-runtime-api",
- "log",
- "pallet-ismp-runtime-api",
- "parity-scale-codec",
- "polkadot-sdk",
 ]
 
 [[package]]

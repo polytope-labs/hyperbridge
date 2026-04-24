@@ -22,8 +22,6 @@ pub trait WeightInfo {
 	fn add_parachain(n: u32) -> Weight;
 	/// Weight for removing parachains
 	fn remove_parachain(n: u32) -> Weight;
-	/// Weight for updating a parachain's consensus
-	fn update_parachain_consensus() -> Weight;
 
 	/// Weight of the steady-state `on_finalize` insert + bounded eviction.
 	fn on_finalize_bound_relay_state_commitments() -> Weight {
@@ -43,9 +41,6 @@ impl WeightInfo for () {
 		Weight::zero()
 	}
 	fn remove_parachain(_n: u32) -> Weight {
-		Weight::zero()
-	}
-	fn update_parachain_consensus() -> Weight {
 		Weight::zero()
 	}
 }

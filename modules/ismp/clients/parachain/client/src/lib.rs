@@ -98,11 +98,7 @@ pub mod pallet {
 	use cumulus_primitives_core::relay_chain;
 	use frame_support::{pallet_prelude::*, BoundedBTreeSet};
 	use frame_system::pallet_prelude::*;
-	use ismp::{
-		consensus::StateMachineId,
-		host::StateMachine,
-		messaging::{ConsensusMessage, Message},
-	};
+	use ismp::{consensus::StateMachineId, host::StateMachine};
 	use migration::StorageV0;
 
 	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
@@ -176,10 +172,6 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type LegacyRelayDrainState<T: Config> = StorageValue<_, LegacyDrainState, ValueQuery>;
 
-	/// Tracks whether we've already seen the `update_parachain_consensus` inherent
-	#[pallet::storage]
-	pub type ConsensusUpdated<T: Config> = StorageValue<_, bool>;
-
 	/// List of parachains that this state machine is interested in.
 	#[pallet::storage]
 	pub type Parachains<T: Config> = StorageMap<_, Identity, u32, u64>;
@@ -200,46 +192,8 @@ pub mod pallet {
 		},
 	}
 
-	#[pallet::error]
-	pub enum Error<T> {
-		/// Only Parachain Consensus updates should be passed in the inherents.
-		InvalidConsensusStateId,
-		/// ValidationData must be updated only once in a block.
-		ConsensusAlreadyUpdated,
-	}
-
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// This allows block builders submit parachain consensus proofs as inherents. If the
-		/// provided [`ConsensusMessage`] is not for a parachain, this call will fail.
-		#[pallet::call_index(0)]
-		#[pallet::weight(<T as pallet::Config>::WeightInfo::update_parachain_consensus())]
-		pub fn update_parachain_consensus(
-			origin: OriginFor<T>,
-			data: ConsensusMessage,
-		) -> DispatchResultWithPostInfo {
-			ensure_none(origin)?;
-
-			ensure!(!ConsensusUpdated::<T>::exists(), Error::<T>::ConsensusAlreadyUpdated);
-
-			let host = <T::IsmpHost>::default();
-
-			ensure!(
-				data.consensus_state_id == parachain_consensus_state_id(host.host_state_machine()),
-				Error::<T>::InvalidConsensusStateId
-			);
-
-			// Handling error will prevent this inherent from breaking block production if there's a
-			// reorg and it's no longer valid
-			if let Err(err) = pallet_ismp::Pallet::<T>::execute(vec![Message::Consensus(data)]) {
-				log::trace!(target: "ismp", "Parachain inherent consensus update failed {err:?}");
-			} else {
-				ConsensusUpdated::<T>::put(true);
-			}
-
-			Ok(Pays::No.into())
-		}
-
 		/// Add some new parachains to the parachains whitelist
 		#[pallet::call_index(1)]
 		#[pallet::weight(<T as pallet::Config>::WeightInfo::add_parachain(para_ids.len() as u32))]
@@ -303,7 +257,6 @@ pub mod pallet {
 		}
 
 		fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
-			ConsensusUpdated::<T>::kill();
 			let host = T::IsmpHost::default();
 			if let Err(_) =
 				host.consensus_state(parachain_consensus_state_id(host.host_state_machine()))
@@ -382,27 +335,6 @@ pub mod pallet {
 			LegacyRelayDrainState::<T>::put(new_state);
 
 			<T as pallet::Config>::WeightInfo::drain_relay_state_commitments_step(result.unique)
-		}
-	}
-
-	/// The identifier for the parachain consensus update inherent.
-	pub const INHERENT_IDENTIFIER: InherentIdentifier = *b"paraismp";
-
-	#[pallet::inherent]
-	impl<T: Config> ProvideInherent for Pallet<T> {
-		type Call = Call<T>;
-		type Error = sp_inherents::MakeFatalError<()>;
-		const INHERENT_IDENTIFIER: InherentIdentifier = INHERENT_IDENTIFIER;
-
-		fn create_inherent(data: &InherentData) -> Option<Self::Call> {
-			let data: ConsensusMessage =
-				data.get_data(&Self::INHERENT_IDENTIFIER).ok().flatten()?;
-
-			Some(Call::update_parachain_consensus { data })
-		}
-
-		fn is_inherent(call: &Self::Call) -> bool {
-			matches!(call, Call::update_parachain_consensus { .. })
 		}
 	}
 

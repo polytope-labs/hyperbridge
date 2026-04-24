@@ -40,4 +40,8 @@ An unfortunate development in blockchain protocols is validators who auction the
 
 Once a relayer successfully delivers a batch of requests, the tesseract process automatically begins claiming the associated fees in the background. Per destination fee accumulation tasks submit delivery proofs of the messages delivered on the destination chain to Hyperbridge. Once Hyperbridge verifies these proofs, it credits the relayer's unclaimed balance. A periodic auto withdrawal task (controlled by `withdrawal_frequency` and `minimum_withdrawal_amount` in the relayer config) then issues a withdrawal extrinsic, which emits a POST request back to the destination chain. That POST request carries no fee and is delivered by the same relayer, since other relayers ignore zero fee messages and the withdrawing relayer naturally completes the loop.
 
-For instructions on running the relayer, see [Running a Hyperbridge Relayer](/developers/network/relayer).
+## Configuring a chain for messaging
+
+Every chain that appears in the relayer config picks up inbound messaging automatically. Paste-ready `[<chain>]` blocks for each officially supported chain live under [Per-chain configurations](/developers/network/relayer#per-chain-configurations) in the operator guide.
+
+For general setup and the full configuration reference, see [Running a Hyperbridge Relayer](/developers/network/relayer).

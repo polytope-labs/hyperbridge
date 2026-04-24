@@ -70,4 +70,8 @@ rpc_urls = ["https://..."]
 
 When `signer` is omitted, the relayer continues to handle inbound messaging for that chain, and inbound consensus too (subject to the usual `[<chain>.consensus]` opt in). Both inbound paths submit extrinsics on Hyperbridge using the `[hyperbridge]` signer, so no chain side signer is needed for them. Outbound delivery, fee withdrawal POSTs, and fisherman vetoes are all skipped for the chain, since each of those would require a destination side transaction.
 
-For instructions on running the relayer, see [Running a Hyperbridge Relayer](/developers/network/relayer).
+## Configuring a chain as an outbound destination
+
+Setting a `signer` on a chain's block in the relayer config is the toggle that opts the chain into outbound. Paste-ready per-chain blocks live under [Per-chain configurations](/developers/network/relayer#per-chain-configurations) in the operator guide.
+
+For general setup and the full configuration reference, see [Running a Hyperbridge Relayer](/developers/network/relayer).

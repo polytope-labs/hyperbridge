@@ -19,6 +19,7 @@ pub const LOG_TARGET: &str = "tesseract";
 mod cli;
 mod config;
 mod fees;
+mod monitor;
 mod provider;
 
 use clap::Parser;

@@ -48,7 +48,7 @@
 //! (and the related fee-withdrawal and fisherman roles).
 
 use anyhow::{anyhow, Context};
-use ismp::host::StateMachine;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tesseract_config::AnyConfig as MessagingConfig;
@@ -68,6 +68,14 @@ pub struct RelayerConfig {
 	pub unprofitable_retry_frequency: Option<u64>,
 	pub deliver_failed: Option<bool>,
 	pub disable_fee_accumulation: Option<bool>,
+	/// Per-`(state_machine_id, max_interval_secs)` entries enabling the
+	/// passive liveness monitor. When set, a background task periodically
+	/// checks how stale hyperbridge's view of each listed chain is (inbound
+	/// consensus side), and for substrate chains, also checks how stale the
+	/// chain's view of hyperbridge is (outbound HB → substrate consensus
+	/// side). If any update lags by more than its `max_interval`, the
+	/// relayer process exits so an external supervisor can restart it.
+	pub maximum_update_intervals: Option<Vec<(StateMachineId, u64)>>,
 }
 
 impl Default for RelayerConfig {
@@ -81,6 +89,7 @@ impl Default for RelayerConfig {
 			unprofitable_retry_frequency: None,
 			deliver_failed: None,
 			disable_fee_accumulation: None,
+			maximum_update_intervals: None,
 		}
 	}
 }

@@ -522,6 +522,39 @@ impl Cli {
 			);
 		}
 
+		// Liveness monitor — opt-in via `relayer.maximum_update_intervals`.
+		// Watches each listed `(state_machine, max_interval)` for staleness on
+		// both the inbound consensus side (HB's view of the chain) and the
+		// outbound HB → substrate side (the chain's view of HB). When any
+		// update goes past its interval the task returns Ok(()) and the
+		// essential-task handle terminates the process so an external
+		// supervisor can restart it.
+		if let Some(intervals) = relayer.maximum_update_intervals.clone().filter(|v| !v.is_empty())
+		{
+			let monitor_hb = hyperbridge_provider.clone();
+			let monitor_providers = providers.clone();
+			let name = format!("monitor-{}", hyperbridge_provider.name());
+			let span = tracing::info_span!(
+				"monitor",
+				hb = %hyperbridge_provider.name(),
+				entries = intervals.len(),
+			);
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name)),
+				"monitor",
+				async move {
+					tracing::trace!(target: crate::LOG_TARGET, "task started");
+					let res =
+						crate::monitor::monitor_clients(monitor_hb, monitor_providers, intervals)
+							.await;
+					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
+				}
+				.instrument(span)
+				.boxed(),
+			);
+			tracing::info!(target: crate::LOG_TARGET, "initialized liveness monitor task");
+		}
+
 		tracing::info!(
 			target: crate::LOG_TARGET, chains = config.chains.len(),
 			consensus_enabled = consensus_hosts.len(),

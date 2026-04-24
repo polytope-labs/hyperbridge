@@ -70,14 +70,17 @@ async fn main() -> Result<(), anyhow::Error> {
 				cfg.realtime = true;
 				Arc::new(tesseract_beefy::backend::RedisProofBackend::new(cfg).await?)
 			},
-			tesseract_beefy::backend::ProofBackendConfig::Onchain =>
+			tesseract_beefy::backend::ProofBackendConfig::Onchain => {
+				let mut sm_id = substrate.state_machine_id();
+				sm_id.consensus_state_id = beefy_config.consensus_state_id;
 				Arc::new(tesseract_beefy::backend::OnchainBackend::<KeccakSubstrateChain>::new(
 					substrate.client.clone(),
 					substrate.rpc_client.clone(),
 					substrate.signer.clone(),
 					beefy_config.consensus_state_id,
-					substrate.state_machine_id(),
-				)),
+					sm_id,
+				))
+			},
 			ref b => Err(anyhow!("Unsupported backend configuration: {b:?}"))?,
 		};
 

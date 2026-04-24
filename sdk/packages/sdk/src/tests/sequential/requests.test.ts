@@ -239,8 +239,16 @@ describe.sequential("Get and Post Requests", () => {
 		})
 
 		it("should successfully stream and query the post request status", async () => {
-			const { bscTestnetClient, bscPing, bscFeeToken, tokenFaucet, baseSepoliaClient, baseSepoliaWallet, baseSepoliaHandler, baseSepoliaHost } =
-				await setUp()
+			const {
+				bscTestnetClient,
+				bscPing,
+				bscFeeToken,
+				tokenFaucet,
+				baseSepoliaClient,
+				baseSepoliaWallet,
+				baseSepoliaHandler,
+				baseSepoliaHost,
+			} = await setUp()
 
 			// Drip fee tokens and approve the ping module to spend them
 			console.log("Dripping fee tokens and approving...")
@@ -304,9 +312,7 @@ describe.sequential("Get and Post Requests", () => {
 						break
 					}
 					case RequestStatus.HYPERBRIDGE_FINALIZED: {
-						console.log(
-							`Status ${status.status}`,
-						)
+						console.log(`Status ${status.status}`)
 
 						try {
 							// The SDK produces a batchCall(handleConsensus + handlePostRequests)

@@ -69,7 +69,7 @@ describe.sequential("Get and Post Requests", () => {
 
 		indexer = new IsmpClient({
 			source: sourceChain,
-			dest: polygonChain,
+			dest: destChain,
 			hyperbridge: hyperbridgeChain,
 			queryClient: query_client,
 			pollInterval: 1_000,
@@ -238,8 +238,8 @@ describe.sequential("Get and Post Requests", () => {
 			hyperbridgeInstance.api?.tx.ismp.handleUnsigned(hexToBytes(tx).slice(2))
 		})
 
-		it.skip("should successfully stream and query the post request status", async () => {
-			const { bscTestnetClient, bscPing, bscFeeToken, tokenFaucet, polygonAmoyClient, polygonAmoyWallet, polygonAmoyHandler, polygonAmoyHost } =
+		it("should successfully stream and query the post request status", async () => {
+			const { bscTestnetClient, bscPing, bscFeeToken, tokenFaucet, baseSepoliaClient, baseSepoliaWallet, baseSepoliaHandler, baseSepoliaHost } =
 				await setUp()
 
 			// Drip fee tokens and approve the ping module to spend them
@@ -261,7 +261,7 @@ describe.sequential("Get and Post Requests", () => {
 
 			const hash = await bscPing.write.ping([
 				{
-					dest: await polygonAmoyHost.read.host(),
+					dest: await baseSepoliaHost.read.host(),
 					count: BigInt(1),
 					fee: BigInt(0),
 					module: process.env.PING_MODULE_ADDRESS! as HexString,
@@ -311,16 +311,16 @@ describe.sequential("Get and Post Requests", () => {
 						try {
 							// The SDK produces a batchCall(handleConsensus + handlePostRequests)
 							// calldata when the destination has HandlerV2. Send it directly.
-							const hash = await polygonAmoyWallet.sendTransaction({
-								to: polygonAmoyHandler.address,
+							const hash = await baseSepoliaWallet.sendTransaction({
+								to: baseSepoliaHandler.address,
 								data: status.metadata.calldata as HexString,
 							})
-							await polygonAmoyClient.waitForTransactionReceipt({
+							await baseSepoliaClient.waitForTransactionReceipt({
 								hash,
 								confirmations: 1,
 							})
 
-							console.log(`Transaction submitted: https://amoy.polygonscan.com/tx/${hash}`)
+							console.log(`Transaction submitted: https://sepolia.basescan.org/tx/${hash}`)
 						} catch (e) {
 							console.error("Error self-relaying: ", e)
 						}
@@ -329,7 +329,7 @@ describe.sequential("Get and Post Requests", () => {
 					}
 					case RequestStatus.DESTINATION: {
 						console.log(
-							`Status ${status.status}, Transaction: https://amoy.polygonscan.com/tx/${status.metadata.transactionHash}`,
+							`Status ${status.status}, Transaction: https://sepolia.basescan.org/tx/${status.metadata.transactionHash}`,
 						)
 						break
 					}

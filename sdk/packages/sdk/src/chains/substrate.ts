@@ -23,6 +23,7 @@ import {
 	isEvmChain,
 	isSubstrateChain,
 	replaceWebsocketWithHttp,
+	parseStateMachineId,
 } from "@/utils"
 import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
@@ -394,12 +395,13 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
-	 * Queries the LastProvenHeight from pallet-beefy-consensus-proofs.
+	 * Queries the latest proven height for this chain from pallet-ismp.
 	 */
 	async queryLastProvenHeight(): Promise<bigint> {
-		if (!this.api) throw new Error("API not initialized")
-		const result = await (this.api.query as any).beefyConsensusProofs.lastProvenHeight()
-		return BigInt(result.toString())
+		return this.latestStateMachineHeight({
+			stateId: parseStateMachineId(this.params.stateMachineId).stateId,
+			consensusStateId: this.params.consensusStateId,
+		})
 	}
 
 	/**

@@ -21,6 +21,7 @@ use subxt::{
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
+use tesseract_primitives::IsmpProvider as _;
 
 pub use beefy_verifier_primitives::ConsensusState;
 use host::{BeefyHost, BeefyHostConfig};
@@ -76,6 +77,7 @@ impl BeefyConfig {
 				client.rpc_client.clone(),
 				client.signer.clone(),
 				self.host.consensus_state_id,
+				client.state_machine_id(),
 			)),
 			backend::ProofBackendConfig::InMemory => {
 				let initial_state = prover.query_initial_consensus_state(None).await?;

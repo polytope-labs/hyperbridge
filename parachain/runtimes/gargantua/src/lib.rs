@@ -248,7 +248,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 5_950,
+	spec_version: 6_000,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -758,7 +758,7 @@ impl pallet_vesting::Config for Runtime {
 parameter_types! {
 	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
 	/// `BEEFY_CONSENSUS_ID`.
-	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"BEEF";
+	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"PAS0";
 	/// Unbonding period handed to `pallet-ismp` on first `initialize_state` (21 days in
 	/// seconds), aligning with other BEEFY clients in the runtime.
 	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;

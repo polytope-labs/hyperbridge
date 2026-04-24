@@ -20,6 +20,7 @@ use clap::Parser;
 use std::sync::Arc;
 use tesseract_beefy::prover::{BeefyProver, Prover};
 use tesseract_consensus::logging;
+use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient,
@@ -75,6 +76,7 @@ async fn main() -> Result<(), anyhow::Error> {
 					substrate.rpc_client.clone(),
 					substrate.signer.clone(),
 					beefy_config.consensus_state_id,
+					substrate.state_machine_id(),
 				)),
 			ref b => Err(anyhow!("Unsupported backend configuration: {b:?}"))?,
 		};

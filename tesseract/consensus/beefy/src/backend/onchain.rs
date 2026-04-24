@@ -24,7 +24,10 @@ use anyhow::anyhow;
 use beefy_verifier_primitives::ConsensusState;
 use codec::{Decode, Encode};
 use futures::Stream;
-use ismp::{consensus::ConsensusStateId, host::StateMachine};
+use ismp::{
+	consensus::{ConsensusStateId, StateMachineId},
+	host::StateMachine,
+};
 use pallet_beefy_consensus_proofs::types::SIGNATURE_DOMAIN;
 use polkadot_sdk::*;
 use sp_core::{sr25519, Pair};
@@ -59,6 +62,8 @@ pub struct OnchainBackend<P: subxt::Config> {
 	signer: sr25519::Pair,
 	/// Consensus state id under which the BEEFY state is stored in `pallet-ismp`
 	consensus_state_id: ConsensusStateId,
+	/// The coprocessor (hyperbridge) state machine ID
+	state_machine_id: StateMachineId,
 	/// In-memory cache of the last saved consensus state
 	state: Arc<RwLock<Option<crate::prover::ProverConsensusState>>>,
 }
@@ -69,8 +74,16 @@ impl<P: subxt::Config> OnchainBackend<P> {
 		rpc_client: RpcClient,
 		signer: sr25519::Pair,
 		consensus_state_id: ConsensusStateId,
+		state_machine_id: StateMachineId,
 	) -> Self {
-		Self { client, rpc_client, signer, consensus_state_id, state: Arc::new(RwLock::new(None)) }
+		Self {
+			client,
+			rpc_client,
+			signer,
+			consensus_state_id,
+			state_machine_id,
+			state: Arc::new(RwLock::new(None)),
+		}
 	}
 }
 
@@ -134,21 +147,12 @@ where
 		Ok(state)
 	}
 
-	/// Fetch `pallet-beefy-consensus-proofs::LastProvenHeight` via subxt storage query.
+	/// Fetch the latest proven height for the coprocessor from `pallet-ismp` via RPC.
 	async fn fetch_last_proven_height(&self) -> Result<u64, anyhow::Error> {
-		let query = subxt::dynamic::storage(
-			"BeefyConsensusProofs",
-			"LastProvenHeight",
-			Vec::<Value>::new(),
-		);
-		let storage = self.client.storage().at_latest().await?;
-		let Some(raw) = storage.fetch(&query).await? else {
-			return Ok(0);
-		};
-		let bytes = raw.encoded();
-		let height = u64::decode(&mut &bytes[..])
-			.map_err(|e| anyhow!("Failed to decode LastProvenHeight: {e}"))?;
-		Ok(height)
+		let params = rpc_params![self.state_machine_id];
+		let height: u32 =
+			self.rpc_client.request("ismp_queryStateMachineLatestHeight", params).await?;
+		Ok(height as u64)
 	}
 }
 

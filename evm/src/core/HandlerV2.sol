@@ -169,9 +169,9 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
         bytes memory previousState = host.consensusState();
         (bytes memory verifiedState, IntermediateState[] memory intermediates, uint256 nextAuthoritySetId) =
             IConsensusV2(host.consensusClient()).verify(previousState, proof);
-        host.storeConsensusState(verifiedState);
 
         if (keccak256(previousState) == keccak256(verifiedState)) return;
+        host.storeConsensusState(verifiedState);
 
         uint256 intermediatesLen = intermediates.length;
         for (uint256 i = 0; i < intermediatesLen; i++) {

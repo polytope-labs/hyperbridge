@@ -405,6 +405,23 @@ impl IsmpProvider for EvmClient {
 		Some(self.config.ismp_host)
 	}
 
+	async fn handler_v2_address(&self) -> Option<H160> {
+		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		match contract.hostParams().block(BlockId::latest()).call().await {
+			Ok(params) => Some(H160::from_slice(params.handler.as_slice())),
+			Err(err) => {
+				tracing::warn!(
+					target: crate::LOG_TARGET,
+					chain = ?self.state_machine,
+					?err,
+					"hostParams() RPC failed; HandlerV2 address unavailable",
+				);
+				None
+			},
+		}
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		get_chain_gas_limit(self.state_machine)
 	}

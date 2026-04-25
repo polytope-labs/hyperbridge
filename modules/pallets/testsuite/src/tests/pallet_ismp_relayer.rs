@@ -673,7 +673,6 @@ fn test_withdrawal_fees_evm() {
 	})
 }
 
-
 // Outbound consensus delivery reward tests.
 //
 // The pallet attributes a mandatory rotation to the EVM relayer recorded in
@@ -715,7 +714,6 @@ mod outbound_consensus_delivery {
 			},
 			set_id: SET_ID,
 			payee: [0xAA; 32],
-			nonce: 0,
 			signature: Signature::Evm { address: vec![0; 20], signature: vec![0; 65] },
 		}
 	}
@@ -734,11 +732,12 @@ mod outbound_consensus_delivery {
 		new_test_ext().execute_with(|| {
 			OutboundConsensusRotationsClaimed::<Test>::insert(DEST, SET_ID, ());
 
-			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
-				RuntimeOrigin::none(),
-				placeholder_claim(),
-			)
-			.unwrap_err();
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					placeholder_claim(),
+				)
+				.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundRotationAlreadyClaimed.into());
 		})
 	}
@@ -748,11 +747,12 @@ mod outbound_consensus_delivery {
 		// No HostParams entry for DEST → the lookup fails before any proof
 		// verification runs.
 		new_test_ext().execute_with(|| {
-			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
-				RuntimeOrigin::none(),
-				placeholder_claim(),
-			)
-			.unwrap_err();
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					placeholder_claim(),
+				)
+				.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundHostParamsNotKnown.into());
 		})
 	}
@@ -777,11 +777,12 @@ mod outbound_consensus_delivery {
 			let mut claim = placeholder_claim();
 			claim.state_proof.height.id.state_id = substrate_dest;
 
-			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
-				RuntimeOrigin::none(),
-				claim,
-			)
-			.unwrap_err();
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					claim,
+				)
+				.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundDestinationNotEvm.into());
 		})
 	}
@@ -802,11 +803,12 @@ mod outbound_consensus_delivery {
 					.into_account_truncating();
 			Balances::mint_into(&treasury, REWARD * 10).unwrap();
 
-			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
-				RuntimeOrigin::none(),
-				placeholder_claim(),
-			)
-			.unwrap_err();
+			let err =
+				pallet_ismp_relayer::Pallet::<Test>::claim_outbound_consensus_delivery_reward(
+					RuntimeOrigin::none(),
+					placeholder_claim(),
+				)
+				.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundDestinationStateNotKnown.into());
 		})
 	}

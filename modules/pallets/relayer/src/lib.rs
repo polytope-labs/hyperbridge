@@ -82,9 +82,14 @@ pub const HANDLER_V2_EPOCHS_SLOT: u64 = 0;
 /// 2. State proof against Hyperbridge's stored commitment for `(destination, height)` yields an
 ///    `address` at the slot `keccak256(set_id || HANDLER_V2_EPOCHS_SLOT)` of the destination's
 ///    HandlerV2 contract.
-/// 3. The `signature` (`Signature::Evm`) recovers exactly that `address`, signing the existing
-///    `message(nonce, destination, Some(payee))` payload.
-/// 4. `nonce == Nonce[evm_address, destination]`. Incremented after.
+/// 3. The `signature` (`Signature::Evm`) recovers exactly that `address`, signing the
+///    [`outbound_consensus_delivery_message`] payload over `(set_id, destination, payee)`.
+///
+/// Replay protection comes from the on-chain `(destination, set_id)`
+/// idempotency tag in [`pallet::OutboundConsensusRotationsClaimed`], not
+/// from a per-relayer nonce — once a `(destination, set_id)` has been
+/// claimed it cannot be claimed again, so a captured signature has no
+/// way to be reused.
 ///
 /// The reward is paid from the treasury to `payee` (an sr25519 account on
 /// Hyperbridge that the relayer designates).
@@ -109,14 +114,10 @@ pub struct OutboundConsensusDeliveryClaim {
 	pub set_id: u64,
 	/// Sr25519 public key on Hyperbridge that the reward is paid to.
 	pub payee: [u8; 32],
-	/// Replay-protection nonce. Must equal `Nonce[evm_address, destination]`
-	/// at submission time (where `evm_address` is the address recovered
-	/// from `signature`).
-	pub nonce: u64,
 	/// `Signature::Evm { address, signature }` from `modules/utils/crypto`.
-	/// The signature is over the existing `message(nonce, destination,
-	/// Some(payee))` payload. The recovered address must match the
-	/// `address` in the slot proof.
+	/// The signature is over [`outbound_consensus_delivery_message`] of
+	/// `(set_id, destination, payee)`. The recovered address must match
+	/// the address in the slot proof.
 	pub signature: Signature,
 }
 
@@ -267,8 +268,6 @@ pub mod pallet {
 		/// The address recovered from `signature` does not match the
 		/// EVM relayer recorded in `HandlerV2._epochs[set_id]`.
 		OutboundSignerMismatch,
-		/// `claim.nonce` does not equal `Nonce[evm_address, destination]`.
-		OutboundInvalidNonce,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -453,7 +452,7 @@ where
 	pub fn process_outbound_consensus_delivery_claim(
 		claim: OutboundConsensusDeliveryClaim,
 	) -> DispatchResult {
-		let OutboundConsensusDeliveryClaim { state_proof, set_id, payee, nonce, signature } = claim;
+		let OutboundConsensusDeliveryClaim { state_proof, set_id, payee, signature } = claim;
 		let destination = state_proof.height.id.state_id;
 
 		ensure!(
@@ -473,11 +472,10 @@ where
 
 		// 52-byte storage key the EVM state proof verifier expects:
 		// `handler_v2 (20) || keccak256(set_id || HANDLER_V2_EPOCHS_SLOT) (32)`.
-		let slot_hash =
-			evm_state_machine::utils::derive_unhashed_map_key::<<T as Config>::IsmpHost>(
-				U256::from(set_id).to_big_endian().to_vec(),
-				HANDLER_V2_EPOCHS_SLOT,
-			);
+		let slot_hash = evm_state_machine::utils::derive_unhashed_map_key::<<T as Config>::IsmpHost>(
+			U256::from(set_id).to_big_endian().to_vec(),
+			HANDLER_V2_EPOCHS_SLOT,
+		);
 		let mut key = Vec::with_capacity(52);
 		key.extend_from_slice(&handler_v2.0);
 		key.extend_from_slice(&slot_hash.0);
@@ -495,11 +493,9 @@ where
 		ensure!(raw.iter().any(|b| *b != 0), Error::<T>::OutboundDeliveryNotProven);
 		let evm_address: Vec<u8> = raw.iter().rev().take(20).rev().copied().collect();
 
-		let expected_nonce = Nonce::<T>::get(evm_address.clone(), destination);
-		ensure!(nonce == expected_nonce, Error::<T>::OutboundInvalidNonce);
-		let msg = message(nonce, destination, Some(payee.to_vec()));
-		let recovered =
-			signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
+		// Replay protection comes from the `OutboundConsensusRotationsClaimed`
+		let msg = outbound_consensus_delivery_message(set_id, destination, payee);
+		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
 		ensure!(recovered == evm_address, Error::<T>::OutboundSignerMismatch);
 
 		let reward = OutboundConsensusDeliveryReward::<T>::get(destination);
@@ -516,11 +512,6 @@ where
 		)
 		.map_err(|_| Error::<T>::OutboundRewardTransferFailed)?;
 
-		Nonce::<T>::try_mutate(evm_address.clone(), destination, |value| {
-			*value += 1;
-			Ok::<(), ()>(())
-		})
-		.map_err(|_| Error::<T>::ErrorCompletingCall)?;
 		OutboundConsensusRotationsClaimed::<T>::insert(destination, set_id, ());
 
 		let bounded_payee = frame_support::BoundedVec::try_from(payee.to_vec())
@@ -1084,4 +1075,17 @@ pub fn message(nonce: u64, dest_chain: StateMachine, beneficiary: Option<Vec<u8>
 		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
 	}
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
+}
+
+/// Signed payload for [`OutboundConsensusDeliveryClaim`]. Replay protection
+/// comes from the on-chain `(destination, set_id)` idempotency tag in
+/// [`pallet::OutboundConsensusRotationsClaimed`], not from a per-relayer
+/// nonce — once a `(destination, set_id)` has been claimed it cannot be
+/// claimed again, so a captured signature has no way to be reused.
+pub fn outbound_consensus_delivery_message(
+	set_id: u64,
+	dest_chain: StateMachine,
+	payee: [u8; 32],
+) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(set_id, dest_chain, payee).encode())
 }

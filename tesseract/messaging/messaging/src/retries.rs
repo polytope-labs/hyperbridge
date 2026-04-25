@@ -372,7 +372,7 @@ pub async fn retry_unprofitable_messages(
 					target: crate::LOG_TARGET,
 					"Unprofitable Messages Retries: 🛰️ Transmitting ismp messages from {} to {}", hyperbridge.name(), dest.name()
 				);
-				if let Ok(TxResult { receipts, unsuccessful }) =
+				if let Ok(TxResult { receipts, unsuccessful, new_epoch: _ }) =
 					dest.submit(outgoing_messages, coprocessor).await
 				{
 					if let Some(fee_acc_sender) = fee_acc_sender.clone() {

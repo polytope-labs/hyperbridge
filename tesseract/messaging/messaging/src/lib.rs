@@ -363,7 +363,7 @@ async fn handle_update(
 
 		let res = chain_a.submit(messages.clone(), coprocessor).await;
 		match res {
-			Ok(TxResult { receipts, unsuccessful }) => {
+			Ok(TxResult { receipts, unsuccessful, new_epoch: _ }) => {
 				if let Some(sender) = fee_acc_sender {
 					// We should not store messages when they are delivered to hyperbridge
 					if chain_a.state_machine_id().state_id != coprocessor {

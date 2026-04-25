@@ -1,4 +1,4 @@
-use crate::{outbound_rotation_claim_status, TransactionPayment};
+use crate::TransactionPayment;
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
@@ -356,8 +356,7 @@ async fn highest_delivery_height() {
 
 // ─── Outbound consensus delivery claim persistence ──────────────────
 
-/// `list_pending_rotation_claims` returns every row whose status is
-/// still `pending`, in creation order.
+/// `list_pending_rotation_claims` returns every row in creation order.
 #[tokio::test]
 async fn outbound_rotation_claims_pending_round_trip() {
 	let path = temp_db_path("rotation_pending");
@@ -365,17 +364,14 @@ async fn outbound_rotation_claims_pending_round_trip() {
 
 	tx_payment.insert_pending_rotation_claim("EVM-97", 7, 100).await.unwrap();
 	tx_payment.insert_pending_rotation_claim("EVM-97", 8, 105).await.unwrap();
-	tx_payment.insert_pending_rotation_claim("POLKADOT-2100", 4, 120).await.unwrap();
+	tx_payment.insert_pending_rotation_claim("EVM-1", 4, 120).await.unwrap();
 
 	let pending = tx_payment.list_pending_rotation_claims().await.unwrap();
 	assert_eq!(pending.len(), 3);
 	let keys: Vec<(String, i64)> = pending.iter().map(|r| (r.dest.clone(), r.set_id)).collect();
 	assert!(keys.contains(&("EVM-97".to_string(), 7)));
 	assert!(keys.contains(&("EVM-97".to_string(), 8)));
-	assert!(keys.contains(&("POLKADOT-2100".to_string(), 4)));
-	for row in &pending {
-		assert_eq!(row.status, outbound_rotation_claim_status::PENDING);
-	}
+	assert!(keys.contains(&("EVM-1".to_string(), 4)));
 
 	cleanup_db(&path);
 }
@@ -404,60 +400,40 @@ async fn outbound_rotation_claims_survive_reopen() {
 	cleanup_db(&path);
 }
 
-/// `mark_rotation_claimed` flips the status so a subsequent
-/// `list_pending_rotation_claims` no longer returns the row. The row
-/// itself stays in the table for audit.
+/// `delete_rotation_claim` removes the row entirely so a subsequent
+/// `list_pending_rotation_claims` no longer returns it.
 #[tokio::test]
-async fn outbound_rotation_claims_marked_claimed_drop_off_pending_list() {
-	let path = temp_db_path("rotation_claimed");
+async fn outbound_rotation_claims_delete_drops_row() {
+	let path = temp_db_path("rotation_delete");
 	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
 
 	tx_payment.insert_pending_rotation_claim("EVM-100", 3, 50).await.unwrap();
 	tx_payment.insert_pending_rotation_claim("EVM-100", 4, 60).await.unwrap();
 
-	tx_payment.mark_rotation_claimed("EVM-100", 3).await.unwrap();
+	tx_payment.delete_rotation_claim("EVM-100", 3).await.unwrap();
 
 	let pending = tx_payment.list_pending_rotation_claims().await.unwrap();
 	assert_eq!(pending.len(), 1);
 	assert_eq!(pending[0].set_id, 4);
-	assert_eq!(pending[0].status, outbound_rotation_claim_status::PENDING);
 
-	// The row exists in the table, just not in the pending view.
-	use crate::db::outbound_rotation_claims;
 	let total: i64 = tx_payment.db.outbound_rotation_claims().count(vec![]).exec().await.unwrap();
-	assert_eq!(total, 2);
+	assert_eq!(total, 1, "deleted row should be gone from the table entirely");
 
 	cleanup_db(&path);
 }
 
-/// `mark_rotation_abandoned` records the reason in `note` and drops the
-/// row from the pending list. Used when another relayer wins the race
-/// and the pallet returns `OutboundRotationAlreadyClaimed`.
+/// Deleting an absent row is a no-op rather than an error. Keeps the
+/// caller side sloppy: they don't have to check whether the row was
+/// actually inserted before deleting on success.
 #[tokio::test]
-async fn outbound_rotation_claims_marked_abandoned_keep_note() {
-	let path = temp_db_path("rotation_abandoned");
+async fn outbound_rotation_claims_delete_absent_is_noop() {
+	let path = temp_db_path("rotation_delete_absent");
 	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
 
-	tx_payment.insert_pending_rotation_claim("EVM-56", 9, 200).await.unwrap();
-	tx_payment
-		.mark_rotation_abandoned("EVM-56", 9, "OutboundRotationAlreadyClaimed")
-		.await
-		.unwrap();
+	tx_payment.delete_rotation_claim("EVM-56", 999).await.unwrap();
 
-	let pending = tx_payment.list_pending_rotation_claims().await.unwrap();
-	assert!(pending.is_empty());
-
-	use crate::db::{outbound_rotation_claims::WhereParam, read_filters::StringFilter};
-	let rows = tx_payment
-		.db
-		.outbound_rotation_claims()
-		.find_many(vec![WhereParam::Dest(StringFilter::Equals("EVM-56".to_string()))])
-		.exec()
-		.await
-		.unwrap();
-	assert_eq!(rows.len(), 1);
-	assert_eq!(rows[0].status, outbound_rotation_claim_status::ABANDONED);
-	assert_eq!(rows[0].note.as_deref(), Some("OutboundRotationAlreadyClaimed"));
+	let total: i64 = tx_payment.db.outbound_rotation_claims().count(vec![]).exec().await.unwrap();
+	assert_eq!(total, 0);
 
 	cleanup_db(&path);
 }

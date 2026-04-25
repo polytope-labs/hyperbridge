@@ -424,7 +424,6 @@ pub fn outbound_consensus_delivery_claim_to_value(
 		("state_proof".to_string(), proof_to_value(&claim.state_proof)),
 		("set_id".to_string(), Value::u128(claim.set_id as u128)),
 		("payee".to_string(), Value::from_bytes(claim.payee.to_vec())),
-		("nonce".to_string(), Value::u128(claim.nonce as u128)),
 		("signature".to_string(), signature_to_value(&claim.signature)),
 	])
 }

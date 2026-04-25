@@ -113,18 +113,17 @@ where
 
 	/// Submit `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`
 	/// on Hyperbridge. The extrinsic is unsigned (validated via
-	/// `validate_unsigned`); its `(claim, signature)` arguments authenticate
-	/// the relayer and prove the rotation landed on the destination chain.
+	/// `validate_unsigned`); the claim itself carries the relayer's ECDSA
+	/// signature which the pallet recovers and matches against the
+	/// destination's `HandlerV2._epochs[set_id]` slot.
 	pub async fn submit_outbound_consensus_delivery_claim(
 		&self,
 		claim: OutboundConsensusDeliveryClaim,
-		signature: Vec<u8>,
 	) -> anyhow::Result<()> {
-		use subxt::ext::scale_value::value;
 		let payload = subxt::dynamic::tx(
 			"Relayer",
 			"claim_outbound_consensus_delivery_reward",
-			vec![outbound_consensus_delivery_claim_to_value(&claim), value!(signature)],
+			vec![outbound_consensus_delivery_claim_to_value(&claim)],
 		);
 		send_unsigned_extrinsic(&self.client, payload, true).await?;
 		Ok(())

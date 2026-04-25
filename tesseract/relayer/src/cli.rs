@@ -22,7 +22,7 @@ use anyhow::Context;
 use clap::Parser;
 use futures::FutureExt;
 use ismp::host::StateMachine;
-use polkadot_sdk::sc_service::TaskManager;
+use polkadot_sdk::{sc_service::TaskManager, sp_core::Pair, sp_runtime::AccountId32};
 use tesseract_consensus_config::create_client_map;
 use tesseract_primitives::{IsmpProvider, PendingConsensusDeliveryClaim, TxReceipt};
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
@@ -412,8 +412,8 @@ impl Cli {
 						};
 						let claim = PendingConsensusDeliveryClaim {
 							destination,
-							rotation_height: row.rotation_height as u64,
-							new_set_id: row.set_id as u64,
+							delivery_height: row.rotation_height as u64,
+							set_id: row.set_id as u64,
 						};
 						if let Err(err) = claim_sender.try_send(claim) {
 							tracing::warn!(
@@ -438,6 +438,10 @@ impl Cli {
 			let claim_span =
 				tracing::info_span!("outbound_claim", hb = %hyperbridge_provider.name());
 			let claim_tx_payment = tx_payment.clone();
+			// Pay claims into the relayer's own HB sr25519 account, same
+			// account used for messaging fee accumulation, so all relayer
+			// earnings on HB land in one place.
+			let claim_payee: AccountId32 = claim_hb.signer.public().0.into();
 			task_manager.spawn_essential_handle().spawn_blocking(
 				Box::leak(Box::new(claim_name)),
 				"outbound",
@@ -448,6 +452,7 @@ impl Cli {
 						claim_destinations,
 						claim_receiver,
 						Some(claim_tx_payment),
+						claim_payee,
 					)
 					.await;
 					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");

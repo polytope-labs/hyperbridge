@@ -147,7 +147,7 @@ pub async fn handle_message_submission(
 	}
 
 	log::info!(target: crate::LOG_TARGET, "handle_message_submission complete: {} receipts", results.len());
-	Ok(TxResult { receipts: results, unsuccessful: vec![] })
+	Ok(TxResult { receipts: results, unsuccessful: vec![], new_epoch: None })
 }
 
 /// Submit a batch of [`Message`]s to the TRON network.

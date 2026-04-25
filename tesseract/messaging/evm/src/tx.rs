@@ -24,7 +24,7 @@ use ismp::{
 use ismp_solidity_abi::{
 	evm_host::{PostRequestHandled, PostResponseHandled},
 	handler::handler_v2::{
-		HandlerV2Instance, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
 		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
@@ -100,6 +100,25 @@ fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 				})
 		})
 		.collect()
+}
+
+/// Scan a receipt's logs for a `HandlerV2::NewEpoch(set_id, relayer)`
+/// event addressed to `self_address`. Returns `Some(set_id)` when this
+/// submission was the one that populated `_epochs[set_id]` on the
+/// destination — i.e. we won the race, and we're the rightful claimant
+/// for the per-chain outbound-consensus delivery reward.
+fn extract_new_epoch_for_self(receipt: &TransactionReceipt, self_address: &[u8]) -> Option<u64> {
+	receipt.inner.logs().iter().find_map(|log| {
+		let ev = NewEpoch::decode_log(&log.inner).ok()?;
+		if ev.relayer.as_slice() == self_address {
+			// `set_id` is uint256 on chain but always fits in u64 in practice
+			// (BEEFY authority set ids are monotonic counters).
+			let set_id = u64::try_from(ev.authoritySetId).ok()?;
+			Some(set_id)
+		} else {
+			None
+		}
+	})
 }
 
 /// Add a 5% buffer to a gas estimate.
@@ -437,9 +456,9 @@ pub async fn generate_batched_contract_calls(
 pub async fn submit_batch_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
+) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>, Option<u64>)> {
 	if messages.is_empty() {
-		return Ok((BTreeSet::new(), Vec::new()));
+		return Ok((BTreeSet::new(), Vec::new(), None));
 	}
 
 	let handler_addr = Address::from_slice(&client.handler().await?.0);
@@ -509,7 +528,7 @@ pub async fn submit_batch_messages(
 	};
 
 	let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
-	let events = match wait_for_success(client, tx_hash).await? {
+	let (events, new_epoch) = match wait_for_success(client, tx_hash).await? {
 		Some(evs) => evs,
 		None => {
 			cancel_transaction(client, from, nonce, gas_price, tx_hash).await;
@@ -520,12 +539,13 @@ pub async fn submit_batch_messages(
 		target: crate::LOG_TARGET, chain = ?client.state_machine,
 		?tx_hash,
 		events = events.len(),
+		new_epoch = ?new_epoch,
 		"batchCall included",
 	);
 
 	// Atomic semantics: if the tx succeeded every inner call did, so no
 	// per-message unsuccessful bucket.
-	Ok((events, Vec::new()))
+	Ok((events, Vec::new(), new_epoch))
 }
 
 /// Send a zero-value self-transfer at 10× gas to evict a stuck transaction from the mempool.
@@ -566,11 +586,12 @@ async fn cancel_transaction(
 pub async fn submit_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
+) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>, Option<u64>)> {
 	let (tx_requests, gas_price) = generate_contract_calls(client, &messages, false).await?;
 
 	let mut events = BTreeSet::new();
 	let mut unsuccessful = Vec::new();
+	let mut new_epoch: Option<u64> = None;
 
 	let from = Address::from_slice(&client.address);
 
@@ -597,7 +618,7 @@ pub async fn submit_messages(
 
 		let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
 
-		let evs = match wait_for_success(client, tx_hash).await? {
+		let (evs, epoch) = match wait_for_success(client, tx_hash).await? {
 			Some(evs) => evs,
 			None => {
 				cancel_transaction(client, from, nonce, gas_price, tx_hash).await;
@@ -609,6 +630,11 @@ pub async fn submit_messages(
 			unsuccessful.push(messages[idx].clone());
 		}
 		events.extend(evs);
+		// At most one rotation per submit (HandlerV2 caps `_currentEpoch`
+		// monotonically); first-wins keeps callers simple.
+		if new_epoch.is_none() {
+			new_epoch = epoch;
+		}
 	}
 
 	if !events.is_empty() {
@@ -619,22 +645,28 @@ pub async fn submit_messages(
 		);
 	}
 
-	Ok((events, unsuccessful))
+	Ok((events, unsuccessful, new_epoch))
 }
 
 /// Wait for a transaction to be mined and verify it succeeded.
 ///
-/// Returns `Some(commitments)` on success, `None` on timeout, and `Err` if the tx reverted.
+/// Returns `Some((commitments, new_epoch))` on success — `commitments`
+/// from `PostRequest`/`PostResponseHandled` logs, `new_epoch` from a
+/// `HandlerV2::NewEpoch(set_id, relayer)` log that names this client as
+/// the relayer (`None` when no such log is present). Returns `None` on
+/// timeout and `Err` if the tx reverted.
 #[tracing::instrument(skip(client), fields(chain = ?client.state_machine, ?tx_hash))]
 pub async fn wait_for_success(
 	client: &EvmClient,
 	tx_hash: H256,
-) -> anyhow::Result<Option<BTreeSet<H256>>> {
+) -> anyhow::Result<Option<(BTreeSet<H256>, Option<u64>)>> {
 	match wait_for_transaction_receipt(tx_hash, client).await? {
 		Some(receipt) =>
 			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
 				tracing::info!(target: crate::LOG_TARGET, "Tx for {:?} succeeded", client.state_machine);
-				Ok(Some(extract_event_commitments(&receipt)))
+				let commitments = extract_event_commitments(&receipt);
+				let new_epoch = extract_new_epoch_for_self(&receipt, &client.address);
+				Ok(Some((commitments, new_epoch)))
 			} else {
 				tracing::info!(
 					target: crate::LOG_TARGET, "Tx {:?} for {:?} reverted",
@@ -649,12 +681,15 @@ pub async fn wait_for_success(
 
 /// Build `TxReceipt`s for every message in `messages` whose commitment
 /// appears in the on-chain event set `receipts`. Shared between serial and
-/// batched submission paths.
+/// batched submission paths. `new_epoch` is propagated through verbatim so
+/// the outbound layer can decide whether to enqueue an outbound consensus
+/// delivery claim.
 fn build_tx_receipts(
 	receipts: BTreeSet<H256>,
 	unsuccessful: Vec<Message>,
 	messages: Vec<Message>,
 	height: u64,
+	new_epoch: Option<u64>,
 ) -> TxResult {
 	let mut results = vec![];
 	for msg in messages {
@@ -698,7 +733,7 @@ fn build_tx_receipts(
 			_ => {},
 		}
 	}
-	TxResult { receipts: results, unsuccessful }
+	TxResult { receipts: results, unsuccessful, new_epoch }
 }
 
 /// Top-level submission entry.
@@ -707,9 +742,10 @@ fn build_tx_receipts(
 ///   routes through the legacy per-message [`submit_messages`] path. Wrapping a single call in
 ///   `IHandlerV2.batchCall` adds a self-delegatecall frame with no upside, costs extra gas, and
 ///   makes the receipt harder to interpret downstream.
-/// - **Batch of ≥2** dispatches through [`submit_batch_messages`], the atomic `IHandlerV2.batchCall`
-///   path. Chains whose handler doesn't implement `IHandlerV2` will revert at the handler address —
-///   the legacy serial-submit fallback is no longer supported for real batches.
+/// - **Batch of ≥2** dispatches through [`submit_batch_messages`], the atomic
+///   `IHandlerV2.batchCall` path. Chains whose handler doesn't implement `IHandlerV2` will revert
+///   at the handler address — the legacy serial-submit fallback is no longer supported for real
+///   batches.
 pub async fn handle_message_submission(
 	client: &EvmClient,
 	messages: Vec<Message>,
@@ -718,13 +754,13 @@ pub async fn handle_message_submission(
 		return Ok(TxResult::default());
 	}
 
-	let (receipts, unsuccessful) = if messages.len() == 1 {
+	let (receipts, unsuccessful, new_epoch) = if messages.len() == 1 {
 		submit_messages(client, messages.clone()).await?
 	} else {
 		submit_batch_messages(client, messages.clone()).await?
 	};
 	let height = client.client.get_block_number().await?;
-	Ok(build_tx_receipts(receipts, unsuccessful, messages, height))
+	Ok(build_tx_receipts(receipts, unsuccessful, messages, height, new_epoch))
 }
 
 #[cfg(test)]

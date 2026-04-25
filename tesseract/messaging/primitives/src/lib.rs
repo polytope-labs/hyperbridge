@@ -80,19 +80,22 @@ pub const BEEFY_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
 /// Receipt emitted by the outbound pipeline after a successful delivery of a
 /// mandatory (authority-set rotation) consensus proof to a destination chain.
 ///
-/// The claim task consumes these, waits for Hyperbridge's consensus client for
-/// `destination` to advance past `rotation_height`, builds a state proof of
-/// the destination's `pallet-ismp::StateCommitments` entry for that rotation,
-/// signs with the Hyperbridge sr25519 key, and submits
-/// `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`.
+/// Trigger pushed by the outbound delivery task into the claim channel. The
+/// claim task consumes these and, mirroring the fee accumulation pattern,
+/// waits for Hyperbridge's consensus client for `destination` to verify a
+/// destination block at or past `delivery_height`, then builds a state
+/// proof of `HandlerV2._epochs[set_id]`, signs with the EVM key, and
+/// submits `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`.
 #[derive(Debug, Clone)]
 pub struct PendingConsensusDeliveryClaim {
-	/// Destination chain the rotation was delivered to.
+	/// EVM destination chain the rotation was delivered to.
 	pub destination: StateMachine,
-	/// The Hyperbridge block height at which `new_set_id` rotated in.
-	pub rotation_height: u64,
-	/// The new BEEFY authority set id brought in by the rotation.
-	pub new_set_id: u64,
+	/// Destination block height at which the rotation was delivered (the
+	/// block that contains the HandlerV2 transaction whose receipt has the
+	/// `NewEpoch` log).
+	pub delivery_height: u64,
+	/// Authority set id brought in by the rotation.
+	pub set_id: u64,
 }
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
@@ -280,6 +283,14 @@ impl Keccak256 for Hasher {
 pub struct TxResult {
 	pub receipts: Vec<TxReceipt>,
 	pub unsuccessful: Vec<Message>,
+	/// `Some(set_id)` when the submitted EVM tx emitted a
+	/// `HandlerV2::NewEpoch(set_id, relayer)` log whose `relayer` matches
+	/// `self.address()` — i.e. this submission was the first to bring
+	/// `set_id` to the destination, so we are the rightful claimant for
+	/// the per-chain `OutboundConsensusDeliveryReward`. Always `None` for
+	/// non-EVM submissions and for EVM tx receipts that don't include a
+	/// `NewEpoch` log addressed to us.
+	pub new_epoch: Option<u64>,
 }
 
 #[async_trait::async_trait]
@@ -378,6 +389,17 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// `_stateCommitments[hbStateMachineId][rotation_height]`, which is
 	/// what the pallet's state proof verifier looks up.
 	fn ismp_host_contract(&self) -> Option<sp_core::H160> {
+		None
+	}
+
+	/// The HandlerV2 contract address on this chain (only meaningful on
+	/// EVM destinations that have HandlerV2 deployed). The EVM impl reads
+	/// `EvmHost.hostParams().handler` so the relayer doesn't have to be
+	/// told the address out of band — it stays in sync with whatever
+	/// governance has set on chain. Defaults to `None` for non-EVM chains
+	/// (mirroring [`Self::ismp_host_contract`]); the outbound-consensus
+	/// claim task is EVM-only and skips destinations that report `None`.
+	async fn handler_v2_address(&self) -> Option<sp_core::H160> {
 		None
 	}
 

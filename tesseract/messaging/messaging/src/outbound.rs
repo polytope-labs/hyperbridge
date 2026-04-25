@@ -283,23 +283,49 @@ async fn submit_for_dest(
 		}
 	}
 
-	// Forward a claim for the outbound consensus delivery reward. Only
-	// mandatory rotations are eligible (messaging-only proofs already earn
-	// the relayer inbound fees on this chain), and only when a claim task
-	// is wired up. The persistence side is attempted first so a crash
-	// between here and the channel push still survives: on the next
-	// startup the pending row is replayed into the channel.
-	if let (true, Some(set_id), Some(sender)) = (is_mandatory, new_set_id, claim_sender) {
+	// Forward a claim for the outbound consensus delivery reward. The
+	// trigger is the destination tx receipt itself — `result.new_epoch`
+	// is `Some(set_id)` only when this submission emitted a
+	// `HandlerV2::NewEpoch(set_id, self_address)` log, i.e. we won the
+	// race to bring this set_id on chain and we're the rightful claimant.
+	// Other relayers who deliver the same rotation see `None` here and
+	// skip the claim entirely (no wasted on-chain extrinsic). We persist
+	// before sending so a crash between here and the channel push
+	// survives: the next startup replays pending rows. The claim task
+	// deletes the row on success.
+	if let (Some(set_id), Some(sender)) = (result.new_epoch, claim_sender) {
+		// `delivery_height` is the destination's own current finalized
+		// height — used by the claim task to wait_for_state_machine_update
+		// on HB. Any post-tx height works since `_epochs[set_id]` is set
+		// once and persists; we use finalized so HB has a real chance to
+		// have verified it.
+		let delivery_height = match dest.query_finalized_height().await {
+			Ok(h) => h,
+			Err(err) => {
+				tracing::warn!(
+					target: LOG_TARGET,
+					?err,
+					dest = %dest_name,
+					"query_finalized_height failed; skipping outbound consensus claim",
+				);
+				return Ok(());
+			},
+		};
+
 		if let Some(tx_payment) = &claim_tx_payment {
 			if let Err(err) = tx_payment
-				.insert_pending_rotation_claim(&dest_state_machine.to_string(), set_id, new_height)
+				.insert_pending_rotation_claim(
+					&dest_state_machine.to_string(),
+					set_id,
+					delivery_height,
+				)
 				.await
 			{
 				tracing::warn!(
 					target: LOG_TARGET,
 					?err,
 					dest = %dest_name,
-					height = new_height,
+					delivery_height,
 					set_id,
 					"failed to persist outbound-consensus claim; the channel send may still \
 					 succeed but the claim will not survive a restart",
@@ -309,15 +335,15 @@ async fn submit_for_dest(
 
 		let claim = PendingConsensusDeliveryClaim {
 			destination: dest_state_machine,
-			rotation_height: new_height,
-			new_set_id: set_id,
+			delivery_height,
+			set_id,
 		};
 		if let Err(err) = sender.send(claim).await {
 			tracing::warn!(
 				target: LOG_TARGET,
 				?err,
 				dest = %dest_name,
-				height = new_height,
+				delivery_height,
 				set_id,
 				"outbound-consensus claim channel send failed",
 			);

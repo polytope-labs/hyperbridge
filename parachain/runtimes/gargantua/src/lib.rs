@@ -755,6 +755,13 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
+pub type ReputationAsset =
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
 parameter_types! {
 	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
 	/// `BEEFY_CONSENSUS_ID`.
@@ -784,6 +791,7 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
 	type AllowedProofTypes = AllowedBeefyProofTypes;
+	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }
 

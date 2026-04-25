@@ -53,7 +53,7 @@ pub mod pallet {
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
-			fungible::{Inspect, Mutate},
+			fungible::{self, Inspect, Mutate},
 			tokens::Preservation,
 		},
 		PalletId,
@@ -122,6 +122,13 @@ pub mod pallet {
 		/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`.
 		#[pallet::constant]
 		type AllowedProofTypes: Get<&'static [u8]>;
+
+		/// The pallet-assets instance used for managing the reputation token.
+		/// Mints reputation tokens 1:1 with native token rewards to proof submitters.
+		type ReputationAsset: fungible::Mutate<
+			Self::AccountId,
+			Balance = <<Self as Config>::Currency as Inspect<Self::AccountId>>::Balance,
+		>;
 
 		/// Weight info.
 		type WeightInfo: crate::weights::WeightInfo;
@@ -300,6 +307,15 @@ pub mod pallet {
 					);
 					Error::<T>::RewardTransferFailed
 				})?;
+
+				// Mint reputation tokens 1:1 with the native reward
+				if let Err(e) = T::ReputationAsset::mint_into(&payload.submitter, reward) {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] reputation mint failed: {e:?}",
+					);
+				}
+
 				reward
 			} else {
 				zero

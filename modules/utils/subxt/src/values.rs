@@ -422,13 +422,10 @@ pub fn outbound_consensus_delivery_claim_to_value(
 ) -> Value<()> {
 	Value::named_composite(vec![
 		("state_proof".to_string(), proof_to_value(&claim.state_proof)),
-		("rotation_height".to_string(), Value::u128(claim.rotation_height as u128)),
-		("new_set_id".to_string(), Value::u128(claim.new_set_id as u128)),
-		(
-			"hb_consensus_state_id".to_string(),
-			Value::from_bytes(claim.hb_consensus_state_id.to_vec()),
-		),
-		("claimer".to_string(), Value::from_bytes(claim.claimer.to_vec())),
+		("set_id".to_string(), Value::u128(claim.set_id as u128)),
+		("payee".to_string(), Value::from_bytes(claim.payee.to_vec())),
+		("nonce".to_string(), Value::u128(claim.nonce as u128)),
+		("signature".to_string(), signature_to_value(&claim.signature)),
 	])
 }
 

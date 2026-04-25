@@ -165,7 +165,6 @@ impl pallet_ismp_relayer::Config for Runtime {
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId>;
 	type TreasuryPalletId = TreasuryPalletId;
-	type RotationOracle = pallet_ismp_relayer::NoopRotationOracle;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {

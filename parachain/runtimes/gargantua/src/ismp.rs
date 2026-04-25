@@ -191,24 +191,10 @@ impl pallet_ismp_demo::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
-/// Wires `pallet-ismp-relayer`'s `RotationOracle` to the on-chain
-/// `pallet-beefy-consensus-proofs::RotationProofs` map. The lookup is what
-/// gates the outbound consensus delivery reward: a claim's `(set_id,
-/// rotation_height)` must match an entry here for the pallet to pay out.
-pub struct BeefyRotationOracle;
-impl pallet_ismp_relayer::RotationOracle for BeefyRotationOracle {
-	fn rotation_height(set_id: u64) -> Option<u64> {
-		pallet_beefy_consensus_proofs::RotationProofs::<Runtime>::get()
-			.get(&set_id)
-			.copied()
-	}
-}
-
 impl pallet_ismp_relayer::Config for Runtime {
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId>;
 	type TreasuryPalletId = TreasuryPalletId;
-	type RotationOracle = BeefyRotationOracle;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {

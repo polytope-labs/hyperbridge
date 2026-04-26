@@ -106,6 +106,10 @@ jobs:
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@stable
 
+            - uses: webfactory/ssh-agent@v0.7.0
+              with:
+                  ssh-private-key: ${{ secrets.SSH_KEY }}
+
             - name: Rust cache
               uses: Swatinem/rust-cache@v2
               with:

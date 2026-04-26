@@ -10,7 +10,6 @@ import {
 	keccak256,
 	pad,
 	toBytes,
-	toFunctionSelector,
 	toHex,
 	maxUint256,
 } from "viem"
@@ -39,7 +38,6 @@ import type { GetProofParameters, Hex, TransactionReceipt } from "viem"
 
 import EvmHost from "@/abis/evmHost"
 import evmHost from "@/abis/evmHost"
-import HandlerV1 from "@/abis/handler"
 import HandlerV2 from "@/abis/handlerV2"
 import type { IChain, IIsmpMessage } from "@/chain"
 import { ChainConfigService } from "@/configs/ChainConfigService"
@@ -58,9 +56,7 @@ import {
 	getContractCallInput,
 	MmrProof,
 	SubstrateStateProof,
-	calculateMMRSize,
 	generateRootWithProof,
-	mmrPositionToKIndex,
 } from "@/utils"
 
 import UniswapV2Factory from "@/abis/uniswapV2Factory"
@@ -97,7 +93,6 @@ export const DEFAULT_ADDRESS = "0x0000000000000000000000000000000000000000"
 /**
  * ERC-165 interface ID for IHandlerV2 (bytes4(keccak256("batchCall(bytes[])"))).
  */
-const HANDLER_V2_INTERFACE_ID = toFunctionSelector("function batchCall(bytes[])") as `0x${string}`
 
 /**
  * Parameters for an EVM chain.
@@ -240,33 +235,21 @@ export class EvmChain implements IChain {
 		return this.chainConfigService
 	}
 
-	private _handlerV2Cached: boolean | undefined
-
 	/**
-	 * Checks if the handler contract supports the IHandlerV2 interface via ERC-165.
-	 * Result is cached after the first call.
+	 * Returns the current authority set epoch from the HandlerV2 contract.
 	 */
-	async isHandlerV2(): Promise<boolean> {
-		if (this._handlerV2Cached !== undefined) return this._handlerV2Cached
-
-		try {
-			const hostParams = await this.publicClient.readContract({
-				address: this.params.host,
-				abi: EvmHost.ABI,
-				functionName: "hostParams",
-			})
-			const supports = await this.publicClient.readContract({
-				address: hostParams.handler,
-				abi: HandlerV2.ABI,
-				functionName: "supportsInterface",
-				args: [HANDLER_V2_INTERFACE_ID],
-			})
-			this._handlerV2Cached = supports
-		} catch {
-			this._handlerV2Cached = false
-		}
-
-		return this._handlerV2Cached
+	async currentEpoch(): Promise<bigint> {
+		const hostParams = await this.publicClient.readContract({
+			address: this.params.host,
+			abi: EvmHost.ABI,
+			functionName: "hostParams",
+		})
+		const epoch = await this.publicClient.readContract({
+			address: hostParams.handler,
+			abi: HandlerV2.ABI,
+			functionName: "currentEpoch",
+		})
+		return BigInt(epoch)
 	}
 
 	/**
@@ -455,10 +438,6 @@ export class EvmChain implements IChain {
 				const requests = zip(request.requests, mmrProof.leafIndexAndPos)
 					.map(([req, leafIndexAndPos]) => {
 						if (!req || !leafIndexAndPos) return
-						const [[, kIndex]] = mmrPositionToKIndex(
-							[leafIndexAndPos?.pos],
-							calculateMMRSize(mmrProof.leafCount),
-						)
 						return {
 							request: {
 								source: toHex(req.source),
@@ -470,7 +449,6 @@ export class EvmChain implements IChain {
 								body: req.body,
 							} as any,
 							index: leafIndexAndPos?.leafIndex!,
-							kIndex,
 						}
 					})
 					.filter((item) => !!item)
@@ -484,7 +462,7 @@ export class EvmChain implements IChain {
 					leafCount: mmrProof.leafCount,
 				}
 				const encoded = encodeFunctionData({
-					abi: HandlerV1.ABI,
+					abi: HandlerV2.ABI,
 					functionName: "handlePostRequests",
 					args: [
 						this.params.host,
@@ -502,7 +480,7 @@ export class EvmChain implements IChain {
 					toHex(new Uint8Array(item)),
 				)
 				const encoded = encodeFunctionData({
-					abi: HandlerV1.ABI,
+					abi: HandlerV2.ABI,
 					functionName: "handlePostRequestTimeouts",
 					args: [
 						this.params.host,
@@ -532,10 +510,6 @@ export class EvmChain implements IChain {
 				const responses = zip(request.responses, mmrProof.leafIndexAndPos)
 					.map(([req, leafIndexAndPos]) => {
 						if (!req || !leafIndexAndPos) return
-						const [[, kIndex]] = mmrPositionToKIndex(
-							[leafIndexAndPos?.pos],
-							calculateMMRSize(mmrProof.leafCount),
-						)
 						return {
 							response: {
 								request: {
@@ -552,7 +526,6 @@ export class EvmChain implements IChain {
 								values: req.values,
 							} as any,
 							index: leafIndexAndPos?.leafIndex!,
-							kIndex,
 						}
 					})
 					.filter((item) => !!item)
@@ -566,7 +539,7 @@ export class EvmChain implements IChain {
 					leafCount: mmrProof.leafCount,
 				}
 				const encoded = encodeFunctionData({
-					abi: HandlerV1.ABI,
+					abi: HandlerV2.ABI,
 					functionName: "handleGetResponses",
 					args: [
 						this.params.host,
@@ -581,37 +554,115 @@ export class EvmChain implements IChain {
 			})
 			.with({ kind: "Consensus" }, (message) => {
 				return encodeFunctionData({
-					abi: HandlerV1.ABI,
+					abi: HandlerV2.ABI,
 					functionName: "handleConsensus",
 					args: [this.params.host, message.consensusProof],
 				})
 			})
 			.with({ kind: "BatchConsensusAndPostRequest" }, (request) => {
-				const consensusCall = this.encode({ kind: "Consensus", consensusProof: request.consensusProof })
-				const postRequestCall = this.encode({
-					kind: "PostRequest",
-					requests: request.requests,
-					proof: request.proof,
-					signer: request.signer,
+				const consensusCalls = request.consensusProofs.map((proof) =>
+					this.encode({ kind: "Consensus", consensusProof: proof }),
+				)
+
+				const mmrProof = MmrProof.dec(request.proof.proof)
+				const requests = zip(request.requests, mmrProof.leafIndexAndPos)
+					.map(([req, leafIndexAndPos]) => {
+						if (!req || !leafIndexAndPos) return
+						return {
+							request: {
+								source: toHex(req.source),
+								dest: toHex(req.dest),
+								to: req.to,
+								from: req.from,
+								nonce: req.nonce,
+								timeoutTimestamp: req.timeoutTimestamp,
+								body: req.body,
+							} as any,
+							index: leafIndexAndPos?.leafIndex!,
+						}
+					})
+					.filter((item) => !!item)
+
+				const proof = {
+					height: {
+						stateMachineId: BigInt(Number.parseInt(request.proof.stateMachine.split("-")[1])),
+						height: request.proof.height,
+					},
+					multiproof: mmrProof.items.map((item) => bytesToHex(new Uint8Array(item))),
+					leafCount: mmrProof.leafCount,
+				}
+
+				const postRequestCall = encodeFunctionData({
+					abi: HandlerV2.ABI,
+					functionName: "handlePostRequests",
+					args: [
+						this.params.host,
+						{
+							proof,
+							requests,
+						},
+					],
 				})
+
 				return encodeFunctionData({
 					abi: HandlerV2.ABI,
 					functionName: "batchCall",
-					args: [[consensusCall, postRequestCall]],
+					args: [[...consensusCalls, postRequestCall]],
 				})
 			})
 			.with({ kind: "BatchConsensusAndGetResponse" }, (request) => {
-				const consensusCall = this.encode({ kind: "Consensus", consensusProof: request.consensusProof })
-				const getResponseCall = this.encode({
-					kind: "GetResponse",
-					responses: request.responses,
-					proof: request.proof,
-					signer: request.signer,
+				const consensusCalls = request.consensusProofs.map((proof) =>
+					this.encode({ kind: "Consensus", consensusProof: proof }),
+				)
+
+				const mmrProof = MmrProof.dec(request.proof.proof)
+				const responses = zip(request.responses, mmrProof.leafIndexAndPos)
+					.map(([req, leafIndexAndPos]) => {
+						if (!req || !leafIndexAndPos) return
+						return {
+							response: {
+								request: {
+									source: toHex(req.get.source),
+									dest: toHex(req.get.dest),
+									from: req.get.from,
+									nonce: req.get.nonce,
+									timeoutTimestamp: req.get.timeoutTimestamp,
+									keys: req.get.keys,
+									context: req.get.context,
+									height: req.get.height,
+								},
+								values: req.values,
+							} as any,
+							index: leafIndexAndPos?.leafIndex!,
+						}
+					})
+					.filter((item) => !!item)
+
+				const proof = {
+					height: {
+						stateMachineId: BigInt(Number.parseInt(request.proof.stateMachine.split("-")[1])),
+						height: request.proof.height,
+					},
+					multiproof: mmrProof.items.map((item) => bytesToHex(new Uint8Array(item))),
+					leafCount: mmrProof.leafCount,
+				}
+
+				const getResponseCall = encodeFunctionData({
+					abi: HandlerV2.ABI,
+					functionName: "handleGetResponses",
+					args: [
+						this.params.host,
+						{
+							proof,
+							responses,
+						},
+					],
 				})
+
 				return encodeFunctionData({
 					abi: HandlerV2.ABI,
 					functionName: "batchCall",
-					args: [[consensusCall, getResponseCall]],
+					args: [[...consensusCalls, getResponseCall]],
 				})
 			})
 			.with({ kind: "GetRequest" }, (message) => {
@@ -686,7 +737,7 @@ export class EvmChain implements IChain {
 			functionName: "hostParams",
 		})
 
-		const { root, proof, index, kIndex, treeSize } = await generateRootWithProof(request, 2n ** 10n)
+		const { root, proof, index, treeSize } = await generateRootWithProof(request, 2n ** 10n)
 		const latestStateMachineHeight = 6291991n
 		const paraId = 4009n
 		const overlayRootSlot = getStateCommitmentFieldSlot(
@@ -717,21 +768,20 @@ export class EvmChain implements IChain {
 					{
 						request: formattedRequest,
 						index,
-						kIndex,
 					},
 				],
 			},
 		] as const
 
 		const postRequestCalldata = encodeFunctionData({
-			abi: HandlerV1.ABI,
+			abi: HandlerV2.ABI,
 			functionName: "handlePostRequests",
 			args: contractArgs,
 		})
 
 		const gas = await this.publicClient.estimateContractGas({
 			address: hostParams.handler,
-			abi: HandlerV1.ABI,
+			abi: HandlerV2.ABI,
 			functionName: "handlePostRequests",
 			args: contractArgs,
 			stateOverride: [

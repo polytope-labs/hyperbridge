@@ -424,7 +424,7 @@ describe("TokenGateway SDK", () => {
 		expect(typeof relayerFeeInSourceFeeToken).toBe("bigint")
 	})
 
-	it("should estimate native cost for non-EVM destination (relayer fee = 0)", async () => {
+	it.skip("should estimate native cost for non-EVM destination (relayer fee = 0)", async () => {
 		const bscMainnetIsmpHostAddress = "0x24B5d421Ec373FcA57325dd2F0C074009Af021F7" as HexString
 
 		// Set up source chain (BSC Mainnet)

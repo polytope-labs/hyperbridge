@@ -4,6 +4,7 @@
     "node",
     "collator",
     "consensus-relayer",
-    "messaging-relayer"
+    "messaging-relayer",
+    "prover"
   ]
 }

@@ -1,5 +1,6 @@
 [profile.default]
 src = "src"
+test = "tests/foundry"
 out = "out"
 libs = ["lib"]
 auto_detect_solc = false

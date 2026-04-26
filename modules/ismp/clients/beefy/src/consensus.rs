@@ -44,6 +44,12 @@ use crate::{BeefyClientConfig, SubstrateCrypto};
 
 pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
 
+/// [`ConsensusStateId`] for [`ParachainConsensusClient`] on Polkadot
+pub const POLKADOT_CONSENSUS_STATE_ID: ConsensusStateId = *b"DOT0";
+
+/// [`ConsensusStateId`] for [`ParachainConsensusClient`] on Paseo
+pub const PASEO_CONSENSUS_STATE_ID: ConsensusStateId = *b"PAS0";
+
 /// Beefy consensus client implementation
 pub struct BeefyConsensusClient<H, C, S = SubstrateStateMachine<C>>(PhantomData<(H, C, S)>);
 impl<
@@ -66,7 +72,7 @@ where
 	fn verify_consensus(
 		&self,
 		host: &dyn IsmpHost,
-		consensus_state_id: ConsensusStateId,
+		_consensus_state_id: ConsensusStateId,
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, VerifiedCommitments), Error> {
@@ -153,9 +159,11 @@ where
 				Err(Error::Custom("Timestamp not found".into()))?
 			}
 
-			let state_id = match host.host_state_machine() {
-				StateMachine::Kusama(_) => StateMachine::Kusama(para_header.para_id),
-				StateMachine::Polkadot(_) => StateMachine::Polkadot(para_header.para_id),
+			let (state_id, consensus_state_id) = match host.host_state_machine() {
+				StateMachine::Kusama(_) =>
+					(StateMachine::Kusama(para_header.para_id), PASEO_CONSENSUS_STATE_ID),
+				StateMachine::Polkadot(_) =>
+					(StateMachine::Polkadot(para_header.para_id), POLKADOT_CONSENSUS_STATE_ID),
 				_ => Err(Error::Custom("Host state machine should be a parachain".into()))?,
 			};
 
@@ -203,13 +211,13 @@ where
 		let second_commitment = &second_proof.signed_commitment.commitment;
 
 		if first_commitment.block_number != second_commitment.block_number {
-			return Err(Error::Custom("Fraud proofs must be for the same block number".to_string()))
+			return Err(Error::Custom("Fraud proofs must be for the same block number".to_string()));
 		}
 
 		if first_commitment.encode() == second_commitment.encode() {
 			return Err(Error::Custom(
 				"Fraud proofs have identical commitments, no equivocation".to_string(),
-			))
+			));
 		}
 
 		let empty_parachain_proof =

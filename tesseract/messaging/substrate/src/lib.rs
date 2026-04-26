@@ -131,8 +131,17 @@ where
 			from_hex(&config.signer).context("Signer must be a valid hex-encoded String")?;
 		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
 		let mut consensus_state_id: ConsensusStateId = Default::default();
-		consensus_state_id
-			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("DOT0".into()).as_bytes());
+		consensus_state_id.copy_from_slice(
+			config
+				.consensus_state_id
+				.clone()
+				.unwrap_or(match config.state_machine {
+					StateMachine::Kusama(_) => "PAS0".into(),
+					StateMachine::Polkadot(_) => "DOT0".into(),
+					s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
+				})
+				.as_bytes(),
+		);
 		let address = signer.public().0.to_vec();
 		Ok(Self {
 			client,

@@ -1,0 +1,134 @@
+---
+title: Prover
+description: Running a Hyperbridge BEEFY consensus prover
+---
+
+# Running a Prover
+
+The Hyperbridge BEEFY consensus prover generates cryptographic proofs that attest to the finality of cross-chain messages on the Hyperbridge parachain. For an overview of how provers work, their incentive model, and the path to becoming a Collator, see [Explore: Provers](/developers/explore/provers).
+
+## Running with Docker
+
+The prover is available at the official Docker repository [`polytopelabs/prover`](https://hub.docker.com/r/polytopelabs/prover).
+
+```bash lineNumbers
+docker pull polytopelabs/prover:latest
+```
+
+### Configuration
+
+Create a `config.toml` file:
+
+```toml lineNumbers
+[prover]
+# Relay chain (Paseo) RPC websocket endpoint
+relay_rpc_ws = "wss://paseo-rpc.polkadot.io"
+# Hyperbridge parachain RPC websocket endpoint
+para_rpc_ws = "wss://gargantua.rpc.polytope.technology"
+# Hyperbridge parachain ID on the relay chain
+para_ids = [4009]
+# Proof strategy: "naive" (no GPU) or "zk" (requires CUDA GPU)
+proof_variant = "naive"
+
+[substrate]
+# Hyperbridge state machine identifier
+state_machine = "KUSAMA-4009"
+# Hyperbridge parachain RPC
+rpc_ws = "wss://gargantua.rpc.polytope.technology"
+# Hashing algorithm used by the chain
+hashing = "Keccak"
+# SR25519 secret key for signing proof submissions (hex-encoded)
+signer = "0x<your_sr25519_secret_key>"
+
+[beefy]
+# Consensus state identifier used by pallet-ismp
+consensus_state_id = "PAS0"
+# Minimum number of blocks after a message before proving finality (0 = prove immediately)
+minimum_finalization_height = 0
+```
+
+<Callout type="warn">
+The `signer` field is the SR25519 secret key that will sign proof submissions. The corresponding account does not need any balance — proof submission uses unsigned extrinsics. However, this account will receive `$BRIDGE` rewards and Reputation Asset tokens for accepted proofs.
+</Callout>
+
+### Docker Compose
+
+Create a `docker-compose.yml`:
+
+```yaml lineNumbers
+services:
+  beefy-prover:
+    image: polytopelabs/prover:latest
+    restart: always
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+    environment:
+      RUST_LOG: info,moongate_core=off
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/app/beefy-prover --config /app/config.toml 2>&1 | tee /app/prover.log"]
+```
+
+Start the prover:
+
+```bash lineNumbers
+docker compose up -d
+```
+
+View logs:
+
+```bash lineNumbers
+docker compose logs -f beefy-prover
+```
+
+### System Requirements
+
+#### Naive proofs (testnets)
+
+| Resource | Minimum |
+|----------|---------|
+| CPU | 4 cores |
+| RAM | 8 GB |
+| Network | 50 Mb/s |
+| GPU | Not required |
+
+#### ZK proofs (mainnet)
+
+| Resource | Minimum |
+|----------|---------|
+| CPU | 32 cores |
+| RAM | 64 GB |
+| Network | 100 Mb/s |
+| GPU | NVIDIA RTX 4090 or newer (CUDA required) |
+
+<Callout type="info">
+ZK proof generation downloads ~8 GB of SP1 circuit artifacts on first run. These are cached in `/root/.sp1` inside the container. Mount a volume at this path to persist them across restarts.
+</Callout>
+
+### Persisting SP1 artifacts (ZK mode)
+
+When running with `proof_variant = "zk"`, add a volume for the SP1 cache to avoid re-downloading circuit artifacts on each restart:
+
+```yaml lineNumbers
+services:
+  beefy-prover:
+    image: polytopelabs/prover:latest
+    restart: always
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      - sp1-cache:/root/.sp1
+    environment:
+      RUST_LOG: info,moongate_core=off
+    command: ["--config", "/app/config.toml"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  sp1-cache:
+```

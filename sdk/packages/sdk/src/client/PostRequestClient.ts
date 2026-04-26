@@ -618,7 +618,7 @@ export class PostRequestClient {
 	/**
 	 * Snapshot helper: returns the `HYPERBRIDGE_FINALIZED` event with relayer
 	 * calldata if prerequisites are met, or `undefined` if we're still waiting
-	 * for a consensus proof (HandlerV2) or state machine update (HandlerV1).
+	 * for a consensus proof.
 	 */
 	private async buildFinalized(
 		request: PostRequestWithStatus,
@@ -626,12 +626,13 @@ export class PostRequestClient {
 	): Promise<RequestStatusWithMetadata | undefined> {
 		const destChain = this.ctx.config.dest
 		const hyperbridge = this.ctx.config.hyperbridge
-		const useHandlerV2 = destChain instanceof EvmChain && (await destChain.isHandlerV2())
 
-		if (useHandlerV2) {
+		if (destChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
-			const consensusResult = await hyperbridgeSubstrate.queryConsensusProof(
+			const currentEpoch = await destChain.currentEpoch()
+			const consensusResult = await hyperbridgeSubstrate.queryConsensusProofs(
 				BigInt(hyperbridgeDelivered.metadata.blockNumber),
+				currentEpoch,
 			)
 			if (!consensusResult) return undefined
 
@@ -643,7 +644,7 @@ export class PostRequestClient {
 
 			const calldata = destChain.encode({
 				kind: "BatchConsensusAndPostRequest",
-				consensusProof: consensusResult.proof,
+				consensusProofs: consensusResult.proofs,
 				proof: {
 					stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
 					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
@@ -667,6 +668,7 @@ export class PostRequestClient {
 			}
 		}
 
+		// Substrate destination: use state machine update from indexer
 		const hyperbridgeFinality = await this.queries.queryStateMachineUpdateByHeight({
 			statemachineId: this.ctx.config.hyperbridge.config.stateMachineId,
 			height: hyperbridgeDelivered.metadata.blockNumber,
@@ -705,11 +707,10 @@ export class PostRequestClient {
 	}
 
 	/**
-	 * Streaming helper: waits (via `waitOrAbort`) for the consensus proof or
-	 * state machine update, fetches the messaging proof with retry, applies the
-	 * challenge-period wait on the HandlerV1 path, and returns the finalized
-	 * event. Caller has already observed `HYPERBRIDGE_DELIVERED` and provides
-	 * the index into `request.statuses` that carries it.
+	 * Streaming helper: waits for the consensus proof, fetches the messaging
+	 * proof with retry, and returns the finalized event. Caller has already
+	 * observed `HYPERBRIDGE_DELIVERED` and provides the index into
+	 * `request.statuses` that carries it.
 	 */
 	private async streamFinalized(
 		signal: AbortSignal,
@@ -718,20 +719,28 @@ export class PostRequestClient {
 	): Promise<RequestStatusWithMetadata> {
 		const destChain = this.ctx.config.dest
 		const hyperbridge = this.ctx.config.hyperbridge
-		const useHandlerV2 = destChain instanceof EvmChain && (await destChain.isHandlerV2())
 		const stateMachineId = this.ctx.config.hyperbridge.config.stateMachineId
 		const neededHeight = BigInt(request.statuses[hyperbridgeDeliveredIndex].metadata.blockNumber)
 
-		if (useHandlerV2) {
+		this.logger.trace(`[streamFinalized] neededHeight=${neededHeight}`)
+
+		if (destChain instanceof EvmChain) {
 			const hyperbridgeSubstrate = hyperbridge as SubstrateChain
+			const currentEpoch = await destChain.currentEpoch()
 			const consensusResult = await waitOrAbort(this.ctx, {
 				signal,
-				promise: () => hyperbridgeSubstrate.queryConsensusProof(neededHeight),
+				promise: () => hyperbridgeSubstrate.queryConsensusProofs(neededHeight, currentEpoch),
 			})
+
+			const commitment = postRequestCommitment(request).commitment
+			this.logger.trace(
+				`[streamFinalized] consensusProofs found (${consensusResult.proofs.length} proofs), provenHeight=${consensusResult.provenHeight}, ` +
+				`commitment=${commitment}, dest=${request.dest}`
+			)
 
 			const proof = await this.fetchProofWithRetry(signal, () =>
 				hyperbridge.queryProof(
-					{ Requests: [postRequestCommitment(request).commitment] },
+					{ Requests: [commitment] },
 					request.dest,
 					consensusResult.provenHeight,
 				),
@@ -739,9 +748,9 @@ export class PostRequestClient {
 
 			const calldata = destChain.encode({
 				kind: "BatchConsensusAndPostRequest",
-				consensusProof: consensusResult.proof,
+				consensusProofs: consensusResult.proofs,
 				proof: {
-					stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
+					stateMachine: stateMachineId,
 					consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
 					proof,
 					height: consensusResult.provenHeight,
@@ -763,6 +772,7 @@ export class PostRequestClient {
 			}
 		}
 
+		// Substrate destination: wait for state machine update
 		const hyperbridgeFinalized = await waitOrAbort(this.ctx, {
 			signal,
 			promise: () =>
@@ -784,7 +794,7 @@ export class PostRequestClient {
 		const calldata = destChain.encode({
 			kind: "PostRequest",
 			proof: {
-				stateMachine: this.ctx.config.hyperbridge.config.stateMachineId,
+				stateMachine: stateMachineId,
 				consensusStateId: this.ctx.config.hyperbridge.config.consensusStateId,
 				proof,
 				height: BigInt(hyperbridgeFinalized.height),
@@ -816,10 +826,16 @@ export class PostRequestClient {
 	 * 2s backoff) so a hung Hyperbridge node doesn't stall the stream forever.
 	 */
 	private async fetchProofWithRetry(signal: AbortSignal, fetch: () => Promise<HexString>): Promise<HexString> {
+		let attempt = 0
 		const safe = async () => {
+			attempt++
 			try {
-				return { data: await fetch(), error: null as unknown }
+				this.logger.trace(`[fetchProofWithRetry] attempt ${attempt}`)
+				const result = await fetch()
+				this.logger.trace(`[fetchProofWithRetry] attempt ${attempt} succeeded, proof length=${result.length}`)
+				return { data: result, error: null as unknown }
 			} catch (err) {
+				this.logger.trace(`[fetchProofWithRetry] attempt ${attempt} failed: ${err}`)
 				return { data: null, error: err as unknown }
 			}
 		}

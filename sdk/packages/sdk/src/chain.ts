@@ -129,7 +129,7 @@ export interface ITimeoutPostRequestMessage {
 
 export interface IBatchConsensusAndPostRequestMessage {
 	kind: "BatchConsensusAndPostRequest"
-	consensusProof: HexString
+	consensusProofs: HexString[]
 	requests: IPostRequest[]
 	proof: IProof
 	signer: HexString
@@ -137,7 +137,7 @@ export interface IBatchConsensusAndPostRequestMessage {
 
 export interface IBatchConsensusAndGetResponseMessage {
 	kind: "BatchConsensusAndGetResponse"
-	consensusProof: HexString
+	consensusProofs: HexString[]
 	responses: IGetResponse[]
 	proof: IProof
 	signer: HexString

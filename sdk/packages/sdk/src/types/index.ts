@@ -5,12 +5,12 @@ import type { Account } from "viem/accounts"
 
 /** Re-export: use this type when wiring a viem `Account` next to `SigningAccount` so you stay aligned with the SDK’s viem resolution. */
 export type { Account as ViemAccount } from "viem/accounts"
-import type HandlerV1 from "@/abis/handler"
+import type HandlerV2 from "@/abis/handlerV2"
 import type { IChain } from "@/chain"
 import { Struct, Vector, Bytes, u8 } from "scale-ts"
 
 export type EstimateGasCallData = ContractFunctionArgs<
-	typeof HandlerV1.ABI,
+	typeof HandlerV2.ABI,
 	"nonpayable" | "payable",
 	"handlePostRequests"
 >

@@ -94,6 +94,9 @@ where
 	};
 
 	let block_hash = extrinsic.block_hash();
+	let block = client.blocks().at(block_hash).await?;
+	let status = if wait_for_finalization { "finalized" } else { "inserted" };
+	log::info!("Unsigned extrinsic successfully {status} at block {}", block.number().into());
 
 	let (hash, receipts) = match extrinsic.wait_for_success().await {
 		Ok(p) => {

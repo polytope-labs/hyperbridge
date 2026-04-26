@@ -96,6 +96,8 @@ jobs:
               run: |
                   CURRENT_TAG=${{ steps.previous-tag.outputs.current_tag }}
                   PREVIOUS_TAG=${{ steps.previous-tag.outputs.previous_tag }}
+                  CLEAN_TAG=${{ steps.previous-tag.outputs.clean_tag }}
+                  OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
                   if [ -z "$PREVIOUS_TAG" ]; then
                     COMMIT_RANGE="HEAD"
@@ -110,6 +112,22 @@ jobs:
                     echo "## What's Changed"
                     echo ""
                     echo "$CHANGELOG"
+                    echo ""
+                    echo "## Pulling the image"
+                    echo ""
+                    echo "Docker Hub:"
+                    echo ""
+                    echo '```sh'
+                    echo "docker pull polytopelabs/prover:${CLEAN_TAG}"
+                    echo "docker pull polytopelabs/prover:latest"
+                    echo '```'
+                    echo ""
+                    echo "GitHub Container Registry:"
+                    echo ""
+                    echo '```sh'
+                    echo "docker pull ghcr.io/${OWNER}/prover:${CLEAN_TAG}"
+                    echo "docker pull ghcr.io/${OWNER}/prover:latest"
+                    echo '```'
                     echo "EOF"
                   } >> $GITHUB_OUTPUT
 
@@ -119,7 +137,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
                   tag_name: ${{ steps.previous-tag.outputs.current_tag }}
-                  release_name: "Beefy Prover ${{ steps.previous-tag.outputs.clean_tag }}"
+                  release_name: "Prover ${{ steps.previous-tag.outputs.clean_tag }}"
                   body: ${{ steps.changelog.outputs.changelog }}
                   draft: false
                   prerelease: false

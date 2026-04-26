@@ -19,7 +19,7 @@ extern crate alloc;
 extern crate core;
 pub mod consensus;
 
-pub use consensus::BeefyConsensusClient;
+pub use consensus::{BEEFY_CONSENSUS_ID, BeefyConsensusClient};
 
 use polkadot_sdk::*;
 

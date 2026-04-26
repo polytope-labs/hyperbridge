@@ -14,7 +14,7 @@ on:
             - "evm/**/*.js"
             - ".github/workflows/evm.yml"
 
-    pull_request_target:
+    pull_request:
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "evm/**/*.sol"

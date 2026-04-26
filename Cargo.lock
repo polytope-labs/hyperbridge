@@ -7154,6 +7154,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "evm-integration-tests"
+version = "0.1.1"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-sol-macro 1.5.7",
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
+ "ckb-merkle-mountain-range",
+ "envy",
+ "futures",
+ "hex",
+ "hex-literal 0.4.1",
+ "ismp",
+ "ismp-solidity-abi",
+ "mmr-primitives",
+ "pallet-ismp",
+ "pallet-ismp-host-executive",
+ "pallet-ismp-relayer",
+ "pallet-mmr-tree",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "revm",
+ "rs_merkle",
+ "serde",
+ "serde_json",
+ "subxt 0.42.1",
+ "subxt-utils",
+ "tokio",
+ "trie-db",
+]
+
+[[package]]
 name = "evm-state-machine"
 version = "0.1.1"
 dependencies = [
@@ -28137,6 +28172,7 @@ dependencies = [
  "hex",
  "hex-literal 0.4.1",
  "ismp",
+ "ismp-beefy",
  "ismp-solidity-abi",
  "log",
  "pallet-beefy-consensus-proofs",
@@ -28216,7 +28252,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-consensus"
-version = "1.8.2"
+version = "1.8.5"
 dependencies = [
  "anyhow",
  "arb-host",

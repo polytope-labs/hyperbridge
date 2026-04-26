@@ -248,7 +248,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 5_900,
+	spec_version: 6_100,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -755,10 +755,17 @@ impl pallet_vesting::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
+pub type ReputationAsset =
+	frame_support::traits::tokens::fungible::ItemOf<Assets, ReputationAssetId, AccountId32>;
+
+parameter_types! {
+	pub const ReputationAssetId: H256 = H256([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]);
+}
+
 parameter_types! {
 	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the solidity
 	/// `BEEFY_CONSENSUS_ID`.
-	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"BEEF";
+	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"PAS0";
 	/// Unbonding period handed to `pallet-ismp` on first `initialize_state` (21 days in
 	/// seconds), aligning with other BEEFY clients in the runtime.
 	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
@@ -766,6 +773,13 @@ parameter_types! {
 	pub const MaxBeefyProofSize: u32 = 1_048_576;
 	/// Per-bucket ring-buffer size for `MessagingProofs` and `RotationProofs`.
 	pub const MaxStoredBeefyProofs: u32 = 512;
+}
+
+parameter_types! {
+	pub const AllowedBeefyProofTypes: &'static [u8] = &[
+		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
+		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
+	];
 }
 
 impl pallet_beefy_consensus_proofs::Config for Runtime {
@@ -776,6 +790,8 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type MaxStoredProofs = MaxStoredBeefyProofs;
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
+	type AllowedProofTypes = AllowedBeefyProofTypes;
+	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }
 

@@ -8,7 +8,7 @@ description = "SNARK Circuits for BEEFY consensus proofs written in noir"
 [dependencies]
 tracing = { workspace = true }
 tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread"] }
-rs_merkle = "1.4.1"
+rs_merkle = { workspace = true, default-features = true }
 anyhow = "1.0.79"
 codec = { package = "parity-scale-codec", version = "3.2.2" }
 primitive-types = { workspace = true, features = ["serde", "codec"] }

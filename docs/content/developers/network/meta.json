@@ -3,6 +3,7 @@
   "pages": [
     "node",
     "collator",
-    "relayer"
+    "relayer",
+    "prover"
   ]
 }

@@ -23,6 +23,7 @@ import {
 	isEvmChain,
 	isSubstrateChain,
 	replaceWebsocketWithHttp,
+	parseStateMachineId,
 } from "@/utils"
 import { ExpectedError } from "@/utils/exceptions"
 import { keccakAsU8a } from "@polkadot/util-crypto"
@@ -394,31 +395,59 @@ export class SubstrateChain implements IChain {
 	}
 
 	/**
-	 * Queries the LastProvenHeight from pallet-beefy-consensus-proofs.
+	 * Queries the latest proven height for this chain from pallet-ismp.
 	 */
 	async queryLastProvenHeight(): Promise<bigint> {
-		if (!this.api) throw new Error("API not initialized")
-		const result = await (this.api.query as any).beefyConsensusProofs.lastProvenHeight()
-		return BigInt(result.toString())
+		return this.latestStateMachineHeight({
+			stateId: parseStateMachineId(this.params.stateMachineId).stateId,
+			consensusStateId: this.params.consensusStateId,
+		})
 	}
 
 	/**
-	 * Queries the consensus proof from Hyperbridge's offchain storage for a given
-	 * proven height. The proof bytes can be passed directly to HandlerV2's
-	 * handleConsensus on EVM chains.
+	 * Queries all consensus proofs needed to catch up from a given on-chain epoch
+	 * to the latest proven state. Returns rotation proofs (in order) to advance
+	 * the authority set, plus the final messaging proof that covers `neededHeight`.
 	 *
-	 * All proofs — rotation and messaging alike — share a single offchain namespace
-	 * keyed by `proven_height`, so a single lookup suffices.
+	 * @param neededHeight - The Hyperbridge block height that must be covered
+	 * @param currentEpoch - The current authority set id on the destination EVM chain
 	 */
-	async queryConsensusProof(neededHeight: bigint): Promise<{ proof: HexString; provenHeight: bigint } | undefined> {
+	async queryConsensusProofs(
+		neededHeight: bigint,
+		currentEpoch: bigint,
+	): Promise<{ proofs: HexString[]; provenHeight: bigint } | undefined> {
 		const lastProvenHeight = await this.queryLastProvenHeight()
 		if (lastProvenHeight < neededHeight) return undefined
 
-		const key = beefyOffchainKey(lastProvenHeight)
-		const proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
-		if (!proof) return undefined
+		if (!this.api) throw new Error("API not initialized")
 
-		return { proof: proof as HexString, provenHeight: lastProvenHeight }
+		// Read RotationProofs BTreeMap<u64, u64> from storage
+		const rotationProofsRaw = await (this.api.query as any).beefyConsensusProofs.rotationProofs()
+		const rotationMap: Map<bigint, bigint> = new Map()
+		for (const [setId, height] of rotationProofsRaw.entries()) {
+			rotationMap.set(BigInt(setId.toString()), BigInt(height.toString()))
+		}
+
+		const proofs: HexString[] = []
+
+		// Walk from currentEpoch + 1 forward, fetching each rotation proof
+		let epoch = currentEpoch + 1n
+		while (rotationMap.has(epoch)) {
+			const height = rotationMap.get(epoch)!
+			const key = beefyOffchainKey(height)
+			const proof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", key])
+			if (!proof) return undefined
+			proofs.push(proof as HexString)
+			epoch++
+		}
+
+		// Fetch the final messaging proof at lastProvenHeight
+		const messagingKey = beefyOffchainKey(lastProvenHeight)
+		const messagingProof = await this.rpcClient.call("offchain_localStorageGet", ["PERSISTENT", messagingKey])
+		if (!messagingProof) return undefined
+		proofs.push(messagingProof as HexString)
+
+		return { proofs, provenHeight: lastProvenHeight }
 	}
 
 	private getPalletIndex(name: string): number {

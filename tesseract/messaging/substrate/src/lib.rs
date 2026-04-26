@@ -154,8 +154,17 @@ where
 		};
 		let address = signer.public().0.to_vec();
 		let mut consensus_state_id: ConsensusStateId = Default::default();
-		consensus_state_id
-			.copy_from_slice(config.consensus_state_id.clone().unwrap_or("DOT0".into()).as_bytes());
+		consensus_state_id.copy_from_slice(
+			config
+				.consensus_state_id
+				.clone()
+				.unwrap_or(match config.state_machine {
+					StateMachine::Kusama(_) => "PAS0".into(),
+					StateMachine::Polkadot(_) => "DOT0".into(),
+					s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
+				})
+				.as_bytes(),
+		);
 		Ok(Self {
 			client,
 			rpc,

@@ -1,78 +1,81 @@
 ---
 title: Collators (Block Producer)
-description: This guide outlines the complete process of leveraging a Relayer's hardwork and accrued revenue to become a Collator on the network.
+description: This guide outlines the complete process of leveraging your work as a Relayer or Prover to become a Collator on the Hyperbridge network.
 ---
 
 # Becoming a Collator
 
-This guide outlines the complete process of leveraging a Relayer's hardwork and accrued revenue to become a Collator on the network.
-Our system is designed to reward active and reliable participants by allowing them to use their earnings as a reputation score, which is the primary factor in Collator
-selection. By becoming a Collator, a Relayer plays a more direct role in the network's liveness guarantees and block production.
+This guide outlines the complete process of becoming a Collator on the Hyperbridge network.
+Our system rewards active and reliable network participants — Relayers who deliver cross-chain messages and Provers who generate consensus proofs — by converting their earnings into a reputation score. This reputation is the primary factor in Collator selection. By becoming a Collator, you play a direct role in the network's liveness guarantees and block production.
 
 ## Who is a Collator
-Collators are Block producers for the Hyperbridge Blockchain. Collators are essential for keeping the Hyperbridge chain live and processing transactions.
-For their vital contributions, Collators are directly rewarded from the network Treasury. Each successful Block authored earns the collator `0.7 $BRIDGE`.
-This creates a consistent and reliable revenue stream, with a total of approximately `4,000,000 $BRIDGE` allocated annually for collator rewards,
+
+Collators are block producers for the Hyperbridge blockchain. They are essential for keeping the chain live and processing transactions.
+For their vital contributions, Collators are directly rewarded from the network Treasury. Each successful block authored earns the Collator `0.7 $BRIDGE`.
+This creates a consistent and reliable revenue stream, with a total of approximately `4,000,000 $BRIDGE` allocated annually for Collator rewards,
 distributed among the active set based on their block production performance.
 
-The primary responsibility for Collators on Hyperbridge are:
+The primary responsibilities for Collators on Hyperbridge are:
 
 - **Collecting Transactions**: They gather transactions from users.
-- **Producing Blocks**: They ensure the production of Blocks.
-- **Submitting to Polkadot Validators**: They submit Blocks  along with proof to the relay chain validators, in this case, Polkadot.
+- **Producing Blocks**: They ensure the production of blocks.
+- **Submitting to Polkadot Validators**: They submit blocks along with proof to the relay chain validators, in this case, Polkadot.
 
-## The Relayer-Collator Relationship
+## The Path from Operator to Collator
 
-In the Hyperbridge ecosystem, the path to becoming a collator begins with being a successful relayer. The two roles are intrinsically linked:
+In the Hyperbridge ecosystem, the path to becoming a Collator begins with being a successful network operator. There are three ways to build the reputation required:
 
-- **Relayers are the proving ground**: By relaying messages, you demonstrate your technical competence and commitment to the network's operation.
-- **Next step is becoming a Collator**: The collator set is exclusively selected from the pool of active relayers. Your economic activity as a relayer is
-the only way to gain the reputation required to be considered for a collator position.
+- **Messaging Relayers** deliver cross-chain messages between connected chains and earn `$BRIDGE` rewards through `pallet-messaging-fees`.
+- **Consensus Relayers** submit consensus proofs for connected chains (e.g. Ethereum, BSC) and earn `$BRIDGE` rewards through `pallet-consensus-incentives`.
+- **BEEFY Provers** generate and submit BEEFY consensus proofs that attest to the finality of Hyperbridge's own parachain state, earning `$BRIDGE` rewards through `pallet-beefy-consensus-proofs`.
 
-This creates a meritocratic system where the most dedicated and effective network participants are promoted to roles with greater responsibility and rewards.
+All three roles earn reputation on equal footing. The Collator set is exclusively selected from the pool of operators who have accrued reputation through any combination of these activities. This creates a meritocratic system where the most dedicated and effective network participants are promoted to roles with greater responsibility and rewards.
 
 ## Core Concepts: Stash, Controller, and Reputation
 
-Before diving deep into the steps required, it is important to understand the two-account model and the tokens involved:
+Before diving into the steps required, it is important to understand the two-account model and the tokens involved:
 
-- **Stash Account (Cold)**: This holds your $BRIDGE bond and is ideally kept offline in a "cold" wallet for maximum security.
+- **Stash Account (Cold)**: This holds your `$BRIDGE` bond and is ideally kept offline in a "cold" wallet for maximum security.
 It is used only for high-value transactions like bonding and designating a controller. The Stash account registers as a candidate
-but does **not** need to set session keys - that's the Controller's job.
-- **Controller Account (Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer and a collator node.
+but does **not** need to set session keys — that's the Controller's job.
+- **Controller Account (Hot)**: This is your "operational" account. It's the account you use for day-to-day operations like running a relayer, prover, and collator node.
     - It's the account that accrues Reputation.
     - It's the account that sets Session Keys (required for block production).
-    - This is the account you use as your relayer's signer.
-    - It must be linked to a Stash via `collatorManager.register` before the Stash can be selected as a collator.
+    - This is the account you use as your relayer or prover signer.
+    - It must be linked to a Stash via `collatorManager.register` before the Stash can be selected as a Collator.
 
 **Why Two Accounts?** This separation allows you to keep your bonded funds secure in a cold wallet while using a hot wallet for
-operational duties. If your Controller is compromised, an attacker cannot access your bonded funds - they can only perform
+operational duties. If your Controller is compromised, an attacker cannot access your bonded funds — they can only perform
 collator operations. You can always change your Controller using `collatorManager.setController` from your Stash account.
 
 ### The Tokens
-- **The Hyperbridge Token(`$BRIDGE`)**: This is the primary token a Relayer earns as a reward for relaying messages. It is the real transferable asset that reflects or represents your earnings.
-    - Your Stash account must bond $BRIDGE to become a candidate.
-    - Your Controller account receives $BRIDGE rewards for producing blocks.
-    - Your Controller account earns $BRIDGE for relaying messages.
 
-- **The Reputation Asset**: This is a special, non-transferable asset that acts as a Relayer's reputation score. It is designed to mirrror a Relayer's Hyperbridge token earnings.
-The ratio of this asset to a Relayer's `$BRIDGE` earnings is 1 to 1. For every `$BRIDGE` token earned by a Relayer, an equal amount of the Reputation Asset is automatically minted to the Relayer's account.
+- **The Hyperbridge Token (`$BRIDGE`)**: This is the primary token earned as a reward for operating network infrastructure. It is a real, transferable asset that reflects your earnings.
+    - Your Stash account must bond `$BRIDGE` to become a candidate.
+    - Your Controller account receives `$BRIDGE` rewards for producing blocks.
+    - Your Controller account earns `$BRIDGE` for relaying messages, submitting consensus proofs, or generating BEEFY proofs.
 
-**Key Insight**: Your reputation score is directly tied to your success as a Relayer which is driven by your Controller account. The more messages you relay, the more `$BRIDGE` you earn,
-the higher your reputation score becomes, and the better your chances of being selected as a Collator
+- **The Reputation Asset**: This is a special, non-transferable asset that acts as a reputation score. It mirrors your `$BRIDGE` earnings at a 1:1 ratio. For every `$BRIDGE` token you earn through any of the three operator roles (messaging relayer, consensus relayer, or BEEFY prover), an equal amount of Reputation Asset is automatically minted to your Controller account.
 
-## The path to becoming a Collator
-The process involves four main stages: Accruing reputation score/asset, preparing your node, linking your controller, and bonding as a candidate.
+**Key Insight**: Your reputation score is directly tied to your success as a network operator. The more messages you relay, consensus proofs you submit, or BEEFY proofs you generate, the more `$BRIDGE` you earn, the higher your reputation score becomes, and the better your chances of being selected as a Collator.
 
-### Step 1: Accrue Reputation by Relaying Messages with Your Controller Account
-This is the foundation of the entire system. The primary goal is to be an active and reliable relayer.
+## The Path to Becoming a Collator
 
-**Why Relayers**: Hyperbridge's Collator selection mechanism is based on proven economic activity on Hyperbridge. By rewarding relayers with reputation, we ensure that our collators are experienced,
-active, and invested participants in the network success. This meritocratic system ensures liveness guarantees are upheld by selecting for proven value creation.
+The process involves four main stages: accruing reputation, preparing your node, linking your controller, and bonding as a candidate.
 
-**Action**: Continue to relay messages or/and consensus proofs between connected chains using a dedicated Controller account as the signer
+### Step 1: Accrue Reputation with Your Controller Account
 
-**Outcome**: For every reward you receive in `$BRIDGE` to your Controller account, the `pallet-messaging-relayer-fees` and `pallet-consensus-incentives` will automatically mint an equivalent amount of the Reputation Asset
-to that same Controller account. You can always find your Reputation Asset balance under the Polkadot JS UI by going to `Developer > Chain State > Assets > Account`.
+This is the foundation of the entire system. The primary goal is to be an active and reliable network operator. You can build reputation through any combination of:
+
+- **[Running a Messaging Relayer](/developers/network/messaging-relayer)** — Deliver cross-chain messages between connected chains.
+- **[Running a Consensus Relayer](/developers/network/consensus-relayer)** — Submit consensus proofs for connected EVM and Substrate chains.
+- **[Running a BEEFY Prover](/developers/network/prover)** — Generate and submit BEEFY consensus proofs for Hyperbridge parachain finality.
+
+**Why this model?** Hyperbridge's Collator selection is based on proven economic activity. By rewarding operators with reputation, we ensure that Collators are experienced, active, and invested participants. This meritocratic system ensures liveness guarantees are upheld by selecting for proven value creation.
+
+**Action**: Operate one or more of the above roles using a dedicated Controller account as the signer.
+
+**Outcome**: For every `$BRIDGE` reward your Controller account receives, the corresponding pallet (`pallet-messaging-fees`, `pallet-consensus-incentives`, or `pallet-beefy-consensus-proofs`) automatically mints an equivalent amount of Reputation Asset to that same Controller account. You can check your Reputation Asset balance in the Polkadot-JS UI by going to `Developer > Chain State > Assets > Account`.
 
 <figure>
   <img src="/asset_account_balance.png" alt="Reputation Asset Account Balance   " />
@@ -80,17 +83,17 @@ to that same Controller account. You can always find your Reputation Asset balan
 </figure>
 
 ### Step 2: Prepare Your Collator Node and Session Keys
-To be a collator, you must run a full node and have set of hot keys known as session keys, available in your node's keystore. These keys are used for signing blocks.
+
+To be a Collator, you must run a full node and have a set of hot keys known as session keys available in your node's keystore. These keys are used for signing blocks.
 
 #### A Note on Key Types
 
 You will be working with two types of keys:
 
-- **Controller Account Key (sr25519)**: This is your main account key known as the controller account. It holds your reputation and is used to sign transactions. This key is what you used as the `signer` field in the `[hyperbridge]`
-section of the messaging and consensus relayer config.
+- **Controller Account Key (sr25519)**: This is your main account key known as the Controller account. It holds your reputation and is used to sign transactions. This is the same key you use as the `signer` field in your relayer or prover configuration.
 - **Session Key (aura)**: This is a "hot" key that lives on your collator node and is used for the high-frequency task of signing blocks.
 
-**Generating a secure Account Key(If you don't have one)**: Your relayer's `signing` key will become your main collator account.
+**Generating a secure Account Key (if you don't have one)**: Your operator's signing key will become your main Collator account.
 You can generate a new, secure `sr25519` key for this purpose using the `subkey` tool.
 
 1. **Install Subkey**: if you don't have it, install it with the following command:
@@ -112,7 +115,7 @@ subkey generate --scheme sr25519
 
 
 3.**Securely Store Your Keys**: The command will output a mnemonic phrase, a private key, and a public address. Securely backup your mnemonic phrase.
-This is the master key to your account. The hexadecimal private key is what you will use as the signer in the `[hyperbridge]` section of both the messaging and consensus relayer configurations.
+This is the master key to your account. The hexadecimal private key is what you will use as the signer in your relayer or prover configuration.
 
 You can see a sample consensus relayer config showing the signing key which is the controller account as the key we generated using subkey:
 ```toml lineNumbers
@@ -203,7 +206,7 @@ delivery_endpoints = [
 **Action 1: Set up a Collator Node**: You must have a fully synced node running the hyperbridge binary with --collator flag.
 Ensure it is stable and has a reliable network connection.
 
-**Action 2: Generate session Keys**: On your running collator node, you will need to generate your session keys by making an `author_rotateKeys` RPC Call.
+**Action 2: Generate Session Keys**: On your running collator node, you will need to generate your session keys by making an `author_rotateKeys` RPC call.
 You can do this with a curl command:
 
 
@@ -218,14 +221,14 @@ curl -H "Content-Type: application/json" -d '{"id":1, "jsonrpc":"2.0", "method":
 
 
 Note: Replace 9990 with your node's RPC port if it is different.
-This command will return a long hex string. This is your session key public key
+This command will return a long hex string. This is your session key public key.
 
 **Action 3: Link your keys**: You must now tell the blockchain that your Controller account (`AccountId`) will use these new session keys for collating.
 You do this by calling the `session.setKeys` extrinsic from your Controller account.
 
 - Navigate to `Developer -> Extrinsics` in the Polkadot UI.
-- Select your Controller account(the one with the reputation score).
-    Note that this is your relayer's public key. It must be the same account that is configured as the `signer` in your relayer setup and is the account that has been accruing reputation.
+- Select your Controller account (the one with the reputation score).
+    Note that this must be the same account configured as the `signer` in your relayer or prover setup — the account that has been accruing reputation.
 - Choose the `session` pallet and the `setKeys` extrinsic.
 - Paste the entire hex string from the previous step into the `keys` field.
 - Leave the `proof` field empty (0x0).
@@ -242,6 +245,7 @@ node to start producing blocks as soon as you are selected for the active set.
 
 
 ### Step 3: Link your Controller to your Stash
+
 You must now create the on-chain link between your Stash account and your operational Controller account. This must be done before registering as a candidate, as `ValidatorRegistration` requires the controller to be linked first.
 **Action**: Call the collatorManager.register extrinsic
 
@@ -258,6 +262,7 @@ You must now create the on-chain link between your Stash account and your operat
 This tells the network: "Designate this Controller to perform collator duties on behalf of my Stash account."
 
 ### Step 4: Register as a Candidate By Bonding Funds from your Stash Account
+
 Now that the node is ready, your keys are linked, and your controller is registered, you can declare your intention to become a Collator.
 
 **Candidacy Bond**: To register as a candidate, your stash account must have a `$BRIDGE` token of at least the minimum candidacy bond, which is 200,000 $BRIDGE.
@@ -276,9 +281,9 @@ Now that the node is ready, your keys are linked, and your controller is registe
 
 This transaction will lock your bond and add your Stash account to the candidate pool.
 
-## The selection process & what happens next
+## The Selection Process & What Happens Next
 
-At the beginning of each new session, our `pallet-collator-manager` runs its selection logic:
+At the beginning of each new session, `pallet-collator-manager` runs its selection logic:
 
 - It fetches the list of all bonded candidates (Stash accounts) from `pallet-collator-selection`.
 - For each candidate, it uses the `Controller` storage map to find the linked Controller account.
@@ -290,13 +295,12 @@ At the beginning of each new session, our `pallet-collator-manager` runs its sel
 If you are selected:
 
 - Your Controller's Reputation Asset balance will be burned. This is somewhat like your stake for the session.
-- Your node(run by your Controller) will begin authoring and producing blocks after 2 rounds(sessions). To do this, you must ensure that your node is running(or it has been restarted) with the `--collator` flag
-- Bear in mind that as you are still performing your duties of relaying messages or consensus proofs, your Controller will keep stacking `$BRIDGE` rewards
-and your reputation asset will start increasing too, allowing you to compete for a spot in future sessions.
+- Your node (run by your Controller) will begin authoring and producing blocks after 2 rounds (sessions). To do this, you must ensure that your node is running (or has been restarted) with the `--collator` flag.
+- As you continue operating your relayer or prover, your Controller will keep earning `$BRIDGE` rewards and your Reputation Asset will start increasing again, allowing you to compete for a spot in future sessions.
 
 If you are not selected:
 
 - You remain in the candidate pool.
-- Continue relaying messages with your Controller to increase your Reputation Asset balance and improve your chances of being selected in the next session.
+- Continue operating your relayer or prover to increase your Reputation Asset balance and improve your chances of being selected in the next session.
 
 This creates a dynamic and meritocratic system where the most active and successful participants are rewarded with the responsibility of securing the network.

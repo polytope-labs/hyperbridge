@@ -59,9 +59,29 @@ use crate::{
 	extract_para_id,
 };
 
+/// Deserializes a 4-byte `ConsensusStateId` from a string (e.g. `"DOT0"` or `"PAS0"`).
+fn deserialize_consensus_state_id<'de, D>(deserializer: D) -> Result<ConsensusStateId, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	let s = String::deserialize(deserializer)?;
+	let bytes = s.as_bytes();
+	if bytes.len() != 4 {
+		return Err(serde::de::Error::custom(format!(
+			"consensus_state_id must be exactly 4 bytes, got {} (\"{}\")",
+			bytes.len(),
+			s
+		)));
+	}
+	let mut id = [0u8; 4];
+	id.copy_from_slice(bytes);
+	Ok(id)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyProverConfig {
-	/// Consensus state id for the host on the counterparty
+	/// Consensus state id for the host on the counterparty (e.g. "BEEF" or "PAS0")
+	#[serde(deserialize_with = "deserialize_consensus_state_id")]
 	pub consensus_state_id: ConsensusStateId,
 	/// Minimum height that must be enacted before we prove finality for new messages
 	pub minimum_finalization_height: u64,
@@ -69,6 +89,8 @@ pub struct BeefyProverConfig {
 	#[serde(default)]
 	pub state_machines: Vec<StateMachine>,
 	/// Which proof backend the prover (and the corresponding host) should use.
+	/// Defaults to `Onchain` if not specified.
+	#[serde(default)]
 	pub backend: crate::backend::ProofBackendConfig,
 }
 

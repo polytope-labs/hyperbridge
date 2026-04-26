@@ -214,7 +214,7 @@ impl ismp_parachain::Config for Runtime {
 
 impl ismp_beefy::BeefyClientConfig for Runtime {
 	fn is_parachain_tracked(para_id: u32) -> bool {
-		para_id == 4009 || para_id == 3367
+		para_id == 4009
 	}
 
 	fn sp1_vkey_hash() -> Vec<u8> {

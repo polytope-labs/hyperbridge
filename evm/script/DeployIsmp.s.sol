@@ -35,7 +35,7 @@ import {BeefyV1} from "../src/consensus/BeefyV1.sol";
 import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
-import {FeeToken} from "../test/FeeToken.sol";
+import {FeeToken} from "../tests/foundry/FeeToken.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";

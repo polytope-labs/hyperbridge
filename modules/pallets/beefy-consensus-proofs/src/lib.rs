@@ -25,8 +25,8 @@
 //! SR25519 signature over `(domain, submitter, keccak256(proof))`. The submitter account
 //! is both the reward payee and the claimed signer. Full proof verification runs in
 //! `ValidateUnsigned` so the tx pool only ever retains valid proofs. Replay is prevented
-//! by the monotonic advance of `LastProvenHeight` and the BEEFY authority set id
-//! (tracked in `pallet-ismp`'s consensus state): resubmitting
+//! by the monotonic advance of `pallet-ismp::LatestStateMachineHeight` and the BEEFY authority set
+//! id (tracked in `pallet-ismp`'s consensus state): resubmitting
 //! the same bytes after a proof is applied trips `StaleProof` or `UnexpectedAuthoritySet`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -53,14 +53,14 @@ pub mod pallet {
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{
-			fungible::{Inspect, Mutate},
+			fungible::{self, Inspect, Mutate},
 			tokens::Preservation,
 		},
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight},
+		consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
 		events::StateMachineUpdated,
 		handlers,
 		host::IsmpHost,
@@ -78,9 +78,6 @@ pub mod pallet {
 	};
 
 	use crate::types::{Signature, SubmitProofPayload};
-
-	/// BEEFY consensus client id. Matches the solidity constant.
-	pub const BEEFY_CONSENSUS_ID: ConsensusClientId = *b"BEEF";
 
 	/// Longevity for proofs in the tx pool, in blocks.
 	const PROOF_LONGEVITY: TransactionLongevity = 15;
@@ -120,13 +117,22 @@ pub mod pallet {
 		#[pallet::constant]
 		type UnbondingPeriod: Get<u64>;
 
+		/// Allowed proof types. Controls which consensus proof formats the pallet
+		/// will accept. On mainnet set to `&[PROOF_TYPE_SP1]`, on testnets set to
+		/// `&[PROOF_TYPE_NAIVE, PROOF_TYPE_SP1]`.
+		#[pallet::constant]
+		type AllowedProofTypes: Get<&'static [u8]>;
+
+		/// The pallet-assets instance used for managing the reputation token.
+		/// Mints reputation tokens 1:1 with native token rewards to proof submitters.
+		type ReputationAsset: fungible::Mutate<
+			Self::AccountId,
+			Balance = <<Self as Config>::Currency as Inspect<Self::AccountId>>::Balance,
+		>;
+
 		/// Weight info.
 		type WeightInfo: crate::weights::WeightInfo;
 	}
-
-	/// Highest parachain height proven so far.
-	#[pallet::storage]
-	pub type LastProvenHeight<T: Config> = StorageValue<_, u64, ValueQuery>;
 
 	/// `ChildTrieRoot` snapshot at the last messaging reward — dirty-bit for "new dispatches
 	/// exist since we last paid".
@@ -144,18 +150,18 @@ pub mod pallet {
 	pub type Sp1VkeyHash<T: Config> = StorageValue<_, Vec<u8>, ValueQuery>;
 
 	/// Heights of recent messaging proofs (no authority-set rotation). Values are
-	/// strictly increasing because every accepted proof advances `LastProvenHeight`,
+	/// strictly increasing because every accepted proof advances the proven height,
 	/// so `vec[0]` is always the oldest — FIFO eviction via `remove(0)` when full.
 	/// The proof bytes live in offchain storage under
-	/// [`offchain_key(proven_height)`](types::offchain_key).
+	/// [`offchain_key(latest_height)`](types::offchain_key).
 	#[pallet::storage]
 	pub type MessagingProofs<T: Config> =
 		StorageValue<_, BoundedVec<u64, T::MaxStoredProofs>, ValueQuery>;
 
-	/// Map of `set_id → proven_height` for rotation proofs. Lets relayers catch a lagging
+	/// Map of `set_id → latest_height` for rotation proofs. Lets relayers catch a lagging
 	/// EVM destination up across multiple epochs: given the last-known authority set id,
 	/// walk entries forward, fetching each rotation proof from offchain storage under
-	/// [`offchain_key(proven_height)`](types::offchain_key). BEEFY set ids are monotone,
+	/// [`offchain_key(latest_height)`](types::offchain_key). BEEFY set ids are monotone,
 	/// so `iter().next()` gives FIFO eviction on overflow.
 	#[pallet::storage]
 	pub type RotationProofs<T: Config> =
@@ -171,7 +177,7 @@ pub mod pallet {
 		InvalidAccountId,
 		/// Signature did not verify against the signed message.
 		BadSignature,
-		/// Proof is stale: `proven_height ≤ LastProvenHeight`, or the proof rotated to
+		/// Proof is stale: `latest_height ≤ latest_state_machine_height`, or the proof rotated to
 		/// an unexpected authority set.
 		StaleProof,
 		/// First proof byte is not a recognized proof type.
@@ -188,6 +194,9 @@ pub mod pallet {
 		IsmpUpdateFailed,
 		/// The child trie root was not provided in the proof.
 		MissingChildTrieRoot,
+		/// The proof does not advance state: no authority set rotation and no new
+		/// messages since the last rewarded proof.
+		NoNewWork,
 	}
 
 	#[pallet::event]
@@ -239,8 +248,8 @@ pub mod pallet {
 				frame_system::RawOrigin::Root.into(),
 				ismp::messaging::CreateConsensusState {
 					consensus_state: state.encode(),
-					consensus_client_id: BEEFY_CONSENSUS_ID,
-					consensus_state_id: T::ConsensusStateId::get(),
+					consensus_client_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 					unbonding_period: T::UnbondingPeriod::get(),
 					challenge_periods: Default::default(),
 					state_machine_commitments: Default::default(),
@@ -254,7 +263,6 @@ pub mod pallet {
 				Error::<T>::IsmpUpdateFailed
 			})?;
 
-			LastProvenHeight::<T>::kill();
 			LastRewardedDispatchRoot::<T>::kill();
 
 			Self::deposit_event(Event::StateInitialized {
@@ -277,29 +285,13 @@ pub mod pallet {
 			ensure_none(origin)?;
 
 			let outcome = Self::verify_and_apply(&payload, &signature)?;
-
-			// Determine reward eligibility.
-			let last_rewarded = LastRewardedDispatchRoot::<T>::get().unwrap_or_default();
-			let prev_proven = LastProvenHeight::<T>::get();
-
-			let messaging_reward =
-				outcome.child_trie_root != last_rewarded && outcome.proven_height > prev_proven;
-			let should_reward = outcome.rotated || messaging_reward;
-
-			if !should_reward {
-				return Ok(());
-			}
-
-			if messaging_reward {
+			if outcome.has_new_messages {
 				LastRewardedDispatchRoot::<T>::put(outcome.child_trie_root);
-			}
-			if outcome.proven_height > prev_proven {
-				LastProvenHeight::<T>::put(outcome.proven_height);
 			}
 
 			let zero = <<T as Config>::Currency as Inspect<T::AccountId>>::Balance::default();
 			let reward = ProofReward::<T>::get();
-			let reward_paid = if should_reward && reward > zero {
+			let reward_paid = if reward > zero {
 				let treasury: T::AccountId =
 					<T as Config>::TreasuryPalletId::get().into_account_truncating();
 				<T as Config>::Currency::transfer(
@@ -315,26 +307,35 @@ pub mod pallet {
 					);
 					Error::<T>::RewardTransferFailed
 				})?;
+
+				// Mint reputation tokens 1:1 with the native reward
+				if let Err(e) = T::ReputationAsset::mint_into(&payload.submitter, reward) {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] reputation mint failed: {e:?}",
+					);
+				}
+
 				reward
 			} else {
 				zero
 			};
 
-			sp_io::offchain_index::set(&types::offchain_key(outcome.proven_height), &payload.proof);
+			sp_io::offchain_index::set(&types::offchain_key(outcome.latest_height), &payload.proof);
 			let evicted_height = if outcome.rotated {
 				RotationProofs::<T>::mutate(|map| {
 					let evicted = (map.len() as u32 == T::MaxStoredProofs::get())
 						.then(|| map.iter().next().map(|(k, _)| *k))
 						.flatten()
 						.and_then(|set_id| map.remove(&set_id));
-					let _ = map.try_insert(outcome.current_set_id, outcome.proven_height);
+					let _ = map.try_insert(outcome.current_set_id, outcome.latest_height);
 					evicted
 				})
 			} else {
 				MessagingProofs::<T>::mutate(|vec| {
 					let evicted =
 						(vec.len() as u32 == T::MaxStoredProofs::get()).then(|| vec.remove(0));
-					let _ = vec.try_push(outcome.proven_height);
+					let _ = vec.try_push(outcome.latest_height);
 					evicted
 				})
 			};
@@ -345,7 +346,7 @@ pub mod pallet {
 
 			Self::deposit_event(Event::ProofAccepted {
 				submitter: payload.submitter.clone(),
-				height: outcome.proven_height,
+				height: outcome.latest_height,
 				new_set_id: outcome.rotated.then_some(outcome.current_set_id),
 				rewarded: reward_paid,
 			});
@@ -412,6 +413,7 @@ pub mod pallet {
 					Error::<T>::VerificationFailed => 7,
 					Error::<T>::UnexpectedAuthoritySet => 8,
 					Error::<T>::StaleProof => 9,
+					Error::<T>::NoNewWork => 10,
 					_ => 0,
 				};
 				TransactionValidityError::Invalid(InvalidTransaction::Custom(code))
@@ -420,7 +422,7 @@ pub mod pallet {
 			ValidTransaction::with_tag_prefix("BeefyConsensusProofs")
 				.longevity(PROOF_LONGEVITY)
 				.propagate(true)
-				.priority(outcome.proven_height)
+				.priority(outcome.latest_height)
 				.and_provides(types::PROOF_TAG.encode())
 				.build()
 		}
@@ -429,11 +431,13 @@ pub mod pallet {
 	/// Outcome of a successful [`Pallet::verify_and_apply`] call.
 	pub struct VerifyOutcome {
 		/// Highest parachain height finalized by this proof (0 if none).
-		pub proven_height: u64,
+		pub latest_height: u64,
 		/// `current_authorities.id` of the consensus state *after* the update.
 		pub current_set_id: u64,
 		/// True iff the proof rotated the current authority set.
 		pub rotated: bool,
+		/// True iff the child trie root changed since the last rewarded proof.
+		pub has_new_messages: bool,
 		/// Root of the child trie verified by this proof.
 		pub child_trie_root: H256,
 	}
@@ -442,6 +446,18 @@ pub mod pallet {
 	where
 		T::AccountId: Into<[u8; 32]>,
 	{
+		/// Returns the latest proven parachain height from `pallet-ismp` for the
+		/// coprocessor state machine.
+		fn latest_height() -> u64 {
+			let host = pallet_ismp::Pallet::<T>::default();
+			let id = ismp::consensus::StateMachineId {
+				state_id: T::Coprocessor::get()
+					.expect("coprocessor must be set in hyperbridge runtime; qed"),
+				consensus_state_id: T::ConsensusStateId::get(),
+			};
+			host.latest_commitment_height(id).unwrap_or_default()
+		}
+
 		/// Single verification path shared by `validate_unsigned` and `submit_proof`:
 		///
 		/// 1. SR25519 signature check over the payload.
@@ -475,36 +491,48 @@ pub mod pallet {
 				Err(Error::<T>::BadSignature)?
 			}
 
-			// expects (proof type byte || ABI-encoded SP1BeefyProof).
 			let proof_type = *payload.proof.first().ok_or(Error::<T>::UnknownProofType)?;
-			if proof_type != types::PROOF_TYPE_SP1 {
+			if !T::AllowedProofTypes::get().contains(&proof_type) {
 				Err(Error::<T>::UnknownProofType)?
 			}
-
-			// ABI-decode the proof, convert to SCALE for verification by ismp_beefy.
 			let abi_payload = &payload.proof[1..];
-			let abi_proof =
-				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
-					abi_payload,
-				)
-				.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-			let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
-			let consensus_proof =
-				[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat();
+
+			let consensus_proof = match proof_type {
+				types::PROOF_TYPE_SP1 => {
+					let abi_proof =
+						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+							abi_payload,
+						)
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
+					[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat()
+				},
+				types::PROOF_TYPE_NAIVE => {
+					let abi_proof =
+						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+							abi_payload,
+						)
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					let scale_proof: beefy_verifier_primitives::ConsensusMessage = abi_proof.into();
+					[&[types::PROOF_TYPE_NAIVE], scale_proof.encode().as_slice()].concat()
+				},
+				_ => Err(Error::<T>::UnknownProofType)?,
+			};
 
 			// Hand off to pallet-ismp with SCALE-encoded proof for verification.
 			let host = pallet_ismp::Pallet::<T>::default();
 			let prev_state_bytes = host
-				.consensus_state(BEEFY_CONSENSUS_ID)
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::NotInitialized)?;
 			let prev_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &prev_state_bytes[..])
 					.map_err(|_| Error::<T>::NotInitialized)?;
+			let prev_height = Self::latest_height();
 			let result = handlers::handle_incoming_message(
 				&host,
 				Message::Consensus(IsmpConsensusMessage {
 					consensus_proof,
-					consensus_state_id: T::ConsensusStateId::get(),
+					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 					signer: public.to_vec(),
 				}),
 			)
@@ -520,28 +548,32 @@ pub mod pallet {
 			let ismp::handlers::MessageResult::ConsensusMessage(events) = result else {
 				Err(Error::<T>::StaleProof)?
 			};
+
 			let coprocessor = T::Coprocessor::get().unwrap();
-			let (proven_height, state_commitment) = events
-				.into_iter()
-				.filter_map(|ev| match ev {
-					ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
-						latest_height,
-						state_machine_id,
-					}) if state_machine_id.state_id == coprocessor => host
-						.state_machine_commitment(StateMachineHeight {
-							height: latest_height,
-							id: state_machine_id,
-						})
-						.ok()
-						.map(|c| (latest_height, c)),
-					_ => None,
+			let latest_height = Self::latest_height();
+
+			if latest_height <= prev_height {
+				Err(Error::<T>::StaleProof)?
+			}
+
+			let state_commitment = host
+				.state_machine_commitment(StateMachineHeight {
+					height: latest_height,
+					id: StateMachineId {
+						consensus_state_id: T::ConsensusStateId::get(),
+						state_id: coprocessor,
+					},
 				})
-				.max_by_key(|c| c.0)
-				.unwrap_or((0, Default::default()));
+				.unwrap_or_default();
+
+			// Emit pallet-ismp events for all state machine updates
+			for ev in events {
+				pallet_ismp::Pallet::<T>::deposit_event(ev.into());
+			}
 
 			// Read post-update consensus state to derive the new set id.
 			let new_state_bytes = host
-				.consensus_state(BEEFY_CONSENSUS_ID)
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::VerificationFailed)?;
 			let new_state: beefy_verifier_primitives::ConsensusState =
 				Decode::decode(&mut &new_state_bytes[..])
@@ -552,18 +584,23 @@ pub mod pallet {
 				Err(Error::<T>::UnexpectedAuthoritySet)?;
 			}
 
-			// Every accepted proof must push parachain height forward.
-			if proven_height <= LastProvenHeight::<T>::get() {
-				Err(Error::<T>::StaleProof)?
+			let rotated = new_state.current_authorities.id > prev_state.current_authorities.id;
+			let child_trie_root =
+				state_commitment.overlay_root.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?;
+
+			// Reject proofs that would be no-ops: no rotation and no new messages.
+			let last_rewarded = LastRewardedDispatchRoot::<T>::get().unwrap_or_default();
+			let has_new_messages = child_trie_root != last_rewarded && latest_height > prev_height;
+			if !rotated && !has_new_messages {
+				Err(Error::<T>::NoNewWork)?
 			}
 
 			Ok(VerifyOutcome {
-				proven_height,
+				latest_height,
 				current_set_id: new_state.current_authorities.id,
-				rotated: new_state.current_authorities.id > prev_state.current_authorities.id,
-				child_trie_root: state_commitment
-					.overlay_root
-					.ok_or_else(|| Error::<T>::MissingChildTrieRoot)?,
+				rotated,
+				has_new_messages,
+				child_trie_root,
 			})
 		}
 

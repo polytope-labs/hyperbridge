@@ -29,6 +29,11 @@ The path from proof submission to reward is deterministic and easy to audit. It 
 3. **The `StateMachineUpdated` event.** On successful verification and state update, the runtime emits a `StateMachineUpdated` event. This is the definitive, auditable record that a state machine has been advanced by the submitting transaction.
 4. **Automated reward issuance.** Reward issuance is tied directly to that event. The protocol disburses a fixed amount of the configured currency from the treasury pallet to the account recovered from the proof submitter's signature, and mints reputation to the same account.
 
+## Reputation and the Path to Becoming a Collator
+
+In addition to `$BRIDGE` token rewards, consensus relayers and BEEFY provers automatically earn **Reputation Asset** tokens at a 1:1 ratio with their `$BRIDGE` earnings.
+This non-transferable reputation score is the primary factor in [Collator selection](/developers/network/collator). The more proofs you submit and rewards you earn, the higher your reputation score becomes, and the better your chances of being selected as a block-producing Collator for the Hyperbridge network.
+
 ## A Competitive, Permissionless Environment
 
 The incentive structure produces a healthy, competitive market. Only the **first relayer** to submit the proof for a new state update receives the reward for that update. This pushes operators to optimize for low latency and efficiency, so Hyperbridge tracks external state changes as quickly as possible.

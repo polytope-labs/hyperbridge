@@ -195,8 +195,8 @@ export class IsmpClient {
 	 *
 	 * Yields the `HYPERBRIDGE_FINALIZED` event with relayer calldata attached —
 	 * this is the calldata a caller submits to the destination handler to
-	 * deliver the request (bundled `handleConsensus` + `handlePostRequests` on
-	 * HandlerV2 destinations, or bare `handlePostRequests` on HandlerV1).
+	 * deliver the request (bundled `handleConsensus` + `handlePostRequests` via
+	 * `batchCall`).
 	 */
 	postRequestStatusStream(hash: HexString): AsyncGenerator<RequestStatusWithMetadata, void> {
 		return this.postRequest.postRequestStatusStream(hash)
@@ -238,8 +238,8 @@ export class IsmpClient {
 	 * Streams status updates for a GET request. Ends when the response is
 	 * delivered back to the source chain or the request's timeout elapses.
 	 * Yields the `HYPERBRIDGE_FINALIZED` event with source-chain calldata for
-	 * submitting the response (HandlerV1 `handleGetResponses` or HandlerV2
-	 * `batchCall`).
+	 * submitting the response (bundled `handleConsensus` + `handleGetResponses`
+	 * via `batchCall`).
 	 */
 	getRequestStatusStream(hash: HexString): AsyncGenerator<RequestStatusWithMetadata, void> {
 		return this.getRequest.getRequestStatusStream(hash)

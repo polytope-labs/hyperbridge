@@ -18,10 +18,10 @@
 //! Modeled on the fee accumulation task. For every batch of
 //! [`PendingConsensusDeliveryClaim`]s pushed by the outbound delivery task:
 //!
-//! 1. Pull every persisted row from the local DB (`list_pending_rotation_claims`) and merge it
-//!    with the incoming trigger vec, deduplicated on `(destination, set_id)`. The DB is the
-//!    source of truth for surviving a crash; the trigger vec carries the freshly-delivered
-//!    rotations that may not yet have been queried back from the DB.
+//! 1. Pull every persisted row from the local DB (`list_pending_rotation_claims`) and merge it with
+//!    the incoming trigger vec, deduplicated on `(destination, set_id)`. The DB is the source of
+//!    truth for surviving a crash; the trigger vec carries the freshly-delivered rotations that may
+//!    not yet have been queried back from the DB.
 //! 2. Filter against `pallet_ismp_relayer::OutboundConsensusRotationsClaimed` on Hyperbridge: any
 //!    `(destination, set_id)` already present there has been claimed by some other relayer. Those
 //!    rows are queued for deletion from the local DB and skipped — there is no reward left to
@@ -257,18 +257,14 @@ async fn partition_claimed(
 	for pending in pending {
 		let key =
 			outbound_consensus_rotations_claimed_storage_key(pending.destination, pending.set_id);
-		let raw = hyperbridge
-			.client
-			.storage()
-			.at(block_hash)
-			.fetch_raw(key)
-			.await
-			.with_context(|| {
+		let raw = hyperbridge.client.storage().at(block_hash).fetch_raw(key).await.with_context(
+			|| {
 				format!(
 					"OutboundConsensusRotationsClaimed lookup ({:?}, {})",
 					pending.destination, pending.set_id,
 				)
-			})?;
+			},
+		)?;
 
 		// Stored value is `()`, so any presence — even an empty `Vec` —
 		// means the entry exists. `OptionQuery` ensures absence is

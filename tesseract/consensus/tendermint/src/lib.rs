@@ -133,7 +133,7 @@ impl IsmpHost for TendermintHost {
 						signer: counterparty.address(),
 					};
 					log::info!(
-						target: LOG_TARGET,
+						target: "tesseract",
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -145,7 +145,7 @@ impl IsmpHost for TendermintHost {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							target: LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
@@ -154,7 +154,7 @@ impl IsmpHost for TendermintHost {
 					// No update to send, just continue
 				},
 				Err(e) => {
-					log::error!(target: LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

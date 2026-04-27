@@ -423,7 +423,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 			match item {
 				Ok(consensus_message) => {
 					log::info!(
-						target: crate::LOG_TARGET,
+						target: "tesseract",
 						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(), counterparty.name()
 					);
@@ -435,13 +435,13 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							target: crate::LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}

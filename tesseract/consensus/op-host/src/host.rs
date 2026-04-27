@@ -750,7 +750,7 @@ async fn submit_consensus_update(
 		match item {
 			Ok(consensus_message) => {
 				log::info!(
-					target: crate::LOG_TARGET,
+					target: "tesseract",
 					"🛰️ Transmitting consensus message from {} to {}",
 					provider.name(), counterparty.name()
 				);

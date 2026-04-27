@@ -89,12 +89,12 @@ where
 					last_self_height = new_self_height;
 					if let Some(message) = message {
 						tracing::info!(
-							target: crate::LOG_TARGET,
+							target: "tesseract",
 							host = %self.state_machine,
 							counterparty = %counterparty.name(),
 							self_height = last_self_height,
 							relay_height = last_relay_height,
-							"🛰️ submitting parachain consensus proof",
+							"🛰️ Submitting parachain consensus proof",
 						);
 						if let Err(err) = counterparty
 							.submit(
@@ -104,7 +104,7 @@ where
 							.await
 						{
 							tracing::error!(
-								target: crate::LOG_TARGET,
+								target: "tesseract",
 								?err,
 								dest = %counterparty.name(),
 								"failed to submit consensus message",
@@ -114,7 +114,7 @@ where
 				},
 				Err(err) => {
 					tracing::error!(
-						target: crate::LOG_TARGET,
+						target: "tesseract",
 						?err,
 						"consensus tick failed; will retry on next interval",
 					);

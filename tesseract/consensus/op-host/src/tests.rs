@@ -46,7 +46,7 @@ async fn run_dispute_game_verification(
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
-		consensus_state_id: "ETH0".to_string(),
+		consensus_state_id: Some("ETH0".to_string()),
 		signer: Some(DUMMY_SIGNING_KEY.to_string()),
 		..Default::default()
 	};
@@ -211,7 +211,7 @@ async fn test_base_sepolia_latest_and_verify() {
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
-		consensus_state_id: "ETH0".to_string(),
+		consensus_state_id: Some("ETH0".to_string()),
 		signer: Some(DUMMY_SIGNING_KEY.to_string()),
 		..Default::default()
 	};

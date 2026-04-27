@@ -14,33 +14,39 @@ use anyhow::{anyhow, Context};
 use primitive_types::H160;
 use std::str::FromStr;
 
-/// Returns the canonical 4-byte consensus state id for the given EVM chain
-/// ID's consensus client on Hyperbridge, or `None` if the chain isn't
-/// known. Mirrors the docs / per-chain config snippets — Ethereum + L2s
-/// share `ETH0`, BSC is `BSC0`, etc.
+/// Returns the messaging-side `consensus_state_id` for the given EVM
+/// chain on Hyperbridge, or `None` if the chain isn't known.
+///
+/// This is the id messaging uses to locate the chain's state on
+/// Hyperbridge. For any chain finalized through Ethereum (every L2
+/// plus chains that "track Ethereum") that id is `"ETH0"`, not the
+/// chain's own consensus-task id. The chain-specific ids (`"ARB0"`,
+/// `"OPT0"`, `"BASE"`, `"UNI0"`, `"SON0"`) belong to the consensus
+/// client and are sourced from the `[<chain>.consensus]` host config,
+/// never from this registry.
 pub fn consensus_state_id_for_chain_id(chain_id: u64) -> Option<&'static str> {
 	let id = match chain_id {
-		// Testnets — destination-side consensus state ids.
+		// Testnets.
 		97 => "BSC0",        // BSC Chapel
 		10200 => "GNO0",     // Gnosis Chiado
 		11155111 => "ETH0",  // Sepolia
 		80002 => "POLY",     // Polygon Amoy
-		421614 => "ARB0",    // Arbitrum Sepolia
-		11155420 => "OPT0",  // Optimism Sepolia
-		84532 => "BASE",     // Base Sepolia
-		420420417 => "ETH0", // Polkadot Asset Hub Paseo (Revive) tracks Ethereum
+		421614 => "ETH0",    // Arbitrum Sepolia (L2 of Sepolia)
+		11155420 => "ETH0",  // Optimism Sepolia (L2 of Sepolia)
+		84532 => "ETH0",     // Base Sepolia (L2 of Sepolia)
+		420420417 => "PAS0", // Polkadot Asset Hub Paseo (Revive), finalised by Paseo relay
 		688689 => "PHAR",    // Pharos Atlantic
 
 		// Mainnets.
 		1 => "ETH0",     // Ethereum
 		56 => "BSC0",    // BSC
-		42161 => "ARB0", // Arbitrum
-		8453 => "BASE",  // Base
+		42161 => "ETH0", // Arbitrum (L2 of Ethereum)
+		8453 => "ETH0",  // Base (L2 of Ethereum)
 		137 => "POLY",   // Polygon
-		130 => "UNI0",   // Unichain
-		10 => "OPT0",    // Optimism
+		130 => "ETH0",   // Unichain (L2 of Ethereum)
+		10 => "ETH0",    // Optimism (L2 of Ethereum)
 		100 => "GNO0",   // Gnosis
-		1868 => "SON0",  // Soneium
+		1868 => "ETH0",  // Soneium (L2 of Ethereum)
 
 		_ => return None,
 	};

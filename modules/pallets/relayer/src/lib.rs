@@ -488,15 +488,20 @@ where
 			.flatten()
 			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
-		// EVM stores `address` left-padded to 32 bytes. Reject zero (unset
-		// slot) and recover the 20-byte address from the trailing bytes.
-		ensure!(raw.iter().any(|b| *b != 0), Error::<T>::OutboundDeliveryNotProven);
-		let evm_address: Vec<u8> = raw.iter().rev().take(20).rev().copied().collect();
+		// Decode the EVM `address` from its 32-byte left-padded storage word.
+		// `from_word` strips the 12-byte zero prefix; an unset slot decodes
+		// to the zero address, which we reject as "no delivery proven".
+		let word: [u8; 32] =
+			raw.as_slice().try_into().map_err(|_| Error::<T>::OutboundDeliveryNotProven)?;
+		let evm_address = Address::from_word(word.into());
+		ensure!(evm_address != Address::ZERO, Error::<T>::OutboundDeliveryNotProven);
 
 		// Replay protection comes from the `OutboundConsensusRotationsClaimed`
 		let msg = outbound_consensus_delivery_message(set_id, destination, payee);
 		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
-		ensure!(recovered == evm_address, Error::<T>::OutboundSignerMismatch);
+		let recovered_address = Address::try_from(recovered.as_slice())
+			.map_err(|_| Error::<T>::OutboundSignerMismatch)?;
+		ensure!(recovered_address == evm_address, Error::<T>::OutboundSignerMismatch);
 
 		let reward = OutboundConsensusDeliveryReward::<T>::get(destination);
 		ensure!(reward > BalanceOf::<T>::default(), Error::<T>::OutboundNoRewardConfigured);

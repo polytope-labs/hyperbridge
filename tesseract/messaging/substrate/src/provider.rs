@@ -1118,7 +1118,7 @@ mod tests {
 		const EXPECTED_SET_ID: u64 = 19044;
 
 		let config = SubstrateConfig {
-			state_machine: StateMachine::Kusama(4009),
+			state_machine: Some(StateMachine::Kusama(4009)),
 			hashing: None,
 			consensus_state_id: None,
 			rpc_ws: "ws://localhost:9944".to_string(),

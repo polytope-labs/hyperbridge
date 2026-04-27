@@ -79,9 +79,16 @@ impl Cli {
 			);
 		}
 
+		// `state_machine` on the substrate config is optional; for the
+		// legacy messaging relayer's hyperbridge entry it must be set
+		// explicitly so we can use it as the routing key here.
+		let hyperbridge_state_machine = hyperbridge_config
+			.state_machine
+			.expect("[hyperbridge] state_machine must be set explicitly for relayer routing");
+
 		// messaging tasks
 		for (state_machine, client) in &clients {
-			if *state_machine == hyperbridge_config.state_machine {
+			if *state_machine == hyperbridge_state_machine {
 				continue;
 			}
 			// If the delivery endpoint is not empty then we only spawn tasks for chains
@@ -96,7 +103,7 @@ impl Cli {
 				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
 			new_hyperbridge.set_latest_finalized_height(client.clone()).await?;
 
-			let coprocessor = hyperbridge_config.state_machine;
+			let coprocessor = hyperbridge_state_machine;
 
 			// Standalone messaging relayer: fee accumulation stays disabled at
 			// this layer (the consolidated `tesseract-relayer` is the target

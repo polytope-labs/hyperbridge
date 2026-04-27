@@ -109,30 +109,6 @@ impl ClientType {
 	}
 }
 
-/// Serde adapter for `Option<StateMachine>` that round-trips through the
-/// string form (e.g. `"EVM-1"`) produced by [`StateMachine`]'s `Display`
-/// / `FromStr` impls. Mirrors `serde_hex_utils::as_string` but for an
-/// optional field — there's no `option_as_string` upstream.
-mod option_state_machine {
-	use ismp::host::StateMachine;
-	use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-	pub fn serialize<S: Serializer>(
-		value: &Option<StateMachine>,
-		serializer: S,
-	) -> Result<S::Ok, S::Error> {
-		value.as_ref().map(|sm| sm.to_string()).serialize(serializer)
-	}
-
-	pub fn deserialize<'de, D: Deserializer<'de>>(
-		deserializer: D,
-	) -> Result<Option<StateMachine>, D::Error> {
-		let raw: Option<String> = Option::deserialize(deserializer)?;
-		raw.map(|s| s.parse::<StateMachine>().map_err(serde::de::Error::custom))
-			.transpose()
-	}
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmConfig {
 	/// RPC urls for the execution client
@@ -140,7 +116,7 @@ pub struct EvmConfig {
 	/// State machine Identifier for this client on its counterparties. When
 	/// omitted, [`EvmClient::new`] derives it from `eth_chainId` (so the
 	/// relayer config can stay minimal for any known chain).
-	#[serde(default, with = "option_state_machine")]
+	#[serde(default, with = "tesseract_primitives::serde_adapters::option_state_machine")]
 	pub state_machine: Option<StateMachine>,
 	/// Consensus state id for the consensus client on counterparty chain.
 	/// When omitted, [`EvmClient::new`] looks it up in

@@ -181,259 +181,48 @@ At the minimum, the hyperbridge relayer should be run on a machine with at least
 The configuration file is a toml file that at the moment, that expects the following configuration options:
 
 ```toml lineNumbers
-# Hyperbridge config, required
-# Flat SubstrateConfig — the BEEFY prover runs as a separate operator-side
-# binary; this relayer only consumes accepted proofs from the Hyperbridge
-# node's offchain storage.
+# Hyperbridge connection. The BEEFY prover runs as a separate
+# operator-side binary; this relayer only consumes accepted proofs
+# from the Hyperbridge node's offchain storage.
 [hyperbridge]
-# For mainnet "POLKADOT-3367"
-state_machine = "KUSAMA-4009"
+# Hyperbridge node ws rpc endpoint. The node MUST expose
+# offchain_localStorageGet (typically via --rpc-methods=Unsafe) so the
+# outbound relayer can read accepted BEEFY consensus proofs.
+rpc_ws = "ws://127.0.0.1:9944"
 
-hashing = "Keccak"
-
-# Hyperbridge node ws rpc endpoint.
-# The node MUST expose offchain_localStorageGet (typically via
-# --rpc-methods=Unsafe) so the outbound relayer can read accepted
-# BEEFY consensus proofs.
-rpc_ws = "ws://127.0.0.1:9944" # example endpoint
-
-# hex-encoded private key for the relayer account on Hyperbridge.
-# This is the private key to the Hyperbridge account where you earn BRIDGE token rewards
+# Hex-encoded private key for the relayer account on Hyperbridge.
+# This is the account that earns BRIDGE token rewards.
 signer = ""
 
-# Sets the maximum size of an rpc request or response
-#  in bytes defaults to 150mb
-# max_rpc_payload_size = 150000000
-
-# (Optional) initial height
-# This sets the height at which to start querying messages,
-# This exists for testing and development
-# misuse can cause the rpc to be overloaded with queries
-# initial_height = 1000
-
-# (Optional) Frequency in seconds to poll the chain
-# for new state machine update events
-# poll_interval = 10
-
-# (Optional) Hyperbridge's consensus state id
-# Only add this if relaying to a solochain.
-# Relaying between solochains and parachains with the
-# same relayer instance is not supported.
-# For Paseo Testnet: PAS0
-# For Polkadot Mainnet: DOT0
-consensus_state_id = "PAS0"
-
-# Relayer config, required
 [relayer]
-# Define your profitability configuration in basis points.
-# 0 -> 0% i.e relay all requests, even unprofitable ones.
-# 100 -> 1%. ie fees provided for requests must be
-# profitable by at least 1%. etc.
-minimum_profit_percentage = 100
+# Defaults apply. Add operator knobs here when you need to tune
+# profitability, fisherman mode, withdrawal cadence, etc.
 
-# How frequently to initiate withdrawals in seconds
-# defaults to 24 hours
-withdrawal_frequency = 86400
+# Per-chain entries. Add one block for every chain you want to support.
 
-# Minimum amount to withdraw when auto-withdrawing
-# defaults to $100
-minimum_withdrawal_amount = 100
-
-# (Optional)
-# If not empty, will filter requests to be delivered
-# by originating module identifier (eg contract address/pallet ids)
-# module_filter = []
-
-# (Optional)
-# How frequently to retry unprofitable or
-# failed messages in seconds.
-# If this is value not supplied retries will not be enabled.
-# unprofitable_retry_frequency = 600
-
-# (Optional) Opt this relayer into fisherman duty. When true, a task is
-# spawned per chain that watches HB ↔ destination for byzantine
-# state-machine updates and dispatches veto extrinsics.
-# fisherman = false
-
-# (Optional) Disable fee accumulation task
-# If this value is true, fee accumulation will be disabled.
-# This should only be enabled when running a private relayer
-# disable_fee_accumulation = false
-
-# (Optional) Deliver messages even when their estimate-gas simulation
-# reports failure.
-# deliver_failed = false
-
-# (Optional) Per-(state_machine, max_interval_secs) entries enabling the
-# passive liveness monitor. When set, a background task periodically
-# checks how stale Hyperbridge's view of each listed chain is (inbound
-# consensus side), and for substrate destinations also checks how stale
-# the chain's view of Hyperbridge is (outbound HB -> substrate consensus
-# side). If any update lags by more than its max_interval, the relayer
-# process exits so an external supervisor (docker, systemd, k8s) can
-# restart it. EVM destinations skip the outbound check, since their HB
-# consensus path runs through the BEEFY proofs pipeline.
-# maximum_update_intervals = [
-#     [{ state_id = "EVM-1",       consensus_state_id = "ETH0" }, 900],
-#     [{ state_id = "EVM-100",     consensus_state_id = "GNO0" }, 420],
-#     [{ state_id = "EVM-56",      consensus_state_id = "BSC0" }, 300],
-#     [{ state_id = "POLKADOT-2100", consensus_state_id = "DOT0" }, 600],
-# ]
-
-# Here you'll declare a new chain entry
-# for every chain you want to support.
-
-# Configuration for EVM chains
+# EVM chain template.
 [ethereum]
-type = "evm"
-
-# State machine identifier for this evm chain.
-# Must be specified as:
-# - "EVM-{chainId}"
-# The possible values:
-# state_machine = "EVM-1" # Ethereum Mainnet
-# state_machine = "EVM-11155111" # Ethereum Sepolia
-# state_machine = "EVM-42161" # Arbitrum Mainnet
-# state_machine = "EVM-421614" # Arbitrum Sepolia
-# state_machine = "EVM-10" # Optimism Mainnet
-# state_machine = "EVM-11155420" # Optimism Sepolia
-# state_machine = "EVM-8453" # Base Mainnet
-# state_machine = "EVM-84532" # Base Sepolia
-# state_machine = "EVM-56" # Binance smart chain Mainnet
-# state_machine = "EVM-97" # Binance smart chain Testnet
-#
-# (Optional) Both state_machine and ismp_host auto-derive at startup
-# from eth_chainId + the relayer's built-in registry. Set either
-# explicitly to override.
-state_machine = "EVM-11155111"
-
-# http(s) rpc urls for evm based chains
-# Multiple rpc endpoints supported for increased reliability
-rpc_urls = ["http://127.0.0.1:8545", "http://localhost:8545"]
-
-# The consensus state identifier for this chain on hyperbridge.
-# For Ethereum and its L2s this will be "ETH0"
-# for BSC this will be "BSC0".
-consensus_state_id = "ETH0"
-
-# The IsmpHost contract address on this chain
-ismp_host = ""
-
-# (Optional)
-# Maximum block range that should be used to query eth_getLogs
-# in a single rpc call. if this parameter is not supplied,
-# the range will not be split into smaller chunks
-# and will be queried at once. This might be needed
-# if you encounter rate limits from your rpc provider.
-# query_batch_size = 1000
-
-# (Optional) Hex-encoded private key for the relayer account on this chain.
-# Setting `signer` opts the chain into the HB->chain outbound fan-out (and
-# the related fee-withdrawal and fisherman roles), since those are the
-# tasks that need to submit transactions on this chain. Omit `signer`
-# to run this chain in inbound-only mode: events are read and pushed to
-# Hyperbridge using the [hyperbridge] signer, but no transactions are
-# submitted on this chain.
+type     = "evm"
+rpc_urls = ["http://127.0.0.1:8545"]
+# Hex-encoded private key for the relayer account on this chain.
+# Setting `signer` opts the chain into the HB to chain outbound
+# fan-out (and the fee-withdrawal and fisherman roles). Omit it to
+# run the chain inbound-only: events are read and pushed to
+# Hyperbridge using the [hyperbridge] signer, but no transactions
+# are submitted on this chain.
 signer = ""
 
-# (Optional)
-# Maximum number of concurrent requests to be used for tx tracing.
-# If not supplied will trace entire tx batches at once.
-# This increases tracing speeds by tracing txs concurrently
-#
-# Note: Your rpc node must support `debug_traceCall`.
-# If using an rpc provider, ensure that they support a
-# large number of `debug_traceCall` requests/sec.
-#
-# Note: if you use the same provider for all your endpoints
-# then a very high request/sec threshold is required (> 1000 / sec)
-#
-# eg 5 transactions would be traced concurrently on this client
-# tracing_batch_size = 5
-
-# (Optional)
-# Buffer to add to gas prices in basis points
-# to increase likelihood of the transactions
-# going through e.g 100 (1%), 200 (2%), 500 (5%)
-# gas_price_buffer = 100
-
-# (Optional)
-# The execution client implementation,
-# only Geth or Erigon are fully supported
-# The possible values: "Geth" | "Erigon"
-# If this field is not set, the default is "Geth"
-# client_type = "Geth"
-
-# (Optional) initial height
-# This sets the height at which to start querying messages,
-# This exists for testing and development
-# misuse can cause the rpc to be overloaded with queries
-# initial_height = 1000
-
-# (Optional) Frequency in seconds to poll the chain
-# for new state machine update events
-# poll_interval = 10
-
-# (Optional) Opt this chain into inbound consensus relaying.
-# Presence of [<chain>.consensus] is the sole signal to spawn an
-# inbound-consensus task for the chain. Host fields (rpc_urls,
-# signer, state_machine, ismp_host, consensus_state_id, ...) inherit
-# from the parent block — don't re-declare them.
-# [ethereum.consensus]
-# type = "ethereum"
-#
-# [ethereum.consensus.host]
-# beacon_http_urls = ["http://localhost:3000"]
-# consensus_update_frequency = 60
-
-# Substrate chain configurations
+# Substrate chain template.
 [substrate]
-type = "substrate"
-
-# The state machine identifier for this substrate based chain.
-# must be one of:
-#  "POLKADOT-{paraId}"
-#  "KUSAMA-{paraId}"
-#  "SUBSTRATE-{customId}"
-# (Optional) state_machine auto-derives at startup via the
-# IsmpRuntimeApi_host_state_machine runtime call; set explicitly to
-# override.
-state_machine = "KUSAMA-4009"
-
-# Hashing can be "Keccak" or "Blake2"
-hashing = "Blake2"
-
-# substrate node ws(s) rpc endpoint.
-rpc_ws = "ws://127.0.0.1:9944" # example endpoint
-
-# The consensus state identifier for this chain on hyperbridge.
-# "DOT0"  for parachains on mainnet and "PAS0" on Paseo testnet
-consensus_state_id = "PAS0"
-
-# (Optional)
-# Configures the maximum size of an rpc request/response in bytes
-# max_rpc_payload_size = 150000000
-
-# (Optional) Hex-encoded private key for the relayer account on this chain.
-# Same toggle semantics as the EVM example above: presence opts the chain
-# into outbound, fee withdrawal, and fisherman; omitting it keeps the
-# chain inbound-only.
+type   = "substrate"
+rpc_ws = "ws://127.0.0.1:9944"
 signer = ""
 
-# (Optional) Frequency in seconds to poll the chain
-# for new state machine update events
-# poll_interval = 10
-
-# (Optional) initial height
-# This sets the height at which to start querying messages,
-# This exists for testing and development,
-# misuse can cause the rpc to be overloaded with queries
-# initial_height = 1000
-# (Optional)
-# This provides the relayer with the precision for the fee token on this substrate chain
-# Needed for ensuring correct delivery fee estimation
-# It defaults to 6 which is the decimal for USDC and USDT on Polkadot parachains
-# fee_token_decimals = 6
+# Required for standalone substrate chains, optional for parachains
+# (parachains inherit a sane default from their relay's
+# consensus_state_id). DOT0 for parachains on Polkadot mainnet, PAS0
+# on Paseo testnet.
+# consensus_state_id = "PAS0"
 ```
 
 It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
@@ -447,6 +236,22 @@ essentials (`rpc_urls`, `signer`, `state_machine`, `ismp_host`, parent
 `consensus_state_id`) are inherited from the parent and don't need to be
 re-declared. The sub-table only carries the consensus client's own
 settings.
+
+For example, opting Ethereum mainnet into inbound-consensus relaying
+looks like this. The `[ethereum.consensus]` sub-table picks the
+sync-committee variant and points at the beacon endpoints, nothing
+else:
+
+```toml
+[ethereum]
+type     = "evm"
+rpc_urls = ["http://localhost:3000"]
+signer   = "SIGNER-KEY"
+
+[ethereum.consensus]
+type             = "ethereum"
+beacon_http_urls = ["http://localhost:3000"]
+```
 
 Chains **without** a `[<chain>.consensus]` sub-table still receive inbound
 messaging and Hyperbridge → chain outbound delivery.
@@ -480,321 +285,253 @@ since both submit on Hyperbridge using the `[hyperbridge]` signer.
 
 ## Per-chain configurations
 
-The generic `[ethereum]` and `[substrate]` blocks in the reference
-configuration above show every field with its comments. The sections
-below give paste-ready blocks for each officially supported chain,
-exactly as they appear in the consolidated `config.toml`. Each block
-contains the messaging `[<chain>]` table and the `[<chain>.consensus]`
-sub-table for inbound consensus relaying joined together. Drop the
-blocks you need into your config after the `[hyperbridge]` and
-`[relayer]` headers.
+Each section below gives a paste-ready block for a supported chain.
+Drop the blocks you need into your config after the `[hyperbridge]`
+and `[relayer]` headers.
 
 Replace `SIGNER-KEY` with the hex-encoded private key for the relayer
-account on that chain, and replace RPC URLs with endpoints you trust.
-`state_machine` is required per chain since the relayer keys its
-routing table by it. `ismp_host` and the messaging-side
-`consensus_state_id` auto-derive at startup from `eth_chainId` plus
-the relayer's built-in registry (and from the
-`IsmpRuntimeApi_host_state_machine` runtime call for substrate
-chains), so they do not appear in the blocks. If you need to pin a
-specific `ismp_host` by hand, the current values are in the
-[mainnet](/developers/evm/contract-addresses/mainnet) and
+account on that chain, and the RPC URLs with endpoints you trust.
+`state_machine`, `ismp_host`, and the messaging-side
+`consensus_state_id` are auto-derived at startup from `eth_chainId`
+plus the relayer's built-in registry (and from the chain's runtime
+metadata for substrate), so they do not appear in the blocks. If you
+need to pin a specific `ismp_host` by hand, the current values are in
+the [mainnet](/developers/evm/contract-addresses/mainnet) and
 [testnet](/developers/evm/contract-addresses/testnet) address tables.
-Setting `signer` opts the chain into the Hyperbridge → chain outbound
-fan-out (and the fee-withdrawal / fisherman roles); omit it to keep the
-chain inbound only. Host fields (`rpc_urls`, `signer`, `state_machine`,
-`ismp_host`, `consensus_state_id`) in the `[<chain>.consensus]`
-sub-table are inherited from the parent messaging block and aren't
-re-declared.
+Setting `signer` opts the chain into the Hyperbridge to chain outbound
+fan-out (and the fee-withdrawal and fisherman roles); omit it to keep
+the chain inbound only.
 
-### Complete example
+### Ethereum
 
-A working multi-chain testnet config covering every officially
-supported destination chain. Drop in your own RPC URLs and signer key
-and it runs as-is. Optional tuning knobs (`gas_price_buffer`,
-`tracing_batch_size`, `query_batch_size`, `consensus_update_frequency`,
-`module_filter`, `minimum_profit_percentage`, `fisherman`, ...) are
-omitted; defaults are sane.
+**Mainnet**
 
 ```toml lineNumbers
-# ──────────────────────────────────────────────────────────────────────
-# Hyperbridge connection. The BEEFY prover runs as a separate operator
-# binary; this relayer consumes accepted proofs from the node's
-# offchain storage.
-# ──────────────────────────────────────────────────────────────────────
-[hyperbridge]
-state_machine = "KUSAMA-4009"
-rpc_ws        = "wss://hyperbridge-paseo-rpc.example/"
-signer        = "SIGNER-KEY-HEX"
-
-[relayer]
-# Defaults apply. Add operator knobs here when you need to tune
-# profitability, fisherman mode, withdrawal cadence, etc.
-
-# ──────────────────────────────────────────────────────────────────────
-# Asset Hub Paseo — Polkadot's revive (substrate-evm) testnet.
-# ──────────────────────────────────────────────────────────────────────
-[polkadot]
-type          = "substrate_evm"
-state_machine = "EVM-420420417"
-rpc_urls      = ["https://eth-rpc-testnet.polkadot.io/"]
-ws_url        = "wss://asset-hub-paseo-rpc.example/"
-signer        = "SIGNER-KEY-HEX"
-
-# ──────────────────────────────────────────────────────────────────────
-# Ethereum Sepolia.
-# ──────────────────────────────────────────────────────────────────────
 [ethereum]
-type          = "evm"
-state_machine = "EVM-11155111"
-rpc_urls      = ["https://eth-sepolia.example/v2/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
+type     = "evm"
+rpc_urls = ["http://localhost:3000"]
+signer   = "SIGNER-KEY"
+
+[ethereum.consensus]
+type             = "ethereum"
+beacon_http_urls = ["http://localhost:3000"]
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[ethereum]
+type     = "evm"
+rpc_urls = ["http://localhost:3000"]
+signer   = "SIGNER-KEY"
 
 [ethereum.consensus]
 type             = "sepolia"
-beacon_http_urls = ["https://eth-sepoliabeacon.example/v2/YOUR-KEY"]
+beacon_http_urls = ["http://localhost:3000"]
+```
 
-# ──────────────────────────────────────────────────────────────────────
-# Arbitrum Sepolia. L2 state read through an Ethereum L1 RPC.
-# ──────────────────────────────────────────────────────────────────────
+### Arbitrum
+
+**Mainnet**
+
+```toml lineNumbers
 [arbitrum]
-type          = "evm"
-state_machine = "EVM-421614"
-rpc_urls      = ["https://arb-sepolia.example/v2/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
+type     = "evm"
+rpc_urls = ["http://localhost:3100"]
+signer   = "SIGNER-KEY"
 
 [arbitrum.consensus]
 type                  = "arbitrum_orbit"
-ethereum_rpc_url      = ["https://eth-sepolia.example/v2/YOUR-KEY"]
+ethereum_rpc_url      = ["http://localhost:3400"]
+rollup_core           = "0x4DCeB440657f21083db8aDd07665f8ddBe1DCfc0"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "ARB0"
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[arbitrum]
+type     = "evm"
+rpc_urls = ["http://localhost:3100"]
+signer   = "SIGNER-KEY"
+
+[arbitrum.consensus]
+type                  = "arbitrum_orbit"
+ethereum_rpc_url      = ["http://localhost:3400"]
 rollup_core           = "0x042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4"
 l1_state_machine      = "EVM-11155111"
 l1_consensus_state_id = "ETH0"
 consensus_state_id    = "ARB0"
+```
 
-# ──────────────────────────────────────────────────────────────────────
-# Optimism Sepolia.
-# ──────────────────────────────────────────────────────────────────────
+### Optimism
+
+**Mainnet**
+
+```toml lineNumbers
 [optimism]
-type          = "evm"
-state_machine = "EVM-11155420"
-rpc_urls      = ["https://opt-sepolia.example/v2/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
+type     = "evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
 
 [optimism.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["https://eth-sepolia.example/v2/YOUR-KEY"]
+ethereum_rpc_url      = ["http://localhost:3400"]
+dispute_game_factory  = "0xe5965Ab5962eDc7477C8520243A95517CD252fA9"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "OPT0"
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[optimism]
+type     = "evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
+
+[optimism.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["http://localhost:3400"]
 dispute_game_factory  = "0x05F9613aDB30026FFd634f38e5C4dFd30a197Fa1"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-11155111"
 l1_consensus_state_id = "ETH0"
 consensus_state_id    = "OPT0"
+```
 
-# ──────────────────────────────────────────────────────────────────────
-# Base Sepolia. Same op_stack consensus client as Optimism.
-# ──────────────────────────────────────────────────────────────────────
+### Base
+
+**Mainnet**
+
+```toml lineNumbers
 [base]
-type          = "evm"
-state_machine = "EVM-84532"
-rpc_urls      = ["https://base-sepolia.example/v2/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
+type     = "evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
 
 [base.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["https://eth-sepolia.example/v2/YOUR-KEY"]
+ethereum_rpc_url      = ["http://localhost:3400"]
+dispute_game_factory  = "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "BASE"
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[base]
+type     = "evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
+
+[base.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["http://localhost:3400"]
 dispute_game_factory  = "0xd6E6dBf4F7EA0ac412fD8b65ED297e64BB7a06E1"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-11155111"
 l1_consensus_state_id = "ETH0"
 consensus_state_id    = "BASE"
-
-# ──────────────────────────────────────────────────────────────────────
-# BSC Chapel (testnet).
-# ──────────────────────────────────────────────────────────────────────
-[bsc]
-type          = "evm"
-state_machine = "EVM-97"
-rpc_urls      = ["https://bnb-testnet.example/v2/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
-
-[bsc.consensus]
-type         = "bsc_testnet"
-epoch_length = 1000
-
-# ──────────────────────────────────────────────────────────────────────
-# Polygon Amoy (testnet). Bor headers come through Heimdall.
-# ──────────────────────────────────────────────────────────────────────
-[polygon]
-type          = "evm"
-state_machine = "EVM-80002"
-rpc_urls      = ["https://polygon-amoy.example/v2/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
-
-[polygon.consensus]
-type             = "polygon"
-heimdall_rpc_url = "https://polygon-amoy-heimdall-rpc.publicnode.com:443"
-
-# ──────────────────────────────────────────────────────────────────────
-# Pharos Atlantic (testnet).
-# ──────────────────────────────────────────────────────────────────────
-[pharos]
-type          = "pharos_evm"
-state_machine = "EVM-688689"
-rpc_urls      = ["https://api.example/node/v1/pharos/atlantic/YOUR-KEY"]
-signer        = "SIGNER-KEY-HEX"
-
-[pharos.consensus]
-type = "pharos"
-```
-
-For a mainnet relayer, swap the `state_machine` ids and RPC URLs to
-the mainnet equivalents (see the per-chain blocks below for the
-mainnet vs testnet distinction in each consensus sub-table). Keep the
-file outside the repo tree so the signer key is never committed.
-
-### Ethereum
-
-Ethereum mainnet uses the sync-committee consensus client. For Sepolia,
-swap `type` in the consensus sub-table to `"sepolia"`.
-
-```toml lineNumbers
-[ethereum]
-type = "evm"
-rpc_urls = ["http://localhost:3000"]
-consensus_state_id = "ETH0"
-signer = "SIGNER-KEY"
-[ethereum.consensus]
-type = "ethereum"
-beacon_http_urls = ["http://localhost:3000"]
-consensus_update_frequency = 60
-```
-
-### Arbitrum
-
-Arbitrum and other Arbitrum Orbit L2s use the `arbitrum_orbit` consensus
-client and read L2 state through an Ethereum L1 RPC. The `rollup_core`
-address is chain-specific.
-
-```toml lineNumbers
-[arbitrum]
-type = "evm"
-rpc_urls = ["http://localhost:3100"]
-consensus_state_id = "ARB0"
-signer = "SIGNER-KEY"
-[arbitrum.consensus]
-type = "arbitrum_orbit"
-ethereum_rpc_url = ["http://localhost:3400"]
-rollup_core = "0x4DCeB440657f21083db8aDd07665f8ddBe1DCfc0"
-l1_state_machine = "EVM-1"
-l1_consensus_state_id = "ETH0"
-consensus_update_frequency = 60
-```
-
-### Optimism
-
-Optimism and every other OP Stack chain (Base, Unichain, Soneium) share
-the `op_stack` consensus client and the same `message_parser`. The
-`dispute_game_factory` differs per chain.
-
-```toml lineNumbers
-[optimism]
-type = "evm"
-rpc_urls = ["http://localhost:3400"]
-consensus_state_id = "OPT0"
-signer = "SIGNER-KEY"
-[optimism.consensus]
-type = "op_stack"
-ethereum_rpc_url = ["http://localhost:3400"]
-dispute_game_factory = "0xe5965Ab5962eDc7477C8520243A95517CD252fA9"
-message_parser = "0x4200000000000000000000000000000000000016"
-l1_state_machine = "EVM-1"
-l1_consensus_state_id = "ETH0"
-consensus_update_frequency = 60
-```
-
-### Base
-
-```toml lineNumbers
-[base]
-type = "evm"
-rpc_urls = ["http://localhost:3400"]
-consensus_state_id = "BASE"
-signer = "SIGNER-KEY"
-[base.consensus]
-type = "op_stack"
-ethereum_rpc_url = ["http://localhost:3400"]
-dispute_game_factory = "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e"
-message_parser = "0x4200000000000000000000000000000000000016"
-l1_state_machine = "EVM-1"
-l1_consensus_state_id = "ETH0"
-consensus_update_frequency = 60
 ```
 
 ### Unichain
 
 ```toml lineNumbers
 [unichain]
-type = "evm"
+type     = "evm"
 rpc_urls = ["http://localhost:3400"]
-consensus_state_id = "UNI0"
-signer = "SIGNER-KEY"
+signer   = "SIGNER-KEY"
+
 [unichain.consensus]
-type = "op_stack"
-ethereum_rpc_url = ["http://localhost:3400"]
-dispute_game_factory = "0x2F12d621a16e2d3285929C9996f478508951dFe4"
-message_parser = "0x4200000000000000000000000000000000000016"
-l1_state_machine = "EVM-1"
+type                  = "op_stack"
+ethereum_rpc_url      = ["http://localhost:3400"]
+dispute_game_factory  = "0x2F12d621a16e2d3285929C9996f478508951dFe4"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
 l1_consensus_state_id = "ETH0"
-consensus_update_frequency = 60
+consensus_state_id    = "UNI0"
 ```
 
 ### Soneium
 
 ```toml lineNumbers
 [soneium]
-type = "evm"
+type     = "evm"
 rpc_urls = ["http://localhost:3400"]
-consensus_state_id = "SON0"
-signer = "SIGNER-KEY"
+signer   = "SIGNER-KEY"
+
 [soneium.consensus]
-type = "op_stack"
-ethereum_rpc_url = ["http://localhost:3400"]
-dispute_game_factory = "0x512a3d2c7a43bd9261d2b8e8c9c70d4bd4d503c0"
-message_parser = "0x4200000000000000000000000000000000000016"
-l1_state_machine = "EVM-1"
+type                  = "op_stack"
+ethereum_rpc_url      = ["http://localhost:3400"]
+dispute_game_factory  = "0x512a3d2c7a43bd9261d2b8e8c9c70d4bd4d503c0"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
 l1_consensus_state_id = "ETH0"
-consensus_update_frequency = 60
+consensus_state_id    = "SON0"
 ```
 
 ### BSC
 
-For BSC testnet (Chapel), point `rpc_urls` at a Chapel endpoint and
-swap the consensus sub-table's `type` to `"bsc_testnet"` with
-`epoch_length = 200`.
+**Mainnet**
 
 ```toml lineNumbers
 [bsc]
-type = "evm"
+type     = "evm"
 rpc_urls = ["http://localhost:3400"]
-consensus_state_id = "BSC0"
-signer = "SIGNER-KEY"
+signer   = "SIGNER-KEY"
+
 [bsc.consensus]
-type = "bsc"
-consensus_update_frequency = 60
+type         = "bsc"
 epoch_length = 1000
+```
+
+**Chapel testnet**
+
+```toml lineNumbers
+[bsc]
+type     = "evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
+
+[bsc.consensus]
+type         = "bsc_testnet"
+epoch_length = 200
 ```
 
 ### Gnosis
 
+**Mainnet**
+
 ```toml lineNumbers
 [gnosis]
-type = "evm"
+type     = "evm"
 rpc_urls = ["http://localhost:3000"]
-consensus_state_id = "GNO0"
-signer = "SIGNER-KEY"
+signer   = "SIGNER-KEY"
+
 [gnosis.consensus]
-type = "gnosis"
+type             = "gnosis"
 beacon_http_urls = ["http://localhost:3000"]
-consensus_update_frequency = 60
+```
+
+**Chiado testnet**
+
+```toml lineNumbers
+[gnosis]
+type     = "evm"
+rpc_urls = ["http://localhost:3000"]
+signer   = "SIGNER-KEY"
+
+[gnosis.consensus]
+type             = "chiado"
+beacon_http_urls = ["http://localhost:3000"]
 ```
 
 ### Polygon
@@ -803,16 +540,44 @@ Polygon reads bor headers through a Heimdall RPC. Pick an endpoint you
 trust, run your own, or use a public one like
 `https://polygon-heimdall-rpc.publicnode.com:443`.
 
+**Mainnet**
+
 ```toml lineNumbers
 [polygon]
-type = "evm"
+type     = "evm"
 rpc_urls = ["http://localhost:3400"]
-consensus_state_id = "POLY"
-signer = "SIGNER-KEY"
+signer   = "SIGNER-KEY"
+
 [polygon.consensus]
-type = "polygon"
-consensus_update_frequency = 15
+type             = "polygon"
 heimdall_rpc_url = "https://polygon-heimdall-rpc.publicnode.com:443"
+```
+
+**Amoy testnet**
+
+```toml lineNumbers
+[polygon]
+type     = "evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
+
+[polygon.consensus]
+type             = "polygon"
+heimdall_rpc_url = "https://polygon-amoy-heimdall-rpc.publicnode.com:443"
+```
+
+### Pharos
+
+Pharos Atlantic testnet only for now (no mainnet deployment yet).
+
+```toml lineNumbers
+[pharos]
+type     = "pharos_evm"
+rpc_urls = ["http://localhost:3400"]
+signer   = "SIGNER-KEY"
+
+[pharos.consensus]
+type = "pharos"
 ```
 
 ### Substrate parachain (GRANDPA)
@@ -823,16 +588,13 @@ parachains that should be tracked.
 
 ```toml lineNumbers
 [mychain]
-type = "substrate"
-hashing = "Blake2"
+type   = "substrate"
 rpc_ws = "ws://127.0.0.1:9944"
-consensus_state_id = "DOT0"
 signer = "SIGNER-KEY"
+
 [mychain.consensus]
-type = "grandpa"
-rpc = "wss://polkadot-rpc.n.dwellir.com"
-slot_duration = 6000
-consensus_update_frequency = 60
+type     = "grandpa"
+rpc      = "wss://polkadot-rpc.n.dwellir.com"
 para_ids = [2100]
 ```
 
@@ -842,7 +604,7 @@ itself), swap the consensus sub-table for:
 
 ```toml
 [mychain.consensus]
-type = "parachain"
+type         = "parachain"
 relay_rpc_ws = "wss://polkadot-rpc.n.dwellir.com"
 ```
 

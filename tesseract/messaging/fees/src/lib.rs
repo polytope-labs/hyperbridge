@@ -72,40 +72,46 @@ impl TransactionPayment {
 		Ok(Self { db: Arc::new(client) })
 	}
 
-	/// Record a newly-delivered mandatory rotation as a pending claim. The
-	/// outbound task calls this immediately after a successful delivery so
-	/// the claim survives a relayer restart. The `upsert` with an empty
-	/// update vec makes the call idempotent on the `(dest, set_id)` unique
-	/// key — a retry for the same rotation is a no-op, which lets the
-	/// caller be sloppy about deduplicating.
-	pub async fn insert_pending_rotation_claim(
+	/// Record one or more newly-delivered mandatory rotations as pending
+	/// claims in a single round-trip. The outbound task calls this right
+	/// after a successful delivery so the claims survive a relayer
+	/// restart. Each `upsert` is idempotent on the `(dest, set_id)`
+	/// unique key, so duplicate set_ids in `set_ids` (or a retry of the
+	/// same call) are no-ops, letting the caller be sloppy about
+	/// deduplicating.
+	pub async fn insert_pending_rotation_claims(
 		&self,
 		destination: &str,
-		set_id: u64,
+		set_ids: &[u64],
 		rotation_height: u64,
 	) -> anyhow::Result<()> {
 		use crate::db::outbound_rotation_claims;
+		if set_ids.is_empty() {
+			return Ok(());
+		}
 		let now = chrono::Utc::now().timestamp() as i32;
-		self.db
-			.outbound_rotation_claims()
-			.upsert(
-				outbound_rotation_claims::UniqueWhereParam::DestSetIdEquals(
-					destination.to_string(),
-					set_id as i64,
-				),
-				outbound_rotation_claims::create(
-					destination.to_string(),
-					set_id as i64,
-					rotation_height as i64,
-					outbound_rotation_claim_status::PENDING.to_string(),
-					now,
-					now,
+		let actions: Vec<_> = set_ids
+			.iter()
+			.map(|set_id| {
+				self.db.outbound_rotation_claims().upsert(
+					outbound_rotation_claims::UniqueWhereParam::DestSetIdEquals(
+						destination.to_string(),
+						*set_id as i64,
+					),
+					outbound_rotation_claims::create(
+						destination.to_string(),
+						*set_id as i64,
+						rotation_height as i64,
+						outbound_rotation_claim_status::PENDING.to_string(),
+						now,
+						now,
+						vec![],
+					),
 					vec![],
-				),
-				vec![],
-			)
-			.exec()
-			.await?;
+				)
+			})
+			.collect();
+		self.db._batch(actions).await?;
 		Ok(())
 	}
 

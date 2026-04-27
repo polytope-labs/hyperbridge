@@ -342,28 +342,28 @@ async fn submit_for_dest(
 				},
 			};
 
-			for set_id in result.new_epochs {
-				if let Some(tx_payment) = &claim_tx_payment {
-					if let Err(err) = tx_payment
-						.insert_pending_rotation_claim(
-							&dest_state_machine.to_string(),
-							set_id,
-							delivery_height,
-						)
-						.await
-					{
-						tracing::warn!(
-							target: LOG_TARGET,
-							?err,
-							dest = %dest_name,
-							delivery_height,
-							set_id,
-							"failed to persist outbound-consensus claim; the channel send may \
-							 still succeed but the claim will not survive a restart",
-						);
-					}
+			if let Some(tx_payment) = &claim_tx_payment {
+				if let Err(err) = tx_payment
+					.insert_pending_rotation_claims(
+						&dest_state_machine.to_string(),
+						&result.new_epochs,
+						delivery_height,
+					)
+					.await
+				{
+					tracing::warn!(
+						target: LOG_TARGET,
+						?err,
+						dest = %dest_name,
+						delivery_height,
+						set_ids = ?result.new_epochs,
+						"failed to persist outbound-consensus claims; the channel send may \
+						 still succeed but the claims will not survive a restart",
+					);
 				}
+			}
 
+			for set_id in result.new_epochs {
 				let claim = PendingConsensusDeliveryClaim {
 					destination: dest_state_machine,
 					delivery_height,

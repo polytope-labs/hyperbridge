@@ -21,6 +21,7 @@ pub mod config;
 #[cfg(feature = "testing")]
 pub mod mocks;
 pub mod queue;
+pub mod serde_adapters;
 
 use anyhow::anyhow;
 use futures::{Stream, StreamExt};

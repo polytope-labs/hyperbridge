@@ -52,28 +52,70 @@ impl AnyConfig {
 	pub fn state_machine(&self) -> ismp::host::StateMachine {
 		// `state_machine` is optional on the per-client configs so that
 		// chains in `tesseract_evm::registry` / `tesseract_substrate::registry`
-		// can be auto-derived. The relayer-level routing layer, however,
-		// keys chains by `StateMachine` and can't proceed without one — so
-		// require it here with a clear error.
+		// can be auto-derived. The relayer-level routing layer keys chains
+		// by `StateMachine` so it must be set before this is called: the
+		// config loader resolves any missing value via
+		// [`AnyConfig::resolve_state_machine`] at parse time.
 		match self {
 			Self::Substrate(config) => config
 				.state_machine
-				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+				.expect("state_machine should have been resolved at config-parse time"),
 			Self::Evm(config) => config
 				.state_machine
-				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+				.expect("state_machine should have been resolved at config-parse time"),
 			Self::Tendermint(tendermint_config) => tendermint_config
 				.evm_config
 				.state_machine
-				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+				.expect("state_machine should have been resolved at config-parse time"),
 			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config
 				.evm
 				.state_machine
-				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+				.expect("state_machine should have been resolved at config-parse time"),
 			Self::PharosEvm(config) => config
 				.state_machine
-				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+				.expect("state_machine should have been resolved at config-parse time"),
 			Self::Tron(config) => config.state_machine(),
+		}
+	}
+
+	/// Backfill `state_machine` on the inner per-client config if the
+	/// operator did not set it explicitly. EVM-family configs derive it
+	/// from `eth_chainId` against the first configured RPC URL; substrate
+	/// configs derive it via the chain's `system_chain` and
+	/// `ParachainInfo::parachainId` runtime calls. This is the routing
+	/// layer's only parse-time autofill: the libraries
+	/// (`EvmClient::new`, `SubstrateClient::new`) still own the
+	/// resolution of `ismp_host` and `consensus_state_id` at client
+	/// construction.
+	pub async fn resolve_state_machine(&mut self) -> anyhow::Result<()> {
+		async fn resolve_evm(evm: &mut EvmConfig) -> anyhow::Result<()> {
+			if evm.state_machine.is_some() {
+				return Ok(());
+			}
+			let url = evm.rpc_urls.first().ok_or_else(|| {
+				anyhow::anyhow!("evm chain config requires at least one rpc_urls entry")
+			})?;
+			let chain_id = tesseract_evm::registry::fetch_chain_id(url).await?;
+			evm.state_machine = Some(ismp::host::StateMachine::Evm(chain_id as u32));
+			Ok(())
+		}
+		async fn resolve_substrate(sub: &mut SubstrateConfig) -> anyhow::Result<()> {
+			if sub.state_machine.is_some() {
+				return Ok(());
+			}
+			let sm = tesseract_substrate::registry::fetch_state_machine(&sub.rpc_ws).await?;
+			sub.state_machine = Some(sm);
+			Ok(())
+		}
+		match self {
+			Self::Substrate(config) => resolve_substrate(config).await,
+			Self::Evm(config) => resolve_evm(config).await,
+			Self::Tendermint(tendermint_config) =>
+				resolve_evm(&mut tendermint_config.evm_config).await,
+			Self::SubstrateEvm(substrate_evm_config) =>
+				resolve_evm(&mut substrate_evm_config.evm).await,
+			Self::PharosEvm(config) => resolve_evm(config).await,
+			Self::Tron(config) => resolve_evm(&mut config.evm).await,
 		}
 	}
 

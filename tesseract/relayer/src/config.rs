@@ -184,7 +184,8 @@ impl HyperbridgeConfig {
 		}
 
 		let hyperbridge =
-			parse_hyperbridge_section(table.get(HYPERBRIDGE).cloned().expect("checked above"))?;
+			parse_hyperbridge_section(table.get(HYPERBRIDGE).cloned().expect("checked above"))
+				.await?;
 
 		let relayer: RelayerConfig =
 			table.get(RELAYER).cloned().expect("checked above").try_into()?;
@@ -246,8 +247,13 @@ impl HyperbridgeConfig {
 		// always substrate-native so the host kind is unconditionally
 		// `HostKind::Substrate`.
 		if let Some(consensus) = self.hyperbridge.consensus.clone() {
+			let hb_state_machine = self
+				.hyperbridge
+				.substrate
+				.state_machine
+				.expect("[hyperbridge] state_machine resolved at config-parse time");
 			out.insert(
-				self.hyperbridge.substrate.state_machine,
+				hb_state_machine,
 				(consensus, HostKind::Substrate(self.hyperbridge.substrate.clone())),
 			);
 		}
@@ -275,9 +281,18 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 	let mut messaging_table = chain_table.clone();
 	let consensus_value = messaging_table.remove(CONSENSUS);
 
-	let messaging: MessagingConfig = Value::Table(messaging_table.clone())
+	let mut messaging: MessagingConfig = Value::Table(messaging_table.clone())
 		.try_into()
 		.with_context(|| format!("failed to parse messaging config for chain '{name}'"))?;
+
+	// The libraries autofill `ismp_host` and `consensus_state_id` at
+	// client construction, but `state_machine` doubles as the routing
+	// key in the chains map below, so we need it before any client
+	// exists. Fill it in now from the chain's own RPC if missing.
+	messaging
+		.resolve_state_machine()
+		.await
+		.with_context(|| format!("failed to resolve state_machine for chain '{name}'"))?;
 
 	let consensus = match consensus_value {
 		None => None,
@@ -305,15 +320,25 @@ async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, 
 /// [`HyperbridgeSection`]. Mirrors [`parse_chain`]: strips any
 /// `[hyperbridge.consensus]` sub-table before deserialising the remaining
 /// fields as a [`SubstrateConfig`].
-fn parse_hyperbridge_section(raw: Value) -> Result<HyperbridgeSection, anyhow::Error> {
+async fn parse_hyperbridge_section(raw: Value) -> Result<HyperbridgeSection, anyhow::Error> {
 	let Value::Table(mut table) = raw else {
 		return Err(anyhow!("[hyperbridge] must be a table, got {}", raw.type_str(),));
 	};
 	let consensus_value = table.remove(CONSENSUS);
 
-	let substrate: SubstrateConfig = Value::Table(table)
+	let mut substrate: SubstrateConfig = Value::Table(table)
 		.try_into()
 		.with_context(|| "failed to parse [hyperbridge] substrate fields")?;
+
+	// Same routing-key story as parse_chain: state_machine is needed
+	// before any SubstrateClient exists, so backfill it now from the
+	// chain itself when the operator left it out.
+	if substrate.state_machine.is_none() {
+		let sm = tesseract_substrate::registry::fetch_state_machine(&substrate.rpc_ws)
+			.await
+			.with_context(|| "failed to resolve state_machine for [hyperbridge]")?;
+		substrate.state_machine = Some(sm);
+	}
 
 	let consensus = match consensus_value {
 		None => None,

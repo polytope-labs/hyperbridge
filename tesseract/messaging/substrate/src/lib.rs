@@ -50,35 +50,12 @@ pub mod registry;
 #[cfg(feature = "testing")]
 mod testing;
 
-/// Serde adapter for `Option<StateMachine>` that round-trips through the
-/// stringly form (e.g. `"POLKADOT-3367"`) produced by [`StateMachine`]'s
-/// `Display` / `FromStr` impls.
-mod option_state_machine {
-	use ismp::host::StateMachine;
-	use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-	pub fn serialize<S: Serializer>(
-		value: &Option<StateMachine>,
-		serializer: S,
-	) -> Result<S::Ok, S::Error> {
-		value.as_ref().map(|sm| sm.to_string()).serialize(serializer)
-	}
-
-	pub fn deserialize<'de, D: Deserializer<'de>>(
-		deserializer: D,
-	) -> Result<Option<StateMachine>, D::Error> {
-		let raw: Option<String> = Option::deserialize(deserializer)?;
-		raw.map(|s| s.parse::<StateMachine>().map_err(serde::de::Error::custom))
-			.transpose()
-	}
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateConfig {
 	/// Hyperbridge network. When omitted, [`SubstrateClient::new`]
 	/// derives it from `system_chain` + `ParachainInfo::parachainId` via
 	/// [`crate::registry::fetch_state_machine`].
-	#[serde(default, with = "option_state_machine")]
+	#[serde(default, with = "tesseract_primitives::serde_adapters::option_state_machine")]
 	pub state_machine: Option<StateMachine>,
 	/// The hashing algorithm that substrate chain uses.
 	pub hashing: Option<HashAlgorithm>,

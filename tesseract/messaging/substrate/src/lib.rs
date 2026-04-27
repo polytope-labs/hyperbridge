@@ -96,10 +96,7 @@ impl SubstrateConfig {
 	/// unset. Returns a new config with both guaranteed `Some(...)`;
 	/// explicit values are preserved untouched.
 	pub async fn resolve(self) -> anyhow::Result<Self> {
-		let state_machine = match self.state_machine {
-			Some(sm) => sm,
-			None => crate::registry::fetch_state_machine(&self.rpc_ws).await?,
-		};
+		let state_machine = crate::registry::fetch_state_machine(&self.rpc_ws).await?;
 		let consensus_state_id = match self.consensus_state_id.clone() {
 			Some(s) => s,
 			None => match state_machine {
@@ -164,6 +161,7 @@ where
 	H256: From<HashFor<C>>,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
+	    let config_clone =  config.clone();
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
 		let (client, rpc_client) =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
@@ -193,48 +191,23 @@ where
 			None => sr25519::Pair::generate().0,
 		};
 		let address = signer.public().0.to_vec();
-		// Resolve `state_machine` — explicit wins; otherwise pulled from
-		// the chain via `system_chain` + `ParachainInfo::parachainId`.
-		let state_machine = match config.state_machine {
-			Some(sm) => sm,
-			None =>
-				crate::registry::fetch_state_machine(&config.rpc_ws).await.with_context(|| {
-					"failed to auto-derive state_machine via system_chain + ParachainInfo"
-						.to_string()
-				})?,
-		};
-		let consensus_state_id_str =
-			config.consensus_state_id.clone().unwrap_or(match state_machine {
-				StateMachine::Kusama(_) => "PAS0".into(),
-				StateMachine::Polkadot(_) => "DOT0".into(),
-				s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
-			});
 		let mut consensus_state_id: ConsensusStateId = Default::default();
-		consensus_state_id.copy_from_slice(consensus_state_id_str.as_bytes());
+		consensus_state_id.copy_from_slice(config.consensus_state_id.expect("Resolved").as_bytes());
 
-		// Mirror the resolved values back into the stored config so anyone
-		// reading `client.config` after construction sees Some(...) for
-		// `state_machine` and `consensus_state_id` rather than having to
-		// look at the dedicated fields below.
-		let resolved_config = SubstrateConfig {
-			state_machine: Some(state_machine),
-			consensus_state_id: Some(consensus_state_id_str),
-			..config
-		};
 
 		Ok(Self {
 			client,
 			rpc,
 			rpc_client,
 			consensus_state_id,
-			state_machine,
-			hashing: resolved_config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
+			state_machine: config.state_machine.expect("Resolved"),
+			hashing: config_clone.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
 			initial_height,
-			max_concurent_queries: resolved_config.max_concurent_queries,
+			max_concurent_queries: config.max_concurent_queries,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
-			config: resolved_config,
+			config: config_clone,
 		})
 	}
 

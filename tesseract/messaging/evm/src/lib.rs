@@ -176,64 +176,32 @@ impl EvmConfig {
 	/// Fill in `state_machine`, `ismp_host`, and `consensus_state_id`
 	/// from the chain RPC + [`crate::registry`] when the operator left
 	/// them unset. Returns a new config with all three guaranteed
-	/// `Some(...)`; explicit values are preserved untouched.
+	/// `Some(...)`;
 	pub async fn resolve(self) -> anyhow::Result<Self> {
-		let needs_chain_id = self.state_machine.is_none() ||
-			self.ismp_host.is_none() ||
-			self.consensus_state_id.is_none();
-
-		let chain_id = if needs_chain_id {
+		let chain_id = {
 			let url = self.rpc_urls.first().ok_or_else(|| {
 				anyhow::anyhow!("evm config requires at least one rpc_urls entry to resolve")
 			})?;
-			Some(crate::registry::fetch_chain_id(url).await?)
-		} else {
-			None
+			crate::registry::fetch_chain_id(url).await?
 		};
 
-		let state_machine = match self.state_machine {
-			Some(sm) => sm,
-			None =>
-				StateMachine::Evm(chain_id.expect("set above when state_machine is None") as u32),
-		};
+		let state_machine = StateMachine::Evm(chain_id as u32);
 
-		let lookup_chain_id = || -> u64 {
-			if let Some(c) = chain_id {
-				return c;
-			}
-			match state_machine {
-				StateMachine::Evm(id) => id as u64,
-				_ => unreachable!("non-evm state_machine for an EvmConfig"),
-			}
-		};
+		let ismp_host = crate::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
+			anyhow::anyhow!(
+				"no IsmpHost configured for chain_id={chain_id}; set ismp_host explicitly \
+				 or add the chain to tesseract_evm::registry"
+			)
+		})?;
 
-		let ismp_host = match self.ismp_host {
-			Some(h) => h,
-			None => {
-				let cid = lookup_chain_id();
-				crate::registry::ismp_host_for_chain_id(cid).ok_or_else(|| {
-					anyhow::anyhow!(
-						"no IsmpHost configured for chain_id={cid}; set ismp_host explicitly \
-						 or add the chain to tesseract_evm::registry"
-					)
-				})?
-			},
-		};
-
-		let consensus_state_id = match self.consensus_state_id {
-			Some(s) => s,
-			None => {
-				let cid = lookup_chain_id();
-				crate::registry::consensus_state_id_for_chain_id(cid)
-					.map(|s| s.to_string())
-					.ok_or_else(|| {
-						anyhow::anyhow!(
-							"no consensus_state_id configured for chain_id={cid}; set it \
-							 explicitly or add the chain to tesseract_evm::registry"
-						)
-					})?
-			},
-		};
+		let consensus_state_id = crate::registry::consensus_state_id_for_chain_id(chain_id)
+			.map(|s| s.to_string())
+			.ok_or_else(|| {
+				anyhow::anyhow!(
+					"no consensus_state_id configured for chain_id={chain_id}; set it \
+					 explicitly or add the chain to tesseract_evm::registry"
+				)
+			})?;
 
 		Ok(Self {
 			state_machine: Some(state_machine),
@@ -392,64 +360,29 @@ impl EvmClient {
 		let signer_provider = ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
 		let signer = Arc::new(signer_provider);
 
-		// Resolve the three optional config fields. Explicit values always
-		// win; otherwise we use the chain id (already fetched above) to
-		// look up the canonical entries from `crate::registry`.
-		let state_machine =
-			config.state_machine.unwrap_or_else(|| StateMachine::Evm(chain_id as u32));
-
-		let ismp_host = match config.ismp_host {
-			Some(host) => host,
-			None => crate::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
-				anyhow::anyhow!(
-					"no IsmpHost configured for chain_id={chain_id}; set ismp_host explicitly \
-					 or add the chain to tesseract_evm::registry"
-				)
-			})?,
-		};
-
-		let consensus_state_id_str = match config.consensus_state_id.as_deref() {
-			Some(s) => s.to_string(),
-			None => crate::registry::consensus_state_id_for_chain_id(chain_id)
-				.map(|s| s.to_string())
-				.ok_or_else(|| {
-					anyhow::anyhow!(
-						"no consensus_state_id configured for chain_id={chain_id}; set it \
-						 explicitly or add the chain to tesseract_evm::registry"
-					)
-				})?,
-		};
-		let consensus_state_id = {
-			let mut id: ConsensusStateId = Default::default();
-			id.copy_from_slice(consensus_state_id_str.as_bytes());
-			id
-		};
 
 		let latest_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
 			client.get_block_number().await?
 		};
-		// Mirror the resolved values back into the stored config so anyone
-		// reading `client.config` after construction sees Some(...) for the
-		// three previously-optional fields rather than having to look at
-		// the dedicated `state_machine` / `ismp_host` / `consensus_state_id`
-		// fields below.
-		let resolved_config = EvmConfig {
-			state_machine: Some(state_machine),
-			ismp_host: Some(ismp_host),
-			consensus_state_id: Some(consensus_state_id_str.clone()),
-			..config_clone
+
+		let consensus_state_id = {
+		   let mut bytes = [0u8;4];
+		   bytes.copy_from_slice(config.consensus_state_id.expect("Consensus state should have been resolved").as_bytes());
+		   bytes
 		};
+
+
 		let mut partial_client = Self {
 			client,
 			signer,
 			address,
 			consensus_state_id,
-			state_machine,
-			ismp_host,
+			state_machine: config.state_machine.expect("Resolved"),
+			ismp_host: config.ismp_host.expect("Resolved"),
 			initial_height: latest_height,
-			config: resolved_config,
+			config: config_clone,
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
 			private_key_signer,

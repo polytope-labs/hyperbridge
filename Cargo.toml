@@ -101,7 +101,7 @@ members = [
     "tesseract/messaging/primitives",
     "tesseract/messaging/messaging",
     "tesseract/messaging/substrate",
-    "tesseract/messaging/relayer",
+    # "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
     "tesseract/messaging/tron",
     "tesseract/messaging/evm-tendermint",
@@ -123,7 +123,7 @@ members = [
     "tesseract/consensus/integration-tests",
     "tesseract/consensus/beefy",
     "tesseract/consensus/beefy/zk",
-    "tesseract/consensus/relayer",
+    # "tesseract/consensus/relayer",
     "tesseract/consensus/admin-relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
@@ -356,7 +356,7 @@ tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
-tesseract-relayer = { path = "tesseract/messaging/relayer" }
+# tesseract-relayer = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -370,7 +370,7 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-tesseract-consensus = { path = "tesseract/consensus/relayer" }
+# tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }

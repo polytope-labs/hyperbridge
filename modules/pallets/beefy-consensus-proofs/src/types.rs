@@ -19,19 +19,6 @@ use codec::{Decode, DecodeWithMemTracking, Encode};
 use scale_info::TypeInfo;
 use sp_core::sr25519;
 
-/// Wire-format payload emitted by the `Event::ProofAccepted` event, shared
-/// between the pallet, the runtime API, and off-chain consumers. Stripped of
-/// the submitter/reward fields because the relayer pipeline only cares about
-/// the proven height and the authority-set rotation marker.
-#[derive(Clone, Debug, Encode, Decode, TypeInfo, PartialEq, Eq)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct ProofAcceptedEvent {
-	/// Parachain height finalised by the proof.
-	pub height: u64,
-	/// When `Some(id)`, the proof also rotated the BEEFY authority set to `id`.
-	pub new_set_id: Option<u64>,
-}
-
 /// Payload submitted via the `submit_proof` unsigned extrinsic.
 ///
 /// The signed message is `keccak256(("beefy_consensus_proof_v1", submitter,

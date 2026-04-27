@@ -602,26 +602,5 @@ pub mod pallet {
 				child_trie_root,
 			})
 		}
-
-		/// Filter the current block's events for `Event::ProofAccepted` and project
-		/// each match onto the slim [`crate::types::ProofAcceptedEvent`] shape consumed
-		/// by the runtime API / RPC. Must be called from a runtime API context so
-		/// `frame_system::read_events_no_consensus` is available.
-		pub fn block_proof_accepted_events() -> Vec<crate::types::ProofAcceptedEvent>
-		where
-			<T as frame_system::Config>::RuntimeEvent: TryInto<Event<T>>,
-		{
-			frame_system::Pallet::<T>::read_events_no_consensus()
-				.filter_map(|e| {
-					let frame_system::EventRecord { event, .. } = *e;
-					let pallet_event: Event<T> = event.try_into().ok()?;
-					match pallet_event {
-						Event::ProofAccepted { height, new_set_id, .. } =>
-							Some(crate::types::ProofAcceptedEvent { height, new_set_id }),
-						_ => None,
-					}
-				})
-				.collect()
-		}
 	}
 }

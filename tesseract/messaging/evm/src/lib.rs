@@ -549,20 +549,6 @@ impl EvmClient {
 		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		Ok(H160::from_slice(params.handler.as_slice()))
 	}
-
-	/// Returns a clone of the user-supplied [`EvmConfig`] with the three
-	/// optional fields (`state_machine`, `ismp_host`, `consensus_state_id`)
-	/// backfilled from the resolved values on this client. Downstream
-	/// consensus hosts that store an `EvmConfig` snapshot use this so their
-	/// later reads of those fields do not have to deal with `Option`.
-	pub fn resolved_config(&self) -> EvmConfig {
-		let mut out = self.config.clone();
-		out.state_machine = Some(self.state_machine);
-		out.ismp_host = Some(self.ismp_host);
-		out.consensus_state_id =
-			Some(String::from_utf8(self.consensus_state_id.to_vec()).unwrap_or_default());
-		out
-	}
 }
 
 pub fn derive_map_key(mut key: Vec<u8>, slot: u64) -> H256 {

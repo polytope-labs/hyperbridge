@@ -59,12 +59,11 @@ impl PolygonPosHost {
 	/// Create a new PolygonPosHost
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
-		let evm_resolved = ismp_provider.resolved_config();
 		Ok(Self {
 			consensus_state_id: ismp_provider.consensus_state_id,
 			state_machine: ismp_provider.state_machine,
 			host: host.clone(),
-			evm: evm_resolved,
+			evm: evm.clone(),
 			provider: Arc::new(ismp_provider),
 			prover: HeimdallClient::new(&host.heimdall_rpc_url, &evm.rpc_urls)?,
 		})

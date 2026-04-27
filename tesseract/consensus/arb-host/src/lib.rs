@@ -75,6 +75,8 @@ pub struct ArbHost {
 	pub host: HostConfig,
 	/// Evm Config
 	pub evm: EvmConfig,
+	/// Resolved state machine identifier for this host's chain.
+	pub state_machine: StateMachine,
 	/// Consensus State Id
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
@@ -100,18 +102,19 @@ impl ArbHost {
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
-		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
-		// Snapshot the resolved values from the constructed client so later
-		// reads of self.evm.state_machine etc never see None.
-		let evm_resolved = provider.resolved_config();
+		let inner = EvmClient::new(evm.clone()).await?;
+		let state_machine = inner.state_machine;
+		let consensus_state_id = inner.consensus_state_id;
+		let provider = Arc::new(inner);
 
 		Ok(Self {
 			arb_execution_client: Arc::new(el),
 			beacon_execution_client: Arc::new(beacon_client),
 			rollup_core: host.rollup_core,
 			host: host.clone(),
-			evm: evm_resolved,
-			consensus_state_id: provider.consensus_state_id,
+			evm: evm.clone(),
+			state_machine,
+			consensus_state_id,
 			provider,
 			l1_state_machine: host.l1_state_machine,
 			l1_consensus_state_id: {
@@ -131,11 +134,7 @@ impl ArbHost {
 			.get_block(BlockId::hash(block_hash))
 			.await?
 			.ok_or_else(|| {
-				anyhow!(
-					"{} Header not found for {:?}",
-					self.evm.state_machine.expect("backfilled at construction"),
-					block_hash
-				)
+				anyhow!("{} Header not found for {:?}", self.state_machine, block_hash)
 			})?;
 		let arb_header = block.into();
 

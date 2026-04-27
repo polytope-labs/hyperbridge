@@ -59,12 +59,11 @@ pub struct EvmHost {
 impl EvmHost {
 	pub async fn new(evm: &EvmConfig) -> Result<Self, anyhow::Error> {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
-		let evm_resolved = ismp_provider.resolved_config();
 
 		Ok(Self {
 			consensus_state_id: ismp_provider.consensus_state_id,
 			state_machine: ismp_provider.state_machine,
-			evm: evm_resolved,
+			evm: evm.clone(),
 			provider: Arc::new(ismp_provider),
 		})
 	}

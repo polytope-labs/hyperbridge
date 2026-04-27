@@ -81,14 +81,13 @@ impl<C: Config> BscPosHost<C> {
 		let urls = evm.rpc_urls.iter().map(|u| u.parse()).collect::<Result<Vec<_>, _>>()?;
 		let prover = BscPosProver::new(urls)?;
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
-		let evm_resolved = ismp_provider.resolved_config();
 
 		Ok(Self {
 			consensus_state_id: ismp_provider.consensus_state_id,
 			state_machine: ismp_provider.state_machine,
 			prover,
 			host: host.clone(),
-			evm: evm_resolved,
+			evm: evm.clone(),
 			provider: Arc::new(ismp_provider),
 		})
 	}

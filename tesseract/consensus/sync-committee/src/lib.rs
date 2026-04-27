@@ -157,7 +157,6 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
-		let evm_resolved = provider.resolved_config();
 
 		// Create the hosts for the L2s if config is present
 		let mut l2_clients = BTreeMap::new();
@@ -181,7 +180,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 			l2_clients,
 			prover,
 			provider,
-			evm: evm_resolved,
+			evm: evm.clone(),
 			consensus_update_frequency: Duration::from_secs(host.consensus_update_frequency),
 			el: Arc::new(el),
 			retry: again::RetryPolicy::fixed(Duration::from_millis(500)),

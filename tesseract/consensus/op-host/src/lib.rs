@@ -109,6 +109,10 @@ pub struct OpHost {
 	pub host: HostConfig,
 	/// Evm Config
 	pub evm: EvmConfig,
+	/// Resolved state machine identifier for this host's chain.
+	pub state_machine: StateMachine,
+	/// Resolved IsmpHost contract address on this host's chain.
+	pub ismp_host: H160,
 	/// Consensus state id
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
@@ -193,10 +197,11 @@ impl OpHost {
 		let l1_chain_id = beacon_client.get_chain_id().await?;
 		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
 
-		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
-		// Snapshot the resolved values from the constructed client so later
-		// reads of self.evm.state_machine etc never see None.
-		let evm_resolved = provider.resolved_config();
+		let inner = EvmClient::new(evm.clone()).await?;
+		let state_machine = inner.state_machine;
+		let ismp_host = inner.ismp_host;
+		let consensus_state_id = inner.consensus_state_id;
+		let provider = Arc::new(inner);
 
 		let (proposer, beacon_consensus_client) =
 			if let Some(proposer_config) = host.proposer_config.clone() {
@@ -237,9 +242,11 @@ impl OpHost {
 			l2_oracle: host.l2_oracle,
 			dispute_game_factory: host.dispute_game_factory,
 			message_parser: host.message_parser,
-			evm: evm_resolved,
+			evm: evm.clone(),
 			host: host.clone(),
-			consensus_state_id: provider.consensus_state_id,
+			state_machine,
+			ismp_host,
+			consensus_state_id,
 			provider,
 			proposer,
 			l1_state_machine,
@@ -260,12 +267,9 @@ impl OpHost {
 		if from > to {
 			return Ok(None);
 		}
-		let l2_oracle = self.l2_oracle.ok_or_else(|| {
-			anyhow!(
-				"L2 Oracle address is missing for {}",
-				self.evm.state_machine.expect("backfilled at construction")
-			)
-		})?;
+		let l2_oracle = self
+			.l2_oracle
+			.ok_or_else(|| anyhow!("L2 Oracle address is missing for {}", self.state_machine))?;
 		let oracle_addr = Address::from_slice(&l2_oracle.0);
 		let filter = Filter::new().address(oracle_addr).from_block(from).to_block(to);
 
@@ -292,10 +296,7 @@ impl OpHost {
 			return Ok(Default::default());
 		}
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
-			anyhow!(
-				"Dispute Factory address is missing for {}",
-				self.evm.state_machine.expect("backfilled at construction")
-			)
+			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
 
 		let factory_addr = Address::from_slice(&dispute_game_factory.0);
@@ -352,10 +353,7 @@ impl OpHost {
 	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
 		let mut payloads = vec![];
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
-			anyhow!(
-				"Dispute Factory address is missing for {}",
-				self.evm.state_machine.expect("backfilled at construction")
-			)
+			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
 
 		for event in events {
@@ -471,7 +469,7 @@ impl OpHost {
 				.ok_or_else(|| {
 					anyhow!(
 						"{:?} Header not found for L2 block {}",
-						self.evm.state_machine.expect("backfilled at construction"),
+						self.state_machine,
 						l2_block_num,
 					)
 				})?;
@@ -537,12 +535,9 @@ impl OpHost {
 
 		let output_roots_key = derive_array_item_key(l2_output_index, 0);
 		let timestamp_and_block_proof = derive_array_item_key(l2_output_index, 1);
-		let l2_oracle = self.l2_oracle.ok_or_else(|| {
-			anyhow!(
-				"L2 Oracle address is missing for {}",
-				self.evm.state_machine.expect("backfilled at construction")
-			)
-		})?;
+		let l2_oracle = self
+			.l2_oracle
+			.ok_or_else(|| anyhow!("L2 Oracle address is missing for {}", self.state_machine))?;
 
 		let oracle_addr = Address::from_slice(&l2_oracle.0);
 		let proof = self

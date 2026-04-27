@@ -73,7 +73,7 @@ impl IsmpHost for ArbHost {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
 											state_machine_id: StateMachineId {
-												state_id: self.evm.state_machine.expect("backfilled at construction"),
+												state_id: self.state_machine,
 												consensus_state_id: self.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -116,7 +116,7 @@ impl IsmpHost for ArbHost {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
 											state_machine_id: StateMachineId {
-												state_id: self.evm.state_machine.expect("backfilled at construction"),
+												state_id: self.state_machine,
 												consensus_state_id: self.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -204,14 +204,11 @@ impl IsmpHost for ArbHost {
 
 		let number = self.arb_execution_client.get_block_number().await?;
 		let block = self.arb_execution_client.get_block(number.into()).await?.ok_or_else(|| {
-			anyhow!(
-				"Didn't find block with number {number} on {:?}",
-				self.evm.state_machine.expect("backfilled at construction")
-			)
+			anyhow!("Didn't find block with number {number} on {:?}", self.state_machine)
 		})?;
 
 		let state_machine_id = StateMachineId {
-			state_id: self.evm.state_machine.expect("backfilled at construction"),
+			state_id: self.state_machine,
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 

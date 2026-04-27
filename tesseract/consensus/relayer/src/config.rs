@@ -104,12 +104,19 @@ impl HyperbridgeConfig {
 						)?;
 					let substrate: SubstrateConfig =
 						sub_val.try_into().map_err(|err| anyhow!("[{key}.substrate]: {err}"))?;
-					state_machine = substrate.state_machine;
+					let substrate = substrate.resolve().await.map_err(|err| {
+						anyhow!("[{key}.substrate]: failed to resolve config: {err}")
+					})?;
+					state_machine = substrate.state_machine();
 					host = HostKind::Substrate(substrate);
 				} else {
 					let evm: EvmConfig =
 						val.try_into().map_err(|err| anyhow!("[{key}] evm: {err}"))?;
-					state_machine = evm.state_machine;
+					let evm = evm
+						.resolve()
+						.await
+						.map_err(|err| anyhow!("[{key}]: failed to resolve config: {err}"))?;
+					state_machine = evm.state_machine();
 					host = HostKind::Evm(evm);
 				}
 

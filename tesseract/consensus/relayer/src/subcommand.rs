@@ -70,7 +70,7 @@ impl LogMetatdata {
 			.ok_or_else(|| anyhow!("Config for {state_machine:?} not found"))?
 			.1 // HostKind
 			.as_evm()
-			.map(|e| e.ismp_host.clone())
+			.and_then(|e| e.ismp_host.clone())
 			.ok_or_else(|| anyhow!("Missing EVM host address for {state_machine:?}"))?;
 		let evm_hosts: BTreeMap<_, _> = vec![(state_machine, host_address)].into_iter().collect();
 

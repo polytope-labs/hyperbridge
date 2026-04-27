@@ -81,6 +81,44 @@ pub struct SubstrateConfig {
 	pub fee_token_decimals: Option<u8>,
 }
 
+impl SubstrateConfig {
+	/// Returns the resolved `state_machine`. Panics if the config has not
+	/// been resolved via [`SubstrateConfig::resolve`].
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine.expect(
+			"SubstrateConfig::state_machine called before resolve(); the parser must call \
+			 SubstrateConfig::resolve / AnyConfig::resolve before any consumer reads this field",
+		)
+	}
+
+	/// Fill in `state_machine` from the chain RPC and derive
+	/// `consensus_state_id` from the network when the operator left them
+	/// unset. Returns a new config with both guaranteed `Some(...)`;
+	/// explicit values are preserved untouched.
+	pub async fn resolve(self) -> anyhow::Result<Self> {
+		let state_machine = match self.state_machine {
+			Some(sm) => sm,
+			None => crate::registry::fetch_state_machine(&self.rpc_ws).await?,
+		};
+		let consensus_state_id = match self.consensus_state_id.clone() {
+			Some(s) => s,
+			None => match state_machine {
+				StateMachine::Kusama(_) => "PAS0".into(),
+				StateMachine::Polkadot(_) => "DOT0".into(),
+				other =>
+					return Err(anyhow::anyhow!(
+					"no default consensus_state_id for {other:?}; set consensus_state_id explicitly"
+				)),
+			},
+		};
+		Ok(Self {
+			state_machine: Some(state_machine),
+			consensus_state_id: Some(consensus_state_id),
+			..self
+		})
+	}
+}
+
 /// Core substrate client.
 pub struct SubstrateClient<C: subxt::Config> {
 	/// Subxt client for the substrate chain
@@ -165,31 +203,38 @@ where
 						.to_string()
 				})?,
 		};
+		let consensus_state_id_str =
+			config.consensus_state_id.clone().unwrap_or(match state_machine {
+				StateMachine::Kusama(_) => "PAS0".into(),
+				StateMachine::Polkadot(_) => "DOT0".into(),
+				s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
+			});
 		let mut consensus_state_id: ConsensusStateId = Default::default();
-		consensus_state_id.copy_from_slice(
-			config
-				.consensus_state_id
-				.clone()
-				.unwrap_or(match state_machine {
-					StateMachine::Kusama(_) => "PAS0".into(),
-					StateMachine::Polkadot(_) => "DOT0".into(),
-					s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
-				})
-				.as_bytes(),
-		);
+		consensus_state_id.copy_from_slice(consensus_state_id_str.as_bytes());
+
+		// Mirror the resolved values back into the stored config so anyone
+		// reading `client.config` after construction sees Some(...) for
+		// `state_machine` and `consensus_state_id` rather than having to
+		// look at the dedicated fields below.
+		let resolved_config = SubstrateConfig {
+			state_machine: Some(state_machine),
+			consensus_state_id: Some(consensus_state_id_str),
+			..config
+		};
+
 		Ok(Self {
 			client,
 			rpc,
 			rpc_client,
 			consensus_state_id,
 			state_machine,
-			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
+			hashing: resolved_config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
 			initial_height,
-			max_concurent_queries: config.max_concurent_queries,
+			max_concurent_queries: resolved_config.max_concurent_queries,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
-			config,
+			config: resolved_config,
 		})
 	}
 

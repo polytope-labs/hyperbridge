@@ -617,7 +617,7 @@ async fn submit_consensus_update(
 		let client = client.clone();
 		let counterparty = counterparty_clone.clone();
 		let consensus_state = consensus_state.clone();
-		let state_machine = client.evm.state_machine();
+		let state_machine = client.state_machine;
 
 		async move {
 			interval.tick().await;

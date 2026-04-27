@@ -163,11 +163,84 @@ impl EvmConfig {
 		Ok(client)
 	}
 
-	/// Returns the explicit `state_machine` if set, otherwise `None`.
-	/// Callers that need the resolved value should construct an
-	/// [`EvmClient`] and read `client.state_machine` instead.
-	pub fn state_machine(&self) -> Option<StateMachine> {
-		self.state_machine
+	/// Returns the resolved `state_machine`. Panics if the config has not
+	/// been resolved via [`EvmConfig::resolve`] — callers that read this
+	/// before resolution did so by mistake.
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine.expect(
+			"EvmConfig::state_machine called before resolve(); the parser must call \
+			 EvmConfig::resolve / AnyConfig::resolve before any consumer reads this field",
+		)
+	}
+
+	/// Fill in `state_machine`, `ismp_host`, and `consensus_state_id`
+	/// from the chain RPC + [`crate::registry`] when the operator left
+	/// them unset. Returns a new config with all three guaranteed
+	/// `Some(...)`; explicit values are preserved untouched.
+	pub async fn resolve(self) -> anyhow::Result<Self> {
+		let needs_chain_id = self.state_machine.is_none() ||
+			self.ismp_host.is_none() ||
+			self.consensus_state_id.is_none();
+
+		let chain_id = if needs_chain_id {
+			let url = self.rpc_urls.first().ok_or_else(|| {
+				anyhow::anyhow!("evm config requires at least one rpc_urls entry to resolve")
+			})?;
+			Some(crate::registry::fetch_chain_id(url).await?)
+		} else {
+			None
+		};
+
+		let state_machine = match self.state_machine {
+			Some(sm) => sm,
+			None =>
+				StateMachine::Evm(chain_id.expect("set above when state_machine is None") as u32),
+		};
+
+		let lookup_chain_id = || -> u64 {
+			if let Some(c) = chain_id {
+				return c;
+			}
+			match state_machine {
+				StateMachine::Evm(id) => id as u64,
+				_ => unreachable!("non-evm state_machine for an EvmConfig"),
+			}
+		};
+
+		let ismp_host = match self.ismp_host {
+			Some(h) => h,
+			None => {
+				let cid = lookup_chain_id();
+				crate::registry::ismp_host_for_chain_id(cid).ok_or_else(|| {
+					anyhow::anyhow!(
+						"no IsmpHost configured for chain_id={cid}; set ismp_host explicitly \
+						 or add the chain to tesseract_evm::registry"
+					)
+				})?
+			},
+		};
+
+		let consensus_state_id = match self.consensus_state_id {
+			Some(s) => s,
+			None => {
+				let cid = lookup_chain_id();
+				crate::registry::consensus_state_id_for_chain_id(cid)
+					.map(|s| s.to_string())
+					.ok_or_else(|| {
+						anyhow::anyhow!(
+							"no consensus_state_id configured for chain_id={cid}; set it \
+							 explicitly or add the chain to tesseract_evm::registry"
+						)
+					})?
+			},
+		};
+
+		Ok(Self {
+			state_machine: Some(state_machine),
+			ismp_host: Some(ismp_host),
+			consensus_state_id: Some(consensus_state_id),
+			..self
+		})
 	}
 }
 
@@ -357,6 +430,17 @@ impl EvmClient {
 		} else {
 			client.get_block_number().await?
 		};
+		// Mirror the resolved values back into the stored config so anyone
+		// reading `client.config` after construction sees Some(...) for the
+		// three previously-optional fields rather than having to look at
+		// the dedicated `state_machine` / `ismp_host` / `consensus_state_id`
+		// fields below.
+		let resolved_config = EvmConfig {
+			state_machine: Some(state_machine),
+			ismp_host: Some(ismp_host),
+			consensus_state_id: Some(consensus_state_id_str.clone()),
+			..config_clone
+		};
 		let mut partial_client = Self {
 			client,
 			signer,
@@ -365,7 +449,7 @@ impl EvmClient {
 			state_machine,
 			ismp_host,
 			initial_height: latest_height,
-			config: config_clone.clone(),
+			config: resolved_config,
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
 			private_key_signer,

@@ -139,10 +139,11 @@ impl TronConfig {
 		TronClient::new(self).await
 	}
 
+	/// Returns the resolved `state_machine` from the underlying EVM
+	/// config. Panics if the config has not been resolved via
+	/// [`tesseract_evm::EvmConfig::resolve`] / [`AnyConfig::resolve`].
 	pub fn state_machine(&self) -> StateMachine {
-		self.evm
-			.state_machine
-			.expect("[<chain>] state_machine must be set explicitly for relayer routing")
+		self.evm.state_machine()
 	}
 }
 
@@ -331,12 +332,12 @@ mod tests {
 		let config = TronConfig {
 			evm: EvmConfig {
 				rpc_urls: vec!["https://nile.trongrid.io/jsonrpc".to_string()],
-				state_machine: StateMachine::Evm(3448148188),
-				ismp_host,
+				state_machine: Some(StateMachine::Evm(3448148188)),
+				ismp_host: Some(ismp_host),
 				signer: Some(
 					"65d95d3cb8538740f9302c34d8527a20c3260717282b9921b72e90c253457018".to_string(),
 				),
-				consensus_state_id: "TRX0".to_string(),
+				consensus_state_id: Some("TRX0".to_string()),
 				transport: RpcTransport::Tron,
 				..Default::default()
 			},

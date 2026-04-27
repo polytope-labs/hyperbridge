@@ -87,8 +87,19 @@ impl PolyhedronConfig {
 			.await
 			.context(format!("Failed to read config file: {}", path))?;
 
-		let config: PolyhedronConfig =
+		let mut config: PolyhedronConfig =
 			toml::from_str(&contents).context("Failed to parse TOML config")?;
+
+		// Resolve `state_machine`/`ismp_host`/`consensus_state_id` against
+		// the chain so the rest of the binary can read them as concrete
+		// values without re-touching RPC.
+		config.substrate = config
+			.substrate
+			.resolve()
+			.await
+			.context("Failed to resolve [substrate] config")?;
+		config.tron.evm =
+			config.tron.evm.resolve().await.context("Failed to resolve [tron] config")?;
 
 		// Validate configuration
 		config.validate()?;
@@ -110,7 +121,9 @@ impl PolyhedronConfig {
 			log::warn!("Non-in-memory backend configured in beefy config but will be ignored - Polyhedron uses in-memory backend");
 		}
 
-		// Ensure state_machines contains exactly the Tron state machine
+		// Ensure state_machines contains exactly the Tron state machine.
+		// The Tron config is resolved in `load()` before this runs, so
+		// `state_machine()` always returns a concrete value here.
 		let tron_state_machine = self.tron.state_machine();
 		if !self.beefy.state_machines.contains(&tron_state_machine) {
 			anyhow::bail!(
@@ -166,7 +179,7 @@ async fn main() -> anyhow::Result<()> {
 			.context("Failed to create Tron client")?,
 	);
 	let tron_name = tron_client.name();
-	let tron_state_machine = config.tron.state_machine();
+	let tron_state_machine = tron_client.state_machine_id().state_id;
 
 	log::info!("Connected to Tron: {}", tron_name);
 
@@ -189,7 +202,7 @@ async fn main() -> anyhow::Result<()> {
 
 	let finalized_parachain_height: u64 = tron_client
 		.query_latest_height(StateMachineId {
-			state_id: config.substrate.state_machine.clone(),
+			state_id: config.substrate.state_machine(),
 			consensus_state_id: Default::default(),
 		})
 		.await

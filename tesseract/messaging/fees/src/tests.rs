@@ -362,9 +362,9 @@ async fn outbound_rotation_claims_pending_round_trip() {
 	let path = temp_db_path("rotation_pending");
 	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
 
-	tx_payment.insert_pending_rotation_claim("EVM-97", 7, 100).await.unwrap();
-	tx_payment.insert_pending_rotation_claim("EVM-97", 8, 105).await.unwrap();
-	tx_payment.insert_pending_rotation_claim("EVM-1", 4, 120).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-97", &[7], 100).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-97", &[8], 105).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-1", &[4], 120).await.unwrap();
 
 	let pending = tx_payment.list_pending_rotation_claims().await.unwrap();
 	assert_eq!(pending.len(), 3);
@@ -385,8 +385,8 @@ async fn outbound_rotation_claims_survive_reopen() {
 
 	{
 		let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
-		tx_payment.insert_pending_rotation_claim("EVM-1", 11, 300).await.unwrap();
-		tx_payment.insert_pending_rotation_claim("EVM-1", 12, 360).await.unwrap();
+		tx_payment.insert_pending_rotation_claims("EVM-1", &[11], 300).await.unwrap();
+		tx_payment.insert_pending_rotation_claims("EVM-1", &[12], 360).await.unwrap();
 	}
 
 	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
@@ -407,8 +407,8 @@ async fn outbound_rotation_claims_delete_drops_row() {
 	let path = temp_db_path("rotation_delete");
 	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
 
-	tx_payment.insert_pending_rotation_claim("EVM-100", 3, 50).await.unwrap();
-	tx_payment.insert_pending_rotation_claim("EVM-100", 4, 60).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-100", &[3], 50).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-100", &[4], 60).await.unwrap();
 
 	tx_payment.delete_rotation_claim("EVM-100", 3).await.unwrap();
 
@@ -446,10 +446,10 @@ async fn outbound_rotation_claims_upsert_is_idempotent() {
 	let path = temp_db_path("rotation_upsert");
 	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
 
-	tx_payment.insert_pending_rotation_claim("EVM-8453", 17, 900).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-8453", &[17], 900).await.unwrap();
 	// Same key, different rotation_height — upsert should not overwrite,
 	// it should just leave the existing row alone (empty update vec).
-	tx_payment.insert_pending_rotation_claim("EVM-8453", 17, 999).await.unwrap();
+	tx_payment.insert_pending_rotation_claims("EVM-8453", &[17], 999).await.unwrap();
 
 	use crate::db::{
 		outbound_rotation_claims::WhereParam,

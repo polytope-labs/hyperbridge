@@ -54,7 +54,7 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 
 	let stream = futures::stream::iter(chains.clone().into_iter().map(Ok::<_, anyhow::Error>));
 	let hyperbridge_config = SubstrateConfig {
-		state_machine: StateMachine::Kusama(2000),
+		state_machine: Some(StateMachine::Kusama(2000)),
 		max_rpc_payload_size: None,
 		hashing: Some(HashAlgorithm::Keccak),
 		consensus_state_id: Some("PAS0".to_string()),
@@ -96,9 +96,9 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 				if respond.is_some() {
 					let config = EvmConfig {
 						rpc_urls: vec![url.clone()],
-						ismp_host: H160::from_slice(host_addr.as_slice()),
-						state_machine: chain.clone(),
-						consensus_state_id: "PAS0".to_string(),
+						ismp_host: Some(H160::from_slice(host_addr.as_slice())),
+						state_machine: Some(chain.clone()),
+						consensus_state_id: Some("PAS0".to_string()),
 						signer: Some(signing_key.clone()),
 						tracing_batch_size: Default::default(),
 						query_batch_size: Default::default(),

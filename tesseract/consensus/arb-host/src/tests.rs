@@ -155,7 +155,7 @@ async fn test_arbitrum_bold_assertion_verification() {
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
-		consensus_state_id: "ETH0".to_string(),
+		consensus_state_id: Some("ETH0".to_string()),
 		signer: Some(DUMMY_SIGNING_KEY.to_string()),
 		..Default::default()
 	};

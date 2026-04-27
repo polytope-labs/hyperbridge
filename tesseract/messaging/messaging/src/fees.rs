@@ -18,7 +18,7 @@
 use anyhow::anyhow;
 use futures::StreamExt;
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
+	consensus::{StateMachineHeight},
 	host::StateMachine,
 	messaging::{hash_request, ConsensusMessage, Message, Proof, RequestMessage},
 	router::Request,

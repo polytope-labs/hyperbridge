@@ -188,7 +188,7 @@ The configuration file is a toml file that at the moment, that expects the follo
 # Hyperbridge node ws rpc endpoint. The node MUST expose
 # offchain_localStorageGet (typically via --rpc-methods=Unsafe) so the
 # outbound relayer can read accepted BEEFY consensus proofs.
-rpc_ws = "ws://127.0.0.1:9944"
+rpc_ws = "wss://your-hyperbridge-node.example.com"
 
 # Hex-encoded private key for the relayer account on Hyperbridge.
 # This is the account that earns BRIDGE token rewards.
@@ -203,7 +203,7 @@ signer = ""
 # EVM chain template.
 [ethereum]
 type     = "evm"
-rpc_urls = ["http://127.0.0.1:8545"]
+rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 # Hex-encoded private key for the relayer account on this chain.
 # Setting `signer` opts the chain into the HB to chain outbound
 # fan-out (and the fee-withdrawal and fisherman roles). Omit it to
@@ -215,7 +215,7 @@ signer = ""
 # Substrate chain template.
 [substrate]
 type   = "substrate"
-rpc_ws = "ws://127.0.0.1:9944"
+rpc_ws = "wss://your-substrate-chain.example.com"
 signer = ""
 
 # Required for standalone substrate chains, optional for parachains
@@ -245,12 +245,12 @@ else:
 ```toml
 [ethereum]
 type     = "evm"
-rpc_urls = ["http://localhost:3000"]
+rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [ethereum.consensus]
 type             = "ethereum"
-beacon_http_urls = ["http://localhost:3000"]
+beacon_http_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 ```
 
 Chains **without** a `[<chain>.consensus]` sub-table still receive inbound
@@ -309,12 +309,12 @@ the chain inbound only.
 ```toml lineNumbers
 [ethereum]
 type     = "evm"
-rpc_urls = ["http://localhost:3000"]
+rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [ethereum.consensus]
 type             = "ethereum"
-beacon_http_urls = ["http://localhost:3000"]
+beacon_http_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 ```
 
 **Sepolia**
@@ -322,12 +322,12 @@ beacon_http_urls = ["http://localhost:3000"]
 ```toml lineNumbers
 [ethereum]
 type     = "evm"
-rpc_urls = ["http://localhost:3000"]
+rpc_urls = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [ethereum.consensus]
 type             = "sepolia"
-beacon_http_urls = ["http://localhost:3000"]
+beacon_http_urls = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 ```
 
 ### Arbitrum
@@ -337,12 +337,12 @@ beacon_http_urls = ["http://localhost:3000"]
 ```toml lineNumbers
 [arbitrum]
 type     = "evm"
-rpc_urls = ["http://localhost:3100"]
+rpc_urls = ["https://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [arbitrum.consensus]
 type                  = "arbitrum_orbit"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 rollup_core           = "0x4DCeB440657f21083db8aDd07665f8ddBe1DCfc0"
 l1_state_machine      = "EVM-1"
 l1_consensus_state_id = "ETH0"
@@ -354,12 +354,12 @@ consensus_state_id    = "ARB0"
 ```toml lineNumbers
 [arbitrum]
 type     = "evm"
-rpc_urls = ["http://localhost:3100"]
+rpc_urls = ["https://arb-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [arbitrum.consensus]
 type                  = "arbitrum_orbit"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 rollup_core           = "0x042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4"
 l1_state_machine      = "EVM-11155111"
 l1_consensus_state_id = "ETH0"
@@ -373,12 +373,12 @@ consensus_state_id    = "ARB0"
 ```toml lineNumbers
 [optimism]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://opt-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [optimism.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 dispute_game_factory  = "0xe5965Ab5962eDc7477C8520243A95517CD252fA9"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-1"
@@ -391,12 +391,12 @@ consensus_state_id    = "OPT0"
 ```toml lineNumbers
 [optimism]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://opt-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [optimism.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 dispute_game_factory  = "0x05F9613aDB30026FFd634f38e5C4dFd30a197Fa1"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-11155111"
@@ -411,12 +411,12 @@ consensus_state_id    = "OPT0"
 ```toml lineNumbers
 [base]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [base.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 dispute_game_factory  = "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-1"
@@ -429,12 +429,12 @@ consensus_state_id    = "BASE"
 ```toml lineNumbers
 [base]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [base.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
 dispute_game_factory  = "0xd6E6dBf4F7EA0ac412fD8b65ED297e64BB7a06E1"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-11155111"
@@ -447,12 +447,12 @@ consensus_state_id    = "BASE"
 ```toml lineNumbers
 [unichain]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://unichain-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [unichain.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 dispute_game_factory  = "0x2F12d621a16e2d3285929C9996f478508951dFe4"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-1"
@@ -465,12 +465,12 @@ consensus_state_id    = "UNI0"
 ```toml lineNumbers
 [soneium]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://soneium-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [soneium.consensus]
 type                  = "op_stack"
-ethereum_rpc_url      = ["http://localhost:3400"]
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 dispute_game_factory  = "0x512a3d2c7a43bd9261d2b8e8c9c70d4bd4d503c0"
 message_parser        = "0x4200000000000000000000000000000000000016"
 l1_state_machine      = "EVM-1"
@@ -485,12 +485,11 @@ consensus_state_id    = "SON0"
 ```toml lineNumbers
 [bsc]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://bnb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [bsc.consensus]
 type         = "bsc"
-epoch_length = 1000
 ```
 
 **Chapel testnet**
@@ -498,12 +497,11 @@ epoch_length = 1000
 ```toml lineNumbers
 [bsc]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://bnb-testnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [bsc.consensus]
 type         = "bsc_testnet"
-epoch_length = 1000
 ```
 
 ### Gnosis
@@ -513,12 +511,12 @@ epoch_length = 1000
 ```toml lineNumbers
 [gnosis]
 type     = "evm"
-rpc_urls = ["http://localhost:3000"]
+rpc_urls = ["https://gnosis-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [gnosis.consensus]
 type             = "gnosis"
-beacon_http_urls = ["http://localhost:3000"]
+beacon_http_urls = ["https://gnosis-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 ```
 
 **Chiado testnet**
@@ -526,12 +524,12 @@ beacon_http_urls = ["http://localhost:3000"]
 ```toml lineNumbers
 [gnosis]
 type     = "evm"
-rpc_urls = ["http://localhost:3000"]
+rpc_urls = ["https://gnosis-chiado.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [gnosis.consensus]
 type             = "chiado"
-beacon_http_urls = ["http://localhost:3000"]
+beacon_http_urls = ["https://gnosis-chiado.g.alchemy.com/v2/YOUR_API_KEY"]
 ```
 
 ### Polygon
@@ -545,7 +543,7 @@ trust, run your own, or use a public one like
 ```toml lineNumbers
 [polygon]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://polygon-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [polygon.consensus]
@@ -558,7 +556,7 @@ heimdall_rpc_url = "https://polygon-heimdall-rpc.publicnode.com:443"
 ```toml lineNumbers
 [polygon]
 type     = "evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://polygon-amoy.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [polygon.consensus]
@@ -573,7 +571,7 @@ Pharos Atlantic testnet only for now (no mainnet deployment yet).
 ```toml lineNumbers
 [pharos]
 type     = "pharos_evm"
-rpc_urls = ["http://localhost:3400"]
+rpc_urls = ["https://pharos-testnet.g.alchemy.com/v2/YOUR_API_KEY"]
 signer   = "SIGNER-KEY"
 
 [pharos.consensus]
@@ -589,7 +587,7 @@ parachains that should be tracked.
 ```toml lineNumbers
 [mychain]
 type   = "substrate"
-rpc_ws = "ws://127.0.0.1:9944"
+rpc_ws = "wss://your-substrate-chain.example.com"
 signer = "SIGNER-KEY"
 
 [mychain.consensus]

@@ -360,7 +360,6 @@ impl EvmClient {
 		let signer_provider = ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
 		let signer = Arc::new(signer_provider);
 
-
 		let latest_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
@@ -368,11 +367,15 @@ impl EvmClient {
 		};
 
 		let consensus_state_id = {
-		   let mut bytes = [0u8;4];
-		   bytes.copy_from_slice(config.consensus_state_id.expect("Consensus state should have been resolved").as_bytes());
-		   bytes
+			let mut bytes = [0u8; 4];
+			bytes.copy_from_slice(
+				config
+					.consensus_state_id
+					.expect("Consensus state should have been resolved")
+					.as_bytes(),
+			);
+			bytes
 		};
-
 
 		let mut partial_client = Self {
 			client,

@@ -234,8 +234,7 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)])
-			.await
+		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)]).await
 	}
 
 	async fn query_responses_proof(
@@ -252,8 +251,7 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)])
-			.await
+		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)]).await
 	}
 
 	async fn query_state_proof(
@@ -274,8 +272,7 @@ where
 					})
 					.collect();
 
-				self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)])
-					.await
+				self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)]).await
 			},
 			StateProofQueryType::Arbitrary(keys) => {
 				let mut groups: BTreeMap<H160, Vec<Vec<u8>>> = BTreeMap::new();

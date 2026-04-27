@@ -268,6 +268,12 @@ pub mod pallet {
 		/// The address recovered from `signature` does not match the
 		/// EVM relayer recorded in `HandlerV2._epochs[set_id]`.
 		OutboundSignerMismatch,
+		/// The signature provided on the outbound consensus delivery claim
+		/// is not the [`Signature::Evm`] variant. The attribution is keyed
+		/// by an EVM address recovered from a secp256k1 signature, so
+		/// substrate-style signatures cannot be matched against the
+		/// `HandlerV2._epochs[set_id]` slot.
+		OutboundSignatureNotEvm,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -454,6 +460,13 @@ where
 	) -> DispatchResult {
 		let OutboundConsensusDeliveryClaim { state_proof, set_id, payee, signature } = claim;
 		let destination = state_proof.height.id.state_id;
+
+		// The attribution mechanism recovers an EVM address from the
+		// signature and matches it against the `HandlerV2._epochs[set_id]`
+		// slot, so only secp256k1/EVM signatures are meaningful here.
+		// Reject the substrate variants up front to avoid burning the rest
+		// of the verification pipeline on a claim that can never match.
+		ensure!(matches!(signature, Signature::Evm { .. }), Error::<T>::OutboundSignatureNotEvm,);
 
 		ensure!(
 			!OutboundConsensusRotationsClaimed::<T>::contains_key(destination, set_id),

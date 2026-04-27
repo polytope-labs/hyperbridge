@@ -46,7 +46,15 @@ pub struct BscPosConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
+	/// BSC validator-set rotation cadence in blocks. Defaults to the
+	/// BEP-341 mainnet/testnet value of 1000 when omitted from the TOML
+	/// config so operators don't have to hand-set it.
+	#[serde(default = "default_epoch_length")]
 	pub epoch_length: u64,
+}
+
+fn default_epoch_length() -> u64 {
+	1000
 }
 
 impl BscPosConfig {

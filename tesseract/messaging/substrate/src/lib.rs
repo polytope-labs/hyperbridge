@@ -161,7 +161,7 @@ where
 	H256: From<HashFor<C>>,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
-	    let config_clone =  config.clone();
+		let config_clone = config.clone();
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
 		let (client, rpc_client) =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
@@ -193,7 +193,6 @@ where
 		let address = signer.public().0.to_vec();
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id.copy_from_slice(config.consensus_state_id.expect("Resolved").as_bytes());
-
 
 		Ok(Self {
 			client,

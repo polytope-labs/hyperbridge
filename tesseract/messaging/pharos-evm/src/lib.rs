@@ -27,7 +27,7 @@ use ismp::{
 	messaging::{CreateConsensusState, Message},
 };
 use pallet_ismp_host_executive::HostParam;
-use pharos_primitives::{NonExistenceProof};
+use pharos_primitives::NonExistenceProof;
 use pharos_prover::{
 	rpc::{PharosRpcClient, hex_to_bytes},
 	rpc_to_proof_nodes, rpc_to_sibling_proofs,

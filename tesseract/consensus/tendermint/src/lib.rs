@@ -60,7 +60,7 @@ impl TendermintHost {
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 		Ok(Self {
 			consensus_state_id: Default::default(),
-			state_machine: evm.state_machine,
+			state_machine: ismp_provider.state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover: Arc::new(CometBFTClient::new(&host.rpc_url).await?),

@@ -22,11 +22,10 @@ use anyhow::Context;
 use clap::Parser;
 use futures::FutureExt;
 use ismp::host::StateMachine;
-use polkadot_sdk::{sc_service::TaskManager, sp_core::Pair, sp_runtime::AccountId32};
+use polkadot_sdk::sc_service::TaskManager;
 use tesseract_consensus_config::create_client_map;
-use tesseract_primitives::{IsmpProvider, PendingConsensusDeliveryClaim, TxReceipt};
+use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
-use tokio::sync::mpsc::{self, Sender};
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
@@ -35,7 +34,6 @@ use crate::{
 	fees::AccumulateFees,
 	provider::{ConsensusProofSource, OffchainProofSource},
 };
-use messaging::outbound;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -320,171 +318,23 @@ impl Cli {
 			.filter_map(|(sm, _)| providers.get(sm).map(|p| (*sm, p.clone())))
 			.collect();
 
-		if destinations.is_empty() {
-			tracing::info!(target: crate::LOG_TARGET, "no chains have a signer configured, skipping outbound task");
-		} else {
-			// One fee-accumulation channel per outbound destination. Populated
-			// only when fees aren't globally disabled.
-			let mut outbound_fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>> =
-				HashMap::new();
-			if !fees_disabled {
-				for (sm, provider) in &destinations {
-					let (fee_sender, fee_receiver) = mpsc::channel::<Vec<TxReceipt>>(64);
-					outbound_fee_senders.insert(*sm, fee_sender);
-
-					let name =
-						format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
-					let hb_for_fees = SubstrateClient::<KeccakSubstrateChain>::new(
-						config.hyperbridge.substrate.clone(),
-					)
-					.await?;
-					let dest = provider.clone();
-					let client_map = provider_clients.clone();
-					let tx_payment = tx_payment.clone();
-					let span = tracing::info_span!(
-						"fee_accumulation",
-						chain = %provider.name(),
-						hb = %hyperbridge_provider.name(),
-					);
-					task_manager.spawn_essential_handle().spawn_blocking(
-						Box::leak(Box::new(name)),
-						"fees",
-						async move {
-							tracing::trace!(target: crate::LOG_TARGET, "task started");
-							let res = messaging::fee_accumulation(
-								fee_receiver,
-								dest,
-								hb_for_fees,
-								client_map,
-								tx_payment,
-							)
-							.await;
-							tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
-						}
-						.instrument(span)
-						.boxed(),
-					);
-				}
-			}
-
-			let hb = hyperbridge_provider.clone();
-			let name = format!("outbound-{}", hb.name());
-			let outbound_relayer_cfg = messaging_config.clone();
-			let outbound_client_map = provider_clients.clone();
-			let outbound_proof_source = proof_source.clone();
-			let destinations_len = destinations.len();
-
-			// Outbound consensus delivery reward claims: pair the outbound
-			// task with a background worker that consumes
-			// `PendingConsensusDeliveryClaim` messages, waits for HB to see
-			// the destination, builds the state proof, and submits the
-			// claim extrinsic on HB.
-			let (claim_sender, claim_receiver) = mpsc::channel::<PendingConsensusDeliveryClaim>(64);
-			let claim_hb =
-				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
-					.await?;
-			let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
-				destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
-
-			// Startup replay: any claim rows left in `pending` (i.e. the
-			// relayer crashed or restarted between delivery and claim
-			// submission) get pushed back into the channel here so the
-			// claim task can pick up where it left off. The pallet-side
-			// `(dest, set_id)` idempotency tag makes duplicate submission
-			// safe; the worst case is a wasted extrinsic that the pallet
-			// rejects with `OutboundRotationAlreadyClaimed`.
-			match tx_payment.list_pending_rotation_claims().await {
-				Ok(rows) if !rows.is_empty() => {
-					tracing::info!(
-						target: crate::LOG_TARGET,
-						count = rows.len(),
-						"replaying pending outbound consensus delivery claims from db",
-					);
-					for row in rows {
-						use std::str::FromStr;
-						let Ok(destination) = StateMachine::from_str(&row.dest) else {
-							tracing::warn!(
-								target: crate::LOG_TARGET,
-								dest = %row.dest,
-								"skipping pending claim row with unparseable state machine",
-							);
-							continue;
-						};
-						let claim = PendingConsensusDeliveryClaim {
-							destination,
-							delivery_height: row.rotation_height as u64,
-							set_id: row.set_id as u64,
-						};
-						if let Err(err) = claim_sender.try_send(claim) {
-							tracing::warn!(
-								target: crate::LOG_TARGET,
-								?err,
-								"claim channel refused replayed pending claim",
-							);
-						}
-					}
-				},
-				Ok(_) => {},
-				Err(err) => {
-					tracing::warn!(
-						target: crate::LOG_TARGET,
-						?err,
-						"list_pending_rotation_claims failed; skipping startup replay",
-					);
-				},
-			}
-
-			let claim_name = format!("outbound-claim-{}", hyperbridge_provider.name());
-			let claim_span =
-				tracing::info_span!("outbound_claim", hb = %hyperbridge_provider.name());
-			let claim_tx_payment = tx_payment.clone();
-			// Pay claims into the relayer's own HB sr25519 account, same
-			// account used for messaging fee accumulation, so all relayer
-			// earnings on HB land in one place.
-			let claim_payee: AccountId32 = claim_hb.signer.public().0.into();
-			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(claim_name)),
-				"outbound",
-				async move {
-					tracing::trace!(target: crate::LOG_TARGET, "task started");
-					let res = messaging::outbound_claim::run(
-						claim_hb,
-						claim_destinations,
-						claim_receiver,
-						Some(claim_tx_payment),
-						claim_payee,
-					)
-					.await;
-					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
-				}
-				.instrument(claim_span)
-				.boxed(),
-			);
-
-			let outbound_claim_tx_payment = tx_payment.clone();
-			task_manager.spawn_essential_handle().spawn_blocking(
-				Box::leak(Box::new(name)),
-				"outbound",
-				async move {
-					tracing::trace!(target: crate::LOG_TARGET, "task started");
-					let res = outbound::run(
-						hb,
-						destinations,
-						outbound_proof_source,
-						outbound_relayer_cfg,
-						outbound_client_map,
-						outbound_fee_senders,
-						Some(claim_sender),
-						Some(outbound_claim_tx_payment),
-					)
-					.await;
-					tracing::error!(target: crate::LOG_TARGET, ?res, "task terminated");
-				}
-				.boxed(),
-			);
-
-			tracing::trace!(target: crate::LOG_TARGET, destinations = destinations_len, "initialized outbound messaging task");
-		}
+		// Outbound pipeline. The initializer owns the spawn responsibility
+		// for fee accumulation + outbound_claim + outbound::run; cli.rs
+		// just hands it the inputs.
+		messaging::outbound::initialize(
+			messaging::outbound::OutboundInitParams {
+				hyperbridge_config: config.hyperbridge.substrate.clone(),
+				hyperbridge_provider: hyperbridge_provider.clone(),
+				destinations,
+				provider_clients: provider_clients.clone(),
+				proof_source: proof_source.clone(),
+				relayer_config: messaging_config.clone(),
+				tx_payment: tx_payment.clone(),
+				fees_disabled,
+			},
+			&task_manager,
+		)
+		.await?;
 
 		// Fee withdrawal: one global task, periodic per
 		// `relayer.withdrawal_frequency`. Queries each destination's unclaimed

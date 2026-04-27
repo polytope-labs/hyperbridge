@@ -90,12 +90,8 @@ impl<C: Config> PharosHost<C> {
 		let prover = PharosProver::new(rpc_url).await?;
 
 		Ok(Self {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
-			state_machine: evm.state_machine,
+			consensus_state_id: ismp_provider.consensus_state_id,
+			state_machine: ismp_provider.state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover,

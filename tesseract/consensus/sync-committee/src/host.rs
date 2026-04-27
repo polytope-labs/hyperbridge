@@ -221,7 +221,10 @@ impl<
 		for (state_machine, l2_host) in self.l2_clients.clone() {
 			match l2_host {
 				L2Host::ArbitrumOrbit(host) => {
-					rollup_core_address.insert(host.evm.state_machine, host.host.rollup_core);
+					rollup_core_address.insert(
+						host.evm.state_machine.expect("backfilled at construction"),
+						host.host.rollup_core,
+					);
 					let number = host.arb_execution_client.get_block_number().await?;
 					let block = host
 						.arb_execution_client
@@ -230,7 +233,7 @@ impl<
 						.ok_or_else(|| {
 							anyhow!(
 								"Didn't find block with number {number} on {:?}",
-								host.evm.state_machine
+								host.evm.state_machine.expect("backfilled at construction")
 							)
 						})?;
 					state_machine_commitments.push((
@@ -255,13 +258,16 @@ impl<
 						.map(|addr| (addr, vec![CANNON, _PERMISSIONED]))
 					{
 						dispute_factory_address.insert(
-							host.evm.state_machine,
+							host.evm.state_machine.expect("backfilled at construction"),
 							(dispute_factory, respected_game_types),
 						);
 					}
 
 					if let Some(l2_oracle_address) = host.host.l2_oracle {
-						l2_oracle.insert(host.evm.state_machine, l2_oracle_address);
+						l2_oracle.insert(
+							host.evm.state_machine.expect("backfilled at construction"),
+							l2_oracle_address,
+						);
 					}
 
 					let number = host.op_execution_client.get_block_number().await?;
@@ -272,7 +278,7 @@ impl<
 						.ok_or_else(|| {
 							anyhow!(
 								"Didn't find block with number {number} on {:?}",
-								host.evm.state_machine
+								host.evm.state_machine.expect("backfilled at construction")
 							)
 						})?;
 					state_machine_commitments.push((
@@ -303,7 +309,10 @@ impl<
 
 		let number = self.el.get_block_number().await?;
 		let block = self.el.get_block(BlockId::number(number)).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+			anyhow!(
+				"Didn't find block with number {number} on {:?}",
+				self.evm.state_machine.expect("backfilled at construction")
+			)
 		})?;
 		state_machine_commitments.push((
 			StateMachineId {

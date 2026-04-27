@@ -176,10 +176,13 @@ impl IsmpHost for OpHost {
 
 		let number = self.op_execution_client.get_block_number().await?;
 		let block = self.op_execution_client.get_block(number.into()).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+			anyhow!(
+				"Didn't find block with number {number} on {:?}",
+				self.evm.state_machine.expect("backfilled at construction")
+			)
 		})?;
 		let state_machine_id = StateMachineId {
-			state_id: self.evm.state_machine,
+			state_id: self.evm.state_machine.expect("backfilled at construction"),
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 		let initial_consensus_state = ConsensusState {
@@ -500,7 +503,7 @@ async fn submit_state_proposal(
 	// Fetch L1 gas price
 	let gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
-		client.evm.ismp_host.0.into(),
+		client.evm.ismp_host.expect("backfilled at construction").0.into(),
 		client.beacon_execution_client.clone(),
 	)
 	.await?;
@@ -609,7 +612,7 @@ async fn submit_consensus_update(
 	));
 
 	let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
-	trace!(target: "op-host", "{:?}: -> Latest height found for l1 state machine is {initial_height:?}", client.evm.state_machine);
+	trace!(target: "op-host", "{:?}: -> Latest height found for l1 state machine is {initial_height:?}", client.evm.state_machine.expect("backfilled at construction"));
 	let latest_height = initial_height;
 
 	let counterparty_clone = counterparty.clone();
@@ -646,7 +649,7 @@ async fn submit_consensus_update(
 								Ok(payload) => {
 									let update = OptimismUpdate {
 										state_machine_id: StateMachineId {
-											state_id: client.evm.state_machine,
+											state_id: client.evm.state_machine.expect("backfilled at construction"),
 											consensus_state_id: client.consensus_state_id,
 										},
 										l1_height: current_height,
@@ -683,7 +686,7 @@ async fn submit_consensus_update(
 				}
 				Some(OptimismConsensusType::OpFaultProofGames) => {
 					let l2_state_machine_id = StateMachineId {
-						state_id: client.evm.state_machine,
+						state_id: client.evm.state_machine.expect("backfilled at construction"),
 						consensus_state_id: client.consensus_state_id,
 					};
 					let game_type_configs = match fetch_game_type_configs(&counterparty, l2_state_machine_id).await {
@@ -705,7 +708,7 @@ async fn submit_consensus_update(
 									if let Some(payload) = maybe_payload {
 										let update = OptimismUpdate {
 											state_machine_id: StateMachineId {
-												state_id: client.evm.state_machine,
+												state_id: client.evm.state_machine.expect("backfilled at construction"),
 												consensus_state_id: client.consensus_state_id,
 											},
 											l1_height: current_height,

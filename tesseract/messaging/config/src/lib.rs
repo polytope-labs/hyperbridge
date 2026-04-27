@@ -50,12 +50,29 @@ pub enum AnyConfig {
 
 impl AnyConfig {
 	pub fn state_machine(&self) -> ismp::host::StateMachine {
+		// `state_machine` is optional on the per-client configs so that
+		// chains in `tesseract_evm::registry` / `tesseract_substrate::registry`
+		// can be auto-derived. The relayer-level routing layer, however,
+		// keys chains by `StateMachine` and can't proceed without one — so
+		// require it here with a clear error.
 		match self {
-			Self::Substrate(config) => config.state_machine,
-			Self::Evm(config) => config.state_machine,
-			Self::Tendermint(tendermint_config) => tendermint_config.evm_config.state_machine,
-			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config.evm.state_machine,
-			Self::PharosEvm(config) => config.state_machine,
+			Self::Substrate(config) => config
+				.state_machine
+				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+			Self::Evm(config) => config
+				.state_machine
+				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+			Self::Tendermint(tendermint_config) => tendermint_config
+				.evm_config
+				.state_machine
+				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+			Self::SubstrateEvm(substrate_evm_config) => substrate_evm_config
+				.evm
+				.state_machine
+				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
+			Self::PharosEvm(config) => config
+				.state_machine
+				.expect("[<chain>] state_machine must be set explicitly for relayer routing"),
 			Self::Tron(config) => config.state_machine(),
 		}
 	}
@@ -106,28 +123,30 @@ impl AnyConfig {
 				client.set_latest_finalized_height(hyperbridge).await?;
 				Arc::new(client) as Arc<dyn IsmpProvider>
 			},
-			AnyConfig::Tendermint(tendermint_config) => match tendermint_config
-				.evm_config
-				.state_machine
-			{
-				ismp::host::StateMachine::Evm(chain_id) if chain_id == 1328 || chain_id == 1329 => {
-					let mut client = TendermintEvmClient::<SeiEvmKeys>::new(
-						EvmClient::new(tendermint_config.evm_config).await?,
-						tendermint_config.rpc_url,
-					)
-					.await?;
-					client.set_latest_finalized_height(hyperbridge).await?;
-					Arc::new(client) as Arc<dyn IsmpProvider>
-				},
-				_ => {
-					let mut client = TendermintEvmClient::<DefaultEvmKeys>::new(
-						EvmClient::new(tendermint_config.evm_config).await?,
-						tendermint_config.rpc_url,
-					)
-					.await?;
-					client.set_latest_finalized_height(hyperbridge).await?;
-					Arc::new(client) as Arc<dyn IsmpProvider>
-				},
+			AnyConfig::Tendermint(tendermint_config) => {
+				let evm_inner = EvmClient::new(tendermint_config.evm_config).await?;
+				match evm_inner.state_machine {
+					ismp::host::StateMachine::Evm(chain_id)
+						if chain_id == 1328 || chain_id == 1329 =>
+					{
+						let mut client = TendermintEvmClient::<SeiEvmKeys>::new(
+							evm_inner,
+							tendermint_config.rpc_url,
+						)
+						.await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
+					_ => {
+						let mut client = TendermintEvmClient::<DefaultEvmKeys>::new(
+							evm_inner,
+							tendermint_config.rpc_url,
+						)
+						.await?;
+						client.set_latest_finalized_height(hyperbridge).await?;
+						Arc::new(client) as Arc<dyn IsmpProvider>
+					},
+				}
 			},
 			AnyConfig::SubstrateEvm(config) => {
 				let mut client = SubstrateEvmClient::<Blake2SubstrateChain>::new(config).await?;

@@ -35,9 +35,8 @@ use ismp::{consensus::StateMachineHeight, host::StateMachine, messaging::Proof};
 use pallet_ismp_relayer::{
 	outbound_consensus_delivery_message, OutboundConsensusDeliveryClaim, HANDLER_V2_EPOCHS_SLOT,
 };
-use polkadot_sdk::sp_runtime::AccountId32;
 use primitive_types::{H160, U256};
-use sp_core::keccak_256;
+use sp_core::{keccak_256, Pair};
 use tesseract_primitives::{
 	wait_for_state_machine_update, IsmpProvider, PendingConsensusDeliveryClaim, StateProofQueryType,
 };
@@ -49,59 +48,105 @@ use transaction_fees::TransactionPayment;
 const LOG_TARGET: &str = "tesseract-messaging-outbound-claim";
 
 /// Drive a single relayer's outbound consensus delivery claims. Mirrors
-/// [`fee_accumulation`](crate::fee_accumulation) shape: drain the trigger
-/// channel, wait for HB to verify the destination block, prove
-/// `_epochs[set_id]`, submit the claim extrinsic, delete the persisted row.
+/// [`fee_accumulation`](crate::fee_accumulation) shape: receive a trigger,
+/// pull every pending row from the DB (absorbing both the current
+/// trigger and anything left over from a crash), process them, delete on
+/// success.
 ///
-/// `payee` is the sr25519 Hyperbridge account the reward will be credited
-/// to — the relayer's own HB account is the obvious default; the cli
-/// passes `hyperbridge.signer.public().into()`.
+/// The payee is always the relayer's own Hyperbridge sr25519 account
+/// (`hyperbridge.signer.public()`) — the same account that already
+/// receives messaging fees, so all relayer earnings on HB land in one
+/// place.
 pub async fn run(
 	hyperbridge: SubstrateClient<KeccakSubstrateChain>,
 	destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	mut receiver: Receiver<PendingConsensusDeliveryClaim>,
 	tx_payment: Option<Arc<TransactionPayment>>,
-	payee: AccountId32,
 ) -> Result<(), anyhow::Error> {
 	let hb_provider: Arc<dyn IsmpProvider> = Arc::new(hyperbridge.clone());
-	let payee_bytes: [u8; 32] = *payee.as_ref();
+	let payee_bytes: [u8; 32] = hyperbridge.signer.public().0;
 
-	while let Some(pending) = receiver.recv().await {
-		let span = tracing::info_span!(
-			"outbound_claim",
-			destination = %pending.destination,
-			delivery_height = pending.delivery_height,
-			set_id = pending.set_id,
-		);
-		let dest = destinations.get(&pending.destination).cloned();
-		let hb = hyperbridge.clone();
-		let hb_view = hb_provider.clone();
-		let tx_payment = tx_payment.clone();
-		async move {
-			let Some(dest) = dest else {
-				tracing::warn!(target: LOG_TARGET, "no provider for destination; dropping claim");
-				return;
-			};
-			match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
-				Ok(()) => {
-					tracing::info!(target: LOG_TARGET, "claim submitted");
-					if let Some(tx_payment) = &tx_payment {
-						let _ = tx_payment
-							.delete_rotation_claim(&pending.destination.to_string(), pending.set_id)
-							.await;
-					}
-				},
+	while let Some(trigger) = receiver.recv().await {
+		// The outbound task always inserts into the DB before pushing the
+		// trigger, so the DB is the source of truth. Pulling every pending
+		// row on each wake-up means a single trigger sweeps the backlog
+		// (no separate startup replay needed) and a crashed-then-restarted
+		// claim eventually gets retried by the next trigger.
+		let pending = match &tx_payment {
+			Some(tp) => match tp.list_pending_rotation_claims().await {
+				Ok(rows) => rows
+					.into_iter()
+					.filter_map(|row| {
+						use std::str::FromStr;
+						let destination = StateMachine::from_str(&row.dest)
+							.map_err(|err| {
+								tracing::warn!(
+									target: LOG_TARGET,
+									dest = %row.dest,
+									?err,
+									"unparseable state machine in DB; skipping row",
+								);
+							})
+							.ok()?;
+						Some(PendingConsensusDeliveryClaim {
+							destination,
+							delivery_height: row.rotation_height as u64,
+							set_id: row.set_id as u64,
+						})
+					})
+					.collect::<Vec<_>>(),
 				Err(err) => {
-					tracing::error!(
+					tracing::warn!(
 						target: LOG_TARGET,
 						?err,
-						"claim submission failed; row left in DB for next-startup retry",
+						"list_pending_rotation_claims failed; processing the live trigger only",
 					);
+					vec![trigger]
 				},
+			},
+			None => vec![trigger],
+		};
+
+		for pending in pending {
+			let span = tracing::info_span!(
+				"outbound_claim",
+				destination = %pending.destination,
+				delivery_height = pending.delivery_height,
+				set_id = pending.set_id,
+			);
+			let dest = destinations.get(&pending.destination).cloned();
+			let hb = hyperbridge.clone();
+			let hb_view = hb_provider.clone();
+			let tx_payment = tx_payment.clone();
+			async move {
+				let Some(dest) = dest else {
+					tracing::warn!(target: LOG_TARGET, "no provider for destination; dropping claim");
+					return;
+				};
+				match process_claim(&hb, hb_view, dest, &pending, payee_bytes).await {
+					Ok(()) => {
+						tracing::info!(target: LOG_TARGET, "claim submitted");
+						if let Some(tx_payment) = &tx_payment {
+							let _ = tx_payment
+								.delete_rotation_claim(
+									&pending.destination.to_string(),
+									pending.set_id,
+								)
+								.await;
+						}
+					},
+					Err(err) => {
+						tracing::error!(
+							target: LOG_TARGET,
+							?err,
+							"claim submission failed; row left in DB for next trigger",
+						);
+					},
+				}
 			}
+			.instrument(span)
+			.await;
 		}
-		.instrument(span)
-		.await;
 	}
 
 	Err(anyhow!("outbound-claim channel closed"))

@@ -92,7 +92,7 @@ impl ArbHost {
 		// agree on the same id.
 		let evm_owned = {
 			let mut evm_override = evm.clone();
-			evm_override.consensus_state_id = host.consensus_state_id.clone();
+			evm_override.consensus_state_id = Some(host.consensus_state_id.clone());
 			evm_override
 		};
 		let evm: &EvmConfig = &evm_owned;
@@ -101,18 +101,17 @@ impl ArbHost {
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+		// Snapshot the resolved values from the constructed client so later
+		// reads of self.evm.state_machine etc never see None.
+		let evm_resolved = provider.resolved_config();
 
 		Ok(Self {
 			arb_execution_client: Arc::new(el),
 			beacon_execution_client: Arc::new(beacon_client),
 			rollup_core: host.rollup_core,
 			host: host.clone(),
-			evm: evm.clone(),
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
+			evm: evm_resolved,
+			consensus_state_id: provider.consensus_state_id,
 			provider,
 			l1_state_machine: host.l1_state_machine,
 			l1_consensus_state_id: {
@@ -132,7 +131,11 @@ impl ArbHost {
 			.get_block(BlockId::hash(block_hash))
 			.await?
 			.ok_or_else(|| {
-				anyhow!("{} Header not found for {:?}", self.evm.state_machine, block_hash)
+				anyhow!(
+					"{} Header not found for {:?}",
+					self.evm.state_machine.expect("backfilled at construction"),
+					block_hash
+				)
 			})?;
 		let arb_header = block.into();
 

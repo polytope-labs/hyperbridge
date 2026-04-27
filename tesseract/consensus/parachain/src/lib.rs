@@ -116,14 +116,13 @@ where
 		substrate: &SubstrateConfig,
 		config: &ParachainConfig,
 	) -> Result<Self, anyhow::Error> {
-		let state_machine = substrate.state_machine;
+		let substrate_client = SubstrateClient::<S>::new(substrate.clone()).await?;
+		let state_machine = substrate_client.state_machine();
 		if !matches!(state_machine, StateMachine::Polkadot(_) | StateMachine::Kusama(_)) {
 			return Err(anyhow!(
 				"ParachainHost only supports Polkadot/Kusama parachains, got {state_machine}"
 			));
 		}
-
-		let substrate_client = SubstrateClient::<S>::new(substrate.clone()).await?;
 
 		// 150 MiB payload cap — relay state proofs can be chunky.
 		let (relay_client, relay_rpc_client) =

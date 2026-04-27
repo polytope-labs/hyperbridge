@@ -234,7 +234,7 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
+		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)])
 			.await
 	}
 
@@ -252,7 +252,7 @@ where
 			})
 			.collect();
 
-		self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
+		self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)])
 			.await
 	}
 
@@ -274,7 +274,7 @@ where
 					})
 					.collect();
 
-				self.fetch_combined_proof(at, vec![(self.evm.config.ismp_host, storage_keys)])
+				self.fetch_combined_proof(at, vec![(self.evm.ismp_host, storage_keys)])
 					.await
 			},
 			StateProofQueryType::Arbitrary(keys) => {

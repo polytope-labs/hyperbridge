@@ -109,17 +109,50 @@ impl ClientType {
 	}
 }
 
+/// Serde adapter for `Option<StateMachine>` that round-trips through the
+/// string form (e.g. `"EVM-1"`) produced by [`StateMachine`]'s `Display`
+/// / `FromStr` impls. Mirrors `serde_hex_utils::as_string` but for an
+/// optional field — there's no `option_as_string` upstream.
+mod option_state_machine {
+	use ismp::host::StateMachine;
+	use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+	pub fn serialize<S: Serializer>(
+		value: &Option<StateMachine>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error> {
+		value.as_ref().map(|sm| sm.to_string()).serialize(serializer)
+	}
+
+	pub fn deserialize<'de, D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Option<StateMachine>, D::Error> {
+		let raw: Option<String> = Option::deserialize(deserializer)?;
+		raw.map(|s| s.parse::<StateMachine>().map_err(serde::de::Error::custom))
+			.transpose()
+	}
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvmConfig {
 	/// RPC urls for the execution client
 	pub rpc_urls: Vec<String>,
-	/// State machine Identifier for this client on it's counterparties.
-	#[serde(with = "serde_hex_utils::as_string")]
-	pub state_machine: StateMachine,
-	/// Consensus state id for the consensus client on counterparty chain
-	pub consensus_state_id: String,
-	/// Ismp Host contract address
-	pub ismp_host: H160,
+	/// State machine Identifier for this client on its counterparties. When
+	/// omitted, [`EvmClient::new`] derives it from `eth_chainId` (so the
+	/// relayer config can stay minimal for any known chain).
+	#[serde(default, with = "option_state_machine")]
+	pub state_machine: Option<StateMachine>,
+	/// Consensus state id for the consensus client on counterparty chain.
+	/// When omitted, [`EvmClient::new`] looks it up in
+	/// [`registry::consensus_state_id_for_chain_id`] using the resolved
+	/// chain id.
+	#[serde(default)]
+	pub consensus_state_id: Option<String>,
+	/// `IsmpHost` contract address. When omitted, [`EvmClient::new`]
+	/// looks it up in [`registry::ismp_host_for_chain_id`] using the
+	/// resolved chain id.
+	#[serde(default)]
+	pub ismp_host: Option<H160>,
 	/// Relayer account private key. When omitted, the chain runs in
 	/// inbound-only mode: events are read but no transactions are submitted to
 	/// it, so it's excluded from outbound delivery, fee withdrawal, and
@@ -154,7 +187,10 @@ impl EvmConfig {
 		Ok(client)
 	}
 
-	pub fn state_machine(&self) -> StateMachine {
+	/// Returns the explicit `state_machine` if set, otherwise `None`.
+	/// Callers that need the resolved value should construct an
+	/// [`EvmClient`] and read `client.state_machine` instead.
+	pub fn state_machine(&self) -> Option<StateMachine> {
 		self.state_machine
 	}
 }
@@ -163,9 +199,9 @@ impl Default for EvmConfig {
 	fn default() -> Self {
 		Self {
 			rpc_urls: Default::default(),
-			state_machine: StateMachine::Evm(1),
-			consensus_state_id: Default::default(),
-			ismp_host: Default::default(),
+			state_machine: None,
+			consensus_state_id: None,
+			ismp_host: None,
 			signer: None,
 			tracing_batch_size: Default::default(),
 			query_batch_size: Default::default(),
@@ -190,13 +226,18 @@ pub struct EvmClient {
 	pub signer: Arc<AlloySignerProvider>,
 	/// Public Key Address
 	pub address: Vec<u8>,
-	/// Consensus state Id
+	/// Consensus state Id (resolved from config or registry).
 	pub consensus_state_id: ConsensusStateId,
-	/// State machine Identifier for this client.
+	/// State machine Identifier for this client (resolved from config or
+	/// `eth_chainId`).
 	pub state_machine: StateMachine,
+	/// `IsmpHost` contract address (resolved from config or registry).
+	pub ismp_host: H160,
 	/// Latest state machine height.
 	initial_height: u64,
-	/// Config
+	/// Config (user-supplied; the resolved `state_machine`, `ismp_host`,
+	/// and `consensus_state_id` are reflected on the dedicated fields
+	/// above, not in this snapshot).
 	pub config: EvmConfig,
 	/// EVM chain Id.
 	pub chain_id: u64,
@@ -302,10 +343,37 @@ impl EvmClient {
 		let signer_provider = ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
 		let signer = Arc::new(signer_provider);
 
+		// Resolve the three optional config fields. Explicit values always
+		// win; otherwise we use the chain id (already fetched above) to
+		// look up the canonical entries from `crate::registry`.
+		let state_machine =
+			config.state_machine.unwrap_or_else(|| StateMachine::Evm(chain_id as u32));
+
+		let ismp_host = match config.ismp_host {
+			Some(host) => host,
+			None => crate::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
+				anyhow::anyhow!(
+					"no IsmpHost configured for chain_id={chain_id}; set ismp_host explicitly \
+					 or add the chain to tesseract_evm::registry"
+				)
+			})?,
+		};
+
+		let consensus_state_id_str = match config.consensus_state_id.as_deref() {
+			Some(s) => s.to_string(),
+			None => crate::registry::consensus_state_id_for_chain_id(chain_id)
+				.map(|s| s.to_string())
+				.ok_or_else(|| {
+					anyhow::anyhow!(
+						"no consensus_state_id configured for chain_id={chain_id}; set it \
+						 explicitly or add the chain to tesseract_evm::registry"
+					)
+				})?,
+		};
 		let consensus_state_id = {
-			let mut consensus_state_id: ConsensusStateId = Default::default();
-			consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
-			consensus_state_id
+			let mut id: ConsensusStateId = Default::default();
+			id.copy_from_slice(consensus_state_id_str.as_bytes());
+			id
 		};
 
 		let latest_height = if let Some(initial_height) = config.initial_height {
@@ -318,7 +386,8 @@ impl EvmClient {
 			signer,
 			address,
 			consensus_state_id,
-			state_machine: config.state_machine,
+			state_machine,
+			ismp_host,
 			initial_height: latest_height,
 			config: config_clone.clone(),
 			chain_id,
@@ -349,7 +418,7 @@ impl EvmClient {
 			EvmHostEvents,
 		};
 
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let filter = Filter::new().address(host_addr).from_block(from).to_block(to);
 
 		let logs = self.client.get_logs(&filter).await?;
@@ -394,7 +463,7 @@ impl EvmClient {
 	) -> Result<(), anyhow::Error> {
 		use alloy::primitives::Bytes;
 
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let call = contract.setConsensusState(Bytes::from(consensus_state), height, commitment);
 
@@ -468,17 +537,31 @@ impl EvmClient {
 	}
 
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		Ok(H160::from_slice(params.hostManager.as_slice()))
 	}
 
 	pub async fn handler(&self) -> Result<H160, anyhow::Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		Ok(H160::from_slice(params.handler.as_slice()))
+	}
+
+	/// Returns a clone of the user-supplied [`EvmConfig`] with the three
+	/// optional fields (`state_machine`, `ismp_host`, `consensus_state_id`)
+	/// backfilled from the resolved values on this client. Downstream
+	/// consensus hosts that store an `EvmConfig` snapshot use this so their
+	/// later reads of those fields do not have to deal with `Option`.
+	pub fn resolved_config(&self) -> EvmConfig {
+		let mut out = self.config.clone();
+		out.state_machine = Some(self.state_machine);
+		out.ismp_host = Some(self.ismp_host);
+		out.consensus_state_id =
+			Some(String::from_utf8(self.consensus_state_id.to_vec()).unwrap_or_default());
+		out
 	}
 }
 
@@ -535,6 +618,7 @@ impl Clone for EvmClient {
 			address: self.address.clone(),
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
+			ismp_host: self.ismp_host,
 			initial_height: self.initial_height,
 			config: self.config.clone(),
 			chain_id: self.chain_id.clone(),

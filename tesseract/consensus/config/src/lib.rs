@@ -364,10 +364,23 @@ pub async fn create_client_map(
 			(AnyConfig::Polygon { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::Tendermint { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
 			(AnyConfig::EvmHost { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,
-			(AnyConfig::Pharos { inner }, HostKind::Evm(evm)) => match evm.state_machine {
-				StateMachine::Evm(688689) =>
-					inner.into_client::<pharos_primitives::Testnet>(evm).await?,
-				_ => inner.into_client::<pharos_primitives::Mainnet>(evm).await?,
+			(AnyConfig::Pharos { inner }, HostKind::Evm(evm)) => {
+				// Need the chain id to select between Testnet/Mainnet. Prefer
+				// the explicit state_machine in config; fall back to an
+				// `eth_chainId` RPC against the first configured endpoint.
+				let chain_id = match evm.state_machine {
+					Some(StateMachine::Evm(id)) => id,
+					_ => {
+						let url = evm.rpc_urls.first().ok_or_else(|| {
+							anyhow!("Pharos host requires at least one rpc url to derive chain id")
+						})?;
+						tesseract_evm::registry::fetch_chain_id(url).await? as u32
+					},
+				};
+				match chain_id {
+					688689 => inner.into_client::<pharos_primitives::Testnet>(evm).await?,
+					_ => inner.into_client::<pharos_primitives::Mainnet>(evm).await?,
+				}
 			},
 			(AnyConfig::Grandpa { inner }, HostKind::Substrate(substrate)) => {
 				match substrate.hashing {

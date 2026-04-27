@@ -50,11 +50,36 @@ pub mod registry;
 #[cfg(feature = "testing")]
 mod testing;
 
+/// Serde adapter for `Option<StateMachine>` that round-trips through the
+/// stringly form (e.g. `"POLKADOT-3367"`) produced by [`StateMachine`]'s
+/// `Display` / `FromStr` impls.
+mod option_state_machine {
+	use ismp::host::StateMachine;
+	use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+	pub fn serialize<S: Serializer>(
+		value: &Option<StateMachine>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error> {
+		value.as_ref().map(|sm| sm.to_string()).serialize(serializer)
+	}
+
+	pub fn deserialize<'de, D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Option<StateMachine>, D::Error> {
+		let raw: Option<String> = Option::deserialize(deserializer)?;
+		raw.map(|s| s.parse::<StateMachine>().map_err(serde::de::Error::custom))
+			.transpose()
+	}
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateConfig {
-	/// Hyperbridge network
-	#[serde(with = "serde_hex_utils::as_string")]
-	pub state_machine: StateMachine,
+	/// Hyperbridge network. When omitted, [`SubstrateClient::new`]
+	/// derives it from `system_chain` + `ParachainInfo::parachainId` via
+	/// [`crate::registry::fetch_state_machine`].
+	#[serde(default, with = "option_state_machine")]
+	pub state_machine: Option<StateMachine>,
 	/// The hashing algorithm that substrate chain uses.
 	pub hashing: Option<HashAlgorithm>,
 	/// Consensus state id
@@ -153,12 +178,22 @@ where
 			None => sr25519::Pair::generate().0,
 		};
 		let address = signer.public().0.to_vec();
+		// Resolve `state_machine` — explicit wins; otherwise pulled from
+		// the chain via `system_chain` + `ParachainInfo::parachainId`.
+		let state_machine = match config.state_machine {
+			Some(sm) => sm,
+			None =>
+				crate::registry::fetch_state_machine(&config.rpc_ws).await.with_context(|| {
+					"failed to auto-derive state_machine via system_chain + ParachainInfo"
+						.to_string()
+				})?,
+		};
 		let mut consensus_state_id: ConsensusStateId = Default::default();
 		consensus_state_id.copy_from_slice(
 			config
 				.consensus_state_id
 				.clone()
-				.unwrap_or(match config.state_machine {
+				.unwrap_or(match state_machine {
 					StateMachine::Kusama(_) => "PAS0".into(),
 					StateMachine::Polkadot(_) => "DOT0".into(),
 					s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
@@ -170,7 +205,7 @@ where
 			rpc,
 			rpc_client,
 			consensus_state_id,
-			state_machine: config.state_machine,
+			state_machine,
 			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
@@ -183,6 +218,16 @@ where
 
 	pub fn signer(&self) -> sr25519::Pair {
 		self.signer.clone()
+	}
+
+	/// Resolved state machine identifier for this client.
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine
+	}
+
+	/// Resolved consensus state identifier for this client.
+	pub fn consensus_state_id(&self) -> ConsensusStateId {
+		self.consensus_state_id
 	}
 
 	pub fn account(&self) -> C::AccountId {

@@ -126,28 +126,18 @@ where
 		substrate: &SubstrateConfig,
 		config: &GrandpaConfig,
 	) -> Result<Self, anyhow::Error> {
+		let substrate_client = SubstrateClient::<C>::new(substrate.clone()).await?;
 		let prover = GrandpaProver::new(ProverOptions {
 			ws_url: config.grandpa.rpc.clone(),
 			para_ids: config.grandpa.para_ids.clone(),
-			state_machine: substrate.state_machine,
+			state_machine: substrate_client.state_machine(),
 			max_rpc_payload_size: 150 * 1024 * 1024,
 			max_block_range: config.grandpa.max_block_range.unwrap_or(DEFAULT_BLOCK_RANGE),
 		})
 		.await?;
-		let substrate_client = SubstrateClient::<C>::new(substrate.clone()).await?;
 		Ok(GrandpaHost {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(
-					substrate
-						.consensus_state_id
-						.clone()
-						.expect("Expected consensus state id")
-						.as_bytes(),
-				);
-				consensus_state_id
-			},
-			state_machine: substrate.state_machine,
+			consensus_state_id: substrate_client.consensus_state_id(),
+			state_machine: substrate_client.state_machine(),
 			substrate_client,
 			prover,
 			config: config.clone(),

@@ -302,7 +302,7 @@ pub mod pallet {
 			/// New authority set id brought in by the rotation.
 			set_id: u64,
 			/// Hyperbridge account credited.
-			relayer: BoundedVec<u8, ConstU32<32>>,
+			relayer: T::AccountId,
 			/// Amount paid out, in the runtime's `Currency`.
 			amount: BalanceOf<T>,
 		},
@@ -514,12 +514,10 @@ where
 
 		OutboundConsensusRotationsClaimed::<T>::insert(destination, set_id, ());
 
-		let bounded_payee = frame_support::BoundedVec::try_from(payee.to_vec())
-			.expect("32 bytes always fits in a 32-cap BoundedVec; qed");
 		Self::deposit_event(Event::OutboundConsensusDeliveryRewarded {
 			state_machine: destination,
 			set_id,
-			relayer: bounded_payee,
+			relayer: payee_account,
 			amount: reward,
 		});
 

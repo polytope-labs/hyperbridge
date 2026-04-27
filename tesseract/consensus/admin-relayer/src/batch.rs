@@ -76,7 +76,7 @@ pub async fn submit_mandatory_batch(
 	message: ConsensusMessage,
 ) -> anyhow::Result<H256> {
 	let eoa = Address::from_slice(&client.address);
-	let host = Address::from_slice(&client.config.ismp_host.0);
+	let host = Address::from_slice(&client.ismp_host.0);
 	let handler = resolve_handler(client).await?;
 
 	let unfreeze = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
@@ -108,7 +108,7 @@ pub async fn submit_mandatory_sequential(
 	message: ConsensusMessage,
 ) -> anyhow::Result<H256> {
 	let eoa = Address::from_slice(&client.address);
-	let host = Address::from_slice(&client.config.ismp_host.0);
+	let host = Address::from_slice(&client.ismp_host.0);
 	let handler = resolve_handler(client).await?;
 	let chain = client.state_machine;
 

@@ -283,14 +283,14 @@ impl Keccak256 for Hasher {
 pub struct TxResult {
 	pub receipts: Vec<TxReceipt>,
 	pub unsuccessful: Vec<Message>,
-	/// `Some(set_id)` when the submitted EVM tx emitted a
-	/// `HandlerV2::NewEpoch(set_id, relayer)` log whose `relayer` matches
-	/// `self.address()` — i.e. this submission was the first to bring
-	/// `set_id` to the destination, so we are the rightful claimant for
-	/// the per-chain `OutboundConsensusDeliveryReward`. Always `None` for
-	/// non-EVM submissions and for EVM tx receipts that don't include a
-	/// `NewEpoch` log addressed to us.
-	pub new_epoch: Option<u64>,
+	/// Every `HandlerV2::NewEpoch(set_id, relayer)` log in this submission's
+	/// receipts whose `relayer` matches `self.address()`. A single tx can
+	/// carry several consensus messages (catch-up batches), and each one
+	/// that lands a new authority set on chain emits its own log — each
+	/// entry here earns a separate per-chain `OutboundConsensusDeliveryReward`.
+	/// Always empty for non-EVM submissions and for EVM tx receipts with
+	/// no matching `NewEpoch` log.
+	pub new_epochs: Vec<u64>,
 }
 
 #[async_trait::async_trait]

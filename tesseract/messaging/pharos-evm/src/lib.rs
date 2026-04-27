@@ -184,7 +184,7 @@ impl IsmpProvider for PharosEvmClient {
 			.into_iter()
 			.map(|q| self.evm.request_commitment_key(q.commitment).1)
 			.collect();
-		self.fetch_pharos_proof(at, self.evm.config.ismp_host, slot_hashes).await
+		self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 	}
 
 	async fn query_responses_proof(
@@ -197,7 +197,7 @@ impl IsmpProvider for PharosEvmClient {
 			.into_iter()
 			.map(|q| self.evm.response_commitment_key(q.commitment).1)
 			.collect();
-		self.fetch_pharos_proof(at, self.evm.config.ismp_host, slot_hashes).await
+		self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 	}
 
 	async fn query_state_proof(
@@ -209,7 +209,7 @@ impl IsmpProvider for PharosEvmClient {
 			StateProofQueryType::Ismp(keys) => {
 				let slot_hashes: Vec<H256> =
 					keys.into_iter().map(|k| H256::from_slice(&k)).collect();
-				self.fetch_pharos_proof(at, self.evm.config.ismp_host, slot_hashes).await
+				self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 			},
 			StateProofQueryType::Arbitrary(keys) => {
 				// For arbitrary keys, group by contract address and fetch per-contract proofs

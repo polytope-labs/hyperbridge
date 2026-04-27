@@ -265,14 +265,15 @@ impl HyperbridgeConfig {
 /// (see [`PerChainConfig::outbound_enabled`]); there is no separate
 /// `outbound` toggle.
 ///
-/// For EVM chains, `state_machine` and `ismp_host` are auto-derived from the
-/// RPC (`eth_chainId` + the [`tesseract_evm::registry`] table) when the user
-/// omits them; explicit values win over derivation.
+/// For EVM chains, `state_machine`, `ismp_host`, and `consensus_state_id`
+/// are derived from the chain at client construction time when omitted —
+/// see [`tesseract_evm::EvmClient::new`] / [`tesseract_evm::registry`].
+/// Substrate chains derive `state_machine` similarly inside
+/// [`tesseract_substrate::SubstrateClient::new`]. There is no parse-time
+/// autofill in the relayer config — the libraries handle it directly.
 async fn parse_chain(name: &str, chain_table: &Table) -> Result<PerChainConfig, anyhow::Error> {
 	let mut messaging_table = chain_table.clone();
 	let consensus_value = messaging_table.remove(CONSENSUS);
-
-	autofill_missing_fields(name, &mut messaging_table).await?;
 
 	let messaging: MessagingConfig = Value::Table(messaging_table.clone())
 		.try_into()
@@ -331,98 +332,6 @@ fn parse_hyperbridge_section(raw: Value) -> Result<HyperbridgeSection, anyhow::E
 	};
 
 	Ok(HyperbridgeSection { substrate, consensus })
-}
-
-/// Fills in fields the user omitted, using the chain's own RPC as the source
-/// of truth:
-///
-/// - **EVM family** (`type = "evm"` | `"pharos_evm"`): derives `state_machine` from `eth_chainId`
-///   and `ismp_host` from the [`tesseract_evm::registry`] table.
-/// - **Substrate** (`type = "substrate"`): derives `state_machine` from `system_chain` +
-///   `ParachainInfo::parachainId` storage (see [`tesseract_substrate::registry`]).
-///
-/// Explicit values always win over derivation; this helper only fills in
-/// keys that are absent. No-op for chain types without derivation support
-/// (e.g. tron).
-async fn autofill_missing_fields(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
-	let chain_type = match chain_table.get("type").and_then(Value::as_str) {
-		Some(t) => t.to_string(),
-		None => return Ok(()), // deserializer will reject later with a clearer error
-	};
-
-	match chain_type.as_str() {
-		"evm" | "pharos_evm" => autofill_evm(name, chain_table).await,
-		"substrate" => autofill_substrate(name, chain_table).await,
-		_ => Ok(()),
-	}
-}
-
-async fn autofill_evm(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
-	let has_state_machine = chain_table.contains_key("state_machine");
-	let has_ismp_host = chain_table.contains_key("ismp_host");
-	if has_state_machine && has_ismp_host {
-		tracing::debug!(target: crate::LOG_TARGET, chain = name, "autofill skipped — state_machine + ismp_host already set");
-		return Ok(());
-	}
-
-	let rpc_url = chain_table
-		.get("rpc_urls")
-		.and_then(Value::as_array)
-		.and_then(|arr| arr.first())
-		.and_then(Value::as_str)
-		.ok_or_else(|| {
-			anyhow!(
-				"[{name}]: cannot auto-derive state_machine/ismp_host without at least one \
-				 entry in `rpc_urls`"
-			)
-		})?
-		.to_string();
-
-	let chain_id = tesseract_evm::registry::fetch_chain_id(&rpc_url)
-		.await
-		.with_context(|| format!("[{name}]: auto-derive via eth_chainId"))?;
-
-	if !has_state_machine {
-		let value = format!("EVM-{chain_id}");
-		tracing::info!(target: crate::LOG_TARGET, chain = name, state_machine = %value, "auto-derived state_machine");
-		chain_table.insert("state_machine".to_string(), Value::String(value));
-	}
-
-	if !has_ismp_host {
-		let host = tesseract_evm::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
-			anyhow!(
-				"[{name}]: no known IsmpHost for chain_id={chain_id}. Set `ismp_host` explicitly \
-				 or add the chain to tesseract_evm::registry."
-			)
-		})?;
-		let hex = format!("0x{}", hex::encode(host.0));
-		tracing::info!(target: crate::LOG_TARGET, chain = name, ismp_host = %hex, "auto-derived ismp_host");
-		chain_table.insert("ismp_host".to_string(), Value::String(hex));
-	}
-
-	Ok(())
-}
-
-async fn autofill_substrate(name: &str, chain_table: &mut Table) -> Result<(), anyhow::Error> {
-	if chain_table.contains_key("state_machine") {
-		tracing::debug!(target: crate::LOG_TARGET, chain = name, "autofill skipped — state_machine already set");
-		return Ok(());
-	}
-
-	let rpc_ws = chain_table
-		.get("rpc_ws")
-		.and_then(Value::as_str)
-		.ok_or_else(|| anyhow!("[{name}]: cannot auto-derive state_machine without `rpc_ws`"))?
-		.to_string();
-
-	let state_machine = tesseract_substrate::registry::fetch_state_machine(&rpc_ws)
-		.await
-		.with_context(|| format!("[{name}]: auto-derive via system_chain + ParachainInfo"))?;
-
-	let rendered = state_machine.to_string();
-	tracing::info!(target: crate::LOG_TARGET, chain = name, state_machine = %rendered, "auto-derived state_machine");
-	chain_table.insert("state_machine".to_string(), Value::String(rendered));
-	Ok(())
 }
 
 pub fn setup_logging() -> Result<(), anyhow::Error> {

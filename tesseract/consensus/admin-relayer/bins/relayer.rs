@@ -76,13 +76,13 @@ async fn main() -> anyhow::Result<()> {
 	let mut clients: Vec<(StateMachine, EvmClient, SubmissionMode)> =
 		Vec::with_capacity(config.chains.len());
 	for (label, chain_cfg) in &config.chains {
-		let state_machine = chain_cfg.evm.state_machine;
-		if !matches!(state_machine, StateMachine::Evm(_)) {
-			return Err(anyhow!("[{label}] expected EVM state machine, got {state_machine}"));
-		}
 		let client = EvmClient::new(chain_cfg.evm.clone())
 			.await
 			.with_context(|| format!("[{label}] failed to initialise EVM client"))?;
+		let state_machine = client.state_machine;
+		if !matches!(state_machine, StateMachine::Evm(_)) {
+			return Err(anyhow!("[{label}] expected EVM state machine, got {state_machine}"));
+		}
 		log::info!(
 			"[{label}] initialised EVM client chain_id={} state_machine={} mode={:?}",
 			client.chain_id,

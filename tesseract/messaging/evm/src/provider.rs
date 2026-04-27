@@ -52,7 +52,7 @@ impl IsmpProvider for EvmClient {
 		at: Option<u64>,
 		_: ConsensusStateId,
 	) -> Result<Vec<u8>, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let value = {
 			let call = contract.consensusState();
@@ -74,7 +74,7 @@ impl IsmpProvider for EvmClient {
 			StateMachine::Kusama(para_id) => para_id,
 			_ => Err(anyhow!("Unexpected state machine"))?,
 		};
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let value = contract
 			.latestStateMachineHeight(AlloyU256::from(id))
@@ -127,7 +127,7 @@ impl IsmpProvider for EvmClient {
 		};
 		let (timestamp_key, overlay_key, state_root_key) =
 			state_comitment_key(id.into(), height.height.into());
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 
 		let block = BlockId::latest();
 		let timestamp = {
@@ -159,7 +159,7 @@ impl IsmpProvider for EvmClient {
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let value = contract
 			.stateMachineCommitmentUpdateTime(height.try_into()?)
@@ -170,14 +170,14 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let value = contract.challengePeriod().block(BlockId::latest()).call().await?;
 		Ok(Duration::from_secs(value.try_into().unwrap_or(0)))
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let value = contract.timestamp().block(BlockId::latest()).call().await?;
 		Ok(Duration::from_secs(value.try_into().unwrap_or(0)))
@@ -189,7 +189,7 @@ impl IsmpProvider for EvmClient {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let keys: Vec<B256> = keys
 			.into_iter()
 			.map(|query| B256::from_slice(&self.request_commitment_key(query.commitment).1 .0))
@@ -203,12 +203,9 @@ impl IsmpProvider for EvmClient {
 					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.to_vec()))
 				});
 				let merged_proofs = StorageProof::merge(storage_proofs);
-				vec![(
-					self.config.ismp_host.0.to_vec(),
-					merged_proofs.into_nodes().into_iter().collect(),
-				)]
-				.into_iter()
-				.collect()
+				vec![(self.ismp_host.0.to_vec(), merged_proofs.into_nodes().into_iter().collect())]
+					.into_iter()
+					.collect()
 			},
 		};
 		Ok(proof.encode())
@@ -220,7 +217,7 @@ impl IsmpProvider for EvmClient {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let keys: Vec<B256> = keys
 			.into_iter()
 			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1 .0))
@@ -234,12 +231,9 @@ impl IsmpProvider for EvmClient {
 					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.to_vec()))
 				});
 				let merged_proofs = StorageProof::merge(storage_proofs);
-				vec![(
-					self.config.ismp_host.0.to_vec(),
-					merged_proofs.into_nodes().into_iter().collect(),
-				)]
-				.into_iter()
-				.collect()
+				vec![(self.ismp_host.0.to_vec(), merged_proofs.into_nodes().into_iter().collect())]
+					.into_iter()
+					.collect()
 			},
 		};
 		Ok(proof.encode())
@@ -253,7 +247,7 @@ impl IsmpProvider for EvmClient {
 		let state_proof = match keys {
 			StateProofQueryType::Ismp(keys) => {
 				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-				let host_addr = Address::from_slice(&self.config.ismp_host.0);
+				let host_addr = Address::from_slice(&self.ismp_host.0);
 				let locations: Vec<B256> = keys.iter().map(|key| B256::from_slice(key)).collect();
 				let proof = self.client.get_proof(host_addr, locations).block_id(at.into()).await?;
 				let mut storage_proofs = vec![];
@@ -265,7 +259,7 @@ impl IsmpProvider for EvmClient {
 
 				let storage_proof = StorageProof::merge(storage_proofs);
 				map.insert(
-					self.config.ismp_host.0.to_vec(),
+					self.ismp_host.0.to_vec(),
 					storage_proof.into_nodes().into_iter().collect(),
 				);
 
@@ -371,7 +365,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let address = host_contract
 			.requestReceipts(B256::from_slice(&hash.0))
@@ -382,7 +376,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let address = host_contract
 			.responseReceipts(B256::from_slice(&hash.0))
@@ -402,11 +396,11 @@ impl IsmpProvider for EvmClient {
 	}
 
 	fn ismp_host_contract(&self) -> Option<H160> {
-		Some(self.config.ismp_host)
+		Some(self.ismp_host)
 	}
 
 	async fn handler_v2_address(&self) -> Option<H160> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		match contract.hostParams().block(BlockId::latest()).call().await {
 			Ok(params) => Some(H160::from_slice(params.handler.as_slice())),
@@ -454,7 +448,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let fee_metadata = host_contract
 			.requestCommitments(B256::from_slice(&hash.0))
@@ -466,7 +460,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
 		let fee_metadata = host_contract
 			.responseCommitments(B256::from_slice(&hash.0))
@@ -767,7 +761,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
-		// let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		// let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		// if let Some(_) = contract
 		// 	.veto_state_commitment(ismp_solidity_abi::beefy::StateMachineHeight {
 		// 		state_machine_id: match height.id.state_id {
@@ -789,7 +783,7 @@ impl IsmpProvider for EvmClient {
 		&self,
 		_state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
-		let host_addr = Address::from_slice(&self.config.ismp_host.0);
+		let host_addr = Address::from_slice(&self.ismp_host.0);
 		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		let evm_params = EvmHostParam {
@@ -972,7 +966,7 @@ async fn estimate_gas_for_tx_requests(
 
 	let gas_breakdown = get_current_gas_cost_in_usd(
 		client_outer.state_machine,
-		client_outer.config.ismp_host.0.into(),
+		client_outer.ismp_host.0.into(),
 		client_outer.client.clone(),
 	)
 	.await?;

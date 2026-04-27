@@ -133,26 +133,29 @@ pub async fn run(
 				height = new_height,
 				mandatory = is_mandatory,
 			);
+			let event_ctx = OutboundEventContext {
+				hyperbridge: hyperbridge.clone(),
+				hb_state_machine_id,
+				coprocessor,
+				relayer_config: relayer_config.clone(),
+				client_map: client_map.clone(),
+				proof_source: proof_source.clone(),
+				events: events.clone(),
+				proof_bytes: proof_bytes.clone(),
+				is_mandatory,
+				new_height,
+				new_set_id,
+			};
+			let dest_ctx = DestinationContext {
+				dest: dest.clone(),
+				fee_sender,
+				claim_sender: claim_sender.clone(),
+				claim_tx_payment: claim_tx_payment.clone(),
+			};
 			tasks.push(
-				submit_for_dest(
-					hyperbridge.clone(),
-					dest.clone(),
-					events.clone(),
-					proof_bytes.clone(),
-					is_mandatory,
-					new_height,
-					new_set_id,
-					hb_state_machine_id,
-					relayer_config.clone(),
-					coprocessor,
-					client_map.clone(),
-					fee_sender,
-					claim_sender.clone(),
-					claim_tx_payment.clone(),
-					proof_source.clone(),
-				)
-				.instrument(dest_span)
-				.map(move |r| (dest_name, r)),
+				submit_for_dest(event_ctx, dest_ctx)
+					.instrument(dest_span)
+					.map(move |r| (dest_name, r)),
 			);
 		}
 		while let Some((dest_name, res)) = tasks.next().await {
@@ -173,24 +176,52 @@ pub async fn run(
 	Err(anyhow::anyhow!("proof_accepted stream ended (source={source_name})"))
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn submit_for_dest(
+/// Per-`ProofAccepted` context shared across every destination's
+/// [`submit_for_dest`] invocation in the same outbound fan-out cycle.
+/// Carved out so each destination only needs the dest-specific bits at
+/// the call site instead of a 12+ argument list.
+struct OutboundEventContext {
 	hyperbridge: Arc<dyn IsmpProvider>,
-	dest: Arc<dyn IsmpProvider>,
+	hb_state_machine_id: StateMachineId,
+	coprocessor: StateMachine,
+	relayer_config: RelayerConfig,
+	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	proof_source: Arc<dyn ConsensusProofSource>,
 	events: Vec<Event>,
 	proof_bytes: Vec<u8>,
 	is_mandatory: bool,
 	new_height: u64,
 	new_set_id: Option<u64>,
-	hb_state_machine_id: StateMachineId,
-	relayer_config: RelayerConfig,
-	coprocessor: StateMachine,
-	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+}
+
+/// Per-destination args. Splits cleanly from [`OutboundEventContext`] so
+/// the cycle context can be cloned cheaply once and passed to every
+/// destination, with only the dest-specific bits varying per call.
+struct DestinationContext {
+	dest: Arc<dyn IsmpProvider>,
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
 	claim_sender: Option<Sender<PendingConsensusDeliveryClaim>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
-	proof_source: Arc<dyn ConsensusProofSource>,
+}
+
+async fn submit_for_dest(
+	event_ctx: OutboundEventContext,
+	dest_ctx: DestinationContext,
 ) -> Result<(), anyhow::Error> {
+	let OutboundEventContext {
+		hyperbridge,
+		hb_state_machine_id,
+		coprocessor,
+		relayer_config,
+		client_map,
+		proof_source,
+		events,
+		proof_bytes,
+		is_mandatory,
+		new_height,
+		new_set_id,
+	} = event_ctx;
+	let DestinationContext { dest, fee_sender, claim_sender, claim_tx_payment } = dest_ctx;
 	let dest_state_machine = dest.state_machine_id().state_id;
 	let dest_name = dest.name();
 	// Bring the destination's BEEFY light client up to HB's current
@@ -283,70 +314,72 @@ async fn submit_for_dest(
 		}
 	}
 
-	// Forward a claim for the outbound consensus delivery reward. The
-	// trigger is the destination tx receipt itself — `result.new_epoch`
-	// is `Some(set_id)` only when this submission emitted a
-	// `HandlerV2::NewEpoch(set_id, self_address)` log, i.e. we won the
-	// race to bring this set_id on chain and we're the rightful claimant.
-	// Other relayers who deliver the same rotation see `None` here and
-	// skip the claim entirely (no wasted on-chain extrinsic). We persist
-	// before sending so a crash between here and the channel push
-	// survives: the next startup replays pending rows. The claim task
-	// deletes the row on success.
-	if let (Some(set_id), Some(sender)) = (result.new_epoch, claim_sender) {
-		// `delivery_height` is the destination's own current finalized
-		// height — used by the claim task to wait_for_state_machine_update
-		// on HB. Any post-tx height works since `_epochs[set_id]` is set
-		// once and persists; we use finalized so HB has a real chance to
-		// have verified it.
-		let delivery_height = match dest.query_finalized_height().await {
-			Ok(h) => h,
-			Err(err) => {
-				tracing::warn!(
-					target: LOG_TARGET,
-					?err,
-					dest = %dest_name,
-					"query_finalized_height failed; skipping outbound consensus claim",
-				);
-				return Ok(());
-			},
-		};
+	// Forward a claim for the outbound consensus delivery reward, one per
+	// `NewEpoch(set_id, self_address)` log in the receipt. A single tx can
+	// batch multiple consensus messages (catch-up) and emit several logs;
+	// each set_id earns its own reward. Loser relayers see an empty
+	// `new_epochs` and skip the claim entirely (no wasted on-chain
+	// extrinsic). We persist before sending so a crash between here and
+	// the channel push survives: the claim task reads the DB on every
+	// trigger and replays anything pending.
+	if let Some(sender) = claim_sender {
+		if !result.new_epochs.is_empty() {
+			// `delivery_height` is the destination's own current finalized
+			// height — used by the claim task to wait_for_state_machine_update
+			// on HB. Any post-tx height works since `_epochs[set_id]` is set
+			// once and persists; we use finalized so HB has a real chance to
+			// have verified it.
+			let delivery_height = match dest.query_finalized_height().await {
+				Ok(h) => h,
+				Err(err) => {
+					tracing::warn!(
+						target: LOG_TARGET,
+						?err,
+						dest = %dest_name,
+						"query_finalized_height failed; skipping outbound consensus claim",
+					);
+					return Ok(());
+				},
+			};
 
-		if let Some(tx_payment) = &claim_tx_payment {
-			if let Err(err) = tx_payment
-				.insert_pending_rotation_claim(
-					&dest_state_machine.to_string(),
-					set_id,
+			for set_id in result.new_epochs {
+				if let Some(tx_payment) = &claim_tx_payment {
+					if let Err(err) = tx_payment
+						.insert_pending_rotation_claim(
+							&dest_state_machine.to_string(),
+							set_id,
+							delivery_height,
+						)
+						.await
+					{
+						tracing::warn!(
+							target: LOG_TARGET,
+							?err,
+							dest = %dest_name,
+							delivery_height,
+							set_id,
+							"failed to persist outbound-consensus claim; the channel send may \
+							 still succeed but the claim will not survive a restart",
+						);
+					}
+				}
+
+				let claim = PendingConsensusDeliveryClaim {
+					destination: dest_state_machine,
 					delivery_height,
-				)
-				.await
-			{
-				tracing::warn!(
-					target: LOG_TARGET,
-					?err,
-					dest = %dest_name,
-					delivery_height,
 					set_id,
-					"failed to persist outbound-consensus claim; the channel send may still \
-					 succeed but the claim will not survive a restart",
-				);
+				};
+				if let Err(err) = sender.send(claim).await {
+					tracing::warn!(
+						target: LOG_TARGET,
+						?err,
+						dest = %dest_name,
+						delivery_height,
+						set_id,
+						"outbound-consensus claim channel send failed",
+					);
+				}
 			}
-		}
-
-		let claim = PendingConsensusDeliveryClaim {
-			destination: dest_state_machine,
-			delivery_height,
-			set_id,
-		};
-		if let Err(err) = sender.send(claim).await {
-			tracing::warn!(
-				target: LOG_TARGET,
-				?err,
-				dest = %dest_name,
-				delivery_height,
-				set_id,
-				"outbound-consensus claim channel send failed",
-			);
 		}
 	}
 
@@ -445,6 +478,167 @@ async fn catch_up_rotations(
 	Ok(())
 }
 
+/// Static-friendly inputs for [`initialize`]. Lives next to the spawn
+/// responsibility itself so cli.rs only has to assemble values; it
+/// doesn't have to know how outbound stitches its tasks together.
+pub struct OutboundInitParams {
+	/// Plain HB substrate config — used to build per-task substrate
+	/// clients (each task owns its own connection to avoid sharing one
+	/// `OnlineClient` across multiple tokio tasks).
+	pub hyperbridge_config: tesseract_substrate::SubstrateConfig,
+	/// HB as an `IsmpProvider` for the outbound `run` loop subscription.
+	pub hyperbridge_provider: Arc<dyn IsmpProvider>,
+	/// Outbound-enabled destinations (chains with a configured signer).
+	pub destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>>,
+	/// Full provider map (including HB) for downstream `client_map`
+	/// lookups inside the spawned tasks.
+	pub provider_clients: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	/// HB-side `ConsensusProofSource` used by both outbound (for
+	/// destination delivery) and the fee-withdrawal task.
+	pub proof_source: Arc<dyn ConsensusProofSource>,
+	/// Messaging-side relayer config (profitability, deliver_failed,
+	/// etc.).
+	pub relayer_config: RelayerConfig,
+	/// Local SQLite tracker.
+	pub tx_payment: Arc<TransactionPayment>,
+	/// When `true`, no fee-accumulation tasks are spawned and the
+	/// outbound loop runs without forwarding receipts.
+	pub fees_disabled: bool,
+}
+
+/// Spawn the full outbound pipeline:
+///
+/// 1. Per-destination [`crate::fee_accumulation`] task (skipped when `fees_disabled`).
+/// 2. [`outbound_claim::run`](crate::outbound_claim::run) for the consensus delivery reward.
+/// 3. [`run`] itself — the `ProofAccepted` subscriber that fans out to every destination.
+///
+/// All three are essential tasks: if any of them ends, the surrounding
+/// [`TaskManager`] terminates the relayer process. cli.rs just assembles
+/// the [`OutboundInitParams`] and calls this once.
+pub async fn initialize(
+	params: OutboundInitParams,
+	task_manager: &polkadot_sdk::sc_service::TaskManager,
+) -> Result<(), anyhow::Error> {
+	use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
+
+	let OutboundInitParams {
+		hyperbridge_config,
+		hyperbridge_provider,
+		destinations,
+		provider_clients,
+		proof_source,
+		relayer_config,
+		tx_payment,
+		fees_disabled,
+	} = params;
+
+	if destinations.is_empty() {
+		tracing::info!(target: LOG_TARGET, "no outbound-enabled destinations; skipping outbound pipeline");
+		return Ok(());
+	}
+
+	// Per-destination fee accumulation. Each task owns its own substrate
+	// client so the connection isn't shared across tokio tasks.
+	let mut fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>> = HashMap::new();
+	if !fees_disabled {
+		for (sm, provider) in &destinations {
+			let (fee_sender, fee_receiver) = tokio::sync::mpsc::channel::<Vec<TxReceipt>>(64);
+			fee_senders.insert(*sm, fee_sender);
+
+			let hb_for_fees =
+				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+			let dest = provider.clone();
+			let client_map = provider_clients.clone();
+			let tx_payment_for_fees = tx_payment.clone();
+			let name = format!("fee-acc-{}-{}", provider.name(), hyperbridge_provider.name());
+			let span = tracing::info_span!(
+				"fee_accumulation",
+				chain = %provider.name(),
+				hb = %hyperbridge_provider.name(),
+			);
+			task_manager.spawn_essential_handle().spawn_blocking(
+				Box::leak(Box::new(name)),
+				"fees",
+				async move {
+					tracing::trace!(target: LOG_TARGET, "task started");
+					let res = crate::fee_accumulation(
+						fee_receiver,
+						dest,
+						hb_for_fees,
+						client_map,
+						tx_payment_for_fees,
+					)
+					.await;
+					tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+				}
+				.instrument(span)
+				.boxed(),
+			);
+		}
+	}
+
+	// Outbound consensus delivery reward claim task. Reads pending rows
+	// from the DB on every trigger and processes them, so no startup
+	// replay is needed in the caller.
+	let (claim_sender, claim_receiver) =
+		tokio::sync::mpsc::channel::<PendingConsensusDeliveryClaim>(64);
+	let claim_hb = SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+	let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
+		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
+	let claim_tx_payment = tx_payment.clone();
+	let claim_name = format!("outbound-claim-{}", hyperbridge_provider.name());
+	let claim_span = tracing::info_span!("outbound_claim", hb = %hyperbridge_provider.name());
+	task_manager.spawn_essential_handle().spawn_blocking(
+		Box::leak(Box::new(claim_name)),
+		"outbound",
+		async move {
+			tracing::trace!(target: LOG_TARGET, "task started");
+			let res = crate::outbound_claim::run(
+				claim_hb,
+				claim_destinations,
+				claim_receiver,
+				Some(claim_tx_payment),
+			)
+			.await;
+			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+		}
+		.instrument(claim_span)
+		.boxed(),
+	);
+
+	// Outbound fan-out itself.
+	let outbound_name = format!("outbound-{}", hyperbridge_provider.name());
+	let destinations_len = destinations.len();
+	let outbound_tx_payment = tx_payment;
+	task_manager.spawn_essential_handle().spawn_blocking(
+		Box::leak(Box::new(outbound_name)),
+		"outbound",
+		async move {
+			tracing::trace!(target: LOG_TARGET, "task started");
+			let res = run(
+				hyperbridge_provider,
+				destinations,
+				proof_source,
+				relayer_config,
+				provider_clients,
+				fee_senders,
+				Some(claim_sender),
+				Some(outbound_tx_payment),
+			)
+			.await;
+			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+		}
+		.boxed(),
+	);
+
+	tracing::trace!(
+		target: LOG_TARGET,
+		destinations = destinations_len,
+		"initialized outbound pipeline (fee accumulation + claim + fan-out)",
+	);
+	Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -527,21 +721,25 @@ mod tests {
 		let client_map = client_map_with(hb.clone(), dest.clone());
 
 		submit_for_dest(
-			hb,
-			dest,
-			Vec::new(),
-			vec![0xcc],
-			false,
-			100,
-			None,
-			hb_id(),
-			RelayerConfig::default(),
-			HB,
-			client_map,
-			None,
-			None,
-			None,
-			proof_source(),
+			OutboundEventContext {
+				hyperbridge: hb,
+				hb_state_machine_id: hb_id(),
+				coprocessor: HB,
+				relayer_config: RelayerConfig::default(),
+				client_map,
+				proof_source: proof_source(),
+				events: Vec::new(),
+				proof_bytes: vec![0xcc],
+				is_mandatory: false,
+				new_height: 100,
+				new_set_id: None,
+			},
+			DestinationContext {
+				dest,
+				fee_sender: None,
+				claim_sender: None,
+				claim_tx_payment: None,
+			},
 		)
 		.await
 		.unwrap();
@@ -561,21 +759,25 @@ mod tests {
 		let client_map = client_map_with(hb.clone(), dest.clone());
 
 		submit_for_dest(
-			hb,
-			dest,
-			Vec::new(),
-			vec![0xcc],
-			true,
-			100,
-			Some(1),
-			hb_id(),
-			RelayerConfig::default(),
-			HB,
-			client_map,
-			None,
-			None,
-			None,
-			proof_source(),
+			OutboundEventContext {
+				hyperbridge: hb,
+				hb_state_machine_id: hb_id(),
+				coprocessor: HB,
+				relayer_config: RelayerConfig::default(),
+				client_map,
+				proof_source: proof_source(),
+				events: Vec::new(),
+				proof_bytes: vec![0xcc],
+				is_mandatory: true,
+				new_height: 100,
+				new_set_id: Some(1),
+			},
+			DestinationContext {
+				dest,
+				fee_sender: None,
+				claim_sender: None,
+				claim_tx_payment: None,
+			},
 		)
 		.await
 		.unwrap();
@@ -600,21 +802,25 @@ mod tests {
 		];
 
 		submit_for_dest(
-			hb,
-			dest,
-			events,
-			vec![0xcc],
-			false,
-			100,
-			None,
-			hb_id(),
-			RelayerConfig::default(),
-			HB,
-			client_map,
-			None,
-			None,
-			None,
-			proof_source(),
+			OutboundEventContext {
+				hyperbridge: hb,
+				hb_state_machine_id: hb_id(),
+				coprocessor: HB,
+				relayer_config: RelayerConfig::default(),
+				client_map,
+				proof_source: proof_source(),
+				events,
+				proof_bytes: vec![0xcc],
+				is_mandatory: false,
+				new_height: 100,
+				new_set_id: None,
+			},
+			DestinationContext {
+				dest,
+				fee_sender: None,
+				claim_sender: None,
+				claim_tx_payment: None,
+			},
 		)
 		.await
 		.unwrap();
@@ -642,21 +848,25 @@ mod tests {
 		];
 
 		submit_for_dest(
-			hb,
-			dest,
-			events,
-			vec![0xcc],
-			false,
-			100,
-			None,
-			hb_id(),
-			RelayerConfig::default(),
-			HB,
-			client_map,
-			None,
-			None,
-			None,
-			proof_source(),
+			OutboundEventContext {
+				hyperbridge: hb,
+				hb_state_machine_id: hb_id(),
+				coprocessor: HB,
+				relayer_config: RelayerConfig::default(),
+				client_map,
+				proof_source: proof_source(),
+				events,
+				proof_bytes: vec![0xcc],
+				is_mandatory: false,
+				new_height: 100,
+				new_set_id: None,
+			},
+			DestinationContext {
+				dest,
+				fee_sender: None,
+				claim_sender: None,
+				claim_tx_payment: None,
+			},
 		)
 		.await
 		.unwrap();

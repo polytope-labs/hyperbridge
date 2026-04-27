@@ -14,6 +14,39 @@ use anyhow::{anyhow, Context};
 use primitive_types::H160;
 use std::str::FromStr;
 
+/// Returns the canonical 4-byte consensus state id for the given EVM chain
+/// ID's consensus client on Hyperbridge, or `None` if the chain isn't
+/// known. Mirrors the docs / per-chain config snippets — Ethereum + L2s
+/// share `ETH0`, BSC is `BSC0`, etc.
+pub fn consensus_state_id_for_chain_id(chain_id: u64) -> Option<&'static str> {
+	let id = match chain_id {
+		// Testnets — destination-side consensus state ids.
+		97 => "BSC0",        // BSC Chapel
+		10200 => "GNO0",     // Gnosis Chiado
+		11155111 => "ETH0",  // Sepolia
+		80002 => "POLY",     // Polygon Amoy
+		421614 => "ARB0",    // Arbitrum Sepolia
+		11155420 => "OPT0",  // Optimism Sepolia
+		84532 => "BASE",     // Base Sepolia
+		420420417 => "ETH0", // Polkadot Asset Hub Paseo (Revive) tracks Ethereum
+		688689 => "PHAR",    // Pharos Atlantic
+
+		// Mainnets.
+		1 => "ETH0",     // Ethereum
+		56 => "BSC0",    // BSC
+		42161 => "ARB0", // Arbitrum
+		8453 => "BASE",  // Base
+		137 => "POLY",   // Polygon
+		130 => "UNI0",   // Unichain
+		10 => "OPT0",    // Optimism
+		100 => "GNO0",   // Gnosis
+		1868 => "SON0",  // Soneium
+
+		_ => return None,
+	};
+	Some(id)
+}
+
 /// Returns the canonical Hyperbridge `IsmpHost` contract address for the given
 /// EVM chain ID, or `None` if the chain isn't a known Hyperbridge deployment.
 ///

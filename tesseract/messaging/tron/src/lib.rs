@@ -140,7 +140,9 @@ impl TronConfig {
 	}
 
 	pub fn state_machine(&self) -> StateMachine {
-		self.evm.state_machine
+		self.evm
+			.state_machine
+			.expect("[<chain>] state_machine must be set explicitly for relayer routing")
 	}
 }
 

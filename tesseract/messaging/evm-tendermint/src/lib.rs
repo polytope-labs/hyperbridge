@@ -110,7 +110,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+		let contract_addr: [u8; 20] = self.inner.ismp_host.0;
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
@@ -145,7 +145,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+		let contract_addr: [u8; 20] = self.inner.ismp_host.0;
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
@@ -182,7 +182,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		let mut proofs: Vec<EvmKVProof> = Vec::new();
 		match keys {
 			StateProofQueryType::Ismp(keys) => {
-				let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+				let contract_addr: [u8; 20] = self.inner.ismp_host.0;
 				// Validate lengths first to avoid Result in iterator
 				if keys.iter().any(|key| key.len() != 32) {
 					return Err(anyhow::anyhow!("All ISMP keys must have a length of 32 bytes",));

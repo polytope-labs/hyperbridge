@@ -53,7 +53,7 @@ pub async fn run(
 	relayer_config: RelayerConfig,
 	client_map: HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>>,
-	claim_sender: Option<Sender<PendingConsensusDeliveryClaim>>,
+	claim_sender: Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
 ) -> Result<(), anyhow::Error> {
 	let hb_state_machine_id = hyperbridge.state_machine_id();
@@ -200,7 +200,7 @@ struct OutboundEventContext {
 struct DestinationContext {
 	dest: Arc<dyn IsmpProvider>,
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
-	claim_sender: Option<Sender<PendingConsensusDeliveryClaim>>,
+	claim_sender: Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
 }
 
@@ -363,22 +363,31 @@ async fn submit_for_dest(
 				}
 			}
 
-			for set_id in result.new_epochs {
-				let claim = PendingConsensusDeliveryClaim {
+			// Send the whole batch as one trigger: the claim task merges
+			// it with whatever's persisted in the DB, dedupes, then
+			// filters against `OutboundConsensusRotationsClaimed` on
+			// Hyperbridge before submitting. A single send per receipt
+			// cycle keeps the channel bounded even when a catch-up
+			// emits several rotations in one tx.
+			let claims: Vec<PendingConsensusDeliveryClaim> = result
+				.new_epochs
+				.iter()
+				.map(|&set_id| PendingConsensusDeliveryClaim {
 					destination: dest_state_machine,
 					delivery_height,
 					set_id,
-				};
-				if let Err(err) = sender.send(claim).await {
-					tracing::warn!(
-						target: LOG_TARGET,
-						?err,
-						dest = %dest_name,
-						delivery_height,
-						set_id,
-						"outbound-consensus claim channel send failed",
-					);
-				}
+				})
+				.collect();
+			let set_ids = result.new_epochs.clone();
+			if let Err(err) = sender.send(claims).await {
+				tracing::warn!(
+					target: LOG_TARGET,
+					?err,
+					dest = %dest_name,
+					delivery_height,
+					?set_ids,
+					"outbound-consensus claim channel send failed",
+				);
 			}
 		}
 	}
@@ -581,7 +590,7 @@ pub async fn initialize(
 	// from the DB on every trigger and processes them, so no startup
 	// replay is needed in the caller.
 	let (claim_sender, claim_receiver) =
-		tokio::sync::mpsc::channel::<PendingConsensusDeliveryClaim>(64);
+		tokio::sync::mpsc::channel::<Vec<PendingConsensusDeliveryClaim>>(64);
 	let claim_hb = SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
 	let claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
 		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();

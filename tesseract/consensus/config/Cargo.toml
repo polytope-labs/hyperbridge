@@ -31,6 +31,7 @@ tesseract-pharos = { workspace = true }
 tesseract-polygon = { path = "../polygon" }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }
+tesseract-substrate-evm = { workspace = true }
 tesseract-sync-committee = { workspace = true }
 tesseract-tendermint = { workspace = true }
 zk-beefy = { path = "../beefy/zk" }

@@ -220,7 +220,7 @@ impl HyperbridgeConfig {
 		(tesseract_consensus_config::AnyConfig, tesseract_consensus_config::HostKind),
 	> {
 		use tesseract_config::AnyConfig as Msg;
-		use tesseract_consensus_config::HostKind;
+		use tesseract_consensus_config::{AnyConfig as Consensus, HostKind};
 
 		let mut out: HashMap<
 			StateMachine,
@@ -234,7 +234,17 @@ impl HyperbridgeConfig {
 					Msg::Evm(e) => HostKind::Evm(e.clone()),
 					Msg::PharosEvm(e) => HostKind::Evm(e.clone()),
 					Msg::Tendermint(t) => HostKind::Evm(t.evm_config.clone()),
-					Msg::SubstrateEvm(se) => HostKind::Evm(se.evm.clone()),
+					// Substrate-EVM chains can run with either parachain
+					// consensus (where the consensus client needs the substrate
+					// half to read `Paras::Heads` storage proofs and so wants
+					// the full SubstrateEvmClientConfig) or with a pure EVM
+					// consensus client (sync-committee L2, etc.) which only
+					// needs the EVM half. Pick the variant based on what the
+					// consensus side actually expects.
+					Msg::SubstrateEvm(se) => match &consensus {
+						Consensus::Parachain { .. } => HostKind::SubstrateEvm(se.clone()),
+						_ => return None,
+					},
 					Msg::Substrate(s) => HostKind::Substrate(s.clone()),
 					Msg::Tron(_) => return None, // tron is not a supported consensus host
 				};

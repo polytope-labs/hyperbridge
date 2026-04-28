@@ -272,17 +272,24 @@ use tesseract_sync_committee::L2Config;
 
 /// Host-side config paired with a consensus variant. EVM-family consensus
 /// clients need an [`tesseract_evm::EvmConfig`]; substrate-family (grandpa,
-/// parachain) consensus clients need a [`SubstrateConfig`].
+/// parachain) consensus clients need a [`SubstrateConfig`]. The
+/// [`HostKind::SubstrateEvm`] variant is the hybrid: a substrate parachain
+/// that exposes EVM contracts (e.g. via pallet-revive). It carries the
+/// full [`SubstrateEvmClientConfig`] so the parachain consensus client can
+/// build a [`tesseract_substrate_evm::SubstrateEvmClient`] as its
+/// IsmpProvider while consensus is still parachain-style.
 #[derive(Debug, Clone)]
 pub enum HostKind {
 	Evm(tesseract_evm::EvmConfig),
 	Substrate(SubstrateConfig),
+	SubstrateEvm(tesseract_substrate_evm::SubstrateEvmClientConfig),
 }
 
 impl HostKind {
 	pub fn as_evm(&self) -> Option<&tesseract_evm::EvmConfig> {
 		match self {
 			HostKind::Evm(e) => Some(e),
+			HostKind::SubstrateEvm(se) => Some(&se.evm),
 			_ => None,
 		}
 	}
@@ -292,34 +299,14 @@ impl HostKind {
 			_ => None,
 		}
 	}
-}
-
-/// Extract all Eth L2 configs from the consensus/host pairings provided.
-/// Keeps the paired `EvmConfig` alongside each variant because the inner L2
-/// host constructors need it.
-fn extract_l2_configs(
-	supported_l2s: Vec<String>,
-	config_map: HashMap<StateMachine, (AnyConfig, HostKind)>,
-) -> BTreeMap<StateMachine, L2Config> {
-	let mut map = BTreeMap::new();
-	for (state_machine, (config, host)) in config_map
-		.into_iter()
-		.filter(|(state_machine, ..)| supported_l2s.contains(&state_machine.to_string()))
-	{
-		let HostKind::Evm(evm) = host else { continue };
-		match config {
-			AnyConfig::ArbitrumOrbit { inner } => {
-				map.insert(state_machine, L2Config::ArbitrumOrbit(inner, evm));
-			},
-			AnyConfig::OpStack { inner } => {
-				map.insert(state_machine, L2Config::OpStack(inner, evm));
-			},
-			_ => {},
+	pub fn as_substrate_evm(&self) -> Option<&tesseract_substrate_evm::SubstrateEvmClientConfig> {
+		match self {
+			HostKind::SubstrateEvm(se) => Some(se),
+			_ => None,
 		}
 	}
-
-	map
 }
+
 
 /// Build the map of consensus clients from per-chain `(AnyConfig, HostKind)`
 /// pairings.
@@ -339,18 +326,10 @@ pub async fn create_client_map(
 	for (state_machine, (config, host)) in chains {
 		let client = match (config, host) {
 			(AnyConfig::Sepolia { inner }, HostKind::Evm(evm)) => {
-				let l2_configs = extract_l2_configs(
-					inner.layer_twos.clone().unwrap_or_default(),
-					l2_source.clone(),
-				);
-				inner.into_sepolia(evm, l2_configs).await?
+				inner.into_sepolia(evm, Default::default()).await?
 			},
 			(AnyConfig::Ethereum { inner }, HostKind::Evm(evm)) => {
-				let l2_configs = extract_l2_configs(
-					inner.layer_twos.clone().unwrap_or_default(),
-					l2_source.clone(),
-				);
-				inner.into_mainnet(evm, l2_configs).await?
+				inner.into_mainnet(evm, Default::default()).await?
 			},
 			(AnyConfig::ArbitrumOrbit { inner }, HostKind::Evm(evm)) =>
 				inner.into_client(evm).await?,
@@ -409,6 +388,25 @@ pub async fn create_client_map(
 							.into_client::<Blake2SubstrateChain, Blake2SubstrateChain>(substrate)
 							.await?,
 				}
+			},
+			(AnyConfig::Parachain { inner }, HostKind::SubstrateEvm(substrate_evm)) => {
+				// Substrate-EVM parachain (e.g. pallet-revive). The
+				// IsmpProvider has to reach EVM contracts on self, so we
+				// build a `SubstrateEvmClient` instead of a plain
+				// `SubstrateClient`; consensus is still parachain-style.
+				//
+				// `S` is hardcoded to `Blake2SubstrateChain` — same default
+				// the legacy messaging-config wiring uses for substrate-evm
+				// chains. Polkadot/Kusama/Paseo parachains all use BlakeTwo256
+				// at the runtime level so this matches the typical deployment;
+				// keccak-hashing substrate-evm parachains aren't currently in
+				// scope here. `R` is `Blake2SubstrateChain` because the relay
+				// chain is always BlakeTwo256.
+				inner
+					.into_substrate_evm_client::<Blake2SubstrateChain, Blake2SubstrateChain>(
+						substrate_evm,
+					)
+					.await?
 			},
 			(variant, host) => {
 				return Err(anyhow!(

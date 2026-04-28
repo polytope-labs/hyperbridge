@@ -8,18 +8,18 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use codec::{Decode, Encode};
+use codec::Decode;
 use polkadot_sdk::sp_runtime::{
 	generic::Header as SpHeader,
 	traits::{BlakeTwo256, Header as HeaderT},
 };
 use subxt::{
-	config::{ExtrinsicParams, HashFor},
-	tx::DefaultParams,
-	utils::{AccountId32, MultiSignature, H256},
+	config::HashFor,
+	utils::H256,
 };
 use tokio::time::MissedTickBehavior;
 
+use codec::Encode;
 use ismp::{
 	events::Event,
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
@@ -30,15 +30,8 @@ use tesseract_primitives::{IsmpHost, IsmpProvider, StateMachineUpdated, StorageK
 use crate::{ParachainHost, CONSENSUS_UPDATE_FREQUENCY};
 
 #[async_trait::async_trait]
-impl<S, R> IsmpHost for ParachainHost<S, R>
+impl<R> IsmpHost for ParachainHost<R>
 where
-	S: subxt::Config + Send + Sync + Clone,
-	S::Header: Send + Sync,
-	S::AccountId: From<AccountId32> + Into<S::Address> + Clone + 'static + Send + Sync,
-	S::Signature: From<MultiSignature> + Send + Sync,
-	<S::ExtrinsicParams as ExtrinsicParams<S>>::Params: Send + Sync + DefaultParams,
-	H256: From<HashFor<S>>,
-
 	R: subxt::Config + Send + Sync + Clone,
 	R::Header: Send + Sync,
 	HashFor<R>: From<H256>,
@@ -136,7 +129,7 @@ where
 	}
 
 	fn provider(&self) -> Arc<dyn IsmpProvider> {
-		Arc::new(self.substrate_client.clone())
+		self.provider.clone()
 	}
 }
 
@@ -148,15 +141,8 @@ struct TickOutcome {
 	message: Option<ConsensusMessage>,
 }
 
-impl<S, R> ParachainHost<S, R>
+impl<R> ParachainHost<R>
 where
-	S: subxt::Config + Send + Sync + Clone,
-	S::Header: Send + Sync,
-	S::AccountId: From<AccountId32> + Into<S::Address> + Clone + 'static + Send + Sync,
-	S::Signature: From<MultiSignature> + Send + Sync,
-	<S::ExtrinsicParams as ExtrinsicParams<S>>::Params: Send + Sync + DefaultParams,
-	H256: From<HashFor<S>>,
-
 	R: subxt::Config + Send + Sync + Clone,
 	HashFor<R>: From<H256>,
 {

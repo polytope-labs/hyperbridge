@@ -26,6 +26,7 @@ ismp-parachain = { workspace = true, default-features = true }
 subxt-utils = { workspace = true, default-features = true }
 tesseract-primitives = { workspace = true }
 tesseract-substrate = { workspace = true }
+tesseract-substrate-evm = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

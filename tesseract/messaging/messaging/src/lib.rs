@@ -15,7 +15,7 @@
 
 //! ISMP Message relay
 /// Log/tracing target for this crate.
-pub const LOG_TARGET: &str = concat!("tesseract-messaging", "-inbound");
+pub const LOG_TARGET: &str = concat!("messaging", "-inbound");
 
 pub mod events;
 pub mod fees;

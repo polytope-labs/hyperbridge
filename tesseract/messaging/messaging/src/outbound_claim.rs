@@ -55,7 +55,7 @@ use tokio::sync::mpsc::Receiver;
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
-const LOG_TARGET: &str = "tesseract-messaging-outbound-claim";
+const LOG_TARGET: &str = "messaging-outbound-claim";
 
 /// Drive a single relayer's outbound consensus delivery claims. Mirrors
 /// [`fee_accumulation`](crate::fee_accumulation) shape: receive a trigger

@@ -38,7 +38,7 @@ use transaction_fees::TransactionPayment;
 use crate::events::translate_events_to_messages;
 
 /// Log/tracing target for the outbound pipeline.
-const LOG_TARGET: &str = concat!("tesseract-messaging", "-outbound");
+const LOG_TARGET: &str = concat!("messaging", "-outbound");
 
 /// Cap on consensus proofs bundled into a single `submit` call. EVM destinations
 /// enforce calldata and gas limits that a large rotation catch-up would blow

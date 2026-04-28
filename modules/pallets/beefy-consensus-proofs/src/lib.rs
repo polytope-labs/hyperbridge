@@ -83,6 +83,16 @@ pub mod pallet {
 	type BalanceOf<T> =
 		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
+	/// `Get<u32>` adapter that yields `MaxUncleProvers + 1`, the total number of provers
+	/// (one first + `MaxUncleProvers` uncles) that may be rewarded per parachain height.
+	/// Used as the bound for `AcceptedProofHashes` and `RewardCurve`.
+	pub struct MaxStoredProvers<T>(core::marker::PhantomData<T>);
+	impl<T: Config> Get<u32> for MaxStoredProvers<T> {
+		fn get() -> u32 {
+			T::MaxUncleProvers::get().saturating_add(1)
+		}
+	}
+
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
@@ -124,8 +134,10 @@ pub mod pallet {
 		#[pallet::constant]
 		type AllowedProofTypes: Get<&'static [u8]>;
 
-		/// Maximum number of unique provers rewarded per parachain height (including the
-		/// first). Naive proofs only ever occupy position 0; uncle rewards apply to SP1.
+		/// Maximum number of uncle provers rewarded per parachain height, in addition to
+		/// the first prover. Total provers per height are therefore `MaxUncleProvers + 1`,
+		/// occupying positions `0..=MaxUncleProvers` (position 0 is always the first prover).
+		/// Naive proofs only ever occupy position 0; uncle rewards apply to SP1.
 		#[pallet::constant]
 		type MaxUncleProvers: Get<u32>;
 
@@ -185,17 +197,19 @@ pub mod pallet {
 	/// `keccak256(proof_bytes)` for every proof accepted at a given parachain height.
 	/// SP1 Groth16 randomizes the witness so independent provers produce different
 	/// bytes; re-submission of the exact same bytes hits this set and is rejected.
+	/// Bounded by `MaxUncleProvers + 1` (one first + `MaxUncleProvers` uncles).
 	#[pallet::storage]
 	pub type AcceptedProofHashes<T: Config> =
-		StorageMap<_, Blake2_128Concat, u64, BoundedVec<H256, T::MaxUncleProvers>, ValueQuery>;
+		StorageMap<_, Blake2_128Concat, u64, BoundedVec<H256, MaxStoredProvers<T>>, ValueQuery>;
 
 	/// Reward fractions `(numerator, denominator)` indexed by prover position. The base
 	/// reward [`ProofReward`] is multiplied by the fraction at the prover's position.
 	/// An empty curve falls back to `(1, 1)` for position 0 and zero for uncles, so the
 	/// pallet keeps the existing single-prover behaviour until an admin sets a curve.
+	/// Bounded by `MaxUncleProvers + 1`, matching the position range `0..=MaxUncleProvers`.
 	#[pallet::storage]
 	pub type RewardCurve<T: Config> =
-		StorageValue<_, BoundedVec<(u32, u32), T::MaxUncleProvers>, ValueQuery>;
+		StorageValue<_, BoundedVec<(u32, u32), MaxStoredProvers<T>>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
@@ -249,7 +263,7 @@ pub mod pallet {
 			submitter: T::AccountId,
 			height: u64,
 			rewarded: BalanceOf<T>,
-			/// `1..MaxUncleProvers`. Position 0 always belongs to the first proof.
+			/// `1..=MaxUncleProvers`. Position 0 always belongs to the first proof.
 			position: u32,
 		},
 		/// Consensus state was (re)initialized by admin.
@@ -346,12 +360,13 @@ pub mod pallet {
 
 		/// Set the decreasing reward curve. Position `i` gets `ProofReward * curve[i].0 /
 		/// curve[i].1`. Empty curve means default behaviour (position 0 = full reward,
-		/// no uncle rewards).
+		/// no uncle rewards). Bounded by `MaxUncleProvers + 1` to match the storage,
+		/// covering position 0 (first proof) plus all uncle slots.
 		#[pallet::call_index(4)]
 		#[pallet::weight(T::WeightInfo::set_reward_curve())]
 		pub fn set_reward_curve(
 			origin: OriginFor<T>,
-			curve: BoundedVec<(u32, u32), T::MaxUncleProvers>,
+			curve: BoundedVec<(u32, u32), MaxStoredProvers<T>>,
 		) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
 			if curve.iter().any(|(_, denom)| *denom == 0) {
@@ -420,7 +435,12 @@ pub mod pallet {
 					prev_state_bytes,
 					outcome,
 				),
-				Err(_) if proof_type == types::PROOF_TYPE_SP1 =>
+				// `verify_and_apply` returns `StaleProof` for SP1 proofs whose
+				// `block_number <= prev.latest_beefy_height` via the upfront height check,
+				// which is exactly the legitimate-uncle case. Other failures (corrupt
+				// bytes, bad signatures, wrong vkey) propagate so the submitter pays the
+				// fee instead of paying for a wasted second SP1 verification.
+				Err(Error::<T>::StaleProof) if proof_type == types::PROOF_TYPE_SP1 =>
 					Self::settle_uncle_proof(submitter, proof, proof_hash),
 				Err(e) => Err(e.into()),
 			}
@@ -505,8 +525,11 @@ pub mod pallet {
 			let snapshot_bytes =
 				ProofContext::<T>::get(parachain_height).ok_or(Error::<T>::NoUncleContext)?;
 
+			// `ProverCount` is incremented after each successful uncle (the first proof
+			// is position 0). With `MaxUncleProvers = N`, valid uncle positions are
+			// `1..=N`, so reject once the position the next uncle would occupy exceeds N.
 			let position = ProverCount::<T>::get(parachain_height);
-			if position >= T::MaxUncleProvers::get() {
+			if position > T::MaxUncleProvers::get() {
 				Err(Error::<T>::UncleSlotsFull)?
 			}
 
@@ -643,18 +666,28 @@ pub mod pallet {
 		/// First-proof verification path:
 		///
 		/// 1. ABI-decode the proof into the SCALE shape `ismp-beefy` consumes.
-		/// 2. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
+		/// 2. For SP1 proofs, fail fast with `StaleProof` if `proof.block_number` is not past the
+		///    trusted state's `latest_beefy_height`. That's the legitimate-uncle signal and the
+		///    dispatcher routes it to the uncle path; doing this check upfront avoids paying for a
+		///    guaranteed-to-fail first SP1 verification.
+		/// 3. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
 		///    which routes to `BeefyConsensusClient::verify_consensus`. That runs the full BEEFY /
 		///    SP1 check and persists consensus state + parachain commitments.
-		/// 3. Extract the proven parachain height from the returned `StateMachineUpdated` events
+		/// 4. Extract the proven parachain height from the returned `StateMachineUpdated` events
 		///    and the new authority-set id from the stored consensus state so the caller can
 		///    classify the proof as rotation / messaging.
-		///
-		/// Returns an error if the proof would not advance state. The caller routes any
-		/// SP1 failure here through the uncle path.
 		pub fn verify_and_apply(proof: &[u8]) -> Result<VerifyOutcome, Error<T>> {
 			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
 			let abi_payload = &proof[1..];
+
+			let host = pallet_ismp::Pallet::<T>::default();
+			let prev_state_bytes = host
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
+				.map_err(|_| Error::<T>::NotInitialized)?;
+			let prev_state: beefy_verifier_primitives::ConsensusState =
+				Decode::decode(&mut &prev_state_bytes[..])
+					.map_err(|_| Error::<T>::NotInitialized)?;
+			let prev_height = Self::latest_height();
 
 			let consensus_proof = match proof_type {
 				types::PROOF_TYPE_SP1 => {
@@ -663,6 +696,18 @@ pub mod pallet {
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					// Match the inner SP1 verifier's stale check before paying its cost. An
+					// uncle proof targets the same `block_number` the first prover advanced
+					// state to, so it would fail this same comparison inside SP1; surface
+					// it as `StaleProof` so the dispatcher routes to the uncle path.
+					let proof_block: u32 = abi_proof
+						.commitment
+						.blockNumber
+						.try_into()
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					if prev_state.latest_beefy_height >= proof_block {
+						Err(Error::<T>::StaleProof)?;
+					}
 					let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
 					[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat()
 				},
@@ -678,15 +723,6 @@ pub mod pallet {
 				_ => Err(Error::<T>::UnknownProofType)?,
 			};
 
-			// Hand off to pallet-ismp with SCALE-encoded proof for verification.
-			let host = pallet_ismp::Pallet::<T>::default();
-			let prev_state_bytes = host
-				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
-				.map_err(|_| Error::<T>::NotInitialized)?;
-			let prev_state: beefy_verifier_primitives::ConsensusState =
-				Decode::decode(&mut &prev_state_bytes[..])
-					.map_err(|_| Error::<T>::NotInitialized)?;
-			let prev_height = Self::latest_height();
 			let result = handlers::handle_incoming_message(
 				&host,
 				Message::Consensus(IsmpConsensusMessage {

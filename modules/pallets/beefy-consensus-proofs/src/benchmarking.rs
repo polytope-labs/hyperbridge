@@ -16,73 +16,74 @@
 #![cfg(feature = "runtime-benchmarks")]
 
 use super::*;
-use codec::Encode;
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use polkadot_sdk::*;
-use sp_core::crypto::KeyTypeId;
+use sp_core::Get;
 
-/// SCALE-encoded `beefy_verifier_primitives::ConsensusState` and wire-format proof
-/// (`[PROOF_TYPE_SP1] ++ SCALE(Sp1BeefyProof)`) for the SP1 Groth16 fixture used in
-/// `evm/test/SP1BeefyTest.sol::testVerifySp1Optional`. Produced by the ignored helper
-/// `beefy_verifier::test::dump_sp1_fixture_scale_bytes`.
-///
-/// The fixture's original `next_authorities.id` is 0x1276 (same as the leaf's
-/// `beefy_next_authority_set.id`), which would keep `current_authorities.id` unchanged
-/// across the update — i.e. not a rotation, a messaging-only update. We rewrite
-/// `next_authorities.id` to 0x1275 so the update is a rotation (new_current =
-/// prev_next > prev_current). SP1 public inputs only commit to
-/// `authority.keyset_commitment` and `authority.len`, not `id`, so the proof still
-/// verifies.
-const TRUSTED_STATE_SCALE: [u8; 128] = hex_literal::hex!("2279d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+/// SCALE-encoded `beefy_verifier_primitives::ConsensusState` for the SP1 Groth16 fixture
+/// used in `evm/tests/foundry/SP1BeefyTest.sol::testVerifySp1Optional`. Stored under
+/// `pallet-ismp::ConsensusStates`, which decodes via SCALE.
+const TRUSTED_STATE_SCALE: [u8; 128] = hex_literal::hex!("2279d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
 
-const WIRE_PROOF: [u8; 808] = hex_literal::hex!("012a79d6017512000000000000002979d601e1dbc67b9da4b90227fb3dc2e7ffdce4e120d583502399e4bd083c02651ca5eb761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f4963bc2eb07f9c83afe64eb8815b626cd0a7d2a1bbb4630a44a1896af297d0135d04e504739e9bd7f1addf87db9b6a762bd0e1713baa895c3b82b4595080e5ba02fb5b3cf2915702b49122c32b822e6a11384074d8902d5ea5f79c7cb0d7804e49501b8b532298f49e38d3f7140ce1ba61c243152e4e380b37eb628e08d5270d8b2c5e4ebedd84bb14066175726120fbc4d208000000000452505352902a869d4e00b3bb93f1e88e41a2b5f51fc637626b4ce1da15749ef2d79de4797a9ae459070449534d50010118a13886ac93d163a1d22cdef94e018eba5189424a66b7bd03a5ac232beb46bf08b0f9d2b979fff833d7e21a64a5183c61e2630c0b452236baba3c1b4ff41821044953544d20ca3be169000000000561757261010152d45dea4dcf058b0610e12981e0e4c97ad153f26481510c0b78beedf1848b4dd2abd37b8c6b800b72fa12199898eca7651471b49e38d6167a84fb6e2df7c78400000000270d000091054388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000002ac5e596c552ee76353c176f0870e47a0aa765ceafc4c65b03dbf434e27fa9062f185bdc40f7aae982c1c8c6b766dd491a1e1cd60128efbc58da965e5be96320287f4ce1b04538f0c8287c8eff096c36df67dc17970032546c9b3d4dd5510c5c25e880e13469e1e1aca1b41c367f2ecf04da65f7602fb53ec212b03d0148157b2cd9a79a9779f350d240e6d4c980848302fca8c7447c5fa7ac8d3c6eefcd0c640acff8b27ea316db978652553e3d054765094cf0dab6085a616489cdb973c42b258e22f346ac3ceb3e2e6750c37dad1f98f6ca15d1f70659343caa52dbbcad150b75dd2dcf0ba0a664ea4605b291df54ab1aa5b4c55034b9425ba29cc87eca7b");
+/// Wire-format proof: `[PROOF_TYPE_SP1] ++ abi.encode(SP1BeefyProof)` (without the outer
+/// struct offset, matching what `<SP1BeefyProof as SolType>::abi_decode_params` accepts).
+/// ABI bytes lifted verbatim from `SP1BeefyTest.sol::testVerifySp1Optional`.
+const WIRE_PROOF: [u8; 1249] = hex_literal::hex!("010000000000000000000000000000000000000000000000000000000001d6792a000000000000000000000000000000000000000000000000000000000000127500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001d67929e1dbc67b9da4b90227fb3dc2e7ffdce4e120d583502399e4bd083c02651ca5eb00000000000000000000000000000000000000000000000000000000000012760000000000000000000000000000000000000000000000000000000000000257a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f4963bc2eb07f9c83afe64eb8815b626cd0a7d2a1bbb4630a44a1896af297d0135d00000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000340000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000d2700000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000139739e9bd7f1addf87db9b6a762bd0e1713baa895c3b82b4595080e5ba02fb5b3cf2915702b49122c32b822e6a11384074d8902d5ea5f79c7cb0d7804e49501b8b532298f49e38d3f7140ce1ba61c243152e4e380b37eb628e08d5270d8b2c5e4ebedd84bb14066175726120fbc4d208000000000452505352902a869d4e00b3bb93f1e88e41a2b5f51fc637626b4ce1da15749ef2d79de4797a9ae459070449534d50010118a13886ac93d163a1d22cdef94e018eba5189424a66b7bd03a5ac232beb46bf08b0f9d2b979fff833d7e21a64a5183c61e2630c0b452236baba3c1b4ff41821044953544d20ca3be169000000000561757261010152d45dea4dcf058b0610e12981e0e4c97ad153f26481510c0b78beedf1848b4dd2abd37b8c6b800b72fa12199898eca7651471b49e38d6167a84fb6e2df7c7840000000000000000000000000000000000000000000000000000000000000000000000000001644388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000002ac5e596c552ee76353c176f0870e47a0aa765ceafc4c65b03dbf434e27fa9062f185bdc40f7aae982c1c8c6b766dd491a1e1cd60128efbc58da965e5be96320287f4ce1b04538f0c8287c8eff096c36df67dc17970032546c9b3d4dd5510c5c25e880e13469e1e1aca1b41c367f2ecf04da65f7602fb53ec212b03d0148157b2cd9a79a9779f350d240e6d4c980848302fca8c7447c5fa7ac8d3c6eefcd0c640acff8b27ea316db978652553e3d054765094cf0dab6085a616489cdb973c42b258e22f346ac3ceb3e2e6750c37dad1f98f6ca15d1f70659343caa52dbbcad150b75dd2dcf0ba0a664ea4605b291df54ab1aa5b4c55034b9425ba29cc87eca7b00000000000000000000000000000000000000000000000000000000");
 
 const FIXTURE_VKEY: &[u8] = b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c";
 
-/// Benchmark-only key type id for the submitter keypair.
-const BENCH_KEY: KeyTypeId = KeyTypeId(*b"bnch");
-
 #[benchmarks(
 	where
-		T::AccountId: From<[u8; 32]> + Into<[u8; 32]>,
+		T::AccountId: From<[u8; 32]>,
 		<<T as pallet::Config>::Currency as frame_support::traits::fungible::Inspect<T::AccountId>>::Balance: From<u128>,
 )]
 mod benchmarks {
 	use super::*;
 
+	/// Benches the uncle path of `submit_proof`. The fixture's parachain header carries
+	/// `para_id = 3367`, which doesn't match Gargantua's tracked `para_id` (4009), so
+	/// `verify_and_apply` runs the SP1 verifier successfully but stores no commitments
+	/// and bails as `StaleProof`. Dispatch falls through to `settle_uncle_proof`, which
+	/// runs `verify_sp1_consensus` a second time against the pre-seeded snapshot. This
+	/// produces a conservative weight covering both SP1 verifications plus the uncle
+	/// storage writes, which is also the worst case for the first-proof path. Tracked
+	/// under the "Uncle-path benchmark" follow-up in
+	/// docs/beefy-uncle-proofs-implementation.md.
 	#[benchmark]
 	fn submit_proof() {
-		// Seed the consensus state and SP1 vkey the verifier will read.
-		pallet_ismp::ConsensusStates::<T>::insert(
-			pallet::BEEFY_CONSENSUS_ID,
-			TRUSTED_STATE_SCALE.to_vec(),
-		);
+		// Initialize pallet-ismp state via `create_consensus_client` so the verifier
+		// finds `ConsensusStateClient`, `UnbondingPeriod`, and `ConsensusClientUpdateTime`
+		// alongside the raw `ConsensusStates` entry.
+		pallet_ismp::Pallet::<T>::create_consensus_client(
+			frame_system::RawOrigin::Root.into(),
+			ismp::messaging::CreateConsensusState {
+				consensus_state: TRUSTED_STATE_SCALE.to_vec(),
+				consensus_client_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+				consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
+				unbonding_period: T::UnbondingPeriod::get(),
+				challenge_periods: Default::default(),
+				state_machine_commitments: Default::default(),
+			},
+		)
+		.expect("create_consensus_client succeeds in benchmark setup");
 		pallet::Sp1VkeyHash::<T>::put(FIXTURE_VKEY.to_vec());
 
-		// Generate a deterministic SR25519 keypair via the benchmark keystore.
-		// `sr25519_generate` stores the keypair keyed by (BENCH_KEY, public) so
-		// `sr25519_sign` can look it up. The pubkey bytes double as the AccountId.
-		let public = sp_io::crypto::sr25519_generate(BENCH_KEY, None);
-		let submitter: T::AccountId = public.0.into();
+		// Pre-seed the uncle snapshot at `Self::latest_height()` (0 with no parachain
+		// commitments stored). The dispatch will land here after `verify_and_apply`
+		// fails the para_id filter.
+		pallet::ProofContext::<T>::insert(0u64, TRUSTED_STATE_SCALE.to_vec());
 
-		// Sign the canonical message exactly as `verify_and_apply` computes it.
-		let proof = WIRE_PROOF.to_vec();
-		let proof_digest = sp_io::hashing::keccak_256(&proof);
-		let msg_preimage = (crate::types::SIGNATURE_DOMAIN, &submitter, proof_digest).encode();
-		let signed_msg = sp_io::hashing::keccak_256(&msg_preimage);
-		let signature = sp_io::crypto::sr25519_sign(BENCH_KEY, &public, &signed_msg)
-			.expect("keystore has the just-generated keypair");
-
-		let payload = crate::types::SubmitProofPayload { submitter, proof };
+		// Any 32-byte AccountId works. The signed origin doesn't need a keystore entry
+		// for the actual signature, just a usable AccountId for reward payout.
+		let submitter: T::AccountId = [1u8; 32].into();
 
 		#[extrinsic_call]
-		_(RawOrigin::None, payload, signature);
+		_(RawOrigin::Signed(submitter), WIRE_PROOF.to_vec());
 
-		// Fixture rewrites `next_authorities.id` to force the rotation path, so a
-		// single `RotationProofs` entry is recorded and `MessagingProofs` stays empty.
-		assert_eq!(pallet::RotationProofs::<T>::get().len(), 1);
-		assert_eq!(pallet::MessagingProofs::<T>::get().len(), 0);
+		// Uncle accepted at position 0; one hash recorded under height 0.
+		assert_eq!(pallet::ProverCount::<T>::get(0u64), 1);
+		assert_eq!(pallet::AcceptedProofHashes::<T>::get(0u64).len(), 1);
 	}
 
 	#[benchmark]
@@ -103,6 +104,26 @@ mod benchmarks {
 		_(RawOrigin::Root, vkey.clone());
 
 		assert_eq!(pallet::Sp1VkeyHash::<T>::get(), vkey);
+	}
+
+	#[benchmark]
+	fn set_reward_curve() {
+		// Suggested mainnet defaults: 100%, 80%, 60%, 40%, 20%. The curve is bounded by
+		// `MaxStoredProvers` (`MaxUncleProvers + 1`), covering position 0 plus every
+		// uncle slot.
+		let curve: frame_support::BoundedVec<(u32, u32), pallet::MaxStoredProvers<T>> =
+			frame_support::BoundedVec::truncate_from(alloc::vec![
+				(1u32, 1u32),
+				(4, 5),
+				(3, 5),
+				(2, 5),
+				(1, 5),
+			]);
+
+		#[extrinsic_call]
+		_(RawOrigin::Root, curve.clone());
+
+		assert_eq!(pallet::RewardCurve::<T>::get(), curve);
 	}
 
 	// NOTE: `initialize_state` still has no benchmark because it requires an ABI-encoded

@@ -139,6 +139,14 @@ impl IsmpProvider for MockHost {
 		StateMachineId { state_id: self.state_machine, consensus_state_id: *b"POLY" }
 	}
 
+	fn ismp_host_contract(&self) -> Option<sp_core::H160> {
+		None
+	}
+
+	async fn handler_v2_address(&self) -> Option<sp_core::H160> {
+		None
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		todo!()
 	}

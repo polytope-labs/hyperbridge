@@ -404,6 +404,18 @@ where
 		StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_state_id }
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		// Substrate hosts ISMP via a pallet, not a contract — there's no
+		// on-chain address. The outbound-consensus claim path is EVM-only
+		// and short-circuits on this `None`.
+		None
+	}
+
+	async fn handler_v2_address(&self) -> Option<H160> {
+		// Same as `ismp_host_contract`: substrate has no HandlerV2 contract.
+		None
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		Default::default()
 	}

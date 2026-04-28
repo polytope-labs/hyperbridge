@@ -310,6 +310,14 @@ where
 		self.evm.state_machine_id()
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		self.evm.ismp_host_contract()
+	}
+
+	async fn handler_v2_address(&self) -> Option<H160> {
+		self.evm.handler_v2_address().await
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		self.evm.block_max_gas()
 	}

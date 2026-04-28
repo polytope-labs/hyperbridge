@@ -30,7 +30,7 @@ use ismp::{
 	messaging::{CreateConsensusState, Message},
 };
 use pallet_ismp_host_executive::HostParam;
-use primitive_types::{H256, U256};
+use primitive_types::{H160, H256, U256};
 use tesseract_evm::tx::generate_contract_calls;
 use tesseract_primitives::{
 	BoxStream, ByzantineHandler, EstimateGasReturnParams, IsmpProvider, Query, Signature,
@@ -140,6 +140,18 @@ impl IsmpProvider for TronClient {
 
 	fn state_machine_id(&self) -> StateMachineId {
 		self.evm.state_machine_id()
+	}
+
+	fn ismp_host_contract(&self) -> Option<H160> {
+		self.evm.ismp_host_contract()
+	}
+
+	async fn handler_v2_address(&self) -> Option<H160> {
+		// Tron's IsmpHost mirrors the EVM ABI surface, so delegating to
+		// the inner EVM client picks up `hostParams().handler` if Tron's
+		// host contract exposes it. If HandlerV2 isn't deployed the call
+		// fails gracefully and returns `None`.
+		self.evm.handler_v2_address().await
 	}
 
 	fn block_max_gas(&self) -> u64 {

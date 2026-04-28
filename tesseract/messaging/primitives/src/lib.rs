@@ -389,9 +389,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// task to derive the destination-side storage slot for
 	/// `_stateCommitments[hbStateMachineId][rotation_height]`, which is
 	/// what the pallet's state proof verifier looks up.
-	fn ismp_host_contract(&self) -> Option<sp_core::H160> {
-		None
-	}
+	fn ismp_host_contract(&self) -> Option<sp_core::H160>;
 
 	/// The HandlerV2 contract address on this chain (only meaningful on
 	/// EVM destinations that have HandlerV2 deployed). The EVM impl reads
@@ -400,9 +398,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// governance has set on chain. Defaults to `None` for non-EVM chains
 	/// (mirroring [`Self::ismp_host_contract`]); the outbound-consensus
 	/// claim task is EVM-only and skips destinations that report `None`.
-	async fn handler_v2_address(&self) -> Option<sp_core::H160> {
-		None
-	}
+	async fn handler_v2_address(&self) -> Option<sp_core::H160>;
 
 	/// Should return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;

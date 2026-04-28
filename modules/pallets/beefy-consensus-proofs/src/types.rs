@@ -15,32 +15,6 @@
 
 //! Types for `pallet-beefy-consensus-proofs`.
 
-use codec::{Decode, DecodeWithMemTracking, Encode};
-use scale_info::TypeInfo;
-use sp_core::sr25519;
-
-/// Payload submitted via the `submit_proof` unsigned extrinsic.
-///
-/// The signed message is `keccak256(("beefy_consensus_proof_v1", submitter,
-/// keccak256(proof)).encode())`; the signature in the outer extrinsic is expected to
-/// verify against `submitter` interpreted as an SR25519 public key.
-///
-/// No nonce: replay is prevented by on-chain state progression. Once a proof is applied
-/// `LastProvenHeight` / the BEEFY authority set id advance, and `verify_and_apply` then
-/// rejects any resubmission of the same bytes with `StaleProof` or
-/// `UnexpectedAuthoritySet`.
-#[derive(Clone, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo, PartialEq, Eq)]
-pub struct SubmitProofPayload<AccountId> {
-	/// The account that signed this payload and that will receive the reward (if any).
-	pub submitter: AccountId,
-	/// `bytes1 proof_type || abi-encoded proof body`, matching the wire format consumed by
-	/// `ConsensusRouter.verify` on the EVM side.
-	pub proof: alloc::vec::Vec<u8>,
-}
-
-/// Domain separator for the signed message.
-pub const SIGNATURE_DOMAIN: &[u8] = b"pallet_beefy_consensus_proofs";
-
 /// Offchain-storage prefix for raw verified proof bytes written by `submit_proof`.
 /// Combined with the `proven_height` (`u64`, big-endian) to form the actual offchain key.
 /// All proofs — rotation and messaging alike — share this single namespace since both
@@ -51,15 +25,6 @@ pub const OFFCHAIN_PREFIX: &[u8] = b"beefy_consensus_proofs::";
 pub const PROOF_TYPE_NAIVE: u8 = 0x00;
 /// Proof type byte: SP1 ZK BEEFY proof.
 pub const PROOF_TYPE_SP1: u8 = 0x01;
-
-/// `provides` tag for BEEFY consensus proofs — a single fixed slot. At most one proof
-/// is retained in the pool at a time; higher `proven_height` wins. Unified across
-/// rotation and messaging proofs so that the pool never holds a rotation alongside a
-/// messaging proof that would supersede it on inclusion.
-pub const PROOF_TAG: &[u8] = b"beefy_consensus_proof";
-
-/// Signature type expected alongside [`SubmitProofPayload`].
-pub type Signature = sr25519::Signature;
 
 /// Offchain-storage key for a verified consensus proof keyed by `proven_height`.
 /// Relayers reconstruct this key off of a [`MessagingProofs`](crate::pallet::MessagingProofs)

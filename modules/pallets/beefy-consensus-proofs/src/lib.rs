@@ -16,18 +16,29 @@
 //! # Pallet BEEFY Consensus Proofs
 //!
 //! Verifies BEEFY consensus proofs (primarily SP1 ZK) submitted by off-chain provers and
-//! feeds the finalized parachain state commitments into `pallet-ismp`. Rewards submitters a
-//! fixed amount from the treasury when a proof does useful work — either carries the
-//! expected next authority-set rotation, or advances the latest proven parachain height
-//! past a block in which new ISMP requests were dispatched.
+//! feeds the finalized parachain state commitments into `pallet-ismp`. Rewards submitters
+//! from the treasury when a proof does useful work — either carries the expected next
+//! authority-set rotation, or advances the latest proven parachain height past a block
+//! in which new ISMP requests were dispatched.
 //!
-//! Proofs are submitted via **authenticated unsigned** extrinsics: the payload carries an
-//! SR25519 signature over `(domain, submitter, keccak256(proof))`. The submitter account
-//! is both the reward payee and the claimed signer. Full proof verification runs in
-//! `ValidateUnsigned` so the tx pool only ever retains valid proofs. Replay is prevented
-//! by the monotonic advance of `pallet-ismp::LatestStateMachineHeight` and the BEEFY authority set
-//! id (tracked in `pallet-ismp`'s consensus state): resubmitting
-//! the same bytes after a proof is applied trips `StaleProof` or `UnexpectedAuthoritySet`.
+//! Proofs are submitted via **signed** extrinsics: the signer of the extrinsic is the
+//! reward payee. The pallet sets `Pays::No` on accepted proofs so a successful prover
+//! gets their fee refunded along with the reward; failed proofs pay the transaction
+//! fee normally, which keeps spam off the chain.
+//!
+//! ## Uncle proofs
+//!
+//! Multiple SP1 provers running independently can each get rewarded for the same
+//! finality target via decreasing-curve uncle rewards. The first prover to land a
+//! proof advances state and gets position 0; subsequent independent provers
+//! (different proof bytes thanks to SP1 Groth16 witness randomization) for the
+//! same target are accepted as uncles, up to `MaxUncleProvers`, and rewarded at
+//! decreasing positions.
+//!
+//! Uncle verification reuses the consensus state snapshot taken before the first
+//! proof mutated it, so uncle proofs are checked cryptographically against the
+//! same trusted state the first prover used. `keccak256(proof)` is recorded per
+//! parachain height to reject re-submission of bytes that were already accepted.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -41,7 +52,6 @@ pub mod weights;
 use polkadot_sdk::*;
 
 pub use pallet::*;
-pub use types::{Signature, SubmitProofPayload};
 pub use weights::WeightInfo;
 
 #[frame_support::pallet]
@@ -51,6 +61,7 @@ pub mod pallet {
 	use alloy_sol_types::SolType;
 	use codec::{Decode, Encode};
 	use frame_support::{
+		dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 		pallet_prelude::*,
 		traits::{
 			fungible::{self, Inspect, Mutate},
@@ -60,27 +71,17 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
-		events::StateMachineUpdated,
+		consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
 		handlers,
 		host::IsmpHost,
 		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
 	};
 	use ismp_solidity_abi::beefy::BeefyConsensusState as SolBeefyConsensusState;
 	use primitive_types::H256;
-	use sp_core::sr25519;
-	use sp_runtime::{
-		traits::AccountIdConversion,
-		transaction_validity::{
-			InvalidTransaction, TransactionLongevity, TransactionSource, TransactionValidity,
-			TransactionValidityError, ValidTransaction,
-		},
-	};
+	use sp_runtime::traits::AccountIdConversion;
 
-	use crate::types::{Signature, SubmitProofPayload};
-
-	/// Longevity for proofs in the tx pool, in blocks.
-	const PROOF_LONGEVITY: TransactionLongevity = 15;
+	type BalanceOf<T> =
+		<<T as Config>::Currency as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -89,7 +90,7 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// Origin permitted to run privileged calls (`initialize_state`, `set_proof_reward`,
-		/// `set_sp1_vkey_hash`).
+		/// `set_sp1_vkey_hash`, `set_reward_curve`).
 		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 
 		/// Currency used for treasury reward payouts.
@@ -99,7 +100,7 @@ pub mod pallet {
 		#[pallet::constant]
 		type TreasuryPalletId: Get<PalletId>;
 
-		/// Maximum SCALE-encoded size of a single `SubmitProofPayload`.
+		/// Maximum size in bytes of a single proof payload.
 		#[pallet::constant]
 		type MaxProofSize: Get<u32>;
 
@@ -123,12 +124,14 @@ pub mod pallet {
 		#[pallet::constant]
 		type AllowedProofTypes: Get<&'static [u8]>;
 
+		/// Maximum number of unique provers rewarded per parachain height (including the
+		/// first). Naive proofs only ever occupy position 0; uncle rewards apply to SP1.
+		#[pallet::constant]
+		type MaxUncleProvers: Get<u32>;
+
 		/// The pallet-assets instance used for managing the reputation token.
 		/// Mints reputation tokens 1:1 with native token rewards to proof submitters.
-		type ReputationAsset: fungible::Mutate<
-			Self::AccountId,
-			Balance = <<Self as Config>::Currency as Inspect<Self::AccountId>>::Balance,
-		>;
+		type ReputationAsset: fungible::Mutate<Self::AccountId, Balance = BalanceOf<Self>>;
 
 		/// Weight info.
 		type WeightInfo: crate::weights::WeightInfo;
@@ -139,10 +142,10 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type LastRewardedDispatchRoot<T: Config> = StorageValue<_, H256, OptionQuery>;
 
-	/// Fixed reward amount per eligible proof.
+	/// Base reward amount paid to position-0 (first) provers. Uncle rewards are derived from
+	/// this value by applying [`RewardCurve`].
 	#[pallet::storage]
-	pub type ProofReward<T: Config> =
-		StorageValue<_, <<T as Config>::Currency as Inspect<T::AccountId>>::Balance, ValueQuery>;
+	pub type ProofReward<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
 	/// SP1 verification key hash (ASCII hex), consumed by
 	/// `beefy_verifier::sp1::verify_sp1_consensus`.
@@ -167,16 +170,39 @@ pub mod pallet {
 	pub type RotationProofs<T: Config> =
 		StorageValue<_, BoundedBTreeMap<u64, u64, T::MaxStoredProofs>, ValueQuery>;
 
+	/// Pre-proof BEEFY consensus state snapshot keyed by the parachain height the
+	/// first accepted proof advanced to. Uncle proofs verify against this snapshot
+	/// because the live consensus state has already been advanced by the first proof.
+	/// Pruned alongside `MessagingProofs`/`RotationProofs` eviction.
+	#[pallet::storage]
+	pub type ProofContext<T: Config> = StorageMap<_, Blake2_128Concat, u64, Vec<u8>, OptionQuery>;
+
+	/// Number of provers rewarded so far per parachain height. Used as the position
+	/// index when the next uncle lands.
+	#[pallet::storage]
+	pub type ProverCount<T: Config> = StorageMap<_, Blake2_128Concat, u64, u32, ValueQuery>;
+
+	/// `keccak256(proof_bytes)` for every proof accepted at a given parachain height.
+	/// SP1 Groth16 randomizes the witness so independent provers produce different
+	/// bytes; re-submission of the exact same bytes hits this set and is rejected.
+	#[pallet::storage]
+	pub type AcceptedProofHashes<T: Config> =
+		StorageMap<_, Blake2_128Concat, u64, BoundedVec<H256, T::MaxUncleProvers>, ValueQuery>;
+
+	/// Reward fractions `(numerator, denominator)` indexed by prover position. The base
+	/// reward [`ProofReward`] is multiplied by the fraction at the prover's position.
+	/// An empty curve falls back to `(1, 1)` for position 0 and zero for uncles, so the
+	/// pallet keeps the existing single-prover behaviour until an admin sets a curve.
+	#[pallet::storage]
+	pub type RewardCurve<T: Config> =
+		StorageValue<_, BoundedVec<(u32, u32), T::MaxUncleProvers>, ValueQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Consensus state has not been initialized yet.
 		NotInitialized,
 		/// Payload exceeds `MaxProofSize`.
 		ProofTooLarge,
-		/// `submitter` could not be interpreted as an SR25519 public key.
-		InvalidAccountId,
-		/// Signature did not verify against the signed message.
-		BadSignature,
 		/// Proof is stale: `latest_height ≤ latest_state_machine_height`, or the proof rotated to
 		/// an unexpected authority set.
 		StaleProof,
@@ -197,33 +223,47 @@ pub mod pallet {
 		/// The proof does not advance state: no authority set rotation and no new
 		/// messages since the last rewarded proof.
 		NoNewWork,
+		/// `MaxUncleProvers` already accepted at this height.
+		UncleSlotsFull,
+		/// This exact proof has already been accepted at this height.
+		ProofAlreadySubmitted,
+		/// No first proof has been seen at this height, so no uncle slot exists.
+		NoUncleContext,
+		/// `set_reward_curve` received a fraction with a zero denominator.
+		InvalidRewardCurve,
 	}
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// A proof was accepted and state advanced.
+		/// A first proof was accepted and state advanced to `height`.
 		ProofAccepted {
 			submitter: T::AccountId,
 			height: u64,
 			new_set_id: Option<u64>,
-			rewarded: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
+			rewarded: BalanceOf<T>,
+		},
+		/// An uncle proof was accepted at `height` (which the first proof already
+		/// advanced state to). No state advance; reward only.
+		UncleProofAccepted {
+			submitter: T::AccountId,
+			height: u64,
+			rewarded: BalanceOf<T>,
+			/// `1..MaxUncleProvers`. Position 0 always belongs to the first proof.
+			position: u32,
 		},
 		/// Consensus state was (re)initialized by admin.
 		StateInitialized { current_set_id: u64, next_set_id: u64, latest_beefy_height: u32 },
 		/// Reward amount updated.
-		ProofRewardUpdated {
-			new_reward: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
-		},
+		ProofRewardUpdated { new_reward: BalanceOf<T> },
 		/// SP1 verification key hash updated.
 		Sp1VkeyHashUpdated,
+		/// Reward curve updated.
+		RewardCurveUpdated,
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T>
-	where
-		T::AccountId: Into<[u8; 32]>,
-	{
+	impl<T: Config> Pallet<T> {
 		/// Initialize or reset the BEEFY consensus state from its solidity-ABI encoding.
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::WeightInfo::initialize_state())]
@@ -273,55 +313,143 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Submit a BEEFY consensus proof. Unsigned; authenticated via the payload's
-		/// SR25519 signature.
+		/// Submit a BEEFY consensus proof. Signed: the signer is the reward payee.
+		///
+		/// Successful proofs (first or uncle) refund their transaction fee via `Pays::No`;
+		/// failed proofs pay the fee, which is the spam deterrent.
 		#[pallet::call_index(1)]
 		#[pallet::weight(T::WeightInfo::submit_proof())]
-		pub fn submit_proof(
-			origin: OriginFor<T>,
-			payload: SubmitProofPayload<T::AccountId>,
-			signature: Signature,
-		) -> DispatchResult {
-			ensure_none(origin)?;
+		pub fn submit_proof(origin: OriginFor<T>, proof: Vec<u8>) -> DispatchResultWithPostInfo {
+			let submitter = ensure_signed(origin)?;
+			Self::do_submit_proof(submitter, proof)
+		}
 
-			let outcome = Self::verify_and_apply(&payload, &signature)?;
+		/// Update the base reward amount paid to position-0 provers.
+		#[pallet::call_index(2)]
+		#[pallet::weight(T::WeightInfo::set_proof_reward())]
+		pub fn set_proof_reward(origin: OriginFor<T>, reward: BalanceOf<T>) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			ProofReward::<T>::put(reward);
+			Self::deposit_event(Event::ProofRewardUpdated { new_reward: reward });
+			Ok(())
+		}
+
+		/// Update the SP1 verification key hash.
+		#[pallet::call_index(3)]
+		#[pallet::weight(T::WeightInfo::set_sp1_vkey_hash())]
+		pub fn set_sp1_vkey_hash(origin: OriginFor<T>, vkey_hash: Vec<u8>) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			Sp1VkeyHash::<T>::put(vkey_hash);
+			Self::deposit_event(Event::Sp1VkeyHashUpdated);
+			Ok(())
+		}
+
+		/// Set the decreasing reward curve. Position `i` gets `ProofReward * curve[i].0 /
+		/// curve[i].1`. Empty curve means default behaviour (position 0 = full reward,
+		/// no uncle rewards).
+		#[pallet::call_index(4)]
+		#[pallet::weight(T::WeightInfo::set_reward_curve())]
+		pub fn set_reward_curve(
+			origin: OriginFor<T>,
+			curve: BoundedVec<(u32, u32), T::MaxUncleProvers>,
+		) -> DispatchResult {
+			<T as Config>::AdminOrigin::ensure_origin(origin)?;
+			if curve.iter().any(|(_, denom)| *denom == 0) {
+				Err(Error::<T>::InvalidRewardCurve)?
+			}
+			RewardCurve::<T>::put(curve);
+			Self::deposit_event(Event::RewardCurveUpdated);
+			Ok(())
+		}
+	}
+
+	/// Outcome of a successful [`Pallet::verify_and_apply`] call.
+	pub struct VerifyOutcome {
+		/// Highest parachain height finalized by this proof (0 if none).
+		pub latest_height: u64,
+		/// `current_authorities.id` of the consensus state *after* the update.
+		pub current_set_id: u64,
+		/// True iff the proof rotated the current authority set.
+		pub rotated: bool,
+		/// True iff the child trie root changed since the last rewarded proof.
+		pub has_new_messages: bool,
+		/// Root of the child trie verified by this proof.
+		pub child_trie_root: H256,
+	}
+
+	impl<T: Config> Pallet<T> {
+		/// Returns the latest proven parachain height from `pallet-ismp` for the
+		/// coprocessor state machine.
+		fn latest_height() -> u64 {
+			let host = pallet_ismp::Pallet::<T>::default();
+			let id = ismp::consensus::StateMachineId {
+				state_id: T::Coprocessor::get()
+					.expect("coprocessor must be set in hyperbridge runtime; qed"),
+				consensus_state_id: T::ConsensusStateId::get(),
+			};
+			host.latest_commitment_height(id).unwrap_or_default()
+		}
+
+		/// Top-level dispatch. On success, settle as the first proof; on any failure for
+		/// an SP1 proof, retry through the uncle path which runs its own cryptographic
+		/// check against the saved snapshot.
+		fn do_submit_proof(submitter: T::AccountId, proof: Vec<u8>) -> DispatchResultWithPostInfo {
+			if (proof.len() as u32) > T::MaxProofSize::get() {
+				Err(Error::<T>::ProofTooLarge)?
+			}
+			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
+			if !T::AllowedProofTypes::get().contains(&proof_type) {
+				Err(Error::<T>::UnknownProofType)?
+			}
+
+			let proof_hash: H256 = sp_io::hashing::keccak_256(&proof).into();
+
+			// Read the pre-proof consensus state before `verify_and_apply` mutates it.
+			// Used to seed `ProofContext` for the first-proof path.
+			let host = pallet_ismp::Pallet::<T>::default();
+			let prev_state_bytes = host
+				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
+				.map_err(|_| Error::<T>::NotInitialized)?;
+
+			match Self::verify_and_apply(&proof) {
+				Ok(outcome) => Self::settle_first_proof(
+					submitter,
+					proof,
+					proof_hash,
+					proof_type,
+					prev_state_bytes,
+					outcome,
+				),
+				Err(_) if proof_type == types::PROOF_TYPE_SP1 =>
+					Self::settle_uncle_proof(submitter, proof, proof_hash),
+				Err(e) => Err(e.into()),
+			}
+		}
+
+		/// First-proof path: state has been advanced inside `verify_and_apply`. Save the
+		/// pre-proof snapshot, record the proof hash, pay the reward at position 0, and
+		/// run ring-buffer eviction across `MessagingProofs`/`RotationProofs`. When an
+		/// entry falls off either ring, prune the matching uncle rows.
+		fn settle_first_proof(
+			submitter: T::AccountId,
+			proof: Vec<u8>,
+			proof_hash: H256,
+			proof_type: u8,
+			prev_state_bytes: Vec<u8>,
+			outcome: VerifyOutcome,
+		) -> DispatchResultWithPostInfo {
 			if outcome.has_new_messages {
 				LastRewardedDispatchRoot::<T>::put(outcome.child_trie_root);
 			}
 
-			let zero = <<T as Config>::Currency as Inspect<T::AccountId>>::Balance::default();
-			let reward = ProofReward::<T>::get();
-			let reward_paid = if reward > zero {
-				let treasury: T::AccountId =
-					<T as Config>::TreasuryPalletId::get().into_account_truncating();
-				<T as Config>::Currency::transfer(
-					&treasury,
-					&payload.submitter,
-					reward,
-					Preservation::Preserve,
-				)
-				.map_err(|e| {
-					log::warn!(
-						target: "ismp",
-						"[beefy-consensus-proofs] treasury reward transfer failed: {e:?}",
-					);
-					Error::<T>::RewardTransferFailed
-				})?;
+			// Record uncle metadata for SP1 proofs only. Naive proofs are ineligible.
+			if proof_type == types::PROOF_TYPE_SP1 {
+				Self::record_uncle_metadata(outcome.latest_height, prev_state_bytes, proof_hash)?;
+			}
 
-				// Mint reputation tokens 1:1 with the native reward
-				if let Err(e) = T::ReputationAsset::mint_into(&payload.submitter, reward) {
-					log::warn!(
-						target: "ismp",
-						"[beefy-consensus-proofs] reputation mint failed: {e:?}",
-					);
-				}
+			let reward_paid = Self::pay_position_reward(&submitter, 0)?;
 
-				reward
-			} else {
-				zero
-			};
-
-			sp_io::offchain_index::set(&types::offchain_key(outcome.latest_height), &payload.proof);
+			sp_io::offchain_index::set(&types::offchain_key(outcome.latest_height), &proof);
 			let evicted_height = if outcome.rotated {
 				RotationProofs::<T>::mutate(|map| {
 					let evicted = (map.len() as u32 == T::MaxStoredProofs::get())
@@ -342,160 +470,191 @@ pub mod pallet {
 
 			if let Some(height) = evicted_height {
 				sp_io::offchain_index::clear(&types::offchain_key(height));
+				ProofContext::<T>::remove(height);
+				ProverCount::<T>::remove(height);
+				AcceptedProofHashes::<T>::remove(height);
 			}
 
 			Self::deposit_event(Event::ProofAccepted {
-				submitter: payload.submitter.clone(),
+				submitter,
 				height: outcome.latest_height,
 				new_set_id: outcome.rotated.then_some(outcome.current_set_id),
 				rewarded: reward_paid,
 			});
 
-			Ok(())
+			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 		}
 
-		/// Update the fixed reward amount.
-		#[pallet::call_index(2)]
-		#[pallet::weight(T::WeightInfo::set_proof_reward())]
-		pub fn set_proof_reward(
-			origin: OriginFor<T>,
-			reward: <<T as Config>::Currency as Inspect<T::AccountId>>::Balance,
-		) -> DispatchResult {
-			<T as Config>::AdminOrigin::ensure_origin(origin)?;
-			ProofReward::<T>::put(reward);
-			Self::deposit_event(Event::ProofRewardUpdated { new_reward: reward });
-			Ok(())
-		}
+		/// Uncle path: the live consensus state is already past this proof's target
+		/// because a prior prover landed first. Look up the pre-proof snapshot saved at
+		/// that time and verify the SP1 proof directly against it.
+		fn settle_uncle_proof(
+			submitter: T::AccountId,
+			proof: Vec<u8>,
+			proof_hash: H256,
+		) -> DispatchResultWithPostInfo {
+			// The first proof for the most-recent finality target advanced state to
+			// `latest_height` and snapshotted the pre-state under that key. Uncles that
+			// arrive while that race is still open look up the same key. If a different
+			// first proof has since bumped state past this height, the snapshot under
+			// `latest_height` is for the *newer* first proof; the uncle's lower
+			// `proof.block_number` will fail SP1 verification against it (StaleHeight),
+			// so a stale uncle pays the tx fee.
+			let parachain_height = Self::latest_height();
 
-		/// Update the SP1 verification key hash.
-		#[pallet::call_index(3)]
-		#[pallet::weight(T::WeightInfo::set_sp1_vkey_hash())]
-		pub fn set_sp1_vkey_hash(origin: OriginFor<T>, vkey_hash: Vec<u8>) -> DispatchResult {
-			<T as Config>::AdminOrigin::ensure_origin(origin)?;
-			Sp1VkeyHash::<T>::put(vkey_hash);
-			Self::deposit_event(Event::Sp1VkeyHashUpdated);
-			Ok(())
-		}
-	}
+			let snapshot_bytes =
+				ProofContext::<T>::get(parachain_height).ok_or(Error::<T>::NoUncleContext)?;
 
-	#[pallet::validate_unsigned]
-	impl<T: Config> ValidateUnsigned for Pallet<T>
-	where
-		T::AccountId: Into<[u8; 32]>,
-	{
-		type Call = Call<T>;
+			let position = ProverCount::<T>::get(parachain_height);
+			if position >= T::MaxUncleProvers::get() {
+				Err(Error::<T>::UncleSlotsFull)?
+			}
 
-		// empty pre-dispatch so we don't modify storage
-		fn pre_dispatch(_call: &Self::Call) -> Result<(), TransactionValidityError> {
-			Ok(())
-		}
+			let hashes = AcceptedProofHashes::<T>::get(parachain_height);
+			if hashes.contains(&proof_hash) {
+				Err(Error::<T>::ProofAlreadySubmitted)?
+			}
 
-		fn validate_unsigned(_source: TransactionSource, call: &Self::Call) -> TransactionValidity {
-			let Call::submit_proof { payload, signature } = call else {
-				return Err(TransactionValidityError::Invalid(InvalidTransaction::Call));
-			};
+			// Verify the proof cryptographically against the saved trusted state. We
+			// don't apply state mutations because the live state is already past this point.
+			let snapshot: beefy_verifier_primitives::ConsensusState =
+				Decode::decode(&mut &snapshot_bytes[..]).map_err(|_| Error::<T>::NotInitialized)?;
 
-			// Single verification path: signature + handle_incoming_message (which itself
-			// runs the full BEEFY / SP1 check and persists state). In `validate_unsigned`
-			// the persistence happens in a discarded overlay; `submit_proof` re-runs this
-			// and the writes stick.
-			let outcome = Self::verify_and_apply(payload, signature).map_err(|e| {
-				log::debug!(target: "ismp", "validate_unsigned rejected: {e:?}");
-				// Discriminate reject reasons with distinct Custom codes so tooling can
-				// tell why a proof was dropped without relying on log scraping.
-				let code: u8 = match e {
-					Error::<T>::ProofTooLarge => 1,
-					Error::<T>::InvalidAccountId => 2,
-					Error::<T>::BadSignature => 3,
-					Error::<T>::NotInitialized => 4,
-					Error::<T>::UnknownProofType => 5,
-					Error::<T>::AbiDecodeFailed => 6,
-					Error::<T>::VerificationFailed => 7,
-					Error::<T>::UnexpectedAuthoritySet => 8,
-					Error::<T>::StaleProof => 9,
-					Error::<T>::NoNewWork => 10,
-					_ => 0,
-				};
-				TransactionValidityError::Invalid(InvalidTransaction::Custom(code))
+			let abi_payload = &proof[1..];
+			let abi_proof =
+				<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+					abi_payload,
+				)
+				.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+			let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
+
+			let vkey_bytes = Sp1VkeyHash::<T>::get();
+			let vkey =
+				core::str::from_utf8(&vkey_bytes).map_err(|_| Error::<T>::VerificationFailed)?;
+
+			beefy_verifier::sp1::verify_sp1_consensus::<types::SubstrateCrypto>(
+				snapshot,
+				scale_proof,
+				vkey,
+			)
+			.map_err(|e| {
+				log::debug!(
+					target: "ismp",
+					"[beefy-consensus-proofs] uncle SP1 verification failed: {e:?}",
+				);
+				Error::<T>::VerificationFailed
 			})?;
 
-			ValidTransaction::with_tag_prefix("BeefyConsensusProofs")
-				.longevity(PROOF_LONGEVITY)
-				.propagate(true)
-				.priority(outcome.latest_height)
-				.and_provides(types::PROOF_TAG.encode())
-				.build()
-		}
-	}
+			let reward_paid = Self::pay_position_reward(&submitter, position)?;
 
-	/// Outcome of a successful [`Pallet::verify_and_apply`] call.
-	pub struct VerifyOutcome {
-		/// Highest parachain height finalized by this proof (0 if none).
-		pub latest_height: u64,
-		/// `current_authorities.id` of the consensus state *after* the update.
-		pub current_set_id: u64,
-		/// True iff the proof rotated the current authority set.
-		pub rotated: bool,
-		/// True iff the child trie root changed since the last rewarded proof.
-		pub has_new_messages: bool,
-		/// Root of the child trie verified by this proof.
-		pub child_trie_root: H256,
-	}
+			AcceptedProofHashes::<T>::try_mutate(parachain_height, |vec| vec.try_push(proof_hash))
+				.map_err(|_| Error::<T>::UncleSlotsFull)?;
+			ProverCount::<T>::insert(parachain_height, position.saturating_add(1));
 
-	impl<T: Config> Pallet<T>
-	where
-		T::AccountId: Into<[u8; 32]>,
-	{
-		/// Returns the latest proven parachain height from `pallet-ismp` for the
-		/// coprocessor state machine.
-		fn latest_height() -> u64 {
-			let host = pallet_ismp::Pallet::<T>::default();
-			let id = ismp::consensus::StateMachineId {
-				state_id: T::Coprocessor::get()
-					.expect("coprocessor must be set in hyperbridge runtime; qed"),
-				consensus_state_id: T::ConsensusStateId::get(),
-			};
-			host.latest_commitment_height(id).unwrap_or_default()
+			Self::deposit_event(Event::UncleProofAccepted {
+				submitter,
+				height: parachain_height,
+				rewarded: reward_paid,
+				position,
+			});
+
+			Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
 		}
 
-		/// Single verification path shared by `validate_unsigned` and `submit_proof`:
+		/// Save the pre-proof snapshot keyed by `parachain_height` and register the
+		/// first proof's hash. Uncles for this height land in the same rows; eviction
+		/// from `MessagingProofs`/`RotationProofs` removes them in lockstep.
+		fn record_uncle_metadata(
+			parachain_height: u64,
+			prev_state_bytes: Vec<u8>,
+			proof_hash: H256,
+		) -> Result<(), Error<T>> {
+			ProofContext::<T>::insert(parachain_height, prev_state_bytes);
+
+			AcceptedProofHashes::<T>::try_mutate(parachain_height, |vec| vec.try_push(proof_hash))
+				.map_err(|_| Error::<T>::UncleSlotsFull)?;
+			ProverCount::<T>::mutate(parachain_height, |c| *c = c.saturating_add(1));
+
+			Ok(())
+		}
+
+		/// Apply the curve at `position` to [`ProofReward`], transfer from the treasury,
+		/// and mint reputation 1:1.
+		fn pay_position_reward(
+			submitter: &T::AccountId,
+			position: u32,
+		) -> Result<BalanceOf<T>, Error<T>> {
+			let zero = BalanceOf::<T>::default();
+			let base = ProofReward::<T>::get();
+			if base == zero {
+				return Ok(zero);
+			}
+
+			let reward = Self::position_reward(base, position);
+			if reward == zero {
+				return Ok(zero);
+			}
+
+			let treasury: T::AccountId =
+				<T as Config>::TreasuryPalletId::get().into_account_truncating();
+			<T as Config>::Currency::transfer(&treasury, submitter, reward, Preservation::Preserve)
+				.map_err(|e| {
+					log::warn!(
+						target: "ismp",
+						"[beefy-consensus-proofs] treasury reward transfer failed: {e:?}",
+					);
+					Error::<T>::RewardTransferFailed
+				})?;
+
+			if let Err(e) = T::ReputationAsset::mint_into(submitter, reward) {
+				log::warn!(
+					target: "ismp",
+					"[beefy-consensus-proofs] reputation mint failed: {e:?}",
+				);
+			}
+
+			Ok(reward)
+		}
+
+		/// Apply the configured curve to the base reward. Empty curve means full reward
+		/// at position 0 and zero at later positions, preserving pre-uncle behaviour.
 		///
-		/// 1. SR25519 signature check over the payload.
-		/// 2. ABI-decode the proof into the SCALE shape `ismp-beefy` consumes.
-		/// 3. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message` —
-		///    `pallet-ismp` routes to `BeefyConsensusClient::verify_consensus` which runs the full
-		///    BEEFY / SP1 check and persists consensus state + parachain commitments.
-		/// 4. Extract the proven parachain height from the returned `StateMachineUpdated` events
+		/// Uses a u128 round-trip for `* num / denom`. Hyperbridge runtimes use a u128
+		/// balance, so the trip is lossless; on any runtime where balances exceed u128
+		/// we'd saturate, which is acceptable since rewards are small relative to total
+		/// supply.
+		fn position_reward(base: BalanceOf<T>, position: u32) -> BalanceOf<T> {
+			let curve = RewardCurve::<T>::get();
+			if curve.is_empty() {
+				return if position == 0 { base } else { BalanceOf::<T>::default() };
+			}
+			let Some((num, denom)) = curve.get(position as usize).copied() else {
+				return BalanceOf::<T>::default();
+			};
+			if denom == 0 {
+				return BalanceOf::<T>::default();
+			}
+			use sp_runtime::SaturatedConversion;
+			let base_u128: u128 = base.saturated_into();
+			let scaled = base_u128.saturating_mul(num as u128).saturating_div(denom as u128);
+			scaled.saturated_into::<BalanceOf<T>>()
+		}
+
+		/// First-proof verification path:
+		///
+		/// 1. ABI-decode the proof into the SCALE shape `ismp-beefy` consumes.
+		/// 2. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
+		///    which routes to `BeefyConsensusClient::verify_consensus`. That runs the full BEEFY /
+		///    SP1 check and persists consensus state + parachain commitments.
+		/// 3. Extract the proven parachain height from the returned `StateMachineUpdated` events
 		///    and the new authority-set id from the stored consensus state so the caller can
 		///    classify the proof as rotation / messaging.
 		///
-		/// Staleness rejection (messaging proofs must push height forward; rotation must
-		/// target the expected next set id) is enforced here so both `validate_unsigned`
-		/// (which runs this in a discarded overlay) and `submit_proof` (which persists)
-		/// share the same accept/reject decision.
-		pub fn verify_and_apply(
-			payload: &SubmitProofPayload<T::AccountId>,
-			signature: &Signature,
-		) -> Result<VerifyOutcome, Error<T>> {
-			// Size check.
-			if (payload.proof.len() as u32) > T::MaxProofSize::get() {
-				Err(Error::<T>::ProofTooLarge)?
-			}
-
-			// Signature.
-			let public = sr25519::Public::from(payload.submitter.clone().into());
-			let proof_digest = sp_io::hashing::keccak_256(&payload.proof);
-			let msg_preimage = (types::SIGNATURE_DOMAIN, &payload.submitter, proof_digest).encode();
-			let signed_msg = sp_io::hashing::keccak_256(&msg_preimage);
-			if !sp_io::crypto::sr25519_verify(signature, &signed_msg, &public) {
-				Err(Error::<T>::BadSignature)?
-			}
-
-			let proof_type = *payload.proof.first().ok_or(Error::<T>::UnknownProofType)?;
-			if !T::AllowedProofTypes::get().contains(&proof_type) {
-				Err(Error::<T>::UnknownProofType)?
-			}
-			let abi_payload = &payload.proof[1..];
+		/// Returns an error if the proof would not advance state. The caller routes any
+		/// SP1 failure here through the uncle path.
+		pub fn verify_and_apply(proof: &[u8]) -> Result<VerifyOutcome, Error<T>> {
+			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
+			let abi_payload = &proof[1..];
 
 			let consensus_proof = match proof_type {
 				types::PROOF_TYPE_SP1 => {
@@ -533,7 +692,7 @@ pub mod pallet {
 				Message::Consensus(IsmpConsensusMessage {
 					consensus_proof,
 					consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
-					signer: public.to_vec(),
+					signer: vec![],
 				}),
 			)
 			.map_err(|e| {

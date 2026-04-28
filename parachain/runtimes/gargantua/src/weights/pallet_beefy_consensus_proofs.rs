@@ -20,8 +20,9 @@
 //! the `pallet_outbound_proofs` benchmark run on an AMD Ryzen Threadripper PRO
 //! 5995WX (2026-04-18, wasm-execution=compiled, steps=50, repeat=20). The pallet was
 //! subsequently renamed and its extrinsic surface redesigned (submit_proof is now
-//! unsigned + SR25519-authed, `initialize_state` was added), so these numbers are a
-//! close-but-not-exact starting point — regenerate once benchmarks are wired into CI.
+//! signed, `initialize_state` was added, uncle proofs added new storage), so these
+//! numbers are a close-but-not-exact starting point — regenerate once benchmarks are
+//! wired into CI.
 //!
 //! Original per-bench numbers:
 //!   submit_proof         ~669ms   5r/2w   (dominated by SP1 verification)
@@ -42,10 +43,14 @@ pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for WeightInfo<T> {
 	/// Storage: `Ismp::ConsensusStates` (r:1 w:1)
 	/// Storage: `BeefyConsensusProofs::Sp1VkeyHash` (r:1 w:0)
-	/// Storage: `BeefyConsensusProofs::LastProvenHeight` (r:1 w:1)
 	/// Storage: `BeefyConsensusProofs::LastRewardedDispatchRoot` (r:1 w:1)
-	/// Storage: `BeefyConsensusProofs::RecentProofs` (r:1 w:1)
+	/// Storage: `BeefyConsensusProofs::MessagingProofs` (r:1 w:1)
+	/// Storage: `BeefyConsensusProofs::RotationProofs` (r:1 w:1)
 	/// Storage: `BeefyConsensusProofs::ProofReward` (r:1 w:0)
+	/// Storage: `BeefyConsensusProofs::RewardCurve` (r:1 w:0)
+	/// Storage: `BeefyConsensusProofs::ProofContext` (r:1 w:1)
+	/// Storage: `BeefyConsensusProofs::ProverCount` (r:1 w:1)
+	/// Storage: `BeefyConsensusProofs::AcceptedProofHashes` (r:1 w:1)
 	fn submit_proof() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `547`
@@ -53,8 +58,8 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 		// Minimum execution time: 669_751_633_000 picoseconds.
 		Weight::from_parts(694_774_527_000, 0)
 			.saturating_add(Weight::from_parts(0, 4012))
-			.saturating_add(T::DbWeight::get().reads(6))
-			.saturating_add(T::DbWeight::get().writes(4))
+			.saturating_add(T::DbWeight::get().reads(10))
+			.saturating_add(T::DbWeight::get().writes(7))
 	}
 	/// Storage: `BeefyConsensusProofs::ProofReward` (r:0 w:1)
 	fn set_proof_reward() -> Weight {
@@ -67,6 +72,13 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 	fn set_sp1_vkey_hash() -> Weight {
 		// Minimum execution time: 4_779_000 picoseconds.
 		Weight::from_parts(5_490_000, 0)
+			.saturating_add(Weight::from_parts(0, 0))
+			.saturating_add(T::DbWeight::get().writes(1))
+	}
+	/// Storage: `BeefyConsensusProofs::RewardCurve` (r:0 w:1)
+	fn set_reward_curve() -> Weight {
+		// Approximated: same cost class as `set_proof_reward`, single write.
+		Weight::from_parts(9_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}

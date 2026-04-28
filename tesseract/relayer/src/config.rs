@@ -359,7 +359,15 @@ pub fn setup_logging() -> Result<(), anyhow::Error> {
 	use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 	let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-	tracing_subscriber::registry().with(fmt::layer()).with(filter).init();
+	// `fmt::layer` defaults to auto-detect: ANSI on only if stdout is a
+	// TTY. That breaks under systemd / `nohup` / docker where stdout is
+	// piped to journald or a file and colors get silently dropped. Force
+	// ANSI on; the standard `NO_COLOR=1` opt-out (https://no-color.org)
+	// disables it for users who pipe through non-rendering tools. The
+	// raw bytes survive into the journal, and `journalctl` pages through
+	// `less -R` by default so colors render on read-out.
+	let use_ansi = std::env::var_os("NO_COLOR").is_none();
+	tracing_subscriber::registry().with(fmt::layer().with_ansi(use_ansi)).with(filter).init();
 
 	Ok(())
 }

@@ -204,6 +204,13 @@ async fn deliver_post_request<D: IsmpProvider>(
 
 /// EVM-destination delivery: bundle the BEEFY consensus proof + request in
 /// one submission.
+///
+/// Skips the consensus message when the destination's light client of HB
+/// is already past the withdrawal height — in that case any state proof
+/// against HB's state at the destination's known height verifies cleanly
+/// on chain, no consensus update needed. Saves the
+/// wait-for-`ProofAccepted` hop, a `proof_source.fetch` round-trip, and
+/// the calldata cost of bundling the BEEFY proof.
 async fn deliver_post_request_evm<D: IsmpProvider>(
 	dest_chain: Arc<dyn IsmpProvider>,
 	hyperbridge: &D,
@@ -217,45 +224,9 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 		results.iter().map(|r| r.block).max().expect("results non-empty, checked above");
 
 	let hb_state_machine_id = hyperbridge.state_machine_id();
+	let dest_state_machine = dest_chain.state_machine_id().state_id;
 
-	// Wait for HB's own ProofAccepted to reach max_block — that's the signal
-	// that an accepted proof exists in offchain storage that we can bundle
-	// alongside the request message below, advancing the destination's view
-	// of HB high enough to verify the request proof in the same tx.
-	let mut latest_height = hyperbridge.query_latest_height(hb_state_machine_id).await? as u64;
-
-	if max_block > latest_height {
-		tracing::info!(target: crate::LOG_TARGET, target_height = max_block, "waiting for proof accepted");
-		let mut stream = hyperbridge.proof_accepted_notification().await?;
-
-		latest_height = loop {
-			match stream.next().await {
-				Some(Ok(event)) =>
-					if event.height < max_block {
-						continue;
-					} else {
-						tracing::info!(target: crate::LOG_TARGET, height = event.height, "proof accepted");
-						break event.height;
-					},
-				Some(Err(_)) => {
-					tracing::error!(target: crate::LOG_TARGET, chain = %dest_chain.name(), "proof_accepted error; retrying");
-				},
-				None => return Err(anyhow!("Proof accepted stream ended")),
-			}
-		};
-	}
-
-	// Bundle the BEEFY consensus proof alongside the request message so
-	// destinations that haven't yet seen this HB height can verify both in
-	// one tx.
-	let consensus_proof = proof_source.fetch(latest_height).await?;
-	let consensus_msg = ConsensusMessage {
-		consensus_proof,
-		consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
-		signer: dest_chain.address(),
-	};
-
-	let queries = results
+	let queries: Vec<Query> = results
 		.iter()
 		.map(|result| Query {
 			source_chain: result.post.source,
@@ -263,28 +234,128 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 			nonce: result.post.nonce,
 			commitment: hash_request::<Hasher>(&Request::Post(result.post.clone())),
 		})
-		.collect::<Vec<_>>();
+		.collect();
+	let requests: Vec<_> = results.iter().map(|r| r.post.clone()).collect();
 
-	let requests = results.iter().map(|r| r.post.clone()).collect::<Vec<_>>();
-	tracing::debug!(target: crate::LOG_TARGET, height = latest_height, "querying request proof");
-	let proof = hyperbridge
-		.query_requests_proof(latest_height, queries, dest_chain.state_machine_id().state_id)
-		.await?;
-	let request_msg = RequestMessage {
-		requests,
-		proof: Proof {
-			height: StateMachineHeight { id: hb_state_machine_id, height: latest_height },
-			proof,
-		},
-		signer: dest_chain.address(),
-	};
+	// Lazy cache for the consensus prelude: only built (and waited-for)
+	// when a retry actually needs it. Once HB has accepted a proof at
+	// `latest_height >= max_block` that proof stays in offchain storage,
+	// so we never need to rebuild it across retries — but we *do* re-check
+	// the destination's view on every retry, since an inbound consensus
+	// task or another relayer may have advanced the destination past
+	// `max_block` in the meantime, letting us drop the prelude entirely.
+	let mut prelude: Option<(u64, ConsensusMessage)> = None;
 
-	let batch = vec![Message::Consensus(consensus_msg), Message::Request(request_msg)];
-
-	let mut count = 2;
+	let mut count = 3;
 	while count != 0 {
-		if let Err(err) = dest_chain.submit(batch.clone(), hb_state_machine_id.state_id).await {
-			tracing::info!(target: crate::LOG_TARGET, ?err, retries_left = count, "withdrawal submit failed; retrying");
+		// Re-check on every retry — destination's HB light client can
+		// advance between attempts (other relayers, the inbound consensus
+		// task), so a previously-needed consensus message may no longer
+		// be necessary. When the destination is already past `max_block`
+		// we point the request proof at its known height instead.
+		let dest_view_of_hb =
+			dest_chain.query_latest_height(hb_state_machine_id).await? as u64;
+
+		let (delivery_height, consensus_msg) = if dest_view_of_hb >= max_block {
+			tracing::info!(
+				target: crate::LOG_TARGET,
+				chain = %dest_chain.name(),
+				dest_view_of_hb,
+				max_block,
+				"destination already past withdrawal height; skipping consensus bundle",
+			);
+			(dest_view_of_hb, None)
+		} else {
+			// Destination is behind — bundle a consensus message. Reuse
+			// the cached `(height, ConsensusMessage)` if a previous retry
+			// already paid the wait/fetch cost.
+			let (h, msg) = match prelude.as_ref() {
+				Some((h, msg)) => (*h, msg.clone()),
+				None => {
+					let mut latest_height =
+						hyperbridge.query_latest_height(hb_state_machine_id).await? as u64;
+
+					if max_block > latest_height {
+						tracing::info!(
+							target: crate::LOG_TARGET,
+							target_height = max_block,
+							"waiting for proof accepted",
+						);
+						let mut stream = hyperbridge.proof_accepted_notification().await?;
+
+						latest_height = loop {
+							match stream.next().await {
+								Some(Ok(event)) =>
+									if event.height < max_block {
+										continue;
+									} else {
+										tracing::info!(
+											target: crate::LOG_TARGET,
+											height = event.height,
+											"proof accepted",
+										);
+										break event.height;
+									},
+								Some(Err(_)) => {
+									tracing::error!(
+										target: crate::LOG_TARGET,
+										chain = %dest_chain.name(),
+										"proof_accepted error; retrying",
+									);
+								},
+								None =>
+									return Err(anyhow!("Proof accepted stream ended")),
+							}
+						};
+					}
+
+					let consensus_proof = proof_source.fetch(latest_height).await?;
+					let msg = ConsensusMessage {
+						consensus_proof,
+						consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
+						signer: dest_chain.address(),
+					};
+					prelude = Some((latest_height, msg.clone()));
+					(latest_height, msg)
+				},
+			};
+			(h, Some(msg))
+		};
+
+		tracing::debug!(
+			target: crate::LOG_TARGET,
+			height = delivery_height,
+			"querying request proof",
+		);
+		let proof = hyperbridge
+			.query_requests_proof(delivery_height, queries.clone(), dest_state_machine)
+			.await?;
+		let request_msg = RequestMessage {
+			requests: requests.clone(),
+			proof: Proof {
+				height: StateMachineHeight { id: hb_state_machine_id, height: delivery_height },
+				proof,
+			},
+			signer: dest_chain.address(),
+		};
+
+		// Bundle the consensus message only when the destination needs to
+		// learn about HB at `delivery_height`. The `into_iter().map(...)` on
+		// the `Option<ConsensusMessage>` cleanly emits zero or one consensus
+		// entry without a branchy push pattern.
+		let batch: Vec<Message> = consensus_msg
+			.into_iter()
+			.map(Message::Consensus)
+			.chain(std::iter::once(Message::Request(request_msg)))
+			.collect();
+
+		if let Err(err) = dest_chain.submit(batch, hb_state_machine_id.state_id).await {
+			tracing::info!(
+				target: crate::LOG_TARGET,
+				?err,
+				retries_left = count,
+				"withdrawal submit failed; retrying",
+			);
 			count -= 1;
 		} else {
 			tracing::info!(target: crate::LOG_TARGET, "withdrawal delivered");

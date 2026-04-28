@@ -463,6 +463,8 @@ pub fn parachain_consensus_state_id(host: StateMachine) -> ConsensusStateId {
 	match host {
 		StateMachine::Kusama(_) => PASEO_CONSENSUS_ID,
 		StateMachine::Polkadot(_) => POLKADOT_CONSENSUS_ID,
+		StateMachine::Evm(id) if id == PASSET_HUB_TESTNET_CHAIN_ID => PASEO_CONSENSUS_ID,
+		StateMachine::Evm(id) if id == ASSET_HUB_MAINNET_CHAIN_ID => PASEO_CONSENSUS_ID,
 		_ => POLKADOT_CONSENSUS_ID,
 	}
 }

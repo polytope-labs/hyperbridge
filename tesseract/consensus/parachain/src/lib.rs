@@ -224,6 +224,7 @@ where
 	pub fn para_id(&self) -> u32 {
 		match self.state_machine {
 			StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id,
+			StateMachine::Evm(id) if id == 420420417 || id == 420420419 => 1000,
 			// checked in `new`
 			_ => unreachable!("ParachainHost checked state machine at construction"),
 		}

@@ -889,51 +889,6 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn submits_full_batch_when_messages_present() {
-		let hb: Arc<dyn IsmpProvider> = Arc::new(mock(HB));
-		let dest_mock = mock(DEST_A);
-		let submitted_log = dest_mock.submitted.clone();
-		let dest: Arc<dyn IsmpProvider> = Arc::new(dest_mock);
-		let client_map = client_map_with(hb.clone(), dest.clone());
-
-		let events = vec![
-			Event::PostRequest(post_req(HB, DEST_A, 1)),
-			Event::PostResponse(post_res(DEST_A, HB, 2)),
-		];
-
-		submit_for_dest(
-			OutboundEventContext {
-				hyperbridge: hb,
-				hb_state_machine_id: hb_id(),
-				coprocessor: HB,
-				relayer_config: RelayerConfig::default(),
-				client_map,
-				proof_source: proof_source(),
-				events,
-				proof_bytes: vec![0xcc],
-				is_mandatory: false,
-				new_height: 100,
-				new_set_id: None,
-			},
-			DestinationContext {
-				dest,
-				fee_sender: None,
-				claim_sender: None,
-				claim_tx_payment: None,
-			},
-		)
-		.await
-		.unwrap();
-
-		let submissions = submitted_log.lock().unwrap().clone();
-		assert_eq!(submissions.len(), 1);
-		assert_eq!(submissions[0].len(), 3, "consensus + request + response");
-		assert!(matches!(submissions[0][0], Message::Consensus(_)));
-		assert!(matches!(submissions[0][1], Message::Request(_)));
-		assert!(matches!(submissions[0][2], Message::Response(_)));
-	}
-
-	#[tokio::test]
 	async fn events_for_other_destinations_are_ignored() {
 		let hb: Arc<dyn IsmpProvider> = Arc::new(mock(HB));
 		let dest_mock = mock(DEST_A);

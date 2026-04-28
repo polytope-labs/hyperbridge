@@ -70,11 +70,20 @@ beefy-verifier-primitives = { workspace = true }
 subxt-core = { workspace = true, default-features = true }
 futures = { workspace = true }
 tokio = { workspace = true }
-ismp-solidity-abi = { workspace = true }
+ismp-solidity-abi = { workspace = true, features = ["std"] }
 
 [dependencies.alloy]
 workspace = true
-features = ["sol-types"]
+features = [
+    "sol-types",
+    "providers",
+    "provider-http",
+    "network",
+    "rpc-types-eth",
+    "eips",
+    "contract",
+    "reqwest",
+]
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -131,6 +140,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { workspace = true, features = ["derive", "alloc"] }
 serde_json = "1.0"
 reqwest = { version = "0.11", features = ["json"] }
+rusqlite = { version = "0.25", features = ["bundled"] }
+toml = "0.7"
 
 [features]
 runtime-benchmarks = [

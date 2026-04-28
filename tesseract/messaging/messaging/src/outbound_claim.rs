@@ -45,8 +45,9 @@ use pallet_ismp_relayer::{
 	outbound_consensus_delivery_message, OutboundConsensusDeliveryClaim, HANDLER_V2_EPOCHS_SLOT,
 };
 use primitive_types::{H160, U256};
-use sp_core::{keccak_256, Pair};
+use sp_core::Pair;
 use subxt_utils::outbound_consensus_rotations_claimed_storage_key;
+use tesseract_evm::derive_map_key;
 use tesseract_primitives::{
 	wait_for_state_machine_update, IsmpProvider, PendingConsensusDeliveryClaim, StateProofQueryType,
 };
@@ -337,6 +338,13 @@ async fn process_claim(
 		signature,
 	};
 
+	tracing::info!(
+		target: LOG_TARGET,
+		destination = %pending.destination,
+		set_id = pending.set_id,
+		dest_height,
+		"submitting outbound consensus delivery claim to hyperbridge",
+	);
 	hyperbridge
 		.submit_outbound_consensus_delivery_claim(claim)
 		.await
@@ -344,17 +352,17 @@ async fn process_claim(
 	Ok(())
 }
 
-/// `keccak256(set_id || HANDLER_V2_EPOCHS_SLOT)` prefixed with the
-/// HandlerV2 contract address. Matches the pallet-side derivation in
-/// `process_outbound_consensus_delivery_claim`.
+/// 52-byte EIP-1186 storage key for `HandlerV2._epochs[set_id]`:
+/// `handler (20) || keccak256(set_id_be32 || HANDLER_V2_EPOCHS_SLOT_be32) (32)`.
+/// Matches the pallet-side derivation in
+/// `process_outbound_consensus_delivery_claim` (which goes through
+/// `evm_state_machine::utils::derive_unhashed_map_key`); we use the
+/// equivalent off-chain helper from `tesseract-evm` so the hashing
+/// logic lives in one place instead of being re-implemented here.
 fn epochs_slot_key(handler: H160, set_id: u64) -> Vec<u8> {
-	let mut input = [0u8; 64];
-	input[..32].copy_from_slice(&U256::from(set_id).to_big_endian());
-	input[32..].copy_from_slice(&U256::from(HANDLER_V2_EPOCHS_SLOT).to_big_endian());
-	let slot_hash = keccak_256(&input);
-
+	let slot_hash = derive_map_key(U256::from(set_id).to_big_endian().to_vec(), HANDLER_V2_EPOCHS_SLOT);
 	let mut key = Vec::with_capacity(52);
 	key.extend_from_slice(&handler.0);
-	key.extend_from_slice(&slot_hash);
+	key.extend_from_slice(slot_hash.as_bytes());
 	key
 }

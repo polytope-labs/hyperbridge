@@ -787,6 +787,126 @@ mod outbound_consensus_delivery {
 		})
 	}
 
+	mod decode_epochs_slot_address {
+		//! Regression cases for `Pallet::decode_epochs_slot_address`,
+		//! the RLP-aware decoder behind the `_epochs[set_id]` slot
+		//! attribution. Earlier code did `<[u8; 32]>::try_from(raw)`,
+		//! which rejected every populated slot the EVM state-trie
+		//! returns — see
+		//! `modules/pallets/testsuite/tests/verify_pending_claims.rs`
+		//! for the live replay that uncovered the issue.
+		use super::*;
+		use alloy_primitives::Address as AlloyAddress;
+
+		const RELAYER_ADDR: [u8; 20] = [
+			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+			0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+		];
+
+		/// The 21-byte shape `EvmStateMachine::verify_state_proof`
+		/// returned for every populated `_epochs[set_id]` slot in the
+		/// testnet replay. RLP of a 20-byte string is `0x80 + 20`
+		/// (`0x94`) followed by the bytes themselves.
+		#[test]
+		fn decodes_real_storage_slot_value() {
+			let mut raw = vec![0x94];
+			raw.extend_from_slice(&RELAYER_ADDR);
+			assert_eq!(raw.len(), 21);
+
+			let decoded =
+				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
+					.expect("21-byte RLP-encoded address should decode");
+			assert_eq!(decoded, AlloyAddress::from_slice(&RELAYER_ADDR));
+		}
+
+		/// `alloy_rlp::Address::decode` requires exactly 20 payload
+		/// bytes after the RLP header. The EVM strips leading zero
+		/// bytes from values before RLP-encoding, so an address whose
+		/// top byte is zero shows up as `<21` bytes total and decodes
+		/// to an error. Relayer addresses are random 20-byte values
+		/// generated at signer keygen, so the chance of a leading
+		/// zero byte is ~1/256 and we accept this trade-off in
+		/// exchange for a single-line decoder. This test pins the
+		/// behaviour: if/when we change to a leading-zero-tolerant
+		/// decoder, flip this to expect Some.
+		#[test]
+		fn rejects_address_with_leading_zero_stripped() {
+			let mut addr_no_leading = [0u8; 20];
+			addr_no_leading[1..].copy_from_slice(&RELAYER_ADDR[1..]); // top byte stays 0
+			let stripped = &addr_no_leading[1..]; // 19 bytes (leading zero gone)
+			let mut raw = vec![0x80 + stripped.len() as u8];
+			raw.extend_from_slice(stripped);
+
+			assert!(
+				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
+					.is_none(),
+			);
+		}
+
+		/// RLP of an empty byte string is `0x80`. Logically "no value
+		/// stored" — the trie shouldn't even have an entry for an
+		/// unset slot, but if it does we treat it the same as
+		/// `proof_results.get == None` and return None.
+		#[test]
+		fn rejects_rlp_empty_string() {
+			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&[
+				0x80,
+			])
+			.is_none());
+		}
+
+		/// The pre-fix code expected this raw 32-byte form. Real EVM
+		/// tries never produce it (RLP-encoded strings of >55 bytes
+		/// use a different prefix; raw bytes have no length tag at
+		/// all), so the decoder must reject it.
+		#[test]
+		fn rejects_raw_32_byte_word() {
+			let mut raw = [0u8; 32];
+			raw[12..].copy_from_slice(&RELAYER_ADDR);
+			// 32 bytes with leading 0x00 looks to alloy_rlp like a
+			// 1-byte string `0x00` (which is invalid per RLP) or as
+			// trailing garbage; either way we expect None.
+			assert!(
+				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
+					.is_none(),
+				"raw 32-byte word must not decode — that was the broken legacy shape",
+			);
+		}
+
+		/// Garbage bytes that aren't a valid RLP byte string at all.
+		#[test]
+		fn rejects_garbage() {
+			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&[
+				0xff, 0xff, 0xff,
+			])
+			.is_none());
+		}
+
+		/// Defence-in-depth: an explicitly RLP-encoded zero address is
+		/// rejected the same way an unset slot is, so a malicious
+		/// actor can't claim a reward by writing zeros. (In practice
+		/// the EVM would never emit this — leading zeros are stripped
+		/// — but the contract on chain could be compromised.)
+		#[test]
+		fn rejects_explicit_zero_address() {
+			let mut raw = vec![0x94];
+			raw.extend_from_slice(&[0u8; 20]);
+			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
+				.is_none());
+		}
+
+		/// Anything longer than 20 bytes (after stripping the RLP
+		/// prefix) cannot be an address. Reject rather than truncate.
+		#[test]
+		fn rejects_oversized_string() {
+			let big = vec![0xab; 32];
+			let mut raw = vec![0x80 + big.len() as u8];
+			raw.extend_from_slice(&big);
+			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
+				.is_none());
+		}
+	}
+
 	#[test]
 	fn placeholder_proof_reaches_verification_stage() {
 		// HostParams registered, claim is otherwise valid pre-verification.

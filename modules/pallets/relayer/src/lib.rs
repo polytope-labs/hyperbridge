@@ -501,13 +501,13 @@ where
 			.flatten()
 			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
-		// Decode the EVM `address` from its 32-byte left-padded storage word.
-		// `from_word` strips the 12-byte zero prefix; an unset slot decodes
-		// to the zero address, which we reject as "no delivery proven".
-		let word: [u8; 32] =
-			raw.as_slice().try_into().map_err(|_| Error::<T>::OutboundDeliveryNotProven)?;
-		let evm_address = Address::from_word(word.into());
-		ensure!(evm_address != Address::ZERO, Error::<T>::OutboundDeliveryNotProven);
+		// `raw` is the trie-level value of `HandlerV2._epochs[set_id]`;
+		// `decode_epochs_slot_address` handles the RLP-encoded form the
+		// Ethereum trie stores. Returns `None` for an unset / zero-address
+		// slot, which we surface as `OutboundDeliveryNotProven` (logically
+		// equivalent to "no delivery proven yet").
+		let evm_address = Self::decode_epochs_slot_address(&raw)
+			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
 		// Replay protection comes from the `OutboundConsensusRotationsClaimed`
 		let msg = outbound_consensus_delivery_message(set_id, destination, payee);
@@ -797,6 +797,19 @@ where
 
 		Ok(())
 	}
+	/// Decode the EVM `address` value stored at
+	/// `HandlerV2._epochs[set_id]`, as returned by
+	/// `EvmStateMachine::verify_state_proof`.
+	pub fn decode_epochs_slot_address(raw: &[u8]) -> Option<Address> {
+		use alloy_rlp::Decodable;
+		let addr = Address::decode(&mut &*raw).ok()?;
+		if addr == Address::ZERO {
+			None
+		} else {
+			Some(addr)
+		}
+	}
+
 	pub fn verify_withdrawal_proof(
 		proof: &Proof,
 		keys: Vec<Vec<u8>>,

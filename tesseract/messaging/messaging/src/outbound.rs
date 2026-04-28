@@ -28,14 +28,15 @@ use ismp::{
 	messaging::{ConsensusMessage, Message},
 };
 use tesseract_primitives::{
-	config::RelayerConfig, ConsensusProofSource, IsmpProvider, PendingConsensusDeliveryClaim,
-	ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt, BEEFY_CONSENSUS_STATE_ID,
+	config::RelayerConfig, ConsensusProofSource, IsmpProvider, NewEpochEvent,
+	PendingConsensusDeliveryClaim, ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt,
+	BEEFY_CONSENSUS_STATE_ID,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
 use transaction_fees::TransactionPayment;
 
-use crate::events::translate_events_to_messages;
+use crate::events::{filter_events, translate_events_to_messages};
 
 /// Log/tracing target for the outbound pipeline.
 const LOG_TARGET: &str = concat!("messaging", "-outbound");
@@ -252,10 +253,18 @@ async fn submit_for_dest(
 
 	// Only events relevant to this destination matter; skip the RPC-heavy
 	// translate_events_to_messages entirely when there's nothing to do.
+	// `coprocessor` is the HB router id; `dest_state_machine` is the
+	// counterparty whose batch we're building, so the filter keeps only
+	// events HB is routing to this destination (plus anything explicitly
+	// whitelisted via `relayer_config.module_filter`).
+	let events = events
+		.into_iter()
+		.filter(|ev| filter_events(&relayer_config, coprocessor, dest_state_machine, ev))
+		.collect::<Vec<_>>();
 	let has_events_for_dest = events.iter().any(|ev| {
 		matches!(ev,
-		Event::PostRequest(req) if req.dest == dest_state_machine)
-			|| matches!(ev,
+		Event::PostRequest(req) if req.dest == dest_state_machine) ||
+			matches!(ev,
 		Event::PostResponse(res) if res.dest_chain() == dest_state_machine)
 	});
 
@@ -269,7 +278,6 @@ async fn submit_for_dest(
 		// — forward those new_epochs so the claim task can collect their
 		// `OutboundConsensusDeliveryReward`.
 		forward_consensus_delivery_claims(
-			&dest,
 			&dest_name,
 			dest_state_machine,
 			catchup_new_epochs,
@@ -325,7 +333,6 @@ async fn submit_for_dest(
 		// As above: catch-up rotations already landed on the dest carry
 		// claim-eligible new_epochs; forward them before bailing out.
 		forward_consensus_delivery_claims(
-			&dest,
 			&dest_name,
 			dest_state_machine,
 			catchup_new_epochs,
@@ -364,7 +371,6 @@ async fn submit_for_dest(
 	let mut combined_new_epochs = catchup_new_epochs;
 	combined_new_epochs.extend(result.new_epochs.iter().copied());
 	forward_consensus_delivery_claims(
-		&dest,
 		&dest_name,
 		dest_state_machine,
 		combined_new_epochs,
@@ -376,19 +382,25 @@ async fn submit_for_dest(
 	Ok(())
 }
 
-/// Forward a vec of just-landed `NewEpoch` set_ids to the outbound-claim
+/// Forward a vec of just-landed `NewEpoch` events to the outbound-claim
 /// task, persisting them to the local DB first so a crash between this
 /// call and the channel push doesn't lose the reward (the claim task
 /// reads the DB on every trigger and replays anything pending).
+///
+/// `delivery_height` for each claim is the receipt block in which the
+/// `NewEpoch(set_id, self)` log was emitted. That block is guaranteed to
+/// have `_epochs[set_id]` populated, so the storage proof the claim task
+/// later builds verifies on first try — no race against the destination
+/// chain mining the outbound tx, and no race against HB's view of the
+/// destination catching up to a guessed-at "finalized" head.
 ///
 /// No-op if `new_epochs` is empty or there's no `claim_sender` configured
 /// (e.g. tests, or any wiring that disables the claim pipeline). Each
 /// failure path warns and continues — claim forwarding is best-effort.
 async fn forward_consensus_delivery_claims(
-	dest: &Arc<dyn IsmpProvider>,
 	dest_name: &str,
 	dest_state_machine: StateMachine,
-	new_epochs: Vec<u64>,
+	new_epochs: Vec<NewEpochEvent>,
 	claim_sender: &Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: &Option<Arc<TransactionPayment>>,
 ) {
@@ -399,39 +411,17 @@ async fn forward_consensus_delivery_claims(
 		return;
 	};
 
-	// `delivery_height` is the destination's own current finalized
-	// height — used by the claim task to `wait_for_state_machine_update`
-	// on HB. Any post-tx height works since `_epochs[set_id]` is set once
-	// and persists; we use finalized so HB has a real chance to have
-	// verified it.
-	let delivery_height = match dest.query_finalized_height().await {
-		Ok(h) => h,
-		Err(err) => {
-			tracing::warn!(
-				target: LOG_TARGET,
-				?err,
-				dest = %dest_name,
-				"query_finalized_height failed; skipping outbound consensus claim",
-			);
-			return;
-		},
-	};
+	let dest_str = dest_state_machine.to_string();
+	let claim_rows: Vec<(u64, u64)> =
+		new_epochs.iter().map(|ev| (ev.set_id, ev.block_number)).collect();
 
 	if let Some(tx_payment) = claim_tx_payment {
-		if let Err(err) = tx_payment
-			.insert_pending_rotation_claims(
-				&dest_state_machine.to_string(),
-				&new_epochs,
-				delivery_height,
-			)
-			.await
-		{
+		if let Err(err) = tx_payment.insert_pending_rotation_claims(&dest_str, &claim_rows).await {
 			tracing::warn!(
 				target: LOG_TARGET,
 				?err,
 				dest = %dest_name,
-				delivery_height,
-				set_ids = ?new_epochs,
+				?claim_rows,
 				"failed to persist outbound-consensus claims; the channel send may \
 				 still succeed but the claims will not survive a restart",
 			);
@@ -445,20 +435,19 @@ async fn forward_consensus_delivery_claims(
 	// the same outbound cycle.
 	let claims: Vec<PendingConsensusDeliveryClaim> = new_epochs
 		.iter()
-		.map(|&set_id| PendingConsensusDeliveryClaim {
+		.map(|ev| PendingConsensusDeliveryClaim {
 			destination: dest_state_machine,
-			delivery_height,
-			set_id,
+			delivery_height: ev.block_number,
+			set_id: ev.set_id,
 		})
 		.collect();
-	let set_ids = new_epochs.clone();
+	let summary: Vec<(u64, u64)> = claim_rows.clone();
 	if let Err(err) = sender.send(claims).await {
 		tracing::warn!(
 			target: LOG_TARGET,
 			?err,
 			dest = %dest_name,
-			delivery_height,
-			?set_ids,
+			?summary,
 			"outbound-consensus claim channel send failed",
 		);
 	}
@@ -499,7 +488,7 @@ async fn catch_up_rotations(
 	dest: &Arc<dyn IsmpProvider>,
 	proof_source: &Arc<dyn ConsensusProofSource>,
 	current_set_id: Option<u64>,
-) -> Result<Vec<u64>, anyhow::Error> {
+) -> Result<Vec<NewEpochEvent>, anyhow::Error> {
 	let dest_name = dest.name();
 	let dest_consensus = dest
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
@@ -557,7 +546,7 @@ async fn catch_up_rotations(
 		"catching destination up across authority-set epochs",
 	);
 
-	let mut new_epochs: Vec<u64> = Vec::new();
+	let mut new_epochs: Vec<NewEpochEvent> = Vec::new();
 	for chunk in rotations.chunks(MAX_CONSENSUS_PROOFS_PER_BATCH) {
 		let batch: Vec<Message> = chunk
 			.iter()

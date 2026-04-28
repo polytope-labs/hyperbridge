@@ -280,6 +280,21 @@ impl Keccak256 for Hasher {
 	}
 }
 
+/// One `HandlerV2::NewEpoch(set_id, relayer)` log emitted by the destination
+/// chain in response to a consensus delivery, attributed to this relayer.
+///
+/// `block_number` is the destination's block in which the log was emitted —
+/// i.e. the block at which `_epochs[set_id]` was actually written to the
+/// HandlerV2 contract. The outbound-claim task uses it as `delivery_height`
+/// so the storage proof we build is over a height the destination has
+/// already mined past, eliminating the prior race where we'd query the
+/// destination's `finalized` head before the outbound tx had even landed.
+#[derive(Debug, Clone, Copy)]
+pub struct NewEpochEvent {
+	pub set_id: u64,
+	pub block_number: u64,
+}
+
 #[derive(Debug, Default)]
 pub struct TxResult {
 	pub receipts: Vec<TxReceipt>,
@@ -291,7 +306,12 @@ pub struct TxResult {
 	/// entry here earns a separate per-chain `OutboundConsensusDeliveryReward`.
 	/// Always empty for non-EVM submissions and for EVM tx receipts with
 	/// no matching `NewEpoch` log.
-	pub new_epochs: Vec<u64>,
+	///
+	/// Each entry carries the destination block number that emitted the log,
+	/// so the claim task can build its state proof at exactly that height
+	/// (the slot is guaranteed populated there) instead of guessing a
+	/// post-tx finalized head.
+	pub new_epochs: Vec<NewEpochEvent>,
 }
 
 #[async_trait::async_trait]
@@ -679,6 +699,12 @@ pub async fn wait_for_state_machine_update(
 	counterparty: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<u64> {
+	tracing::debug!(
+		target: LOG_TARGET,
+		?state_id,
+		height,
+		"querying hyperbridge for latest state machine height",
+	);
 	let latest_height = hyperbridge.query_latest_height(state_id).await?.into();
 	if latest_height >= height {
 		observe_challenge_period(counterparty, hyperbridge, latest_height).await?;

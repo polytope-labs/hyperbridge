@@ -31,7 +31,7 @@ use ismp_solidity_abi::{
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
 use primitive_types::{H256, U256};
 use std::{collections::BTreeSet, time::Duration};
-use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
+use tesseract_primitives::{Hasher, NewEpochEvent, Query, TxReceipt, TxResult};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
@@ -109,7 +109,20 @@ fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 /// authority set on chain emits its own `NewEpoch`. Each entry in the
 /// returned vec earns a separate per-chain outbound-consensus delivery
 /// reward.
-fn extract_new_epochs_for_self(receipt: &TransactionReceipt, self_address: &[u8]) -> Vec<u64> {
+///
+/// Each entry is paired with the receipt's `block_number` so the
+/// outbound-claim task can build its storage proof at exactly the block
+/// in which `_epochs[set_id]` was written. Receipts without a
+/// `block_number` (shouldn't happen for mined receipts, but the alloy
+/// type is `Option<u64>`) are skipped — without a block we can't make a
+/// useful claim.
+fn extract_new_epochs_for_self(
+	receipt: &TransactionReceipt,
+	self_address: &[u8],
+) -> Vec<NewEpochEvent> {
+	let Some(block_number) = receipt.block_number else {
+		return Vec::new();
+	};
 	receipt
 		.inner
 		.logs()
@@ -119,7 +132,8 @@ fn extract_new_epochs_for_self(receipt: &TransactionReceipt, self_address: &[u8]
 			if ev.relayer.as_slice() == self_address {
 				// `set_id` is uint256 on chain but always fits in u64 in practice
 				// (BEEFY authority set ids are monotonic counters).
-				u64::try_from(ev.authoritySetId).ok()
+				let set_id = u64::try_from(ev.authoritySetId).ok()?;
+				Some(NewEpochEvent { set_id, block_number })
 			} else {
 				None
 			}
@@ -462,7 +476,7 @@ pub async fn generate_batched_contract_calls(
 pub async fn submit_batch_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>, Vec<u64>)> {
+) -> anyhow::Result<SubmitOutcome> {
 	if messages.is_empty() {
 		return Ok((BTreeSet::new(), Vec::new(), Vec::new()));
 	}
@@ -554,6 +568,11 @@ pub async fn submit_batch_messages(
 	Ok((events, Vec::new(), new_epochs))
 }
 
+/// Result of a single transaction submission: which message commitments
+/// fired, which messages didn't, and any `NewEpoch` logs the relayer
+/// should claim on Hyperbridge.
+type SubmitOutcome = (BTreeSet<H256>, Vec<Message>, Vec<NewEpochEvent>);
+
 /// Send a zero-value self-transfer at 10× gas to evict a stuck transaction from the mempool.
 #[tracing::instrument(skip_all, fields(chain = ?client.state_machine))]
 async fn cancel_transaction(
@@ -592,12 +611,12 @@ async fn cancel_transaction(
 pub async fn submit_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>, Vec<u64>)> {
+) -> anyhow::Result<SubmitOutcome> {
 	let (tx_requests, gas_price) = generate_contract_calls(client, &messages, false).await?;
 
 	let mut events = BTreeSet::new();
 	let mut unsuccessful = Vec::new();
-	let mut new_epochs: Vec<u64> = Vec::new();
+	let mut new_epochs: Vec<NewEpochEvent> = Vec::new();
 
 	let from = Address::from_slice(&client.address);
 
@@ -656,13 +675,16 @@ pub async fn submit_messages(
 /// from `PostRequest`/`PostResponseHandled` logs, `new_epochs` from
 /// every `HandlerV2::NewEpoch(set_id, relayer)` log that names this
 /// client as the relayer (empty when no such logs are present, multiple
-/// entries when a single tx batched multiple consensus messages).
+/// entries when a single tx batched multiple consensus messages). Each
+/// `NewEpochEvent` carries the destination block in which the log was
+/// emitted, so the outbound-claim task can later prove `_epochs[set_id]`
+/// at exactly that height.
 /// Returns `None` on timeout and `Err` if the tx reverted.
 #[tracing::instrument(skip(client), fields(chain = ?client.state_machine, ?tx_hash))]
 pub async fn wait_for_success(
 	client: &EvmClient,
 	tx_hash: H256,
-) -> anyhow::Result<Option<(BTreeSet<H256>, Vec<u64>)>> {
+) -> anyhow::Result<Option<(BTreeSet<H256>, Vec<NewEpochEvent>)>> {
 	match wait_for_transaction_receipt(tx_hash, client).await? {
 		Some(receipt) =>
 			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
@@ -692,7 +714,7 @@ fn build_tx_receipts(
 	unsuccessful: Vec<Message>,
 	messages: Vec<Message>,
 	height: u64,
-	new_epochs: Vec<u64>,
+	new_epochs: Vec<NewEpochEvent>,
 ) -> TxResult {
 	let mut results = vec![];
 	for msg in messages {

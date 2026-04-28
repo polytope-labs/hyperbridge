@@ -76,23 +76,32 @@ impl TransactionPayment {
 	/// claims in a single round-trip. The outbound task calls this right
 	/// after a successful delivery so the claims survive a relayer
 	/// restart. Each `upsert` is idempotent on the `(dest, set_id)`
-	/// unique key, so duplicate set_ids in `set_ids` (or a retry of the
+	/// unique key, so duplicate `set_id`s in the input (or a retry of the
 	/// same call) are no-ops, letting the caller be sloppy about
 	/// deduplicating.
+	///
+	/// `rows` carries `(set_id, delivery_height)` pairs — `delivery_height`
+	/// is the destination block in which the `NewEpoch` log was emitted,
+	/// so each pending row pins its claim to the height where the
+	/// HandlerV2 `_epochs[set_id]` slot was actually written. Earlier
+	/// versions of this function took a single `rotation_height` shared
+	/// across every set_id, which forced callers to guess one (typically
+	/// `query_finalized_height`) and was the source of the
+	/// "Error fetching latest state machine height" / `OutboundDeliveryNotProven`
+	/// races at outbound dispatch time.
 	pub async fn insert_pending_rotation_claims(
 		&self,
 		destination: &str,
-		set_ids: &[u64],
-		rotation_height: u64,
+		rows: &[(u64, u64)],
 	) -> anyhow::Result<()> {
 		use crate::db::outbound_rotation_claims;
-		if set_ids.is_empty() {
+		if rows.is_empty() {
 			return Ok(());
 		}
 		let now = chrono::Utc::now().timestamp() as i32;
-		let actions: Vec<_> = set_ids
+		let actions: Vec<_> = rows
 			.iter()
-			.map(|set_id| {
+			.map(|(set_id, rotation_height)| {
 				self.db.outbound_rotation_claims().upsert(
 					outbound_rotation_claims::UniqueWhereParam::DestSetIdEquals(
 						destination.to_string(),
@@ -101,7 +110,7 @@ impl TransactionPayment {
 					outbound_rotation_claims::create(
 						destination.to_string(),
 						*set_id as i64,
-						rotation_height as i64,
+						*rotation_height as i64,
 						outbound_rotation_claim_status::PENDING.to_string(),
 						now,
 						now,

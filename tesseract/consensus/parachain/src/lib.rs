@@ -90,13 +90,8 @@ impl ParachainConfig {
 	where
 		S: subxt::Config + Send + Sync + Clone + 'static,
 		S::Header: Send + Sync,
-		S::AccountId: From<AccountId32>
-			+ Into<S::Address>
-			+ Clone
-			+ 'static
-			+ Send
-			+ Sync
-			+ codec::Encode,
+		S::AccountId:
+			From<AccountId32> + Into<S::Address> + Clone + 'static + Send + Sync + codec::Encode,
 		S::Signature: From<MultiSignature> + Send + Sync,
 		<S::ExtrinsicParams as ExtrinsicParams<S>>::Params: Send + Sync + DefaultParams,
 		H256: From<HashFor<S>>,
@@ -215,13 +210,8 @@ where
 		S: subxt::Config + Send + Sync + Clone + 'static,
 		S::Header: Send + Sync,
 		S::Signature: From<MultiSignature> + Send + Sync,
-		S::AccountId: From<AccountId32>
-			+ Into<S::Address>
-			+ Clone
-			+ 'static
-			+ Send
-			+ Sync
-			+ codec::Encode,
+		S::AccountId:
+			From<AccountId32> + Into<S::Address> + Clone + 'static + Send + Sync + codec::Encode,
 		<S::ExtrinsicParams as ExtrinsicParams<S>>::Params: Send + Sync + DefaultParams,
 		H256: From<HashFor<S>>,
 	{

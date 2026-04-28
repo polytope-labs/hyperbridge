@@ -13,10 +13,7 @@ use polkadot_sdk::sp_runtime::{
 	generic::Header as SpHeader,
 	traits::{BlakeTwo256, Header as HeaderT},
 };
-use subxt::{
-	config::HashFor,
-	utils::H256,
-};
+use subxt::{config::HashFor, utils::H256};
 use tokio::time::MissedTickBehavior;
 
 use codec::Encode;

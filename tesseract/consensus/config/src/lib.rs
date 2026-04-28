@@ -307,7 +307,6 @@ impl HostKind {
 	}
 }
 
-
 /// Build the map of consensus clients from per-chain `(AnyConfig, HostKind)`
 /// pairings.
 ///
@@ -325,12 +324,10 @@ pub async fn create_client_map(
 
 	for (state_machine, (config, host)) in chains {
 		let client = match (config, host) {
-			(AnyConfig::Sepolia { inner }, HostKind::Evm(evm)) => {
-				inner.into_sepolia(evm, Default::default()).await?
-			},
-			(AnyConfig::Ethereum { inner }, HostKind::Evm(evm)) => {
-				inner.into_mainnet(evm, Default::default()).await?
-			},
+			(AnyConfig::Sepolia { inner }, HostKind::Evm(evm)) =>
+				inner.into_sepolia(evm, Default::default()).await?,
+			(AnyConfig::Ethereum { inner }, HostKind::Evm(evm)) =>
+				inner.into_mainnet(evm, Default::default()).await?,
 			(AnyConfig::ArbitrumOrbit { inner }, HostKind::Evm(evm)) =>
 				inner.into_client(evm).await?,
 			(AnyConfig::OpStack { inner }, HostKind::Evm(evm)) => inner.into_client(evm).await?,

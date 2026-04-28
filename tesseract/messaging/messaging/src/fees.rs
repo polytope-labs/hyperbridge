@@ -253,8 +253,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 		// task), so a previously-needed consensus message may no longer
 		// be necessary. When the destination is already past `max_block`
 		// we point the request proof at its known height instead.
-		let dest_view_of_hb =
-			dest_chain.query_latest_height(hb_state_machine_id).await? as u64;
+		let dest_view_of_hb = dest_chain.query_latest_height(hb_state_machine_id).await? as u64;
 
 		let (delivery_height, consensus_msg) = if dest_view_of_hb >= max_block {
 			tracing::info!(
@@ -303,8 +302,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 										"proof_accepted error; retrying",
 									);
 								},
-								None =>
-									return Err(anyhow!("Proof accepted stream ended")),
+								None => return Err(anyhow!("Proof accepted stream ended")),
 							}
 						};
 					}

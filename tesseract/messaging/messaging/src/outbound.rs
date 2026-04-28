@@ -230,21 +230,32 @@ async fn submit_for_dest(
 	// authorities gets rejected by the BEEFY verifier, so any missing
 	// rotations have to land first. Best-effort: if we can't read the
 	// destination's consensus state we assume it's current and fall through.
-	if let Err(err) = catch_up_rotations(&hyperbridge, &dest, &proof_source).await {
-		tracing::warn!(
-			target: LOG_TARGET,
-			dest = %dest_name,
-			?err,
-			"rotation catch-up failed; proceeding with current update",
-		);
-	}
+	//
+	// `new_set_id` is threaded through so catch-up skips the rotation that
+	// the main batch is about to submit via `consensus_msg` (which is the
+	// proof for `new_set_id` when this notification is mandatory). Any
+	// `NewEpoch` set_ids the catch-up chunks land are merged into the
+	// claim list below so each one earns its delivery reward.
+	let catchup_new_epochs =
+		match catch_up_rotations(&hyperbridge, &dest, &proof_source, new_set_id).await {
+			Ok(epochs) => epochs,
+			Err(err) => {
+				tracing::warn!(
+					target: LOG_TARGET,
+					dest = %dest_name,
+					?err,
+					"rotation catch-up failed; proceeding with current update",
+				);
+				Vec::new()
+			},
+		};
 
 	// Only events relevant to this destination matter; skip the RPC-heavy
 	// translate_events_to_messages entirely when there's nothing to do.
 	let has_events_for_dest = events.iter().any(|ev| {
 		matches!(ev,
-		Event::PostRequest(req) if req.dest == dest_state_machine) ||
-			matches!(ev,
+		Event::PostRequest(req) if req.dest == dest_state_machine)
+			|| matches!(ev,
 		Event::PostResponse(res) if res.dest_chain() == dest_state_machine)
 	});
 
@@ -288,8 +299,9 @@ async fn submit_for_dest(
 				}
 				batch.extend(deliverable);
 			},
-			Err(err) =>
-				tracing::error!(target: LOG_TARGET, ?err, dest = %dest_name, "translate_events_to_messages failed"),
+			Err(err) => {
+				tracing::error!(target: LOG_TARGET, ?err, dest = %dest_name, "translate_events_to_messages failed")
+			},
 		}
 	}
 
@@ -300,7 +312,11 @@ async fn submit_for_dest(
 		return Ok(());
 	}
 
-	tracing::info!(target: LOG_TARGET, msgs = batch.len(), "🛰️ Transmitting ismp messages to {dest_name}");
+	if batch.len() == 1 && is_mandatory {
+		tracing::info!(target: "tesseract", msgs = batch.len(), "🛰️ Transmitting Mandatory Consensus Message to {dest_name}");
+	} else {
+		tracing::info!(target: "tesseract", msgs = batch.len(), "🛰️ Transmitting ismp messages to {dest_name}");
+	}
 	// `submit` transparently picks the right transport — EVM destinations
 	// whose handler supports IHandlerV2 dispatch the whole batch as a single
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
@@ -322,8 +338,17 @@ async fn submit_for_dest(
 	// extrinsic). We persist before sending so a crash between here and
 	// the channel push survives: the claim task reads the DB on every
 	// trigger and replays anything pending.
+	//
+	// Combine `catchup_new_epochs` (rotations the catch-up landed) with
+	// `result.new_epochs` (rotations the main batch landed) — both groups
+	// contribute set_ids whose `_epochs[set_id]` slot now points at this
+	// relayer's address, so both earn rewards. Order is preserved
+	// (catch-up first, main batch second) which matches on-chain order.
+	let mut combined_new_epochs = catchup_new_epochs;
+	combined_new_epochs.extend(result.new_epochs.iter().copied());
+
 	if let Some(sender) = claim_sender {
-		if !result.new_epochs.is_empty() {
+		if !combined_new_epochs.is_empty() {
 			// `delivery_height` is the destination's own current finalized
 			// height — used by the claim task to wait_for_state_machine_update
 			// on HB. Any post-tx height works since `_epochs[set_id]` is set
@@ -346,7 +371,7 @@ async fn submit_for_dest(
 				if let Err(err) = tx_payment
 					.insert_pending_rotation_claims(
 						&dest_state_machine.to_string(),
-						&result.new_epochs,
+						&combined_new_epochs,
 						delivery_height,
 					)
 					.await
@@ -356,7 +381,7 @@ async fn submit_for_dest(
 						?err,
 						dest = %dest_name,
 						delivery_height,
-						set_ids = ?result.new_epochs,
+						set_ids = ?combined_new_epochs,
 						"failed to persist outbound-consensus claims; the channel send may \
 						 still succeed but the claims will not survive a restart",
 					);
@@ -369,8 +394,7 @@ async fn submit_for_dest(
 			// Hyperbridge before submitting. A single send per receipt
 			// cycle keeps the channel bounded even when a catch-up
 			// emits several rotations in one tx.
-			let claims: Vec<PendingConsensusDeliveryClaim> = result
-				.new_epochs
+			let claims: Vec<PendingConsensusDeliveryClaim> = combined_new_epochs
 				.iter()
 				.map(|&set_id| PendingConsensusDeliveryClaim {
 					destination: dest_state_machine,
@@ -378,7 +402,7 @@ async fn submit_for_dest(
 					set_id,
 				})
 				.collect();
-			let set_ids = result.new_epochs.clone();
+			let set_ids = combined_new_epochs.clone();
 			if let Err(err) = sender.send(claims).await {
 				tracing::warn!(
 					target: LOG_TARGET,
@@ -409,6 +433,19 @@ fn decode_current_set_id_scale(encoded: &[u8]) -> Option<u64> {
 /// lands. Rotations are submitted in chunks of
 /// [`MAX_CONSENSUS_PROOFS_PER_BATCH`] to stay inside EVM calldata/gas limits.
 ///
+/// `current_set_id` is the rotation that the *current* `ProofAccepted`
+/// notification is about to land via the main batch's consensus message
+/// (`Some(set_id)` when the current notification is a mandatory update,
+/// `None` when it's messaging-only). Catch-up filters that set_id out of
+/// the rotation list so it isn't submitted twice — the duplicate would be
+/// a wasted batch slot at best and a contract revert at worst.
+///
+/// Returns every `NewEpoch(set_id, self)` log observed across the catch-up
+/// chunks' receipts (i.e. the rotations this relayer was the first to
+/// land). The caller forwards them to the outbound-claim task alongside
+/// the main batch's `new_epochs` so each one earns its
+/// `OutboundConsensusDeliveryReward`.
+///
 /// This is a best-effort catch-up: any failure (stale offchain proofs, submit
 /// reverts on one chunk) is logged and surfaced to the caller, which then
 /// decides whether to still attempt the current update.
@@ -416,7 +453,8 @@ async fn catch_up_rotations(
 	hyperbridge: &Arc<dyn IsmpProvider>,
 	dest: &Arc<dyn IsmpProvider>,
 	proof_source: &Arc<dyn ConsensusProofSource>,
-) -> Result<(), anyhow::Error> {
+	current_set_id: Option<u64>,
+) -> Result<Vec<u64>, anyhow::Error> {
 	let dest_name = dest.name();
 	let dest_consensus = dest
 		.query_consensus_state(None, BEEFY_CONSENSUS_STATE_ID)
@@ -427,7 +465,7 @@ async fn catch_up_rotations(
 			target: LOG_TARGET,
 			"dest consensus state undecodable; skipping rotation catch-up",
 		);
-		return Ok(());
+		return Ok(Vec::new());
 	};
 
 	let hb_consensus = hyperbridge
@@ -439,11 +477,11 @@ async fn catch_up_rotations(
 			target: LOG_TARGET,
 			"hb consensus state undecodable; skipping rotation catch-up",
 		);
-		return Ok(());
+		return Ok(Vec::new());
 	};
 
 	if dest_set_id >= hb_set_id {
-		return Ok(());
+		return Ok(Vec::new());
 	}
 
 	let rotations: Vec<RotationProof> = proof_source
@@ -454,15 +492,27 @@ async fn catch_up_rotations(
 		return Err(anyhow!("dest is lagging but no rotation proofs are cached on HB"));
 	}
 
+	// Drop the rotation that matches the current notification's set_id —
+	// the main batch will submit that one via its `consensus_msg`. Without
+	// this filter the same proof would land twice on the destination: once
+	// here, once via the main batch.
+	let rotations: Vec<RotationProof> =
+		rotations.into_iter().filter(|r| Some(r.set_id) != current_set_id).collect();
+	if rotations.is_empty() {
+		return Ok(Vec::new());
+	}
+
 	tracing::info!(
 		target: LOG_TARGET,
 		dest = %dest_name,
 		dest_set_id,
 		hb_set_id,
+		current_set_id = ?current_set_id,
 		rotations = rotations.len(),
 		"catching destination up across authority-set epochs",
 	);
 
+	let mut new_epochs: Vec<u64> = Vec::new();
 	for chunk in rotations.chunks(MAX_CONSENSUS_PROOFS_PER_BATCH) {
 		let batch: Vec<Message> = chunk
 			.iter()
@@ -481,10 +531,11 @@ async fn catch_up_rotations(
 			msgs = batch.len(),
 			"🛰️ Transmitting Mandatory Consensus Message to {dest_name}",
 		);
-		dest.submit(batch, hyperbridge.state_machine_id().state_id).await?;
+		let result = dest.submit(batch, hyperbridge.state_machine_id().state_id).await?;
+		new_epochs.extend(result.new_epochs);
 	}
 
-	Ok(())
+	Ok(new_epochs)
 }
 
 /// Static-friendly inputs for [`initialize`]. Lives next to the spawn

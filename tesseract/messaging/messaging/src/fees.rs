@@ -281,7 +281,7 @@ async fn deliver_post_request_evm<D: IsmpProvider>(
 
 	let batch = vec![Message::Consensus(consensus_msg), Message::Request(request_msg)];
 
-	let mut count = 5;
+	let mut count = 2;
 	while count != 0 {
 		if let Err(err) = dest_chain.submit(batch.clone(), hb_state_machine_id.state_id).await {
 			tracing::info!(target: crate::LOG_TARGET, ?err, retries_left = count, "withdrawal submit failed; retrying");

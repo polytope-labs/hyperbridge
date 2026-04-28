@@ -65,3 +65,5 @@ package-lock.json
 parachain/simtests/gargantua-runtime-new.wasm
 parachain/simtests/hyperbridge-main-binary
 **/config.example.toml
+evm/script/UpdateConsensusClient.s.sol
+evm/script/update-consensus-client.sh

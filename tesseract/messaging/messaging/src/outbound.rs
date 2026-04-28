@@ -264,6 +264,19 @@ async fn submit_for_dest(
 		// proofs (mandatory) must propagate even without user messages so future
 		// messaging proofs remain verifiable on the destination.
 		tracing::trace!(target: LOG_TARGET, dest = %dest_name, "skipping — no events for this chain, not mandatory");
+		// Even though we're not submitting anything else, the catch-up
+		// loop above may already have landed rotation proofs on this dest
+		// — forward those new_epochs so the claim task can collect their
+		// `OutboundConsensusDeliveryReward`.
+		forward_consensus_delivery_claims(
+			&dest,
+			&dest_name,
+			dest_state_machine,
+			catchup_new_epochs,
+			&claim_sender,
+			&claim_tx_payment,
+		)
+		.await;
 		return Ok(());
 	}
 
@@ -309,6 +322,17 @@ async fn submit_for_dest(
 	// the consensus entry — only worth sending on mandatory (rotation) proofs.
 	if batch.len() == 1 && !is_mandatory {
 		tracing::trace!(target: LOG_TARGET,dest = %dest_name, "skipping — consensus-only batch, not mandatory");
+		// As above: catch-up rotations already landed on the dest carry
+		// claim-eligible new_epochs; forward them before bailing out.
+		forward_consensus_delivery_claims(
+			&dest,
+			&dest_name,
+			dest_state_machine,
+			catchup_new_epochs,
+			&claim_sender,
+			&claim_tx_payment,
+		)
+		.await;
 		return Ok(());
 	}
 
@@ -331,14 +355,7 @@ async fn submit_for_dest(
 	}
 
 	// Forward a claim for the outbound consensus delivery reward, one per
-	// `NewEpoch(set_id, self_address)` log in the receipt. A single tx can
-	// batch multiple consensus messages (catch-up) and emit several logs;
-	// each set_id earns its own reward. Loser relayers see an empty
-	// `new_epochs` and skip the claim entirely (no wasted on-chain
-	// extrinsic). We persist before sending so a crash between here and
-	// the channel push survives: the claim task reads the DB on every
-	// trigger and replays anything pending.
-	//
+	// `NewEpoch(set_id, self_address)` log earned by this submission.
 	// Combine `catchup_new_epochs` (rotations the catch-up landed) with
 	// `result.new_epochs` (rotations the main batch landed) — both groups
 	// contribute set_ids whose `_epochs[set_id]` slot now points at this
@@ -346,77 +363,105 @@ async fn submit_for_dest(
 	// (catch-up first, main batch second) which matches on-chain order.
 	let mut combined_new_epochs = catchup_new_epochs;
 	combined_new_epochs.extend(result.new_epochs.iter().copied());
+	forward_consensus_delivery_claims(
+		&dest,
+		&dest_name,
+		dest_state_machine,
+		combined_new_epochs,
+		&claim_sender,
+		&claim_tx_payment,
+	)
+	.await;
 
-	if let Some(sender) = claim_sender {
-		if !combined_new_epochs.is_empty() {
-			// `delivery_height` is the destination's own current finalized
-			// height — used by the claim task to wait_for_state_machine_update
-			// on HB. Any post-tx height works since `_epochs[set_id]` is set
-			// once and persists; we use finalized so HB has a real chance to
-			// have verified it.
-			let delivery_height = match dest.query_finalized_height().await {
-				Ok(h) => h,
-				Err(err) => {
-					tracing::warn!(
-						target: LOG_TARGET,
-						?err,
-						dest = %dest_name,
-						"query_finalized_height failed; skipping outbound consensus claim",
-					);
-					return Ok(());
-				},
-			};
+	Ok(())
+}
 
-			if let Some(tx_payment) = &claim_tx_payment {
-				if let Err(err) = tx_payment
-					.insert_pending_rotation_claims(
-						&dest_state_machine.to_string(),
-						&combined_new_epochs,
-						delivery_height,
-					)
-					.await
-				{
-					tracing::warn!(
-						target: LOG_TARGET,
-						?err,
-						dest = %dest_name,
-						delivery_height,
-						set_ids = ?combined_new_epochs,
-						"failed to persist outbound-consensus claims; the channel send may \
-						 still succeed but the claims will not survive a restart",
-					);
-				}
-			}
+/// Forward a vec of just-landed `NewEpoch` set_ids to the outbound-claim
+/// task, persisting them to the local DB first so a crash between this
+/// call and the channel push doesn't lose the reward (the claim task
+/// reads the DB on every trigger and replays anything pending).
+///
+/// No-op if `new_epochs` is empty or there's no `claim_sender` configured
+/// (e.g. tests, or any wiring that disables the claim pipeline). Each
+/// failure path warns and continues — claim forwarding is best-effort.
+async fn forward_consensus_delivery_claims(
+	dest: &Arc<dyn IsmpProvider>,
+	dest_name: &str,
+	dest_state_machine: StateMachine,
+	new_epochs: Vec<u64>,
+	claim_sender: &Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
+	claim_tx_payment: &Option<Arc<TransactionPayment>>,
+) {
+	if new_epochs.is_empty() {
+		return;
+	}
+	let Some(sender) = claim_sender else {
+		return;
+	};
 
-			// Send the whole batch as one trigger: the claim task merges
-			// it with whatever's persisted in the DB, dedupes, then
-			// filters against `OutboundConsensusRotationsClaimed` on
-			// Hyperbridge before submitting. A single send per receipt
-			// cycle keeps the channel bounded even when a catch-up
-			// emits several rotations in one tx.
-			let claims: Vec<PendingConsensusDeliveryClaim> = combined_new_epochs
-				.iter()
-				.map(|&set_id| PendingConsensusDeliveryClaim {
-					destination: dest_state_machine,
-					delivery_height,
-					set_id,
-				})
-				.collect();
-			let set_ids = combined_new_epochs.clone();
-			if let Err(err) = sender.send(claims).await {
-				tracing::warn!(
-					target: LOG_TARGET,
-					?err,
-					dest = %dest_name,
-					delivery_height,
-					?set_ids,
-					"outbound-consensus claim channel send failed",
-				);
-			}
+	// `delivery_height` is the destination's own current finalized
+	// height — used by the claim task to `wait_for_state_machine_update`
+	// on HB. Any post-tx height works since `_epochs[set_id]` is set once
+	// and persists; we use finalized so HB has a real chance to have
+	// verified it.
+	let delivery_height = match dest.query_finalized_height().await {
+		Ok(h) => h,
+		Err(err) => {
+			tracing::warn!(
+				target: LOG_TARGET,
+				?err,
+				dest = %dest_name,
+				"query_finalized_height failed; skipping outbound consensus claim",
+			);
+			return;
+		},
+	};
+
+	if let Some(tx_payment) = claim_tx_payment {
+		if let Err(err) = tx_payment
+			.insert_pending_rotation_claims(
+				&dest_state_machine.to_string(),
+				&new_epochs,
+				delivery_height,
+			)
+			.await
+		{
+			tracing::warn!(
+				target: LOG_TARGET,
+				?err,
+				dest = %dest_name,
+				delivery_height,
+				set_ids = ?new_epochs,
+				"failed to persist outbound-consensus claims; the channel send may \
+				 still succeed but the claims will not survive a restart",
+			);
 		}
 	}
 
-	Ok(())
+	// One trigger per call: the claim task merges with the DB, dedupes,
+	// then filters against `OutboundConsensusRotationsClaimed` on
+	// Hyperbridge before submitting. Bounding the channel that way keeps
+	// it sane even when a catch-up + main batch land several rotations in
+	// the same outbound cycle.
+	let claims: Vec<PendingConsensusDeliveryClaim> = new_epochs
+		.iter()
+		.map(|&set_id| PendingConsensusDeliveryClaim {
+			destination: dest_state_machine,
+			delivery_height,
+			set_id,
+		})
+		.collect();
+	let set_ids = new_epochs.clone();
+	if let Err(err) = sender.send(claims).await {
+		tracing::warn!(
+			target: LOG_TARGET,
+			?err,
+			dest = %dest_name,
+			delivery_height,
+			?set_ids,
+			"outbound-consensus claim channel send failed",
+		);
+	}
 }
 
 /// Read the BEEFY `current_authorities.id` out of a SCALE-encoded

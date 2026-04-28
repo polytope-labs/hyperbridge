@@ -31,7 +31,6 @@ members = [
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
     "modules/ismp/clients/parachain/client",
-    "modules/ismp/clients/parachain/inherent",
     "modules/ismp/clients/parachain/runtime-api",
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
@@ -102,7 +101,7 @@ members = [
     "tesseract/messaging/primitives",
     "tesseract/messaging/messaging",
     "tesseract/messaging/substrate",
-    "tesseract/messaging/relayer",
+    # "tesseract/messaging/relayer",
     "tesseract/messaging/evm",
     "tesseract/messaging/tron",
     "tesseract/messaging/evm-tendermint",
@@ -124,11 +123,15 @@ members = [
     "tesseract/consensus/integration-tests",
     "tesseract/consensus/beefy",
     "tesseract/consensus/beefy/zk",
-    "tesseract/consensus/relayer",
+    # "tesseract/consensus/relayer",
     "tesseract/consensus/admin-relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
     "tesseract/consensus/pharos",
+    "tesseract/consensus/parachain",
+    "tesseract/consensus/config",
+
+    "tesseract/relayer",
 
     # Airdrop
     "modules/pallets/bridge-drop",
@@ -258,8 +261,7 @@ crypto-utils = { version = "0.2.0", path = "modules/utils/crypto", default-featu
 grandpa-verifier-primitives = { version = "2512.0.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
 grandpa-verifier = { version = "2512.0.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
 ismp-grandpa = { version = "2512.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2512.1.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain = { version = "2512.2.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
 ismp-parachain-runtime-api = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
 pallet-ismp = { version = "2512.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
@@ -345,7 +347,7 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
-tesseract-messaging = { path = "tesseract/messaging/messaging" }
+messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
@@ -353,7 +355,7 @@ tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
-tesseract = { path = "tesseract/messaging/relayer" }
+# tesseract-relayer = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -367,11 +369,14 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-tesseract-consensus = { path = "tesseract/consensus/relayer" }
+# tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
 tesseract-pharos = { path = "tesseract/consensus/pharos" }
+tesseract-parachain = { path = "tesseract/consensus/parachain" }
+tesseract-consensus-config = { path = "tesseract/consensus/config" }
+tesseract = { path = "tesseract/relayer" }
 
 [workspace.dependencies.rs_merkle]
 git = "https://github.com/polytope-labs/rs-merkle"

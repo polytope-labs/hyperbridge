@@ -157,7 +157,7 @@ pub async fn get_current_gas_cost_in_usd(
 	let gas_price_cost = convert_27_decimals_to_18_decimals(unit_wei * gas_price)?;
 
 	log::debug!(
-		"Returned gas price for {chain:?}: {} Gwei",
+		target: crate::LOG_TARGET, "Returned gas price for {chain:?}: {} Gwei",
 		alloy::primitives::utils::format_units(AlloyU256::from(gas_price.as_u128()), "gwei")
 			.unwrap_or_default()
 	);

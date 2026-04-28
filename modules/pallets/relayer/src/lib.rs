@@ -33,7 +33,12 @@ use evm_state_machine::{
 	},
 	utils::{add_off_set_to_map_key, derive_unhashed_map_key},
 };
-use frame_support::{dispatch::DispatchResult, ensure};
+use frame_support::{
+	dispatch::DispatchResult,
+	ensure,
+	traits::tokens::{fungible::Mutate, Preservation},
+	PalletId,
+};
 use frame_system::pallet_prelude::OriginFor;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -47,7 +52,74 @@ use pallet_ismp::child_trie::{RequestCommitments, ResponseCommitments};
 use pallet_ismp_host_executive::{withdrawal::*, HostParam, HostParams};
 use polkadot_sdk::*;
 use sp_core::{Get, H256, U256};
-use sp_runtime::{AccountId32, DispatchError};
+use sp_runtime::{traits::AccountIdConversion, AccountId32, DispatchError};
+
+/// Convenience alias for the configured currency's balance.
+///
+/// This is `pallet-ismp`'s currency balance, which is the runtime's BRIDGE
+/// token in production. Reusing `pallet-ismp::Currency` rather than declaring
+/// a new `type Currency` on this pallet's `Config` avoids ambiguous
+/// associated-type errors in downstream pallets that bound on
+/// `pallet_ismp_relayer::Config` (e.g. `pallet-messaging-fees`).
+pub type BalanceOf<T> = <T as pallet_ismp::Config>::Balance;
+
+/// Storage slot of `_epochs` in `HandlerV2`. `_epochs` is HandlerV2's first
+/// declared instance variable and HandlerV1 has no instance storage, so the
+/// slot is 0. Kept as a constant so a future HandlerV2 layout change is a
+/// single-line edit here. Verified via `forge inspect HandlerV2 storage`.
+pub const HANDLER_V2_EPOCHS_SLOT: u64 = 0;
+
+/// Claim payload for [`Pallet::claim_outbound_consensus_delivery_reward`].
+///
+/// A relayer who delivered a mandatory (authority-set rotation) consensus
+/// proof to an EVM destination uses this to collect the per-chain
+/// `OutboundConsensusDeliveryReward`. The on-chain attribution is in the
+/// destination's `HandlerV2._epochs[set_id]` slot — the contract assigns
+/// it to `msg.sender` the first time a consensus proof brings the new set
+/// id on chain. Verifying the relayer:
+///
+/// 1. `(destination, set_id)` has not already been claimed.
+/// 2. State proof against Hyperbridge's stored commitment for `(destination, height)` yields an
+///    `address` at the slot `keccak256(set_id || HANDLER_V2_EPOCHS_SLOT)` of the destination's
+///    HandlerV2 contract.
+/// 3. The `signature` (`Signature::Evm`) recovers exactly that `address`, signing the
+///    [`outbound_consensus_delivery_message`] payload over `(set_id, destination, payee)`.
+///
+/// Replay protection comes from the on-chain `(destination, set_id)`
+/// idempotency tag in [`pallet::OutboundConsensusRotationsClaimed`], not
+/// from a per-relayer nonce — once a `(destination, set_id)` has been
+/// claimed it cannot be claimed again, so a captured signature has no
+/// way to be reused.
+///
+/// The reward is paid from the treasury to `payee` (an sr25519 account on
+/// Hyperbridge that the relayer designates).
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	Eq,
+	codec::Encode,
+	codec::Decode,
+	codec::DecodeWithMemTracking,
+	scale_info::TypeInfo,
+)]
+pub struct OutboundConsensusDeliveryClaim {
+	/// State proof of the destination chain at the height the relayer is
+	/// proving against. `state_proof.height.id.state_id` is the EVM
+	/// destination; Hyperbridge must already have a state commitment at
+	/// `state_proof.height`. Same shape `accumulate_fees`'s
+	/// [`WithdrawalProof`] uses for its source/dest proofs.
+	pub state_proof: Proof,
+	/// Authority set id brought in by the rotation.
+	pub set_id: u64,
+	/// Sr25519 public key on Hyperbridge that the reward is paid to.
+	pub payee: [u8; 32],
+	/// `Signature::Evm { address, signature }` from `modules/utils/crypto`.
+	/// The signature is over [`outbound_consensus_delivery_message`] of
+	/// `(set_id, destination, payee)`. The recovered address must match
+	/// the address in the slot proof.
+	pub signature: Signature,
+}
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 
@@ -77,6 +149,13 @@ pub mod pallet {
 
 		/// Origin for privileged actions
 		type RelayerOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+		/// Treasury account derivation. Outbound consensus delivery rewards
+		/// are transferred from the account derived from this `PalletId`.
+		/// The treasury must be funded in the same currency as
+		/// `pallet-ismp::Config::Currency`.
+		#[pallet::constant]
+		type TreasuryPalletId: Get<PalletId>;
 	}
 
 	/// double map of address to source chain, which holds the amount of the relayer address
@@ -120,6 +199,23 @@ pub mod pallet {
 	pub type MinimumWithdrawalAmount<T: Config> =
 		StorageMap<_, Blake2_128Concat, StateMachine, U256, OptionQuery>;
 
+	/// Per-destination reward, in the runtime's [`Config::Currency`], paid to
+	/// the relayer that delivers a mandatory (authority-set rotation)
+	/// consensus proof to that destination. `0` (the default) means rewards
+	/// are off for the chain.
+	#[pallet::storage]
+	#[pallet::getter(fn outbound_consensus_delivery_reward)]
+	pub type OutboundConsensusDeliveryReward<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, BalanceOf<T>, ValueQuery>;
+
+	/// Idempotency map for outbound consensus delivery claims. The presence
+	/// of `(destination, set_id)` means some relayer has already collected
+	/// the reward for that rotation on that destination.
+	#[pallet::storage]
+	#[pallet::getter(fn outbound_consensus_rotations_claimed)]
+	pub type OutboundConsensusRotationsClaimed<T: Config> =
+		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Blake2_128Concat, u64, (), OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Withdrawal Proof Validation Error
@@ -146,6 +242,38 @@ pub mod pallet {
 		IncompleteProof,
 		/// Signature Decoding Error
 		SignatureDecodingError,
+		/// `(destination, set_id)` has already been claimed by some relayer.
+		OutboundRotationAlreadyClaimed,
+		/// Hyperbridge does not yet know a state commitment for the
+		/// destination at the proof height. Retry once HB's consensus
+		/// client for the destination has advanced past the rotation
+		/// landing.
+		OutboundDestinationStateNotKnown,
+		/// The state proof did not produce an entry at the destination's
+		/// `HandlerV2._epochs[set_id]` slot, or the slot is the zero
+		/// address.
+		OutboundDeliveryNotProven,
+		/// Treasury → relayer transfer failed (typically because the
+		/// treasury balance is below the configured reward).
+		OutboundRewardTransferFailed,
+		/// No reward is configured for the destination
+		/// (`OutboundConsensusDeliveryReward` is `0`).
+		OutboundNoRewardConfigured,
+		/// No `HostParams` entry recorded for the destination, so we can't
+		/// derive the HandlerV2 contract address to scope the storage key.
+		OutboundHostParamsNotKnown,
+		/// Per-destination `HostParams` entry is not the EVM variant. The
+		/// outbound consensus delivery reward is EVM-only.
+		OutboundDestinationNotEvm,
+		/// The address recovered from `signature` does not match the
+		/// EVM relayer recorded in `HandlerV2._epochs[set_id]`.
+		OutboundSignerMismatch,
+		/// The signature provided on the outbound consensus delivery claim
+		/// is not the [`Signature::Evm`] variant. The attribution is keyed
+		/// by an EVM address recovered from a secp256k1 signature, so
+		/// substrate-style signatures cannot be matched against the
+		/// `HandlerV2._epochs[set_id]` slot.
+		OutboundSignatureNotEvm,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -171,6 +299,26 @@ pub mod pallet {
 			state_machine: StateMachine,
 			/// Amount withdrawn
 			amount: U256,
+		},
+		/// A relayer has been paid for delivering a mandatory consensus
+		/// proof (authority-set rotation) to a destination chain.
+		OutboundConsensusDeliveryRewarded {
+			/// Destination chain the rotation was delivered to.
+			state_machine: StateMachine,
+			/// New authority set id brought in by the rotation.
+			set_id: u64,
+			/// Hyperbridge account credited.
+			relayer: T::AccountId,
+			/// Amount paid out, in the runtime's `Currency`.
+			amount: BalanceOf<T>,
+		},
+		/// Governance updated the per-chain outbound consensus delivery
+		/// reward.
+		OutboundConsensusDeliveryRewardUpdated {
+			/// Destination chain whose reward was updated.
+			state_machine: StateMachine,
+			/// New reward amount.
+			new_reward: BalanceOf<T>,
 		},
 	}
 
@@ -213,6 +361,40 @@ pub mod pallet {
 			MinimumWithdrawalAmount::<T>::insert(state_machine, U256::from(amount));
 			Ok(())
 		}
+
+		/// Pay the configured `OutboundConsensusDeliveryReward` to the EVM
+		/// relayer attributed in the destination's `HandlerV2._epochs[set_id]`.
+		///
+		/// Unsigned. Spam-protected by `validate_unsigned` (the encoded
+		/// payload becomes a unique tag, so a duplicate submission with the
+		/// same `(destination, set_id)` is rejected at the txpool stage).
+		#[pallet::call_index(3)]
+		#[pallet::weight({1_000_000})]
+		pub fn claim_outbound_consensus_delivery_reward(
+			origin: OriginFor<T>,
+			claim: OutboundConsensusDeliveryClaim,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+			Self::process_outbound_consensus_delivery_claim(claim)
+		}
+
+		/// Governance-set per-chain reward for delivering mandatory consensus
+		/// proofs to that destination.
+		#[pallet::call_index(4)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
+		pub fn set_outbound_consensus_delivery_reward(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			T::RelayerOrigin::ensure_origin(origin)?;
+			OutboundConsensusDeliveryReward::<T>::insert(state_machine, amount);
+			Self::deposit_event(Event::OutboundConsensusDeliveryRewardUpdated {
+				state_machine,
+				new_reward: amount,
+			});
+			Ok(())
+		}
 	}
 
 	#[pallet::validate_unsigned]
@@ -234,6 +416,8 @@ pub mod pallet {
 				Call::accumulate_fees { withdrawal_proof } =>
 					Self::accumulate(withdrawal_proof.clone()),
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
+				Call::claim_outbound_consensus_delivery_reward { claim } =>
+					Self::process_outbound_consensus_delivery_claim(claim.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
@@ -245,6 +429,7 @@ pub mod pallet {
 			let encoding = match call {
 				Call::accumulate_fees { withdrawal_proof } => withdrawal_proof.encode(),
 				Call::withdraw_fees { withdrawal_data } => withdrawal_data.encode(),
+				Call::claim_outbound_consensus_delivery_reward { claim } => claim.encode(),
 				_ => unreachable!(),
 			};
 
@@ -267,6 +452,96 @@ where
 	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
 	T::Balance: Into<u128>,
 {
+	/// Verify and pay out an outbound-consensus delivery claim.
+	///
+	/// See [`OutboundConsensusDeliveryClaim`] for the verification pipeline.
+	pub fn process_outbound_consensus_delivery_claim(
+		claim: OutboundConsensusDeliveryClaim,
+	) -> DispatchResult {
+		let OutboundConsensusDeliveryClaim { state_proof, set_id, payee, signature } = claim;
+		let destination = state_proof.height.id.state_id;
+
+		// The attribution mechanism recovers an EVM address from the
+		// signature and matches it against the `HandlerV2._epochs[set_id]`
+		// slot, so only secp256k1/EVM signatures are meaningful here.
+		// Reject the substrate variants up front to avoid burning the rest
+		// of the verification pipeline on a claim that can never match.
+		ensure!(matches!(signature, Signature::Evm { .. }), Error::<T>::OutboundSignatureNotEvm,);
+
+		ensure!(
+			!OutboundConsensusRotationsClaimed::<T>::contains_key(destination, set_id),
+			Error::<T>::OutboundRotationAlreadyClaimed,
+		);
+
+		// HandlerV2 lookup. The address lives in `HostParams` alongside
+		// `host_manager`; non-EVM destinations are rejected since the
+		// attribution mechanism is HandlerV2-specific.
+		let HostParam::EvmHostParam(evm_params) =
+			HostParams::<T>::get(destination).ok_or(Error::<T>::OutboundHostParamsNotKnown)?
+		else {
+			return Err(Error::<T>::OutboundDestinationNotEvm.into());
+		};
+		let handler_v2 = evm_params.handler;
+
+		// 52-byte storage key the EVM state proof verifier expects:
+		// `handler_v2 (20) || keccak256(set_id || HANDLER_V2_EPOCHS_SLOT) (32)`.
+		let slot_hash = evm_state_machine::utils::derive_unhashed_map_key::<<T as Config>::IsmpHost>(
+			U256::from(set_id).to_big_endian().to_vec(),
+			HANDLER_V2_EPOCHS_SLOT,
+		);
+		let mut key = Vec::with_capacity(52);
+		key.extend_from_slice(&handler_v2.0);
+		key.extend_from_slice(&slot_hash.0);
+
+		let proof_results = Self::verify_withdrawal_proof(&state_proof, vec![key.clone()])
+			.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let raw = proof_results
+			.get(&key)
+			.cloned()
+			.flatten()
+			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
+
+		// `raw` is the trie-level value of `HandlerV2._epochs[set_id]`;
+		// `decode_epochs_slot_address` handles the RLP-encoded form the
+		// Ethereum trie stores. Returns `None` for an unset / zero-address
+		// slot, which we surface as `OutboundDeliveryNotProven` (logically
+		// equivalent to "no delivery proven yet").
+		let evm_address = Self::decode_epochs_slot_address(&raw)
+			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
+
+		// Replay protection comes from the `OutboundConsensusRotationsClaimed`
+		let msg = outbound_consensus_delivery_message(set_id, destination, payee);
+		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
+		let recovered_address = Address::try_from(recovered.as_slice())
+			.map_err(|_| Error::<T>::OutboundSignerMismatch)?;
+		ensure!(recovered_address == evm_address, Error::<T>::OutboundSignerMismatch);
+
+		let reward = OutboundConsensusDeliveryReward::<T>::get(destination);
+		ensure!(reward > BalanceOf::<T>::default(), Error::<T>::OutboundNoRewardConfigured);
+
+		let treasury: T::AccountId =
+			<T as Config>::TreasuryPalletId::get().into_account_truncating();
+		let payee_account: T::AccountId = payee.into();
+		<<T as pallet_ismp::Config>::Currency as Mutate<T::AccountId>>::transfer(
+			&treasury,
+			&payee_account,
+			reward,
+			Preservation::Preserve,
+		)
+		.map_err(|_| Error::<T>::OutboundRewardTransferFailed)?;
+
+		OutboundConsensusRotationsClaimed::<T>::insert(destination, set_id, ());
+
+		Self::deposit_event(Event::OutboundConsensusDeliveryRewarded {
+			state_machine: destination,
+			set_id,
+			relayer: payee_account,
+			amount: reward,
+		});
+
+		Ok(())
+	}
+
 	pub fn withdraw(withdrawal_data: WithdrawalInputData) -> DispatchResult {
 		let address = match &withdrawal_data.signature {
 			Signature::Evm { address, .. } => address.clone(),
@@ -522,6 +797,19 @@ where
 
 		Ok(())
 	}
+	/// Decode the EVM `address` value stored at
+	/// `HandlerV2._epochs[set_id]`, as returned by
+	/// `EvmStateMachine::verify_state_proof`.
+	pub fn decode_epochs_slot_address(raw: &[u8]) -> Option<Address> {
+		use alloy_rlp::Decodable;
+		let addr = Address::decode(&mut &*raw).ok()?;
+		if addr == Address::ZERO {
+			None
+		} else {
+			Some(addr)
+		}
+	}
+
 	pub fn verify_withdrawal_proof(
 		proof: &Proof,
 		keys: Vec<Vec<u8>>,
@@ -816,4 +1104,17 @@ pub fn message(nonce: u64, dest_chain: StateMachine, beneficiary: Option<Vec<u8>
 		return sp_io::hashing::keccak_256(&(nonce, dest_chain, beneficiary).encode())
 	}
 	sp_io::hashing::keccak_256(&(nonce, dest_chain).encode())
+}
+
+/// Signed payload for [`OutboundConsensusDeliveryClaim`]. Replay protection
+/// comes from the on-chain `(destination, set_id)` idempotency tag in
+/// [`pallet::OutboundConsensusRotationsClaimed`], not from a per-relayer
+/// nonce — once a `(destination, set_id)` has been claimed it cannot be
+/// claimed again, so a captured signature has no way to be reused.
+pub fn outbound_consensus_delivery_message(
+	set_id: u64,
+	dest_chain: StateMachine,
+	payee: [u8; 32],
+) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(set_id, dest_chain, payee).encode())
 }

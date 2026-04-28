@@ -42,11 +42,12 @@ async fn run_dispute_game_verification(
 		l1_state_machine: StateMachine::Evm(l1_chain_id),
 		l1_consensus_state_id: "ETH0".to_string(),
 		consensus_update_frequency: None,
+		consensus_state_id: "OPT0".to_string(),
 	};
 	let evm_config = EvmConfig {
 		rpc_urls: vec![l2_url],
-		consensus_state_id: "ETH0".to_string(),
-		signer: DUMMY_SIGNING_KEY.to_string(),
+		consensus_state_id: Some("ETH0".to_string()),
+		signer: Some(DUMMY_SIGNING_KEY.to_string()),
 		..Default::default()
 	};
 	let op_client = OpHost::new(&host, &evm_config).await.expect("Host creation failed");
@@ -162,4 +163,155 @@ async fn test_cannon_dispute_game_verification() {
 
 	// Ethereum mainnet chain id = 1.
 	run_dispute_game_verification(l1_url, l2_url, 1, factory_addr, event, game_type_configs).await;
+}
+
+/// Exercises the full host-side flow — `latest_dispute_games` → `fetch_dispute_game_payload`
+/// → `verify_optimism_dispute_game_proof` — against Base Sepolia's factory over an L1 block
+/// range that definitely contains a live, unchallenged AggregateVerifier game. Reproduces the
+/// "consensus updates stop flowing" symptom by doing exactly what the relayer loop does, so a
+/// regression in the host-side challenge filter or the payload builder surfaces here.
+#[tokio::test]
+#[ignore]
+async fn test_base_sepolia_latest_and_verify() {
+	dotenv::dotenv().ok();
+	let l1_url = std::env::var("SEPOLIA_RPC_URL")
+		.expect("SEPOLIA_RPC_URL must be set to an Ethereum Sepolia RPC endpoint");
+	let l2_url = std::env::var("BASE_SEPOLIA_RPC_URL")
+		.expect("BASE_SEPOLIA_RPC_URL must be set to a Base Sepolia RPC endpoint");
+
+	let factory_addr = H160::from(hex!("d6e6dbf4f7ea0ac412fd8b65ed297e64bb7a06e1"));
+	let game_type_configs = vec![
+		GameTypeConfig {
+			game_type: 0,
+			expected_impl: H160::from(hex!("6dDBa09bc4cCB0D6Ca9Fc5350580f74165707499")),
+			kind: DisputeGameImpl::FaultDisputeGame,
+		},
+		GameTypeConfig {
+			game_type: 1,
+			expected_impl: H160::from(hex!("58bf355C5d4EdFc723eF89d99582ECCfd143266A")),
+			kind: DisputeGameImpl::FaultDisputeGame,
+		},
+		GameTypeConfig {
+			game_type: 621,
+			expected_impl: H160::from(hex!("498313fB340CD5055c5568546364008299A47517")),
+			kind: DisputeGameImpl::AggregateVerifier,
+		},
+	];
+
+	let host = HostConfig {
+		ethereum_rpc_url: vec![l1_url],
+		l2_oracle: None,
+		message_parser: H160::from(MESSAGE_PARSER),
+		dispute_game_factory: Some(factory_addr),
+		proposer_config: None,
+		l1_state_machine: StateMachine::Evm(11155111),
+		l1_consensus_state_id: "ETH0".to_string(),
+		consensus_update_frequency: None,
+		consensus_state_id: "OPT0".to_string(),
+	};
+	let evm_config = EvmConfig {
+		rpc_urls: vec![l2_url],
+		consensus_state_id: Some("ETH0".to_string()),
+		signer: Some(DUMMY_SIGNING_KEY.to_string()),
+		..Default::default()
+	};
+	let op_client = OpHost::new(&host, &evm_config).await.expect("Host creation failed");
+
+	// Widen the range to capture multiple game types so the diagnostic surfaces any Cannon
+	// or Permissioned events alongside the AggregateVerifier ones.
+	let to_block = op_client.beacon_execution_client.get_block_number().await.expect("L1 head") - 8;
+	let from_block = to_block.saturating_sub(2000);
+
+	// Walk the same steps `latest_dispute_games` does, printing each stage, so we can see
+	// whether a valid game is being filtered out as "challenged".
+	{
+		use crate::{abi::DisputeGameFactory, challenge_slot_keys, game_is_challenged};
+		use alloy::{rpc::types::Filter, sol_types::SolEvent};
+
+		let rollup_addr = Address::from_slice(&factory_addr.0);
+		let filter = Filter::new().address(rollup_addr).from_block(from_block).to_block(to_block);
+		let logs = op_client.beacon_execution_client.get_logs(&filter).await.expect("get_logs");
+		println!("raw logs in {from_block}..={to_block}: {} total", logs.len());
+
+		let candidates: Vec<_> = logs
+			.into_iter()
+			.filter_map(|log| DisputeGameFactory::DisputeGameCreated::decode_log(&log.inner).ok())
+			.map(|log| log.data)
+			.filter(|a| game_type_configs.iter().any(|c| c.game_type == a.gameType))
+			.collect();
+		println!("candidates after game_type filter: {}", candidates.len());
+
+		for ev in &candidates {
+			let config = game_type_configs.iter().find(|c| c.game_type == ev.gameType).unwrap();
+			let slot = challenge_slot_keys(&config.kind).into_iter().next();
+			let slot_value = match slot {
+				None => alloy::primitives::U256::ZERO,
+				Some(s) => op_client
+					.beacon_execution_client
+					.get_storage_at(
+						ev.disputeProxy,
+						alloy::primitives::U256::from_be_slice(s.as_slice()),
+					)
+					.block_id(to_block.into())
+					.await
+					.expect("get_storage_at"),
+			};
+			let challenged = game_is_challenged(&config.kind, slot_value);
+			println!(
+				"  proxy={:?} gameType={} rootClaim={:?} kind={:?} slotValue=0x{} => challenged={}",
+				ev.disputeProxy,
+				ev.gameType,
+				ev.rootClaim,
+				config.kind,
+				hex::encode(slot_value.to_be_bytes::<32>()),
+				challenged,
+			);
+		}
+	}
+
+	let events = op_client
+		.latest_dispute_games(from_block, to_block, game_type_configs.clone())
+		.await
+		.expect("latest_dispute_games");
+	println!("latest_dispute_games returned {} events", events.len());
+	for ev in &events {
+		println!(
+			"  proxy={:?} gameType={} rootClaim={:?}",
+			ev.disputeProxy, ev.gameType, ev.rootClaim
+		);
+	}
+	assert!(
+		!events.is_empty(),
+		"latest_dispute_games returned no events for {}..{} — the challenge filter is dropping a valid unchallenged game",
+		from_block,
+		to_block,
+	);
+
+	// Step back a handful of blocks on the L1 head so the state root is past any reorg.
+	let head = op_client.beacon_execution_client.get_block_number().await.expect("L1 head");
+	let l1_block_num = head.saturating_sub(8);
+	let l1_header = op_client
+		.beacon_execution_client
+		.get_block(BlockId::number(l1_block_num))
+		.await
+		.expect("L1 block")
+		.expect("L1 block exists");
+	let l1_state_root = H256::from_slice(l1_header.header.state_root.as_slice());
+
+	let payload = op_client
+		.fetch_dispute_game_payload(l1_block_num, game_type_configs.clone(), events)
+		.await
+		.expect("fetch_dispute_game_payload")
+		.expect("payload must be produced");
+
+	let intermediate_state = verify_optimism_dispute_game_proof::<Hasher>(
+		payload,
+		l1_state_root,
+		factory_addr,
+		game_type_configs,
+		Default::default(),
+	)
+	.expect("dispute-game proof must verify");
+
+	dbg!(intermediate_state);
 }

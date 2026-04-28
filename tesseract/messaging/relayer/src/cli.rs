@@ -48,7 +48,7 @@ impl Cli {
 	/// Run the relayer
 	pub async fn run(self) -> Result<(), anyhow::Error> {
 		logging::setup()?;
-		log::info!("🧊 Initializing tesseract");
+		log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract");
 		let config = HyperbridgeConfig::parse_conf(&self.config).await?;
 		let HyperbridgeConfig { hyperbridge: hyperbridge_config, relayer, .. } = config.clone();
 
@@ -58,7 +58,7 @@ impl Cli {
 
 		if relayer.minimum_profit_percentage == 0 {
 			log::warn!(
-				"Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
+				target: crate::LOG_TARGET, "Setting the minimum_profit_percentage=0 is not reccomended in live environments!"
 			);
 		}
 
@@ -75,13 +75,20 @@ impl Cli {
 
 		if config.relayer.delivery_endpoints.is_empty() {
 			log::warn!(
-				"Delivery endpoints not specified in relayer config, will deliver to all chains."
+				target: crate::LOG_TARGET, "Delivery endpoints not specified in relayer config, will deliver to all chains."
 			);
 		}
 
+		// `state_machine` on the substrate config is optional; for the
+		// legacy messaging relayer's hyperbridge entry it must be set
+		// explicitly so we can use it as the routing key here.
+		let hyperbridge_state_machine = hyperbridge_config
+			.state_machine
+			.expect("[hyperbridge] state_machine must be set explicitly for relayer routing");
+
 		// messaging tasks
 		for (state_machine, client) in &clients {
-			if *state_machine == hyperbridge_config.state_machine {
+			if *state_machine == hyperbridge_state_machine {
 				continue;
 			}
 			// If the delivery endpoint is not empty then we only spawn tasks for chains
@@ -96,9 +103,13 @@ impl Cli {
 				SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
 			new_hyperbridge.set_latest_finalized_height(client.clone()).await?;
 
-			let coprocessor = hyperbridge_config.state_machine;
+			let coprocessor = hyperbridge_state_machine;
 
-			tesseract_messaging::relay(
+			// Standalone messaging relayer: fee accumulation stays disabled at
+			// this layer (the consolidated `tesseract-relayer` is the target
+			// for new deployments and owns fee accumulation as a top-level
+			// task). Retiring this binary is tracked as follow-up work.
+			messaging::inbound(
 				new_hyperbridge.clone(),
 				client.clone(),
 				relayer.clone(),
@@ -106,6 +117,7 @@ impl Cli {
 				tx_payment.clone(),
 				clients.clone(),
 				&task_manager,
+				None,
 			)
 			.await?;
 
@@ -136,7 +148,7 @@ impl Cli {
 			.boxed(),
 		);
 
-		log::info!("💬 Initialized messaging tasks");
+		log::info!(target: crate::LOG_TARGET, "💬 Initialized messaging tasks");
 
 		task_manager.future().await?;
 

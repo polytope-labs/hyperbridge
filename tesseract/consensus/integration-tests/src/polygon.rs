@@ -26,7 +26,9 @@ async fn polygon_consensus_updates() -> anyhow::Result<()> {
 		state_machine: StateMachine::Evm(137),
 		consensus_state_id: "POLY".to_string(),
 		ismp_host: Default::default(),
-		signer: "2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+		signer: Some(
+			"2e0834786285daccd064ca17f1654f67b4aef298acbb82cef9ec422fb4975622".to_string(),
+		),
 		tracing_batch_size: None,
 		query_batch_size: None,
 		poll_interval: None,

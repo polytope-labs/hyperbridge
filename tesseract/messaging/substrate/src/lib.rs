@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-substrate";
+
 use anyhow::Context;
 use std::sync::Arc;
 
@@ -42,15 +45,18 @@ pub mod calls;
 pub mod config;
 pub mod extrinsic;
 mod provider;
+pub mod registry;
 
 #[cfg(feature = "testing")]
 mod testing;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateConfig {
-	/// Hyperbridge network
-	#[serde(with = "serde_hex_utils::as_string")]
-	pub state_machine: StateMachine,
+	/// Hyperbridge network. When omitted, [`SubstrateClient::new`]
+	/// derives it from `system_chain` + `ParachainInfo::parachainId` via
+	/// [`crate::registry::fetch_state_machine`].
+	#[serde(default, with = "tesseract_primitives::serde_adapters::option_state_machine")]
+	pub state_machine: Option<StateMachine>,
 	/// The hashing algorithm that substrate chain uses.
 	pub hashing: Option<HashAlgorithm>,
 	/// Consensus state id
@@ -59,8 +65,12 @@ pub struct SubstrateConfig {
 	pub rpc_ws: String,
 	/// Maximum size in bytes for the rpc payloads, both requests & responses.
 	pub max_rpc_payload_size: Option<u32>,
-	/// Relayer account seed
-	pub signer: String,
+	/// Relayer account seed. When omitted, the chain runs in inbound-only
+	/// mode: events are read but no extrinsics are submitted on this chain,
+	/// so it's excluded from outbound delivery, fee withdrawal, and fisherman
+	/// roles.
+	#[serde(default)]
+	pub signer: Option<String>,
 	/// Initial height from which to start querying messages
 	pub initial_height: Option<u64>,
 	/// Max concurrent rpc requests allowed
@@ -69,6 +79,41 @@ pub struct SubstrateConfig {
 	pub poll_interval: Option<u64>,
 	/// Decimals for the fee token on this substrate chain
 	pub fee_token_decimals: Option<u8>,
+}
+
+impl SubstrateConfig {
+	/// Returns the resolved `state_machine`. Panics if the config has not
+	/// been resolved via [`SubstrateConfig::resolve`].
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine.expect(
+			"SubstrateConfig::state_machine called before resolve(); the parser must call \
+			 SubstrateConfig::resolve / AnyConfig::resolve before any consumer reads this field",
+		)
+	}
+
+	/// Fill in `state_machine` from the chain RPC and derive
+	/// `consensus_state_id` from the network when the operator left them
+	/// unset. Returns a new config with both guaranteed `Some(...)`;
+	/// explicit values are preserved untouched.
+	pub async fn resolve(self) -> anyhow::Result<Self> {
+		let state_machine = crate::registry::fetch_state_machine(&self.rpc_ws).await?;
+		let consensus_state_id = match self.consensus_state_id.clone() {
+			Some(s) => s,
+			None => match state_machine {
+				StateMachine::Kusama(_) => "PAS0".into(),
+				StateMachine::Polkadot(_) => "DOT0".into(),
+				other =>
+					return Err(anyhow::anyhow!(
+					"no default consensus_state_id for {other:?}; set consensus_state_id explicitly"
+				)),
+			},
+		};
+		Ok(Self {
+			state_machine: Some(state_machine),
+			consensus_state_id: Some(consensus_state_id),
+			..self
+		})
+	}
 }
 
 /// Core substrate client.
@@ -85,7 +130,11 @@ pub struct SubstrateClient<C: subxt::Config> {
 	state_machine: StateMachine,
 	/// The hashing algorithm that substrate chain uses.
 	hashing: HashAlgorithm,
-	/// Private key of the signing account
+	/// Private key of the signing account. For chains the operator did not
+	/// configure a signer for, this is freshly generated. The relayer's
+	/// `outbound_enabled()` filter keeps signer-less chains out of any task
+	/// that would actually broadcast an extrinsic, so the dummy is never
+	/// used to send anything.
 	pub signer: sr25519::Pair,
 	/// Public Address
 	pub address: Vec<u8>,
@@ -112,6 +161,7 @@ where
 	H256: From<HashFor<C>>,
 {
 	pub async fn new(config: SubstrateConfig) -> Result<Self, anyhow::Error> {
+		let config_clone = config.clone();
 		let max_rpc_payload_size = config.max_rpc_payload_size.unwrap_or(300u32 * 1024 * 1024);
 		let (client, rpc_client) =
 			subxt_utils::client::ws_client::<C>(&config.rpc_ws, max_rpc_payload_size).await?;
@@ -127,40 +177,51 @@ where
 				.number()
 				.into()
 		};
-		let bytes =
-			from_hex(&config.signer).context("Signer must be a valid hex-encoded String")?;
-		let signer = sr25519::Pair::from_seed_slice(&bytes)?;
-		let mut consensus_state_id: ConsensusStateId = Default::default();
-		consensus_state_id.copy_from_slice(
-			config
-				.consensus_state_id
-				.clone()
-				.unwrap_or(match config.state_machine {
-					StateMachine::Kusama(_) => "PAS0".into(),
-					StateMachine::Polkadot(_) => "DOT0".into(),
-					s => Err(anyhow::anyhow!("Unsupported state machine: {s:?}"))?,
-				})
-				.as_bytes(),
-		);
+		// If the operator configured a signer, parse it; otherwise generate a
+		// throwaway one so all the signer-shaped fields downstream still
+		// type-check. Inbound-only chains never reach a path that signs,
+		// because the relayer's `outbound_enabled()` filter keeps them out
+		// of outbound, fee-withdrawal, and fisherman tasks before any
+		// signing call.
+		let signer = match config.signer.as_deref() {
+			Some(raw) => {
+				let bytes = from_hex(raw).context("Signer must be a valid hex-encoded String")?;
+				sr25519::Pair::from_seed_slice(&bytes)?
+			},
+			None => sr25519::Pair::generate().0,
+		};
 		let address = signer.public().0.to_vec();
+		let mut consensus_state_id: ConsensusStateId = Default::default();
+		consensus_state_id.copy_from_slice(config.consensus_state_id.expect("Resolved").as_bytes());
+
 		Ok(Self {
 			client,
 			rpc,
 			rpc_client,
 			consensus_state_id,
-			state_machine: config.state_machine,
-			hashing: config.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
+			state_machine: config.state_machine.expect("Resolved"),
+			hashing: config_clone.hashing.clone().unwrap_or(HashAlgorithm::Keccak),
 			signer,
 			address,
 			initial_height,
 			max_concurent_queries: config.max_concurent_queries,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
-			config,
+			config: config_clone,
 		})
 	}
 
 	pub fn signer(&self) -> sr25519::Pair {
 		self.signer.clone()
+	}
+
+	/// Resolved state machine identifier for this client.
+	pub fn state_machine(&self) -> StateMachine {
+		self.state_machine
+	}
+
+	/// Resolved consensus state identifier for this client.
+	pub fn consensus_state_id(&self) -> ConsensusStateId {
+		self.consensus_state_id
 	}
 
 	pub fn account(&self) -> C::AccountId {
@@ -184,7 +245,7 @@ where
 			self.initial_height = self.query_finalized_height().await?.into();
 		}
 		log::info!(
-			"Initialized height for {:?}->{name} at {}",
+			target: LOG_TARGET, "Initialized height for {:?}->{name} at {}",
 			self.state_machine,
 			self.initial_height
 		);

@@ -14,6 +14,8 @@
 // limitations under the License.
 
 //! Tesseract consensus relayer for Pharos Network.
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-pharos";
 
 use anyhow::Result;
 use codec::Encode;
@@ -27,7 +29,8 @@ use pharos_primitives::Config;
 use pharos_prover::PharosProver;
 use serde::{Deserialize, Serialize};
 use std::{marker::PhantomData, sync::Arc, time::Duration};
-use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_evm::EvmConfig;
+use tesseract_pharos_evm::PharosEvmClient;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod notification;
@@ -45,20 +48,18 @@ pub struct PharosHostConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PharosConfig {
 	/// Host configuration options
-	pub host: PharosHostConfig,
-	/// General EVM config
 	#[serde(flatten)]
-	pub evm_config: EvmConfig,
+	pub host: PharosHostConfig,
 }
 
 impl PharosConfig {
-	/// Convert the config into a client.
-	pub async fn into_client<C: Config + 'static>(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(PharosHost::<C>::new(&self.host, &self.evm_config).await?))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config.
+	pub async fn into_client<C: Config + 'static>(
+		self,
+		evm_config: EvmConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(PharosHost::<C>::new(&self.host, &evm_config).await?))
 	}
 }
 
@@ -82,20 +83,24 @@ pub struct PharosHost<C: Config> {
 impl<C: Config> PharosHost<C> {
 	/// Create a new PharosHost
 	pub async fn new(host: &PharosHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let ismp_provider = EvmClient::new(evm.clone()).await?;
+		// Build a Pharos-aware provider so `query_state_proof`/proof reads
+		// hit Pharos's custom `eth_getProof` (hexary hash-tree nodes) via
+		// the dedicated raw RPC client. A plain `EvmClient` here would
+		// route those reads through alloy's `RootProvider::get_proof`,
+		// which expects standard MPT `Vec<Bytes>` and bails out on
+		// Pharos's `Vec<{nextBeginOffset, nextEndOffset, proofNode}>`.
+		let ismp_provider = PharosEvmClient::new(evm.clone()).await?;
 		let rpc_url = evm
 			.rpc_urls
 			.first()
 			.ok_or_else(|| anyhow::anyhow!("No RPC URL configured in EVM config"))?;
 		let prover = PharosProver::new(rpc_url).await?;
 
+		let consensus_state_id = ismp_provider.evm.consensus_state_id;
+		let state_machine = ismp_provider.evm.state_machine;
 		Ok(Self {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
-			state_machine: evm.state_machine,
+			consensus_state_id,
+			state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover,
@@ -186,7 +191,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 
 					log::info!(
 						target: "tesseract",
-						"Transmitting consensus message from {} to {}",
+						"🛰️ Transmitting consensus message from {} to {}",
 						provider.name(),
 						counterparty.name()
 					);
@@ -200,7 +205,7 @@ impl<C: Config + 'static> IsmpHost for PharosHost<C> {
 
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}

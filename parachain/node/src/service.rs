@@ -289,7 +289,8 @@ where
 				bid_sender: bid_sender.clone(),
 			};
 
-			crate::rpc::create_full(deps).map_err(Into::into)
+			let module = crate::rpc::create_full(deps)?;
+			Ok(module)
 		})
 	};
 
@@ -474,23 +475,8 @@ where
 		client.clone(),
 	);
 
-	let (client_clone, relay_chain_interface_clone) =
-		(client.clone(), relay_chain_interface.clone());
 	let params = lookahead::Params {
-		create_inherent_data_providers: move |parent, ()| {
-			let client = client_clone.clone();
-			let relay_chain_interface = relay_chain_interface_clone.clone();
-			async move {
-				let inherent = ismp_parachain_inherent::ConsensusInherentProvider::create(
-					parent,
-					client,
-					relay_chain_interface,
-				)
-				.await?;
-
-				Ok(inherent)
-			}
-		},
+		create_inherent_data_providers: move |_parent, ()| async move { Ok(()) },
 		block_import,
 		para_client: client.clone(),
 		para_backend: backend,

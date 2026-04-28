@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-op-host";
+
 use abi::{DisputeGameFactory, FaultDisputeGame, L2OutputOracle};
 use alloy::{
 	eips::BlockId,
@@ -36,10 +39,8 @@ mod tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpConfig {
 	/// OpStack Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
-	/// General Evm client config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +60,11 @@ pub struct HostConfig {
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
 	pub l1_consensus_state_id: String,
+	/// Consensus state id used by this op-host consensus client. Always
+	/// overrides the paired `EvmConfig.consensus_state_id` for both the
+	/// host's own queries **and** the underlying `EvmClient` provider, so the
+	/// messaging and consensus paths agree on the same id.
+	pub consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,
 }
@@ -78,15 +84,12 @@ pub struct ProposerConfig {
 }
 
 impl OpConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = OpHost::new(&self.host, &self.evm_config).await?;
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client = OpHost::new(&self.host, &evm_config).await?;
 
 		Ok(Arc::new(client))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
 	}
 }
 
@@ -106,6 +109,10 @@ pub struct OpHost {
 	pub host: HostConfig,
 	/// Evm Config
 	pub evm: EvmConfig,
+	/// Resolved state machine identifier for this host's chain.
+	pub state_machine: StateMachine,
+	/// Resolved IsmpHost contract address on this host's chain.
+	pub ismp_host: H160,
 	/// Consensus state id
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
@@ -174,13 +181,27 @@ pub fn challenge_slot_keys(kind: &DisputeGameImpl) -> Vec<B256> {
 
 impl OpHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		// Always overwrite the EvmConfig's consensus state id with the
+		// host-level value so the underlying `EvmClient` and the op-host
+		// agree on the same id.
+		let evm_owned = {
+			let mut evm_override = evm.clone();
+			evm_override.consensus_state_id = Some(host.consensus_state_id.clone());
+			evm_override
+		};
+		let evm: &EvmConfig = &evm_owned;
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
 		let l1_chain_id = beacon_client.get_chain_id().await?;
 		let l1_state_machine = StateMachine::Evm(l1_chain_id as u32);
 
-		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+		let inner = EvmClient::new(evm.clone()).await?;
+		let state_machine = inner.state_machine;
+		let ismp_host = inner.ismp_host;
+		let consensus_state_id = inner.consensus_state_id;
+		let provider = Arc::new(inner);
 
 		let (proposer, beacon_consensus_client) =
 			if let Some(proposer_config) = host.proposer_config.clone() {
@@ -223,11 +244,9 @@ impl OpHost {
 			message_parser: host.message_parser,
 			evm: evm.clone(),
 			host: host.clone(),
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
+			state_machine,
+			ismp_host,
+			consensus_state_id,
 			provider,
 			proposer,
 			l1_state_machine,
@@ -248,9 +267,9 @@ impl OpHost {
 		if from > to {
 			return Ok(None);
 		}
-		let l2_oracle = self.l2_oracle.ok_or_else(|| {
-			anyhow!("L2 Oracle address is missing for {}", self.evm.state_machine)
-		})?;
+		let l2_oracle = self
+			.l2_oracle
+			.ok_or_else(|| anyhow!("L2 Oracle address is missing for {}", self.state_machine))?;
 		let oracle_addr = Address::from_slice(&l2_oracle.0);
 		let filter = Filter::new().address(oracle_addr).from_block(from).to_block(to);
 
@@ -277,7 +296,7 @@ impl OpHost {
 			return Ok(Default::default());
 		}
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
-			anyhow!("Dispute Factory address is missing for {}", self.evm.state_machine)
+			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
 
 		let factory_addr = Address::from_slice(&dispute_game_factory.0);
@@ -334,7 +353,7 @@ impl OpHost {
 	) -> Result<Option<OptimismDisputeGameProof>, anyhow::Error> {
 		let mut payloads = vec![];
 		let dispute_game_factory = self.dispute_game_factory.ok_or_else(|| {
-			anyhow!("Dispute Factory address is missing for {}", self.evm.state_machine)
+			anyhow!("Dispute Factory address is missing for {}", self.state_machine)
 		})?;
 
 		for event in events {
@@ -450,7 +469,7 @@ impl OpHost {
 				.ok_or_else(|| {
 					anyhow!(
 						"{:?} Header not found for L2 block {}",
-						self.evm.state_machine,
+						self.state_machine,
 						l2_block_num,
 					)
 				})?;
@@ -494,7 +513,7 @@ impl OpHost {
 			);
 
 			if output_root.0 != event.rootClaim.0 {
-				log::trace!(target: "tesseract", "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
+				log::trace!(target: LOG_TARGET, "Found a dispute game event with an invalid output root, Expected: {output_root:?}, Found: {:?}", event.rootClaim);
 				continue;
 			}
 
@@ -516,9 +535,9 @@ impl OpHost {
 
 		let output_roots_key = derive_array_item_key(l2_output_index, 0);
 		let timestamp_and_block_proof = derive_array_item_key(l2_output_index, 1);
-		let l2_oracle = self.l2_oracle.ok_or_else(|| {
-			anyhow!("L2 Oracle address is missing for {}", self.evm.state_machine)
-		})?;
+		let l2_oracle = self
+			.l2_oracle
+			.ok_or_else(|| anyhow!("L2 Oracle address is missing for {}", self.state_machine))?;
 
 		let oracle_addr = Address::from_slice(&l2_oracle.0);
 		let proof = self

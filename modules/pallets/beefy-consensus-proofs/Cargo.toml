@@ -59,7 +59,7 @@ std = [
     "anyhow/std",
     "primitive-types/std",
     "sp-core/std",
-    "sp-io/std",
+    "sp-io/std"
 ]
 runtime-benchmarks = [
     "polkadot-sdk/frame-benchmarking",

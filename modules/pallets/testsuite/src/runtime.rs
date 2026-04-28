@@ -461,9 +461,14 @@ impl pallet_mmr_tree::Config for Test {
 	type ForkIdentifierProvider = Ismp;
 }
 
+parameter_types! {
+	pub const OutboundRewardTreasury: PalletId = PalletId(*b"ob/rwrds");
+}
+
 impl pallet_ismp_relayer::Config for Test {
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId32>;
+	type TreasuryPalletId = OutboundRewardTreasury;
 }
 
 impl pallet_ismp_host_executive::Config for Test {

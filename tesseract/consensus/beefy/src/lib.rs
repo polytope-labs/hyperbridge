@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-beefy";
+
 use anyhow::anyhow;
 use primitive_types::H256;
 use serde::{Deserialize, Serialize};

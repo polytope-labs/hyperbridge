@@ -1,7 +1,11 @@
 //! This module allows the relayer to maintain a local database
 //! of requests and responses the relayer has delivered successfully
+
 #![allow(unused_imports)]
 #![allow(unused)]
+
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-fees";
 use crate::db::{
 	deliveries::{Data, OrderByParam, UniqueWhereParam, WhereParam},
 	new_client_with_url,
@@ -37,6 +41,25 @@ pub struct TransactionPayment {
 	pub db: Arc<PrismaClient>,
 }
 
+/// Status value written into [`OutboundRotationClaims.status`] for every
+/// inserted row. There's no other status — the row is deleted on success.
+/// Kept for backward compatibility with the existing schema and for easy
+/// inspection with `sqlite3`.
+pub mod outbound_rotation_claim_status {
+	pub const PENDING: &str = "pending";
+}
+
+/// Row view of a persisted outbound-consensus delivery claim. The row is
+/// inserted when the outbound delivery task pushes a trigger and deleted
+/// once the claim extrinsic lands on Hyperbridge. Anything still present
+/// after a relayer restart is a crash-recovery candidate.
+#[derive(Debug, Clone, ::serde::Deserialize)]
+pub struct OutboundRotationClaimRow {
+	pub dest: String,
+	pub set_id: i64,
+	pub rotation_height: i64,
+}
+
 impl TransactionPayment {
 	/// Create the local database if it does not exist
 	pub async fn initialize(url: &str) -> anyhow::Result<Self> {
@@ -47,6 +70,108 @@ impl TransactionPayment {
 		#[cfg(not(debug_assertions))]
 		client._migrate_deploy().await?;
 		Ok(Self { db: Arc::new(client) })
+	}
+
+	/// Record one or more newly-delivered mandatory rotations as pending
+	/// claims in a single round-trip. The outbound task calls this right
+	/// after a successful delivery so the claims survive a relayer
+	/// restart. Each `upsert` is idempotent on the `(dest, set_id)`
+	/// unique key, so duplicate `set_id`s in the input (or a retry of the
+	/// same call) are no-ops, letting the caller be sloppy about
+	/// deduplicating.
+	///
+	/// `rows` carries `(set_id, delivery_height)` pairs — `delivery_height`
+	/// is the destination block in which the `NewEpoch` log was emitted,
+	/// so each pending row pins its claim to the height where the
+	/// HandlerV2 `_epochs[set_id]` slot was actually written. Earlier
+	/// versions of this function took a single `rotation_height` shared
+	/// across every set_id, which forced callers to guess one (typically
+	/// `query_finalized_height`) and was the source of the
+	/// "Error fetching latest state machine height" / `OutboundDeliveryNotProven`
+	/// races at outbound dispatch time.
+	pub async fn insert_pending_rotation_claims(
+		&self,
+		destination: &str,
+		rows: &[(u64, u64)],
+	) -> anyhow::Result<()> {
+		use crate::db::outbound_rotation_claims;
+		if rows.is_empty() {
+			return Ok(());
+		}
+		let now = chrono::Utc::now().timestamp() as i32;
+		let actions: Vec<_> = rows
+			.iter()
+			.map(|(set_id, rotation_height)| {
+				self.db.outbound_rotation_claims().upsert(
+					outbound_rotation_claims::UniqueWhereParam::DestSetIdEquals(
+						destination.to_string(),
+						*set_id as i64,
+					),
+					outbound_rotation_claims::create(
+						destination.to_string(),
+						*set_id as i64,
+						*rotation_height as i64,
+						outbound_rotation_claim_status::PENDING.to_string(),
+						now,
+						now,
+						vec![],
+					),
+					vec![],
+				)
+			})
+			.collect();
+		self.db._batch(actions).await?;
+		Ok(())
+	}
+
+	/// Delete the persisted claim row after the extrinsic lands on
+	/// Hyperbridge. Best-effort: if the delete fails, the next startup
+	/// will replay the row and the pallet's `(dest, set_id)` idempotency
+	/// tag will reject the duplicate.
+	pub async fn delete_rotation_claim(
+		&self,
+		destination: &str,
+		set_id: u64,
+	) -> anyhow::Result<()> {
+		use crate::db::{
+			outbound_rotation_claims::WhereParam,
+			read_filters::{BigIntFilter, StringFilter},
+		};
+		// `delete_many` is a no-op when the row is absent (e.g. the row
+		// was already deleted by a successful prior run, or never inserted).
+		self.db
+			.outbound_rotation_claims()
+			.delete_many(vec![
+				WhereParam::Dest(StringFilter::Equals(destination.to_string())),
+				WhereParam::SetId(BigIntFilter::Equals(set_id as i64)),
+			])
+			.exec()
+			.await?;
+		Ok(())
+	}
+
+	/// Load every claim still in `pending`, ordered by creation time. The
+	/// claim task calls this at startup and replays each one through its
+	/// normal processing path.
+	pub async fn list_pending_rotation_claims(
+		&self,
+	) -> anyhow::Result<Vec<OutboundRotationClaimRow>> {
+		use crate::db::outbound_rotation_claims::OrderByParam;
+		let rows = self
+			.db
+			.outbound_rotation_claims()
+			.find_many(vec![])
+			.order_by(OrderByParam::CreatedAt(prisma_client_rust::Direction::Asc))
+			.exec()
+			.await?;
+		Ok(rows
+			.into_iter()
+			.map(|data| OutboundRotationClaimRow {
+				dest: data.dest,
+				set_id: data.set_id,
+				rotation_height: data.rotation_height,
+			})
+			.collect())
 	}
 
 	/// Query all deliveries in the db and make them unique by the source & destination pair
@@ -499,7 +624,7 @@ impl TransactionPayment {
 		tokio::spawn(async move {
 			match tx.delete_claimed_entries(keys_to_delete).await {
 				Err(_) => {
-					tracing::error!("An Error occurred while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
+					tracing::error!(target: LOG_TARGET, "An Error occurred while deleting claimed fees from the db, the claimed keys will be deleted in the next fee accumulation attempt");
 				},
 				_ => {},
 			}

@@ -45,7 +45,7 @@ async fn fetch_game_type_configs(
 	state_machine_id: StateMachineId,
 ) -> Result<Option<Vec<GameTypeConfig>>, anyhow::Error> {
 	let key = StorageKey::Substrate(optimism_game_type_configs_storage_key(state_machine_id));
-	let Some(raw) = counterparty.query_storage(key).await? else {
+	let Some(raw) = counterparty.query_storage(key, None).await? else {
 		return Ok(None);
 	};
 	let (_factory, configs): (H160, Vec<GameTypeConfig>) = Decode::decode(&mut &*raw)
@@ -105,7 +105,7 @@ impl IsmpHost for OpHost {
 				let proposer_loop = async move {
 					let proposer_config = proposer_config_clone.clone();
 					let mut latest_height = initial_height;
-					log::trace!(target: "tesseract", "Started Proposer for {:?} at {latest_height}", proposer_client.evm.state_machine());
+					log::trace!(target: crate::LOG_TARGET, "Started Proposer for {:?} at {latest_height}", proposer_client.evm.state_machine());
 
 					loop {
 						tokio::time::sleep(Duration::from_secs(30)).await;
@@ -120,12 +120,12 @@ impl IsmpHost for OpHost {
 						{
 							Ok(Some(proposal)) =>
 								if let Err(err) = tx.send(proposal) {
-									log::error!(target: "tesseract", "Failed to send state proposal: {err:?}");
+									log::error!(target: crate::LOG_TARGET, "Failed to send state proposal: {err:?}");
 									break;
 								},
 							Ok(None) => {}, // No proposal to send
 							Err(e) => {
-								log::error!(target: "tesseract", "Error constructing state proposal: {e:?}");
+								log::error!(target: crate::LOG_TARGET, "Error constructing state proposal: {e:?}");
 							},
 						}
 					}
@@ -143,11 +143,11 @@ impl IsmpHost for OpHost {
 								)
 								.await
 								{
-									log::error!(target: "tesseract", "Error submitting state proposal: {err:?}");
+									log::error!(target: crate::LOG_TARGET, "Error submitting state proposal: {err:?}");
 								}
 							},
 							Err(e) => {
-								log::error!(target: "tesseract", "Proposal stream error: {e:?}");
+								log::error!(target: crate::LOG_TARGET, "Proposal stream error: {e:?}");
 							},
 						}
 					}
@@ -176,10 +176,10 @@ impl IsmpHost for OpHost {
 
 		let number = self.op_execution_client.get_block_number().await?;
 		let block = self.op_execution_client.get_block(number.into()).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+			anyhow!("Didn't find block with number {number} on {:?}", self.state_machine)
 		})?;
 		let state_machine_id = StateMachineId {
-			state_id: self.evm.state_machine,
+			state_id: self.state_machine,
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 		let initial_consensus_state = ConsensusState {
@@ -258,7 +258,7 @@ async fn construct_state_proposal(
 		let beacon_block_id = get_block_id(parent_beacon_root);
 		let beacon_header = fetch_beacon_header(client, proposer_config, &beacon_block_id).await?;
 		let parent_beacon_epoch = beacon_header.slot / 32;
-		log::trace!(target: "tesseract",
+		log::trace!(target: crate::LOG_TARGET,
 			"{} Proposer: waiting until parent beacon block is finalized before proposing;  beacon block header -> {:?}",
 			client.provider.state_machine_id().state_id,
 			parent_beacon_root
@@ -275,7 +275,7 @@ async fn construct_state_proposal(
 			let finalized_epoch =
 				fetch_finalized_checkpoint(client, proposer_config, "head").await?.epoch;
 			if finalized_epoch >= parent_beacon_epoch {
-				log::trace!(target: "tesseract", "Constructing state proposal for {:?} at block {:?}", client.provider.state_machine_id().state_id, latest_height);
+				log::trace!(target: crate::LOG_TARGET, "Constructing state proposal for {:?} at block {:?}", client.provider.state_machine_id().state_id, latest_height);
 				// refetch the l2 header incase there has been a reorg
 				let l2_header = client
 					.op_execution_client
@@ -386,7 +386,7 @@ async fn construct_state_proposal(
 					// If the latest game block number is greater than our block and its root claim
 					// is correct exit
 					if latest_valid_game.l2_block_number > commitment_block_number {
-						log::trace!(target: "tesseract","Latest proposed block {} > commitment block{commitment_block_number}", latest_valid_game.l2_block_number);
+						log::trace!(target: crate::LOG_TARGET,"Latest proposed block {} > commitment block{commitment_block_number}", latest_valid_game.l2_block_number);
 						break proposal;
 					}
 
@@ -399,7 +399,7 @@ async fn construct_state_proposal(
 
 					// If game exists exit
 					if proxy_addr.0 .0 != H160::zero().0 {
-						log::trace!(target: "tesseract","State commitment for {commitment_block_number} has already been proposed");
+						log::trace!(target: crate::LOG_TARGET,"State commitment for {commitment_block_number} has already been proposed");
 						break proposal;
 					}
 
@@ -428,7 +428,7 @@ async fn construct_state_proposal(
 					if creator.0.to_vec() == op_proposer &&
 						diff >= (3 * proposer_config.proposer_interval / 4)
 					{
-						log::trace!(target: "tesseract","Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds",
+						log::trace!(target: crate::LOG_TARGET,"Skipping proposal for {commitment_block_number}, Official op-proposer should be making a proposal in {} seconds",
 							proposer_config.proposer_interval.saturating_sub((3 * proposer_config.proposer_interval )/ 4));
 						break proposal;
 					}
@@ -449,7 +449,7 @@ async fn construct_state_proposal(
 
 					break proposal;
 				} else {
-					log::trace!(target: "tesseract","Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
+					log::trace!(target: crate::LOG_TARGET,"Recent games are invalid, moving ahead with proposal for {commitment_block_number}");
 					let bond = contract
 						.initBonds(respected_game_type)
 						.block(BlockId::latest())
@@ -480,7 +480,7 @@ async fn submit_state_proposal(
 	proposer: Arc<AlloySignerProvider>,
 	proposal: StateProposal,
 ) -> Result<(), anyhow::Error> {
-	log::trace!(target: "tesseract",
+	log::trace!(target: crate::LOG_TARGET,
 		"Proposing state commitment for {:?}, block {:?}",
 		client.provider.state_machine_id().state_id,
 		proposal.block_number
@@ -500,7 +500,7 @@ async fn submit_state_proposal(
 	// Fetch L1 gas price
 	let gas_breakdown = get_current_gas_cost_in_usd(
 		client.l1_state_machine,
-		client.evm.ismp_host.0.into(),
+		client.ismp_host.0.into(),
 		client.beacon_execution_client.clone(),
 	)
 	.await?;
@@ -514,7 +514,7 @@ async fn submit_state_proposal(
 		return Err(anyhow!("Transaction failed"));
 	}
 
-	log::trace!(target: "tesseract", "State proposal submitted successfully for block {:?}", proposal.block_number);
+	log::trace!(target: crate::LOG_TARGET, "State proposal submitted successfully for block {:?}", proposal.block_number);
 
 	Ok(())
 }
@@ -594,7 +594,10 @@ async fn submit_consensus_update(
 ) -> Result<(), anyhow::Error> {
 	let consensus_state =
 		counterparty.query_consensus_state(None, client.consensus_state_id).await?;
-	let consensus_state = ConsensusState::decode(&mut &*consensus_state)?;
+	// Tolerant decode: old entries encoded before `GameTypeConfig.expected_impl`
+	// was added fall back to prefix-only, treating `game_type_configs` as None.
+	// Authoritative game configs are re-fetched from pallet storage anyway.
+	let consensus_state = ConsensusState::decode_tolerant(&consensus_state)?;
 
 	let l1_state_machine_id = StateMachineId {
 		state_id: client.l1_state_machine,
@@ -606,7 +609,7 @@ async fn submit_consensus_update(
 	));
 
 	let initial_height = counterparty.query_latest_height(l1_state_machine_id).await? as u64;
-	trace!(target: "op-host", "{:?}: -> Latest height found for l1 state machine is {initial_height:?}", client.evm.state_machine);
+	trace!(target: "op-host", "{:?}: -> Latest height found for l1 state machine is {initial_height:?}", client.state_machine);
 	let latest_height = initial_height;
 
 	let counterparty_clone = counterparty.clone();
@@ -614,7 +617,7 @@ async fn submit_consensus_update(
 		let client = client.clone();
 		let counterparty = counterparty_clone.clone();
 		let consensus_state = consensus_state.clone();
-		let state_machine = client.evm.state_machine();
+		let state_machine = client.state_machine;
 
 		async move {
 			interval.tick().await;
@@ -643,7 +646,7 @@ async fn submit_consensus_update(
 								Ok(payload) => {
 									let update = OptimismUpdate {
 										state_machine_id: StateMachineId {
-											state_id: client.evm.state_machine,
+											state_id: client.state_machine,
 											consensus_state_id: client.consensus_state_id,
 										},
 										l1_height: current_height,
@@ -680,7 +683,7 @@ async fn submit_consensus_update(
 				}
 				Some(OptimismConsensusType::OpFaultProofGames) => {
 					let l2_state_machine_id = StateMachineId {
-						state_id: client.evm.state_machine,
+						state_id: client.state_machine,
 						consensus_state_id: client.consensus_state_id,
 					};
 					let game_type_configs = match fetch_game_type_configs(&counterparty, l2_state_machine_id).await {
@@ -702,7 +705,7 @@ async fn submit_consensus_update(
 									if let Some(payload) = maybe_payload {
 										let update = OptimismUpdate {
 											state_machine_id: StateMachineId {
-												state_id: client.evm.state_machine,
+												state_id: client.state_machine,
 												consensus_state_id: client.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -758,11 +761,11 @@ async fn submit_consensus_update(
 					)
 					.await;
 				if let Err(err) = res {
-					log::error!("Failed to submit transaction to {}: {err:?}", counterparty.name())
+					log::error!(target: crate::LOG_TARGET, "Failed to submit transaction to {}: {err:?}", counterparty.name())
 				}
 			},
 			Err(e) => {
-				log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+				log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 			},
 		}
 	}

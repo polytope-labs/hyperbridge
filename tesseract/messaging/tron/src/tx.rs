@@ -80,26 +80,26 @@ pub async fn handle_message_submission(
 	client: &TronClient,
 	messages: Vec<Message>,
 ) -> Result<TxResult, anyhow::Error> {
-	log::trace!("handle_message_submission called with {} messages", messages.len());
+	log::trace!(target: crate::LOG_TARGET, "handle_message_submission called with {} messages", messages.len());
 
 	let receipts = submit_messages(client, messages.clone()).await?;
-	log::trace!("submit_messages returned {} receipts", receipts.len());
+	log::trace!(target: crate::LOG_TARGET, "submit_messages returned {} receipts", receipts.len());
 
 	let height = client.evm.client.get_block_number().await.unwrap_or(0);
-	log::trace!("Current block height: {}", height);
+	log::trace!(target: crate::LOG_TARGET, "Current block height: {}", height);
 
 	let mut results = Vec::new();
 
 	for msg in &messages {
 		match msg {
 			Message::Request(req_msg) => {
-				log::trace!("Processing Request message with {} posts", req_msg.requests.len());
+				log::trace!(target: crate::LOG_TARGET, "Processing Request message with {} posts", req_msg.requests.len());
 				for post in &req_msg.requests {
 					let req = Request::Post(post.clone());
 					let commitment = hash_request::<Hasher>(&req);
-					log::trace!("Request commitment: {:?}", commitment);
+					log::trace!(target: crate::LOG_TARGET, "Request commitment: {:?}", commitment);
 					if receipts.contains(&commitment) {
-						log::trace!("Adding receipt for request commitment {:?}", commitment);
+						log::trace!(target: crate::LOG_TARGET, "Adding receipt for request commitment {:?}", commitment);
 						results.push(TxReceipt::Request {
 							query: Query {
 								source_chain: req.source_chain(),
@@ -116,17 +116,17 @@ pub async fn handle_message_submission(
 				datagram: RequestResponse::Response(resp),
 				..
 			}) => {
-				log::trace!("Processing Response message with {} responses", resp.len());
+				log::trace!(target: crate::LOG_TARGET, "Processing Response message with {} responses", resp.len());
 				for res in resp {
 					let commitment = hash_response::<Hasher>(res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
 					log::trace!(
-						"Response commitment: {:?}, request commitment: {:?}",
+						target: crate::LOG_TARGET, "Response commitment: {:?}, request commitment: {:?}",
 						commitment,
 						request_commitment
 					);
 					if receipts.contains(&commitment) {
-						log::trace!("Adding receipt for response commitment {:?}", commitment);
+						log::trace!(target: crate::LOG_TARGET, "Adding receipt for response commitment {:?}", commitment);
 						results.push(TxReceipt::Response {
 							query: Query {
 								source_chain: res.source_chain(),
@@ -141,13 +141,13 @@ pub async fn handle_message_submission(
 				}
 			},
 			_ => {
-				log::trace!("Skipping non-request/response message");
+				log::trace!(target: crate::LOG_TARGET, "Skipping non-request/response message");
 			},
 		}
 	}
 
-	log::info!("handle_message_submission complete: {} receipts", results.len());
-	Ok(TxResult { receipts: results, unsuccessful: vec![] })
+	log::info!(target: crate::LOG_TARGET, "handle_message_submission complete: {} receipts", results.len());
+	Ok(TxResult { receipts: results, unsuccessful: vec![], new_epochs: Vec::new() })
 }
 
 /// Submit a batch of [`Message`]s to the TRON network.
@@ -157,31 +157,31 @@ pub async fn submit_messages(
 	client: &TronClient,
 	messages: Vec<Message>,
 ) -> anyhow::Result<BTreeSet<H256>> {
-	log::trace!("submit_messages called with {} messages", messages.len());
+	log::trace!(target: crate::LOG_TARGET, "submit_messages called with {} messages", messages.len());
 
-	log::trace!("Calling generate_contract_calls");
+	log::trace!(target: crate::LOG_TARGET, "Calling generate_contract_calls");
 	let (calls, _gas_price) = generate_contract_calls(&client.evm, &messages, false).await?;
-	log::trace!("generate_contract_calls returned {} calls", calls.len());
+	log::trace!(target: crate::LOG_TARGET, "generate_contract_calls returned {} calls", calls.len());
 
 	let mut events = BTreeSet::new();
 
 	for (index, call) in calls.iter().enumerate() {
-		log::trace!("Processing call {} of {}", index + 1, calls.len());
+		log::trace!(target: crate::LOG_TARGET, "Processing call {} of {}", index + 1, calls.len());
 
 		let calldata = match call.input.input() {
 			Some(bytes) => {
-				log::trace!("Call {} has calldata of {} bytes", index, bytes.len());
+				log::trace!(target: crate::LOG_TARGET, "Call {} has calldata of {} bytes", index, bytes.len());
 				bytes.clone()
 			},
 			None => {
-				log::error!("Message at index {index} produced empty calldata");
+				log::error!(target: crate::LOG_TARGET, "Message at index {index} produced empty calldata");
 				return Err(anyhow!("Message at index {index} produced empty calldata"));
 			},
 		};
 
 		let calldata_hex = hex::encode(calldata.as_ref());
 		log::trace!(
-			"Call {} calldata (hex): {}...",
+			target: crate::LOG_TARGET, "Call {} calldata (hex): {}...",
 			index,
 			&calldata_hex[..std::cmp::min(64, calldata_hex.len())]
 		);
@@ -195,27 +195,27 @@ pub async fn submit_messages(
 		};
 
 		log::info!(
-			"Submitting {label} to {:?} ({} bytes calldata) ...",
+			target: crate::LOG_TARGET, "Submitting {label} to {:?} ({} bytes calldata) ...",
 			client.evm.state_machine,
 			calldata.len(),
 		);
 
 		match trigger_sign_broadcast(client, &calldata_hex).await {
 			Ok(info) => {
-				log::trace!("trigger_sign_broadcast returned for call {}", index);
+				log::trace!(target: crate::LOG_TARGET, "trigger_sign_broadcast returned for call {}", index);
 
 				if info.succeeded() {
 					let energy = info.receipt.as_ref().map(|r| r.energy_usage_total).unwrap_or(0);
 
 					log::info!(
-						"{label} succeeded (tx={}, block={}, energy={energy})",
+						target: crate::LOG_TARGET, "{label} succeeded (tx={}, block={}, energy={energy})",
 						info.id,
 						info.block_number,
 					);
 
 					let msg_events = extract_commitment_hashes(&info);
 					log::trace!(
-						"Extracted {} commitment hashes from tx {}",
+						target: crate::LOG_TARGET, "Extracted {} commitment hashes from tx {}",
 						msg_events.len(),
 						info.id
 					);
@@ -223,12 +223,12 @@ pub async fn submit_messages(
 					events.extend(msg_events);
 				} else {
 					let reason = decode_revert_message(&info);
-					log::error!("{label} reverted (tx={}): {reason}", info.id);
+					log::error!(target: crate::LOG_TARGET, "{label} reverted (tx={}): {reason}", info.id);
 					return Err(anyhow!("Transaction reverted: {}", reason));
 				}
 			},
 			Err(err) => {
-				log::error!("{label} submission failed: {err:#}");
+				log::error!(target: crate::LOG_TARGET, "{label} submission failed: {err:#}");
 				return Err(err);
 			},
 		}
@@ -236,13 +236,13 @@ pub async fn submit_messages(
 
 	if !events.is_empty() {
 		log::trace!(
-			"Got {} receipts from executing on {:?}",
+			target: crate::LOG_TARGET, "Got {} receipts from executing on {:?}",
 			events.len(),
 			client.evm.state_machine,
 		);
 	}
 
-	log::trace!("submit_messages complete: {} events", events.len());
+	log::trace!(target: crate::LOG_TARGET, "submit_messages complete: {} events", events.len());
 	Ok(events)
 }
 
@@ -257,13 +257,13 @@ async fn trigger_sign_broadcast(
 	client: &TronClient,
 	calldata_hex: &str,
 ) -> anyhow::Result<TransactionInfo> {
-	log::trace!("trigger_sign_broadcast: preparing request");
+	log::trace!(target: crate::LOG_TARGET, "trigger_sign_broadcast: preparing request");
 
 	// Query handler address dynamically
 	let handler_address = client.handler_address().await?;
 
 	log::trace!(
-		"owner_address: {}, contract_address: {}, fee_limit: {}",
+		target: crate::LOG_TARGET, "owner_address: {}, contract_address: {}, fee_limit: {}",
 		client.owner_address,
 		handler_address,
 		client.fee_limit
@@ -273,7 +273,7 @@ async fn trigger_sign_broadcast(
 	let estimated_energy =
 		estimate_transaction_energy(client, &handler_address, calldata_hex).await?;
 
-	log::trace!("Estimated energy: {}", estimated_energy);
+	log::trace!(target: crate::LOG_TARGET, "Estimated energy: {}", estimated_energy);
 
 	// Step 2: Purchase energy via CatFee if available
 	if let Some(catfee_client) = &client.catfee {
@@ -289,13 +289,13 @@ async fn trigger_sign_broadcast(
 		visible: false,
 	};
 
-	log::trace!("Calling POST /wallet/triggersmartcontract");
+	log::trace!(target: crate::LOG_TARGET, "Calling POST /wallet/triggersmartcontract");
 	let resp: TriggerSmartContractResponse =
 		post_json(client.tron_api.full_host(), "/wallet/triggersmartcontract", &trigger_req, None)
 			.await
 			.context("triggerSmartContract failed")?;
 
-	log::trace!("triggerSmartContract response received, checking result");
+	log::trace!(target: crate::LOG_TARGET, "triggerSmartContract response received, checking result");
 	resp.result.into_result().context("triggerSmartContract rejected")?;
 
 	let unsigned = resp
@@ -303,25 +303,25 @@ async fn trigger_sign_broadcast(
 		.ok_or_else(|| anyhow!("triggerSmartContract returned no transaction"))?;
 
 	let tx_id = unsigned.tx_id.clone();
-	log::trace!("Got unsigned transaction with tx_id={}", tx_id);
+	log::trace!(target: crate::LOG_TARGET, "Got unsigned transaction with tx_id={}", tx_id);
 
-	log::trace!("Signing transaction");
+	log::trace!(target: crate::LOG_TARGET, "Signing transaction");
 	let signed = SignedTransaction::sign(unsigned, &client.secret_key)
 		.context("failed to sign TRON transaction")?;
 
-	log::trace!("Broadcasting transaction tx_id={}", tx_id);
+	log::trace!(target: crate::LOG_TARGET, "Broadcasting transaction tx_id={}", tx_id);
 	let broadcast_result = client
 		.tron_api
 		.broadcast_transaction(&signed)
 		.await
 		.context("broadcastTransaction failed")?;
 
-	log::trace!("Broadcast response received, checking result");
+	log::trace!(target: crate::LOG_TARGET, "Broadcast response received, checking result");
 	broadcast_result.into_result().context("broadcastTransaction rejected")?;
 
-	log::trace!("Broadcast tx_id={tx_id}");
+	log::trace!(target: crate::LOG_TARGET, "Broadcast tx_id={tx_id}");
 
-	log::trace!("Waiting for receipt for tx_id={}", tx_id);
+	log::trace!(target: crate::LOG_TARGET, "Waiting for receipt for tx_id={}", tx_id);
 	wait_for_receipt(&client.tron_api, &tx_id).await
 }
 
@@ -330,7 +330,7 @@ async fn trigger_sign_broadcast(
 /// TRON blocks are produced every ~3 seconds.  We poll every 4 seconds for up
 /// to 5 minutes.
 pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<TransactionInfo> {
-	log::trace!("wait_for_receipt: starting poll for tx_id={}", tx_id);
+	log::trace!(target: crate::LOG_TARGET, "wait_for_receipt: starting poll for tx_id={}", tx_id);
 
 	let poll_interval = Duration::from_secs(4);
 	let max_duration = Duration::from_secs(5 * 60);
@@ -343,7 +343,7 @@ pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<Tran
 
 		if elapsed >= max_duration {
 			log::error!(
-				"wait_for_receipt: timeout after {} attempts ({} seconds) for tx: {}",
+				target: crate::LOG_TARGET, "wait_for_receipt: timeout after {} attempts ({} seconds) for tx: {}",
 				attempt,
 				elapsed.as_secs(),
 				tx_id
@@ -351,29 +351,29 @@ pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<Tran
 			return Err(anyhow!("Transaction receipt not found after 5 min for tx: {tx_id}"));
 		}
 
-		log::trace!("wait_for_receipt: attempt {} for tx_id={}", attempt, tx_id);
+		log::trace!(target: crate::LOG_TARGET, "wait_for_receipt: attempt {} for tx_id={}", attempt, tx_id);
 
 		match api.get_transaction_info(tx_id).await {
 			Ok(Some(info)) => {
 				log::trace!(
-					"wait_for_receipt: receipt found after {} attempts ({} seconds) for tx: {}",
+					target: crate::LOG_TARGET, "wait_for_receipt: receipt found after {} attempts ({} seconds) for tx: {}",
 					attempt,
 					elapsed.as_secs(),
 					tx_id
 				);
-				log::trace!("Receipt found for tx: {tx_id}");
+				log::trace!(target: crate::LOG_TARGET, "Receipt found for tx: {tx_id}");
 				return Ok(info);
 			},
 			Ok(None) => {
 				log::trace!(
-					"Receipt not yet available for {tx_id}, retrying in {}s (attempt {})",
+					target: crate::LOG_TARGET, "Receipt not yet available for {tx_id}, retrying in {}s (attempt {})",
 					poll_interval.as_secs(),
 					attempt,
 				);
 			},
 			Err(err) => {
 				log::warn!(
-					"Error querying receipt for {tx_id} (attempt {}): {err:#}, will retry",
+					target: crate::LOG_TARGET, "Error querying receipt for {tx_id} (attempt {}): {err:#}, will retry",
 					attempt
 				);
 			},
@@ -390,7 +390,7 @@ pub async fn wait_for_receipt(api: &TronApi, tx_id: &str) -> anyhow::Result<Tran
 /// The commitment is the first **indexed** topic (topics[1]).
 fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 	log::trace!(
-		"extract_commitment_hashes: processing {} log entries for tx {}",
+		target: crate::LOG_TARGET, "extract_commitment_hashes: processing {} log entries for tx {}",
 		info.log.len(),
 		info.id
 	);
@@ -398,16 +398,16 @@ fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 	let request_topic = H256::from(keccak_256(b"PostRequestHandled(bytes32,address)"));
 	let response_topic = H256::from(keccak_256(b"PostResponseHandled(bytes32,address)"));
 
-	log::trace!("Looking for request_topic: {:?}", request_topic);
-	log::trace!("Looking for response_topic: {:?}", response_topic);
+	log::trace!(target: crate::LOG_TARGET, "Looking for request_topic: {:?}", request_topic);
+	log::trace!(target: crate::LOG_TARGET, "Looking for response_topic: {:?}", response_topic);
 
 	let mut hashes = BTreeSet::new();
 
 	for (idx, log_entry) in info.log.iter().enumerate() {
-		log::trace!("Processing log entry {} with {} topics", idx, log_entry.topics.len());
+		log::trace!(target: crate::LOG_TARGET, "Processing log entry {} with {} topics", idx, log_entry.topics.len());
 
 		if log_entry.topics.is_empty() {
-			log::trace!("Log entry {} has no topics, skipping", idx);
+			log::trace!(target: crate::LOG_TARGET, "Log entry {} has no topics, skipping", idx);
 			continue;
 		}
 
@@ -415,26 +415,26 @@ fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 		let topic0 = match hex::decode(&log_entry.topics[0]) {
 			Ok(bytes) if bytes.len() == 32 => {
 				let h = H256::from_slice(&bytes);
-				log::trace!("Log entry {} topic0: {:?}", idx, h);
+				log::trace!(target: crate::LOG_TARGET, "Log entry {} topic0: {:?}", idx, h);
 				h
 			},
 			Ok(bytes) => {
-				log::trace!("Log entry {} topic0 has wrong length: {}", idx, bytes.len());
+				log::trace!(target: crate::LOG_TARGET, "Log entry {} topic0 has wrong length: {}", idx, bytes.len());
 				continue;
 			},
 			Err(e) => {
-				log::trace!("Log entry {} topic0 hex decode failed: {}", idx, e);
+				log::trace!(target: crate::LOG_TARGET, "Log entry {} topic0 hex decode failed: {}", idx, e);
 				continue;
 			},
 		};
 
 		if topic0 != request_topic && topic0 != response_topic {
-			log::trace!("Log entry {} topic0 doesn't match request/response topics", idx);
+			log::trace!(target: crate::LOG_TARGET, "Log entry {} topic0 doesn't match request/response topics", idx);
 			continue;
 		}
 
 		log::trace!(
-			"Log entry {} matches {} event",
+			target: crate::LOG_TARGET, "Log entry {} matches {} event",
 			idx,
 			if topic0 == request_topic { "PostRequestHandled" } else { "PostResponseHandled" }
 		);
@@ -444,47 +444,47 @@ fn extract_commitment_hashes(info: &TransactionInfo) -> BTreeSet<H256> {
 			if let Ok(bytes) = hex::decode(&log_entry.topics[1]) {
 				if bytes.len() == 32 {
 					let commitment = H256::from_slice(&bytes);
-					log::trace!("Extracted commitment: {:?}", commitment);
+					log::trace!(target: crate::LOG_TARGET, "Extracted commitment: {:?}", commitment);
 					hashes.insert(commitment);
 				} else {
-					log::trace!("Log entry {} topic1 has wrong length: {}", idx, bytes.len());
+					log::trace!(target: crate::LOG_TARGET, "Log entry {} topic1 has wrong length: {}", idx, bytes.len());
 				}
 			} else {
-				log::trace!("Log entry {} topic1 hex decode failed", idx);
+				log::trace!(target: crate::LOG_TARGET, "Log entry {} topic1 hex decode failed", idx);
 			}
 		} else {
-			log::trace!("Log entry {} doesn't have topic1", idx);
+			log::trace!(target: crate::LOG_TARGET, "Log entry {} doesn't have topic1", idx);
 		}
 	}
 
-	log::trace!("extract_commitment_hashes: extracted {} commitments", hashes.len());
+	log::trace!(target: crate::LOG_TARGET, "extract_commitment_hashes: extracted {} commitments", hashes.len());
 	hashes
 }
 
 /// Try to decode a human-readable revert reason from a failed transaction.
 fn decode_revert_message(info: &TransactionInfo) -> String {
-	log::trace!("decode_revert_message for tx {}", info.id);
-	log::trace!("res_message: {:?}", info.res_message);
-	log::trace!("result: {:?}", info.result);
+	log::trace!(target: crate::LOG_TARGET, "decode_revert_message for tx {}", info.id);
+	log::trace!(target: crate::LOG_TARGET, "res_message: {:?}", info.res_message);
+	log::trace!(target: crate::LOG_TARGET, "result: {:?}", info.result);
 
 	let decoded = info
 		.res_message
 		.as_deref()
 		.and_then(|hex_msg| {
-			log::trace!("Attempting to decode hex res_message: {}", hex_msg);
+			log::trace!(target: crate::LOG_TARGET, "Attempting to decode hex res_message: {}", hex_msg);
 			hex::decode(hex_msg).ok()
 		})
 		.and_then(|bytes| {
-			log::trace!("Attempting UTF-8 decode of {} bytes", bytes.len());
+			log::trace!(target: crate::LOG_TARGET, "Attempting UTF-8 decode of {} bytes", bytes.len());
 			String::from_utf8(bytes).ok()
 		})
 		.unwrap_or_else(|| {
 			let fallback = info.result.clone().unwrap_or_else(|| "unknown error".into());
-			log::trace!("Using fallback revert message: {}", fallback);
+			log::trace!(target: crate::LOG_TARGET, "Using fallback revert message: {}", fallback);
 			fallback
 		});
 
-	log::trace!("Decoded revert message: {}", decoded);
+	log::trace!(target: crate::LOG_TARGET, "Decoded revert message: {}", decoded);
 	decoded
 }
 
@@ -500,30 +500,30 @@ async fn post_json<Req: Serialize, Res: serde::de::DeserializeOwned>(
 	api_key: Option<&str>,
 ) -> anyhow::Result<Res> {
 	let url = format!("{base_url}{path}");
-	log::trace!("post_json: POST {}", url);
+	log::trace!(target: crate::LOG_TARGET, "post_json: POST {}", url);
 
 	let client = reqwest::Client::new();
 	let mut builder = client.post(&url).json(body);
 
 	if let Some(key) = api_key {
-		log::trace!("post_json: Adding TRON-PRO-API-KEY header");
+		log::trace!(target: crate::LOG_TARGET, "post_json: Adding TRON-PRO-API-KEY header");
 		builder = builder.header("TRON-PRO-API-KEY", key);
 	}
 
-	log::trace!("post_json: Sending request to {}", url);
+	log::trace!(target: crate::LOG_TARGET, "post_json: Sending request to {}", url);
 	let resp = builder.send().await.with_context(|| format!("POST {url} failed"))?;
 
 	let status = resp.status();
-	log::trace!("post_json: Received HTTP {} from {}", status, url);
+	log::trace!(target: crate::LOG_TARGET, "post_json: Received HTTP {} from {}", status, url);
 
 	if !status.is_success() {
 		let text = resp.text().await.unwrap_or_default();
-		log::error!("post_json: HTTP error {}: {}", status, text);
+		log::error!(target: crate::LOG_TARGET, "post_json: HTTP error {}: {}", status, text);
 		return Err(anyhow!("POST {url} returned HTTP {status}: {text}"));
 	}
 
 	let text = resp.text().await.context("failed to read response body")?;
-	log::trace!("post_json: Response body length: {} bytes", text.len());
+	log::trace!(target: crate::LOG_TARGET, "post_json: Response body length: {} bytes", text.len());
 
 	serde_json::from_str(&text)
 		.with_context(|| format!("POST {url}: failed to deserialize: {text}"))
@@ -629,7 +629,7 @@ async fn estimate_transaction_energy(
 	handler_address: &str,
 	calldata_hex: &str,
 ) -> anyhow::Result<u64> {
-	log::trace!("Estimating transaction energy");
+	log::trace!(target: crate::LOG_TARGET, "Estimating transaction energy");
 
 	// Use triggerConstantContract to simulate the call
 	let trigger_req = TriggerContractRequest {
@@ -663,7 +663,7 @@ async fn estimate_transaction_energy(
 	let energy_with_margin = (estimated_energy as f64 * 1.2) as u64;
 
 	log::trace!(
-		"Raw energy estimate: {}, with 20% margin: {}",
+		target: crate::LOG_TARGET, "Raw energy estimate: {}, with 20% margin: {}",
 		estimated_energy,
 		energy_with_margin
 	);
@@ -684,7 +684,7 @@ async fn purchase_energy_via_catfee(
 	receiver_address: &str,
 	energy_required: u64,
 ) -> anyhow::Result<()> {
-	log::info!("Purchasing {} energy units via CatFee", energy_required);
+	log::info!(target: crate::LOG_TARGET, "Purchasing {} energy units via CatFee", energy_required);
 
 	// Convert TRON hex address (41-prefixed) to base58 if needed
 	let receiver_base58 = if is_base58_address(receiver_address) {
@@ -696,7 +696,7 @@ async fn purchase_energy_via_catfee(
 			.context("Failed to convert TRON address from hex to base58")?
 	};
 
-	log::trace!("Using receiver address (base58): {}", receiver_base58);
+	log::trace!(target: crate::LOG_TARGET, "Using receiver address (base58): {}", receiver_base58);
 
 	// Maximum wait time for order completion (3 minutes)
 	let max_wait = Duration::from_secs(180);
@@ -709,7 +709,7 @@ async fn purchase_energy_via_catfee(
 		.await
 		.context("Failed to purchase energy via CatFee")?;
 
-	log::info!("Energy purchase completed successfully");
+	log::info!(target: crate::LOG_TARGET, "Energy purchase completed successfully");
 
 	Ok(())
 }

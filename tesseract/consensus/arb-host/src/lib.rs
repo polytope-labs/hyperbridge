@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-arb-host";
+
 use abi::{IRollup, IRollupBold};
 use alloy::{
 	eips::BlockId,
@@ -26,11 +29,8 @@ mod tests;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArbConfig {
 	/// Arbitrum Orbit Chain Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
-
-	/// General evm config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,20 +44,22 @@ pub struct HostConfig {
 	pub l1_state_machine: StateMachine,
 	/// L1 Consensus state Id representation.
 	pub l1_consensus_state_id: String,
+	/// Consensus state id used by this arb-host consensus client. Always
+	/// overrides the paired `EvmConfig.consensus_state_id` for both the
+	/// host's own queries **and** the underlying `EvmClient` provider, so the
+	/// messaging and consensus paths agree on the same id.
+	pub consensus_state_id: String,
 	/// consensus update frequency in seconds
 	pub consensus_update_frequency: Option<u64>,
 }
 
 impl ArbConfig {
-	/// Convert the config into a client.
-	pub async fn into_client(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		let client = ArbHost::new(&self.host, &self.evm_config).await?;
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		let client = ArbHost::new(&self.host, &evm_config).await?;
 
 		Ok(Arc::new(client))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
 	}
 }
 
@@ -73,6 +75,8 @@ pub struct ArbHost {
 	pub host: HostConfig,
 	/// Evm Config
 	pub evm: EvmConfig,
+	/// Resolved state machine identifier for this host's chain.
+	pub state_machine: StateMachine,
 	/// Consensus State Id
 	pub consensus_state_id: ConsensusStateId,
 	/// Ismp provider
@@ -85,10 +89,23 @@ pub struct ArbHost {
 
 impl ArbHost {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
+		// Always overwrite the EvmConfig's consensus state id with the
+		// host-level value so the underlying `EvmClient` and the arb-host
+		// agree on the same id.
+		let evm_owned = {
+			let mut evm_override = evm.clone();
+			evm_override.consensus_state_id = Some(host.consensus_state_id.clone());
+			evm_override
+		};
+		let evm: &EvmConfig = &evm_owned;
+
 		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 		let beacon_client = tesseract_evm::create_provider(&host.ethereum_rpc_url)?;
 
-		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
+		let inner = EvmClient::new(evm.clone()).await?;
+		let state_machine = inner.state_machine;
+		let consensus_state_id = inner.consensus_state_id;
+		let provider = Arc::new(inner);
 
 		Ok(Self {
 			arb_execution_client: Arc::new(el),
@@ -96,11 +113,8 @@ impl ArbHost {
 			rollup_core: host.rollup_core,
 			host: host.clone(),
 			evm: evm.clone(),
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
+			state_machine,
+			consensus_state_id,
 			provider,
 			l1_state_machine: host.l1_state_machine,
 			l1_consensus_state_id: {
@@ -120,7 +134,7 @@ impl ArbHost {
 			.get_block(BlockId::hash(block_hash))
 			.await?
 			.ok_or_else(|| {
-				anyhow!("{} Header not found for {:?}", self.evm.state_machine, block_hash)
+				anyhow!("{} Header not found for {:?}", self.state_machine, block_hash)
 			})?;
 		let arb_header = block.into();
 

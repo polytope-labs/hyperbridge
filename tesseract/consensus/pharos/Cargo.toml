@@ -25,3 +25,4 @@ sp-core = { workspace = true }
 
 tesseract-primitives = { workspace = true }
 tesseract-evm = { workspace = true }
+tesseract-pharos-evm = { workspace = true }

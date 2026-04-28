@@ -60,8 +60,7 @@ pub mod pallet {
 	};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
-		consensus::{ConsensusClientId, ConsensusStateId, StateMachineHeight, StateMachineId},
-		events::StateMachineUpdated,
+		consensus::{ConsensusStateId, StateMachineHeight, StateMachineId},
 		handlers,
 		host::IsmpHost,
 		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},

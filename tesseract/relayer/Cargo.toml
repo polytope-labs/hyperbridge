@@ -1,0 +1,51 @@
+[package]
+name = "tesseract"
+version = "2.0.0"
+edition = "2021"
+description = "Consolidated Hyperbridge relayer — inbound and outbound consensus + messaging"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[[bin]]
+name = "tesseract"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1.53"
+clap = { version = "4.3.5", features = ["derive"] }
+codec = { workspace = true, default-features = true, features = ["derive"] }
+futures = "0.3.28"
+ismp = { workspace = true, default-features = true }
+log = "0.4.19"
+primitive-types = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = "0.7.4"
+tokio = { workspace = true, features = ["full"] }
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+hex = "0.4"
+pallet-beefy-consensus-proofs = { workspace = true, default-features = true }
+sp-consensus-beefy = { workspace = true }
+sp-core = { workspace = true, default-features = true }
+subxt = { workspace = true }
+subxt-utils = { workspace = true }
+tesseract-beefy = { workspace = true }
+tesseract-config = { workspace = true }
+tesseract-consensus-config = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-fisherman = { workspace = true }
+messaging = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+transaction-fees = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sc-service"]
+
+[dev-dependencies]
+tesseract-primitives = { workspace = true, features = ["testing"] }
+tempfile = "3.10"

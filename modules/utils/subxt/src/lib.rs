@@ -178,6 +178,27 @@ pub fn relayer_nonce_storage_key(address: Vec<u8>, state_machine: StateMachine) 
 	[pallet_prefix, storage_prefix, key_1, address.encode(), key_2, state_machine.encode()].concat()
 }
 
+/// Storage key for `pallet_ismp_relayer::OutboundConsensusRotationsClaimed[(destination, set_id)]`.
+/// Both keys hash with `Blake2_128Concat` so the layout is
+/// `twox_128("Relayer") || twox_128("OutboundConsensusRotationsClaimed")
+/// || blake2_128(destination) || destination || blake2_128(set_id) || set_id`.
+///
+/// Used by the outbound-claim task to short-circuit claims that some
+/// other relayer already redeemed: the storage value is `()`, so a
+/// non-empty raw fetch at this key means the `(destination, set_id)`
+/// is closed and the local row should be dropped instead of submitted.
+pub fn outbound_consensus_rotations_claimed_storage_key(
+	destination: StateMachine,
+	set_id: u64,
+) -> Vec<u8> {
+	let pallet_prefix = twox_128(b"Relayer").to_vec();
+	let storage_prefix = twox_128(b"OutboundConsensusRotationsClaimed").to_vec();
+	let key_1 = blake2_128(&destination.encode()).to_vec();
+	let key_2 = blake2_128(&set_id.encode()).to_vec();
+
+	[pallet_prefix, storage_prefix, key_1, destination.encode(), key_2, set_id.encode()].concat()
+}
+
 pub fn state_machine_update_time_storage_key(height: StateMachineHeight) -> Vec<u8> {
 	let pallet_prefix = twox_128(b"Ismp").to_vec();
 	let storage_prefix = twox_128(b"BoundedStateMachineUpdateTime").to_vec();

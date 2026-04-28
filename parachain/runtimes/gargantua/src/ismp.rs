@@ -194,6 +194,7 @@ impl pallet_ismp_demo::Config for Runtime {
 impl pallet_ismp_relayer::Config for Runtime {
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId>;
+	type TreasuryPalletId = TreasuryPalletId;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {

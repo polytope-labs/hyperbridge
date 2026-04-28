@@ -14,6 +14,8 @@
 // limitations under the License.
 
 //! Tendermint EVM Client for ISMP
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-evm-tendermint";
 
 use anyhow::Error;
 use codec::Encode;
@@ -108,7 +110,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+		let contract_addr: [u8; 20] = self.inner.ismp_host.0;
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
@@ -143,7 +145,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+		let contract_addr: [u8; 20] = self.inner.ismp_host.0;
 		let storage_keys: Vec<Vec<u8>> = keys
 			.into_iter()
 			.map(|q| {
@@ -180,7 +182,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		let mut proofs: Vec<EvmKVProof> = Vec::new();
 		match keys {
 			StateProofQueryType::Ismp(keys) => {
-				let contract_addr: [u8; 20] = self.inner.config.ismp_host.0;
+				let contract_addr: [u8; 20] = self.inner.ismp_host.0;
 				// Validate lengths first to avoid Result in iterator
 				if keys.iter().any(|key| key.len() != 32) {
 					return Err(anyhow::anyhow!("All ISMP keys must have a length of 32 bytes",));
@@ -263,6 +265,14 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 		self.inner.state_machine_id()
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		self.inner.ismp_host_contract()
+	}
+
+	async fn handler_v2_address(&self) -> Option<H160> {
+		self.inner.handler_v2_address().await
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		self.inner.block_max_gas()
 	}
@@ -273,6 +283,14 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 
 	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<Vec<EstimateGasReturnParams>, Error> {
 		self.inner.estimate_gas(msg).await
+	}
+
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		self.inner.estimate_gas_batched(prelude, msgs).await
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {

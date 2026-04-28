@@ -1,5 +1,5 @@
 [package]
-name = "tesseract-messaging"
+name = "messaging"
 version = "0.1.0"
 edition = "2021"
 description = "Chain agnostic ISMP request/response relay"
@@ -23,10 +23,22 @@ pallet-state-coprocessor = { workspace = true, default-features = true }
 
 transaction-fees = { workspace = true }
 tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
+tesseract-tron = { workspace = true }
+tesseract-evm = { workspace = true }
+subxt-utils = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
 ismp-solidity-abi = { workspace = true, default-features = true }
+alloy-sol-types = { workspace = true, default-features = true }
+beefy-verifier-primitives = { workspace = true, default-features = true }
+codec = { workspace = true, default-features = true, features = ["derive"] }
 primitive-types = { workspace = true, default-features = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
 features = ["sc-service"]
+
+[dev-dependencies]
+async-trait = { workspace = true }
+tesseract-primitives = { workspace = true, features = ["testing"] }

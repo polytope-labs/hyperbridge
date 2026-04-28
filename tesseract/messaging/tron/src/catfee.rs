@@ -140,7 +140,7 @@ impl CatFeeClient {
 
 		let url = format!("{}{}", self.config.api_base, request_path);
 		log::trace!(
-			"Creating order: energy={}, receiver={}, period={}h",
+			target: crate::LOG_TARGET, "Creating order: energy={}, receiver={}, period={}h",
 			energy_amount,
 			receiver_address,
 			period
@@ -160,10 +160,10 @@ impl CatFeeClient {
 		let status = response.status();
 		let text = response.text().await?;
 
-		log::trace!("Create order response: status={}", status);
+		log::trace!(target: crate::LOG_TARGET, "Create order response: status={}", status);
 
 		if !status.is_success() {
-			log::error!("Create order failed with HTTP {}: {}", status, text);
+			log::error!(target: crate::LOG_TARGET, "Create order failed with HTTP {}: {}", status, text);
 			return Err(anyhow!("CatFee API returned HTTP {}: {}", status, text));
 		}
 
@@ -194,7 +194,7 @@ impl CatFeeClient {
 		let signature = self.generate_signature(&timestamp, "GET", &request_path);
 
 		let url = format!("{}{}", self.config.api_base, request_path);
-		log::trace!("Querying order detail: {}", order_id);
+		log::trace!(target: crate::LOG_TARGET, "Querying order detail: {}", order_id);
 
 		let response = self
 			.client
@@ -211,7 +211,7 @@ impl CatFeeClient {
 		let text = response.text().await?;
 
 		if !status.is_success() {
-			log::error!("Order detail query failed with HTTP {}: {}", status, text);
+			log::error!(target: crate::LOG_TARGET, "Order detail query failed with HTTP {}: {}", status, text);
 			return Err(anyhow!("CatFee API returned HTTP {}: {}", status, text));
 		}
 
@@ -253,7 +253,7 @@ impl CatFeeClient {
 			// ConfirmStatus: DELEGATION_CONFIRMED means successfully delivered
 			if detail.confirm_status == ConfirmStatus::DelegationConfirmed {
 				log::info!(
-					"Order {} completed successfully (status={:?}, confirm={:?})",
+					target: crate::LOG_TARGET, "Order {} completed successfully (status={:?}, confirm={:?})",
 					order_id,
 					detail.status,
 					detail.confirm_status
@@ -273,7 +273,7 @@ impl CatFeeClient {
 			}
 
 			log::trace!(
-				"Order {} status: {:?}, confirm: {:?}, waiting... ({}s elapsed)",
+				target: crate::LOG_TARGET, "Order {} status: {:?}, confirm: {:?}, waiting... ({}s elapsed)",
 				order_id,
 				detail.status,
 				detail.confirm_status,
@@ -308,14 +308,14 @@ impl CatFeeClient {
 		let order = self.create_order(energy_amount, receiver_address, period).await?;
 
 		log::info!(
-			"Order created: id={}, status={:?}, confirm={:?}",
+			target: crate::LOG_TARGET, "Order created: id={}, status={:?}, confirm={:?}",
 			order.id,
 			order.status,
 			order.confirm_status
 		);
 
 		// Step 2: Wait for order to be completed
-		log::info!("Waiting for order {} to complete...", order.id);
+		log::info!(target: crate::LOG_TARGET, "Waiting for order {} to complete...", order.id);
 		let final_detail = self.wait_for_order_completion(&order.id, max_wait).await?;
 
 		Ok(final_detail)

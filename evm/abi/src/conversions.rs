@@ -500,6 +500,35 @@ impl From<router::PostResponse> for crate::handler::Handler::PostResponse {
 	}
 }
 
+// HandlerV2 carries its own distinct `sol!`-generated `PostRequest` /
+// `PostResponse` types (same ABI shape as V1, different Rust type identity
+// since they live in a separate `sol!` module). Provide the same conversions
+// so callers submitting through `HandlerV2Instance` can reuse the ISMP
+// `router::Post{Request,Response}` as-is.
+impl From<router::PostRequest> for crate::handler::handler_v2::HandlerV2::PostRequest {
+	fn from(value: router::PostRequest) -> Self {
+		Self {
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
+			nonce: value.nonce,
+			from: value.from.into(),
+			to: value.to.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+			body: value.body.into(),
+		}
+	}
+}
+
+impl From<router::PostResponse> for crate::handler::handler_v2::HandlerV2::PostResponse {
+	fn from(value: router::PostResponse) -> Self {
+		Self {
+			request: value.post.into(),
+			response: value.response.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+		}
+	}
+}
+
 impl TryFrom<PostRequest> for router::PostRequest {
 	type Error = anyhow::Error;
 	fn try_from(value: PostRequest) -> Result<Self, Self::Error> {

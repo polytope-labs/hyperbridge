@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-pharos-evm";
+
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use anyhow::Error;
@@ -24,9 +27,9 @@ use ismp::{
 	messaging::{CreateConsensusState, Message},
 };
 use pallet_ismp_host_executive::HostParam;
-use pharos_primitives::{NonExistenceProof, PharosProofNode};
+use pharos_primitives::NonExistenceProof;
 use pharos_prover::{
-	rpc::{PharosRpcClient, RpcAccountProof, hex_to_bytes},
+	rpc::{PharosRpcClient, hex_to_bytes},
 	rpc_to_proof_nodes, rpc_to_sibling_proofs,
 };
 use pharos_state_machine::AccountProofData;
@@ -181,7 +184,7 @@ impl IsmpProvider for PharosEvmClient {
 			.into_iter()
 			.map(|q| self.evm.request_commitment_key(q.commitment).1)
 			.collect();
-		self.fetch_pharos_proof(at, self.evm.config.ismp_host, slot_hashes).await
+		self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 	}
 
 	async fn query_responses_proof(
@@ -194,7 +197,7 @@ impl IsmpProvider for PharosEvmClient {
 			.into_iter()
 			.map(|q| self.evm.response_commitment_key(q.commitment).1)
 			.collect();
-		self.fetch_pharos_proof(at, self.evm.config.ismp_host, slot_hashes).await
+		self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 	}
 
 	async fn query_state_proof(
@@ -206,7 +209,7 @@ impl IsmpProvider for PharosEvmClient {
 			StateProofQueryType::Ismp(keys) => {
 				let slot_hashes: Vec<H256> =
 					keys.into_iter().map(|k| H256::from_slice(&k)).collect();
-				self.fetch_pharos_proof(at, self.evm.config.ismp_host, slot_hashes).await
+				self.fetch_pharos_proof(at, self.evm.ismp_host, slot_hashes).await
 			},
 			StateProofQueryType::Arbitrary(keys) => {
 				// For arbitrary keys, group by contract address and fetch per-contract proofs
@@ -300,6 +303,14 @@ impl IsmpProvider for PharosEvmClient {
 		self.evm.state_machine_id()
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		self.evm.ismp_host_contract()
+	}
+
+	async fn handler_v2_address(&self) -> Option<H160> {
+		self.evm.handler_v2_address().await
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		self.evm.block_max_gas()
 	}
@@ -310,6 +321,14 @@ impl IsmpProvider for PharosEvmClient {
 
 	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<Vec<EstimateGasReturnParams>, Error> {
 		self.evm.estimate_gas(msg).await
+	}
+
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		self.evm.estimate_gas_batched(prelude, msgs).await
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {

@@ -90,7 +90,9 @@ async fn setup_clients() -> Result<
 			state_machine: StateMachine::Evm(11155111),
 			consensus_state_id: "ETH0".to_string(),
 			ismp_host: hex!("7BdE4Ce065400eE332C20f7df3a35d66674165f6").into(),
-			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			signer: Some(
+				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			),
 			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
@@ -115,7 +117,9 @@ async fn setup_clients() -> Result<
 			state_machine: StateMachine::Evm(421614),
 			consensus_state_id: "ARB0".to_string(),
 			ismp_host: hex!("3435bD7e5895356535459D6087D1eB982DAd90e7").into(),
-			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			signer: Some(
+				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			),
 			gas_price_buffer: Some(800),
 			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
@@ -148,7 +152,9 @@ async fn setup_clients() -> Result<
 			state_machine: StateMachine::Evm(11155420),
 			consensus_state_id: "OPT0".to_string(),
 			ismp_host: hex!("6d51b678836d8060d980605d2999eF211809f3C2").into(),
-			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			signer: Some(
+				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			),
 			gas_price_buffer: Some(500),
 			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
@@ -184,7 +190,7 @@ async fn setup_clients() -> Result<
 	let optimism_initial_consensus_state_message_for_other_chains =
 		optimism_chain.query_initial_consensus_state().await?.unwrap();
 
-	log::info!("🧊 Setting consensus states");
+	log::info!(target: crate::LOG_TARGET, "🧊 Setting consensus states");
 	hyperbridge_chain
 		.provider()
 		.set_initial_consensus_state(
@@ -292,7 +298,7 @@ fn game_type_config_to_value(config: &GameTypeConfig) -> Value {
 async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
 	setup_logging();
 
-	log::info!("🧊 Initializing tesseract consensus");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract consensus");
 
 	let (hyperbridge_chain, sync_committee_chain, arbitrum_chain, optimism_chain) =
 		setup_clients().await?;
@@ -320,7 +326,7 @@ async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
 		async move { optimism_chain.start_consensus(hyperbridge_chain.provider()).await.unwrap() }
 	});
 
-	log::info!("🧊 Initialized consensus tasks");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initialized consensus tasks");
 
 	let _ = tokio::join!(handle_a, handle_b, handle_c);
 

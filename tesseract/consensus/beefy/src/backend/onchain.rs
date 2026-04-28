@@ -116,7 +116,8 @@ where
 		result?;
 
 		tracing::info!(
-			"Successfully submitted proof for (relay_height: {}, parachain_height: {})",
+			target: crate::LOG_TARGET,
+			"Successfully submitted proof to pallet-beefy-consensus-proofs (relay_height: {}, parachain_height: {})",
 			proof.finalized_height,
 			extract_parachain_height(&proof_bytes).map_or("null".to_string(), |h| h.to_string()),
 		);

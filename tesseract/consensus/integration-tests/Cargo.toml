@@ -32,7 +32,7 @@ sp-io = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
 tesseract-substrate = { workspace = true, features = ["testing"] }
-tesseract-messaging = { workspace = true  }
+messaging = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 tesseract-evm = { workspace = true  }
 tesseract-sync-committee = { workspace = true, features = ["testing"] }

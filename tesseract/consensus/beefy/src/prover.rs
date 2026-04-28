@@ -180,7 +180,7 @@ where
 	) -> Result<Self, anyhow::Error> {
 		// Sanity-check that the backend has a consensus state we can load.
 		let consensus_state = backend.load_state().await?;
-		log::info!("Loaded consensus state: {consensus_state:#?}");
+		log::info!(target: crate::LOG_TARGET, "Loaded consensus state: {consensus_state:#?}");
 
 		// Initialize queues for the configured state machines
 		backend.init_queues(&config.state_machines).await?;
@@ -337,13 +337,13 @@ where
 				.map(|id| (change.block, id))
 		});
 
-		tracing::trace!("Latest set ID: {:#?}", changes_iter.clone().next_back());
+		tracing::trace!(target: crate::LOG_TARGET, "Latest set ID: {:#?}", changes_iter.clone().next_back());
 
 		let block_hash_and_set_id = changes_iter
 			.filter(|(_, set_id)| *set_id >= consensus_state.inner.next_authorities.id)
 			.next();
 
-		tracing::trace!("Block hash and set id: {:#?}", block_hash_and_set_id);
+		tracing::trace!(target: crate::LOG_TARGET, "Block hash and set id: {:#?}", block_hash_and_set_id);
 
 		Ok((block_hash_and_set_id, header))
 	}
@@ -355,7 +355,7 @@ where
 		start: u64,
 	) -> anyhow::Result<Option<SignedCommitment<u32, Signature>>> {
 		let relay_rpc = self.prover.inner().relay_rpc.clone();
-		tracing::info!("Scanning for BEEFY justifications at {start}");
+		tracing::info!(target: crate::LOG_TARGET, "Scanning for BEEFY justifications at {start}");
 
 		for i in start..=(start + 2400) {
 			let hash = if let Some(hash) = relay_rpc.chain_get_block_hash(Some(i.into())).await? {
@@ -371,7 +371,7 @@ where
 				.justifications
 			{
 				tracing::info!(
-					"Found some justification at block: {i}: {:?}",
+					target: crate::LOG_TARGET, "Found some justification at block: {i}: {:?}",
 					justifications
 						.iter()
 						.map(|(id, _)| String::from_utf8(id.as_slice().to_vec()))
@@ -388,7 +388,7 @@ where
 					return Ok(Some(commitment));
 				}
 			} else {
-				tracing::trace!("No BEEFY justifications found at {i}");
+				tracing::trace!(target: crate::LOG_TARGET, "No BEEFY justifications found at {i}");
 			}
 		}
 
@@ -418,7 +418,7 @@ where
 				match update {
 					Some((epoch_change_block_hash, next_set_id)) => {
 						// invariant, update should always be for the next set
-						tracing::info!("Next authority set: {next_set_id}");
+						tracing::info!(target: crate::LOG_TARGET, "Next authority set: {next_set_id}");
 						assert_eq!(next_set_id, consensus_state.inner.next_authorities.id);
 
 						let epoch_change_header = relay_rpc
@@ -435,7 +435,7 @@ where
 						};
 
 						tracing::info!(
-							"Fetched next authority set justification: {:?}",
+							target: crate::LOG_TARGET, "Fetched next authority set justification: {:?}",
 							commitment.commitment
 						);
 
@@ -484,7 +484,7 @@ where
 							)
 							.await?;
 						tracing::info!(
-							"Rotated authority set. Current {}, Next: {}",
+							target: crate::LOG_TARGET, "Rotated authority set. Current {}, Next: {}",
 							consensus_state.inner.current_authorities.id,
 							consensus_state.inner.next_authorities.id,
 						);
@@ -518,7 +518,7 @@ where
 					lowest_message_height + self.config.minimum_finalization_height;
 				if minimum_height > latest_parachain_height {
 					tracing::info!(
-						"Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
+						target: crate::LOG_TARGET, "Waiting for {} blocks before proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}",
 						minimum_height - latest_parachain_height
 					);
 					return Ok(());
@@ -543,17 +543,17 @@ where
 					})
 					.collect::<HashSet<_>>();
 
-				tracing::trace!("State machines: {state_machines:?}");
+				tracing::trace!(target: crate::LOG_TARGET, "State machines: {state_machines:?}");
 
 				if state_machines.is_empty() {
 					tracing::trace!(
-						"No new messages in the range: {lowest_message_height}..{latest_parachain_height}"
+						target: crate::LOG_TARGET, "No new messages in the range: {lowest_message_height}..{latest_parachain_height}"
 					);
 					return Ok(());
 				}
 
 				tracing::info!(
-					"Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}"
+					target: crate::LOG_TARGET, "Proving finality for messages in the range: {lowest_message_height}..{latest_parachain_height}"
 				);
 
 				let latest_beefy_header_hash = latest_beefy_header.hash().into();
@@ -601,7 +601,7 @@ where
 			.await;
 
 			if let Err(err) = result {
-				tracing::error!("Prover error: {err:?}");
+				tracing::error!(target: crate::LOG_TARGET, "Prover error: {err:?}");
 			}
 		}
 	}

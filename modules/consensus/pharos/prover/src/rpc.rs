@@ -189,6 +189,12 @@ impl PharosRpcClient {
 	) -> Result<R, ProverError> {
 		let request = JsonRpcRequest::new(method, params, self.next_id());
 
+		log::trace!(
+			target: "pharos-prover",
+			"JSON-RPC request: method={} id={} endpoint={}",
+			method, request.id, self.endpoint,
+		);
+
 		let response = self.client.post(&self.endpoint).json(&request).send().await?;
 
 		let rpc_response: JsonRpcResponse<R> =
@@ -222,6 +228,11 @@ impl PharosRpcClient {
 	}
 
 	pub async fn get_block_number(&self) -> Result<u64, ProverError> {
+		log::trace!(
+			target: "pharos-prover",
+			"JSON-RPC request: method=eth_blockNumber endpoint={}",
+			self.endpoint,
+		);
 		self.provider
 			.get_block_number()
 			.await
@@ -230,6 +241,11 @@ impl PharosRpcClient {
 
 	/// Fetch a block header by number, converting the response to [`CodecHeader`].
 	pub async fn get_block_by_number(&self, block_number: u64) -> Result<CodecHeader, ProverError> {
+		log::trace!(
+			target: "pharos-prover",
+			"JSON-RPC request: method=eth_getBlockByNumber block={} endpoint={}",
+			block_number, self.endpoint,
+		);
 		let block = self
 			.provider
 			.get_block_by_number(BlockNumberOrTag::Number(block_number))

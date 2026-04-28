@@ -1,6 +1,6 @@
 ---
 title: Consensus Relayers
-description: The Hyperbridge Tesseract consensus relayer is the backbone of its trust free interoperability, responsible for providing verifiable consensus proofs from various connected blockchains. This specialized service operates by monitoring different state machines from EVM and Substrate-based chains to Polkadot's Parachains and Standalone chains, preparing their consensus proof or updates for submission to Hyperbridge.
+description: Tesseract's consensus relaying responsibility submits verifiable consensus proofs from connected blockchains to Hyperbridge. It monitors EVM chains, Substrate based chains, Polkadot parachains, and standalone chains, prepares their consensus proofs or updates, and submits them to Hyperbridge. Operators are rewarded on chain for keeping Hyperbridge's view of external chains current.
 ---
 
 # Consensus Relayers
@@ -10,27 +10,24 @@ description: The Hyperbridge Tesseract consensus relayer is the backbone of its 
   <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
 </figure>
 
-Hyperbridge consensus relayers like it's messaging relayers are totally permissionless i.e there is no need for staking or whitelisting to relay consensus updates or proofs on Hyperbridge.
-The primary goal of the Tesseract consensus relayer is to observe the state of a source blockchain and query a verifiable proof for submission to a destination chain (typically Hyperbridge).
+Consensus relaying is one of three responsibilities the [tesseract relayer](/developers/network/relayer) carries out. The other two are [messaging relaying](/developers/explore/relayers/messaging-relayers) and [outbound delivery](/developers/explore/relayers/outbound-relayers). Like the others, it is fully permissionless. There is no staking or whitelisting required to submit consensus updates. The role is simple to describe: observe the state of a source blockchain and submit a verifiable consensus proof to Hyperbridge.
 
-Hyperbridge's security and functionality rely on the continuous and timely flow of consensus proofs from its connected blockchains. To ensure the liveness and accuracy of this cross-chain state information,
-Hyperbridge incorporates an on-chain incentive mechanism that economically rewards consensus relayers for their vital contributions. This system is designed to be fully autonomous and permissionless, fostering a robust and competitive ecosystem of relayers.
+Hyperbridge's security and functionality rely on a continuous, timely flow of consensus proofs from its connected blockchains. To keep that flow alive, Hyperbridge runs an on chain incentive mechanism that economically rewards relayers for their contributions. The mechanism is autonomous, permissionless, and designed to foster a competitive ecosystem of operators.
 
 ## Rewarding Consensus Proofs
-At its core, the incentive mechanism compensates relayers for keeping Hyperbridge's view of external chains up-to-date. This service is fundamental; without fresh consensus proofs, cross-chain messages cannot be securely verified and delivered.
-Relayers are rewarded in Hyperbridge's native currency, $BRIDGE, for successfully performing this critical function.
+
+The incentive mechanism compensates the relayer for keeping Hyperbridge's view of external chains current. This service is fundamental. Without fresh consensus proofs, cross chain messages cannot be securely verified or delivered.
+
+Rewards are paid in Hyperbridge's native currency. On mainnet and testnet that is `$BRIDGE`, although the actual asset is the `Currency` type configured by the runtime, so governance can retarget it without a code change. Alongside the currency reward, the same relayer account is credited a separate reputation asset that accumulates with every successful submission.
 
 ## The Reward Mechanism: A Detailed Breakdown
-The process for earning rewards is deterministic and transparent, triggered by specific on-chain events within the Hyperbridge runtime.
 
-1.  **The Triggering Action**: A consensus relayer monitors a connected external chain (e.g., an Ethereum L2).
-When that chain finalizes a new block or set of blocks, the relayer constructs a valid consensus proof and submits it as a transaction to Hyperbridge.
-2.  **State Verification and Update**: The Hyperbridge runtime receives this proof and verifies its validity.
-If the proof is authentic and advances the consensus state of the source chain (i.e., it represents a newer block height), Hyperbridge accepts it.
-3.  **The `StateMachineUpdated` Event**: Upon successful verification and state update, the Hyperbridge runtime emits a `StateMachineUpdated` event.
-This on-chain event serves as the definitive, auditable record that a specific state machine has been successfully advanced by the relayer's transaction.
-4.  **Automated Reward Issuance**: The issuance of the reward is directly tied to this event. The Hyperbridge protocol disburses(from the treasury) a predetermined amount of `$BRIDGE` tokens to the wallet address of the relayer who submitted the successful proof.
+The path from proof submission to reward is deterministic and easy to audit. It is driven by specific on chain events in the Hyperbridge runtime.
 
+1. **The triggering action.** A relayer monitors a connected external chain, for example an Ethereum L2. When that chain finalizes a new block or a set of blocks, the relayer constructs a valid consensus proof and submits it as a transaction to Hyperbridge.
+2. **State verification and update.** The Hyperbridge runtime receives the proof and verifies it. If the proof is authentic and advances the consensus state of the source chain (in other words, it represents a newer block height), Hyperbridge accepts it.
+3. **The `StateMachineUpdated` event.** On successful verification and state update, the runtime emits a `StateMachineUpdated` event. This is the definitive, auditable record that a state machine has been advanced by the submitting transaction.
+4. **Automated reward issuance.** Reward issuance is tied directly to that event. The protocol disburses a fixed amount of the configured currency from the treasury pallet to the account recovered from the proof submitter's signature, and mints reputation to the same account.
 
 ## Reputation and the Path to Becoming a Collator
 
@@ -39,15 +36,22 @@ This non-transferable reputation score is the primary factor in [Collator select
 
 ## A Competitive, Permissionless Environment
 
-The incentive structure fosters a healthy, competitive market. Typically, only the **first relayer** to successfully submit the proof for a new state update receives the full reward for that specific update. This encourages relayers to optimize their operations for low latency and efficiency,
-ensuring that Hyperbridge is updated with external state changes as quickly as possible.
-This model is inherently permissionless—no staking or whitelisting is required to participate. Any operator can run a consensus relayer and begin competing to submit proofs and earn rewards, creating a truly decentralized foundation for the network.
+The incentive structure produces a healthy, competitive market. Only the **first relayer** to submit the proof for a new state update receives the reward for that update. This pushes operators to optimize for low latency and efficiency, so Hyperbridge tracks external state changes as quickly as possible.
 
-## Distinction from Message Relaying Fees
+The model is permissionless by design. No staking or whitelisting is required to participate. Any operator can run a tesseract instance, start competing to submit proofs, and earn rewards. That openness is what gives the network a decentralized foundation.
 
-It is crucial to distinguish these automated consensus rewards from the fees associated with relaying individual messages.
+## Distinction from Other Relayer Responsibilities
 
-* **Consensus Rewards (`$BRIDGE`)**: Protocol-level rewards minted by Hyperbridge to pay for the public good of maintaining network-wide state liveness.
-* **Message Delivery Fees (User-Paid)**: Application-specific fees paid by users on the source chain to incentivize a *messaging relayer* to deliver their specific request or response to a destination chain. you can learn more about this [here](/developers/explore/relayers/messaging-relayers)
+It is worth distinguishing these automated consensus rewards from the fees relayers earn for relaying individual messages, and from the costs of outbound delivery.
 
-While a single entity can operate both functions, the economic incentives are distinct and serve different purposes within the Hyperbridge ecosystem.
+* **Consensus rewards (`$BRIDGE` plus reputation).** Protocol level rewards paid by Hyperbridge for the public good of maintaining network wide state liveness. Funded from the Hyperbridge treasury pallet.
+* **Message delivery fees (user paid).** Application specific fees paid by users on the source chain to incentivize the messaging relaying role to deliver their request or response. See [Messaging Relayers](/developers/explore/relayers/messaging-relayers).
+* **Outbound delivery (incentivized via the BEEFY proof reward, with direct relayer incentivization).** The fan out of accepted Hyperbridge proofs back to every configured destination chain. See [Outbound Relayers](/developers/explore/relayers/outbound-relayers).
+
+A single tesseract process performs all three roles. The economic incentives are distinct, and they serve different purposes within the Hyperbridge ecosystem.
+
+## Configuring a chain for consensus relaying
+
+Every chain in the relayer's `config.toml` participates in inbound consensus relaying as part of the consolidated relayer's standard responsibilities. A consolidated, paste-ready snippet covering every officially supported chain lives under [Per-chain configurations](/developers/network/relayer#per-chain-configurations) in the operator guide.
+
+For general setup and the full configuration reference, see [Running a Hyperbridge Relayer](/developers/network/relayer).

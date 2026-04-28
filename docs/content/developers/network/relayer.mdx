@@ -1,0 +1,679 @@
+---
+title: Relayer
+description: Running the consolidated Hyperbridge relayer
+---
+
+# Running a Hyperbridge Relayer
+
+The Hyperbridge relayer (`tesseract`) is a single binary that
+drives every relaying responsibility a counterparty-chain operator has.
+It replaces the older two-binary split between `tesseract` (messaging) and
+`tesseract-consensus` (consensus), with the same responsibilities plus a
+new **outbound** task that delivers Hyperbridge → chain proofs.
+
+Everything a relayer operator used to do with the two binaries still
+happens here — inbound messaging, inbound consensus (now opt-in per
+chain via a `[<chain>.consensus]` sub-table), fee accumulation, and
+automatic fee withdrawal. The difference is that it now runs in one
+process and also fans out outbound `(consensus + messages)` submissions
+from Hyperbridge to every configured destination.
+
+## Prebuilt binaries
+
+You can install a prebuilt binary for the Tesseract relayer with the following bash script
+
+```bash lineNumbers
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+wget -q --show-progress https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-$LATEST_TAG/tesseract-x86_64-unknown-linux-gnu.tar.gz
+tar -xvzf tesseract-x86_64-unknown-linux-gnu.tar.gz
+# copy to $PATH
+cp tesseract-x86_64-unknown-linux-gnu/tesseract $HOME/.local/bin/
+```
+
+or a 1-liner
+
+```bash lineNumbers
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/polytope-labs/hyperbridge/releases/download/tesseract-$LATEST_TAG/tesseract-installer.sh | sh
+```
+
+## Docker
+
+Tesseract is available at the official docker repository [`polytopelabs/tesseract`](https://hub.docker.com/r/polytopelabs/tesseract)
+
+```bash lineNumbers
+docker pull polytopelabs/tesseract:latest
+```
+
+## Building from source
+
+<Steps>
+<Step>
+### Install dependencies
+
+Building the Tesseract relayer requires some dependencies
+
+- git
+- clang
+- curl
+- make
+- build-essential
+- libssl-dev
+- llvm
+- libudev-dev
+- protobuf-compiler
+
+<Tabs items={['Debian', 'Arch', 'Fedora', 'Opensuse']}>
+  <Tab value="Debian">
+  ```bash
+  sudo apt update
+  sudo apt install --assume-yes git clang curl libssl-dev llvm libudev-dev make protobuf-compiler
+  ```
+  </Tab>
+
+  <Tab value="Arch">
+  ```bash
+  pacman -Syu --needed --noconfirm curl git clang make protobuf
+  ```
+  </Tab>
+
+  <Tab value="Fedora">
+  ```bash
+  sudo dnf update
+  sudo dnf install clang curl git openssl-devel make protobuf-compiler
+  ```
+  </Tab>
+
+  <Tab value="Opensuse">
+  ```bash
+  sudo zypper install clang curl git openssl-devel llvm-devel libudev-devel make protobuf
+  ```
+  </Tab>
+</Tabs>
+</Step>
+
+<Step>
+### Install the rust compiler
+
+If you don't have an already existing rust installation, you can install it using the one-liner below. Follow the prompts displayed to proceed with a default installation.
+
+```bash lineNumbers
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+</Step>
+
+<Step>
+### Clone the repo
+
+Download a local copy of the repo and checkout the latest release version.
+
+```bash lineNumbers
+# fetch the latest tag from docker hub
+LATEST_TAG=$(curl -s https://hub.docker.com/v2/repositories/polytopelabs/tesseract/tags\?page_size\=1\&page\=2 | jq -r '.results[0].name')
+git clone https://github.com/polytope-labs/hyperbridge.git
+cd ./hyperbridge
+git checkout tesseract-${LATEST_TAG}
+```
+</Step>
+
+<Step>
+### Build the tesseract relayer
+
+```bash lineNumbers
+cargo build --release -p tesseract
+```
+
+The Tesseract relayer will now be available at `target/release/tesseract`, You can move the binary to your `$PATH` so you can run it directly.
+
+<br />
+Update your path to include `${HOME}/.local/bin`. If you are using Bash, run the
+following. Alternatively, replace `${HOME}/.bashrc` with `${HOME}/.zshrc` if
+using Zsh. Replace `source` with `.` if necessary.
+
+```bash lineNumbers
+# add .local/bin to path if it doesn't exist
+export RC_PATH=${HOME}/.bashrc
+echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> ${RC_PATH}
+source ${RC_PATH}
+
+# create dir if it doesn't exist
+mkdir -p $HOME/.local/bin/
+mv target/release/tesseract $HOME/.local/bin/
+```
+</Step>
+</Steps>
+
+## Running the relayer
+
+The tesseract relayer command line interface expects two arguments, which are the paths to its configuration file and database file. If you're running it in a docker container, you will need to [map the directory](https://docs.docker.com/storage/bind-mounts/#start-a-container-with-a-bind-mount) where you've stored the configuration files on your host into the docker container. Tesseract will write its database to that directory once it's initialized.
+
+```bash lineNumbers
+docker run -d \
+  --name=tesseract \
+  --network=host \
+  --restart=always \
+  --volume=/dir/on/host:/home/root \
+  polytopelabs/tesseract:latest \
+  --config=/home/root/config.toml \
+  --db=/home/root/tesseract.db
+```
+
+Access its logs using
+
+```bash lineNumbers
+docker logs -f tesseract
+```
+
+The relayer also exposes two one-shot subcommands:
+
+- `log-consensus-state <STATE_MACHINE>` — fetch and print the initial
+  ConsensusState for a chain (hex-encoded). Useful for seeding a fresh
+  deployment.
+- `withdraw` — run a single fee-withdrawal pass over every configured
+  destination and exit. See [Withdrawing Fees](#withdrawing-fees).
+
+### System Requirements
+
+At the minimum, the hyperbridge relayer should be run on a machine with at least 4GB of RAM and a quad-core cpu. This relayer should also have at least a 100Mb/s connection if it is to query nodes over the internet.
+
+## Configuration
+
+The configuration file is a toml file that at the moment, that expects the following configuration options:
+
+```toml lineNumbers
+# Hyperbridge connection. The BEEFY prover runs as a separate
+# operator-side binary; this relayer only consumes accepted proofs
+# from the Hyperbridge node's offchain storage.
+[hyperbridge]
+# Hyperbridge node ws rpc endpoint. The node MUST expose
+# offchain_localStorageGet (typically via --rpc-methods=Unsafe) so the
+# outbound relayer can read accepted BEEFY consensus proofs.
+rpc_ws = "wss://your-hyperbridge-node.example.com"
+
+# Hex-encoded private key for the relayer account on Hyperbridge.
+# This is the account that earns BRIDGE token rewards.
+signer = ""
+
+[relayer]
+# Defaults apply. Add operator knobs here when you need to tune
+# profitability, fisherman mode, withdrawal cadence, etc.
+
+# Per-chain entries. Add one block for every chain you want to support.
+
+# EVM chain template.
+[ethereum]
+type     = "evm"
+rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+# Hex-encoded private key for the relayer account on this chain.
+# Setting `signer` opts the chain into the HB to chain outbound
+# fan-out (and the fee-withdrawal and fisherman roles). Omit it to
+# run the chain inbound-only: events are read and pushed to
+# Hyperbridge using the [hyperbridge] signer, but no transactions
+# are submitted on this chain.
+signer = ""
+
+# Substrate chain template.
+[substrate]
+type   = "substrate"
+rpc_ws = "wss://your-substrate-chain.example.com"
+signer = ""
+
+# Required for standalone substrate chains, optional for parachains
+# (parachains inherit a sane default from their relay's
+# consensus_state_id). DOT0 for parachains on Polkadot mainnet, PAS0
+# on Paseo testnet.
+# consensus_state_id = "PAS0"
+```
+
+It is optional to provide the configuration option for any of the connected chains, The only consequence is your relayer will not deliver requests from the ommitted chain as it has no way of querying the associated fees for requests originating from this chain.
+
+### Inbound consensus (opt-in per chain)
+
+Before consolidation, inbound-consensus relaying lived in a separate
+`tesseract-consensus` binary. In this relayer it's opt-in **per chain**:
+add a `[<chain>.consensus]` sub-table to that chain's block. Host
+essentials (`rpc_urls`, `signer`, `state_machine`, `ismp_host`, parent
+`consensus_state_id`) are inherited from the parent and don't need to be
+re-declared. The sub-table only carries the consensus client's own
+settings.
+
+For example, opting Ethereum mainnet into inbound-consensus relaying
+looks like this. The `[ethereum.consensus]` sub-table picks the
+sync-committee variant and points at the beacon endpoints, nothing
+else:
+
+```toml
+[ethereum]
+type     = "evm"
+rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[ethereum.consensus]
+type             = "ethereum"
+beacon_http_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+```
+
+Chains **without** a `[<chain>.consensus]` sub-table still receive inbound
+messaging and Hyperbridge → chain outbound delivery.
+
+Concrete, paste-ready `[<chain>]` blocks for each supported chain (both
+the messaging side and the consensus sub-table where applicable) live in
+[Per-chain configurations](#per-chain-configurations) below.
+
+### Outbound (Hyperbridge to chain)
+
+Unlike the two-binary split, this relayer also handles outbound
+delivery from Hyperbridge back to every configured destination.
+One task subscribes to `pallet-beefy-consensus-proofs::ProofAccepted`
+events on Hyperbridge. On each event it fetches the accepted proof from
+Hyperbridge's offchain storage and fans out a batched
+`(consensus + messages)` submission to every chain that has a `signer`
+configured.
+
+Authority-set rotations always propagate. Messaging-only proofs skip
+chains with no pending messages. Lagging destinations are caught up
+first by comparing BEEFY `current_authorities.id` against Hyperbridge's
+and submitting any missing rotation proofs in chunks of **3 consensus
+messages per batch** to stay inside EVM calldata and gas limits.
+
+To opt a chain out of the outbound fan-out, omit `signer` from that
+chain's block. Without a signer the relayer cannot submit transactions
+on that chain, so it is automatically excluded from outbound delivery,
+fee-withdrawal POSTs, and fisherman vetoes. Inbound messaging and
+inbound consensus (if `[<chain>.consensus]` is set) continue to work,
+since both submit on Hyperbridge using the `[hyperbridge]` signer.
+
+## Per-chain configurations
+
+Each section below gives a paste-ready block for a supported chain.
+Drop the blocks you need into your config after the `[hyperbridge]`
+and `[relayer]` headers.
+
+Replace `SIGNER-KEY` with the hex-encoded private key for the relayer
+account on that chain, and the RPC URLs with endpoints you trust.
+`state_machine`, `ismp_host`, and the messaging-side
+`consensus_state_id` are auto-derived at startup from `eth_chainId`
+plus the relayer's built-in registry (and from the chain's runtime
+metadata for substrate), so they do not appear in the blocks. If you
+need to pin a specific `ismp_host` by hand, the current values are in
+the [mainnet](/developers/evm/contract-addresses/mainnet) and
+[testnet](/developers/evm/contract-addresses/testnet) address tables.
+Setting `signer` opts the chain into the Hyperbridge to chain outbound
+fan-out (and the fee-withdrawal and fisherman roles); omit it to keep
+the chain inbound only.
+
+### Ethereum
+
+**Mainnet**
+
+```toml lineNumbers
+[ethereum]
+type     = "evm"
+rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[ethereum.consensus]
+type             = "ethereum"
+beacon_http_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[ethereum]
+type     = "evm"
+rpc_urls = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[ethereum.consensus]
+type             = "sepolia"
+beacon_http_urls = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+```
+
+### Arbitrum
+
+**Mainnet**
+
+```toml lineNumbers
+[arbitrum]
+type     = "evm"
+rpc_urls = ["https://arb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[arbitrum.consensus]
+type                  = "arbitrum_orbit"
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+rollup_core           = "0x4DCeB440657f21083db8aDd07665f8ddBe1DCfc0"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "ARB0"
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[arbitrum]
+type     = "evm"
+rpc_urls = ["https://arb-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[arbitrum.consensus]
+type                  = "arbitrum_orbit"
+ethereum_rpc_url      = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+rollup_core           = "0x042B2E6C5E99d4c521bd49beeD5E99651D9B0Cf4"
+l1_state_machine      = "EVM-11155111"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "ARB0"
+```
+
+### Optimism
+
+**Mainnet**
+
+```toml lineNumbers
+[optimism]
+type     = "evm"
+rpc_urls = ["https://opt-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[optimism.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+dispute_game_factory  = "0xe5965Ab5962eDc7477C8520243A95517CD252fA9"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "OPT0"
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[optimism]
+type     = "evm"
+rpc_urls = ["https://opt-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[optimism.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+dispute_game_factory  = "0x05F9613aDB30026FFd634f38e5C4dFd30a197Fa1"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-11155111"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "OPT0"
+```
+
+### Base
+
+**Mainnet**
+
+```toml lineNumbers
+[base]
+type     = "evm"
+rpc_urls = ["https://base-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[base.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+dispute_game_factory  = "0x43edB88C4B80fDD2AdFF2412A7BebF9dF42cB40e"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "BASE"
+```
+
+**Sepolia**
+
+```toml lineNumbers
+[base]
+type     = "evm"
+rpc_urls = ["https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[base.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY"]
+dispute_game_factory  = "0xd6E6dBf4F7EA0ac412fD8b65ED297e64BB7a06E1"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-11155111"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "BASE"
+```
+
+### Unichain
+
+```toml lineNumbers
+[unichain]
+type     = "evm"
+rpc_urls = ["https://unichain-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[unichain.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+dispute_game_factory  = "0x2F12d621a16e2d3285929C9996f478508951dFe4"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "UNI0"
+```
+
+### Soneium
+
+```toml lineNumbers
+[soneium]
+type     = "evm"
+rpc_urls = ["https://soneium-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[soneium.consensus]
+type                  = "op_stack"
+ethereum_rpc_url      = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+dispute_game_factory  = "0x512a3d2c7a43bd9261d2b8e8c9c70d4bd4d503c0"
+message_parser        = "0x4200000000000000000000000000000000000016"
+l1_state_machine      = "EVM-1"
+l1_consensus_state_id = "ETH0"
+consensus_state_id    = "SON0"
+```
+
+### BSC
+
+**Mainnet**
+
+```toml lineNumbers
+[bsc]
+type     = "evm"
+rpc_urls = ["https://bnb-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[bsc.consensus]
+type         = "bsc"
+```
+
+**Chapel testnet**
+
+```toml lineNumbers
+[bsc]
+type     = "evm"
+rpc_urls = ["https://bnb-testnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[bsc.consensus]
+type         = "bsc_testnet"
+```
+
+### Gnosis
+
+**Mainnet**
+
+```toml lineNumbers
+[gnosis]
+type     = "evm"
+rpc_urls = ["https://gnosis-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[gnosis.consensus]
+type             = "gnosis"
+beacon_http_urls = ["https://gnosis-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+```
+
+**Chiado testnet**
+
+```toml lineNumbers
+[gnosis]
+type     = "evm"
+rpc_urls = ["https://gnosis-chiado.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[gnosis.consensus]
+type             = "chiado"
+beacon_http_urls = ["https://gnosis-chiado.g.alchemy.com/v2/YOUR_API_KEY"]
+```
+
+### Polygon
+
+Polygon reads bor headers through a Heimdall RPC. Pick an endpoint you
+trust, run your own, or use a public one like
+`https://polygon-heimdall-rpc.publicnode.com:443`.
+
+**Mainnet**
+
+```toml lineNumbers
+[polygon]
+type     = "evm"
+rpc_urls = ["https://polygon-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[polygon.consensus]
+type             = "polygon"
+heimdall_rpc_url = "https://polygon-heimdall-rpc.publicnode.com:443"
+```
+
+**Amoy testnet**
+
+```toml lineNumbers
+[polygon]
+type     = "evm"
+rpc_urls = ["https://polygon-amoy.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[polygon.consensus]
+type             = "polygon"
+heimdall_rpc_url = "https://polygon-amoy-heimdall-rpc.publicnode.com:443"
+```
+
+### Pharos
+
+Pharos Atlantic testnet only for now (no mainnet deployment yet).
+
+```toml lineNumbers
+[pharos]
+type     = "pharos_evm"
+rpc_urls = ["https://pharos-testnet.g.alchemy.com/v2/YOUR_API_KEY"]
+signer   = "SIGNER-KEY"
+
+[pharos.consensus]
+type = "pharos"
+```
+
+### Substrate parachain (GRANDPA)
+
+For a parachain whose finality gadget is GRANDPA on its relay chain. The
+consensus sub-table takes the relay chain RPC and the `para_ids` of the
+parachains that should be tracked.
+
+```toml lineNumbers
+[mychain]
+type   = "substrate"
+rpc_ws = "wss://your-substrate-chain.example.com"
+signer = "SIGNER-KEY"
+
+[mychain.consensus]
+type     = "grandpa"
+rpc      = "wss://polkadot-rpc.n.dwellir.com"
+para_ids = [2100]
+```
+
+For tracking a sibling parachain through relay-chain storage proofs
+instead (for example, when this relayer is running on the parachain
+itself), swap the consensus sub-table for:
+
+```toml
+[mychain.consensus]
+type         = "parachain"
+relay_rpc_ws = "wss://polkadot-rpc.n.dwellir.com"
+```
+
+## RPC Requirements
+
+The tesseract relayer makes use of rpc methods that may not be exposed by default. For evm chains, ensure that the RPC API supports the following namespaces:
+
+ - [`debug`](https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-debug)
+ - [`eth`](https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-eth)
+
+For substrate chains, ensure the RPC [enables unsafe rpc methods](https://docs.substrate.io/build/remote-procedure-calls/#safe-and-unsafe-rpc-methods).
+
+The Hyperbridge node must additionally expose `offchain_localStorageGet`
+(typically via `--rpc-methods Unsafe`). Without it the outbound task
+cannot read accepted BEEFY consensus proofs and will log
+`Method not found`.
+
+## Contract addresses
+
+You can find the addresses for the `IsmpHost` contracts for [mainnet](/developers/evm/contract-addresses/mainnet) and [testnet](/developers/evm/contract-addresses/testnet)
+
+## Withdrawing Fees
+
+Tesseract maintains a local sqlite database where it keeps track of successfully delivered messages. The withdrawal process happens in two phases, the first phase is the fee accumulation on hyperbridge, then withdrawal on any of the connected chains.
+In the fee accumulation phase, tesseract submits state proofs of messages all delivered to hyperbridge. If the proof verification is successful, the total amount of unclaimed fees for the relayer address is updated onchain. Next, the relayer can submit a withdrawal transaction to hyperbridge. This initiates potentially multiple ISMP requests to any chain where it has unclaimed fees, that instructs the Hyperbridge contract to credit the relayer their owed funds. This request will not timeout, allowing it to be submitted to the destination chain at any time.
+
+### Accumulating fees
+
+Fee accumulation runs automatically in the background. Every successful
+outbound submit produces delivery receipts that flow into a per-chain
+accumulation task; each task submits proofs of delivery to Hyperbridge
+and increments the relayer's unclaimed-fee balance on-chain. Receipts
+are persisted to the local database first so a crash between submit
+and accumulation doesn't lose the reward.
+
+> The legacy standalone `tesseract --accumulate-fees` subcommand no
+> longer exists in the consolidated relayer — accumulation is part of
+> the long-running process.
+
+### Initiating withdrawals
+
+To initiate a withdrawal from hyperbridge, a relayer needs to submit a transaction to hyperbridge which triggers the withdrawal request. This extrinsic is unsigned and will not require any native tokens for execution fees. Once the extrinsic is executed, hyperbridge dispatches a POST request that when executed on its destination, will provide the relayer with the fees they've accrued. The relayer account must have sufficient funds to deliver this request to its destination chain.
+
+<br />
+Run the `withdraw` subcommand to execute a single end-to-end withdrawal
+pass and exit:
+
+```bash lineNumbers
+tesseract --config=$HOME/config.toml --db=$HOME/tesseract.db withdraw
+```
+
+`relayer.minimum_withdrawal_amount` still gates — chains whose
+unclaimed balance is below the threshold are skipped.
+
+### Automatic accumulation and withdrawals
+
+The relayer also runs background tasks for automatic fee accumulation and withdrawals. Whenever a batch of messages is successfully delivered, the fee accumulation task receives the delivery receipts and starts the process of accumulating the fees on hyperbridge. This process happens concurrently for all successfully delivered message batches. For redundancy, the delivery receipts are stored in the database prior to accumulation so they can be retried manually if any error is encountered.
+
+<br />
+Withdrawing fees from hyperbridge is triggered at fixed intervals based on the
+configured `withdrawal_frequency` and `minimum_withdrawal_amount`. Feel free to
+the adjust these values as desired. The task will only make a withdrawal attempt
+if your balance on hyperbridge is greater than or equal to the configured
+`minimum_withdrawal_amount`. Any failed withdrawal attempts will be retried each
+time the withdrawal task is triggered. The manual `withdraw` subcommand
+described above can be used as a fallback when errors are encountered by the
+automated task.
+
+On each withdrawal tick, the relayer submits the withdrawal extrinsic
+to Hyperbridge, waits for a `ProofAccepted` event at a height ≥ the
+withdrawal block, reads the consensus proof from Hyperbridge's offchain
+storage, and submits `[Consensus, Request]` as a single batch to the
+destination — so it verifies the state proof and credits the relayer
+in one transaction.

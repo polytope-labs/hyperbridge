@@ -3,8 +3,7 @@
   "pages": [
     "node",
     "collator",
-    "consensus-relayer",
-    "messaging-relayer",
+    "relayer",
     "prover"
   ]
 }

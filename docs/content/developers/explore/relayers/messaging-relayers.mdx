@@ -1,6 +1,6 @@
 ---
 title: Messaging Relayers
-description: Critical to the function of Hyperbridge are the relayers who transmit requests & responses across its connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of its first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage its secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application.
+description: Operators who transmit requests and responses across Hyperbridge's connected chains play a critical role. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless, with no staking or whitelisting required. The service is not free. Hyperbridge lets the applications that use its secure message passing infrastructure pay ahead of time for delivery and execution, on the source chain of the initiating application.
 ---
 
 # Messaging Relayers
@@ -10,47 +10,38 @@ description: Critical to the function of Hyperbridge are the relayers who transm
   <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
 </figure>
 
-Critical to the function of Hyperbridge are the relayers who transmit requests & responses across its connected chains. Unlike popular interoperability protocols, Hyperbridge relayers are fully permissionless. This means, relayers will not need to be staked or whitelisted in order to transmit cross-chain messages. This is as a result of its first-of-it's kind, fully trust-free design. This service of-course, will not be for free. Hyperbridge permits the applications that leverage its secure message passing infrastructure to pay ahead of time for the message delivery & execution. They do so on the source chain of the initiating application.
+Messaging relaying is one of three responsibilities the [tesseract relayer](/developers/network/relayer) carries out. The other two are [consensus relaying](/developers/explore/relayers/consensus-relayers) and [outbound delivery](/developers/explore/relayers/outbound-relayers). Like the others, it is fully permissionless. Relayers do not need to be staked or whitelisted in order to transmit cross chain messages, a result of Hyperbridge's first of its kind, fully trust free design. The service is of course not free. Hyperbridge lets the applications that use its secure message passing infrastructure pay ahead of time for delivery and execution. They do so on the source chain of the initiating application.
 
-Fees for cross-chain requests are to be paid in stable coins, We’ve chosen the DAI
-stablecoin for its decentralized and censorship-resistant properties. This means
-users will estimate the cost for message execution & provide what they believe to
-be a fair amount in DAI to the Hyperbridge contract. (Specifically, the [EvmHost](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/hosts/EvmHost.sol#L533))
-at the time of dispatching a request. Once the request has been finalized by the
-originating chain and these finality proofs made available to the destination chain.
-The request becomes eligible for delivery & execution. A relayer will estimate the
-cost of request delivery and query the fee that has been put up for its delivery
-on the source chain. Depending on their profitability configuration, they’ll either
-choose to deliver the request or ignore it.
+Fees for cross chain requests are paid in an ERC-20 stablecoin chosen per host at deployment time. DAI is the typical choice on EVM hosts for its decentralized and censorship resistant properties, though the host stores a configurable `feeToken` address that governance can update without a redeploy. Users estimate the cost for message execution and provide what they believe to be a fair amount in that asset to the Hyperbridge contract (specifically, the [`EvmHost`](https://github.com/polytope-labs/hyperbridge/blob/main/evm/src/core/EvmHost.sol)) at the time of dispatching a request.
 
-If the relayers chooses to deliver the request, then this means they will cover the
-cost of message delivery and execution. This cost of message delivery is the cost
-of proof verification of requests & responses. The cost of message execution is the
-cost of executing the message on the destination module. In the current version of
-the protocol, relayers are tasked with both delivering and executing the messages.
-But it is entirely possible in future versions of the protocol that we unbundle message
-delivery and execution as this may enable more exotic applications.
+Once the request has been finalized by the originating chain and these finality proofs are available to the destination chain, the request becomes eligible for delivery and execution. A relayer estimates the cost of request delivery and queries the fee that has been put up for it on the source chain. Depending on its profitability configuration (`minimum_profit_percentage` in basis points), it will either choose to deliver the request or ignore it.
+
+If the relayer chooses to deliver the request, it covers the cost of message delivery and execution. The cost of delivery is the cost of proof verification of requests and responses. The cost of execution is the cost of running the message on the destination module. In the current version of the protocol, relayers handle both delivering and executing messages. It is entirely possible that future versions of the protocol unbundle delivery and execution, since that may enable more exotic applications.
 
 ## Relayer Selection
 
-In our chosen design, relayers race to deliver a batch of cross-chain messages to
-their respective destination chains. This has a few benefits, this effectively mitigates
-any liveness issues that may arise as a result of some whitelisted relayers going
-down. This free market design presents a much better UX to end users and applications.
-The winning relayer, can be decided by a few factors.
+In our chosen design, relayers race to deliver a batch of cross chain messages to their respective destination chains. There are a few benefits to this. It mitigates liveness issues that can arise when whitelisted relayers go down. The free market design also presents a much better UX to end users and applications. The winning relayer is decided by a few factors.
 
 ### Event Notification
 
-Relayer are mostly idle, and will only check for new messages to be delivered when the chains they’re interested in receive new consensus messages. The consensus messages, contain proofs that finalizes a new set of block heights. The new block heights, may or may not contain new messages to be delivered from the hyperbridge blockchain. Therefore, whichever relayer sees the block where these consensus messages were processed on the destination chain first, can begin the check before everyone else and as a result, deliver the new batch of requests before anyone else.
+Relayers are mostly idle. They only check for new messages to deliver when the chains they care about receive new consensus messages. The consensus messages contain proofs that finalize a new set of block heights. Those heights may or may not contain new messages to be delivered from the Hyperbridge blockchain. So whichever relayer sees the block where these consensus messages were processed on the destination chain first can begin the check before everyone else, and as a result deliver the new batch of requests before anyone else.
 
-### Query throughput
+### Query Throughput
 
-We can for the purposes of this criteria assume that every single relayer has received the block notification at the same time. Now they have to do a few things, first they’ll query for the new requests available, next they’ll need to query the fees associated with these requests, and finally query the cost of executing these requests by simulating them individually as a transaction on the full node for its destination chain.
+For the purposes of this criterion, assume every relayer received the block notification at the same time. Each one now has a few things to do. First they query for the new requests available. Next they query the fees associated with these requests. Finally they query the cost of executing each request by simulating it as a transaction on the full node for its destination chain.
 
-If the relayer is able to query high-performance nodes and has a very fast internet connection, or even better is colocated the nodes in question. You can already see how this provides an edge in being the first to deliver the requests.
+If the relayer is able to query high performance nodes and has a very fast internet connection, or even better is colocated with the nodes in question, you can already see how this provides an edge in being the first to deliver the requests.
 
 ### MEV
 
-An unfortunate development in blockchain protocols are validators who auction their blockspace. They do so in order to earn even more money than the underlying protocols already pay them. It’s not impossible that relayers may integrate with validators who auction their blockspace using proposer-builder networks in order to have their bundles always be first in the block. Of-course these relayers would have to pay high priority fees for such shenanigans. But we fully expect relayer competition to eventually reach these levels.
+An unfortunate development in blockchain protocols is validators who auction their blockspace. They do this in order to earn even more money than the underlying protocols already pay them. It is not impossible that relayers will integrate with validators who auction their blockspace through proposer builder networks, in order to have their bundles always be first in the block. Of course these relayers would have to pay high priority fees for such shenanigans. But we fully expect relayer competition to eventually reach these levels.
 
-Once a relayer successfully delivers a batch of requests, they can immediately start claiming the associated fees for these requests. They’ll do so by submitting state proofs of the messages delivered on the destination chain to hyperbridge. Once hyperbridge verifies these proofs, it will make the fees available to the relayer by issuing a request to its contracts on the source chain. The relayer will be responsible for delivering this request as it will have no fee attached and will hence be ignored by other relayers.
+## Claiming Fees
+
+Once a relayer successfully delivers a batch of requests, the tesseract process automatically begins claiming the associated fees in the background. Per destination fee accumulation tasks submit delivery proofs of the messages delivered on the destination chain to Hyperbridge. Once Hyperbridge verifies these proofs, it credits the relayer's unclaimed balance. A periodic auto withdrawal task (controlled by `withdrawal_frequency` and `minimum_withdrawal_amount` in the relayer config) then issues a withdrawal extrinsic, which emits a POST request back to the destination chain. That POST request carries no fee and is delivered by the same relayer, since other relayers ignore zero fee messages and the withdrawing relayer naturally completes the loop.
+
+## Configuring a chain for messaging
+
+Every chain that appears in the relayer config picks up inbound messaging automatically. Paste-ready `[<chain>]` blocks for each officially supported chain live under [Per-chain configurations](/developers/network/relayer#per-chain-configurations) in the operator guide.
+
+For general setup and the full configuration reference, see [Running a Hyperbridge Relayer](/developers/network/relayer).

@@ -123,8 +123,12 @@ where
 		);
 	}
 
-	// Hyperbridge → chain_b outbound messaging only for substrate chains
-	if chain_b.state_machine_id().state_id.is_substrate() {
+	// Hyperbridge → chain_b outbound messaging for substrate chains or Tron.
+	// Tron rides on `StateMachine::Evm(_)` at the protocol layer (no dedicated
+	// variant), so `is_substrate()` alone misses it; `tesseract_tron::is_tron`
+	// matches the known mainnet + Nile chain ids.
+	let chain_b_state = chain_b.state_machine_id().state_id;
+	if chain_b_state.is_substrate() || tesseract_tron::is_tron(chain_b_state) {
 		let hyperbridge = Arc::new(hyperbridge.clone());
 		let chain_b_inner = chain_b.clone();
 		let client_map = client_map.clone();

@@ -71,6 +71,23 @@ use crate::{
 /// TRON mainnet chain ID, matching `TronHost.CHAIN_ID`.
 pub const TRON_MAINNET_CHAIN_ID: u32 = 728126428;
 
+/// TRON Nile testnet chain ID.
+pub const TRON_NILE_CHAIN_ID: u32 = 3448148188;
+
+/// Returns true when `state_machine` corresponds to a TRON network
+/// (mainnet or Nile testnet). TRON appears as `StateMachine::Evm(_)` at
+/// the protocol layer with no dedicated variant, so callers that need to
+/// branch on "this is TRON" — e.g. the messaging pipeline that spawns the
+/// HB → chain outbound task for substrate-style chains and TRON — call
+/// this helper instead of pattern-matching on the enum.
+pub fn is_tron(state_machine: ismp::host::StateMachine) -> bool {
+	matches!(
+		state_machine,
+		ismp::host::StateMachine::Evm(TRON_MAINNET_CHAIN_ID) |
+			ismp::host::StateMachine::Evm(TRON_NILE_CHAIN_ID)
+	)
+}
+
 /// Configuration for a [`TronClient`].
 ///
 /// Embeds a standard [`EvmConfig`] for JSON-RPC reads, plus TRON-specific

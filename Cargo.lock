@@ -12224,6 +12224,7 @@ dependencies = [
  "subxt-utils",
  "tesseract-primitives",
  "tesseract-substrate",
+ "tesseract-tron",
  "tokio",
  "tokio-stream",
  "tracing",

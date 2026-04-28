@@ -526,7 +526,7 @@ async fn catch_up_rotations(
 			.collect();
 		let set_ids: Vec<u64> = chunk.iter().map(|r| r.set_id).collect();
 		tracing::info!(
-			target: LOG_TARGET,
+			target: "tesseract",
 			?set_ids,
 			msgs = batch.len(),
 			"🛰️ Transmitting Mandatory Consensus Message to {dest_name}",

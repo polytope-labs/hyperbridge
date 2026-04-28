@@ -145,17 +145,10 @@ impl Cli {
 		// Redundant with the final "relayer tasks initialized" summary below.
 		tracing::trace!(target: crate::LOG_TARGET, count = consensus_hosts.len(), "consensus hosts built");
 
-		// One `Arc<dyn IsmpProvider>` per chain. Chains with consensus reuse the
-		// consensus host's provider; chains without consensus build a dedicated
-		// messaging-only provider from their per-chain messaging config.
+		// One `Arc<dyn IsmpProvider>` per chain. Recreate providers for messaging DO NOT reuse the
+		// consensus host's provider; Some consensus hosts like op-host and arb-host overwrite the consensus state id for their internal needs
 		let mut providers: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();
-		for (sm, host) in &consensus_hosts {
-			providers.insert(*sm, host.provider());
-		}
 		for (sm, pc) in &config.chains {
-			if providers.contains_key(sm) {
-				continue;
-			}
 			let provider = pc
 				.messaging
 				.clone()

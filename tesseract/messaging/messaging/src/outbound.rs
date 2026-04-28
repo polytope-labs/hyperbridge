@@ -62,7 +62,7 @@ pub async fn run(
 	let mut stream = hyperbridge.proof_accepted_notification().await?;
 	let mut cursor: u64 = hyperbridge.initial_height();
 
-	tracing::info!(target: LOG_TARGET, source = %source_name, cursor, "subscribed to ProofAccepted");
+	tracing::info!(target: LOG_TARGET, source = %source_name, cursor, "Subscribed to Beefy Proof Notifications");
 
 	while let Some(item) = stream.next().await {
 		let accepted: ProofAccepted = match item {
@@ -119,7 +119,7 @@ pub async fn run(
 			set_id = ?new_set_id,
 			mandatory = is_mandatory,
 			events = events.len(),
-			"ProofAccepted",
+			"Received New Beefy Proof",
 		);
 
 		let mut tasks = FuturesUnordered::new();
@@ -670,6 +670,11 @@ pub async fn initialize(
 	let outbound_name = format!("outbound-{}", hyperbridge_provider.name());
 	let destinations_len = destinations.len();
 	let outbound_tx_payment = tx_payment;
+	let outbound_span = tracing::info_span!(
+		"outbound",
+		hb = %hyperbridge_provider.name(),
+		destinations = destinations_len,
+	);
 	task_manager.spawn_essential_handle().spawn_blocking(
 		Box::leak(Box::new(outbound_name)),
 		"outbound",
@@ -688,6 +693,7 @@ pub async fn initialize(
 			.await;
 			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
 		}
+		.instrument(outbound_span)
 		.boxed(),
 	);
 

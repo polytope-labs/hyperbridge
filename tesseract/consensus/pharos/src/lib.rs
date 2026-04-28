@@ -29,7 +29,8 @@ use pharos_primitives::Config;
 use pharos_prover::PharosProver;
 use serde::{Deserialize, Serialize};
 use std::{marker::PhantomData, sync::Arc, time::Duration};
-use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_evm::EvmConfig;
+use tesseract_pharos_evm::PharosEvmClient;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 
 mod notification;
@@ -82,16 +83,24 @@ pub struct PharosHost<C: Config> {
 impl<C: Config> PharosHost<C> {
 	/// Create a new PharosHost
 	pub async fn new(host: &PharosHostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let ismp_provider = EvmClient::new(evm.clone()).await?;
+		// Build a Pharos-aware provider so `query_state_proof`/proof reads
+		// hit Pharos's custom `eth_getProof` (hexary hash-tree nodes) via
+		// the dedicated raw RPC client. A plain `EvmClient` here would
+		// route those reads through alloy's `RootProvider::get_proof`,
+		// which expects standard MPT `Vec<Bytes>` and bails out on
+		// Pharos's `Vec<{nextBeginOffset, nextEndOffset, proofNode}>`.
+		let ismp_provider = PharosEvmClient::new(evm.clone()).await?;
 		let rpc_url = evm
 			.rpc_urls
 			.first()
 			.ok_or_else(|| anyhow::anyhow!("No RPC URL configured in EVM config"))?;
 		let prover = PharosProver::new(rpc_url).await?;
 
+		let consensus_state_id = ismp_provider.evm.consensus_state_id;
+		let state_machine = ismp_provider.evm.state_machine;
 		Ok(Self {
-			consensus_state_id: ismp_provider.consensus_state_id,
-			state_machine: ismp_provider.state_machine,
+			consensus_state_id,
+			state_machine,
 			host: host.clone(),
 			provider: Arc::new(ismp_provider),
 			prover,

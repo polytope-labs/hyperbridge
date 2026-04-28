@@ -28397,6 +28397,7 @@ dependencies = [
  "serde_json",
  "sp-core",
  "tesseract-evm",
+ "tesseract-pharos-evm",
  "tesseract-primitives",
  "tokio",
 ]

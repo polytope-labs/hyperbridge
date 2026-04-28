@@ -153,11 +153,6 @@ where
 		config: &ParachainConfig,
 	) -> Result<Self, anyhow::Error> {
 		let state_machine = provider.state_machine_id().state_id;
-		if !matches!(state_machine, StateMachine::Polkadot(_) | StateMachine::Kusama(_)) {
-			return Err(anyhow!(
-				"ParachainHost only supports Polkadot/Kusama parachains, got {state_machine}"
-			));
-		}
 
 		// 150 MiB payload cap — relay state proofs can be chunky.
 		let (relay_client, relay_rpc_client) =

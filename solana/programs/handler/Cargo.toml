@@ -1,0 +1,39 @@
+[package]
+name = "handler"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Solana ISMP handler — verifies SP1 BEEFY + Substrate storage proofs, drives ismp-core, CPIs into host."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["init-if-needed"] }
+sp1-beefy-verifier = { path = "../sp1-beefy-verifier", default-features = false }
+host = { path = "../host", features = ["cpi"] }
+parity-scale-codec.workspace = true
+sha3.workspace = true
+ismp = { workspace = true, default-features = false }
+primitive-types = { version = "0.13.1", default-features = false }
+sp-weights = { version = "33.2.0", default-features = false }
+anyhow = { version = "1.0", default-features = false }
+polkadot-sdk = { workspace = true, default-features = false, features = [
+    "sp-trie",
+    "sp-core",
+] }
+
+[dev-dependencies]
+hex.workspace = true
+solana-program-test.workspace = true
+solana-sdk.workspace = true
+tokio.workspace = true

@@ -1,0 +1,6 @@
+# Build output
+target/
+
+# The root .gitignore excludes `**/proofs/*`. Re-include the pinned SP1 v6.1.0
+# Groth16 verifying key — it's a load-bearing constant, not test data.
+!proofs/groth16_vk_v6_1_0.bin

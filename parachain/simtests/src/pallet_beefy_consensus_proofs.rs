@@ -1,6 +1,6 @@
 //! Simnode tests for `pallet-beefy-consensus-proofs`.
 //!
-//! Two tiers:
+//! Three tiers:
 //!
 //! 1. Admin and validation surface that doesn't need a live BEEFY relay: `set_proof_reward`,
 //!    `set_sp1_vkey_hash`, `set_reward_curve` happy paths, `set_reward_curve` validation (zero
@@ -12,17 +12,28 @@
 //!    `modules/pallets/testsuite/src/tests/pallet_ismp_beefy.rs::setup` but drives the live runtime
 //!    through `submit_proof` rather than calling the consensus client directly. Reads
 //!    `RELAY_WS_URL` / `PARA_WS_URL` env vars.
+//! 3. SP1 uncle dispatch path: mirrors the bench setup in
+//!    `modules/pallets/beefy-consensus-proofs/src/benchmarking.rs::submit_proof` to exercise
+//!    `settle_uncle_proof` end-to-end. Forces the live BEEFY consensus state ahead of the SP1
+//!    fixture proof's block number (so the verifier returns `StaleHeight`), seeds `ProofContext`
+//!    with the older snapshot the SP1 verifier accepts, and submits the same SP1 fixture twice from
+//!    different signers. The first submission lands as an uncle at position 0; the second hits the
+//!    `AcceptedProofHashes` dedup and fails with `ProofAlreadySubmitted`. No live network access
+//!    required.
 
 #![cfg(test)]
 
-use std::env;
+use std::{
+	env,
+	time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use codec::{Decode, Encode};
 use polkadot_sdk::{
 	sp_consensus_beefy::{self, ecdsa_crypto::Signature, VersionedFinalityProof},
-	sp_io::hashing::keccak_256,
+	sp_io::hashing::{blake2_128, keccak_256, twox_128, twox_64},
 	*,
 };
 use sc_consensus_manual_seal::CreatedBlock;
@@ -36,7 +47,7 @@ use subxt::{
 	tx::SubmittableTransaction,
 	OnlineClient, PolkadotConfig,
 };
-use subxt_utils::Hyperbridge;
+use subxt_utils::{values::storage_kv_list_to_value, Hyperbridge};
 
 use beefy_prover::{
 	relay::{fetch_mmr_proof, paras_parachains},
@@ -60,6 +71,48 @@ const MAX_PROOF_SIZE: usize = 256 * 1024;
 /// Matches `MaxBeefyUncleProvers` in the gargantua runtime; the storage cap
 /// (`MaxStoredProvers`) is one larger.
 const MAX_UNCLE_PROVERS: usize = 5;
+
+/// `ConsensusClientId` for BEEFY (`b"BEEF"`); duplicated here because pulling
+/// `ismp-beefy` into simtests just for this constant is excessive.
+const BEEFY_CONSENSUS_ID: [u8; 4] = *b"BEEF";
+
+/// SCALE-encoded `beefy_verifier_primitives::ConsensusState` for the SP1 Groth16 fixture
+/// used in `evm/tests/foundry/SP1BeefyTest.sol::testVerifySp1Optional`. The first 4 bytes
+/// (`latest_beefy_height` LE) decode to 30_832_930 = 0x01d67922, which is below the
+/// fixture proof's `blockNumber = 0x01d6792a`. Used as the pre-proof snapshot the SP1
+/// verifier accepts inside the uncle path. Mirrors `TRUSTED_STATE_SCALE` in
+/// `modules/pallets/beefy-consensus-proofs/src/benchmarking.rs`.
+const TRUSTED_STATE_SCALE: [u8; 128] = hex_literal::hex!("2279d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+
+/// Same fixture as `TRUSTED_STATE_SCALE` but with `latest_beefy_height` bumped to
+/// 30_832_938 = 0x01d6792a (first byte `22` → `2a`), which equals the fixture proof's
+/// `blockNumber`. Stored as the live BEEFY consensus state so dispatch hits the SP1
+/// verifier's own `StaleHeight` short-circuit and the pallet routes the proof to
+/// `settle_uncle_proof`. Mirrors `LIVE_STATE_SCALE` in `benchmarking.rs`.
+const LIVE_STATE_SCALE: [u8; 128] = hex_literal::hex!("2a79d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+
+/// Wire-format proof: `[PROOF_TYPE_SP1] ++ abi.encode(SP1BeefyProof)` (without the outer
+/// struct offset, matching what `<SP1BeefyProof as SolType>::abi_decode_params` accepts).
+/// ABI bytes lifted verbatim from `SP1BeefyTest.sol::testVerifySp1Optional`. Mirrors
+/// `WIRE_PROOF` in `benchmarking.rs`.
+const SP1_WIRE_PROOF: [u8; 1249] = hex_literal::hex!("010000000000000000000000000000000000000000000000000000000001d6792a000000000000000000000000000000000000000000000000000000000000127500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001d67929e1dbc67b9da4b90227fb3dc2e7ffdce4e120d583502399e4bd083c02651ca5eb00000000000000000000000000000000000000000000000000000000000012760000000000000000000000000000000000000000000000000000000000000257a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f4963bc2eb07f9c83afe64eb8815b626cd0a7d2a1bbb4630a44a1896af297d0135d00000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000340000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000d2700000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000139739e9bd7f1addf87db9b6a762bd0e1713baa895c3b82b4595080e5ba02fb5b3cf2915702b49122c32b822e6a11384074d8902d5ea5f79c7cb0d7804e49501b8b532298f49e38d3f7140ce1ba61c243152e4e380b37eb628e08d5270d8b2c5e4ebedd84bb14066175726120fbc4d208000000000452505352902a869d4e00b3bb93f1e88e41a2b5f51fc637626b4ce1da15749ef2d79de4797a9ae459070449534d50010118a13886ac93d163a1d22cdef94e018eba5189424a66b7bd03a5ac232beb46bf08b0f9d2b979fff833d7e21a64a5183c61e2630c0b452236baba3c1b4ff41821044953544d20ca3be169000000000561757261010152d45dea4dcf058b0610e12981e0e4c97ad153f26481510c0b78beedf1848b4dd2abd37b8c6b800b72fa12199898eca7651471b49e38d6167a84fb6e2df7c7840000000000000000000000000000000000000000000000000000000000000000000000000001644388a21c0000000000000000000000000000000000000000000000000000000000000000002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f2535200000000000000000000000000000000000000000000000000000000000000002ac5e596c552ee76353c176f0870e47a0aa765ceafc4c65b03dbf434e27fa9062f185bdc40f7aae982c1c8c6b766dd491a1e1cd60128efbc58da965e5be96320287f4ce1b04538f0c8287c8eff096c36df67dc17970032546c9b3d4dd5510c5c25e880e13469e1e1aca1b41c367f2ecf04da65f7602fb53ec212b03d0148157b2cd9a79a9779f350d240e6d4c980848302fca8c7447c5fa7ac8d3c6eefcd0c640acff8b27ea316db978652553e3d054765094cf0dab6085a616489cdb973c42b258e22f346ac3ceb3e2e6750c37dad1f98f6ca15d1f70659343caa52dbbcad150b75dd2dcf0ba0a664ea4605b291df54ab1aa5b4c55034b9425ba29cc87eca7b00000000000000000000000000000000000000000000000000000000");
+
+/// SP1 verification key the fixture proof was generated against.
+const SP1_FIXTURE_VKEY: &[u8] =
+	b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20a2f3cd46c9f53d5c";
+
+/// Storage-key builder for a `Twox64Concat` map (`twox_128(pallet) ++ twox_128(item) ++
+/// twox_64(key) ++ key`).
+fn twox_64_concat_key(pallet: &[u8], item: &[u8], key: &[u8]) -> Vec<u8> {
+	[twox_128(pallet).as_slice(), twox_128(item).as_slice(), twox_64(key).as_slice(), key].concat()
+}
+
+/// Storage-key builder for a `Blake2_128Concat` map (`twox_128(pallet) ++ twox_128(item)
+/// ++ blake2_128(key) ++ key`).
+fn blake2_128_concat_key(pallet: &[u8], item: &[u8], key: &[u8]) -> Vec<u8> {
+	[twox_128(pallet).as_slice(), twox_128(item).as_slice(), blake2_128(key).as_slice(), key]
+		.concat()
+}
 
 /// Build a `(numerator, denominator)` value as `subxt` expects for the
 /// `set_reward_curve` argument: a `BoundedVec<(u32, u32), _>`.
@@ -123,6 +176,19 @@ async fn fetch_storage<T: Decode>(
 	let bytes = value.encoded();
 	let decoded =
 		T::decode(&mut &bytes[..]).map_err(|e| anyhow!("decoding {item} failed: {e:?}"))?;
+	Ok(Some(decoded))
+}
+
+/// Fetch raw storage bytes by precomputed key, decoding as `T`. Used when the key needs a
+/// hashing scheme `subxt::dynamic::storage`'s metadata bridge can't easily express.
+async fn fetch_storage_by_key<T: Decode>(
+	client: &OnlineClient<Hyperbridge>,
+	key: &[u8],
+) -> Result<Option<T>, anyhow::Error> {
+	let raw = client.storage().at_latest().await?.fetch_raw(key).await?;
+	let Some(bytes) = raw else { return Ok(None) };
+	let decoded =
+		T::decode(&mut &bytes[..]).map_err(|e| anyhow!("decoding raw storage failed: {e:?}"))?;
 	Ok(Some(decoded))
 }
 
@@ -204,9 +270,9 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 		"oversized curve should not overwrite the previously stored curve",
 	);
 
-	// 6. submit_proof oversized payload — `MaxBeefyProofSize` is enforced inside the extrinsic
-	//    before any decoding. We send `MaxProofSize + 1` bytes prefixed with `PROOF_TYPE_NAIVE` so
-	//    the size check fires before the unknown-proof-type check.
+	// 6. submit_proof oversized payload — `proof: BoundedVec<u8, MaxProofSize>` rejects at the
+	//    txpool decode stage, before dispatch. We send `MaxProofSize + 1` bytes prefixed with
+	//    `PROOF_TYPE_NAIVE`.
 	let mut oversized_proof = vec![PROOF_TYPE_NAIVE; MAX_PROOF_SIZE + 1];
 	oversized_proof[0] = PROOF_TYPE_NAIVE;
 	let call = subxt::dynamic::tx(
@@ -215,7 +281,7 @@ async fn test_admin_extrinsics_and_submit_proof_validation() -> Result<(), anyho
 		vec![Value::from_bytes(&oversized_proof)],
 	);
 	let result = submit_signed(&client, &rpc_client, call, Keyring::Bob).await;
-	assert!(result.is_err(), "oversized submit_proof must fail the dispatch (ProofTooLarge)",);
+	assert!(result.is_err(), "oversized submit_proof must be rejected by the BoundedVec decode",);
 
 	// 7. submit_proof with an unknown proof-type byte.
 	let unknown_proof = vec![UNKNOWN_PROOF_TYPE; 64];
@@ -481,6 +547,174 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 		!messaging_proofs.is_empty(),
 		"MessagingProofs must contain the proven height after a successful first proof",
 	);
+
+	Ok(())
+}
+
+/// Tier-3 SP1 uncle dispatch path. Mirrors the bench in
+/// `modules/pallets/beefy-consensus-proofs/src/benchmarking.rs::submit_proof`: the live
+/// BEEFY consensus state is forced to `LIVE_STATE_SCALE` (whose `latest_beefy_height`
+/// equals the SP1 fixture proof's `block_number`), so dispatch hits the SP1 verifier's
+/// own `StaleHeight` short-circuit before any cryptographic work and the pallet maps
+/// that to `StaleProof`, routing the proof to `settle_uncle_proof`. `ProofContext` is
+/// pre-seeded with the older `TRUSTED_STATE_SCALE` snapshot so SP1 verification inside
+/// the uncle path actually succeeds.
+///
+/// Two sequential submissions exercise distinct uncle outcomes:
+///
+/// 1. `submit_proof` signed by Bob: SP1 verifies against the seeded snapshot, the proof is accepted
+///    as an uncle at position 0, `ProverCount` increments, and the proof hash is recorded in
+///    `AcceptedProofHashes`.
+/// 2. `submit_proof` signed by Charlie with the same proof bytes: routes to the uncle path again,
+///    but the recorded hash from (1) trips the dedup check inside `settle_uncle_proof` and the
+///    dispatch fails with `ProofAlreadySubmitted`.
+///
+/// Together these prove the uncle dispatch surface is wired up end-to-end on the live
+/// runtime and that `MaxUncleProvers`-style accounting + dedup work as expected. No
+/// live network access is required — the SP1 fixture is static.
+#[tokio::test]
+#[ignore]
+async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
+	eprintln!("[stage] sp1 uncle dispatch path");
+	let port = env::var("PORT").unwrap_or_else(|_| "9990".into());
+	let url = format!("ws://127.0.0.1:{port}");
+	let (client, rpc_client) =
+		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
+
+	// 1. Switch the SP1 vkey to the fixture vkey so verification against the SP1 proof matches.
+	//    Idempotent — no-op when Tier-1 left the same vkey in place.
+	let vkey_call = subxt::dynamic::tx(
+		"BeefyConsensusProofs",
+		"set_sp1_vkey_hash",
+		vec![Value::from_bytes(SP1_FIXTURE_VKEY)],
+	);
+	submit_sudo(&client, &rpc_client, vkey_call).await?;
+
+	// 2. `pay_position_reward` would otherwise try to draw from an unfunded treasury and blow up
+	//    the uncle accept; mirror Tier-2's defensive reset.
+	let zero_reward =
+		subxt::dynamic::tx("BeefyConsensusProofs", "set_proof_reward", vec![Value::u128(0)]);
+	submit_sudo(&client, &rpc_client, zero_reward).await?;
+
+	// 3. `settle_uncle_proof` looks up `ProofContext[Self::latest_height()]`. After a successful
+	//    first proof, `settle_first_proof` pushes that same height into `MessagingProofs`, so its
+	//    last entry is a faithful proxy. When Tier-3 runs in isolation `MessagingProofs` is empty
+	//    and `latest_height()` is 0, matching what we'd seed.
+	let parachain_height: u64 = fetch_storage::<Vec<u64>>(&client, "MessagingProofs")
+		.await?
+		.and_then(|v| v.last().copied())
+		.unwrap_or(0);
+	eprintln!("[stage] seeding ProofContext at parachain_height={parachain_height}");
+
+	// 4. Force the BEEFY consensus state and seed the uncle snapshot via `System::set_storage`. We
+	//    override regardless of whether Tier-2 already ran `initialize_state` — the four ISMP keys
+	//    cover the fresh-simnode case where `ConsensusStateClient` / `UnbondingPeriod` /
+	//    `ConsensusClientUpdateTime` aren't populated yet, while `ConsensusStates` overrides
+	//    whatever Tier-2 advanced state to. The values mirror what
+	//    `pallet_ismp::create_consensus_client` writes during the bench setup.
+	let now_secs = SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.map_err(|e| anyhow!("system time: {e:?}"))?
+		.as_secs();
+	let kv_list: Vec<(Vec<u8>, Vec<u8>)> = vec![
+		// `Ismp::ConsensusStates` is `Twox64Concat, ConsensusClientId -> Vec<u8>`.
+		(
+			twox_64_concat_key(b"Ismp", b"ConsensusStates", &BEEFY_CONSENSUS_ID),
+			LIVE_STATE_SCALE.to_vec().encode(),
+		),
+		// `Ismp::ConsensusStateClient` is `Blake2_128Concat, ConsensusStateId ->
+		// ConsensusClientId`. ConsensusClientId is `[u8; 4]`.
+		(
+			blake2_128_concat_key(b"Ismp", b"ConsensusStateClient", &BEEFY_CONSENSUS_ID),
+			BEEFY_CONSENSUS_ID.encode(),
+		),
+		// `Ismp::UnbondingPeriod` is `Blake2_128Concat, ConsensusStateId -> u64`. One
+		// year is comfortably above the fixture timestamp window.
+		(
+			blake2_128_concat_key(b"Ismp", b"UnbondingPeriod", &BEEFY_CONSENSUS_ID),
+			(60u64 * 60 * 24 * 365).encode(),
+		),
+		// `Ismp::ConsensusClientUpdateTime` is `Twox64Concat, ConsensusClientId -> u64`.
+		(
+			twox_64_concat_key(b"Ismp", b"ConsensusClientUpdateTime", &BEEFY_CONSENSUS_ID),
+			now_secs.encode(),
+		),
+		// `BeefyConsensusProofs::ProofContext` is `Blake2_128Concat, u64 -> Vec<u8>`.
+		(
+			blake2_128_concat_key(
+				b"BeefyConsensusProofs",
+				b"ProofContext",
+				&parachain_height.encode(),
+			),
+			TRUSTED_STATE_SCALE.to_vec().encode(),
+		),
+	];
+	let set_storage_call =
+		subxt::dynamic::tx("System", "set_storage", vec![storage_kv_list_to_value(&kv_list)]);
+	submit_sudo(&client, &rpc_client, set_storage_call).await?;
+	eprintln!("[stage] consensus + uncle snapshot seeded");
+
+	// 5. First submit (Bob): SP1 uncle accepted at position 0.
+	let submit_call = subxt::dynamic::tx(
+		"BeefyConsensusProofs",
+		"submit_proof",
+		vec![Value::from_bytes(&SP1_WIRE_PROOF)],
+	);
+	eprintln!("[stage] first submit_proof (Bob) — expect uncle accept");
+	submit_signed(&client, &rpc_client, submit_call.clone(), Keyring::Bob).await?;
+
+	// `ProverCount[parachain_height]` increments to 1 only when the uncle accept ran
+	// past the SP1 verifier and the bookkeeping update fired; combined with
+	// `AcceptedProofHashes` having the proof hash recorded, this confirms the uncle
+	// path actually succeeded rather than just compiling and erroring.
+	let prover_count: u32 = fetch_storage_by_key::<u32>(
+		&client,
+		&blake2_128_concat_key(b"BeefyConsensusProofs", b"ProverCount", &parachain_height.encode()),
+	)
+	.await?
+	.unwrap_or(0);
+	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(
+		&client,
+		&blake2_128_concat_key(
+			b"BeefyConsensusProofs",
+			b"AcceptedProofHashes",
+			&parachain_height.encode(),
+		),
+	)
+	.await?
+	.unwrap_or_default();
+	assert_eq!(prover_count, 1, "uncle accepted at position 0 should bump ProverCount to 1");
+	assert_eq!(hashes.len(), 1, "AcceptedProofHashes should record the uncle proof hash");
+
+	// 6. Second submit (Charlie, same proof bytes): same hash → dedup inside `settle_uncle_proof`
+	//    fires, dispatch errors with `ProofAlreadySubmitted`.
+	eprintln!("[stage] second submit_proof (Charlie) — expect ProofAlreadySubmitted");
+	let dup_result = submit_signed(&client, &rpc_client, submit_call, Keyring::Charlie).await;
+	assert!(
+		dup_result.is_err(),
+		"duplicate uncle submission must be rejected by AcceptedProofHashes dedup",
+	);
+
+	// State invariants must hold across the failed dispatch — dedup short-circuits
+	// before incrementing `ProverCount` or appending another hash.
+	let prover_count_after: u32 = fetch_storage_by_key::<u32>(
+		&client,
+		&blake2_128_concat_key(b"BeefyConsensusProofs", b"ProverCount", &parachain_height.encode()),
+	)
+	.await?
+	.unwrap_or(0);
+	let hashes_after: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(
+		&client,
+		&blake2_128_concat_key(
+			b"BeefyConsensusProofs",
+			b"AcceptedProofHashes",
+			&parachain_height.encode(),
+		),
+	)
+	.await?
+	.unwrap_or_default();
+	assert_eq!(prover_count_after, 1, "rejected duplicate must not bump ProverCount");
+	assert_eq!(hashes_after.len(), 1, "rejected duplicate must not append to AcceptedProofHashes");
 
 	Ok(())
 }

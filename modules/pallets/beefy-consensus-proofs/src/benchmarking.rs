@@ -91,8 +91,11 @@ mod benchmarks {
 		// for the actual signature, just a usable AccountId for reward payout.
 		let submitter: T::AccountId = [1u8; 32].into();
 
+		let proof =
+			frame_support::BoundedVec::<u8, T::MaxProofSize>::truncate_from(WIRE_PROOF.to_vec());
+
 		#[extrinsic_call]
-		_(RawOrigin::Signed(submitter), WIRE_PROOF.to_vec());
+		_(RawOrigin::Signed(submitter), proof);
 
 		// Uncle accepted at position 0; one hash recorded under height 0.
 		assert_eq!(pallet::ProverCount::<T>::get(0u64), 1);

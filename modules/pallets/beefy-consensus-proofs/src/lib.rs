@@ -215,8 +215,6 @@ pub mod pallet {
 	pub enum Error<T> {
 		/// Consensus state has not been initialized yet.
 		NotInitialized,
-		/// Payload exceeds `MaxProofSize`.
-		ProofTooLarge,
 		/// Proof is stale: `latest_height ≤ latest_state_machine_height`, or the proof rotated to
 		/// an unexpected authority set.
 		StaleProof,
@@ -329,13 +327,18 @@ pub mod pallet {
 
 		/// Submit a BEEFY consensus proof. Signed: the signer is the reward payee.
 		///
-		/// Successful proofs (first or uncle) refund their transaction fee via `Pays::No`;
-		/// failed proofs pay the fee, which is the spam deterrent.
+		/// `proof` is a `BoundedVec` so SCALE decoding rejects oversized payloads inside
+		/// the txpool, before the runtime ever pays for the call. Successful proofs
+		/// (first or uncle) refund their transaction fee via `Pays::No`; failed proofs
+		/// pay the fee, which is the spam deterrent.
 		#[pallet::call_index(1)]
 		#[pallet::weight(T::WeightInfo::submit_proof())]
-		pub fn submit_proof(origin: OriginFor<T>, proof: Vec<u8>) -> DispatchResultWithPostInfo {
+		pub fn submit_proof(
+			origin: OriginFor<T>,
+			proof: BoundedVec<u8, T::MaxProofSize>,
+		) -> DispatchResultWithPostInfo {
 			let submitter = ensure_signed(origin)?;
-			Self::do_submit_proof(submitter, proof)
+			Self::do_submit_proof(submitter, proof.into_inner())
 		}
 
 		/// Update the base reward amount paid to position-0 provers.
@@ -409,9 +412,9 @@ pub mod pallet {
 		/// an SP1 proof, retry through the uncle path which runs its own cryptographic
 		/// check against the saved snapshot.
 		fn do_submit_proof(submitter: T::AccountId, proof: Vec<u8>) -> DispatchResultWithPostInfo {
-			if (proof.len() as u32) > T::MaxProofSize::get() {
-				Err(Error::<T>::ProofTooLarge)?
-			}
+			// Size is enforced by the `BoundedVec<u8, T::MaxProofSize>` parameter on
+			// `submit_proof` — oversized payloads fail SCALE decoding inside the txpool
+			// and never reach this dispatch.
 			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
 			if !T::AllowedProofTypes::get().contains(&proof_type) {
 				Err(Error::<T>::UnknownProofType)?

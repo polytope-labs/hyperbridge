@@ -16,10 +16,12 @@
 //!    `modules/pallets/beefy-consensus-proofs/src/benchmarking.rs::submit_proof` to exercise
 //!    `settle_uncle_proof` end-to-end. Forces the live BEEFY consensus state ahead of the SP1
 //!    fixture proof's block number (so the verifier returns `StaleHeight`), seeds `ProofContext`
-//!    with the older snapshot the SP1 verifier accepts, and submits the same SP1 fixture twice from
-//!    different signers. The first submission lands as an uncle at position 0; the second hits the
-//!    `AcceptedProofHashes` dedup and fails with `ProofAlreadySubmitted`. No live network access
-//!    required.
+//!    with the older snapshot the SP1 verifier accepts, and submits four staged proofs from
+//!    distinct signers. Bob, Charlie, and Dave each land an uncle at successive positions —
+//!    Charlie's and Dave's proofs append unique trailing-byte suffixes to `WIRE_PROOF` so they
+//!    hash differently while still ABI-decoding to the same SP1 struct (alloy 1.5.7 ignores
+//!    trailing bytes). Ferdie reuses Bob's exact bytes and is rejected by the
+//!    `AcceptedProofHashes` dedup with `ProofAlreadySubmitted`. No live network access required.
 
 #![cfg(test)]
 
@@ -560,18 +562,33 @@ async fn test_naive_proof_happy_path() -> Result<(), anyhow::Error> {
 /// pre-seeded with the older `TRUSTED_STATE_SCALE` snapshot so SP1 verification inside
 /// the uncle path actually succeeds.
 ///
-/// Two sequential submissions exercise distinct uncle outcomes:
+/// Multi-uncle accumulation is exercised by appending unique suffix bytes to the SP1
+/// fixture for each successive submitter. `alloy-sol-types` 1.5.7's
+/// `SP1BeefyProof::abi_decode_params` reads only the bytes the encoded struct needs and
+/// silently ignores any trailing junk, so each `WIRE_PROOF ++ <suffix>` decodes to the
+/// same `SP1BeefyProof` (verifies against the same Groth16 commitment + public inputs)
+/// while producing a distinct `keccak256(proof)` — distinct enough to land in fresh
+/// `AcceptedProofHashes` slots without tripping dedup. This is a test-only trick; in
+/// production every relayer's SP1 prover already produces independently-randomised
+/// proof bytes.
 ///
-/// 1. `submit_proof` signed by Bob: SP1 verifies against the seeded snapshot, the proof is accepted
-///    as an uncle at position 0, `ProverCount` increments, and the proof hash is recorded in
-///    `AcceptedProofHashes`.
-/// 2. `submit_proof` signed by Charlie with the same proof bytes: routes to the uncle path again,
-///    but the recorded hash from (1) trips the dedup check inside `settle_uncle_proof` and the
-///    dispatch fails with `ProofAlreadySubmitted`.
+/// Four sequential submissions cover the uncle outcomes the pallet exposes:
+///
+/// 1. Bob (`WIRE_PROOF`): SP1 verifies, uncle accepted at position 0. `ProverCount` becomes 1 and
+///    the proof hash is recorded.
+/// 2. Charlie (`WIRE_PROOF ++ [0xAA]`): distinct hash, SP1 verifies again, uncle accepted at
+///    position 1. `ProverCount` becomes 2.
+/// 3. Dave (`WIRE_PROOF ++ [0xBB, 0xBB]`): distinct hash, uncle accepted at position 2.
+///    `ProverCount` becomes 3.
+/// 4. Ferdie (`WIRE_PROOF`, same bytes Bob already submitted): same hash as (1) → trips the
+///    `AcceptedProofHashes` dedup inside `settle_uncle_proof` and the dispatch fails with
+///    `ProofAlreadySubmitted`. State invariants must hold: `ProverCount` stays at 3 and
+///    `AcceptedProofHashes` retains exactly the three accepted hashes.
 ///
 /// Together these prove the uncle dispatch surface is wired up end-to-end on the live
-/// runtime and that `MaxUncleProvers`-style accounting + dedup work as expected. No
-/// live network access is required — the SP1 fixture is static.
+/// runtime, that `ProverCount` advances correctly across multiple accepts, and that
+/// dedup keeps rejecting after several successful uncles. No live network access is
+/// required — the SP1 fixture is static.
 #[tokio::test]
 #[ignore]
 async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
@@ -654,67 +671,134 @@ async fn test_sp1_uncle_proof_dispatch_path() -> Result<(), anyhow::Error> {
 	submit_sudo(&client, &rpc_client, set_storage_call).await?;
 	eprintln!("[stage] consensus + uncle snapshot seeded");
 
-	// 5. First submit (Bob): SP1 uncle accepted at position 0.
-	let submit_call = subxt::dynamic::tx(
-		"BeefyConsensusProofs",
-		"submit_proof",
-		vec![Value::from_bytes(&SP1_WIRE_PROOF)],
+	// Build the proof variants once. Each is `[PROOF_TYPE_SP1] ++ abi_payload ++ <suffix>`
+	// — the suffix doesn't change what the ABI decoder sees (alloy 1.5.7 silently
+	// ignores trailing bytes) but does change `keccak256(proof)`, so each lands a
+	// fresh entry in `AcceptedProofHashes` instead of tripping dedup.
+	let bob_proof = SP1_WIRE_PROOF.to_vec();
+	let charlie_proof = [&SP1_WIRE_PROOF[..], &[0xAAu8]].concat();
+	let dave_proof = [&SP1_WIRE_PROOF[..], &[0xBBu8, 0xBBu8]].concat();
+	// Ferdie reuses Bob's exact bytes so the dedup check fires after multiple
+	// accepts have already advanced `ProverCount`/`AcceptedProofHashes`.
+	let ferdie_proof = bob_proof.clone();
+	let proof_context_key =
+		blake2_128_concat_key(b"BeefyConsensusProofs", b"ProofContext", &parachain_height.encode());
+	let prover_count_key =
+		blake2_128_concat_key(b"BeefyConsensusProofs", b"ProverCount", &parachain_height.encode());
+	let accepted_hashes_key = blake2_128_concat_key(
+		b"BeefyConsensusProofs",
+		b"AcceptedProofHashes",
+		&parachain_height.encode(),
 	);
-	eprintln!("[stage] first submit_proof (Bob) — expect uncle accept");
-	submit_signed(&client, &rpc_client, submit_call.clone(), Keyring::Bob).await?;
 
-	// `ProverCount[parachain_height]` increments to 1 only when the uncle accept ran
-	// past the SP1 verifier and the bookkeeping update fired; combined with
-	// `AcceptedProofHashes` having the proof hash recorded, this confirms the uncle
-	// path actually succeeded rather than just compiling and erroring.
-	let prover_count: u32 = fetch_storage_by_key::<u32>(
+	let bob_hash: H256 = keccak_256(&bob_proof).into();
+	let charlie_hash: H256 = keccak_256(&charlie_proof).into();
+	let dave_hash: H256 = keccak_256(&dave_proof).into();
+
+	// 5. Bob: WIRE_PROOF as-is. Position 0.
+	eprintln!("[stage] submit (Bob) — expect uncle accept at position 0");
+	submit_signed(
 		&client,
-		&blake2_128_concat_key(b"BeefyConsensusProofs", b"ProverCount", &parachain_height.encode()),
-	)
-	.await?
-	.unwrap_or(0);
-	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(
-		&client,
-		&blake2_128_concat_key(
-			b"BeefyConsensusProofs",
-			b"AcceptedProofHashes",
-			&parachain_height.encode(),
+		&rpc_client,
+		subxt::dynamic::tx(
+			"BeefyConsensusProofs",
+			"submit_proof",
+			vec![Value::from_bytes(&bob_proof)],
 		),
+		Keyring::Bob,
 	)
-	.await?
-	.unwrap_or_default();
-	assert_eq!(prover_count, 1, "uncle accepted at position 0 should bump ProverCount to 1");
-	assert_eq!(hashes.len(), 1, "AcceptedProofHashes should record the uncle proof hash");
+	.await?;
+	let count: u32 = fetch_storage_by_key::<u32>(&client, &prover_count_key).await?.unwrap_or(0);
+	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_hashes_key)
+		.await?
+		.unwrap_or_default();
+	let ctx: Option<Vec<u8>> = fetch_storage_by_key::<Vec<u8>>(&client, &proof_context_key).await?;
+	assert_eq!(count, 1, "Bob's uncle should set ProverCount to 1");
+	assert_eq!(hashes, vec![bob_hash], "AcceptedProofHashes should record Bob's hash");
+	assert!(ctx.is_some(), "ProofContext snapshot must persist across uncle accepts");
 
-	// 6. Second submit (Charlie, same proof bytes): same hash → dedup inside `settle_uncle_proof`
-	//    fires, dispatch errors with `ProofAlreadySubmitted`.
-	eprintln!("[stage] second submit_proof (Charlie) — expect ProofAlreadySubmitted");
-	let dup_result = submit_signed(&client, &rpc_client, submit_call, Keyring::Charlie).await;
+	// 6. Charlie: WIRE_PROOF ++ [0xAA]. Distinct hash, position 1.
+	eprintln!("[stage] submit (Charlie) — expect uncle accept at position 1");
+	submit_signed(
+		&client,
+		&rpc_client,
+		subxt::dynamic::tx(
+			"BeefyConsensusProofs",
+			"submit_proof",
+			vec![Value::from_bytes(&charlie_proof)],
+		),
+		Keyring::Charlie,
+	)
+	.await?;
+	let count: u32 = fetch_storage_by_key::<u32>(&client, &prover_count_key).await?.unwrap_or(0);
+	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_hashes_key)
+		.await?
+		.unwrap_or_default();
+	assert_eq!(count, 2, "Charlie's uncle should bump ProverCount to 2");
+	assert_eq!(
+		hashes,
+		vec![bob_hash, charlie_hash],
+		"AcceptedProofHashes should append Charlie's hash after Bob's",
+	);
+
+	// 7. Dave: WIRE_PROOF ++ [0xBB, 0xBB]. Distinct hash, position 2.
+	eprintln!("[stage] submit (Dave) — expect uncle accept at position 2");
+	submit_signed(
+		&client,
+		&rpc_client,
+		subxt::dynamic::tx(
+			"BeefyConsensusProofs",
+			"submit_proof",
+			vec![Value::from_bytes(&dave_proof)],
+		),
+		Keyring::Dave,
+	)
+	.await?;
+	let count: u32 = fetch_storage_by_key::<u32>(&client, &prover_count_key).await?.unwrap_or(0);
+	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_hashes_key)
+		.await?
+		.unwrap_or_default();
+	assert_eq!(count, 3, "Dave's uncle should bump ProverCount to 3");
+	assert_eq!(
+		hashes,
+		vec![bob_hash, charlie_hash, dave_hash],
+		"AcceptedProofHashes should hold exactly Bob/Charlie/Dave's hashes in submit order",
+	);
+
+	// 8. Ferdie: WIRE_PROOF (same bytes as Bob). Same hash → `AcceptedProofHashes` dedup fires
+	//    inside `settle_uncle_proof`, dispatch errors with `ProofAlreadySubmitted`. Confirms dedup
+	//    keeps rejecting after several uncles have advanced `ProverCount`.
+	eprintln!(
+		"[stage] submit (Ferdie) — expect ProofAlreadySubmitted (Bob's hash already recorded)"
+	);
+	let ferdie_result = submit_signed(
+		&client,
+		&rpc_client,
+		subxt::dynamic::tx(
+			"BeefyConsensusProofs",
+			"submit_proof",
+			vec![Value::from_bytes(&ferdie_proof)],
+		),
+		Keyring::Ferdie,
+	)
+	.await;
 	assert!(
-		dup_result.is_err(),
+		ferdie_result.is_err(),
 		"duplicate uncle submission must be rejected by AcceptedProofHashes dedup",
 	);
 
-	// State invariants must hold across the failed dispatch — dedup short-circuits
-	// before incrementing `ProverCount` or appending another hash.
-	let prover_count_after: u32 = fetch_storage_by_key::<u32>(
-		&client,
-		&blake2_128_concat_key(b"BeefyConsensusProofs", b"ProverCount", &parachain_height.encode()),
-	)
-	.await?
-	.unwrap_or(0);
-	let hashes_after: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(
-		&client,
-		&blake2_128_concat_key(
-			b"BeefyConsensusProofs",
-			b"AcceptedProofHashes",
-			&parachain_height.encode(),
-		),
-	)
-	.await?
-	.unwrap_or_default();
-	assert_eq!(prover_count_after, 1, "rejected duplicate must not bump ProverCount");
-	assert_eq!(hashes_after.len(), 1, "rejected duplicate must not append to AcceptedProofHashes");
+	// State invariants across the failed dispatch — dedup short-circuits before
+	// `ProverCount` is bumped or another hash is appended.
+	let count: u32 = fetch_storage_by_key::<u32>(&client, &prover_count_key).await?.unwrap_or(0);
+	let hashes: Vec<H256> = fetch_storage_by_key::<Vec<H256>>(&client, &accepted_hashes_key)
+		.await?
+		.unwrap_or_default();
+	assert_eq!(count, 3, "rejected duplicate must not bump ProverCount past 3");
+	assert_eq!(
+		hashes,
+		vec![bob_hash, charlie_hash, dave_hash],
+		"rejected duplicate must not mutate AcceptedProofHashes",
+	);
 
 	Ok(())
 }

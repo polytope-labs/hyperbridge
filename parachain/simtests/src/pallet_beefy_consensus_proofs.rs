@@ -18,10 +18,10 @@
 //!    fixture proof's block number (so the verifier returns `StaleHeight`), seeds `ProofContext`
 //!    with the older snapshot the SP1 verifier accepts, and submits four staged proofs from
 //!    distinct signers. Bob, Charlie, and Dave each land an uncle at successive positions —
-//!    Charlie's and Dave's proofs append unique trailing-byte suffixes to `WIRE_PROOF` so they
-//!    hash differently while still ABI-decoding to the same SP1 struct (alloy 1.5.7 ignores
-//!    trailing bytes). Ferdie reuses Bob's exact bytes and is rejected by the
-//!    `AcceptedProofHashes` dedup with `ProofAlreadySubmitted`. No live network access required.
+//!    Charlie's and Dave's proofs append unique trailing-byte suffixes to `WIRE_PROOF` so they hash
+//!    differently while still ABI-decoding to the same SP1 struct (alloy 1.5.7 ignores trailing
+//!    bytes). Ferdie reuses Bob's exact bytes and is rejected by the `AcceptedProofHashes` dedup
+//!    with `ProofAlreadySubmitted`. No live network access required.
 
 #![cfg(test)]
 

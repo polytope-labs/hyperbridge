@@ -12,6 +12,7 @@
 //!   accepts the layout documented in `entrypoint::process_instruction`
 //!   and is used for end-to-end CU/tx-size measurement.
 
+pub mod fixtures;
 pub mod types;
 pub mod utils;
 pub mod verifier;

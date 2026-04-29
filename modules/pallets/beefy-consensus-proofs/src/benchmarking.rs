@@ -22,9 +22,18 @@ use polkadot_sdk::*;
 use sp_core::Get;
 
 /// SCALE-encoded `beefy_verifier_primitives::ConsensusState` for the SP1 Groth16 fixture
-/// used in `evm/tests/foundry/SP1BeefyTest.sol::testVerifySp1Optional`. Stored under
-/// `pallet-ismp::ConsensusStates`, which decodes via SCALE.
+/// used in `evm/tests/foundry/SP1BeefyTest.sol::testVerifySp1Optional`. The first 4 bytes
+/// (`latest_beefy_height` LE) decode to 30_832_930 = 0x01d67922, which is below the
+/// fixture proof's `blockNumber = 0x01d6792a`. Used as the pre-proof snapshot in
+/// `ProofContext` so `settle_uncle_proof`'s SP1 verifier sees a valid trusted state.
 const TRUSTED_STATE_SCALE: [u8; 128] = hex_literal::hex!("2279d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
+
+/// Same fixture as `TRUSTED_STATE_SCALE` but with `latest_beefy_height` bumped to
+/// 30_832_938 = 0x01d6792a (first byte `22` → `2a`), which equals the fixture proof's
+/// `blockNumber`. Used as the live consensus state so `verify_and_apply`'s upfront
+/// stale check fires `StaleProof` *before* running the SP1 verifier, leaving exactly
+/// one SP1 verification (in `settle_uncle_proof`) on the dispatch path.
+const LIVE_STATE_SCALE: [u8; 128] = hex_literal::hex!("2a79d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
 
 /// Wire-format proof: `[PROOF_TYPE_SP1] ++ abi.encode(SP1BeefyProof)` (without the outer
 /// struct offset, matching what `<SP1BeefyProof as SolType>::abi_decode_params` accepts).
@@ -41,24 +50,24 @@ const FIXTURE_VKEY: &[u8] = b"0x0059fd0bff44da77999bb7974cbcf2ac7dc89e5869352f20
 mod benchmarks {
 	use super::*;
 
-	/// Benches the uncle path of `submit_proof`. The fixture's parachain header carries
-	/// `para_id = 3367`, which doesn't match Gargantua's tracked `para_id` (4009), so
-	/// `verify_and_apply` runs the SP1 verifier successfully but stores no commitments
-	/// and bails as `StaleProof`. Dispatch falls through to `settle_uncle_proof`, which
-	/// runs `verify_sp1_consensus` a second time against the pre-seeded snapshot. This
-	/// produces a conservative weight covering both SP1 verifications plus the uncle
-	/// storage writes, which is also the worst case for the first-proof path. Tracked
-	/// under the "Uncle-path benchmark" follow-up in
-	/// docs/beefy-uncle-proofs-implementation.md.
+	/// Benches the uncle path of `submit_proof` along the single-SP1 worst case. Setup
+	/// seeds the live consensus state with `latest_beefy_height` equal to the fixture
+	/// proof's `blockNumber`, which makes `verify_and_apply`'s upfront stale check
+	/// short-circuit with `StaleProof` *before* invoking the SP1 verifier. Dispatch then
+	/// routes to `settle_uncle_proof`, which runs `verify_sp1_consensus` exactly once
+	/// against the pre-seeded snapshot in `ProofContext`. The resulting weight covers
+	/// one SP1 verification plus uncle storage writes — also the right bound for the
+	/// first-proof path, which runs SP1 once inside `verify_and_apply`.
 	#[benchmark]
 	fn submit_proof() {
-		// Initialize pallet-ismp state via `create_consensus_client` so the verifier
-		// finds `ConsensusStateClient`, `UnbondingPeriod`, and `ConsensusClientUpdateTime`
-		// alongside the raw `ConsensusStates` entry.
+		// Live consensus state is "ahead" of the proof so `verify_and_apply` exits
+		// at the upfront stale check without running SP1. `create_consensus_client`
+		// also writes `ConsensusStateClient`, `UnbondingPeriod`, and
+		// `ConsensusClientUpdateTime` so the BEEFY client is fully wired up.
 		pallet_ismp::Pallet::<T>::create_consensus_client(
 			frame_system::RawOrigin::Root.into(),
 			ismp::messaging::CreateConsensusState {
-				consensus_state: TRUSTED_STATE_SCALE.to_vec(),
+				consensus_state: LIVE_STATE_SCALE.to_vec(),
 				consensus_client_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 				consensus_state_id: ismp_beefy::BEEFY_CONSENSUS_ID,
 				unbonding_period: T::UnbondingPeriod::get(),
@@ -70,8 +79,8 @@ mod benchmarks {
 		pallet::Sp1VkeyHash::<T>::put(FIXTURE_VKEY.to_vec());
 
 		// Pre-seed the uncle snapshot at `Self::latest_height()` (0 with no parachain
-		// commitments stored). The dispatch will land here after `verify_and_apply`
-		// fails the para_id filter.
+		// commitments stored). The snapshot's `latest_beefy_height` is below the proof's
+		// `blockNumber` so the SP1 verifier accepts the proof here.
 		pallet::ProofContext::<T>::insert(0u64, TRUSTED_STATE_SCALE.to_vec());
 
 		// Any 32-byte AccountId works. The signed origin doesn't need a keystore entry

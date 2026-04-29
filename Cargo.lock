@@ -24186,7 +24186,10 @@ checksum = "620a1d43d70e142b1d46a929af51d44f383db9c7a2ec122de2cd992ccfcf3c18"
 name = "simtests"
 version = "0.1.1"
 dependencies = [
+ "alloy-sol-types 1.5.7",
  "anyhow",
+ "beefy-prover",
+ "beefy-verifier-primitives",
  "ckb-merkle-mountain-range",
  "crypto-utils",
  "futures",
@@ -24197,6 +24200,7 @@ dependencies = [
  "indicatif 0.17.11",
  "ismp",
  "ismp-parachain",
+ "ismp-solidity-abi",
  "jsonrpsee-core 0.24.10",
  "mmr-primitives",
  "nexus-runtime",

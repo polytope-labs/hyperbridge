@@ -57,7 +57,7 @@ pub use weights::WeightInfo;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::{vec, vec::Vec};
+	use alloc::{format, vec, vec::Vec};
 	use alloy_sol_types::SolType;
 	use codec::{Decode, Encode};
 	use frame_support::{
@@ -666,14 +666,13 @@ pub mod pallet {
 		/// First-proof verification path:
 		///
 		/// 1. ABI-decode the proof into the SCALE shape `ismp-beefy` consumes.
-		/// 2. For SP1 proofs, fail fast with `StaleProof` if `proof.block_number` is not past the
-		///    trusted state's `latest_beefy_height`. That's the legitimate-uncle signal and the
-		///    dispatcher routes it to the uncle path; doing this check upfront avoids paying for a
-		///    guaranteed-to-fail first SP1 verification.
-		/// 3. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
+		/// 2. Dispatch `Message::Consensus` through `ismp::handlers::handle_incoming_message`,
 		///    which routes to `BeefyConsensusClient::verify_consensus`. That runs the full BEEFY /
-		///    SP1 check and persists consensus state + parachain commitments.
-		/// 4. Extract the proven parachain height from the returned `StateMachineUpdated` events
+		///    SP1 check and persists consensus state + parachain commitments. The verifier's own
+		///    upfront stale check (`beefy_verifier::error::Error::StaleHeight`) propagates back as
+		///    a `Custom(...)` ismp error here; we surface it as `StaleProof` so the dispatcher can
+		///    route an SP1 uncle to `settle_uncle_proof`.
+		/// 3. Extract the proven parachain height from the returned `StateMachineUpdated` events
 		///    and the new authority-set id from the stored consensus state so the caller can
 		///    classify the proof as rotation / messaging.
 		pub fn verify_and_apply(proof: &[u8]) -> Result<VerifyOutcome, Error<T>> {
@@ -696,18 +695,6 @@ pub mod pallet {
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					// Match the inner SP1 verifier's stale check before paying its cost. An
-					// uncle proof targets the same `block_number` the first prover advanced
-					// state to, so it would fail this same comparison inside SP1; surface
-					// it as `StaleProof` so the dispatcher routes to the uncle path.
-					let proof_block: u32 = abi_proof
-						.commitment
-						.blockNumber
-						.try_into()
-						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					if prev_state.latest_beefy_height >= proof_block {
-						Err(Error::<T>::StaleProof)?;
-					}
 					let scale_proof: beefy_verifier_primitives::Sp1BeefyProof = abi_proof.into();
 					[&[types::PROOF_TYPE_SP1], scale_proof.encode().as_slice()].concat()
 				},
@@ -732,11 +719,20 @@ pub mod pallet {
 				}),
 			)
 			.map_err(|e| {
+				let msg = format!("{e:?}");
 				log::warn!(
 					target: "ismp",
-					"[beefy-consensus-proofs] handle_incoming_message failed: {e}",
+					"[beefy-consensus-proofs] handle_incoming_message failed: {msg}",
 				);
-				Error::<T>::VerificationFailed
+				// `beefy_verifier::error::Error::StaleHeight` propagates through
+				// `BeefyConsensusClient::verify_consensus` as a `Custom(...)` string;
+				// surface it as `StaleProof` so the dispatcher can route an SP1 uncle
+				// to `settle_uncle_proof`.
+				if msg.contains("StaleHeight") {
+					Error::<T>::StaleProof
+				} else {
+					Error::<T>::VerificationFailed
+				}
 			})?;
 
 			// Highest parachain height finalized by this proof

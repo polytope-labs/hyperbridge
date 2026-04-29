@@ -52,11 +52,13 @@ use core::marker::PhantomData;
 /// Weight functions for `pallet_beefy_consensus_proofs`.
 ///
 /// `submit_proof` is benchmarked along the single-SP1-verification worst case: the live
-/// consensus state is seeded so `verify_and_apply`'s upfront stale check exits with
-/// `StaleProof` *before* invoking SP1, then dispatch routes to `settle_uncle_proof`
-/// which runs `verify_sp1_consensus` once against the pre-seeded snapshot. This bounds
-/// both the uncle path (single SP1 + uncle writes) and the first-proof path (single
-/// SP1 + first-proof writes). See `benchmarking.rs::submit_proof`.
+/// consensus state is seeded so that when `verify_and_apply` calls
+/// `BeefyConsensusClient::verify_consensus`, the inner SP1 verifier returns
+/// `StaleHeight` *before* doing any cryptographic work. The pallet maps that error to
+/// `StaleProof`, dispatch routes to `settle_uncle_proof`, and SP1 runs once there
+/// against the pre-seeded snapshot. This bounds both the uncle path (single SP1 +
+/// uncle writes) and the first-proof path (single SP1 + first-proof writes). See
+/// `benchmarking.rs::submit_proof`.
 pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for WeightInfo<T> {
 	/// Storage: `Ismp::ConsensusStates` (r:1 w:0)
@@ -65,24 +67,34 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 	/// Proof: `ParachainInfo::ParachainId` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Ismp::LatestStateMachineHeight` (r:1 w:0)
 	/// Proof: `Ismp::LatestStateMachineHeight` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Ismp::ConsensusStateClient` (r:1 w:0)
+	/// Proof: `Ismp::ConsensusStateClient` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Ismp::FrozenConsensusClients` (r:1 w:0)
+	/// Proof: `Ismp::FrozenConsensusClients` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Timestamp::Now` (r:1 w:0)
+	/// Proof: `Timestamp::Now` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Ismp::UnbondingPeriod` (r:1 w:0)
+	/// Proof: `Ismp::UnbondingPeriod` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Ismp::ConsensusClientUpdateTime` (r:1 w:0)
+	/// Proof: `Ismp::ConsensusClientUpdateTime` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `BeefyConsensusProofs::Sp1VkeyHash` (r:1 w:0)
+	/// Proof: `BeefyConsensusProofs::Sp1VkeyHash` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `BeefyConsensusProofs::ProofContext` (r:1 w:0)
 	/// Proof: `BeefyConsensusProofs::ProofContext` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `BeefyConsensusProofs::ProverCount` (r:1 w:1)
 	/// Proof: `BeefyConsensusProofs::ProverCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `BeefyConsensusProofs::AcceptedProofHashes` (r:1 w:1)
 	/// Proof: `BeefyConsensusProofs::AcceptedProofHashes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `BeefyConsensusProofs::Sp1VkeyHash` (r:1 w:0)
-	/// Proof: `BeefyConsensusProofs::Sp1VkeyHash` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `BeefyConsensusProofs::ProofReward` (r:1 w:0)
 	/// Proof: `BeefyConsensusProofs::ProofReward` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn submit_proof() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `758`
-		//  Estimated: `4223`
-		// Minimum execution time: 631_584_657_000 picoseconds.
-		Weight::from_parts(704_411_325_000, 0)
-			.saturating_add(Weight::from_parts(0, 4223))
-			.saturating_add(T::DbWeight::get().reads(8))
+		//  Measured:  `952`
+		//  Estimated: `4417`
+		// Minimum execution time: 601_332_542_000 picoseconds.
+		Weight::from_parts(608_064_578_000, 0)
+			.saturating_add(Weight::from_parts(0, 4417))
+			.saturating_add(T::DbWeight::get().reads(13))
 			.saturating_add(T::DbWeight::get().writes(2))
 	}
 	/// Storage: `BeefyConsensusProofs::ProofReward` (r:0 w:1)
@@ -91,8 +103,8 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 8_847_000 picoseconds.
-		Weight::from_parts(9_118_000, 0)
+		// Minimum execution time: 8_867_000 picoseconds.
+		Weight::from_parts(9_187_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
@@ -102,8 +114,8 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 9_579_000 picoseconds.
-		Weight::from_parts(9_888_000, 0)
+		// Minimum execution time: 9_558_000 picoseconds.
+		Weight::from_parts(9_939_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
@@ -113,15 +125,15 @@ impl<T: frame_system::Config> pallet_beefy_consensus_proofs::WeightInfo for Weig
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 9_518_000 picoseconds.
-		Weight::from_parts(9_909_000, 0)
+		// Minimum execution time: 9_388_000 picoseconds.
+		Weight::from_parts(9_929_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
 	fn initialize_state() -> Weight {
 		// Approximated: similar cost class to `set_sp1_vkey_hash`, plus several writes.
 		// `initialize_state` has no benchmark because it requires an ABI-encoded
-		// `BeefyConsensusState` fixture;
+		// `BeefyConsensusState` fixture.
 		Weight::from_parts(20_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 0))
 			.saturating_add(T::DbWeight::get().reads(1))

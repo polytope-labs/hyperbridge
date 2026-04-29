@@ -30,9 +30,11 @@ const TRUSTED_STATE_SCALE: [u8; 128] = hex_literal::hex!("2279d60118532a01000000
 
 /// Same fixture as `TRUSTED_STATE_SCALE` but with `latest_beefy_height` bumped to
 /// 30_832_938 = 0x01d6792a (first byte `22` → `2a`), which equals the fixture proof's
-/// `blockNumber`. Used as the live consensus state so `verify_and_apply`'s upfront
-/// stale check fires `StaleProof` *before* running the SP1 verifier, leaving exactly
-/// one SP1 verification (in `settle_uncle_proof`) on the dispatch path.
+/// `blockNumber`. Used as the live consensus state so the SP1 verifier inside
+/// `BeefyConsensusClient::verify_consensus` returns `StaleHeight` cheaply (its own
+/// upfront check, before any cryptographic work). The pallet maps that to `StaleProof`,
+/// dispatch routes to `settle_uncle_proof`, and SP1 runs once there. Net cost on the
+/// measured path: one SP1 verification + uncle storage writes.
 const LIVE_STATE_SCALE: [u8; 128] = hex_literal::hex!("2a79d60118532a010000000000000000000000000000000000000000000000000000000000000000751200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49761200000000000057020000a7161e52f2f4249039441385a41c6c8e36207a9b6a65d9bfae4272156ec31f49");
 
 /// Wire-format proof: `[PROOF_TYPE_SP1] ++ abi.encode(SP1BeefyProof)` (without the outer
@@ -52,18 +54,20 @@ mod benchmarks {
 
 	/// Benches the uncle path of `submit_proof` along the single-SP1 worst case. Setup
 	/// seeds the live consensus state with `latest_beefy_height` equal to the fixture
-	/// proof's `blockNumber`, which makes `verify_and_apply`'s upfront stale check
-	/// short-circuit with `StaleProof` *before* invoking the SP1 verifier. Dispatch then
-	/// routes to `settle_uncle_proof`, which runs `verify_sp1_consensus` exactly once
-	/// against the pre-seeded snapshot in `ProofContext`. The resulting weight covers
-	/// one SP1 verification plus uncle storage writes — also the right bound for the
-	/// first-proof path, which runs SP1 once inside `verify_and_apply`.
+	/// proof's `blockNumber`. When dispatch reaches `BeefyConsensusClient::verify_consensus`,
+	/// the inner SP1 verifier's own stale check (`beefy_verifier::error::Error::StaleHeight`)
+	/// returns immediately — before any cryptographic work — and the pallet maps that to
+	/// `StaleProof`. Dispatch then routes to `settle_uncle_proof`, which runs
+	/// `verify_sp1_consensus` exactly once against the pre-seeded snapshot in
+	/// `ProofContext`. The resulting weight covers one SP1 verification plus uncle storage
+	/// writes — also the right bound for the first-proof path, which runs SP1 once inside
+	/// `verify_and_apply`.
 	#[benchmark]
 	fn submit_proof() {
-		// Live consensus state is "ahead" of the proof so `verify_and_apply` exits
-		// at the upfront stale check without running SP1. `create_consensus_client`
-		// also writes `ConsensusStateClient`, `UnbondingPeriod`, and
-		// `ConsensusClientUpdateTime` so the BEEFY client is fully wired up.
+		// Live consensus state is "ahead" of the proof so the verifier's own stale check
+		// exits before running SP1. `create_consensus_client` also writes
+		// `ConsensusStateClient`, `UnbondingPeriod`, and `ConsensusClientUpdateTime` so
+		// the BEEFY client is fully wired up.
 		pallet_ismp::Pallet::<T>::create_consensus_client(
 			frame_system::RawOrigin::Root.into(),
 			ismp::messaging::CreateConsensusState {

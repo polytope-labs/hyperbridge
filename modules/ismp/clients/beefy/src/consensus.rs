@@ -90,9 +90,8 @@ where
 			PROOF_TYPE_NAIVE => {
 				let consensus_proof: ConsensusMessage = codec::Decode::decode(&mut &payload[..])
 					.map_err(|e| Error::Custom(format!("Cannot decode naive proof: {e:?}")))?;
-				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof).map_err(
-					|e| Error::Custom(format!("Error verifying naive consensus update: {e:?}")),
-				)?
+				verify_consensus::<SubstrateCrypto>(consensus_state, consensus_proof)
+					.map_err(|e| Error::AnyHow(e.into()))?
 			},
 			PROOF_TYPE_SP1 => {
 				let sp1_proof: Sp1BeefyProof = codec::Decode::decode(&mut &payload[..])
@@ -105,9 +104,7 @@ where
 					sp1_proof,
 					vkey_hash,
 				)
-				.map_err(|e| {
-					Error::Custom(format!("Error verifying SP1 consensus update: {e:?}"))
-				})?
+				.map_err(|e| Error::AnyHow(anyhow::Error::new(e).into()))?
 			},
 			_ => return Err(Error::Custom(format!("Unknown proof type: {proof_type}"))),
 		};

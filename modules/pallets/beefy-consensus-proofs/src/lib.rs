@@ -57,7 +57,7 @@ pub use weights::WeightInfo;
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use alloc::{format, vec, vec::Vec};
+	use alloc::{vec, vec::Vec};
 	use alloy_sol_types::SolType;
 	use codec::{Decode, Encode};
 	use frame_support::{
@@ -722,16 +722,25 @@ pub mod pallet {
 				}),
 			)
 			.map_err(|e| {
-				let msg = format!("{e:?}");
 				log::warn!(
 					target: "ismp",
-					"[beefy-consensus-proofs] handle_incoming_message failed: {msg}",
+					"[beefy-consensus-proofs] handle_incoming_message failed: {e:?}",
 				);
-				// `beefy_verifier::error::Error::StaleHeight` propagates through
-				// `BeefyConsensusClient::verify_consensus` as a `Custom(...)` string;
-				// surface it as `StaleProof` so the dispatcher can route an SP1 uncle
-				// to `settle_uncle_proof`.
-				if msg.contains("StaleHeight") {
+				// `BeefyConsensusClient::verify_consensus` wraps verifier failures as
+				// `ismp::Error::AnyHow(anyhow::Error)`, preserving the typed
+				// `beefy_verifier::Error` inside. Walk the chain — `anyhow::Error` (from
+				// `update_client`'s return type) → `ismp::Error::AnyHow` →
+				// `beefy_verifier::Error` — and route `StaleHeight` to the uncle path.
+				let stale = e
+					.downcast_ref::<ismp::error::Error>()
+					.and_then(|err| match err {
+						ismp::error::Error::AnyHow(any) => Some(&any.0),
+						_ => None,
+					})
+					.and_then(|inner| inner.downcast_ref::<beefy_verifier::error::Error>())
+					.map(|verr| matches!(verr, beefy_verifier::error::Error::StaleHeight { .. }))
+					.unwrap_or(false);
+				if stale {
 					Error::<T>::StaleProof
 				} else {
 					Error::<T>::VerificationFailed

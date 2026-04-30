@@ -62,7 +62,10 @@ pub struct HandlePostRequests<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub(crate) fn handler(ctx: Context<HandlePostRequests>, p: HandlePostRequestsParams) -> Result<()> {
+pub(crate) fn handler<'info>(
+    ctx: Context<'info, HandlePostRequests<'info>>,
+    p: HandlePostRequestsParams,
+) -> Result<()> {
     let post = PostRequest::decode(&mut p.post_request_body.as_slice())
         .map_err(|_| error!(HandlerError::InvalidPostRequestFormat))?;
     let req = Request::Post(post.clone());
@@ -165,6 +168,7 @@ pub(crate) fn handler(ctx: Context<HandlePostRequests>, p: HandlePostRequestsPar
         handler_authority: ctx.accounts.handler_authority.to_account_info(),
         handler_authority_bump: ctx.bumps.handler_authority,
         dest_program: Some(ctx.accounts.dest_program.to_account_info()),
+        dest_remaining_accounts: ctx.remaining_accounts.to_vec(),
     };
 
     let wire_proof: (Vec<u8>, Vec<Vec<u8>>) = (p.storage_key.clone(), p.storage_proof.clone());

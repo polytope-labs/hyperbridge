@@ -16,6 +16,7 @@ use core::time::Duration;
 use anchor_lang::context::CpiContext;
 use anchor_lang::solana_program::account_info::AccountInfo;
 use anchor_lang::solana_program::pubkey::Pubkey;
+use parity_scale_codec::Encode;
 use primitive_types::H256;
 use sha3::{Digest, Keccak256 as Sha3Keccak};
 
@@ -74,6 +75,12 @@ pub struct SolanaHostFacade<'info> {
     pub handler_authority: AccountInfo<'info>,
     pub handler_authority_bump: u8,
     pub dest_program: Option<AccountInfo<'info>>,
+    /// Accounts the relayer attached as `remaining_accounts` on the
+    /// outer handler instruction. Forwarded verbatim into the dest
+    /// program's CPI so apps can read/write their own state, move SPL
+    /// tokens, etc. — without these, an inbound message can only run
+    /// pure logic in the destination.
+    pub dest_remaining_accounts: Vec<AccountInfo<'info>>,
 }
 
 impl<'info> Keccak256 for SolanaHostFacade<'info> {
@@ -369,7 +376,20 @@ impl<'info> IsmpHost for SolanaHostFacade<'info> {
             .dest_program
             .clone()
             .ok_or_else(|| IsmpError::Custom("dest_program account missing".to_string()))?;
-        let body = req.body().unwrap_or_default();
+
+        // Solana is inbound-only and only handles incoming Post messages
+        // on this surface. A `Get` here would mean ismp-core is asking
+        // us to record an inbound Get request, which is outbound logic.
+        let post = match req {
+            Request::Post(p) => p,
+            Request::Get(_) => {
+                return Err(IsmpError::Custom(
+                    "store_request_receipt: inbound Get unsupported on solana host".to_string(),
+                ));
+            }
+        };
+        let body_len = post.body.len() as u32;
+        let request_bytes = post.encode();
         let bump = self.handler_authority_bump;
         let signer_seeds: &[&[&[u8]]] =
             &[&[b"handler_authority", core::slice::from_ref(&bump)]];
@@ -385,12 +405,14 @@ impl<'info> IsmpHost for SolanaHostFacade<'info> {
                 system_program: self.system_program.clone(),
             },
             signer_seeds,
-        );
+        )
+        .with_remaining_accounts(self.dest_remaining_accounts.clone());
         host::cpi::dispatch_incoming(
             cpi_ctx,
             host::DispatchIncomingParams {
                 commitment: commitment.0,
-                body,
+                request: request_bytes,
+                body_len,
             },
         )
         .map_err(|e| IsmpError::Custom(format!("cpi dispatch_incoming: {e:?}")))?;

@@ -66,8 +66,8 @@ pub mod host {
         instructions::store_state_commitment::handler(ctx, params)
     }
 
-    pub fn dispatch_incoming(
-        ctx: Context<DispatchIncoming>,
+    pub fn dispatch_incoming<'info>(
+        ctx: Context<'info, DispatchIncoming<'info>>,
         params: DispatchIncomingParams,
     ) -> Result<()> {
         instructions::dispatch_incoming::handler(ctx, params)

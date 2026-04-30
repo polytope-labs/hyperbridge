@@ -128,6 +128,8 @@ pub(crate) fn handler(ctx: Context<HandleConsensus>, p: HandleConsensusParams) -
         handler_authority: ctx.accounts.handler_authority.to_account_info(),
         handler_authority_bump: ctx.bumps.handler_authority,
         dest_program: None,
+        // Consensus path never CPIs into a destination app.
+        dest_remaining_accounts: Vec::new(),
     };
 
     let signer_bytes = ctx.accounts.relayer.key().to_bytes().to_vec();

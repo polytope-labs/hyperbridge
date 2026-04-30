@@ -30,8 +30,8 @@ pub mod handler {
         instructions::handle_consensus::handler(ctx, params)
     }
 
-    pub fn handle_post_requests(
-        ctx: Context<HandlePostRequests>,
+    pub fn handle_post_requests<'info>(
+        ctx: Context<'info, HandlePostRequests<'info>>,
         params: HandlePostRequestsParams,
     ) -> Result<()> {
         instructions::handle_post_requests::handler(ctx, params)

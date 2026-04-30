@@ -37,3 +37,9 @@ hex.workspace = true
 solana-program-test.workspace = true
 solana-sdk.workspace = true
 tokio.workspace = true
+# Trie + proof construction for the layer-1 handle_post_requests test.
+polkadot-sdk = { workspace = true, default-features = false, features = [
+    "sp-trie",
+    "sp-core",
+    "std",
+] }

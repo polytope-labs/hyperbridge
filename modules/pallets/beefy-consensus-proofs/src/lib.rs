@@ -372,7 +372,10 @@ pub mod pallet {
 			curve: BoundedVec<(u32, u32), MaxStoredProvers<T>>,
 		) -> DispatchResult {
 			<T as Config>::AdminOrigin::ensure_origin(origin)?;
-			if curve.iter().any(|(_, denom)| *denom == 0) {
+			// `numerator > denominator` would multiply the base reward above 100% for that
+			// position, turning a fat-fingered curve into a treasury drain. Reject it
+			// outright — uncle positions are meant to *decrease* from the position-0 base.
+			if curve.iter().any(|(num, denom)| *denom == 0 || num > denom) {
 				Err(Error::<T>::InvalidRewardCurve)?
 			}
 			RewardCurve::<T>::put(curve);
@@ -418,6 +421,41 @@ pub mod pallet {
 			let proof_type = *proof.first().ok_or(Error::<T>::UnknownProofType)?;
 			if !T::AllowedProofTypes::get().contains(&proof_type) {
 				Err(Error::<T>::UnknownProofType)?
+			}
+
+			// `alloy_sol_types::abi_decode_params` silently ignores trailing bytes after the
+			// encoded sequence ends, so a submitter could append junk to a valid proof to
+			// obtain a distinct `keccak256(proof)` and bypass the `AcceptedProofHashes`
+			// dedup. Round-trip the payload and require the canonical re-encoding matches
+			// the input exactly — anything else fails decode at the boundary.
+			let abi_payload = &proof[1..];
+			match proof_type {
+				types::PROOF_TYPE_SP1 => {
+					let p =
+						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
+							abi_payload,
+						)
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					if <ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_encode_params(&p)
+						!= abi_payload
+					{
+						Err(Error::<T>::AbiDecodeFailed)?
+					}
+				},
+				types::PROOF_TYPE_NAIVE => {
+					let p =
+						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+							abi_payload,
+						)
+						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
+					if <ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_encode_params(
+						&p,
+					) != abi_payload
+					{
+						Err(Error::<T>::AbiDecodeFailed)?
+					}
+				},
+				_ => Err(Error::<T>::UnknownProofType)?,
 			}
 
 			let proof_hash: H256 = sp_io::hashing::keccak_256(&proof).into();

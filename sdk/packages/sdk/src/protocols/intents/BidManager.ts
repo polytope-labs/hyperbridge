@@ -1,6 +1,6 @@
 import { encodeFunctionData, decodeFunctionData, concat, keccak256, parseEventLogs } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { ADDRESS_ZERO, bytes32ToBytes20, hexToString, retryPromise } from "@/utils"
+import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
 import type {
 	Order,
 	HexString,
@@ -151,7 +151,7 @@ export class BidManager {
 		}
 
 		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayV2Address(
-			hexToString(order.destination as HexString),
+			normalizeStateMachineId(order.destination),
 		)
 
 		const domainSeparator = CryptoUtils.getDomainSeparator(
@@ -222,7 +222,7 @@ export class BidManager {
 		}
 
 		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(
-			hexToString(order.destination as HexString),
+			normalizeStateMachineId(order.destination),
 		)
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),

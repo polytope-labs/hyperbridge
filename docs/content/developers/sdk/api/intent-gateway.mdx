@@ -153,7 +153,7 @@ for await (const update of gen) {
 
 ---
 
-### cancelOrder(order, indexerClient, fromDest?)
+### cancelOrder(order, indexerClient, options?)
 
 Async generator that cancels a placed order and streams status events until cancellation is complete. Supports both source-chain and destination-chain initiated cancellation.
 
@@ -161,7 +161,7 @@ Async generator that cancels a placed order and streams status events until canc
 async *cancelOrder(
   order: Order,
   indexerClient: IsmpClient,
-  fromDest?: boolean,
+  options?: { from?: "source" | "destination" },
 ): AsyncGenerator<CancelEvent>
 ```
 
@@ -171,11 +171,11 @@ async *cancelOrder(
 |------|------|---------|-------------|
 | `order` | `Order` | — | The order to cancel |
 | `indexerClient` | `IsmpClient` | — | Indexer client for streaming ISMP request status |
-| `fromDest` | `boolean` | `false` | If `true`, initiates cancellation from the destination chain |
+| `options` | `{ from?: "source" \| "destination" }` | `{}` | Pass `{ from: "destination" }` to initiate on the destination chain. |
 
 **Yields:** `CancelEvent`
 
-**Throws:** If the order is same-chain and `fromDest` is `true`
+**Throws:** If the order is same-chain and destination-side cancellation is requested
 
 **Example:**
 
@@ -218,12 +218,25 @@ for await (const event of gen) {
 
 ---
 
-### quoteCancelNative(order, fromDest?)
+### cancelOrderFromSource(order, indexerClient)
+
+Convenience wrapper around `cancelOrder(order, indexerClient, { from: "source" })`.
+
+### cancelOrderFromDest(order, indexerClient)
+
+Convenience wrapper around `cancelOrder(order, indexerClient, { from: "destination" })`.
+
+---
+
+### quoteCancelOrder(order, options?)
 
 Quotes the native token cost for cancelling an order.
 
 ```typescript lineNumbers
-async quoteCancelNative(order: Order, fromDest?: boolean): Promise<bigint>
+async quoteCancelOrder(
+  order: Order,
+  options?: { from?: "source" | "destination" },
+): Promise<CancelQuote>
 ```
 
 **Parameters:**
@@ -231,9 +244,19 @@ async quoteCancelNative(order: Order, fromDest?: boolean): Promise<bigint>
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `order` | `Order` | — | The order to quote cancellation for |
-| `fromDest` | `boolean` | `false` | If `true`, quotes the destination-initiated cancellation fee |
+| `options` | `{ from?: "source" \| "destination" }` | `{}` | Pass `{ from: "destination" }` to quote the destination-initiated path. |
 
-**Returns:** `Promise<bigint>` — Native token amount (in wei) required to submit the cancel transaction
+**Returns:** `Promise<CancelQuote>` — `{ nativeValue, relayerFee }`
+
+---
+
+### quoteCancelOrderFromSource(order)
+
+Convenience wrapper around `quoteCancelOrder(order, { from: "source" })`.
+
+### quoteCancelOrderFromDest(order)
+
+Convenience wrapper around `quoteCancelOrder(order, { from: "destination" })`.
 
 ---
 

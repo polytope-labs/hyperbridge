@@ -13,7 +13,7 @@ import type {
 	TokenGatewayAssetTeleportedWithStatus,
 } from "@/types"
 import { _queryTokenGatewayAssetTeleportedInternal } from "@/queryClient"
-import { DEFAULT_POLL_INTERVAL, sleep } from "@/utils"
+import { DEFAULT_POLL_INTERVAL, normalizeAddressForStateMachine, normalizeStateMachineId, sleep } from "@/utils"
 
 /**
  * Result of the quoteNative fee estimation
@@ -35,7 +35,7 @@ export interface TeleportParams {
 	assetId: HexString
 	/** Redeem ERC20 on the destination? */
 	redeem: boolean
-	/** Recipient address */
+	/** Recipient address. For EVM destinations, plain 20-byte addresses are accepted and padded internally. */
 	to: HexString
 	/** Recipient state machine */
 	dest: string | Uint8Array
@@ -91,7 +91,7 @@ export class TokenGateway {
 	 * @returns The TokenGateway contract address
 	 */
 	private getTokenGatewayAddress(chain: string | Uint8Array): Address {
-		const chainStr = typeof chain === "string" ? chain : new TextDecoder().decode(chain)
+		const chainStr = normalizeStateMachineId(typeof chain === "string" ? chain : new TextDecoder().decode(chain))
 		return this.source.configService.getTokenGatewayAddress(chainStr)
 	}
 
@@ -136,6 +136,10 @@ export class TokenGateway {
 	async quoteNative(params: TeleportParams): Promise<QuoteNativeResult> {
 		// Convert data to hex if it's Uint8Array, default to empty bytes
 		const dataHex = params.data ? (typeof params.data === "string" ? params.data : toHex(params.data)) : "0x"
+		const destChainId = normalizeStateMachineId(
+			typeof params.dest === "string" ? params.dest : new TextDecoder().decode(params.dest),
+		)
+		const recipient = normalizeAddressForStateMachine(params.to, destChainId)
 
 		// Get the TokenGateway addresses
 		const sourceTokenGatewayAddress = this.getTokenGatewayAddress(this.source.config.stateMachineId)
@@ -144,7 +148,6 @@ export class TokenGateway {
 		let relayerFee = 0n
 
 		// Only estimate relayer fee if destination is an EVM chain
-		const destChainId = typeof params.dest === "string" ? params.dest : new TextDecoder().decode(params.dest)
 		const isEvmDest = destChainId.startsWith("EVM-") && this.dest instanceof EvmChain
 
 		if (isEvmDest) {
@@ -185,7 +188,7 @@ export class TokenGateway {
 				relayerFee, // Use the calculated relayer fee (0 for non-EVM destinations)
 				params.assetId,
 				params.redeem,
-				params.to,
+				recipient,
 				dataHex as `0x${string}`,
 			],
 		)

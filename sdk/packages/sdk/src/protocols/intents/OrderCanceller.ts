@@ -2,19 +2,19 @@ import { encodeFunctionData, concatHex, parseEventLogs, pad } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import EVM_HOST from "@/abis/evmHost"
 import {
-	hexToString,
 	getRequestCommitment,
 	postRequestCommitment,
 	constructRefundEscrowRequestBody,
 	encodeWithdrawalRequest,
 	adjustDecimals,
+	normalizeStateMachineId,
 	parseStateMachineId,
 	waitForChallengePeriod,
 	retryPromise,
 	sleep,
 } from "@/utils"
 import { STORAGE_KEYS } from "@/storage"
-import type { Order, HexString, IGetRequest, IPostRequest, CancelQuote } from "@/types"
+import type { Order, HexString, IGetRequest, IPostRequest, CancelOrderOptions, CancelQuote } from "@/types"
 import type { IGetRequestMessage } from "@/chain"
 import type { IProof } from "@/chain"
 import type { IsmpClient } from "@/client"
@@ -56,12 +56,12 @@ export class OrderCanceller {
 	 * submitting the cancel transaction.
 	 *
 	 * @param order - The order to quote.
-	 * @param fromDest - If `true`, quotes the destination-initiated path.
+	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
 	 * @returns `{ nativeValue }` — native token amount (wei) to send as `value`;
 	 *   `{ relayerFee }` — relayer incentive denominated in the chain's fee token.
 	 */
-	async quoteCancelOrder(order: Order, fromDest: boolean = false): Promise<CancelQuote> {
-		if (fromDest) {
+	async quoteCancelOrder(order: Order, options: CancelOrderOptions = {}): Promise<CancelQuote> {
+		if (options.from === "destination") {
 			return this.quoteCancelFromDest(order)
 		}
 		return this.quoteCancelFromSource(order)
@@ -80,13 +80,11 @@ export class OrderCanceller {
 	private async quoteCancelFromSource(order: Order): Promise<CancelQuote> {
 		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
 
-		const sourceStateMachine = order.source.startsWith("0x")
-			? hexToString(order.source as HexString)
-			: (order.source as string)
+		const sourceStateMachine = normalizeStateMachineId(order.source)
 		const height = order.deadline + 1n
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayV2Address(
-			hexToString(order.destination as HexString),
+			normalizeStateMachineId(order.destination),
 		)
 		const slotHash = await this.ctx.dest.client.readContract({
 			abi: IntentGatewayV2ABI,
@@ -100,10 +98,8 @@ export class OrderCanceller {
 
 		const getRequest: IGetRequest = {
 			source: sourceStateMachine,
-			dest: order.destination.startsWith("0x")
-				? hexToString(order.destination as HexString)
-				: (order.destination as string),
-			from: this.ctx.source.configService.getIntentGatewayV2Address(hexToString(order.destination as HexString)),
+			dest: normalizeStateMachineId(order.destination),
+			from: this.ctx.source.configService.getIntentGatewayV2Address(normalizeStateMachineId(order.destination)),
 			nonce: await this.ctx.source.getHostNonce(),
 			height,
 			keys: [key],
@@ -128,17 +124,16 @@ export class OrderCanceller {
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used to stream ISMP request status
 	 *   updates and query state-machine heights.
-	 * @param fromDest - If `true`, initiates cancellation from the destination chain.
-	 *   Defaults to `false` (source-side cancellation).
+	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
 	 * @yields {@link CancelEvent} objects describing each stage of the
 	 *   cancellation lifecycle.
 	 */
 	async *cancelOrder(
 		order: Order,
 		indexerClient: IsmpClient,
-		fromDest: boolean = false,
+		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		if (fromDest) {
+		if (options.from === "destination") {
 			yield* this.cancelOrderFromDest(order, indexerClient)
 			return
 		}
@@ -172,7 +167,7 @@ export class OrderCanceller {
 		const orderId = order.id!
 		const isSameChain = order.source === order.destination
 		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayV2Address(
-			hexToString(order.source as HexString),
+			normalizeStateMachineId(order.source),
 		)
 
 		if (isSameChain) {
@@ -211,7 +206,7 @@ export class OrderCanceller {
 		}
 
 		const hyperbridge = indexerClient.hyperbridge as SubstrateChain
-		const sourceStateMachine = hexToString(order.source as HexString)
+		const sourceStateMachine = normalizeStateMachineId(order.source)
 		const sourceConsensusStateId = this.ctx.source.configService.getConsensusStateId(sourceStateMachine)
 
 		let destIProof: IProof | null = await this.ctx.cancellationStorage.getItem(STORAGE_KEYS.destProof(orderId))
@@ -341,12 +336,8 @@ export class OrderCanceller {
 	private async quoteCancelFromDest(order: Order): Promise<CancelQuote> {
 		if (order.source === order.destination) return { nativeValue: 0n, relayerFee: 0n }
 
-		const destStateMachine = order.destination.startsWith("0x")
-			? hexToString(order.destination as HexString)
-			: (order.destination as string)
-		const sourceStateMachine = order.source.startsWith("0x")
-			? hexToString(order.source as HexString)
-			: (order.source as string)
+		const destStateMachine = normalizeStateMachineId(order.destination)
+		const sourceStateMachine = normalizeStateMachineId(order.source)
 
 		const destIntentGateway = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachine)
 		const sourceIntentGateway = this.ctx.source.configService.getIntentGatewayV2Address(sourceStateMachine)
@@ -396,9 +387,7 @@ export class OrderCanceller {
 			throw new Error("Cannot cancel same-chain order from destination; use cancelOrder instead")
 		}
 
-		const destStateMachine = order.destination.startsWith("0x")
-			? hexToString(order.destination as HexString)
-			: (order.destination as string)
+		const destStateMachine = normalizeStateMachineId(order.destination)
 		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachine)
 
 		let commitment: HexString | null = await this.ctx.cancellationStorage.getItem(

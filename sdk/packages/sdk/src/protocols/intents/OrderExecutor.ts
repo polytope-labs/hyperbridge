@@ -1,6 +1,6 @@
 import type { HexString, TokenInfo, Order } from "@/types"
 import type { IntentOrderStatusUpdate, ExecuteIntentOrderOptions, FillerBid, SelectBidResult } from "@/types"
-import { sleep, DEFAULT_POLL_INTERVAL, hexToString } from "@/utils"
+import { sleep, DEFAULT_POLL_INTERVAL, normalizeStateMachineId } from "@/utils"
 import type { IntentGatewayContext } from "./types"
 import { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
@@ -90,9 +90,11 @@ export class OrderExecutor {
 	 * UserOperation, pre-bound to the order's destination chain and entry point.
 	 */
 	private createUserOpHasher(order: {
-		destination: HexString
+		destination: string
 	}): (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string {
-		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(hexToString(order.destination))
+		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(
+			normalizeStateMachineId(order.destination),
+		)
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
 		)

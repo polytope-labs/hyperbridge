@@ -1,12 +1,10 @@
 import "log-timestamp"
 
-import { toHex } from "viem"
 import { strict as assert } from "assert"
 import { type HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { ChainConfigService } from "@/configs/ChainConfigService"
-import { bytes20ToBytes32 } from "@/utils"
 
 // ---------------------------------------------------------------------------
 // Test Cases
@@ -41,7 +39,7 @@ const CROSS_CHAIN_CASES: [string, string][] = [
 
 const SAME_CHAIN_CASES = ["polygon", "bsc", "base", "arbitrum"]
 
-const BENEFICIARY = "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
+const BENEFICIARY = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
 
 interface ChainDef {
 	id: string
@@ -83,8 +81,8 @@ function buildOrder(
 
 	return {
 		user: BENEFICIARY,
-		source: toHex(sourceChainId),
-		destination: toHex(destChainId),
+		source: sourceChainId,
+		destination: destChainId,
 		deadline: 65337297000n,
 		nonce: 0n,
 		fees: 0n,
@@ -108,8 +106,8 @@ async function runCrossChainEstimate(srcKey: string, destKey: string) {
 	const order = buildOrder(
 		src.id,
 		dest.id,
-		bytes20ToBytes32(configService.getUsdcAsset(src.id)),
-		bytes20ToBytes32(configService.getUsdcAsset(dest.id)),
+		configService.getUsdcAsset(src.id),
+		configService.getUsdcAsset(dest.id),
 		100n,
 	)
 
@@ -133,8 +131,8 @@ async function runSameChainEstimate(chainKey: string) {
 	const order = buildOrder(
 		chain.id,
 		chain.id,
-		bytes20ToBytes32(configService.getUsdcAsset(chain.id)),
-		bytes20ToBytes32(configService.getExtAsset(chain.id)!),
+		configService.getUsdcAsset(chain.id),
+		configService.getExtAsset(chain.id)!,
 		100n,
 	)
 

@@ -8,8 +8,9 @@ import type { EventRecord, StorageData } from "@polkadot/types/interfaces"
 import type { ISubmittableResult } from "@polkadot/types/types"
 import { keccakAsU8a, xxhashAsU8a } from "@polkadot/util-crypto"
 import { Option, Struct, Vector, bool, u8, u64, u128 } from "scale-ts"
-import { bytesToHex, hexToBytes, pad } from "viem"
+import { bytesToHex, hexToBytes } from "viem"
 import type { HyperbridgeTxEvents } from "./xcmGateway"
+import { normalizeAddressForStateMachine, normalizeStateMachineId } from "@/utils"
 
 export type Params = {
 	/** Asset symbol for the teleport operation */
@@ -135,12 +136,6 @@ export async function teleport(teleport_param: {
 }): Promise<ReadableStream<HyperbridgeTxEvents>> {
 	const { params, apiPromise, extrinsics = [] } = teleport_param
 
-	const substrateComplianceAddr = (address: HexString, stateMachine: string) => {
-		if (stateMachine.startsWith("EVM-")) return pad(address, { size: 32, dir: "left" })
-
-		return address
-	}
-
 	const assetId = keccakAsU8a(params.symbol)
 
 	// Fetch scale encoded local asset id
@@ -150,9 +145,10 @@ export async function teleport(teleport_param: {
 		throw new Error("Unknown asset id provided")
 	}
 
-	const destination = convertStateMachineIdToEnum(params.destination)
+	const destinationStateMachine = normalizeStateMachineId(params.destination)
+	const destination = convertStateMachineIdToEnum(destinationStateMachine)
 
-	const recipient = hexToBytes(substrateComplianceAddr(params.recipient, params.destination))
+	const recipient = hexToBytes(normalizeAddressForStateMachine(params.recipient, destinationStateMachine))
 
 	const teleportParams = {
 		destination: destination,

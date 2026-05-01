@@ -16,6 +16,7 @@ import {
 	concatHex,
 	encodeAbiParameters,
 	encodePacked,
+	isHex,
 	hexToBytes,
 	keccak256,
 	toHex,
@@ -208,8 +209,16 @@ export function postRequestCommitment(post: IPostRequest): { commitment: HexStri
  * This removes the extra padded zeros from the address
  */
 export function bytes32ToBytes20(bytes32Address: string): HexString {
+	if (bytes32Address.length === 42) {
+		return bytes32Address as HexString
+	}
+
 	if (bytes32Address === ADDRESS_ZERO) {
 		return ADDRESS_ZERO
+	}
+
+	if (bytes32Address.length !== 66) {
+		throw new Error(`Expected a 20-byte or 32-byte hex value, got ${bytes32Address.length} characters`)
 	}
 
 	const bytes = hexToBytes(bytes32Address as HexString)
@@ -220,6 +229,9 @@ export function bytes32ToBytes20(bytes32Address: string): HexString {
 export function bytes20ToBytes32(bytes20Address: string): HexString {
 	// Already a 32-byte value — return unchanged
 	if (bytes20Address.length === 66) return bytes20Address as HexString
+	if (bytes20Address.length !== 42) {
+		throw new Error(`Expected a 20-byte or 32-byte hex value, got ${bytes20Address.length} characters`)
+	}
 	return `0x${bytes20Address.slice(2).padStart(64, "0")}` as HexString
 }
 
@@ -232,6 +244,25 @@ export function hexToString(hex: string): string {
 	}
 
 	return new TextDecoder().decode(bytes)
+}
+
+export function normalizeStateMachineId(stateMachineId: string): string {
+	return isHex(stateMachineId) ? hexToString(stateMachineId) : stateMachineId
+}
+
+export function encodeStateMachineId(stateMachineId: string): HexString {
+	return isHex(stateMachineId) ? (stateMachineId as HexString) : (toHex(stateMachineId) as HexString)
+}
+
+export function normalizeAddressForEvmBytes32(address: string): HexString {
+	if (address.length === 66) return address as HexString
+	return bytes20ToBytes32(address)
+}
+
+export function normalizeAddressForStateMachine(address: string, stateMachineId: string): HexString {
+	return isEvmChain(normalizeStateMachineId(stateMachineId))
+		? normalizeAddressForEvmBytes32(address)
+		: (address as HexString)
 }
 
 export const DEFAULT_LOGGER = createConsola({

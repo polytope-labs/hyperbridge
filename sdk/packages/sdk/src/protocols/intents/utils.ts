@@ -1,17 +1,21 @@
 import { encodeFunctionData, encodeAbiParameters, formatUnits, parseUnits, keccak256 } from "viem"
-import { toHex } from "viem"
 import IntentGatewayV2 from "@/abis/IntentGatewayV2"
 import Decimal from "decimal.js"
 import type { Order } from "@/types"
 import type { ERC7821Call } from "@/types"
 import type { HexString } from "@/types"
-import { retryPromise, fetchPrice, bytes20ToBytes32 } from "@/utils"
+import { retryPromise, fetchPrice, normalizeAddressForEvmBytes32, encodeStateMachineId } from "@/utils"
 import ERC7821ABI from "@/abis/erc7281"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { IntentGatewayContext } from "./types"
 import { requestCommitmentKey } from "@/chain"
 import type { IEvmChain } from "@/chain"
 import type { IProof } from "@/chain"
+
+type ContractOrder = Omit<Order, "id" | "source" | "destination"> & {
+	source: HexString
+	destination: HexString
+}
 
 /** Cache TTL for fee-token entries, in milliseconds (5 minutes). */
 const FEE_TOKEN_CACHE_TTL_MS = 5 * 60 * 1000
@@ -119,21 +123,21 @@ export async function fetchSourceProof(
  * @param order - The SDK-level order to transform.
  * @returns A contract-compatible order struct without `id`.
  */
-export function transformOrderForContract(order: Order): Omit<Order, "id"> {
+export function transformOrderForContract(order: Order): ContractOrder {
 	const { id: _id, ...contractOrder } = order
 	return {
 		...contractOrder,
-		source: order.source.startsWith("0x") ? order.source : toHex(order.source),
-		destination: order.destination.startsWith("0x") ? order.destination : toHex(order.destination),
-		inputs: order.inputs.map((t) => ({ ...t, token: bytes20ToBytes32(t.token) })),
+		source: encodeStateMachineId(order.source),
+		destination: encodeStateMachineId(order.destination),
+		inputs: order.inputs.map((t) => ({ ...t, token: normalizeAddressForEvmBytes32(t.token) })),
 		predispatch: {
 			...order.predispatch,
-			assets: order.predispatch.assets.map((t) => ({ ...t, token: bytes20ToBytes32(t.token) })),
+			assets: order.predispatch.assets.map((t) => ({ ...t, token: normalizeAddressForEvmBytes32(t.token) })),
 		},
 		output: {
 			...order.output,
-			beneficiary: bytes20ToBytes32(order.output.beneficiary),
-			assets: order.output.assets.map((t) => ({ ...t, token: bytes20ToBytes32(t.token) })),
+			beneficiary: normalizeAddressForEvmBytes32(order.output.beneficiary),
+			assets: order.output.assets.map((t) => ({ ...t, token: normalizeAddressForEvmBytes32(t.token) })),
 		},
 	}
 }

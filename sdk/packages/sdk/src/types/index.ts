@@ -16,6 +16,8 @@ export type EstimateGasCallData = ContractFunctionArgs<
 >
 
 export type HexString = `0x${string}`
+export type StateMachineId = string
+export type BytesLikeHex = HexString
 
 export interface IConfig {
 	// confuration object for the source chain
@@ -558,10 +560,13 @@ export interface ChainConfig {
  */
 export interface TokenInfo {
 	/**
-	 * The address of the ERC20 token
-	 * address(0) is used as a sentinel for the native token
+	 * The token identifier as either:
+	 * - a standard 20-byte EVM address (`0xabc...`)
+	 * - an already padded 32-byte value (`0x000...abc...`)
+	 *
+	 * `address(0)` / `bytes32(0)` is used as a sentinel for the native token.
 	 */
-	token: HexString
+	token: BytesLikeHex
 
 	/**
 	 * The amount of the token
@@ -1143,7 +1148,8 @@ export interface StorageFacade {
 // =============================================================================
 
 export interface PaymentInfo {
-	beneficiary: HexString
+	/** Accepts a standard 20-byte address; the SDK pads to bytes32 internally when needed. */
+	beneficiary: BytesLikeHex
 	assets: TokenInfo[]
 	call: HexString
 }
@@ -1156,8 +1162,10 @@ export interface DispatchInfo {
 export interface Order {
 	id?: string
 	user: HexString
-	source: HexString
-	destination: HexString
+	/** Accepts either `"EVM-1"` style IDs or their hex-encoded form. */
+	source: StateMachineId
+	/** Accepts either `"EVM-42161"` style IDs or their hex-encoded form. */
+	destination: StateMachineId
 	deadline: bigint
 	nonce: bigint
 	fees: bigint
@@ -1165,6 +1173,11 @@ export interface Order {
 	predispatch: DispatchInfo
 	inputs: TokenInfo[]
 	output: PaymentInfo
+}
+
+export interface CancelOrderOptions {
+	/** Where to initiate the cancel from. Defaults to `"source"`. */
+	from?: "source" | "destination"
 }
 
 export interface FillOptions {

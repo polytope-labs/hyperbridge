@@ -423,42 +423,37 @@ pub mod pallet {
 				Err(Error::<T>::UnknownProofType)?
 			}
 
-			// `alloy_sol_types::abi_decode_params` silently ignores trailing bytes after the
-			// encoded sequence ends, so a submitter could append junk to a valid proof to
-			// obtain a distinct `keccak256(proof)` and bypass the `AcceptedProofHashes`
-			// dedup. Round-trip the payload and require the canonical re-encoding matches
-			// the input exactly — anything else fails decode at the boundary.
+			// Decode the ABI payload then re-encode it canonically and hash *that* instead
+			// of the raw input. `alloy_sol_types::abi_decode_params` silently ignores
+			// trailing bytes after the encoded sequence ends, so without this a submitter
+			// could pad a valid proof with junk to mint a fresh `keccak256(proof)` and
+			// bypass the `AcceptedProofHashes` dedup. Hashing the canonical re-encoding
+			// collapses every ABI-equivalent input to the same hash by construction.
 			let abi_payload = &proof[1..];
-			match proof_type {
-				types::PROOF_TYPE_SP1 => {
-					let p =
+			let canonical_payload =
+				match proof_type {
+					types::PROOF_TYPE_SP1 => {
+						let p =
 						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					if <ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_encode_params(&p)
-						!= abi_payload
-					{
-						Err(Error::<T>::AbiDecodeFailed)?
-					}
-				},
-				types::PROOF_TYPE_NAIVE => {
-					let p =
+						<ismp_solidity_abi::sp1_beefy::SP1Beefy::SP1BeefyProof as SolType>::abi_encode_params(&p)
+					},
+					types::PROOF_TYPE_NAIVE => {
+						let p =
 						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-					if <ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_encode_params(
-						&p,
-					) != abi_payload
-					{
-						Err(Error::<T>::AbiDecodeFailed)?
-					}
-				},
-				_ => Err(Error::<T>::UnknownProofType)?,
-			}
-
-			let proof_hash: H256 = sp_io::hashing::keccak_256(&proof).into();
+						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_encode_params(&p)
+					},
+					_ => Err(Error::<T>::UnknownProofType)?,
+				};
+			let mut canonical_proof = Vec::with_capacity(1 + canonical_payload.len());
+			canonical_proof.push(proof_type);
+			canonical_proof.extend_from_slice(&canonical_payload);
+			let proof_hash: H256 = sp_io::hashing::keccak_256(&canonical_proof).into();
 
 			// Read the pre-proof consensus state before `verify_and_apply` mutates it.
 			// Used to seed `ProofContext` for the first-proof path.
@@ -467,10 +462,10 @@ pub mod pallet {
 				.consensus_state(ismp_beefy::BEEFY_CONSENSUS_ID)
 				.map_err(|_| Error::<T>::NotInitialized)?;
 
-			match Self::verify_and_apply(&proof) {
+			match Self::verify_and_apply(&canonical_proof) {
 				Ok(outcome) => Self::settle_first_proof(
 					submitter,
-					proof,
+					canonical_proof,
 					proof_hash,
 					proof_type,
 					prev_state_bytes,
@@ -482,7 +477,7 @@ pub mod pallet {
 				// bytes, bad signatures, wrong vkey) propagate so the submitter pays the
 				// fee instead of paying for a wasted second SP1 verification.
 				Err(Error::<T>::StaleProof) if proof_type == types::PROOF_TYPE_SP1 =>
-					Self::settle_uncle_proof(submitter, proof, proof_hash),
+					Self::settle_uncle_proof(submitter, canonical_proof, proof_hash),
 				Err(e) => Err(e.into()),
 			}
 		}

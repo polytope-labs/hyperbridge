@@ -114,8 +114,9 @@ export async function fetchSourceProof(
  * - `id` is removed (not part of the on-chain struct).
  * - `source` and `destination` are hex-encoded if currently plain string
  *   state-machine IDs.
- * - `inputs[i].token`, `output.beneficiary`, `output.assets[i].token`, and
- *   `predispatch.assets[i].token` are left-padded from 20-byte addresses to
+ * - `user`, `session`, `inputs[i].token`, `output.beneficiary`,
+ *   `output.assets[i].token`, and `predispatch.assets[i].token` are
+ *   left-padded from 20-byte addresses to
  *   32-byte values (`0x000…addr`) via {@link bytes20ToBytes32}, matching the
  *   `bytes32(uint256(uint160(addr)))` encoding the contract uses when casting
  *   these fields back to `address`. Values already at 32 bytes are unchanged.
@@ -129,6 +130,8 @@ export function transformOrderForContract(order: Order): ContractOrder {
 		...contractOrder,
 		source: encodeStateMachineId(order.source),
 		destination: encodeStateMachineId(order.destination),
+		user: normalizeAddressForEvmBytes32(order.user),
+		session: normalizeAddressForEvmBytes32(order.session),
 		inputs: order.inputs.map((t) => ({ ...t, token: normalizeAddressForEvmBytes32(t.token) })),
 		predispatch: {
 			...order.predispatch,

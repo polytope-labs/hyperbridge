@@ -8,7 +8,7 @@ const NATIVE = "0x00000000000000000000000000000000000000000000000000000000000000
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
-		user: "0x" as HexString,
+		user: ADDR_20,
 		source: "EVM-1" as unknown as HexString,
 		destination: "EVM-42161" as unknown as HexString,
 		deadline: 100n,
@@ -27,6 +27,12 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 }
 
 describe("transformOrderForContract", () => {
+	it("left-pads 20-byte user and session to bytes32", () => {
+		const result = transformOrderForContract(makeOrder({ user: ADDR_20, session: ADDR_20 }))
+		expect(result.user).toBe(ADDR_32)
+		expect(result.session).toBe(ADDR_32)
+	})
+
 	it("left-pads 20-byte input token to bytes32", () => {
 		const result = transformOrderForContract(makeOrder())
 		expect(result.inputs[0].token).toBe(ADDR_32)

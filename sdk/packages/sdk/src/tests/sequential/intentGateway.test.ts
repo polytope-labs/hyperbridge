@@ -1,10 +1,12 @@
 import "log-timestamp"
 
 import { strict as assert } from "assert"
+import type { PublicClient } from "viem"
 import { type HexString, Order, TokenInfo } from "@/types"
 import { EvmChain } from "@/chain"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { ChainConfigService } from "@/configs/ChainConfigService"
+import { UniswapQuoteEngine, type UniswapQuoteAdapter, type UniswapQuoteToken } from "@/utils/uniswapQuote"
 
 // ---------------------------------------------------------------------------
 // Test Cases
@@ -26,6 +28,29 @@ describe.sequential("IntentGateway same-chain estimate tests", () => {
 	}
 })
 
+describe("Uniswap quote helper", () => {
+	it("returns the best exact-input quote across selected protocols", async () => {
+		const client = { name: "intent-gateway-quote-test-client" } as unknown as PublicClient
+		const quoteEngine = new UniswapQuoteEngine(new QuoteTestAdapter(client))
+
+		const result = await quoteEngine.quote(
+			{
+				chainId: 8453,
+				tokenIn: QUOTE_TOKEN_IN,
+				tokenOut: QUOTE_TOKEN_OUT,
+				amountIn: 100n,
+				tradeType: "EXACT_INPUT",
+				protocols: ["v2", "v3", "v4"],
+			},
+			{ client },
+		)
+
+		assert.equal(result.quotes.length, 3)
+		assert.equal(result.bestQuote?.protocol, "v4")
+		assert.equal(result.bestQuote?.amountOut, 103n)
+	})
+})
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -40,6 +65,72 @@ const CROSS_CHAIN_CASES: [string, string][] = [
 const SAME_CHAIN_CASES = ["polygon", "bsc", "base", "arbitrum"]
 
 const BENEFICIARY = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
+const QUOTE_TOKEN_IN: UniswapQuoteToken = {
+	address: "0x1111111111111111111111111111111111111111",
+	decimals: 6,
+	symbol: "USDC",
+	chainId: 8453,
+}
+const QUOTE_TOKEN_OUT: UniswapQuoteToken = {
+	address: "0x2222222222222222222222222222222222222222",
+	decimals: 6,
+	symbol: "cNGN",
+	chainId: 8453,
+}
+
+class QuoteTestAdapter implements UniswapQuoteAdapter {
+	constructor(private readonly expectedClient: PublicClient) {}
+
+	async findBestProtocolWithAmountIn(
+		client: PublicClient,
+		_tokenIn: HexString,
+		_tokenOut: HexString,
+		_amountIn: bigint,
+		_evmChainID: string,
+		options?: { selectedProtocol?: "v2" | "v3" | "v4"; generateCalldata?: boolean; recipient?: HexString },
+	) {
+		assert.equal(client, this.expectedClient)
+
+		switch (options?.selectedProtocol) {
+			case "v2":
+				return { protocol: "v2" as const, amountOut: 95n }
+			case "v3":
+				return { protocol: "v3" as const, amountOut: 101n, fee: 500 }
+			case "v4":
+				return { protocol: "v4" as const, amountOut: 103n, fee: 1500 }
+			default:
+				return { protocol: null, amountOut: 0n }
+		}
+	}
+
+	async findBestProtocolWithAmountOut(): Promise<never> {
+		throw new Error("Unused by exact-input quote test")
+	}
+
+	createV2SwapCalldataExactIn(): never {
+		throw new Error("Unused without recipient")
+	}
+
+	createV2SwapCalldataExactOut(): never {
+		throw new Error("Unused by exact-input quote test")
+	}
+
+	createV3SwapCalldataExactIn(): never {
+		throw new Error("Unused without recipient")
+	}
+
+	createV3SwapCalldataExactOut(): never {
+		throw new Error("Unused by exact-input quote test")
+	}
+
+	createV4SwapCalldataExactIn(): never {
+		throw new Error("Unused without recipient")
+	}
+
+	createV4SwapCalldataExactOut(): never {
+		throw new Error("Unused by exact-input quote test")
+	}
+}
 
 interface ChainDef {
 	id: string

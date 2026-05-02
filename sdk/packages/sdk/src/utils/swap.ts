@@ -8,20 +8,28 @@ import {
 	encodeFunctionData,
 	erc20Abi,
 } from "viem"
-import { ADDRESS_ZERO, ChainConfigService, HexString, Transaction } from ".."
 import UniswapRouterV2 from "@/abis/uniswapRouterV2"
 import UniswapV3Quoter from "@/abis/uniswapV3Quoter"
 import { UNISWAP_V4_QUOTER_ABI } from "@/abis/uniswapV4Quoter"
 import universalRouter from "@/abis/universalRouter"
-import { UniversalRouterCommands } from "@/utils"
 import { PERMIT2_ABI } from "@/abis/permit2"
+import { ChainConfigService } from "@/configs/ChainConfigService"
+import type { HexString, Transaction } from "@/types"
+import { ADDRESS_ZERO, UniversalRouterCommands } from "@/utils"
+import { QuoteUniswapParams, QuoteUniswapResult, UniswapQuoteEngine, type UniswapProtocol } from "@/utils/uniswapQuote"
 
 const COMMON_FEE_TIERS = [100, 500, 2500, 3000, 10000]
 
 export class Swap {
 	private chainConfigService: ChainConfigService
+	private uniswapQuoteEngine: UniswapQuoteEngine
 	constructor() {
 		this.chainConfigService = new ChainConfigService()
+		this.uniswapQuoteEngine = new UniswapQuoteEngine(this, this.chainConfigService)
+	}
+
+	async quoteUniswap(params: QuoteUniswapParams): Promise<QuoteUniswapResult> {
+		return this.uniswapQuoteEngine.quote(params)
 	}
 	/**
 	 * Gets V2 quote for exact output swap.
@@ -1752,4 +1760,8 @@ export class Swap {
 				return 60 // Default to medium
 		}
 	}
+}
+
+export async function quoteUniswap(params: QuoteUniswapParams): Promise<QuoteUniswapResult> {
+	return new Swap().quoteUniswap(params)
 }

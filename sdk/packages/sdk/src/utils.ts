@@ -250,6 +250,23 @@ export function normalizeStateMachineId(stateMachineId: string): string {
 	return isHex(stateMachineId) ? hexToString(stateMachineId) : stateMachineId
 }
 
+export function normalizeEvmChainId(chainId: number | string): { chainId: number; stateMachineId: string } {
+	if (typeof chainId === "number") {
+		if (!Number.isInteger(chainId) || chainId <= 0) {
+			throw new Error(`Invalid EVM chain ID: ${chainId}. Expected a positive integer.`)
+		}
+		return { chainId, stateMachineId: `EVM-${chainId}` }
+	}
+
+	const stateMachineId = normalizeStateMachineId(chainId)
+	const { stateId } = parseStateMachineId(stateMachineId)
+	if (!stateId.Evm) {
+		throw new Error(`Unsupported chainId format: ${chainId}. Expected a number or EVM state machine ID.`)
+	}
+
+	return { chainId: stateId.Evm, stateMachineId }
+}
+
 export function encodeStateMachineId(stateMachineId: string): HexString {
 	return isHex(stateMachineId) ? (stateMachineId as HexString) : (toHex(stateMachineId) as HexString)
 }

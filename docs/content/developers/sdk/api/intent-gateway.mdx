@@ -153,6 +153,39 @@ for await (const update of gen) {
 
 ---
 
+### quoteUniswap(params)
+
+Quotes a same-chain Uniswap swap that can be used when constructing the input or output side of an intent order. The helper checks Uniswap V2, V3, and V4 by default; pass `protocols: ["v4"]` to quote Uniswap V4 only.
+
+```typescript lineNumbers
+import { quoteUniswap } from "@hyperbridge/sdk"
+
+const result = await quoteUniswap({
+  chainId: 8453,
+  tokenIn: {
+    address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    decimals: 6,
+    symbol: "USDC",
+    chainId: 8453,
+  },
+  tokenOut: {
+    address: "0x0000000000000000000000000000000000000000",
+    decimals: 18,
+    symbol: "ETH",
+    chainId: 8453,
+  },
+  amountIn: 100_000_000n,
+  tradeType: "EXACT_INPUT",
+  protocols: ["v4"],
+})
+
+console.log(result.bestQuote?.amountOut)
+```
+
+Set `recipient` to include executable transaction calldata in each quote. For exact-output swaps, use `tradeType: "EXACT_OUTPUT"` with `amountOut` instead of `amountIn`.
+
+---
+
 ### cancelOrder(order, indexerClient, options?)
 
 Async generator that cancels a placed order and streams status events until cancellation is complete. Supports both source-chain and destination-chain initiated cancellation.

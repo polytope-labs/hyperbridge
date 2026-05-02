@@ -133,7 +133,8 @@ export class OrderCanceller {
 		indexerClient: IsmpClient,
 		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		if (options.from === "destination") {
+		const isSameChain = order.source === order.destination
+		if (options.from === "destination" && !isSameChain) {
 			yield* this.cancelOrderFromDest(order, indexerClient)
 			return
 		}
@@ -364,7 +365,8 @@ export class OrderCanceller {
 	 * Async generator that cancels an order by initiating from the destination
 	 * chain and streaming status updates until the source-chain escrow is refunded.
 	 *
-	 * Throws if called with a same-chain order (use source-side cancellation instead).
+	 * Same-chain requests are handled by the top-level router and fall back to
+	 * the direct source-side cancellation path.
 	 *
 	 * **Steps:**
 	 * 1. Yields `AWAITING_CANCEL_TRANSACTION` so the caller can sign and submit
@@ -377,15 +379,10 @@ export class OrderCanceller {
 	 * @param order - The cross-chain order to cancel.
 	 * @param indexerClient - Used to stream POST request status updates.
 	 * @yields {@link CancelEvent} at each lifecycle stage.
-	 * @throws If the order is same-chain, or if the cancel transaction does not
-	 *   contain a `PostRequestEvent`.
+	 * @throws If the cancel transaction does not contain a `PostRequestEvent`.
 	 */
 	private async *cancelOrderFromDest(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
 		const orderId = order.id!
-
-		if (order.source === order.destination) {
-			throw new Error("Cannot cancel same-chain order from destination; use cancelOrder instead")
-		}
 
 		const destStateMachine = normalizeStateMachineId(order.destination)
 		const intentGatewayAddress = this.ctx.dest.configService.getIntentGatewayV2Address(destStateMachine)

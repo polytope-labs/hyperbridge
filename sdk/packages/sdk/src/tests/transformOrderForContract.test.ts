@@ -27,10 +27,10 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 }
 
 describe("transformOrderForContract", () => {
-	it("left-pads 20-byte user and session to bytes32", () => {
+	it("left-pads 20-byte user to bytes32 and preserves session address", () => {
 		const result = transformOrderForContract(makeOrder({ user: ADDR_20, session: ADDR_20 }))
 		expect(result.user).toBe(ADDR_32)
-		expect(result.session).toBe(ADDR_32)
+		expect(result.session).toBe(ADDR_20)
 	})
 
 	it("left-pads 20-byte input token to bytes32", () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { transformOrderForContract } from "@/protocols/intents/utils"
-import { encodeWithdrawalRequest } from "@/utils"
+import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
 import type { Order, HexString } from "@/types"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
@@ -103,5 +103,14 @@ describe("transformOrderForContract", () => {
 
 	it("encodes withdrawal requests with bytes32 token addresses", () => {
 		expect(() => encodeWithdrawalRequest(makeOrder({ id: NATIVE }), ADDR_20)).not.toThrow()
+	})
+
+	it("normalizes fill option output token addresses before contract encoding", () => {
+		const outputs = makeOrder().output.assets.map((asset) => ({
+			...asset,
+			token: normalizeAddressForEvmBytes32(asset.token),
+		}))
+
+		expect(outputs[0].token).toBe(ADDR_32)
 	})
 })

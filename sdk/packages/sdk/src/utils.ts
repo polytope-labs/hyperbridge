@@ -491,7 +491,10 @@ export function encodeWithdrawalRequest(order: Order | Order, beneficiary: HexSt
 			{
 				commitment: order.id as HexString,
 				beneficiary: bytes20ToBytes32(beneficiary),
-				tokens: order.inputs,
+				tokens: order.inputs.map((token) => ({
+					...token,
+					token: normalizeAddressForEvmBytes32(token.token),
+				})),
 			},
 		],
 	) as HexString

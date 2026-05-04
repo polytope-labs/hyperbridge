@@ -23,14 +23,8 @@ use sp1_beefy_verifier::{
     ConsensusState as BeefyConsensusState,
 };
 
-use handler::ismp::{Sp1BeefyConsensusClient, SolanaCpiModule};
-use polkadot_sdk::{
-    sp_core::Blake2Hasher,
-    sp_trie::{
-        empty_trie_root, recorder::Recorder, LayoutV0, MemoryDB, Trie, TrieDBBuilder,
-        TrieDBMutBuilder, TrieMut,
-    },
-};
+use handler::ismp::{state_machine_client::{KeccakMerge, MmrMembershipProof}, Sp1BeefyConsensusClient, SolanaCpiModule};
+use merkle_mountain_range::util::MemMMR;
 
 const BEFY: ConsensusClientId = *b"BEFY";
 const SOLANA_STATE_MACHINE: StateMachine = StateMachine::Substrate(*b"sola");
@@ -444,32 +438,23 @@ fn commitment_is_recoverable_via_state_machine_commitment_after_handle() {
 const SOURCE_PARA: u32 = 2000;
 const PROOF_HEIGHT: u64 = 100;
 
-/// `generate_trie_proof` produces a compact proof for `verify_trie_proof`;
-/// the on-chain verifier rebuilds a `MemoryDB` and runs `trie.get`, which
-/// needs full RLP-encoded nodes — captured here via a `Recorder`.
-fn build_single_key_proof(key: &[u8], value: &[u8]) -> ([u8; 32], Vec<u8>) {
-    type Layout = LayoutV0<Blake2Hasher>;
+/// Build a single-leaf MMR membership proof for `request`. Returns the
+/// MMR root (goes in `StateCommitment.overlay_root`) and the SCALE-
+/// encoded `MmrMembershipProof` wire bytes (go in `Proof.proof`).
+fn build_mmr_membership_proof(request: &Request) -> (H256, Vec<u8>) {
+    let leaf = hash_request::<RecordingHost>(request);
 
-    let mut db = MemoryDB::<Blake2Hasher>::default();
-    let mut root = empty_trie_root::<Layout>();
-    {
-        let mut trie = TrieDBMutBuilder::<Layout>::new(&mut db, &mut root).build();
-        trie.insert(key, value).expect("trie insert");
-    }
+    let mut mmr = MemMMR::<H256, KeccakMerge>::default();
+    let pos = mmr.push(leaf).expect("mmr push");
+    let root = mmr.get_root().expect("mmr root");
+    let proof = mmr.gen_proof(vec![pos]).expect("gen proof");
 
-    let recorder = Recorder::<Blake2Hasher>::default();
-    {
-        let mut trie_recorder = recorder.as_trie_recorder(root);
-        let trie = TrieDBBuilder::<Layout>::new(&db, &root)
-            .with_recorder(&mut trie_recorder)
-            .build();
-        let read = trie.get(key).expect("trie get").expect("value present");
-        assert_eq!(read.as_slice(), value);
-    }
-    let storage_proof = recorder.drain_storage_proof();
-    let proof_nodes: Vec<Vec<u8>> = storage_proof.into_iter_nodes().collect();
-    let wire = (key.to_vec(), proof_nodes).encode();
-    (root.0, wire)
+    let wire = MmrMembershipProof {
+        leaf_indices: vec![0],
+        items: proof.proof_items().to_vec(),
+        leaf_count: 1,
+    };
+    (root, wire.encode())
 }
 
 fn synthetic_post_request() -> PostRequest {
@@ -486,7 +471,7 @@ fn synthetic_post_request() -> PostRequest {
     }
 }
 
-fn seed_state_commitment(host: &RecordingHost, state_root: [u8; 32]) -> StateMachineHeight {
+fn seed_state_commitment(host: &RecordingHost, mmr_root: H256) -> StateMachineHeight {
     let height = StateMachineHeight {
         id: StateMachineId {
             state_id: StateMachine::Polkadot(SOURCE_PARA),
@@ -499,8 +484,8 @@ fn seed_state_commitment(host: &RecordingHost, state_root: [u8; 32]) -> StateMac
         (
             IsmpStateCommitment {
                 timestamp: host.now_unix_secs as u64,
-                overlay_root: None,
-                state_root: H256::from(state_root),
+                overlay_root: Some(mmr_root),
+                state_root: H256::zero(),
             },
             Duration::from_secs(host.now_unix_secs as u64),
         ),
@@ -510,13 +495,13 @@ fn seed_state_commitment(host: &RecordingHost, state_root: [u8; 32]) -> StateMac
 
 #[test]
 fn handle_incoming_post_request_records_receipt_and_dispatches() {
-    let (state_root, wire_proof) =
-        build_single_key_proof(b"req-storage-key", b"req-storage-value");
-    let host = RecordingHost::new(trusted_state_bytes());
-    let height = seed_state_commitment(&host, state_root);
-
     let post = synthetic_post_request();
-    let expected_commitment = hash_request::<RecordingHost>(&Request::Post(post.clone()));
+    let request = Request::Post(post.clone());
+    let (mmr_root, wire_proof) = build_mmr_membership_proof(&request);
+
+    let host = RecordingHost::new(trusted_state_bytes());
+    let height = seed_state_commitment(&host, mmr_root);
+    let expected_commitment = hash_request::<RecordingHost>(&request);
 
     let request_msg = RequestMessage {
         requests: vec![post],
@@ -533,17 +518,17 @@ fn handle_incoming_post_request_records_receipt_and_dispatches() {
 }
 
 #[test]
-fn handle_incoming_post_request_rejects_on_bad_state_root() {
-    let (good_root, wire_proof) =
-        build_single_key_proof(b"req-storage-key", b"req-storage-value");
-    let mut bogus_root = good_root;
-    bogus_root[0] ^= 0xff;
+fn handle_incoming_post_request_rejects_on_bad_mmr_root() {
+    let post = synthetic_post_request();
+    let (good_root, wire_proof) = build_mmr_membership_proof(&Request::Post(post.clone()));
+    let mut bogus = good_root.0;
+    bogus[0] ^= 0xff;
 
     let host = RecordingHost::new(trusted_state_bytes());
-    let height = seed_state_commitment(&host, bogus_root);
+    let height = seed_state_commitment(&host, H256::from(bogus));
 
     let request_msg = RequestMessage {
-        requests: vec![synthetic_post_request()],
+        requests: vec![post],
         proof: Proof { height, proof: wire_proof },
         signer: b"unit-test-relayer".to_vec(),
     };
@@ -551,22 +536,22 @@ fn handle_incoming_post_request_rejects_on_bad_state_root() {
     let err = ismp::handlers::handle_incoming_message(&host, Message::Request(request_msg))
         .unwrap_err();
     let s = format!("{err:?}").to_lowercase();
-    assert!(s.contains("membership") || s.contains("storage proof") || s.contains("verification"));
+    assert!(s.contains("membership") || s.contains("mmr"));
     assert!(host.stored_request_receipts.borrow().is_empty());
 }
 
 #[test]
 fn handle_incoming_post_request_rejects_wrong_destination() {
-    let (state_root, wire_proof) =
-        build_single_key_proof(b"req-storage-key", b"req-storage-value");
+    let post = synthetic_post_request();
+    let (mmr_root, wire_proof) = build_mmr_membership_proof(&Request::Post(post.clone()));
     let host = RecordingHost::new(trusted_state_bytes());
-    let height = seed_state_commitment(&host, state_root);
+    let height = seed_state_commitment(&host, mmr_root);
 
-    let mut post = synthetic_post_request();
-    post.dest = StateMachine::Polkadot(9999);
+    let mut bad_post = post;
+    bad_post.dest = StateMachine::Polkadot(9999);
 
     let request_msg = RequestMessage {
-        requests: vec![post],
+        requests: vec![bad_post],
         proof: Proof { height, proof: wire_proof },
         signer: b"unit-test-relayer".to_vec(),
     };

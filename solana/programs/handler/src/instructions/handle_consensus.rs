@@ -84,9 +84,9 @@ pub(crate) fn handler(ctx: Context<HandleConsensus>, p: HandleConsensusParams) -
         pre_proof.validator_set_id == p.authority_set_id,
         HandlerError::UnknownAuthoritySet
     );
-    let (header_number, _) = crate::verifier::beefy::extract_header_prefix(&header.header)?;
+    let header_digests = crate::verifier::beefy::extract_header_digests(&header.header)?;
     let para_id = header.para_id;
-    let height = header_number as u64;
+    let height = header_digests.block_number as u64;
 
     let host_cfg = &ctx.accounts.host_config;
     let consensus_state_payload = ctx.accounts.consensus_state.state.clone();

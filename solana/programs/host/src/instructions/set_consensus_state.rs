@@ -24,9 +24,16 @@ pub struct SetConsensusState<'info> {
         seeds = [HostConfig::SEED],
         bump = host_config.bump,
         constraint = !host_config.frozen @ HyperbridgeError::HostFrozen,
+        // Bootstrap is for *the* configured client, not an arbitrary id —
+        // prevents admin from scribbling unused `[b"consensus", id]` PDAs.
+        constraint = params.id == host_config.consensus_client_id
+            @ HyperbridgeError::ConsensusClientIdMismatch,
     )]
     pub host_config: Account<'info, HostConfig>,
 
+    // `init` enforces once-per-id by construction: the second call with
+    // the same id fails with AccountAlreadyInUse. Subsequent updates go
+    // through `store_consensus_state` (handler-gated, driven by proofs).
     #[account(
         init,
         payer = admin,

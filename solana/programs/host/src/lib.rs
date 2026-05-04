@@ -2,6 +2,15 @@
 //! on the configured handler's `[b"handler_authority"]` PDA signer so a
 //! verification-logic upgrade is a `set_handler` flip, not a state
 //! migration. Inbound-only.
+//!
+//! The `IsmpHost` trait impl lives in the **handler** crate, not here —
+//! see `handler::ismp::host_facade::SolanaHostFacade`. A Solana
+//! `#[program]` module isn't a Rust value with `self`, so the trait can't
+//! be implemented on it directly. The facade is built per-tx from the
+//! handler's Anchor `Context`: reads hit the PDAs directly, writes
+//! (`store_consensus_state`, `store_state_machine_commitment`,
+//! `store_request_receipt`, …) become CPIs back into this program,
+//! authenticated by the `[b"handler_authority"]` signer PDA.
 
 use anchor_lang::prelude::*;
 
@@ -71,10 +80,6 @@ pub mod host {
         params: DispatchIncomingParams,
     ) -> Result<()> {
         instructions::dispatch_incoming::handler(ctx, params)
-    }
-
-    pub fn close_expired_receipt(ctx: Context<CloseExpiredReceipt>) -> Result<()> {
-        instructions::close_expired_receipt::handler(ctx)
     }
 
     pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {

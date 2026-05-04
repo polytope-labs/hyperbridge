@@ -26,7 +26,7 @@ use sp1_beefy_verifier::{
 };
 
 use crate::verifier::beefy::{
-    extract_header_prefix, maybe_rotate_authorities, verify_and_extract_update,
+    extract_header_digests, maybe_rotate_authorities, verify_and_extract_update,
 };
 
 use super::state_machine_client::SubstrateStateMachineClient;
@@ -85,20 +85,24 @@ impl ConsensusClient for Sp1BeefyConsensusClient {
         };
 
         for (_idx, header) in header_iter {
-            let (number, state_root) = extract_header_prefix(&header.header)
-                .map_err(|e| IsmpError::Custom(format!("extract_header_prefix: {e:?}")))?;
+            let d = extract_header_digests(&header.header)
+                .map_err(|e| IsmpError::Custom(format!("extract_header_digests: {e:?}")))?;
             let id = StateMachineId {
                 state_id: StateMachine::Polkadot(header.para_id),
                 consensus_state_id,
             };
             let entry = commitments.entry(id).or_default();
+            // Mirrors EVM `Header.sol::stateCommitment`: overlay_root = mmr_root,
+            // state_root = child_trie_root. The MMR root is what
+            // `verify_membership` checks against; child_trie_root keeps the
+            // storage-trie path (`verify_state_proof`) aligned with EVM.
             entry.push(StateCommitmentHeight {
                 commitment: StateCommitment {
-                    timestamp: 0,
-                    overlay_root: None,
-                    state_root: H256::from(state_root),
+                    timestamp: d.timestamp_secs,
+                    overlay_root: Some(H256::from(d.mmr_root)),
+                    state_root: H256::from(d.child_trie_root),
                 },
-                height: number as u64,
+                height: d.block_number as u64,
             });
         }
 

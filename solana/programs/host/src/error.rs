@@ -14,12 +14,10 @@ pub enum HyperbridgeError {
     ConsensusStateTooLarge,
     #[msg("HostConfig.handler_program is unset; call set_handler first")]
     HandlerNotConfigured,
+    #[msg("set_consensus_state.id must equal HostConfig.consensus_client_id")]
+    ConsensusClientIdMismatch,
     #[msg("handler_authority signer does not match the PDA derived from HostConfig.handler_program")]
     UnauthorizedHandler,
-    #[msg("relayer_refund target does not match the receipt's recorded relayer")]
-    ReceiptRelayerMismatch,
-    #[msg("Receipt is not yet old enough to be closed (default_timeout + safety hasn't elapsed)")]
-    ReceiptNotYetExpired,
     #[msg("StateCommitment has been vetoed and cannot be used to verify proofs")]
     StateCommitmentVetoed,
     #[msg("StateCommitment is already vetoed — no-op")]

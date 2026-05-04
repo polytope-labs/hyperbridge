@@ -13,14 +13,12 @@ pub mod store_consensus_state;
 pub mod store_state_commitment;
 
 // Permissionless ops
-pub mod close_expired_receipt;
 pub mod withdraw_fees;
 
 // Glob re-exports for Anchor's `#[program]` macro: it expects each
 // instruction module's auto-generated `__client_accounts_*` to be
 // reachable at `crate::*`. Each module's `handler` is `pub(crate)` so it
 // doesn't get pulled in here, avoiding ambiguous-glob warnings.
-pub use close_expired_receipt::*;
 pub use dispatch_incoming::*;
 pub use initialize_host::*;
 pub use set_consensus_state::*;

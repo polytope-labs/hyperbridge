@@ -14,7 +14,7 @@ use sp1_beefy_verifier::{
 };
 
 use handler::verifier::beefy::{
-    extract_header_prefix, maybe_rotate_authorities, verify_and_extract_update,
+    extract_header_digests, maybe_rotate_authorities, verify_and_extract_update,
 };
 
 #[test]
@@ -37,13 +37,22 @@ fn verify_and_extract_update_accepts_real_fixture() {
     assert_eq!(update.authority_set_id, proof.validator_set_id);
     assert_eq!(update.commitments.len(), proof.headers.len());
 
-    // Each emitted commitment lines up with the corresponding header's
-    // SCALE-encoded prefix.
-    for ((para_id, num, root), header) in update.commitments.iter().zip(&proof.headers) {
-        let (h_num, h_root) = extract_header_prefix(&header.header).unwrap();
+    // Each emitted commitment matches what `extract_header_digests` pulls
+    // from the corresponding parachain header. Real fixture headers must
+    // carry both the `b"ISMP"` ConsensusDigest (mmr_root + child_trie_root)
+    // and the `b"ISTM"` TimestampDigest, otherwise extraction would fail.
+    for ((para_id, num, mmr, child, ts), header) in
+        update.commitments.iter().zip(&proof.headers)
+    {
+        let d = extract_header_digests(&header.header).unwrap();
         assert_eq!(*para_id, header.para_id);
-        assert_eq!(*num, h_num);
-        assert_eq!(*root, h_root);
+        assert_eq!(*num, d.block_number);
+        assert_eq!(*mmr, d.mmr_root);
+        assert_eq!(*child, d.child_trie_root);
+        assert_eq!(*ts, d.timestamp_secs);
+        // mmr_root is what `verify_membership` checks against — must be non-zero.
+        assert_ne!(*mmr, [0u8; 32], "mmr_root from real fixture is unexpectedly zero");
+        assert!(*ts > 0, "timestamp from real fixture is unexpectedly zero");
     }
 
     // Rotation only fires when the proof was signed by `next_authorities`.

@@ -2,7 +2,11 @@ use anchor_lang::prelude::*;
 
 /// `[b"req", commitment]` — replay guard for inbound POST requests.
 /// Anchor's `init` constraint catches duplicate `commitment` values.
-/// Closable via `close_expired_receipt` to reclaim rent after timeout.
+/// Permanent: never closed. Closing the PDA would let an attacker re-init
+/// it with the same commitment and re-dispatch the original message
+/// (the source-chain storage proof and consensus state stay valid
+/// indefinitely). EVM mirrors this — `_requestReceipts[commitment]` is
+/// only deleted on dispatch *failure* so a different relayer can retry.
 #[account]
 #[derive(InitSpace)]
 pub struct RequestReceipt {

@@ -54,26 +54,117 @@ pub fn keccak256(bytes: &[u8]) -> [u8; 32] {
     Keccak256::digest(bytes).into()
 }
 
-/// Reads `(number, state_root)` from a SCALE-encoded Substrate header
-/// (parent_hash 32B || Compact<u32> number || state_root 32B || …).
-pub fn extract_header_prefix(header: &[u8]) -> Result<(u32, [u8; 32])> {
-    require!(header.len() >= 32 + 1 + 32, HandlerError::HeaderTooShort);
+/// Header digests extracted from a parachain header. Mirrors EVM
+/// `Header.sol::stateCommitment`: `mmr_root` becomes `overlay_root`,
+/// `child_trie_root` becomes `state_root` on the resulting `StateCommitment`.
+pub struct HeaderDigests {
+    pub block_number: u32,
+    pub mmr_root: [u8; 32],
+    pub child_trie_root: [u8; 32],
+    pub timestamp_secs: u64,
+}
+
+/// Walks a SCALE-encoded Substrate parachain header and pulls out the
+/// pallet-ismp `ConsensusDigest` (engine_id `b"ISMP"`) and `TimestampDigest`
+/// (engine_id `b"ISTM"`).
+///
+/// Header layout (matches `sp_runtime::generic::Header<u32, BlakeTwo256>`):
+/// ```text
+/// parent_hash       32B
+/// Compact<u32>      block number
+/// state_root        32B
+/// extrinsics_root   32B
+/// digest = Compact<u32> length || [DigestItem]*
+/// ```
+///
+/// `DigestItem` SCALE variant tags (see `sp_runtime::generic::DigestItem`):
+/// `0` Other (Vec<u8>) — `4` Consensus ([u8;4] id || Vec<u8>) —
+/// `5` Seal — `6` PreRuntime — `7` RuntimeEnvironmentUpdated.
+pub fn extract_header_digests(header: &[u8]) -> Result<HeaderDigests> {
+    // 32 (parent_hash) + ≥1 (compact number) + 32 (state_root) + 32 (extrinsics_root)
+    // + ≥1 (compact digest length).
+    require!(header.len() >= 32 + 1 + 32 + 32 + 1, HandlerError::HeaderTooShort);
 
     let mut input: &[u8] = &header[32..];
-    let number = Compact::<u32>::decode(&mut input)
+    let block_number = Compact::<u32>::decode(&mut input)
         .map_err(|_| error!(HandlerError::HeaderDecodeFailed))?
         .0;
-    require!(input.len() >= 32, HandlerError::HeaderTooShort);
+    require!(input.len() >= 64, HandlerError::HeaderTooShort);
+    // Skip parachain-side state_root and extrinsics_root — we replace both
+    // with the values from the ISMP digest below to match EVM Header.sol.
+    input = &input[64..];
 
-    let mut state_root = [0u8; 32];
-    state_root.copy_from_slice(&input[..32]);
-    Ok((number, state_root))
+    let n_digests = Compact::<u32>::decode(&mut input)
+        .map_err(|_| error!(HandlerError::HeaderDecodeFailed))?
+        .0;
+
+    let mut mmr_root: Option<[u8; 32]> = None;
+    let mut child_trie_root: Option<[u8; 32]> = None;
+    let mut timestamp_secs: Option<u64> = None;
+
+    for _ in 0..n_digests {
+        require!(!input.is_empty(), HandlerError::HeaderDecodeFailed);
+        let variant = input[0];
+        input = &input[1..];
+
+        match variant {
+            // Consensus(engine_id, data)
+            4 => {
+                require!(input.len() >= 4, HandlerError::HeaderDecodeFailed);
+                let mut engine_id = [0u8; 4];
+                engine_id.copy_from_slice(&input[..4]);
+                input = &input[4..];
+                let data = Vec::<u8>::decode(&mut input)
+                    .map_err(|_| error!(HandlerError::HeaderDecodeFailed))?;
+
+                if engine_id == *b"ISMP" {
+                    require!(data.len() >= 64, HandlerError::HeaderDecodeFailed);
+                    let mut m = [0u8; 32];
+                    let mut c = [0u8; 32];
+                    m.copy_from_slice(&data[..32]);
+                    c.copy_from_slice(&data[32..64]);
+                    mmr_root = Some(m);
+                    child_trie_root = Some(c);
+                } else if engine_id == *b"ISTM" {
+                    let mut bytes = data.as_slice();
+                    let ts = u64::decode(&mut bytes)
+                        .map_err(|_| error!(HandlerError::HeaderDecodeFailed))?;
+                    timestamp_secs = Some(ts);
+                }
+            },
+            // Other(Vec<u8>)
+            0 => {
+                let _ = Vec::<u8>::decode(&mut input)
+                    .map_err(|_| error!(HandlerError::HeaderDecodeFailed))?;
+            },
+            // Seal([u8;4], Vec<u8>) | PreRuntime([u8;4], Vec<u8>)
+            5 | 6 => {
+                require!(input.len() >= 4, HandlerError::HeaderDecodeFailed);
+                input = &input[4..];
+                let _ = Vec::<u8>::decode(&mut input)
+                    .map_err(|_| error!(HandlerError::HeaderDecodeFailed))?;
+            },
+            // RuntimeEnvironmentUpdated — no payload
+            7 => {},
+            _ => return err!(HandlerError::HeaderDecodeFailed),
+        }
+    }
+
+    Ok(HeaderDigests {
+        block_number,
+        mmr_root: mmr_root.ok_or(error!(HandlerError::IsmpDigestMissing))?,
+        child_trie_root: child_trie_root.ok_or(error!(HandlerError::IsmpDigestMissing))?,
+        timestamp_secs: timestamp_secs.ok_or(error!(HandlerError::TimestampDigestMissing))?,
+    })
 }
 
 pub struct ConsensusUpdate {
     pub new_height: u32,
-    /// `(state_machine, block_number, state_root)` per parachain header.
-    pub commitments: Vec<(u32, u32, [u8; 32])>,
+    /// One entry per parachain header: `(para_id, block_number, mmr_root,
+    /// child_trie_root, timestamp_secs)`. The persisted `StateCommitment`
+    /// puts `mmr_root` in `overlay_root` and `child_trie_root` in
+    /// `state_root`, mirroring EVM `Header.sol::stateCommitment`.
+    pub commitments: Vec<(u32, u32, [u8; 32], [u8; 32], u64)>,
     pub authority_set_id: u64,
 }
 
@@ -123,8 +214,8 @@ pub fn verify_and_extract_update(
 
     let mut commitments = Vec::with_capacity(proof.headers.len());
     for h in &proof.headers {
-        let (number, state_root) = extract_header_prefix(&h.header)?;
-        commitments.push((h.para_id, number, state_root));
+        let d = extract_header_digests(&h.header)?;
+        commitments.push((h.para_id, d.block_number, d.mmr_root, d.child_trie_root, d.timestamp_secs));
     }
 
     Ok(ConsensusUpdate {
@@ -147,30 +238,93 @@ mod tests {
     use super::*;
     use parity_scale_codec::Encode;
 
-    #[test]
-    fn header_prefix_decodes_compact_block_number_and_state_root() {
-        let parent_hash = [0xaau8; 32];
-        let block_number: u32 = 30_701_354;
-        let state_root = [0xbbu8; 32];
-        let extrinsics_root = [0xccu8; 32];
-
+    fn build_test_header(
+        block_number: u32,
+        ismp_payload: Option<(&[u8; 32], &[u8; 32])>,
+        timestamp: Option<u64>,
+        extra_digests: &[(u8, &[u8])],
+    ) -> Vec<u8> {
         let mut bytes = Vec::new();
-        bytes.extend_from_slice(&parent_hash);
+        bytes.extend_from_slice(&[0xaau8; 32]); // parent_hash
         bytes.extend_from_slice(&Compact(block_number).encode());
-        bytes.extend_from_slice(&state_root);
-        bytes.extend_from_slice(&extrinsics_root);
-        bytes.extend_from_slice(&[0u8]); // empty digest
+        bytes.extend_from_slice(&[0xbbu8; 32]); // (parachain) state_root — discarded by extractor
+        bytes.extend_from_slice(&[0xccu8; 32]); // extrinsics_root
 
-        let (n, root) = extract_header_prefix(&bytes).unwrap();
-        assert_eq!(n, block_number);
-        assert_eq!(root, state_root);
+        let mut digest_count: u32 = extra_digests.len() as u32;
+        if ismp_payload.is_some() { digest_count += 1; }
+        if timestamp.is_some() { digest_count += 1; }
+        bytes.extend_from_slice(&Compact(digest_count).encode());
+
+        if let Some((mmr, child)) = ismp_payload {
+            bytes.push(4); // Consensus
+            bytes.extend_from_slice(b"ISMP");
+            let mut data = Vec::with_capacity(64);
+            data.extend_from_slice(mmr);
+            data.extend_from_slice(child);
+            bytes.extend_from_slice(&data.encode());
+        }
+        if let Some(ts) = timestamp {
+            bytes.push(4);
+            bytes.extend_from_slice(b"ISTM");
+            bytes.extend_from_slice(&ts.encode().encode());
+        }
+        for (variant, payload) in extra_digests {
+            bytes.push(*variant);
+            bytes.extend_from_slice(payload);
+        }
+        bytes
     }
 
     #[test]
-    fn header_prefix_rejects_short_input() {
-        // 32 + 1 + 31 — short of state_root.
-        let too_short = vec![0u8; 32 + 1 + 31];
-        assert!(extract_header_prefix(&too_short).is_err());
+    fn extract_header_digests_pulls_ismp_and_istm_payloads() {
+        let mmr = [0x11u8; 32];
+        let child = [0x22u8; 32];
+        let ts: u64 = 1_700_000_000;
+        let header = build_test_header(30_701_354, Some((&mmr, &child)), Some(ts), &[]);
+
+        let d = extract_header_digests(&header).unwrap();
+        assert_eq!(d.block_number, 30_701_354);
+        assert_eq!(d.mmr_root, mmr);
+        assert_eq!(d.child_trie_root, child);
+        assert_eq!(d.timestamp_secs, ts);
+    }
+
+    #[test]
+    fn extract_header_digests_skips_unrelated_consensus_digests() {
+        let mmr = [0x11u8; 32];
+        let child = [0x22u8; 32];
+        let ts: u64 = 42;
+        // A foreign Consensus digest with engine_id "aura" + a Seal digest
+        // before the ISMP one — the walker must skip both cleanly.
+        let mut aura_consensus = Vec::new();
+        aura_consensus.extend_from_slice(b"aura");
+        aura_consensus.extend_from_slice(&Vec::<u8>::from([9u8; 16].as_slice()).encode());
+        let mut seal = Vec::new();
+        seal.extend_from_slice(b"BABE");
+        seal.extend_from_slice(&Vec::<u8>::from([7u8; 8].as_slice()).encode());
+
+        let header = build_test_header(
+            1,
+            Some((&mmr, &child)),
+            Some(ts),
+            &[(4, &aura_consensus), (5, &seal)],
+        );
+
+        let d = extract_header_digests(&header).unwrap();
+        assert_eq!(d.mmr_root, mmr);
+        assert_eq!(d.timestamp_secs, ts);
+    }
+
+    #[test]
+    fn extract_header_digests_rejects_when_ismp_missing() {
+        let header = build_test_header(1, None, Some(0), &[]);
+        assert!(extract_header_digests(&header).is_err());
+    }
+
+    #[test]
+    fn extract_header_digests_rejects_when_timestamp_missing() {
+        let header = build_test_header(1, Some((&[0u8; 32], &[0u8; 32])), None, &[]);
+        assert!(extract_header_digests(&header).is_err());
     }
 
     #[test]

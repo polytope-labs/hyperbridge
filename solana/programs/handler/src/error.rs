@@ -18,6 +18,10 @@ pub enum HandlerError {
     HeaderTooShort,
     #[msg("Failed to SCALE-decode a field in the Substrate header prefix")]
     HeaderDecodeFailed,
+    #[msg("Parachain header is missing the pallet-ismp ConsensusDigest (engine_id=ISMP)")]
+    IsmpDigestMissing,
+    #[msg("Parachain header is missing the pallet-ismp TimestampDigest (engine_id=ISTM)")]
+    TimestampDigestMissing,
     #[msg("This proof contains no parachain headers — nothing to commit")]
     NoHeadersInProof,
     #[msg("commit_header_index is out of range for this proof's headers")]

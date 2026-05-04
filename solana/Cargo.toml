@@ -18,6 +18,7 @@ sha3 = "0.10.8"
 tokio = { version = "1.40", features = ["full"] }
 hex = "0.4.3"
 parity-scale-codec = { version = "3.6", default-features = false, features = ["derive"] }
+merkle-mountain-range = { package = "ckb-merkle-mountain-range", version = "0.5.2", default-features = false }
 alloy-sol-types = "0.8"
 alloy-primitives = "0.8"
 groth16-solana = "0.2.0"

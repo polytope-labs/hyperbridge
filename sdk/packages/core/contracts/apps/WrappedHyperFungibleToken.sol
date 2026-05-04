@@ -143,6 +143,31 @@ abstract contract WrappedHyperFungibleToken is HyperApp, Ownable, Pausable {
     }
 
     /**
+     * @notice Returns the CallDispatcher address
+     * @return The dispatcher contract address
+     */
+    function dispatcher() public view returns (address) {
+        return _dispatcher;
+    }
+
+    /**
+     * @notice Returns whether the underlying token is WETH
+     * @return True if the underlying token is WETH
+     */
+    function isWeth() public view returns (bool) {
+        return _isWeth;
+    }
+
+    /**
+     * @notice Returns the wrapper contract address for a given chain
+     * @param chainId The chain identifier
+     * @return The address of the wrapper contract on the specified chain
+     */
+    function supportedChain(bytes calldata chainId) public view returns (address) {
+        return _supportedChains[chainId];
+    }
+
+    /**
      * @notice Configures the host, dispatcher, and underlying token addresses
      * @dev Only callable by the contract owner
      * @param options The configuration parameters

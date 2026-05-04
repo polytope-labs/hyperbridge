@@ -31,6 +31,7 @@ import {
     Origin
 } from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroEndpointV2.sol";
 import {ILayerZeroReceiver} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroReceiver.sol";
+import {ILayerZeroComposer} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/ILayerZeroComposer.sol";
 import {SetConfigParam} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/IMessageLibManager.sol";
 
 /**
@@ -55,6 +56,9 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     /// @notice Thrown when an inbound nonce is out of order
     error InvalidNonce(uint64 expected, uint64 got);
 
+    /// @notice Thrown when a compose message doesn't match the queued hash
+    error InvalidCompose();
+
     /// @notice Address of the ISMP host contract
     address internal _host;
 
@@ -78,6 +82,18 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
 
     /// @notice Default relayer fee used when no per-destination fee is configured
     uint256 internal _defaultRelayerFee;
+
+    /// @notice Compose message queue: keccak256(from, to, guid, index) => keccak256(message)
+    mapping(bytes32 => bytes32) internal _composeQueue;
+
+    /// @notice Whether we are currently inside a send() call
+    bool internal _sending;
+
+    /// @notice Destination eid for the current send operation
+    uint32 internal _sendDstEid;
+
+    /// @notice Sender address for the current send operation
+    address internal _sendSender;
 
     constructor() Ownable(msg.sender) {}
 
@@ -140,6 +156,32 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     }
 
     /**
+     * @notice Returns the ISMP state machine identifier for a given LZ endpoint ID
+     * @param lzEid The LayerZero endpoint ID
+     * @return The ISMP state machine identifier
+     */
+    function eidMapping(uint32 lzEid) public view returns (bytes memory) {
+        return _eidToStateMachine[lzEid];
+    }
+
+    /**
+     * @notice Returns the LZ endpoint ID for a given ISMP state machine identifier
+     * @param stateMachineId The ISMP state machine identifier
+     * @return The LZ endpoint ID (0 if not configured)
+     */
+    function eidFor(bytes calldata stateMachineId) public view returns (uint32) {
+        return _stateMachineToEid[keccak256(stateMachineId)];
+    }
+
+    /**
+     * @notice Returns the default relayer fee
+     * @return The default relayer fee in feeToken units
+     */
+    function defaultRelayerFee() public view returns (uint256) {
+        return _defaultRelayerFee;
+    }
+
+    /**
      * @notice Pauses all cross-chain operations (send and receive)
      * @dev Only callable by the contract owner
      */
@@ -183,6 +225,11 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
             _params.message
         );
 
+        // Set send context
+        _sending = true;
+        _sendDstEid = _params.dstEid;
+        _sendSender = msg.sender;
+
         DispatchPost memory request = DispatchPost({
             dest: dest,
             to: abi.encodePacked(address(this)),
@@ -198,6 +245,11 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
             // Fee tokens already transferred to this contract by OFT's _payLzToken
             dispatchWithFeeToken(request, address(this));
         }
+
+        // Clear send context
+        _sending = false;
+        _sendDstEid = 0;
+        _sendSender = address(0);
 
         return MessagingReceipt({
             guid: guid,
@@ -305,7 +357,7 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
 
     /// @inheritdoc ILayerZeroEndpointV2
     function verifiable(Origin calldata, address) external pure override returns (bool) {
-        return false;
+        return true;
     }
 
     /// @inheritdoc ILayerZeroEndpointV2
@@ -385,22 +437,74 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
 
     // ==================== IMessagingComposer ====================
 
-    function composeQueue(address, address, bytes32, uint16) external pure override returns (bytes32) {
-        return bytes32(0);
+    /**
+     * @notice Returns the hash of a queued compose message
+     * @param _from The OApp that initiated the compose
+     * @param _to The target ILayerZeroComposer
+     * @param _guid The message guid
+     * @param _index The compose message index
+     * @return messageHash The keccak256 hash of the queued message, or bytes32(0) if not queued
+     */
+    function composeQueue(
+        address _from,
+        address _to,
+        bytes32 _guid,
+        uint16 _index
+    ) external view override returns (bytes32) {
+        return _composeQueue[keccak256(abi.encodePacked(_from, _to, _guid, _index))];
     }
 
-    function sendCompose(address, bytes32, uint16, bytes calldata) external pure override {}
+    /**
+     * @notice Queues a compose message for later execution via lzCompose
+     * @dev Called by OApps during lzReceive. Stores the message hash for verification.
+     * @param _to The address of the ILayerZeroComposer to receive the compose call
+     * @param _guid The unique identifier of the message
+     * @param _index The index of the composed message
+     * @param _message The composed message payload
+     */
+    function sendCompose(address _to, bytes32 _guid, uint16 _index, bytes calldata _message) external override {
+        bytes32 key = keccak256(abi.encodePacked(msg.sender, _to, _guid, _index));
+        _composeQueue[key] = keccak256(_message);
+        emit ComposeSent(msg.sender, _to, _guid, _index, _message);
+    }
 
-    function lzCompose(address, address, bytes32, uint16, bytes calldata, bytes calldata) external payable override {}
+    /**
+     * @notice Executes a queued compose message
+     * @dev Can be called by anyone (typically a relayer/executor). Verifies the message
+     * hash matches the queue, deletes it, then calls lzCompose on the target composer.
+     * @param _from The OApp that initiated the compose
+     * @param _to The target ILayerZeroComposer
+     * @param _guid The message guid
+     * @param _index The compose message index
+     * @param _message The composed message payload (must match the queued hash)
+     * @param _extraData Additional data passed to the composer
+     */
+    function lzCompose(
+        address _from,
+        address _to,
+        bytes32 _guid,
+        uint16 _index,
+        bytes calldata _message,
+        bytes calldata _extraData
+    ) external payable override {
+        bytes32 key = keccak256(abi.encodePacked(_from, _to, _guid, _index));
+        bytes32 expectedHash = _composeQueue[key];
+        if (expectedHash == bytes32(0) || expectedHash != keccak256(_message)) revert InvalidCompose();
+
+        delete _composeQueue[key];
+
+        ILayerZeroComposer(_to).lzCompose{value: msg.value}(_from, _guid, _message, msg.sender, _extraData);
+        emit ComposeDelivered(_from, _to, _guid, _index);
+    }
 
     // ==================== IMessagingContext ====================
 
-    function isSendingMessage() external pure override returns (bool) {
-        return false;
+    function isSendingMessage() external view override returns (bool) {
+        return _sending;
     }
 
-    function getSendContext() external pure override returns (uint32, address) {
-        return (0, address(0));
+    function getSendContext() external view override returns (uint32, address) {
+        return (_sendDstEid, _sendSender);
     }
 
     // ==================== IMessageLibManager (stubs) ====================

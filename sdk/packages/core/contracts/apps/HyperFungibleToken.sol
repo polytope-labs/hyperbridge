@@ -156,6 +156,23 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     }
 
     /**
+     * @notice Returns the CallDispatcher address
+     * @return The dispatcher contract address
+     */
+    function dispatcher() public view returns (address) {
+        return _dispatcher;
+    }
+
+    /**
+     * @notice Returns the token contract address for a given chain
+     * @param chainId The chain identifier
+     * @return The address of the token contract on the specified chain
+     */
+    function supportedChain(bytes calldata chainId) public view returns (address) {
+        return _supportedChains[chainId];
+    }
+
+    /**
      * @notice Configures the host and dispatcher addresses
      * @dev Only callable by the contract owner
      * @param options The configuration parameters containing host and dispatcher addresses

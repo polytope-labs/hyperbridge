@@ -769,10 +769,12 @@ parameter_types! {
 	/// Unbonding period handed to `pallet-ismp` on first `initialize_state` (21 days in
 	/// seconds), aligning with other BEEFY clients in the runtime.
 	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
-	/// Maximum SCALE-encoded size of a `SubmitProofPayload`.
+	/// Maximum size in bytes of a single proof passed to `submit_proof`.
 	pub const MaxBeefyProofSize: u32 = 1_048_576;
 	/// Per-bucket ring-buffer size for `MessagingProofs` and `RotationProofs`.
 	pub const MaxStoredBeefyProofs: u32 = 512;
+	/// Maximum number of unique provers rewarded per BEEFY block (first + uncles).
+	pub const MaxBeefyUncleProvers: u32 = 5;
 }
 
 parameter_types! {
@@ -791,6 +793,7 @@ impl pallet_beefy_consensus_proofs::Config for Runtime {
 	type ConsensusStateId = BeefyConsensusStateId;
 	type UnbondingPeriod = BeefyUnbondingPeriod;
 	type AllowedProofTypes = AllowedBeefyProofTypes;
+	type MaxUncleProvers = MaxBeefyUncleProvers;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }

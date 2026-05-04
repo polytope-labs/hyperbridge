@@ -23,7 +23,7 @@
 
 extern crate alloc;
 
-mod error;
+pub mod error;
 pub mod sp1;
 #[cfg(test)]
 mod test;

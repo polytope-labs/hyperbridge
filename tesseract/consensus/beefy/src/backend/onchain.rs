@@ -16,39 +16,36 @@
 //!
 //! Instead of queuing proofs for a separate host process, this backend submits proofs
 //! directly to the `pallet-beefy-consensus-proofs` on the hyperbridge parachain via
-//! unsigned extrinsics.
+//! signed extrinsics. The signer is the reward payee.
 
 use super::{ConsensusProof, ProofBackend, QueueMessage, StreamMessage};
 use alloy_sol_types::SolType;
 use anyhow::anyhow;
 use beefy_verifier_primitives::ConsensusState;
-use codec::{Decode, Encode};
+use codec::Decode;
 use futures::Stream;
-use ismp::{
-	consensus::{ConsensusStateId, StateMachineId},
-	host::StateMachine,
-};
-use pallet_beefy_consensus_proofs::types::SIGNATURE_DOMAIN;
+use ismp::{consensus::StateMachineId, host::StateMachine};
 use polkadot_sdk::*;
-use sp_core::{sr25519, Pair};
+use sp_core::sr25519;
 use sp_runtime::{generic::Header, traits::Header as _};
 use std::{pin::Pin, sync::Arc};
 use subxt::{
+	config::ExtrinsicParams,
 	dynamic::Value,
 	ext::subxt_rpcs::{rpc_params, RpcClient},
-	utils::MultiSignature,
+	tx::DefaultParams,
+	utils::{AccountId32, MultiSignature},
 	OnlineClient,
 };
-use tesseract_substrate::extrinsic::send_unsigned_extrinsic;
+use subxt_utils::{send_extrinsic, InMemorySigner};
 use tokio::sync::RwLock;
 
 /// Proof backend that submits proofs directly to `pallet-beefy-consensus-proofs`
 /// on the hyperbridge parachain.
 ///
 /// When `send_mandatory_proof` or `send_messages_proof` is called, this backend
-/// constructs a `SubmitProofPayload`, signs it with SR25519, and submits the
-/// unsigned extrinsic directly to the chain. The pallet handles verification,
-/// consensus state updates, and reward distribution.
+/// signs and submits a `BeefyConsensusProofs::submit_proof` extrinsic carrying
+/// the raw proof bytes. The signer is the reward payee.
 ///
 /// The host-side methods (`receive_*`, `queue_notifications`, `delete_message`)
 /// are no-ops since the pallet processes proofs inline — there is no intermediate
@@ -81,35 +78,22 @@ impl<P> OnchainBackend<P>
 where
 	P: subxt::Config + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 {
-	/// Submit a consensus proof to `pallet-beefy-consensus-proofs::submit_proof`.
+	/// Submit a consensus proof to `pallet-beefy-consensus-proofs::submit_proof` as a
+	/// signed extrinsic. The signer becomes the reward payee.
 	async fn submit_to_pallet(&self, proof: &ConsensusProof) -> Result<(), anyhow::Error> {
 		let proof_bytes = proof.message.consensus_proof.clone();
-		let submitter_bytes: [u8; 32] = self.signer.public().0;
 
-		// Sign: keccak256((SIGNATURE_DOMAIN, submitter, keccak256(proof)).encode())
-		let proof_digest = sp_core::hashing::keccak_256(&proof_bytes);
-		let msg_preimage = (SIGNATURE_DOMAIN, submitter_bytes, proof_digest).encode();
-		let signed_msg = sp_core::hashing::keccak_256(&msg_preimage);
-		let signature = self.signer.sign(&signed_msg);
+		let payload_value = Value::from_bytes(proof_bytes.clone());
+		let tx = subxt::dynamic::tx("BeefyConsensusProofs", "submit_proof", vec![payload_value]);
 
-		// Construct the dynamic extrinsic
-		let payload_value = Value::named_composite([
-			("submitter", Value::from_bytes(submitter_bytes)),
-			("proof", Value::from_bytes(proof_bytes.clone())),
-		]);
-		let signature_value = Value::from_bytes(signature.0);
-
-		let tx = subxt::dynamic::tx(
-			"BeefyConsensusProofs",
-			"submit_proof",
-			vec![payload_value, signature_value],
-		);
-
-		let result = send_unsigned_extrinsic(&self.client, tx, false).await;
+		let signer = InMemorySigner::<P>::new(self.signer.clone());
+		let result = send_extrinsic(&self.client, &signer, &tx, None).await;
 
 		// Wait one block so that load_state() on the next iteration sees the
-		// updated LastProvenHeight written by the pallet in the previous block.
+		// state advance written by the pallet in the previous block.
 		let mut blocks = self.client.blocks().subscribe_best().await?;
 		let _ = blocks.next().await;
 
@@ -152,6 +136,8 @@ impl<P> ProofBackend for OnchainBackend<P>
 where
 	P: subxt::Config + Send + Sync,
 	P::Signature: From<MultiSignature> + Send + Sync,
+	P::AccountId: From<AccountId32> + Into<P::Address> + Clone + 'static + Send + Sync,
+	<P::ExtrinsicParams as ExtrinsicParams<P>>::Params: Send + Sync + DefaultParams,
 {
 	async fn init_queues(&self, _state_machines: &[StateMachine]) -> Result<(), anyhow::Error> {
 		// No queues needed — proofs are submitted directly to the pallet.

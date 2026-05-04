@@ -32,6 +32,8 @@ pub trait WeightInfo {
 	fn set_proof_reward() -> Weight;
 	/// Weight of `set_sp1_vkey_hash`.
 	fn set_sp1_vkey_hash() -> Weight;
+	/// Weight of `set_reward_curve`.
+	fn set_reward_curve() -> Weight;
 }
 
 /// No-op [`WeightInfo`] for tests and genesis bootstrap.
@@ -46,6 +48,9 @@ impl WeightInfo for () {
 		Weight::zero()
 	}
 	fn set_sp1_vkey_hash() -> Weight {
+		Weight::zero()
+	}
+	fn set_reward_curve() -> Weight {
 		Weight::zero()
 	}
 }

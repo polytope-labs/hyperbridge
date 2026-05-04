@@ -13,7 +13,6 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -23,75 +22,51 @@ import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
 import {IncomingPostRequest} from "../interfaces/IApp.sol";
 import {ICallDispatcher} from "../interfaces/ICallDispatcher.sol";
+import {IWETH} from "../interfaces/IWETH.sol";
 import {HyperApp} from "./HyperApp.sol";
+import {HyperFungibleToken} from "./HyperFungibleToken.sol";
+
 
 /**
- * @title HyperFungibleToken
+ * @title WrappedHyperFungibleToken
  * @author Polytope Labs (hello@polytope.technology)
- * @notice Abstract base contract for cross-chain fungible tokens. Each token deployment
- * is its own bridge application — no shared custody pool. Burns tokens on the source
- * chain and mints on the destination chain.
+ * @notice Abstract base contract for wrapping existing ERC20 tokens for cross-chain transfers.
+ * Locks the underlying token on the source chain and mints/unlocks on the destination chain.
  *
- * @dev Inherits ERC20 for token logic, HyperApp for cross-chain message handling,
- * and Ownable for chain configuration. The owner configures which chains this token can
- * communicate with and the address of the corresponding deployment on each chain.
+ * @dev Inherits HyperApp for cross-chain message handling and Ownable for configuration.
+ * The owner configures which chains this wrapper can communicate with, the address of the
+ * corresponding deployment on each chain, and the underlying ERC20 token.
+ *
+ * Also supports native token wrapping: if `msg.value >= params.amount` during send, the
+ * contract wraps the native token by treating the underlying ERC20 as WETH. This reverts
+ * naturally if the underlying is not a WETH contract.
  *
  * Supports optional calldata execution on the destination chain via CallDispatcher,
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
-abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
+abstract contract WrappedHyperFungibleToken is HyperApp, Ownable, Pausable {
     /**
-     * @title SendParams
-     * @notice Parameters for initiating a cross-chain token transfer
+     * @title WrappedConfigOptions
+     * @notice Configuration parameters for WrappedHyperFungibleToken
      */
-    struct SendParams {
-        /// @notice Destination chain identifier (e.g., StateMachine.evm(1))
-        bytes dest;
-        /// @notice Recipient account on the destination chain
-        bytes to;
-        /// @notice Amount of tokens to send
-        uint256 amount;
-        /// @notice Timeout duration in seconds for the cross-chain message
-        uint64 timeout;
-        /// @notice Fee paid to relayers for message delivery
-        uint256 relayerFee;
-        /**
-         * @notice Optional calldata to execute on the destination chain via CallDispatcher.
-         * Should be an abi-encoded Call[] array.
-         */
-        bytes data;
-    }
-
-    /**
-     * @title ConfigOptions
-     * @notice Configuration parameters for HyperFungibleToken
-     */
-    struct ConfigOptions {
+    struct WrappedConfigOptions {
         /// @notice Address of the ISMP host contract on this chain
         address host;
         /// @notice Address of the CallDispatcher contract for executing calldata on receive
         address dispatcher;
-    }
-
-    /**
-     * @title Message
-     * @notice The cross-chain message body for token transfers
-     */
-    struct Message {
-        /// @notice The original sender on the source chain (used for timeout refunds)
-        bytes from;
-        /// @notice The recipient on the destination chain
-        bytes to;
-        /// @notice The amount of tokens being transferred
-        uint256 amount;
-        /// @notice Optional calldata to execute on the destination chain via CallDispatcher
-        bytes data;
+        /// @notice Address of the underlying ERC20 token to wrap
+        address underlying;
+        /// @notice Whether the underlying token is WETH (enables native ETH refunds on timeout)
+        bool isWeth;
     }
 
     using SafeERC20 for IERC20;
 
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
+
+    /// @notice Thrown when a native ETH transfer fails during timeout refund
+    error TransferFailed();
 
     /// @notice Thrown when attempting to send to or receive from an unconfigured chain
     error UnsupportedChain();
@@ -108,14 +83,20 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     /// @notice Address of the CallDispatcher contract for executing destination calldata
     address internal _dispatcher;
 
+    /// @notice The underlying ERC20 token being wrapped for cross-chain transfers
+    address internal _underlying;
+
+    /// @notice Whether the underlying token is WETH
+    bool internal _isWeth;
+
     /**
-     * @notice Maps chain identifiers to the address of the token contract on that chain.
+     * @notice Maps chain identifiers to the address of the wrapper contract on that chain.
      * A zero address means the chain is not supported.
      */
     mapping(bytes => address) internal _supportedChains;
 
     /**
-     * @notice Emitted when tokens are burned and a cross-chain transfer is dispatched
+     * @notice Emitted when tokens are locked and a cross-chain transfer is dispatched
      * @param from The sender on the source chain
      * @param to The recipient on the destination chain
      * @param dest The destination chain identifier
@@ -125,11 +106,11 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     event Sent(bytes from, bytes to, bytes dest, uint256 amount, bytes32 commitment);
 
     /**
-     * @notice Emitted when tokens are minted from an incoming cross-chain transfer
+     * @notice Emitted when tokens are unlocked from an incoming cross-chain transfer
      * @param from The original sender on the source chain
      * @param to The recipient on this chain
      * @param source The source chain identifier
-     * @param amount The amount of tokens minted
+     * @param amount The amount of tokens unlocked
      */
     event Received(bytes from, bytes to, bytes source, uint256 amount);
 
@@ -141,11 +122,9 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     event Refunded(address to, uint256 amount);
 
     /**
-     * @notice Initializes the token with a name, symbol, and sets the deployer as owner
-     * @param name The name of the token
-     * @param symbol The symbol of the token
+     * @notice Initializes the contract and sets the deployer as owner
      */
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) {}
 
     /**
      * @notice Returns the ISMP host address for this chain
@@ -156,23 +135,33 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     }
 
     /**
-     * @notice Configures the host and dispatcher addresses
-     * @dev Only callable by the contract owner
-     * @param options The configuration parameters containing host and dispatcher addresses
+     * @notice Returns the address of the underlying ERC20 token
+     * @return The underlying token address
      */
-    function configure(ConfigOptions calldata options) external onlyOwner {
-        _host = options.host;
-        _dispatcher = options.dispatcher;
+    function underlying() public view returns (address) {
+        return _underlying;
     }
 
     /**
-     * @notice Registers a supported chain and its corresponding token contract address
-     * @dev Only callable by the contract owner. The address is the token contract on that chain.
-     * @param chainId The chain identifier (e.g., StateMachine.evm(1))
-     * @param token The address of the token contract on the specified chain
+     * @notice Configures the host, dispatcher, and underlying token addresses
+     * @dev Only callable by the contract owner
+     * @param options The configuration parameters
      */
-    function addChain(bytes calldata chainId, address token) external onlyOwner {
-        _supportedChains[chainId] = token;
+    function configure(WrappedConfigOptions calldata options) external onlyOwner {
+        _host = options.host;
+        _dispatcher = options.dispatcher;
+        _underlying = options.underlying;
+        _isWeth = options.isWeth;
+    }
+
+    /**
+     * @notice Registers a supported chain and its corresponding wrapper contract address
+     * @dev Only callable by the contract owner
+     * @param chainId The chain identifier (e.g., StateMachine.evm(1))
+     * @param contractAddress The address of the wrapper contract on the specified chain
+     */
+    function addChain(bytes calldata chainId, address contractAddress) external onlyOwner {
+        _supportedChains[chainId] = contractAddress;
     }
 
     /**
@@ -201,24 +190,36 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     }
 
     /**
-     * @notice Burns tokens and dispatches a cross-chain transfer message
-     * @dev Burns `params.amount` from the caller and sends an ISMP POST request to the
-     * destination chain. Fees can be paid in native tokens (via msg.value) or in the
-     * host's fee token (pulled from msg.sender).
+     * @notice Locks underlying tokens and dispatches a cross-chain transfer message
+     * @dev If `msg.value >= params.amount`, wraps native tokens via the underlying's WETH
+     * deposit function (reverts if the underlying is not WETH). The remainder of msg.value
+     * after wrapping is forwarded as native payment for dispatch fees.
+     *
+     * If `msg.value < params.amount`, locks ERC20 tokens via safeTransferFrom and pays
+     * dispatch fees in the host's fee token (pulled from msg.sender).
+     *
      * @param params The send parameters including destination, recipient, amount, and optional calldata
      */
-    function send(SendParams calldata params) external payable whenNotPaused {
+    function send(HyperFungibleToken.SendParams calldata params) external payable whenNotPaused {
         address dest = _supportedChains[params.dest];
         if (dest == address(0)) revert UnsupportedChain();
-        _burn(msg.sender, params.amount);
+
+        uint256 msgValue = msg.value;
+        if (_isWeth) {
+            msgValue = msgValue - params.amount;
+            IWETH(_underlying).deposit{value: params.amount}();
+        } else {
+            IERC20(_underlying).safeTransferFrom(msg.sender, address(this), params.amount);
+        }
 
         bytes memory from = abi.encodePacked(msg.sender);
-        bytes memory body = abi.encode(Message({
+        bytes memory body = abi.encode(HyperFungibleToken.Message({
             from: from,
             to: params.to,
             amount: params.amount,
             data: params.data
         }));
+
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
             to: abi.encodePacked(dest),
@@ -229,8 +230,8 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
         });
 
         bytes32 commitment;
-        if (msg.value > 0) {
-            commitment = IDispatcher(_host).dispatch{value: msg.value}(request);
+        if (msgValue > 0) {
+            commitment = IDispatcher(_host).dispatch{value: msgValue}(request);
         } else {
             commitment = dispatchWithFeeToken(request, msg.sender);
         }
@@ -241,8 +242,8 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     /**
      * @notice Handles incoming cross-chain token transfer messages
      * @dev Called by the ISMP host when a POST request is received. Verifies the source
-     * address matches the configured contract for that chain, then mints tokens to the
-     * recipient. If calldata is present, executes it via the CallDispatcher.
+     * address matches the configured contract for that chain, then transfers the underlying
+     * ERC20 to the recipient. If calldata is present, executes it via the CallDispatcher.
      * @param incoming The incoming POST request containing the token transfer message
      */
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost whenNotPaused {
@@ -252,9 +253,9 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
         if (expectedSource == address(0)) revert UnsupportedChain();
         if (address(bytes20(request.from[:20])) != expectedSource) revert UnauthorizedSource();
 
-        Message memory message = abi.decode(request.body, (Message));
+        HyperFungibleToken.Message memory message = abi.decode(request.body, (HyperFungibleToken.Message));
         address beneficiary = _toAddr(message.to);
-        _mint(beneficiary, message.amount);
+        IERC20(_underlying).safeTransfer(beneficiary, message.amount);
 
         if (message.data.length > 0) {
             ICallDispatcher(_dispatcher).dispatch(message.data);
@@ -266,15 +267,27 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     /**
      * @notice Handles timeout of a previously dispatched cross-chain transfer
      * @dev Called by the ISMP host when a sent message times out without being delivered.
-     * Re-mints the burned tokens back to the original sender as a refund.
+     * Attempts to unwrap WETH and refund native tokens. If that fails (underlying is not
+     * WETH or native transfer rejected), falls back to transferring the underlying ERC20.
      * @param request The timed-out POST request
      */
-    function onPostRequestTimeout(PostRequest memory request) external override onlyHost whenNotPaused {
-        Message memory message = abi.decode(request.body, (Message));
+    function onPostRequestTimeout(PostRequest calldata request) external override onlyHost whenNotPaused {
+        HyperFungibleToken.Message memory message = abi.decode(request.body, (HyperFungibleToken.Message));
         address refundee = _toAddr(message.from);
-        _mint(refundee, message.amount);
+
+        if (_isWeth) {
+            IWETH(_underlying).withdraw(message.amount);
+            (bool sent,) = refundee.call{value: message.amount}("");
+            if (!sent) revert TransferFailed();
+        } else {
+            IERC20(_underlying).safeTransfer(refundee, message.amount);
+        }
+
         emit Refunded(refundee, message.amount);
     }
+
+    /// @notice Accepts native ETH transfers, required for receiving ETH from WETH.withdraw()
+    receive() external payable {}
 
     /// @notice Extracts an address from the first 20 bytes of a bytes memory value
     function _toAddr(bytes memory b) internal pure returns (address addr) {

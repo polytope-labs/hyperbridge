@@ -1,0 +1,15 @@
+{
+  "name": "@hyperbridge/lz-endpoint",
+  "version": "0.1.0",
+  "description": "LayerZero V2 endpoint adapter for Hyperbridge — allows existing OFTs to use ISMP transport",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@layerzerolabs/lz-evm-protocol-v2": "^2.3.0",
+    "@layerzerolabs/oapp-evm": "^0.4.0",
+    "@layerzerolabs/oft-evm": "^4.0.0",
+    "@hyperbridge/core": "workspace:*",
+    "@openzeppelin/contracts": "^5.4.0",
+    "@polytope-labs/solidity-merkle-trees": "github:polytope-labs/solidity-merkle-trees#135f2251c1e10677384f76a3514d0a6230bd8a56",
+    "forge-std": "github:foundry-rs/forge-std"
+  }
+}

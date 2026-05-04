@@ -19,12 +19,10 @@ import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../../src/utils/PingModule.sol";
 import {HandlerV1} from "../../src/core/HandlerV1.sol";
-import {CallDispatcher} from "../../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
 import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../../src/core/HostManager.sol";
-import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../../src/apps/TokenGateway.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
@@ -50,7 +48,6 @@ contract BaseTest is Test {
     FeeToken internal feeToken;
     MockUSCDC internal mockUSDC;
     HostManager internal manager;
-    TokenGateway internal gateway;
     ERC20Token stakedToken;
     MiniStaking miniStaking;
 
@@ -63,7 +60,6 @@ contract BaseTest is Test {
         feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
 
         mockUSDC = new MockUSCDC("MockUSDC", "USDC.h");
-        CallDispatcher dispatcher = new CallDispatcher();
 
         hyperInu = new MockUSCDC("HyperInu", "HINU");
         hyperInu_h = new FeeToken(address(this), "HyperInu", "HINU.h");
@@ -106,61 +102,15 @@ contract BaseTest is Test {
         vm.warp(oldTime);
 
         manager.setIsmpHost(address(host));
-        gateway = new TokenGateway(address(this));
 
-        // Grant minter and burner roles to gateway for feeToken
-        feeToken.grantMinterRole(address(gateway));
-        feeToken.grantBurnerRole(address(gateway));
+        mockUSDC.superApprove(tx.origin, address(host));
+        mockUSDC.superApprove(address(this), address(host));
 
-        // Grant minter and burner roles to gateway for hyperInu_h
-        hyperInu_h.grantMinterRole(address(gateway));
-        hyperInu_h.grantBurnerRole(address(gateway));
         // Grant minter and burner roles to test contract for hyperInu_h
         hyperInu_h.grantMinterRole(address(this));
         hyperInu_h.grantBurnerRole(address(this));
 
-        mockUSDC.superApprove(tx.origin, address(host));
-        mockUSDC.superApprove(address(this), address(host));
-        AssetMetadata[] memory assets = new AssetMetadata[](1);
-        assets[0] = AssetMetadata({
-            erc20: address(0),
-            erc6160: address(feeToken),
-            name: "Hyperbridge USD",
-            symbol: "USD.h",
-            beneficiary: address(0),
-            initialSupply: 0
-        });
-
-        gateway.init(TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}));
-
-        // Add assets via governance
-        for (uint256 i = 0; i < assets.length; i++) {
-            AssetMetadata[] memory singleAsset = new AssetMetadata[](1);
-            singleAsset[0] = assets[i];
-            bytes memory body = bytes.concat(hex"02", abi.encode(singleAsset[0]));
-
-            vm.prank(address(host));
-            gateway.onAccept(
-                IncomingPostRequest({
-                    request: PostRequest({
-                        to: abi.encodePacked(address(0)),
-                        from: abi.encodePacked(address(gateway)),
-                        dest: new bytes(0),
-                        body: body,
-                        nonce: 0,
-                        source: StateMachine.kusama(2000),
-                        timeoutTimestamp: 0
-                    }),
-                    relayer: address(0)
-                })
-            );
-        }
-
-        // HyperFungibleToken uses immutable gateway pattern
-        // Gateway is set at deployment and can mint/burn tokens
-
         // some approvals
-        feeToken.superApprove(address(this), address(gateway));
         feeToken.superApprove(address(tx.origin), address(testModule));
         feeToken.superApprove(address(tx.origin), address(host));
         feeToken.superApprove(address(testModule), address(host));

@@ -244,8 +244,8 @@ async fn dispatch_ping() -> anyhow::Result<()> {
 #[ignore]
 async fn dispatch_ping_assethub_to_bsc() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
-	let assethub_url = std::env::var("ASSETHUB_URL")
-		.expect("ASSETHUB_URL was missing in env variables");
+	let assethub_url =
+		std::env::var("ASSETHUB_URL").expect("ASSETHUB_URL was missing in env variables");
 	let signing_key =
 		std::env::var("SIGNING_KEY").expect("SIGNING_KEY was missing in env variables");
 
@@ -259,8 +259,7 @@ async fn dispatch_ping_assethub_to_bsc() -> anyhow::Result<()> {
 	// BSC Chapel — chain id from the registry.
 	const DEST_CHAIN: StateMachine = StateMachine::Evm(97);
 
-	let signer_pair =
-		sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key.clone())?)?;
+	let signer_pair = sp_core::ecdsa::Pair::from_seed_slice(&hex::decode(signing_key.clone())?)?;
 	let signing_key_bytes =
 		alloy::signers::k256::ecdsa::SigningKey::from_slice(signer_pair.seed().as_slice())?;
 	let wallet = PrivateKeySigner::from_signing_key(signing_key_bytes);

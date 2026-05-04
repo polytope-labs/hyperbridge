@@ -367,7 +367,10 @@ pub fn setup_logging() -> Result<(), anyhow::Error> {
 	// raw bytes survive into the journal, and `journalctl` pages through
 	// `less -R` by default so colors render on read-out.
 	let use_ansi = std::env::var_os("NO_COLOR").is_none();
-	tracing_subscriber::registry().with(fmt::layer().with_ansi(use_ansi)).with(filter).init();
+	tracing_subscriber::registry()
+		.with(fmt::layer().with_ansi(use_ansi))
+		.with(filter)
+		.init();
 
 	Ok(())
 }

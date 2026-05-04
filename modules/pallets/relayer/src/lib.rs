@@ -506,8 +506,8 @@ where
 		// Ethereum trie stores. Returns `None` for an unset / zero-address
 		// slot, which we surface as `OutboundDeliveryNotProven` (logically
 		// equivalent to "no delivery proven yet").
-		let evm_address = Self::decode_epochs_slot_address(&raw)
-			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
+		let evm_address =
+			Self::decode_epochs_slot_address(&raw).ok_or(Error::<T>::OutboundDeliveryNotProven)?;
 
 		// Replay protection comes from the `OutboundConsensusRotationsClaimed`
 		let msg = outbound_consensus_delivery_message(set_id, destination, payee);

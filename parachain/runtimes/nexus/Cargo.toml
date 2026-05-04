@@ -44,6 +44,7 @@ pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+pallet-bandwidth = { workspace = true }
 pallet-token-gateway = { workspace = true }
 token-gateway-primitives = { workspace = true }
 pallet-mmr-tree = { workspace = true }
@@ -159,6 +160,7 @@ std = [
     "anyhow/std",
     "pallet-token-gateway-inspector/std",
     "pallet-hyperbridge/std",
+    "pallet-bandwidth/std",
     "pallet-token-gateway/std",
     "token-gateway-primitives/std",
     "pallet-fishermen/std",

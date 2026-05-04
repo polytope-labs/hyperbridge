@@ -113,6 +113,7 @@ frame_support::construct_runtime!(
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
+		Bandwidth: pallet_bandwidth,
 	}
 );
 
@@ -285,6 +286,8 @@ impl pallet_ismp::Config for Test {
 impl pallet_hyperbridge::Config for Test {
 	type IsmpHost = Ismp;
 }
+
+impl pallet_bandwidth::Config for Test {}
 
 parameter_types! {
 	pub const Decimals: u8 = 10;

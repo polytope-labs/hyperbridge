@@ -48,6 +48,7 @@ simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
 pallet-token-gateway = { workspace = true }
+pallet-bandwidth = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
@@ -147,6 +148,7 @@ std = [
     "pallet-state-coprocessor/std",
     "pallet-intents-coprocessor/std",
     "pallet-token-gateway-inspector/std",
+    "pallet-bandwidth/std",
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",

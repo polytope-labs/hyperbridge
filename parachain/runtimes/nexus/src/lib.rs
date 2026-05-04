@@ -1075,6 +1075,8 @@ mod runtime {
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 	#[runtime::pallet_index(95)]
 	pub type TxPause = pallet_tx_pause;
+	#[runtime::pallet_index(96)]
+	pub type Bandwidth = pallet_bandwidth;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]

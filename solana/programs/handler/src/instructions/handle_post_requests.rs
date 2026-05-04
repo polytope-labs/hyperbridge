@@ -130,6 +130,7 @@ pub(crate) fn handler<'info>(
         key,
         CommitmentSnapshot {
             state_root: sc.state_root,
+            overlay_root: sc.overlay_root,
             timestamp_secs: sc.timestamp,
             updated_at: sc.updated_at,
             vetoed: sc.vetoed,

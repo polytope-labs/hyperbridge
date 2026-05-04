@@ -8,6 +8,10 @@ pub struct StateCommitment {
     pub state_machine: u32,
     pub height: u64,
     pub state_root: [u8; 32],
+    /// MMR root from the source chain's parachain header digest
+    /// (engine_id `b"ISMP"`). What `verify_membership` checks request
+    /// commitments against.
+    pub overlay_root: [u8; 32],
     /// Source-chain block timestamp; 0 if not extracted.
     pub timestamp: u64,
     /// Solana clock at PDA creation — feeds the challenge-period gate.

@@ -40,6 +40,9 @@ pub const SOLANA_STATE_MACHINE: StateMachine = StateMachine::Substrate(*b"sola")
 #[derive(Clone, Copy)]
 pub struct CommitmentSnapshot {
     pub state_root: [u8; 32],
+    /// MMR root carried in the parachain header's `b"ISMP"` digest.
+    /// Read by `verify_membership` for request/response proofs.
+    pub overlay_root: [u8; 32],
     pub timestamp_secs: u64,
     pub updated_at: i64,
     pub vetoed: bool,
@@ -120,7 +123,7 @@ impl<'info> IsmpHost for SolanaHostFacade<'info> {
         }
         Ok(IsmpStateCommitment {
             timestamp: snap.timestamp_secs,
-            overlay_root: None,
+            overlay_root: Some(H256::from(snap.overlay_root)),
             state_root: H256::from(snap.state_root),
         })
     }
@@ -293,12 +296,23 @@ impl<'info> IsmpHost for SolanaHostFacade<'info> {
             },
             signer_seeds,
         );
+        let overlay_root = state
+            .overlay_root
+            .ok_or_else(|| {
+                IsmpError::Custom(
+                    "store_state_machine_commitment: overlay_root (mmr_root) is required \
+                     — consensus client must populate it from the parachain header digest"
+                        .to_string(),
+                )
+            })?
+            .0;
         host::cpi::store_state_commitment(
             cpi_ctx,
             host::StoreStateCommitmentParams {
                 state_machine: key.0,
                 height: key.1,
                 state_root: state.state_root.0,
+                overlay_root,
                 timestamp: state.timestamp,
             },
         )

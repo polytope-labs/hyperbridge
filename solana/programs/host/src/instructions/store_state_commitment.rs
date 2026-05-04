@@ -10,6 +10,8 @@ pub struct StoreStateCommitmentParams {
     pub state_machine: u32,
     pub height: u64,
     pub state_root: [u8; 32],
+    /// MMR root pulled from the parachain header's `b"ISMP"` ConsensusDigest.
+    pub overlay_root: [u8; 32],
     /// Source-chain block timestamp; 0 if not extracted.
     pub timestamp: u64,
 }
@@ -60,6 +62,7 @@ pub fn handler(ctx: Context<StoreStateCommitment>, p: StoreStateCommitmentParams
     sc.state_machine = p.state_machine;
     sc.height = p.height;
     sc.state_root = p.state_root;
+    sc.overlay_root = p.overlay_root;
     sc.timestamp = p.timestamp;
     sc.updated_at = now;
     sc.vetoed = false;

@@ -153,7 +153,40 @@ for await (const update of gen) {
 
 ---
 
-### cancelOrder(order, indexerClient, fromDest?)
+### quoteUniswap(params)
+
+Quotes a same-chain Uniswap swap that can be used when constructing the input or output side of an intent order. The helper checks Uniswap V2, V3, and V4 by default; pass `protocols: ["v4"]` to quote Uniswap V4 only.
+
+```typescript lineNumbers
+import { quoteUniswap } from "@hyperbridge/sdk"
+
+const result = await quoteUniswap({
+  chainId: 8453,
+  tokenIn: {
+    address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    decimals: 6,
+    symbol: "USDC",
+    chainId: 8453,
+  },
+  tokenOut: {
+    address: "0x0000000000000000000000000000000000000000",
+    decimals: 18,
+    symbol: "ETH",
+    chainId: 8453,
+  },
+  amountIn: 100_000_000n,
+  tradeType: "EXACT_INPUT",
+  protocols: ["v4"],
+})
+
+console.log(result.bestQuote?.amountOut)
+```
+
+Set `recipient` to include executable transaction calldata in each quote. For exact-output swaps, use `tradeType: "EXACT_OUTPUT"` with `amountOut` instead of `amountIn`.
+
+---
+
+### cancelOrder(order, indexerClient, options?)
 
 Async generator that cancels a placed order and streams status events until cancellation is complete. Supports both source-chain and destination-chain initiated cancellation.
 
@@ -161,7 +194,7 @@ Async generator that cancels a placed order and streams status events until canc
 async *cancelOrder(
   order: Order,
   indexerClient: IsmpClient,
-  fromDest?: boolean,
+  options?: { from?: "source" | "destination" },
 ): AsyncGenerator<CancelEvent>
 ```
 
@@ -171,11 +204,9 @@ async *cancelOrder(
 |------|------|---------|-------------|
 | `order` | `Order` | — | The order to cancel |
 | `indexerClient` | `IsmpClient` | — | Indexer client for streaming ISMP request status |
-| `fromDest` | `boolean` | `false` | If `true`, initiates cancellation from the destination chain |
+| `options` | `{ from?: "source" \| "destination" }` | `{}` | Pass `{ from: "destination" }` to initiate on the destination chain. |
 
 **Yields:** `CancelEvent`
-
-**Throws:** If the order is same-chain and `fromDest` is `true`
 
 **Example:**
 
@@ -218,12 +249,25 @@ for await (const event of gen) {
 
 ---
 
-### quoteCancelNative(order, fromDest?)
+### cancelOrderFromSource(order, indexerClient)
+
+Convenience wrapper around `cancelOrder(order, indexerClient, { from: "source" })`.
+
+### cancelOrderFromDest(order, indexerClient)
+
+Convenience wrapper around `cancelOrder(order, indexerClient, { from: "destination" })`.
+
+---
+
+### quoteCancelOrder(order, options?)
 
 Quotes the native token cost for cancelling an order.
 
 ```typescript lineNumbers
-async quoteCancelNative(order: Order, fromDest?: boolean): Promise<bigint>
+async quoteCancelOrder(
+  order: Order,
+  options?: { from?: "source" | "destination" },
+): Promise<CancelQuote>
 ```
 
 **Parameters:**
@@ -231,9 +275,19 @@ async quoteCancelNative(order: Order, fromDest?: boolean): Promise<bigint>
 | Name | Type | Default | Description |
 |------|------|---------|-------------|
 | `order` | `Order` | — | The order to quote cancellation for |
-| `fromDest` | `boolean` | `false` | If `true`, quotes the destination-initiated cancellation fee |
+| `options` | `{ from?: "source" \| "destination" }` | `{}` | Pass `{ from: "destination" }` to quote the destination-initiated path. |
 
-**Returns:** `Promise<bigint>` — Native token amount (in wei) required to submit the cancel transaction
+**Returns:** `Promise<CancelQuote>` — `{ nativeValue, relayerFee }`
+
+---
+
+### quoteCancelOrderFromSource(order)
+
+Convenience wrapper around `quoteCancelOrder(order, { from: "source" })`.
+
+### quoteCancelOrderFromDest(order)
+
+Convenience wrapper around `quoteCancelOrder(order, { from: "destination" })`.
 
 ---
 

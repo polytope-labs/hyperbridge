@@ -12,6 +12,7 @@ import {
 	MOCK_ADDRESS,
 	getOrFetchStorageSlot,
 	EvmLanguage,
+	normalizeAddressForEvmBytes32,
 } from "@/utils"
 import { orderCommitment } from "./utils"
 import { calculateBalanceMappingLocation } from "@/utils"
@@ -135,7 +136,10 @@ export class GasEstimator {
 		const fillOptions: FillOptions = {
 			relayerFee: crossChainFees.postRequestFee,
 			nativeDispatchFee: crossChainFees.protocolFee,
-			outputs: order.output.assets,
+			outputs: order.output.assets.map((asset) => ({
+				...asset,
+				token: normalizeAddressForEvmBytes32(asset.token),
+			})),
 		}
 
 		const totalNativeValue = totalEthValue + fillOptions.nativeDispatchFee
@@ -261,8 +265,7 @@ export class GasEstimator {
 				preVerificationGas = (BigInt(gasEstimate.preVerificationGas) * 105n) / 100n
 
 				if (gasEstimate.paymasterVerificationGasLimit) {
-					paymasterVerificationGasLimit =
-						(BigInt(gasEstimate.paymasterVerificationGasLimit) * 105n) / 100n
+					paymasterVerificationGasLimit = (BigInt(gasEstimate.paymasterVerificationGasLimit) * 105n) / 100n
 				}
 				if (gasEstimate.paymasterPostOpGasLimit) {
 					paymasterPostOpGasLimit = (BigInt(gasEstimate.paymasterPostOpGasLimit) * 105n) / 100n
@@ -312,7 +315,11 @@ export class GasEstimator {
 		}
 
 		const totalGas =
-			callGasLimit + verificationGasLimit + preVerificationGas + paymasterVerificationGasLimit + paymasterPostOpGasLimit
+			callGasLimit +
+			verificationGasLimit +
+			preVerificationGas +
+			paymasterVerificationGasLimit +
+			paymasterPostOpGasLimit
 		const rawTotalGasCostWei = totalGas * maxFeePerGas
 
 		const totalGasInDestFeeToken = await convertGasToFeeToken(

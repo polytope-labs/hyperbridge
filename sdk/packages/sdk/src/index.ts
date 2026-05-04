@@ -9,7 +9,12 @@ export {
 	generateRootWithProof,
 	bytes32ToBytes20,
 	bytes20ToBytes32,
+	normalizeAddressForEvmBytes32,
+	normalizeAddressForStateMachine,
 	hexToString,
+	normalizeEvmChainId,
+	normalizeStateMachineId,
+	encodeStateMachineId,
 	constructRedeemEscrowRequestBody,
 	constructRefundEscrowRequestBody,
 	encodeWithdrawalRequest,
@@ -36,7 +41,15 @@ export * from "@/protocols/intents"
 export { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 export { ABI as EvmHostABI } from "@/abis/evmHost"
 export * from "@/protocols/tokenGateway"
-export { Swap } from "@/utils/swap"
+export { Swap, quoteUniswap } from "@/utils/swap"
+export type {
+	QuoteUniswapParams,
+	QuoteUniswapResult,
+	UniswapProtocol,
+	UniswapQuote,
+	UniswapQuoteToken,
+	UniswapTradeType,
+} from "@/utils/uniswapQuote"
 export * from "@/utils/txEvents"
 export * from "@/utils/tokenGateway"
 export * from "@/utils/xcmGateway"

@@ -1,7 +1,7 @@
 import { encodeFunctionData, parseEventLogs, type TransactionReceipt } from "viem"
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { hexToString } from "@/utils"
+import { normalizeStateMachineId } from "@/utils"
 import { orderCommitment } from "./utils"
 import type { Order, DecodedOrderPlacedLog } from "@/types"
 import type { HexString } from "@/types"
@@ -81,7 +81,7 @@ export class OrderPlacer {
 		}) as HexString
 
 		const intentGatewayAddress = this.ctx.source.configService.getIntentGatewayV2Address(
-			hexToString(order.source as HexString),
+			normalizeStateMachineId(order.source),
 		)
 
 		const signedTransaction = yield {

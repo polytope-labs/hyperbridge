@@ -1,17 +1,21 @@
 {
 	"name": "@hyperbridge/sdk",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "The hyperclient SDK provides utilities for querying proofs and statuses for cross-chain requests from HyperBridge.",
 	"type": "module",
 	"types": "./dist/node/index.d.ts",
 	"exports": {
 		".": {
+			"types": "./dist/node/index.d.ts",
 			"browser": "./dist/browser/index.js",
-			"import": "./dist/node/index.js"
+			"import": "./dist/node/index.js",
+			"require": "./dist/node/index.cjs",
+			"default": "./dist/node/index.js"
 		},
 		"./plugins/vite": {
+			"types": "./plugins/vite.d.ts",
 			"import": "./plugins/vite.js",
-			"types": "./plugins/vite.d.ts"
+			"default": "./plugins/vite.js"
 		}
 	},
 	"files": [

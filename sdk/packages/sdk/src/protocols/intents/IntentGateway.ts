@@ -2,7 +2,15 @@ import { createSessionKeyStorage, createCancellationStorage, createUsedUserOpsSt
 import { Swap } from "@/utils/swap"
 import { type ConsolaInstance, LogLevels, createConsola } from "consola"
 import type { TransactionReceipt } from "viem"
-import type { Order, HexString, CancelQuote, IndexerQueryClient, OrderStatus, OrderWithStatus } from "@/types"
+import type {
+	Order,
+	HexString,
+	CancelOrderOptions,
+	CancelQuote,
+	IndexerQueryClient,
+	OrderStatus,
+	OrderWithStatus,
+} from "@/types"
 import type {
 	PackedUserOperation,
 	SubmitBidOptions,
@@ -325,12 +333,20 @@ export class IntentGateway {
 	 * Delegates to {@link OrderCanceller.quoteCancelOrder}.
 	 *
 	 * @param order - The order to quote cancellation for.
-	 * @param fromDest - If `true`, quotes the destination-initiated cancellation fee.
+	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
 	 * @returns `{ nativeValue }` — native token amount (wei) to send as `value`;
 	 *   `{ relayerFee }` — relayer incentive denominated in the chain's fee token.
 	 */
-	async quoteCancelOrder(order: Order, fromDest: boolean = false): Promise<CancelQuote> {
-		return this.orderCanceller.quoteCancelOrder(order, fromDest)
+	async quoteCancelOrder(order: Order, options: CancelOrderOptions = {}): Promise<CancelQuote> {
+		return this.orderCanceller.quoteCancelOrder(order, options)
+	}
+
+	async quoteCancelOrderFromSource(order: Order): Promise<CancelQuote> {
+		return this.orderCanceller.quoteCancelOrder(order, { from: "source" })
+	}
+
+	async quoteCancelOrderFromDest(order: Order): Promise<CancelQuote> {
+		return this.orderCanceller.quoteCancelOrder(order, { from: "destination" })
 	}
 
 	/**
@@ -341,16 +357,23 @@ export class IntentGateway {
 	 *
 	 * @param order - The order to cancel.
 	 * @param indexerClient - Indexer client used for ISMP request status streaming.
-	 * @param fromDest - If `true`, initiates cancellation from the destination chain.
-	 *   Defaults to `false` (source-side cancellation).
+	 * @param options - Choose the initiation side. Defaults to source-side cancellation.
 	 * @yields {@link CancelEvent} objects describing each cancellation stage.
 	 */
 	async *cancelOrder(
 		order: Order,
 		indexerClient: IsmpClient,
-		fromDest: boolean = false,
+		options: CancelOrderOptions = {},
 	): AsyncGenerator<CancelEvent> {
-		yield* this.orderCanceller.cancelOrder(order, indexerClient, fromDest)
+		yield* this.orderCanceller.cancelOrder(order, indexerClient, options)
+	}
+
+	async *cancelOrderFromSource(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
+		yield* this.orderCanceller.cancelOrder(order, indexerClient, { from: "source" })
+	}
+
+	async *cancelOrderFromDest(order: Order, indexerClient: IsmpClient): AsyncGenerator<CancelEvent> {
+		yield* this.orderCanceller.cancelOrder(order, indexerClient, { from: "destination" })
 	}
 
 	/**

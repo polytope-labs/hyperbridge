@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { transformOrderForContract } from "@/protocols/intents/utils"
+import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
 import type { Order, HexString } from "@/types"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
@@ -8,7 +9,7 @@ const NATIVE = "0x00000000000000000000000000000000000000000000000000000000000000
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
-		user: "0x" as HexString,
+		user: ADDR_20,
 		source: "EVM-1" as unknown as HexString,
 		destination: "EVM-42161" as unknown as HexString,
 		deadline: 100n,
@@ -27,6 +28,12 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 }
 
 describe("transformOrderForContract", () => {
+	it("left-pads 20-byte user to bytes32 and preserves session address", () => {
+		const result = transformOrderForContract(makeOrder({ user: ADDR_20, session: ADDR_20 }))
+		expect(result.user).toBe(ADDR_32)
+		expect(result.session).toBe(ADDR_20)
+	})
+
 	it("left-pads 20-byte input token to bytes32", () => {
 		const result = transformOrderForContract(makeOrder())
 		expect(result.inputs[0].token).toBe(ADDR_32)
@@ -92,5 +99,18 @@ describe("transformOrderForContract", () => {
 		const result = transformOrderForContract(makeOrder())
 		expect(result.inputs[0].amount).toBe(1000n)
 		expect(result.output.assets[0].amount).toBe(990n)
+	})
+
+	it("encodes withdrawal requests with bytes32 token addresses", () => {
+		expect(() => encodeWithdrawalRequest(makeOrder({ id: NATIVE }), ADDR_20)).not.toThrow()
+	})
+
+	it("normalizes fill option output token addresses before contract encoding", () => {
+		const outputs = makeOrder().output.assets.map((asset) => ({
+			...asset,
+			token: normalizeAddressForEvmBytes32(asset.token),
+		}))
+
+		expect(outputs[0].token).toBe(ADDR_32)
 	})
 })

@@ -7,7 +7,7 @@ description: How to cancel same-chain and cross-chain intent orders using the @h
 
 When a user wants to reclaim their escrowed tokens — because no solver filled the order, or the order expired — they call `cancelOrder` on the `IntentGatewayV2` contract. The contract checks that the order has not already been settled, then routes to the appropriate refund path depending on whether the order is same-chain or cross-chain, and which chain the call originates from.
 
-The `IntentGateway.cancelOrder()` SDK method abstracts over all three paths. You pass the order, an `IsmpClient` for proof fetching, and an optional `fromDest` boolean, and the SDK handles everything from proof retrieval to Hyperbridge submission. See the [SDK overview](/developers/sdk/overview) for full `IsmpClient` documentation.
+The `IntentGateway.cancelOrder()` SDK method abstracts over all three paths. You pass the order, an `IsmpClient` for proof fetching, and optionally choose `{ from: "destination" }` to initiate from the destination chain. Convenience helpers like `cancelOrderFromDest()` are also available. For same-chain orders, the SDK always falls back to the direct local cancel path regardless of which side you request. See the [SDK overview](/developers/sdk/overview) for full `IsmpClient` documentation.
 
 At each `AWAITING_CANCEL_TRANSACTION` yield, pass either a **serialized signed transaction** (raw bytes) or a **transaction hash** (`0x` + 64 hex chars) back via `gen.next()`. If you pass a hash, the SDK assumes the transaction has already been submitted and will wait for the receipt; if you pass raw bytes, it broadcasts first.
 
@@ -215,7 +215,7 @@ async function cancelFromDest(order: Order) {
     throw new Error("Order already filled or cancelled from dest")
   }
 
-  const gen = intentGateway.cancelOrder(order, indexerClient, true)
+  const gen = intentGateway.cancelOrder(order, indexerClient, { from: "destination" })
 
   // First yield: AWAITING_CANCEL_TRANSACTION — includes the quoted native fee for the dispatch
   const { value: { data, to, value } } = await gen.next()

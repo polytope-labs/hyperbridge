@@ -24,42 +24,32 @@
 
 extern crate alloc;
 
+pub mod error;
 pub mod impls;
+pub mod module;
 pub mod types;
 pub mod weights;
 
 pub use weights::WeightInfo;
 
-use crate::impls::{convert_to_balance, convert_to_erc20};
+use crate::impls::convert_to_erc20;
 use alloy_sol_types::SolValue;
-use anyhow::anyhow;
-use frame_support::traits::{
-	fungibles::{self, Mutate},
-	tokens::Preservation,
-	Currency, ExistenceRequirement,
+use frame_support::{
+	traits::fungibles::{self, Mutate},
+	PalletId,
 };
+use pallet_ismp::ModuleId;
 use polkadot_sdk::*;
-
-use ismp::{
-	events::Meta,
-	router::{PostRequest, Request, Response, Timeout},
-};
-
-use alloc::format;
-use codec::{Decode, Encode};
-use frame_system::RawOrigin;
-use sp_core::{Get, H160, U256};
-use sp_runtime::MultiSignature;
-use types::{
-	AssetId, EvmToSubstrate, Message, SendParams, SubstrateCalldata, TokenRegistration, TokenUpdate,
-};
+use primitive_types::H256;
+use types::{AssetId, EvmToSubstrate, Message, SendParams, TokenRegistration, TokenUpdate};
 
 use alloc::{vec, vec::Vec};
-use ismp::module::IsmpModule;
-use polkadot_sdk::sp_runtime::Weight;
-use primitive_types::H256;
 
 pub use pallet::*;
+
+/// The well-known module ID for the hyper-fungible-token pallet.
+/// EVM contracts should set this as the destination address when sending to this pallet.
+pub const PALLET_ID: ModuleId = ModuleId::Pallet(PalletId(*b"pall_hft"));
 
 const ETHEREUM_MESSAGE_PREFIX: &str = "\x19Ethereum Signed Message:\n";
 
@@ -84,9 +74,7 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config:
-		polkadot_sdk::frame_system::Config + pallet_ismp::Config + pallet_hyperbridge::Config
-	{
+	pub trait Config: polkadot_sdk::frame_system::Config + pallet_ismp::Config {
 		/// The [`IsmpDispatcher`] for dispatching cross-chain requests
 		type Dispatcher: IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>;
 
@@ -119,20 +107,6 @@ pub mod pallet {
 	/// Used as the `to` field in outgoing DispatchPost.
 	#[pallet::storage]
 	pub type TokenContracts<T: Config> = StorageDoubleMap<
-		_,
-		Blake2_128Concat,
-		StateMachine,
-		Blake2_128Concat,
-		AssetId<T>,
-		Vec<u8>,
-		OptionQuery,
-	>;
-
-	/// Maps (StateMachine, AssetId) → the `from` address this pallet should use for that chain.
-	/// Each token contract on EVM has called addChain(substrateChainId, palletAddress).
-	/// Used as the `from` field in outgoing DispatchPost.
-	#[pallet::storage]
-	pub type PalletAddresses<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
 		StateMachine,
@@ -264,9 +238,6 @@ pub mod pallet {
 			let token_contract =
 				TokenContracts::<T>::get(params.destination, params.asset_id.clone())
 					.ok_or(Error::<T>::TokenContractNotFound)?;
-			let pallet_address =
-				PalletAddresses::<T>::get(params.destination, params.asset_id.clone())
-					.ok_or(Error::<T>::PalletAddressNotFound)?;
 			let erc_decimals = Precisions::<T>::get(params.asset_id.clone(), params.destination)
 				.ok_or(Error::<T>::DecimalsNotFound)?;
 
@@ -319,7 +290,7 @@ pub mod pallet {
 
 			let dispatch_post = DispatchPost {
 				dest: params.destination,
-				from: pallet_address,
+				from: PALLET_ID.to_bytes(),
 				to: token_contract,
 				timeout: params.timeout,
 				body: Message::abi_encode(&token_message),
@@ -358,11 +329,6 @@ pub mod pallet {
 					registration.local_id.clone(),
 					config.token_contract.clone(),
 				);
-				PalletAddresses::<T>::insert(
-					chain,
-					registration.local_id.clone(),
-					config.pallet_address,
-				);
 				ContractToAsset::<T>::insert(
 					chain,
 					config.token_contract,
@@ -400,7 +366,6 @@ pub mod pallet {
 					update.asset_id.clone(),
 					config.token_contract.clone(),
 				);
-				PalletAddresses::<T>::insert(chain, update.asset_id.clone(), config.pallet_address);
 				ContractToAsset::<T>::insert(chain, config.token_contract, update.asset_id.clone());
 				Precisions::<T>::insert(update.asset_id.clone(), chain, config.decimals);
 			}
@@ -411,7 +376,6 @@ pub mod pallet {
 					ContractToAsset::<T>::remove(chain, old_contract);
 				}
 				TokenContracts::<T>::remove(chain, update.asset_id.clone());
-				PalletAddresses::<T>::remove(chain, update.asset_id.clone());
 				Precisions::<T>::remove(update.asset_id.clone(), chain);
 			}
 
@@ -426,288 +390,3 @@ pub mod pallet {
 	}
 }
 
-impl<T: Config> IsmpModule for Pallet<T>
-where
-	<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-	<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance: From<u128>,
-	<<T as Config>::Assets as fungibles::Inspect<T::AccountId>>::Balance: From<u128>,
-{
-	fn on_accept(
-		&self,
-		PostRequest { body, from, source, dest, nonce, .. }: PostRequest,
-	) -> Result<Weight, anyhow::Error> {
-		// Authenticate: look up which local asset this contract address maps to
-		let local_asset_id = ContractToAsset::<T>::get(source, &from)
-			.ok_or_else(|| anyhow!("HFT: Unknown source contract on {source:?}"))?;
-
-		// Decode the Message
-		let message = Message::abi_decode(&body)
-			.map_err(|e| anyhow!("HFT: Failed to decode Message: {e:?}"))?;
-
-		// Convert recipient bytes to substrate AccountId
-		// If 32 bytes: use directly. If 20 bytes: left-pad with zeros.
-		let mut beneficiary_bytes = [0u8; 32];
-		let to_bytes = message.to.as_ref();
-		if to_bytes.len() == 32 {
-			beneficiary_bytes.copy_from_slice(to_bytes);
-		} else if to_bytes.len() == 20 {
-			beneficiary_bytes[12..].copy_from_slice(to_bytes);
-		} else {
-			return Err(anyhow!("HFT: Invalid recipient length: {}", to_bytes.len()));
-		}
-		let beneficiary: T::AccountId = beneficiary_bytes.into();
-
-		// Convert amount from ERC20 denomination to local
-		let decimals = if local_asset_id == T::NativeAssetId::get() {
-			T::Decimals::get()
-		} else {
-			<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
-				local_asset_id.clone(),
-			)
-		};
-		let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), source)
-			.ok_or_else(|| anyhow!("HFT: Decimals not configured for asset on {source:?}"))?;
-		let amount = convert_to_balance(
-			U256::from_big_endian(&message.amount.to_be_bytes::<32>()),
-			erc_decimals,
-			decimals,
-		)
-		.map_err(|_| ismp::error::Error::ModuleDispatchError {
-			msg: "HFT: Invalid amount conversion".to_string(),
-			meta: Meta { source, dest, nonce },
-		})?;
-
-		// Mint or transfer to beneficiary
-		if local_asset_id == T::NativeAssetId::get() {
-			<T as Config>::NativeCurrency::transfer(
-				&Pallet::<T>::pallet_account(),
-				&beneficiary,
-				amount.into(),
-				ExistenceRequirement::AllowDeath,
-			)
-			.map_err(|_| ismp::error::Error::ModuleDispatchError {
-				msg: "HFT: Failed to transfer native asset".to_string(),
-				meta: Meta { source, dest, nonce },
-			})?;
-		} else {
-			let is_native = NativeAssets::<T>::get(local_asset_id.clone());
-			if is_native {
-				<T as Config>::Assets::transfer(
-					local_asset_id,
-					&Pallet::<T>::pallet_account(),
-					&beneficiary,
-					amount.into(),
-					Preservation::Expendable,
-				)
-				.map_err(|_| ismp::error::Error::ModuleDispatchError {
-					msg: "HFT: Failed to transfer asset".to_string(),
-					meta: Meta { source, dest, nonce },
-				})?;
-			} else {
-				<T as Config>::Assets::mint_into(local_asset_id, &beneficiary, amount.into())
-					.map_err(|_| ismp::error::Error::ModuleDispatchError {
-						msg: "HFT: Failed to mint asset".to_string(),
-						meta: Meta { source, dest, nonce },
-					})?;
-			}
-		}
-
-		// Execute optional calldata
-		if !message.data.is_empty() {
-			let substrate_data = SubstrateCalldata::decode(&mut &message.data[..])
-				.map_err(|err| anyhow!("HFT: Calldata decode error: {err:?}"))?;
-
-			let origin = if let Some(signature) = substrate_data.signature {
-				let multi_signature = MultiSignature::decode(&mut &*signature)
-					.map_err(|err| anyhow!("HFT: Signature decode error: {err:?}"))?;
-
-				let nonce = frame_system::Pallet::<T>::account_nonce(beneficiary.clone());
-
-				match multi_signature {
-					MultiSignature::Ed25519(sig) => {
-						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
-						let msg = sp_io::hashing::keccak_256(&payload);
-						let pub_key = beneficiary_bytes.as_slice().try_into().map_err(|_| {
-							anyhow!("HFT: Failed to decode beneficiary as Ed25519 public key")
-						})?;
-						if !sp_io::crypto::ed25519_verify(&sig, msg.as_ref(), &pub_key) {
-							Err(anyhow!("HFT: Failed to verify ed25519 signature"))?
-						}
-					},
-					MultiSignature::Sr25519(sig) => {
-						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
-						let msg = sp_io::hashing::keccak_256(&payload);
-						let pub_key = beneficiary_bytes.as_slice().try_into().map_err(|_| {
-							anyhow!("HFT: Failed to decode beneficiary as Sr25519 public key")
-						})?;
-						if !sp_io::crypto::sr25519_verify(&sig, msg.as_ref(), &pub_key) {
-							Err(anyhow!("HFT: Failed to verify sr25519 signature"))?
-						}
-					},
-					MultiSignature::Ecdsa(sig) => {
-						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
-						let preimage = vec![
-							format!("{ETHEREUM_MESSAGE_PREFIX}{}", payload.len())
-								.as_bytes()
-								.to_vec(),
-							payload,
-						]
-						.concat();
-						let msg = sp_io::hashing::keccak_256(&preimage);
-						let pub_key = sp_io::crypto::secp256k1_ecdsa_recover(&sig.0, &msg)
-							.map_err(|_| anyhow!("HFT: Failed to recover ecdsa public key"))?;
-						let eth_address =
-							H160::from_slice(&sp_io::hashing::keccak_256(&pub_key[..])[12..]);
-						let substrate_account = T::EvmToSubstrate::convert(eth_address);
-						if substrate_account != beneficiary {
-							Err(anyhow!("HFT: Failed to verify ecdsa signature"))?
-						}
-					},
-					MultiSignature::Eth(_) =>
-						Err(anyhow!("HFT: Eth signature type is not supported"))?,
-				};
-
-				beneficiary.clone()
-			} else {
-				let from_bytes = message.from.as_ref();
-				if source.is_evm() {
-					T::EvmToSubstrate::convert(H160::from_slice(
-						&from_bytes[from_bytes.len() - 20..],
-					))
-				} else {
-					let mut account = [0u8; 32];
-					account.copy_from_slice(from_bytes);
-					account.into()
-				}
-			};
-
-			let runtime_call = T::RuntimeCall::decode(&mut &*substrate_data.runtime_call)
-				.map_err(|err| anyhow!("HFT: RuntimeCall decode error: {err:?}"))?;
-			use sp_runtime::traits::Dispatchable;
-			runtime_call
-				.dispatch(RawOrigin::Signed(origin.clone()).into())
-				.map_err(|e| anyhow!("HFT: Call dispatch error: {:?}", e.error))?;
-
-			frame_system::Pallet::<T>::inc_account_nonce(origin);
-		}
-
-		Self::deposit_event(Event::<T>::TokenReceived {
-			beneficiary,
-			amount: amount.into(),
-			source,
-		});
-
-		Ok(T::DbWeight::get().reads_writes(5, 2))
-	}
-
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
-		Err(anyhow!("HFT: Module does not accept responses"))
-	}
-
-	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
-		match request {
-			Timeout::Request(Request::Post(PostRequest {
-				body, to, source, dest, nonce, ..
-			})) => {
-				let message = Message::abi_decode(&body)
-					.map_err(|e| anyhow!("HFT: Failed to decode Message on timeout: {e:?}"))?;
-
-				// Refund the original sender
-				let from_bytes = message.from.as_ref();
-				let mut sender_bytes = [0u8; 32];
-				if from_bytes.len() == 32 {
-					sender_bytes.copy_from_slice(from_bytes);
-				} else if from_bytes.len() == 20 {
-					sender_bytes[12..].copy_from_slice(from_bytes);
-				} else {
-					return Err(anyhow!(
-						"HFT: Invalid sender length in timeout: {}",
-						from_bytes.len()
-					));
-				}
-				let beneficiary: T::AccountId = sender_bytes.into();
-
-				// Look up the asset from the destination contract address
-				let local_asset_id = ContractToAsset::<T>::get(dest, &to)
-					.ok_or_else(|| anyhow!("HFT: Unknown contract on timeout"))?;
-
-				let decimals = if local_asset_id == T::NativeAssetId::get() {
-					T::Decimals::get()
-				} else {
-					<T::Assets as fungibles::metadata::Inspect<T::AccountId>>::decimals(
-						local_asset_id.clone(),
-					)
-				};
-				let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), dest)
-					.ok_or_else(|| anyhow!("HFT: Decimals not configured"))?;
-				let amount = convert_to_balance(
-					U256::from_big_endian(&message.amount.to_be_bytes::<32>()),
-					erc_decimals,
-					decimals,
-				)
-				.map_err(|_| ismp::error::Error::ModuleDispatchError {
-					msg: "HFT: Invalid amount conversion on timeout".to_string(),
-					meta: Meta { source, dest, nonce },
-				})?;
-
-				// Refund: release escrowed tokens back to the original sender
-				if local_asset_id == T::NativeAssetId::get() {
-					<T as Config>::NativeCurrency::transfer(
-						&Pallet::<T>::pallet_account(),
-						&beneficiary,
-						amount.into(),
-						ExistenceRequirement::AllowDeath,
-					)
-					.map_err(|_| ismp::error::Error::ModuleDispatchError {
-						msg: "HFT: Failed to refund native asset".to_string(),
-						meta: Meta { source, dest, nonce },
-					})?;
-				} else {
-					let is_native = NativeAssets::<T>::get(local_asset_id.clone());
-					if is_native {
-						<T as Config>::Assets::transfer(
-							local_asset_id,
-							&Pallet::<T>::pallet_account(),
-							&beneficiary,
-							amount.into(),
-							Preservation::Expendable,
-						)
-						.map_err(|_| ismp::error::Error::ModuleDispatchError {
-							msg: "HFT: Failed to refund asset".to_string(),
-							meta: Meta { source, dest, nonce },
-						})?;
-					} else {
-						<T as Config>::Assets::mint_into(
-							local_asset_id,
-							&beneficiary,
-							amount.into(),
-						)
-						.map_err(|_| ismp::error::Error::ModuleDispatchError {
-							msg: "HFT: Failed to mint refund".to_string(),
-							meta: Meta { source, dest, nonce },
-						})?;
-					}
-				}
-
-				Pallet::<T>::deposit_event(Event::<T>::TokenRefunded {
-					beneficiary,
-					amount: amount.into(),
-					dest,
-				});
-				Ok(T::DbWeight::get().reads_writes(5, 2))
-			},
-			Timeout::Request(Request::Get(get)) => Err(ismp::error::Error::ModuleDispatchError {
-				msg: "HFT: GET requests not supported".to_string(),
-				meta: Meta { source: get.source, dest: get.dest, nonce: get.nonce },
-			})?,
-			Timeout::Response(response) => Err(ismp::error::Error::ModuleDispatchError {
-				msg: "HFT: Response timeouts not supported".to_string(),
-				meta: Meta {
-					source: response.source_chain(),
-					dest: response.dest_chain(),
-					nonce: response.nonce(),
-				},
-			})?,
-		}
-	}
-}

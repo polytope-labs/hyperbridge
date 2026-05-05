@@ -68,11 +68,8 @@ pub struct SendParams<AssetId, Balance> {
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, scale_info::TypeInfo, PartialEq, Eq,
 )]
 pub struct ChainConfig {
-	/// The HyperFungibleToken/WrappedHyperFungibleToken contract address on this chain
+	/// The HyperFungibleToken/WrappedHyperFungibleToken module ID on this chain
 	pub token_contract: Vec<u8>,
-	/// The address the pallet should use as `from` in DispatchPost
-	/// (what the contract expects via addChain for this substrate chain)
-	pub pallet_address: Vec<u8>,
 	/// ERC20 decimals on this chain
 	pub decimals: u8,
 }

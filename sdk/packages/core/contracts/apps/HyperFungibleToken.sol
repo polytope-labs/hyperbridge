@@ -28,7 +28,7 @@ import {HyperApp} from "./HyperApp.sol";
 /**
  * @title HyperFungibleToken
  * @author Polytope Labs (hello@polytope.technology)
- * @notice Abstract base contract for cross-chain fungible tokens. Each token deployment
+ * @notice Cross-chain fungible token that is its own bridge application. Each token deployment
  * is its own bridge application — no shared custody pool. Burns tokens on the source
  * chain and mints on the destination chain.
  *
@@ -39,7 +39,7 @@ import {HyperApp} from "./HyperApp.sol";
  * Supports optional calldata execution on the destination chain via CallDispatcher,
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
-abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
+contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     /**
      * @title SendParams
      * @notice Parameters for initiating a cross-chain token transfer
@@ -109,10 +109,10 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     address internal _dispatcher;
 
     /**
-     * @notice Maps chain identifiers to the address of the token contract on that chain.
-     * A zero address means the chain is not supported.
+     * @notice Maps chain identifiers to the module ID of the peer on that chain.
+     * An empty value means the chain is not supported.
      */
-    mapping(bytes => address) internal _supportedChains;
+    mapping(bytes => bytes) internal _supportedChains;
 
     /**
      * @notice Emitted when tokens are burned and a cross-chain transfer is dispatched
@@ -122,7 +122,7 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
      * @param amount The amount of tokens sent
      * @param commitment The ISMP request commitment hash for tracking
      */
-    event Sent(bytes from, bytes to, bytes dest, uint256 amount, bytes32 commitment);
+    event Sent(address from, bytes to, string dest, uint256 amount, bytes32 commitment);
 
     /**
      * @notice Emitted when tokens are minted from an incoming cross-chain transfer
@@ -131,7 +131,7 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
      * @param source The source chain identifier
      * @param amount The amount of tokens minted
      */
-    event Received(bytes from, bytes to, bytes source, uint256 amount);
+    event Received(bytes from, address to, string source, uint256 amount);
 
     /**
      * @notice Emitted when tokens are refunded after a cross-chain transfer timeout
@@ -168,7 +168,7 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
      * @param chainId The chain identifier
      * @return The address of the token contract on the specified chain
      */
-    function supportedChain(bytes calldata chainId) public view returns (address) {
+    function supportedChain(bytes calldata chainId) public view returns (bytes memory) {
         return _supportedChains[chainId];
     }
 
@@ -186,10 +186,10 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
      * @notice Registers a supported chain and its corresponding token contract address
      * @dev Only callable by the contract owner. The address is the token contract on that chain.
      * @param chainId The chain identifier (e.g., StateMachine.evm(1))
-     * @param token The address of the token contract on the specified chain
+     * @param moduleId The module ID of the peer on the specified chain (8 bytes for pallet, 20 bytes for EVM contract)
      */
-    function addChain(bytes calldata chainId, address token) external onlyOwner {
-        _supportedChains[chainId] = token;
+    function addChain(bytes calldata chainId, bytes calldata moduleId) external onlyOwner {
+        _supportedChains[chainId] = moduleId;
     }
 
     /**
@@ -225,8 +225,8 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
      * @param params The send parameters including destination, recipient, amount, and optional calldata
      */
     function send(SendParams calldata params) external payable whenNotPaused {
-        address dest = _supportedChains[params.dest];
-        if (dest == address(0)) revert UnsupportedChain();
+        bytes memory dest = _supportedChains[params.dest];
+        if (dest.length == 0) revert UnsupportedChain();
         _burn(msg.sender, params.amount);
 
         bytes memory from = abi.encodePacked(msg.sender);
@@ -238,7 +238,7 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
         }));
         DispatchPost memory request = DispatchPost({
             dest: params.dest,
-            to: abi.encodePacked(dest),
+            to: dest,
             body: body,
             timeout: params.timeout,
             fee: params.relayerFee,
@@ -252,7 +252,7 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
             commitment = dispatchWithFeeToken(request, msg.sender);
         }
 
-        emit Sent(from, params.to, params.dest, params.amount, commitment);
+        emit Sent(msg.sender, params.to, string(params.dest), params.amount, commitment);
     }
 
     /**
@@ -265,9 +265,9 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost whenNotPaused {
         PostRequest calldata request = incoming.request;
 
-        address expectedSource = _supportedChains[request.source];
-        if (expectedSource == address(0)) revert UnsupportedChain();
-        if (address(bytes20(request.from[:20])) != expectedSource) revert UnauthorizedSource();
+        bytes memory expectedSource = _supportedChains[request.source];
+        if (expectedSource.length == 0) revert UnsupportedChain();
+        if (keccak256(request.from) != keccak256(expectedSource)) revert UnauthorizedSource();
 
         Message memory message = abi.decode(request.body, (Message));
         address beneficiary = _toAddr(message.to);
@@ -277,7 +277,7 @@ abstract contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
             ICallDispatcher(_dispatcher).dispatch(message.data);
         }
 
-        emit Received(message.from, abi.encodePacked(beneficiary), request.source, message.amount);
+        emit Received(message.from, beneficiary, string(request.source), message.amount);
     }
 
     /**

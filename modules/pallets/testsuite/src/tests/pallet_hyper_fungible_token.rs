@@ -73,7 +73,7 @@ fn should_receive_asset_correctly() {
 			dest: StateMachine::Kusama(100),
 			nonce: 0,
 			from: hft_contract(),
-			to: vec![0xCDu8; 20],
+			to: pallet_hyper_fungible_token::PALLET_ID.to_bytes(),
 			timeout_timestamp: 1000,
 			body: {
 				let msg = Message {
@@ -119,7 +119,7 @@ fn should_timeout_request_correctly() {
 			source: StateMachine::Kusama(100),
 			dest: StateMachine::Evm(1),
 			nonce: 0,
-			from: vec![0xCDu8; 20],
+			from: pallet_hyper_fungible_token::PALLET_ID.to_bytes(),
 			to: hft_contract(),
 			timeout_timestamp: 1000,
 			body: {
@@ -151,7 +151,7 @@ fn should_reject_unknown_source_contract() {
 			dest: StateMachine::Kusama(100),
 			nonce: 0,
 			from: vec![0xFFu8; 20], // unknown contract
-			to: vec![0xCDu8; 20],
+			to: pallet_hyper_fungible_token::PALLET_ID.to_bytes(),
 			timeout_timestamp: 1000,
 			body: {
 				let msg = Message {
@@ -195,14 +195,12 @@ fn should_register_and_update_token() {
 	new_test_ext().execute_with(|| {
 		let asset_id: H256 = sp_io::hashing::keccak_256(b"NEW_TOKEN").into();
 		let contract = vec![0xEEu8; 20];
-		let pallet_addr = vec![0xDDu8; 20];
 
 		let mut chains = BTreeMap::new();
 		chains.insert(
 			StateMachine::Evm(42),
 			ChainConfig {
 				token_contract: contract.clone(),
-				pallet_address: pallet_addr.clone(),
 				decimals: 6,
 			},
 		);
@@ -219,14 +217,6 @@ fn should_register_and_update_token() {
 			)
 			.unwrap(),
 			contract
-		);
-		assert_eq!(
-			pallet_hyper_fungible_token::PalletAddresses::<Test>::get(
-				StateMachine::Evm(42),
-				asset_id
-			)
-			.unwrap(),
-			pallet_addr
 		);
 		assert_eq!(
 			pallet_hyper_fungible_token::ContractToAsset::<Test>::get(
@@ -306,7 +296,7 @@ fn should_receive_asset_with_calldata() {
 			dest: StateMachine::Kusama(100),
 			nonce: 0,
 			from: hft_contract(),
-			to: vec![0xCDu8; 20],
+			to: pallet_hyper_fungible_token::PALLET_ID.to_bytes(),
 			timeout_timestamp: 1000,
 			body: {
 				let msg = Message {

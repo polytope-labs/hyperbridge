@@ -86,15 +86,6 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     /// @notice Compose message queue: keccak256(from, to, guid, index) => keccak256(message)
     mapping(bytes32 => bytes32) internal _composeQueue;
 
-    /// @notice Whether we are currently inside a send() call
-    bool internal _sending;
-
-    /// @notice Destination eid for the current send operation
-    uint32 internal _sendDstEid;
-
-    /// @notice Sender address for the current send operation
-    address internal _sendSender;
-
     constructor() Ownable(msg.sender) {}
 
     // ==================== Configuration ====================
@@ -225,11 +216,6 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
             _params.message
         );
 
-        // Set send context
-        _sending = true;
-        _sendDstEid = _params.dstEid;
-        _sendSender = msg.sender;
-
         DispatchPost memory request = DispatchPost({
             dest: dest,
             to: abi.encodePacked(address(this)),
@@ -245,11 +231,6 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
             // Fee tokens already transferred to this contract by OFT's _payLzToken
             dispatchWithFeeToken(request, address(this));
         }
-
-        // Clear send context
-        _sending = false;
-        _sendDstEid = 0;
-        _sendSender = address(0);
 
         return MessagingReceipt({
             guid: guid,
@@ -499,12 +480,12 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
 
     // ==================== IMessagingContext ====================
 
-    function isSendingMessage() external view override returns (bool) {
-        return _sending;
+    function isSendingMessage() external pure override returns (bool) {
+        return false;
     }
 
-    function getSendContext() external view override returns (uint32, address) {
-        return (_sendDstEid, _sendSender);
+    function getSendContext() external pure override returns (uint32, address) {
+        return (0, address(0));
     }
 
     // ==================== IMessageLibManager (stubs) ====================

@@ -55,7 +55,7 @@ contract HyperFungibleTokenTest is BaseTest {
     TestHFT internal hft;
     CallDispatcher internal callDispatcher;
     bytes internal destChain;
-    address internal remoteContract;
+    bytes internal remoteContract;
 
     uint256 internal constant MINT_AMOUNT = 1000 ether;
     uint256 internal constant SEND_AMOUNT = 100 ether;
@@ -64,7 +64,7 @@ contract HyperFungibleTokenTest is BaseTest {
         super.setUp();
 
         destChain = StateMachine.evm(42161); // Arbitrum
-        remoteContract = address(0xBEEF);
+        remoteContract = abi.encodePacked(address(0xBEEF));
 
         callDispatcher = new CallDispatcher();
         // Grant minter role to CallDispatcher so calldata tests can mint via it
@@ -102,7 +102,7 @@ contract HyperFungibleTokenTest is BaseTest {
 
     function testAddChain() public {
         bytes memory newChain = StateMachine.evm(10);
-        address newContract = address(0xFACE);
+        bytes memory newContract = abi.encodePacked(address(0xFACE));
         hft.addChain(newChain, newContract);
 
         // Verify by sending (would revert if chain not added)
@@ -114,7 +114,7 @@ contract HyperFungibleTokenTest is BaseTest {
     function testAddChainOnlyOwner() public {
         vm.prank(address(0xDEAD));
         vm.expectRevert();
-        hft.addChain(StateMachine.evm(10), address(0x1));
+        hft.addChain(StateMachine.evm(10), abi.encodePacked(address(0x1)));
     }
 
     function testRemoveChain() public {
@@ -390,7 +390,7 @@ contract WrappedHyperFungibleTokenTest is BaseTest {
     WETH9 internal weth;
     MockUSCDC internal mockToken;
     bytes internal destChain;
-    address internal remoteContract;
+    bytes internal remoteContract;
 
     uint256 internal constant SEND_AMOUNT = 1 ether;
 
@@ -398,7 +398,7 @@ contract WrappedHyperFungibleTokenTest is BaseTest {
         super.setUp();
 
         destChain = StateMachine.evm(42161);
-        remoteContract = address(0xBEEF);
+        remoteContract = abi.encodePacked(address(0xBEEF));
 
         wrappedCallDispatcher = new CallDispatcher();
         feeToken.grantMinterRole(address(wrappedCallDispatcher));

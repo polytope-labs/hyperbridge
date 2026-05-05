@@ -13,13 +13,13 @@ log = { workspace = true }
 codec = { workspace = true }
 scale-info = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-macro = { workspace = true }
 alloy-sol-types = { workspace = true }
 
 ismp = { workspace = true }
 pallet-ismp = { workspace = true }
-pallet-hyperbridge = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -36,7 +36,6 @@ std = [
     "scale-info/std",
     "anyhow/std",
     "alloy-primitives/std",
-    "pallet-hyperbridge/std",
 ]
 runtime-benchmarks = [
     "polkadot-sdk/frame-benchmarking",

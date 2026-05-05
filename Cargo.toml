@@ -197,8 +197,8 @@ hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 log = { version = "0.4", default-features = false }
 anyhow = { version = "1.0", default-features = false }
-derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
+derive_more = { version = "1.0", default-features = false }
 alloy-rlp = { version = "0.3.13", default-features = false }
 alloy-rlp-derive = "0.3.13"
 alloy-sol-macro = { version = "1.5.7", features = ["json"] }

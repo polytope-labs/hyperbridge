@@ -1,8 +1,24 @@
 {
   "name": "@hyperbridge/lz-endpoint",
   "version": "0.1.0",
-  "description": "LayerZero V2 endpoint adapter for Hyperbridge — allows existing OFTs to use ISMP transport",
+  "description": "LayerZero V2 endpoint adapter for Hyperbridge — allows existing OFTs and OApps to use ISMP transport",
   "license": "Apache-2.0",
+  "keywords": [
+    "LayerZero",
+    "OFT",
+    "OApp",
+    "Omnichain",
+    "Fungible",
+    "Token",
+    "EndpointV2",
+    "cross-chain",
+    "bridge",
+    "Hyperbridge",
+    "ISMP",
+    "interoperability",
+    "EVM",
+    "Solidity"
+  ],
   "dependencies": {
     "@layerzerolabs/lz-evm-protocol-v2": "^2.3.0",
     "@layerzerolabs/oapp-evm": "^0.4.0",

@@ -1,5 +1,8 @@
 # @hyperbridge/lz-endpoint
 
+![Tests](https://github.com/polytope-labs/hyperbridge/actions/workflows/test-lz-endpoint.yml/badge.svg)
+[![NPM](https://img.shields.io/npm/v/@hyperbridge/lz-endpoint?label=%40hyperbridge%2Flz-endpoint)](https://www.npmjs.com/package/@hyperbridge/lz-endpoint)
+
 A LayerZero V2 endpoint adapter that routes messages through Hyperbridge's ISMP protocol. Allows existing OApp and OFT deployments to use Hyperbridge for cross-chain transport without any code changes.
 
 ## Overview
@@ -41,7 +44,7 @@ This means tokens land safely even if the compose call hasn't been executed yet,
 2. The adapter decodes the LZ message components from the ISMP body
 3. Validates the inbound nonce for ordered delivery
 4. Calls `lzReceive()` on the destination OApp with the original LZ `Origin`, guid, and message
-5. If the OApp triggers a compose via `sendCompose()`, the compose is executed inline
+5. If the OApp triggers a compose via `sendCompose()`, the compose message is queued for separate execution via `lzCompose()`
 
 ### Fee payment
 

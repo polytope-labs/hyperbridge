@@ -797,16 +797,10 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		// Setup HyperFungibleToken pallet storage
 		// Register the native asset with a mock EVM contract address
 		let hft_contract = vec![0xABu8; 20];
-		let hft_pallet_addr = vec![0xCDu8; 20];
 		pallet_hyper_fungible_token::TokenContracts::<Test>::insert(
 			StateMachine::Evm(1),
 			HftNativeAssetId::get(),
 			hft_contract.clone(),
-		);
-		pallet_hyper_fungible_token::PalletAddresses::<Test>::insert(
-			StateMachine::Evm(1),
-			HftNativeAssetId::get(),
-			hft_pallet_addr,
 		);
 		pallet_hyper_fungible_token::ContractToAsset::<Test>::insert(
 			StateMachine::Evm(1),

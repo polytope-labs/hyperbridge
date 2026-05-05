@@ -33,6 +33,9 @@ const substrateTemplate = Handlebars.compile(
 	fs.readFileSync(path.join(templatesDir, "substrate-chain.yaml.hbs"), "utf8"),
 )
 const evmTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "evm-chain.yaml.hbs"), "utf8"))
+const solanaTemplate = Handlebars.compile(
+	fs.readFileSync(path.join(templatesDir, "solana-chain.yaml.hbs"), "utf8"),
+)
 const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "multichain.yaml.hbs"), "utf8"))
 
 const EVM_TRACKED = [
@@ -196,12 +199,66 @@ const generateEvmYaml = async (chain: string, config: Configuration) => {
 	return evmTemplate(templateData)
 }
 
+const generateSolanaYaml = async (chain: string, config: Configuration) => {
+	const endpoints = generateEndpoints(chain)
+
+	let blockNumber: number
+	// Only connect to RPC when we actually need the live head (local env).
+	// For other environments we use the static startBlock from config.
+	if (skipRpc || currentEnv !== "local") {
+		blockNumber = config.startBlock
+	} else {
+		const rpcUrl = endpoints[0]
+		const response = await fetch(rpcUrl as string, {
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				id: 1,
+				jsonrpc: "2.0",
+				method: "getSlot",
+				// finalized commitment is the only safe head for state commitments;
+				// see solana-indexer-plan.md sections 2.2 and 6.
+				params: [{ commitment: "finalized" }],
+			}),
+		})
+		const data = await response.json()
+		blockNumber = Number(data.result)
+	}
+
+	const templateData = {
+		name: chain,
+		description: `${chain.charAt(0).toUpperCase() + chain.slice(1)} Indexer`,
+		runner: {
+			node: {
+				name: "@subql/node-solana",
+				version: ">=1.0.0",
+			},
+		},
+		config,
+		endpoints,
+		blockNumber,
+	}
+
+	return solanaTemplate(templateData)
+}
+
 async function generateAllChainYamls() {
 	for (const [chain, config] of validChains) {
-		const yaml =
-			config.type === "substrate"
-				? await generateSubstrateYaml(chain, config)
-				: await generateEvmYaml(chain, config)
+		let yaml: string
+		switch (config.type) {
+			case "substrate":
+				yaml = await generateSubstrateYaml(chain, config)
+				break
+			case "evm":
+				yaml = await generateEvmYaml(chain, config)
+				break
+			case "solana":
+				yaml = await generateSolanaYaml(chain, config)
+				break
+		}
 
 		fs.writeFileSync(root + `/src/configs/${chain}.yaml`, yaml)
 		console.log(`Generated ${root}/src/configs/${chain}.yaml`)
@@ -239,9 +296,10 @@ const generateChainsByIsmpHost = () => {
 	const chainsByIsmpHost = {}
 
 	validChains.forEach((config) => {
-		// Only include EVM chains with ethereumHost contract
 		if (config.type === "evm" && config.contracts?.ethereumHost) {
 			chainsByIsmpHost[config.stateMachineId] = config.contracts.ethereumHost
+		} else if (config.type === "solana" && config.contracts?.ismpHost) {
+			chainsByIsmpHost[config.stateMachineId] = config.contracts.ismpHost
 		}
 	})
 
@@ -255,8 +313,9 @@ const generateChainsTokenGatewayAddresses = () => {
 	const tokenGateway = {}
 
 	validChains.forEach((config) => {
-		// Only include EVM chains with ethereumHost contract
 		if (config.type === "evm" && config.contracts?.tokenGateway) {
+			tokenGateway[config.stateMachineId] = config.contracts.tokenGateway
+		} else if (config.type === "solana" && config.contracts?.tokenGateway) {
 			tokenGateway[config.stateMachineId] = config.contracts.tokenGateway
 		}
 	})
@@ -271,8 +330,9 @@ const generateChainsIntentGatewayAddresses = () => {
 	const intentGateway = {}
 
 	validChains.forEach((config) => {
-		// Only include EVM chains with ethereumHost contract
 		if (config.type === "evm" && config.contracts?.intentGateway) {
+			intentGateway[config.stateMachineId] = config.contracts.intentGateway
+		} else if (config.type === "solana" && config.contracts?.intentGateway) {
 			intentGateway[config.stateMachineId] = config.contracts.intentGateway
 		}
 	})

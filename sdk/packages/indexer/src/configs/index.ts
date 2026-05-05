@@ -14,6 +14,26 @@ const evmContractsSchema = z.object({
 	tokenGateway: z.string().optional(),
 })
 
+// Solana program addresses (base58 program IDs)
+const solanaContractsSchema = z.object({
+	ismpHost: z.string().min(32, "Invalid Solana program id"),
+	tokenGateway: z.string().min(32, "Invalid Solana program id").optional(),
+	intentGateway: z.string().min(32, "Invalid Solana program id").optional(),
+})
+
+// Multi-provider quorum policy for Solana RPC reads. Each entry in `providers`
+// is the env var key holding that operator's URL list, so the URLs themselves
+// stay out of source. Threshold is the minimum number of byte-identical
+// responses required before a read is accepted into a state commitment.
+const solanaQuorumSchema = z
+	.object({
+		providers: z.array(z.string().min(1)).min(2, "Quorum needs at least two providers"),
+		threshold: z.number().int().positive(),
+	})
+	.refine((q) => q.threshold <= q.providers.length, {
+		message: "threshold cannot exceed providers length",
+	})
+
 // Base chain configuration schema
 const baseChainConfigSchema = z.object({
 	chainId: z.string(),
@@ -31,6 +51,11 @@ export const schemaConfiguration = z.record(
 			type: z.literal("evm"),
 			unfinalizedBlocks: z.boolean().optional(),
 			contracts: evmContractsSchema.optional(),
+		}),
+		baseChainConfigSchema.extend({
+			type: z.literal("solana"),
+			contracts: solanaContractsSchema.optional(),
+			quorum: solanaQuorumSchema.optional(),
 		}),
 	]),
 )

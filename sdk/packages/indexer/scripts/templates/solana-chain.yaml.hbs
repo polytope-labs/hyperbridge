@@ -1,0 +1,77 @@
+{{> metadata}}
+{{> network-config}}
+dataSources:
+  - kind: solana/Runtime
+    startBlock: {{blockNumber}}
+    assets:
+      ismpHost:
+        # IDL ships with the host program. Path is relative to the project root.
+        file: ./idls/IsmpHost.idl.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        # The PR 801 host has no Anchor `#[event]`s; everything is filtered as
+        # an instruction call. Discriminator strings are the IDL's camelCase
+        # function names.
+        - handler: handleSolanaStoreStateCommitmentInstruction
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.ismpHost}}'
+            discriminator: 'storeStateCommitment'
+        - handler: handleSolanaDispatchIncomingInstruction
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.ismpHost}}'
+            discriminator: 'dispatchIncoming'
+        - handler: handleSolanaVetoStateCommitmentInstruction
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.ismpHost}}'
+            discriminator: 'vetoStateCommitment'
+{{#if config.contracts.tokenGateway}}
+  - kind: solana/Runtime
+    startBlock: {{blockNumber}}
+    assets:
+      tokenGateway:
+        file: ./idls/TokenGateway.idl.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleSolanaAssetTeleportedEvent
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.tokenGateway}}'
+            discriminator: 'teleport'
+        - handler: handleSolanaAssetReceivedEvent
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.tokenGateway}}'
+            discriminator: 'onAccept'
+        - handler: handleSolanaAssetRefundedEvent
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.tokenGateway}}'
+            discriminator: 'onTimeout'
+{{/if}}
+{{#if config.contracts.intentGateway}}
+  - kind: solana/Runtime
+    startBlock: {{blockNumber}}
+    assets:
+      intentGateway:
+        file: ./idls/IntentGateway.idl.json
+    mapping:
+      file: ./dist/index.js
+      handlers:
+        - handler: handleSolanaOrderPlacedEvent
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.intentGateway}}'
+            discriminator: 'placeOrder'
+        - handler: handleSolanaOrderFilledEvent
+          kind: solana/InstructionHandler
+          filter:
+            programId: '{{config.contracts.intentGateway}}'
+            discriminator: 'fillOrder'
+{{/if}}
+
+repository: 'https://github.com/polytope-labs/hyperbridge'

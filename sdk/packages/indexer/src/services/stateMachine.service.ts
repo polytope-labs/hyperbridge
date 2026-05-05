@@ -2,6 +2,24 @@ import { StateMachineUpdateEvent } from "@/configs/src/types"
 import { fetchStateCommitmentsEVM, fetchStateCommitmentsSubstrate, getStateId } from "@/utils/state-machine.helper"
 import { timestampToDate } from "@/utils/date.helpers"
 
+// Solana inputs already carry the commitment in the instruction params, so the
+// service receives the full commitment instead of fetching it. Keeps the EVM
+// and Substrate creators (which do fetch) and this one symmetric at the call
+// site even though the underlying fetch is elided.
+export interface ICreateSolanaStateMachineUpdatedEventArgs {
+	stateMachineId: string
+	height: number
+	blockHash: string
+	blockNumber: number
+	transactionHash: string
+	transactionIndex: number
+	timestamp: number
+	consensusStateId: string
+	commitmentTimestamp: bigint
+	stateRootHex: string
+	overlayRootHex: string
+}
+
 // Arguments to functions that create StateMachineUpdated events
 export interface ICreateStateMachineUpdatedEventArgs {
 	stateMachineId: string
@@ -116,6 +134,53 @@ export class StateMachineService {
 			blockHash,
 			blockNumber: Number(blockNumber),
 			commitmentTimestamp: stateCommitment.timestamp,
+			createdAt: timestampToDate(timestamp),
+		})
+
+		await event.save()
+	}
+
+	/**
+	 * Create a Solana host StateMachineUpdated event entity. Unlike the EVM and
+	 * Substrate creators, the commitment values come in via the args (decoded
+	 * from the host program's `storeStateCommitment` instruction params)
+	 * because the params already carry state_root, overlay_root, and timestamp
+	 * on the wire — no post-hoc account fetch needed for the hot path.
+	 */
+	static async createSolanaStateMachineUpdatedEvent(
+		args: ICreateSolanaStateMachineUpdatedEventArgs,
+		chain: string,
+	): Promise<void> {
+		const {
+			blockHash,
+			blockNumber,
+			transactionHash,
+			transactionIndex,
+			timestamp,
+			stateMachineId,
+			height,
+			consensusStateId,
+			commitmentTimestamp,
+		} = args
+
+		logger.info(
+			`Creating Solana StateMachineUpdated Event: ${JSON.stringify({
+				...args,
+				commitmentTimestamp: commitmentTimestamp.toString(),
+			})}`,
+		)
+		logger.info(`Using Consensus State ID: ${consensusStateId}`)
+
+		const event = StateMachineUpdateEvent.create({
+			id: `${chain}_${transactionHash}_${stateMachineId}_${height}`,
+			stateMachineId,
+			height,
+			chain,
+			transactionHash,
+			transactionIndex: Number(transactionIndex),
+			blockHash,
+			blockNumber: Number(blockNumber),
+			commitmentTimestamp,
 			createdAt: timestampToDate(timestamp),
 		})
 

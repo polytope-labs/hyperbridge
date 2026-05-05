@@ -46,6 +46,11 @@ export { handleSubstrateAssetTeleportedEvent } from "@/handlers/events/substrate
 export { handleSubstrateGetRequestHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestHandledEvent.handler"
 export { handleSubstrateGetRequestTimeoutHandledEvent } from "@/handlers/events/substrateChains/handleGetRequestTimeoutHandledEvent.handler"
 
+// Solana Host Handlers (inbound-only)
+export { handleSolanaStoreStateCommitmentInstruction } from "@/handlers/events/solana/storeStateCommitment.instruction.handler"
+export { handleSolanaDispatchIncomingInstruction } from "@/handlers/events/solana/dispatchIncoming.instruction.handler"
+export { handleSolanaVetoStateCommitmentInstruction } from "@/handlers/events/solana/vetoStateCommitment.instruction.handler"
+
 // Price Handlers
 export { handlePriceIndexing } from "@/handlers/events/price/handlePriceIndexing.event.handler"
 export { handleBridgeTokenSupplyIndexing } from "@/handlers/events/supply/handleBridgeTokenSupplyIndexing.event.handler"

@@ -11,7 +11,6 @@ import {DispatchPost} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 
 import {BandwidthMarket, BandwidthPurchaseMsg} from "../../src/apps/BandwidthMarket.sol";
-import {NoOpERC20} from "../../src/utils/NoOpERC20.sol";
 
 /// Stablecoin mock with configurable decimals.
 contract MockStable is ERC20 {
@@ -30,19 +29,31 @@ contract MockStable is ERC20 {
     }
 }
 
-/// Stand-in for `EvmHost` that records the last dispatched payload.
+/// Stand-in for `EvmHost` that records the last dispatched payload and
+/// exposes a mutable `feeToken()` so tests can simulate a host-side
+/// fee-token swap.
 contract MockHost {
     bytes public hyperbridgeId;
+    address public feeTokenAddr;
     DispatchPost public lastPost;
     bool public dispatched;
     bytes32 public lastCommitment;
 
-    constructor(bytes memory hb) {
+    constructor(bytes memory hb, address feeToken_) {
         hyperbridgeId = hb;
+        feeTokenAddr = feeToken_;
     }
 
     function hyperbridge() external view returns (bytes memory) {
         return hyperbridgeId;
+    }
+
+    function feeToken() external view returns (address) {
+        return feeTokenAddr;
+    }
+
+    function setFeeToken(address t) external {
+        feeTokenAddr = t;
     }
 
     function dispatch(DispatchPost memory post) external returns (bytes32) {
@@ -67,22 +78,28 @@ contract BandwidthMarketTest is Test {
     uint256 internal constant PRICE_PER_BYTE_18D = 1e15;
 
     function setUp() public {
-        host = new MockHost(HYPERBRIDGE_ID);
         stable = new MockStable("USD Coin", "USDC", 6);
-        market = new BandwidthMarket(address(host), address(stable), PRICE_PER_BYTE_18D);
+        host = new MockHost(HYPERBRIDGE_ID, address(stable));
+        market = new BandwidthMarket(address(host), PRICE_PER_BYTE_18D);
     }
 
     function testConstructorState() public view {
         assertEq(market.host_(), address(host));
-        assertEq(market.stablecoin(), address(stable));
-        assertEq(market.tokenDecimals(), 6);
         assertEq(market.pricePerByte(), PRICE_PER_BYTE_18D);
     }
 
-    function testRejectsHighDecimalToken() public {
+    /// Tokens with > 18 decimals underflow the `18 - dec` scaling and
+    /// revert with the EVM arithmetic panic.
+    function testRejectsHighDecimalTokenAtPurchase() public {
         MockStable weird = new MockStable("Weird", "WRD", 24);
-        vm.expectRevert(BandwidthMarket.UnsupportedDecimals.selector);
-        new BandwidthMarket(address(host), address(weird), PRICE_PER_BYTE_18D);
+        host.setFeeToken(address(weird));
+        weird.mint(BUYER, 1e24);
+
+        vm.startPrank(BUYER);
+        weird.approve(address(market), 1e24);
+        vm.expectRevert(stdError.arithmeticError);
+        market.purchase(APP, 1e24);
+        vm.stopPrank();
     }
 
     /// $1 USDC (6d) = 1e6 raw → 1e18 scaled → /1e15 = 1000 bytes.
@@ -129,7 +146,8 @@ contract BandwidthMarketTest is Test {
     /// as the 6-decimal case — the scaling-logic invariant.
     function testPurchaseEighteenDecimalTokenMatchesSixDecimal() public {
         MockStable bsc = new MockStable("USDC.bsc", "USDC", 18);
-        BandwidthMarket bscMarket = new BandwidthMarket(address(host), address(bsc), PRICE_PER_BYTE_18D);
+        MockHost bscHost = new MockHost(HYPERBRIDGE_ID, address(bsc));
+        BandwidthMarket bscMarket = new BandwidthMarket(address(bscHost), PRICE_PER_BYTE_18D);
 
         uint256 amount = 1e18; // $1 on an 18-decimal chain
         bsc.mint(BUYER, amount);
@@ -139,10 +157,28 @@ contract BandwidthMarketTest is Test {
         bscMarket.purchase(APP, amount);
         vm.stopPrank();
 
-        DispatchPost memory post = _readPost();
+        DispatchPost memory post = _readPost(bscHost);
         BandwidthPurchaseMsg memory body = abi.decode(post.body, (BandwidthPurchaseMsg));
         assertEq(body.bytesPurchased, 1000, "decimals normalisation broken");
         assertEq(body.amountPaid, 1e18, "amount already at 18 decimals must pass through");
+    }
+
+    /// A host-side feeToken swap must be picked up by the market
+    /// without redeployment.
+    function testHostFeeTokenSwapTakesEffect() public {
+        MockStable next = new MockStable("USD Coin", "USDC", 6);
+        host.setFeeToken(address(next));
+
+        uint256 amount = 1_000_000;
+        next.mint(BUYER, amount);
+
+        vm.startPrank(BUYER);
+        next.approve(address(market), amount);
+        market.purchase(APP, amount);
+        vm.stopPrank();
+
+        assertEq(next.balanceOf(address(market)), amount, "market pulled from new feeToken");
+        assertEq(stable.balanceOf(address(market)), 0, "old feeToken untouched");
     }
 
     function testRejectsBelowMinimumPurchase() public {
@@ -197,7 +233,8 @@ contract BandwidthMarketTest is Test {
         vm.stopPrank();
 
         bytes memory body = bytes.concat(
-            bytes1(uint8(BandwidthMarket.OnAcceptActions.Withdraw)), abi.encode(TREASURY, amount)
+            bytes1(uint8(BandwidthMarket.OnAcceptActions.Withdraw)),
+            abi.encode(address(stable), TREASURY, amount)
         );
         IncomingPostRequest memory inc = _governanceRequest(body);
 
@@ -208,14 +245,31 @@ contract BandwidthMarketTest is Test {
         assertEq(stable.balanceOf(address(market)), 0, "market still holds funds");
     }
 
-    function testNoOpERC20Behaviour() public {
-        NoOpERC20 noop = new NoOpERC20();
-        assertEq(noop.totalSupply(), type(uint256).max);
-        assertEq(noop.balanceOf(address(this)), type(uint256).max);
-        assertEq(noop.allowance(address(this), address(0xBEEF)), type(uint256).max);
-        assertTrue(noop.transfer(address(0xBEEF), 1 ether));
-        assertTrue(noop.transferFrom(address(0xBEEF), address(this), 1 ether));
-        assertTrue(noop.approve(address(0xBEEF), 1 ether));
+    /// Withdraw can recover balances of a token that is no longer the
+    /// host's `feeToken()` — the explicit token address makes feeToken
+    /// swaps non-destructive.
+    function testGovernanceCanWithdrawStaleToken() public {
+        uint256 amount = 1_000_000;
+        stable.mint(BUYER, amount);
+        vm.startPrank(BUYER);
+        stable.approve(address(market), amount);
+        market.purchase(APP, amount);
+        vm.stopPrank();
+
+        // Host swaps to a brand-new feeToken; old USDC is now "stale".
+        MockStable next = new MockStable("USD Coin", "USDC", 6);
+        host.setFeeToken(address(next));
+
+        bytes memory body = bytes.concat(
+            bytes1(uint8(BandwidthMarket.OnAcceptActions.Withdraw)),
+            abi.encode(address(stable), TREASURY, amount)
+        );
+        IncomingPostRequest memory inc = _governanceRequest(body);
+
+        vm.prank(address(host));
+        market.onAccept(inc);
+
+        assertEq(stable.balanceOf(TREASURY), amount, "stale token must still be recoverable");
     }
 
     // ----- helpers -----
@@ -241,9 +295,13 @@ contract BandwidthMarketTest is Test {
         });
     }
 
-    /// Re-shape `host.lastPost()` (which the auto-getter returns as a tuple)
-    /// back into a `DispatchPost` for readable call sites.
-    function _readPost() internal view returns (DispatchPost memory post) {
+    function _readPost() internal view returns (DispatchPost memory) {
+        return _readPost(host);
+    }
+
+    /// Re-shape `MockHost.lastPost()` (which the auto-getter returns as a
+    /// tuple) back into a `DispatchPost` for readable call sites.
+    function _readPost(MockHost h) internal view returns (DispatchPost memory post) {
         (
             bytes memory dest,
             bytes memory to,
@@ -251,7 +309,7 @@ contract BandwidthMarketTest is Test {
             uint64 timeout,
             uint256 fee,
             address payer
-        ) = host.lastPost();
+        ) = h.lastPost();
         post = DispatchPost({dest: dest, to: to, body: body, timeout: timeout, fee: fee, payer: payer});
     }
 }

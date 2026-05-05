@@ -65,6 +65,7 @@ contract WrappedHyperFungibleToken is HyperApp, Ownable, Pausable {
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
 
+
     /// @notice Thrown when a native ETH transfer fails during timeout refund
     error TransferFailed();
 
@@ -173,7 +174,9 @@ contract WrappedHyperFungibleToken is HyperApp, Ownable, Pausable {
      * @param options The configuration parameters
      */
     function configure(WrappedConfigOptions calldata options) external onlyOwner {
-        _host = options.host;
+        if (_host == address(0)) {
+            _host = options.host;
+        }
         _dispatcher = options.dispatcher;
         _underlying = options.underlying;
         _isWeth = options.isWeth;

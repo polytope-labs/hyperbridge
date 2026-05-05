@@ -93,6 +93,7 @@ contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     /// @notice Thrown when the provided bytes are too short to extract an address
     error InvalidAddress(uint256 length);
 
+
     /// @notice Thrown when attempting to send to or receive from an unconfigured chain
     error UnsupportedChain();
 
@@ -178,7 +179,9 @@ contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
      * @param options The configuration parameters containing host and dispatcher addresses
      */
     function configure(ConfigOptions calldata options) external onlyOwner {
-        _host = options.host;
+        if (_host == address(0)) {
+            _host = options.host;
+        }
         _dispatcher = options.dispatcher;
     }
 

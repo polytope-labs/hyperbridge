@@ -34,7 +34,7 @@ struct BandwidthPurchaseMsg {
     uint256 amountPaid;
 }
 
-contract BandwidthMarket is HyperApp, ERC165 {
+contract BandwidthManager is HyperApp, ERC165 {
     using Bytes for bytes;
     using SafeERC20 for IERC20;
 

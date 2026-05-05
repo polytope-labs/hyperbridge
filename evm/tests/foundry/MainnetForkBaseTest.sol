@@ -28,9 +28,6 @@ import {HyperFungibleTokenImpl} from "../../src/utils/HyperFungibleTokenImpl.sol
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
-import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../../src/apps/TokenGateway.sol";
-import {PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {TokenFaucet} from "../../src/utils/TokenFaucet.sol";
 
 contract MainnetForkBaseTest is Test {
@@ -47,7 +44,6 @@ contract MainnetForkBaseTest is Test {
     TestHost internal host;
     HandlerV1 internal handler;
     PingModule internal testModule;
-    TokenGateway internal gateway;
     HostManager internal manager;
     IERC20 internal usdc;
     IERC20 internal dai;
@@ -105,62 +101,6 @@ contract MainnetForkBaseTest is Test {
         testModule = new PingModule(address(this));
         testModule.setIsmpHost(address(host), address(0));
         manager.setIsmpHost(address(host));
-        gateway = new TokenGateway(address(this));
-
-        // Deploy HyperFungibleTokens with address(this) as admin
-        HyperFungibleTokenImpl daiToken = new HyperFungibleTokenImpl(address(this), "Hyperbridge USD", "USD.h");
-        // Grant minter and burner roles to gateway
-        daiToken.grantMinterRole(address(gateway));
-        daiToken.grantBurnerRole(address(gateway));
-
-        HyperFungibleTokenImpl wethToken = new HyperFungibleTokenImpl(address(this), "Wrapped ETH", "WETH");
-        // Grant minter and burner roles to gateway
-        wethToken.grantMinterRole(address(gateway));
-        wethToken.grantBurnerRole(address(gateway));
-
-        AssetMetadata[] memory assets = new AssetMetadata[](2);
-        assets[0] = AssetMetadata({
-            erc20: address(dai),
-            erc6160: address(daiToken),
-            name: "Hyperbridge USD",
-            symbol: "USD.h",
-            beneficiary: address(0),
-            initialSupply: 0
-        });
-
-        assets[1] = AssetMetadata({
-            erc20: _uniswapV2Router.WETH(),
-            erc6160: address(wethToken),
-            name: "Wrapped ETH",
-            symbol: "WETH",
-            beneficiary: address(0),
-            initialSupply: 0
-        });
-
-        gateway.init(TokenGatewayParams({host: address(host), dispatcher: address(dispatcher)}));
-
-        // Add assets via governance
-        for (uint256 i = 0; i < assets.length; i++) {
-            AssetMetadata[] memory singleAsset = new AssetMetadata[](1);
-            singleAsset[0] = assets[i];
-            bytes memory body = bytes.concat(hex"02", abi.encode(singleAsset[0]));
-
-            vm.prank(address(host));
-            gateway.onAccept(
-                IncomingPostRequest({
-                    request: PostRequest({
-                        to: abi.encodePacked(address(0)),
-                        from: abi.encodePacked(address(gateway)),
-                        dest: new bytes(0),
-                        body: body,
-                        nonce: 0,
-                        source: StateMachine.kusama(2000),
-                        timeoutTimestamp: 0
-                    }),
-                    relayer: address(0)
-                })
-            );
-        }
     }
 
     function module() public view returns (address) {

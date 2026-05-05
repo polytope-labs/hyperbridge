@@ -20,7 +20,6 @@ import "../src/hosts/Unichain.sol";
 import "../src/hosts/Sei.sol";
 
 import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
-import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
 import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 
 import {PingModule} from "../src/utils/PingModule.sol";
@@ -151,18 +150,10 @@ contract DeployScript is BaseScript {
         // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
-        // token gateway
-        TokenGateway tokenGateway = new TokenGateway{salt: salt}(admin);
-        tokenGateway.init(TokenGatewayParams({host: hostAddress, dispatcher: address(callDispatcher)}));
-
         IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
         intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));
 
         if (!isMainnet) {
-            // Grant TokenGateway minter and burner roles for feeToken
-            feeTokenInstance.grantMinterRole(address(tokenGateway));
-            feeTokenInstance.grantBurnerRole(address(tokenGateway));
-
             PingModule ping = new PingModule{salt: salt}(admin);
             ping.setIsmpHost(hostAddress, address(faucet));
             config.set("PING", address(ping));
@@ -174,7 +165,6 @@ contract DeployScript is BaseScript {
         config.set("HANDLER", address(handler));
         config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
-        config.set("TOKEN_GATEWAY", address(tokenGateway));
         config.set("INTENT_GATEWAY", address(intentGateway));
     }
 

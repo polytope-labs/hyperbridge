@@ -142,6 +142,22 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
     }
 
     /**
+    * @dev Returns the relayer address for a given authority set ID.
+    * @param authoritySetId - the authority set / epoch ID
+    * @return the relayer address, or address(0) if not set
+    */
+    function relayerOf(uint256 authoritySetId) external view returns (address) {
+        return _epochs[authoritySetId];
+    }
+
+    /**
+    * @dev Returns the current authority set epoch.
+    */
+    function currentEpoch() external view returns (uint256) {
+        return _currentEpoch;
+    }
+
+    /**
      * @dev Process a batch of encoded handler calls in a single transaction.
      * Uses delegatecall to self so msg.sender is preserved and storage writes
      * happen in this contract's context. Atomic, any failure reverts the entire batch.
@@ -162,7 +178,7 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
      * @param host - `IsmpHost`
      * @param proof - consensus proof
      */
-    function handleConsensus(IHost host, bytes calldata proof) external override(IHandler) notFrozen(host) {
+    function handleConsensus(IHost host, bytes calldata proof) external notFrozen(host) {
         uint256 delay = block.timestamp - host.consensusUpdateTime();
         if (delay >= host.unStakingPeriod()) revert ConsensusClientExpired();
 
@@ -419,21 +435,5 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
 
             host.dispatchTimeOut(request, meta, commitment);
         }
-    }
-
-    /**
-     * @dev Returns the relayer address for a given authority set ID.
-     * @param authoritySetId - the authority set / epoch ID
-     * @return the relayer address, or address(0) if not set
-     */
-    function relayerOf(uint256 authoritySetId) external view returns (address) {
-        return _epochs[authoritySetId];
-    }
-
-    /**
-     * @dev Returns the current authority set epoch.
-     */
-    function currentEpoch() external view returns (uint256) {
-        return _currentEpoch;
     }
 }

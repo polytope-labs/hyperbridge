@@ -148,7 +148,8 @@ impl Cli {
 		tracing::trace!(target: crate::LOG_TARGET, count = consensus_hosts.len(), "consensus hosts built");
 
 		// One `Arc<dyn IsmpProvider>` per chain. Recreate providers for messaging DO NOT reuse the
-		// consensus host's provider; Some consensus hosts like op-host and arb-host overwrite the consensus state id for their internal needs
+		// consensus host's provider; Some consensus hosts like op-host and arb-host overwrite the
+		// consensus state id for their internal needs
 		let mut providers: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();
 		for (sm, pc) in &config.chains {
 			let provider = pc

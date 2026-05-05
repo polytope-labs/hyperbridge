@@ -919,6 +919,8 @@ mod runtime {
 	pub type TxPause = pallet_tx_pause;
 	#[runtime::pallet_index(90)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
+	#[runtime::pallet_index(91)]
+	pub type HyperFungibleToken = pallet_hyper_fungible_token;
 	#[runtime::pallet_index(255)]
 	pub type IsmpGrandpa = ismp_grandpa;
 }

@@ -48,6 +48,7 @@ simnode-runtime-api = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
 pallet-token-gateway = { workspace = true }
+pallet-hyper-fungible-token = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
@@ -164,7 +165,8 @@ std = [
     "pallet-messaging-fees/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
-    "ismp-pharos/std"
+    "ismp-pharos/std",
+    "pallet-hyper-fungible-token/std"
 ]
 runtime-benchmarks = [
     "hex-literal",

@@ -18,7 +18,6 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 
 import {MainnetForkBaseTest} from "./MainnetForkBaseTest.sol";
-import {TeleportParams, Body, BODY_BYTES_SIZE} from "../../src/apps/TokenGateway.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import "@hyperbridge/core/interfaces/IDispatcher.sol";
@@ -250,7 +249,7 @@ contract EvmHostForkTest is MainnetForkBaseTest {
 
     function quote(uint256 feeTokenCost) internal view returns (uint256) {
         address[] memory path = new address[](2);
-        path[0] = IUniswapV2Router02(IHost(gateway.params().host).uniswapV2Router()).WETH();
+        path[0] = IUniswapV2Router02(IHost(address(host)).uniswapV2Router()).WETH();
         path[1] = address(feeToken);
 
         return _uniswapV2Router.getAmountsIn(feeTokenCost, path)[0];

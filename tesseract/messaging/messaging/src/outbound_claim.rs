@@ -360,7 +360,8 @@ async fn process_claim(
 /// equivalent off-chain helper from `tesseract-evm` so the hashing
 /// logic lives in one place instead of being re-implemented here.
 fn epochs_slot_key(handler: H160, set_id: u64) -> Vec<u8> {
-	let slot_hash = derive_map_key(U256::from(set_id).to_big_endian().to_vec(), HANDLER_V2_EPOCHS_SLOT);
+	let slot_hash =
+		derive_map_key(U256::from(set_id).to_big_endian().to_vec(), HANDLER_V2_EPOCHS_SLOT);
 	let mut key = Vec::with_capacity(52);
 	key.extend_from_slice(&handler.0);
 	key.extend_from_slice(slot_hash.as_bytes());

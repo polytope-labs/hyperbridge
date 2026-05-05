@@ -15,8 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo, Runtime,
-	RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -24,6 +24,7 @@ use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
 	traits::AsEnsureOriginWithArg,
+	PalletId,
 };
 use frame_system::EnsureRoot;
 use ismp::{
@@ -231,6 +232,29 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 
+parameter_types! {
+	pub const HftDecimals: u8 = 10;
+}
+
+pub struct HftNativeAssetId;
+
+impl Get<H256> for HftNativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
+	}
+}
+
+impl pallet_hyper_fungible_token::Config for Runtime {
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type NativeCurrency = Balances;
+	type NativeAssetId = HftNativeAssetId;
+	type CreateOrigin = EnsureRoot<AccountId>;
+	type Decimals = HftDecimals;
+	type EvmToSubstrate = ();
+	type WeightInfo = ();
+}
+
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
@@ -297,6 +321,8 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
+			pallet_hyper_fungible_token::PALLET_ID =>
+				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
@@ -344,6 +370,8 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_timeout(timeout),
+			pallet_hyper_fungible_token::PALLET_ID =>
+				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(Weight::from_parts(0, 0)),
 		}

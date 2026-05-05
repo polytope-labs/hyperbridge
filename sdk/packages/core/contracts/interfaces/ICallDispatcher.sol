@@ -14,27 +14,24 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {HyperFungibleTokenImpl} from "./HyperFungibleTokenImpl.sol";
+struct Call {
+    // contract to call
+    address to;
+    // value to send with the call
+    uint256 value;
+    // target contract calldata
+    bytes data;
+}
 
 /**
- * @title The TokenFaucet.
+ * @title The ICallDispatcher
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice Allows access to a fixed amount of tokens to users on a daily basis
+ * @notice This interface is used to dispatch untrusted call(s)
  */
-contract TokenFaucet {
-    mapping(address => uint256) private consumers;
-
-    // @dev Will only drip tokens, once per day
-    function drip(address token) public {
-        uint256 lastDrip = consumers[msg.sender];
-        uint256 delay = block.timestamp - lastDrip;
-
-        if (delay < 1 days) {
-            revert("Can only request tokens once daily");
-        }
-
-        consumers[msg.sender] = block.timestamp;
-        HyperFungibleTokenImpl(token).mint(msg.sender, 1000 * 1e18);
-    }
+interface ICallDispatcher {
+    /*
+     * @dev Dispatch the encoded call(s)
+     */
+    function dispatch(bytes memory params) external;
 }

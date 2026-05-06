@@ -13,6 +13,27 @@ pub type AppKey = BoundedVec<u8, ConstU32<32>>;
 pub type TierIndex = u32;
 pub type BandwidthBytes = u128;
 
+/// A tier is a (bytes, duration) SKU. EVM holds the price; the pallet
+/// holds what you get and how long it lasts.
+#[derive(
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	TypeInfo,
+	MaxEncodedLen,
+	Clone,
+	Copy,
+	PartialEq,
+	Eq,
+	RuntimeDebug,
+)]
+pub struct TierConfig {
+	pub bytes: BandwidthBytes,
+	pub duration_secs: u64,
+}
+
+/// One purchase of a single tier. Same-tier re-purchases stack into
+/// this row; different tiers live in their own row keyed by `tier`.
 #[derive(
 	Encode,
 	Decode,
@@ -26,10 +47,9 @@ pub type BandwidthBytes = u128;
 	RuntimeDebug,
 )]
 pub struct AllowanceState {
-	pub remaining_bytes: u128,
-	/// Monotonic, never decremented. Analytics only.
-	pub purchased_lifetime: u128,
-	pub last_consumed_at: u64,
+	pub remaining_bytes: BandwidthBytes,
+	/// Unix seconds. Gate sweeps rows where `expires_at <= now`.
+	pub expires_at: u64,
 }
 
 #[derive(
@@ -77,8 +97,9 @@ impl core::fmt::Display for GateError {
 	}
 }
 
-/// Atomic check-and-deduct on an app's balance. `source` is
-/// `request.source` (= the purchase's `app_chain`).
+/// Atomic check-and-deduct across all of an app's tier buckets on
+/// `(chain, app)`. `source` is `request.source` (= the purchase's
+/// `app_chain`).
 pub trait BandwidthGate {
 	fn try_consume(source: &StateMachine, app: &[u8], bytes: u32) -> Result<(), GateError>;
 }

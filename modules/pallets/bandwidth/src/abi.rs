@@ -1,60 +1,58 @@
 // Copyright (C) Polytope Labs Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
-//! ABI codec for the purchase message dispatched by `BandwidthMarket.sol`.
-//! Field layout must stay in lockstep with the Solidity struct.
+//! ABI codec for the purchase message from `BandwidthManager.sol`.
+//! Field layout must match the Solidity struct exactly.
 
-use alloc::{format, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 use alloy_sol_macro::sol;
 use alloy_sol_types::SolType;
-use primitive_types::H160;
+use core::str::{self, FromStr};
+use ismp::host::StateMachine;
 
 sol! {
     #![sol(all_derives)]
 
     struct BandwidthPurchaseMsgAbi {
-        address app;
-        uint256 bytesPurchased;
-        uint256 amountPaid;
+        bytes app;
+        uint256 tier;
+        bytes appChain;
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurchaseMessage {
-    pub app: H160,
-    pub bytes_purchased: u128,
-    pub amount_paid_18d: u128,
+    pub app: Vec<u8>,
+    pub tier: u32,
+    pub app_chain: StateMachine,
 }
 
-/// Both numeric fields are `uint256` on the wire but bounded by the
-/// stablecoin supply in practice; rejects values that don't fit `u128`.
-pub fn decode_purchase_msg(body: &[u8]) -> Result<PurchaseMessage, anyhow::Error> {
-    let abi = BandwidthPurchaseMsgAbi::abi_decode(body)
-        .map_err(|err| anyhow::anyhow!(format!("invalid bandwidth purchase ABI: {err:?}")))?;
+/// `appChain` is the UTF-8 form of `StateMachine::Display` (e.g.
+/// `"EVM-8453"`) so EVM dapps can build it with string concat.
+impl TryFrom<&[u8]> for PurchaseMessage {
+    type Error = anyhow::Error;
 
-    let bytes_purchased: u128 = abi
-        .bytesPurchased
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("bytesPurchased exceeds u128"))?;
-    let amount_paid_18d: u128 = abi
-        .amountPaid
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("amountPaid exceeds u128"))?;
+    fn try_from(body: &[u8]) -> Result<Self, Self::Error> {
+        let abi = BandwidthPurchaseMsgAbi::abi_decode(body)
+            .map_err(|err| anyhow::anyhow!(format!("invalid bandwidth purchase ABI: {err:?}")))?;
 
-    Ok(PurchaseMessage {
-        app: H160(abi.app.into()),
-        bytes_purchased,
-        amount_paid_18d,
-    })
+        let tier: u32 = abi.tier.try_into().map_err(|_| anyhow::anyhow!("tier exceeds u32"))?;
+        let app_chain_str = str::from_utf8(&abi.appChain)
+            .map_err(|err| anyhow::anyhow!(format!("appChain is not utf-8: {err}")))?;
+        let app_chain = StateMachine::from_str(app_chain_str)
+            .map_err(|err| anyhow::anyhow!(format!("invalid appChain {app_chain_str:?}: {err}")))?;
+
+        Ok(PurchaseMessage { app: abi.app.into(), tier, app_chain })
+    }
 }
 
-/// Inverse of [`decode_purchase_msg`]; used by tests and a future
-/// substrate-source purchase path.
-pub fn encode_purchase_msg(msg: &PurchaseMessage) -> Vec<u8> {
-    let abi = BandwidthPurchaseMsgAbi {
-        app: alloy_primitives::Address::from(msg.app.0),
-        bytesPurchased: alloy_primitives::U256::from(msg.bytes_purchased),
-        amountPaid: alloy_primitives::U256::from(msg.amount_paid_18d),
-    };
-    BandwidthPurchaseMsgAbi::abi_encode(&abi)
+impl From<&PurchaseMessage> for Vec<u8> {
+    fn from(msg: &PurchaseMessage) -> Vec<u8> {
+        let abi = BandwidthPurchaseMsgAbi {
+            app: alloy_primitives::Bytes::from(msg.app.clone()),
+            tier: alloy_primitives::U256::from(msg.tier),
+            appChain: alloy_primitives::Bytes::from(msg.app_chain.to_string().into_bytes()),
+        };
+        BandwidthPurchaseMsgAbi::abi_encode(&abi)
+    }
 }

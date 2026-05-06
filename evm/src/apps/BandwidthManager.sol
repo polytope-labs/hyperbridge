@@ -28,10 +28,10 @@ import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 
 
 struct BandwidthPurchaseMsg {
-    address app;
-    uint256 bytesPurchased;
-    /// Scaled to 18 decimals so the pallet is decimal-agnostic.
-    uint256 amountPaid;
+    bytes app;
+    uint256 tier;
+    /// UTF-8 chain id like `"EVM-8453"` or `"EVM-137"`.
+    bytes appChain;
 }
 
 contract BandwidthManager is HyperApp, ERC165 {
@@ -42,34 +42,35 @@ contract BandwidthManager is HyperApp, ERC165 {
     bytes public constant PALLET_BANDWIDTH_MODULE_ID = bytes("BWMARKET");
 
     enum OnAcceptActions {
-        SetPricePerByte,
+        SetTiers,
         Withdraw
     }
 
     address public immutable host_;
 
-    /// Canonical 18-decimal units.
-    uint256 public pricePerByte;
+    /// tier → price in 18-decimal units. Zero = unconfigured.
+    mapping(uint256 => uint256) public tierPrice;
 
     event BandwidthPurchased(
-        address indexed app,
         address indexed payer,
         address feeToken,
+        uint256 tier,
         uint256 amountPaid,
-        uint256 bytesPurchased,
+        bytes app,
+        bytes appChain,
         bytes32 commitment
     );
-
-    event PricePerByteUpdated(uint256 oldPrice, uint256 newPrice);
+    event TierSet(uint256 indexed tier, uint256 price18d);
     event Withdrawn(address indexed token, address indexed beneficiary, uint256 amount);
 
     error InvalidPurchase();
-    error BelowMinimum();
+    error UnknownTier();
+    /// 18-d tier price doesn't divide cleanly into `feeToken()` decimals.
+    error PriceNotRepresentable();
     error UnauthorizedAction();
 
-    constructor(address host__, uint256 pricePerByte_) {
+    constructor(address host__) {
         host_ = host__;
-        pricePerByte = pricePerByte_;
     }
 
     /// @inheritdoc HyperApp
@@ -81,27 +82,26 @@ contract BandwidthManager is HyperApp, ERC165 {
         return interfaceId == type(IApp).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    /// @notice Purchase bandwidth for `app`. `amount` is in the host's
-    /// current `feeToken()` decimals.
-    function purchase(address app, uint256 amount) external returns (bytes32 commitment) {
-        if (amount == 0 || pricePerByte == 0) revert InvalidPurchase();
+    function purchase(bytes calldata app, uint256 tier, bytes calldata appChain)
+        external
+        returns (bytes32 commitment)
+    {
+        if (app.length == 0 || appChain.length == 0) revert InvalidPurchase();
+        uint256 price18d = tierPrice[tier];
+        if (price18d == 0) revert UnknownTier();
 
         address feeToken = IHost(host_).feeToken();
         uint8 dec = IERC20Metadata(feeToken).decimals();
+        uint256 scale = 10 ** (18 - dec);
+        if (price18d % scale != 0) revert PriceNotRepresentable();
+        uint256 amount = price18d / scale;
 
         IERC20(feeToken).safeTransferFrom(msg.sender, address(this), amount);
 
-        // Same stablecoin has different decimals across chains
-        // (USDC: 6 on Ethereum, 18 on BSC) — normalise so one
-        // `pricePerByte` works everywhere.
-        uint256 amountScaled = amount * (10 ** (18 - dec));
-        uint256 bytesPurchased = amountScaled / pricePerByte;
-        if (bytesPurchased == 0) revert BelowMinimum();
-
         BandwidthPurchaseMsg memory body = BandwidthPurchaseMsg({
             app: app,
-            bytesPurchased: bytesPurchased,
-            amountPaid: amountScaled
+            tier: tier,
+            appChain: appChain
         });
 
         commitment = IDispatcher(host_).dispatch(
@@ -116,29 +116,31 @@ contract BandwidthManager is HyperApp, ERC165 {
         );
 
         emit BandwidthPurchased({
-            app: app,
             payer: msg.sender,
             feeToken: feeToken,
-            amountPaid: amountScaled,
-            bytesPurchased: bytesPurchased,
+            tier: tier,
+            amountPaid: amount,
+            app: app,
+            appChain: appChain,
             commitment: commitment
         });
     }
 
-    /// `onlyHost` + source-chain check pin the caller to hyperbridge
-    /// governance. `Withdraw` takes an explicit token so balances held
-    /// in a stale `feeToken()` remain recoverable after a host swap.
+
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         PostRequest calldata request = incoming.request;
 
         if (!request.source.equals(IHost(host_).hyperbridge())) revert UnauthorizedAction();
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
-        if (action == OnAcceptActions.SetPricePerByte) {
-            uint256 newPrice = abi.decode(request.body[1:], (uint256));
-            uint256 oldPrice = pricePerByte;
-            pricePerByte = newPrice;
-            emit PricePerByteUpdated(oldPrice, newPrice);
+        if (action == OnAcceptActions.SetTiers) {
+            (uint256[] memory tiers, uint256[] memory prices) =
+                abi.decode(request.body[1:], (uint256[], uint256[]));
+            if (tiers.length != prices.length) revert UnauthorizedAction();
+            for (uint256 i = 0; i < tiers.length; i++) {
+                tierPrice[tiers[i]] = prices[i];
+                emit TierSet(tiers[i], prices[i]);
+            }
         } else if (action == OnAcceptActions.Withdraw) {
             (address token, address beneficiary, uint256 amt) =
                 abi.decode(request.body[1:], (address, address, uint256));

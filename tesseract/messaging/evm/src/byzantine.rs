@@ -78,54 +78,23 @@ impl ByzantineHandler for EvmClient {
 
 		let counterparty_state_id = counterparty.state_machine_id().state_id;
 
-		// Single-URL chains: keep the original behavior (veto on missing or
-		// state-root mismatch). The 3× retry on transport errors is layered
-		// on top via `fetch_with_retry` — original Err propagation path
-		// translated into "errored after retries → no signal, no veto".
-		if self.byzantine_providers.is_empty() {
-			match fetch_with_retry(self.client.as_ref(), event.latest_height).await {
-				FetchOutcome::Found(state_root) => {
-					let recorded = counterparty.query_state_machine_commitment(height).await?;
-					if state_root.0 != recorded.state_root.0 {
-						log::info!(
-							target: crate::LOG_TARGET,
-							"Vetoing State Machine Update for {} on {}",
-							self.state_machine,
-							counterparty_state_id,
-						);
-						counterparty.veto_state_commitment(height).await?;
-					}
-				},
-				FetchOutcome::Missing => {
-					log::info!(
-						target: crate::LOG_TARGET,
-						"Vetoing State Machine Update for {} on {}",
-						self.state_machine,
-						counterparty_state_id,
-					);
-					counterparty.veto_state_commitment(height).await?;
-				},
-				FetchOutcome::Errored => {
-					log::warn!(
-						target: crate::LOG_TARGET,
-						"transport errors fetching height {} for {} on {} (no veto)",
-						event.latest_height,
-						self.state_machine,
-						counterparty_state_id,
-					);
-				},
-			}
-			return Ok(());
-		}
+		// Multi-RPC quorum is mandatory: an EvmClient configured with fewer
+		// than `MIN_PROVIDERS_FOR_QUORUM` URLs cannot run a meaningful
+		// byzantine check, so we abstain without any veto. Transport errors
+		// after retries also don't count toward the quorum — no veto on RPC
+		// failure.
+		let outcomes = futures::future::join_all(
+			self.byzantine_providers
+				.iter()
+				.map(|p| fetch_with_retry(p.as_ref(), event.latest_height)),
+		)
+		.await;
 
-		// Multi-URL chains: fan out and reach a quorum across the per-URL
-		// providers. Transport errors after retries don't count toward the
-		// quorum (no veto on RPC failure).
-		let mut state_roots: Vec<H256> = Vec::with_capacity(self.byzantine_providers.len());
+		let mut state_roots: Vec<H256> = Vec::with_capacity(outcomes.len());
 		let mut missing = 0usize;
 		let mut errored = 0usize;
-		for provider in &self.byzantine_providers {
-			match fetch_with_retry(provider.as_ref(), event.latest_height).await {
+		for outcome in outcomes {
+			match outcome {
 				FetchOutcome::Found(root) => state_roots.push(root),
 				FetchOutcome::Missing => missing += 1,
 				FetchOutcome::Errored => errored += 1,

@@ -21,7 +21,7 @@
 
 #![cfg(test)]
 
-use std::{collections::BTreeMap, env, time::Duration};
+use std::{env, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use codec::{Compact, Decode, Encode};
@@ -45,7 +45,9 @@ use subxt_utils::{
 	Hyperbridge,
 };
 
-use hyperbridge_fisherman::{ChainSection, ConsensusSection, FishermanConfig, HyperbridgeSection};
+use tesseract_evm::{EvmClient, EvmConfig};
+use tesseract_primitives::IsmpProvider;
+use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient, SubstrateConfig};
 
 /// Pallet index of `pallet-ismp` in the gargantua runtime. Hard-coded here
 /// because we hand-roll a `RuntimeEvent` SCALE encoding below — keep in
@@ -453,6 +455,42 @@ async fn spawn_mock_l2(state_root: &str) -> MockL2 {
 	MockL2 { server, chain_id_mock }
 }
 
+/// Build a Hyperbridge `IsmpProvider` against the running simnode.
+async fn build_hyperbridge_provider(
+	rpc_ws: String,
+) -> Result<(Arc<dyn IsmpProvider>, StateMachine)> {
+	let signer = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string();
+	let cfg = SubstrateConfig {
+		state_machine: None,
+		hashing: None,
+		consensus_state_id: None,
+		rpc_ws,
+		max_rpc_payload_size: None,
+		signer: Some(signer),
+		initial_height: None,
+		max_concurent_queries: None,
+		poll_interval: None,
+		fee_token_decimals: None,
+	};
+	let resolved = cfg.resolve().await?;
+	let state_machine = resolved.state_machine();
+	let client = SubstrateClient::<KeccakSubstrateChain>::new(resolved).await?;
+	Ok((Arc::new(client) as Arc<dyn IsmpProvider>, state_machine))
+}
+
+/// Build a multi-RPC `EvmClient` against the supplied mock URLs. Returns it
+/// wrapped as `IsmpProvider` so it can be passed to `tesseract_fisherman::fish`.
+async fn build_l2_provider(
+	rpc_urls: Vec<String>,
+	hyperbridge: Arc<dyn IsmpProvider>,
+) -> Result<Arc<dyn IsmpProvider>> {
+	let cfg = EvmConfig { rpc_urls, ..Default::default() };
+	let resolved = cfg.resolve().await?;
+	let mut client = EvmClient::new(resolved).await?;
+	client.set_latest_finalized_height(hyperbridge).await?;
+	Ok(Arc::new(client) as Arc<dyn IsmpProvider>)
+}
+
 #[tokio::test]
 #[ignore]
 async fn fisherman_task_spawns_against_simnode_and_mock_l2_rpcs() -> Result<()> {
@@ -464,25 +502,11 @@ async fn fisherman_task_spawns_against_simnode_and_mock_l2_rpcs() -> Result<()> 
 	let mock_b =
 		spawn_mock_l2("0x2222222222222222222222222222222222222222222222222222222222222222").await;
 
-	// Well-known sr25519 mini-secret for "//Alice".
-	let signer = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string();
-
-	let mut chains = BTreeMap::new();
-	chains.insert(
-		"arbitrum".to_string(),
-		ChainSection {
-			host_type: "evm".to_string(),
-			rpc_urls: vec![mock_a.url(), mock_b.url()],
-			consensus: Some(ConsensusSection { consensus_type: "arbitrum_orbit".to_string() }),
-		},
-	);
-	let config = FishermanConfig {
-		hyperbridge: HyperbridgeSection { rpc_ws: hyperbridge_url, signer },
-		chains,
-	};
+	let (hyperbridge, coprocessor) = build_hyperbridge_provider(hyperbridge_url).await?;
+	let l2 = build_l2_provider(vec![mock_a.url(), mock_b.url()], hyperbridge.clone()).await?;
 
 	let task_manager = TaskManager::new(tokio::runtime::Handle::current(), None)?;
-	hyperbridge_fisherman::spawn(config, &task_manager).await?;
+	tesseract_fisherman::fish(hyperbridge, l2, &task_manager, coprocessor).await?;
 
 	tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -565,7 +589,7 @@ async fn fisherman_task_detects_disagreement_and_submits_veto() -> Result<()> {
 		subxt_utils::client::ws_client::<Hyperbridge>(&url, u32::MAX).await?;
 	let _rpc = LegacyRpcMethods::<Hyperbridge>::new(rpc_client.clone());
 
-	// Two providers returning *different* state roots. The fisherman's
+	// Two providers returning *different* state roots. The byzantine handler's
 	// "providers disagree" branch should fire on the first poll.
 	let mock_a =
 		spawn_mock_l2("0x1111111111111111111111111111111111111111111111111111111111111111").await;
@@ -587,21 +611,11 @@ async fn fisherman_task_detects_disagreement_and_submits_veto() -> Result<()> {
 
 	// Spawn the fisherman BEFORE injecting the event so its initial
 	// `query_finalized_height` baseline sits below the block we'll author.
-	let signer = "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a".to_string();
-	let mut chains = BTreeMap::new();
-	chains.insert(
-		"arbitrum".to_string(),
-		ChainSection {
-			host_type: "evm".to_string(),
-			rpc_urls: vec![mock_a.url(), mock_b.url()],
-			consensus: Some(ConsensusSection { consensus_type: "arbitrum_orbit".to_string() }),
-		},
-	);
-	let config =
-		FishermanConfig { hyperbridge: HyperbridgeSection { rpc_ws: url, signer }, chains };
+	let (hyperbridge, coprocessor) = build_hyperbridge_provider(url).await?;
+	let l2 = build_l2_provider(vec![mock_a.url(), mock_b.url()], hyperbridge.clone()).await?;
 
 	let task_manager = TaskManager::new(tokio::runtime::Handle::current(), None)?;
-	hyperbridge_fisherman::spawn(config, &task_manager).await?;
+	tesseract_fisherman::fish(hyperbridge, l2, &task_manager, coprocessor).await?;
 
 	// Give the task a moment to subscribe and capture its baseline height.
 	tokio::time::sleep(Duration::from_secs(2)).await;

@@ -54,6 +54,10 @@ pallet-bridge-airdrop = { workspace = true, default-features = true}
 crypto-utils = { workspace = true, default-features = true }
 pallet-messaging-fees = { workspace = true, default-features = true}
 hyperbridge-fisherman = { workspace = true }
+tesseract-evm = { workspace = true }
+tesseract-fisherman = { workspace = true }
+tesseract-primitives = { workspace = true }
+tesseract-substrate = { workspace = true }
 mockito = "1.5"
 
 [dependencies.polkadot-sdk]

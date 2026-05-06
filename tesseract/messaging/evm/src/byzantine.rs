@@ -8,9 +8,57 @@ use ismp::{
 	events::{Event, StateMachineUpdated},
 	host::StateMachine,
 };
+use primitive_types::H256;
 use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 
-use crate::EvmClient;
+use crate::{AlloyProvider, EvmClient};
+
+/// Floor where unanimity across providers is a meaningful signal. Below this we
+/// abstain rather than veto.
+const MIN_PROVIDERS_FOR_QUORUM: usize = 2;
+
+/// Each per-provider block fetch is retried up to this many times on transport
+/// errors before being recorded as a non-signal. Transport errors do not by
+/// themselves justify a veto.
+const MAX_TRANSPORT_RETRIES: usize = 3;
+
+/// Backoff between retries.
+const RETRY_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Outcome of fetching the L2 block for a single provider, after retries.
+enum FetchOutcome {
+	/// Provider returned a block header at the queried height. We carry the
+	/// state root so the caller can compare across providers.
+	Found(H256),
+	/// Provider definitively reports there is no block at this height.
+	Missing,
+	/// Provider failed with transport errors on every attempt. Treated as a
+	/// non-signal.
+	Errored,
+}
+
+/// Fetch the block at `height` from a single provider, retrying transport
+/// errors up to `MAX_TRANSPORT_RETRIES` before giving up. `Ok(None)` (block
+/// genuinely not yet on this node) is returned immediately as `Missing` —
+/// it's a real signal, not a transport failure.
+async fn fetch_with_retry(provider: &AlloyProvider, height: u64) -> FetchOutcome {
+	for attempt in 1..=MAX_TRANSPORT_RETRIES {
+		match provider.get_block(height.into()).await {
+			Ok(Some(header)) => return FetchOutcome::Found(H256(header.header.state_root.0)),
+			Ok(None) => return FetchOutcome::Missing,
+			Err(e) => {
+				log::warn!(
+					target: crate::LOG_TARGET,
+					"byzantine fetch attempt {attempt}/{MAX_TRANSPORT_RETRIES} for height {height} failed: {e:?}",
+				);
+				if attempt < MAX_TRANSPORT_RETRIES {
+					tokio::time::sleep(RETRY_BACKOFF).await;
+				}
+			},
+		}
+	}
+	FetchOutcome::Errored
+}
 
 #[async_trait::async_trait]
 impl ByzantineHandler for EvmClient {
@@ -28,23 +76,126 @@ impl ByzantineHandler for EvmClient {
 			height: event.latest_height,
 		};
 
-		let Some(header) = self.client.get_block(event.latest_height.into()).await? else {
-			// If block header is not found veto the state commitment
-			log::info!(
-				target: crate::LOG_TARGET, "Vetoing State Machine Update for {} on {}",
+		let counterparty_state_id = counterparty.state_machine_id().state_id;
+
+		// Single-URL chains: keep the original behavior (veto on missing or
+		// state-root mismatch). The 3× retry on transport errors is layered
+		// on top via `fetch_with_retry` — original Err propagation path
+		// translated into "errored after retries → no signal, no veto".
+		if self.byzantine_providers.is_empty() {
+			match fetch_with_retry(self.client.as_ref(), event.latest_height).await {
+				FetchOutcome::Found(state_root) => {
+					let recorded = counterparty.query_state_machine_commitment(height).await?;
+					if state_root.0 != recorded.state_root.0 {
+						log::info!(
+							target: crate::LOG_TARGET,
+							"Vetoing State Machine Update for {} on {}",
+							self.state_machine,
+							counterparty_state_id,
+						);
+						counterparty.veto_state_commitment(height).await?;
+					}
+				},
+				FetchOutcome::Missing => {
+					log::info!(
+						target: crate::LOG_TARGET,
+						"Vetoing State Machine Update for {} on {}",
+						self.state_machine,
+						counterparty_state_id,
+					);
+					counterparty.veto_state_commitment(height).await?;
+				},
+				FetchOutcome::Errored => {
+					log::warn!(
+						target: crate::LOG_TARGET,
+						"transport errors fetching height {} for {} on {} (no veto)",
+						event.latest_height,
+						self.state_machine,
+						counterparty_state_id,
+					);
+				},
+			}
+			return Ok(());
+		}
+
+		// Multi-URL chains: fan out and reach a quorum across the per-URL
+		// providers. Transport errors after retries don't count toward the
+		// quorum (no veto on RPC failure).
+		let mut state_roots: Vec<H256> = Vec::with_capacity(self.byzantine_providers.len());
+		let mut missing = 0usize;
+		let mut errored = 0usize;
+		for provider in &self.byzantine_providers {
+			match fetch_with_retry(provider.as_ref(), event.latest_height).await {
+				FetchOutcome::Found(root) => state_roots.push(root),
+				FetchOutcome::Missing => missing += 1,
+				FetchOutcome::Errored => errored += 1,
+			}
+		}
+
+		let responding = state_roots.len() + missing;
+		if responding < MIN_PROVIDERS_FOR_QUORUM {
+			log::warn!(
+				target: crate::LOG_TARGET,
+				"insufficient signal for {} on {}: {} state-roots, {missing} missing, {errored} errored. Abstaining.",
 				self.state_machine,
-				counterparty.state_machine_id().state_id
+				counterparty_state_id,
+				state_roots.len(),
+			);
+			return Ok(());
+		}
+
+		// Quorum agrees the height does not exist on the L2 yet hyperbridge has
+		// a commitment for it: fraud.
+		if state_roots.is_empty() {
+			log::info!(
+				target: crate::LOG_TARGET,
+				"Vetoing State Machine Update for {} on {}: {missing} providers report no block at height {}",
+				self.state_machine,
+				counterparty_state_id,
+				event.latest_height,
 			);
 			counterparty.veto_state_commitment(height).await?;
 			return Ok(());
-		};
+		}
 
-		let state_machine_commitment = counterparty.query_state_machine_commitment(height).await?;
-		if header.header.state_root.0 != state_machine_commitment.state_root.0 {
-			log::info!(
-				target: crate::LOG_TARGET, "Vetoing State Machine Update for {} on {}",
+		// Some providers see the block, others say it doesn't exist: split
+		// signal, abstain.
+		if state_roots.len() < MIN_PROVIDERS_FOR_QUORUM {
+			log::warn!(
+				target: crate::LOG_TARGET,
+				"split signal for {} on {} at height {}: {} state-roots, {missing} missing, {errored} errored. Abstaining.",
 				self.state_machine,
-				counterparty.state_machine_id().state_id
+				counterparty_state_id,
+				event.latest_height,
+				state_roots.len(),
+			);
+			return Ok(());
+		}
+
+		let first = state_roots[0];
+		let unanimous = state_roots.iter().all(|r| *r == first);
+		if !unanimous {
+			log::info!(
+				target: crate::LOG_TARGET,
+				"Vetoing State Machine Update for {} on {}: providers disagree at height {}: {state_roots:?}",
+				self.state_machine,
+				counterparty_state_id,
+				event.latest_height,
+			);
+			counterparty.veto_state_commitment(height).await?;
+			return Ok(());
+		}
+
+		let recorded = counterparty.query_state_machine_commitment(height).await?;
+		if first.0 != recorded.state_root.0 {
+			log::info!(
+				target: crate::LOG_TARGET,
+				"Vetoing State Machine Update for {} on {}: recorded {:?} disagrees with quorum {:?} at height {}",
+				self.state_machine,
+				counterparty_state_id,
+				recorded.state_root,
+				first,
+				event.latest_height,
 			);
 			counterparty.veto_state_commitment(height).await?;
 		}

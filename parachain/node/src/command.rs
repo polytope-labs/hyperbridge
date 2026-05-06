@@ -358,6 +358,7 @@ pub fn run() -> Result<()> {
 			let mut runner = cli.create_runner(&cmd.rest.run.normalize())?;
 			let config = runner.config_mut();
 			config.offchain_worker.indexing_enabled = true;
+			let tesseract_config = cmd.tesseract_config.clone();
 
 			match config.chain_spec.id() {
 				chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -377,6 +378,7 @@ pub fn run() -> Result<()> {
 						let watcher_pool = pool.clone();
 						let watcher_cache = bid_cache.clone();
 						let watcher_sender = bid_sender.clone();
+						let is_authority = config.role.is_authority();
 
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
@@ -417,6 +419,35 @@ pub fn run() -> Result<()> {
 								std::time::Duration::from_secs(180),
 							),
 						);
+
+						// Mirror the production wiring: only authorities run the
+						// fisherman, and only when --tesseract-config is set. Lets
+						// simnode-based integration tests exercise the same spawn
+						// path used by real collators.
+						if is_authority {
+							if let Some(path) = tesseract_config.as_ref() {
+								let cfg = hyperbridge_fisherman::FishermanConfig::parse(path)
+									.await
+									.map_err(|e| {
+										sc_service::Error::Other(format!(
+											"failed to load tesseract config at {}: {e:?}",
+											path.display()
+										))
+									})?;
+								hyperbridge_fisherman::spawn(cfg, &task_manager)
+									.await
+									.map_err(|e| {
+										sc_service::Error::Other(format!(
+											"failed to spawn fisherman task: {e:?}"
+										))
+									})?;
+							}
+						} else if tesseract_config.is_some() {
+							log::info!(
+								target: "fisherman",
+								"--tesseract-config provided to a non-authority simnode; ignoring (fisherman only runs on collators)",
+							);
+						}
 
 						Ok(task_manager)
 					})

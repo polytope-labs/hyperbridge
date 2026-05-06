@@ -9304,16 +9304,13 @@ dependencies = [
 name = "hyperbridge-fisherman"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "anyhow",
- "async-trait",
- "futures",
  "ismp",
  "log",
  "polkadot-sdk",
- "serde",
  "tesseract-config",
  "tesseract-evm",
+ "tesseract-fisherman",
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
@@ -24201,6 +24198,10 @@ dependencies = [
  "subxt 0.42.1",
  "subxt-signer 0.41.0",
  "subxt-utils",
+ "tesseract-evm",
+ "tesseract-fisherman",
+ "tesseract-primitives",
+ "tesseract-substrate",
  "tokio",
  "trie-db",
 ]
@@ -28328,6 +28329,22 @@ dependencies = [
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",
+]
+
+[[package]]
+name = "tesseract-fisherman"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "futures",
+ "ismp",
+ "log",
+ "pallet-ismp",
+ "polkadot-sdk",
+ "sp-core",
+ "tesseract-primitives",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

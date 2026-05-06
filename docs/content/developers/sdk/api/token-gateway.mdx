@@ -1,9 +1,16 @@
 ---
-title: TokenGateway
-description: API reference for TokenGateway — quote cross-chain token teleports and track their status via the Hyperbridge indexer.
+title: TokenGateway (Deprecated)
+description: API reference for TokenGateway — deprecated in favor of HyperFungibleToken.
 ---
 
-# TokenGateway
+# TokenGateway (Deprecated)
+
+<Callout type="warn">
+**TokenGateway has been deprecated.** The on-chain TokenGateway contracts have been replaced by
+[HyperFungibleToken](/developers/polkadot/hyper-fungible-token) — a token that is itself a bridge
+application, with no governance overhead or shared custody pool. The SDK class below will be
+updated in a future release.
+</Callout>
 
 The `TokenGateway` class wraps the on-chain TokenGateway contract and provides
 utilities for estimating the native-token cost of a cross-chain teleport, plus

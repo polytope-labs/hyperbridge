@@ -17,7 +17,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
+import {IWrappedHyperFungibleToken} from "../interfaces/IHyperFungibleToken.sol";
 import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
 import {IncomingPostRequest} from "../interfaces/IApp.sol";
@@ -44,7 +46,7 @@ import {HyperFungibleToken} from "./HyperFungibleToken.sol";
  * Supports optional calldata execution on the destination chain via CallDispatcher,
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
-contract WrappedHyperFungibleToken is HyperApp, Ownable, Pausable {
+contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
     /**
      * @title WrappedConfigOptions
      * @notice Configuration parameters for WrappedHyperFungibleToken
@@ -323,5 +325,10 @@ contract WrappedHyperFungibleToken is HyperApp, Ownable, Pausable {
         assembly {
             addr := mload(add(b, 20))
         }
+    }
+
+    /// @notice ERC165 interface detection
+    function supportsInterface(bytes4 interfaceId) public view override(ERC165) returns (bool) {
+        return interfaceId == type(IWrappedHyperFungibleToken).interfaceId || super.supportsInterface(interfaceId);
     }
 }

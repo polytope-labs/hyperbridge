@@ -1,0 +1,217 @@
+---
+title: Hyper Fungible Token
+description: An ISMP module that enables cross-chain token transfers without governance overhead or shared custody pools.
+---
+
+# Pallet Hyper Fungible Token
+
+This pallet enables cross-chain token transfers via `HyperFungibleToken` and `WrappedHyperFungibleToken` Solidity contracts. Each registered token has its own EVM contract address per chain, and the pallet communicates with peer instances across networks via Hyperbridge.
+
+Unlike the previous TokenGateway approach, there is no governance overhead, no shared custody pool, and no token-governor. Each token is its own bridge application.
+
+## Config
+
+The pallet configuration trait requires these associated types:
+
+| Component | Description |
+|-----------|-------------|
+| `Dispatcher` | An implementation of the [`IsmpDispatcher`](/protocol/ismp/dispatcher) used to dispatch cross-chain requests. |
+| `Assets` | A fungible assets implementation, typically `pallet-assets`. Must implement [`fungibles::Mutate`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/trait.Mutate.html) and [`fungibles::metadata::Inspect`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/fungibles/metadata/trait.Inspect.html). |
+| `NativeCurrency` | A currency implementation for the native asset, typically `pallet-balances`. Must implement [`Currency`](https://docs.rs/frame-support/latest/frame_support/traits/tokens/currency/trait.Currency.html). |
+| `CreateOrigin` | The origin authorized to register and update tokens. |
+| `NativeAssetId` | A constant value representing the identifier of the native asset. |
+| `Decimals` | A constant representing the precision (number of decimal places) of the native currency. |
+| `EvmToSubstrate` | A type that converts an EVM address to a substrate account, used for authenticating incoming cross-chain runtime calls. |
+| `WeightInfo` | Weight information for the pallet's extrinsics. |
+
+## Calls
+
+| Call | Origin | Description |
+|------|--------|-------------|
+| `send` | Signed | Sends tokens cross-chain. Native assets are escrowed in the pallet account, non-native assets are burned. A cross-chain ISMP request is dispatched to the destination token contract. |
+| `register_token` | CreateOrigin | Registers a new token with per-chain contract configuration — maps local asset IDs to EVM contract addresses and decimal precision. |
+| `update_token` | CreateOrigin | Updates chain configuration for an existing token — add or remove chains, update contract addresses and decimals. |
+
+---
+
+## Integrating the Pallet into the Runtime
+
+<Steps>
+<Step>
+### Add the dependency
+
+Add `pallet-hyper-fungible-token` to your runtime's `Cargo.toml`:
+
+```toml
+[dependencies]
+pallet-hyper-fungible-token = { version = "2512.0.0", default-features = false }
+```
+</Step>
+<Step>
+### Configure the pallet
+
+```rust lineNumbers
+use frame_support::parameter_types;
+
+parameter_types! {
+    pub const Decimals: u8 = 12;
+}
+
+pub const NativeAssetId: u32 = 0;
+
+impl pallet_hyper_fungible_token::Config for Runtime {
+    type Dispatcher = pallet_ismp::Pallet<Runtime>;
+    type Assets = pallet_assets::Pallet<Runtime>;
+    type NativeCurrency = pallet_balances::Pallet<Runtime>;
+    type NativeAssetId = NativeAssetId;
+    type CreateOrigin = EnsureRoot<AccountId>;
+    type Decimals = Decimals;
+    type EvmToSubstrate = ();
+    type WeightInfo = ();
+}
+```
+</Step>
+<Step>
+### Add to the ISMP router
+
+Register the pallet in your ISMP router so it can receive incoming cross-chain messages:
+
+```rust lineNumbers
+use pallet_hyper_fungible_token::PALLET_ID;
+
+#[derive(Default)]
+struct Router;
+impl IsmpRouter for Router {
+    fn module_for_id(&self, id: Vec<u8>) -> Result<Box<dyn IsmpModule>, anyhow::Error> {
+        let module_id = ModuleId::from_bytes(id)?;
+        let module = match module_id {
+            pallet_hyper_fungible_token::PALLET_ID =>
+                Box::new(pallet_hyper_fungible_token::Pallet::<Runtime>::default()),
+            _ => Err(Error::ModuleNotFound(id))?
+        };
+        Ok(module)
+    }
+}
+```
+</Step>
+</Steps>
+
+---
+
+## Registering a Token
+
+Before tokens can be transferred cross-chain, the token must be registered with its per-chain configuration. Use the `register_token` extrinsic:
+
+```rust lineNumbers
+pub struct TokenRegistration<AssetId> {
+    /// Local asset ID (must already exist in the runtime's asset registry)
+    pub local_id: AssetId,
+    /// Whether this asset is native to this chain (custody model) or non-native (mint/burn)
+    pub native: bool,
+    /// Per-chain configuration
+    pub chains: BTreeMap<StateMachine, ChainConfig>,
+}
+
+pub struct ChainConfig {
+    /// The HyperFungibleToken/WrappedHyperFungibleToken module ID on the destination chain
+    pub token_contract: Vec<u8>,
+    /// ERC20 decimals on the destination chain
+    pub decimals: u8,
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `local_id` | The local asset ID. The type depends on your runtime's `Assets` pallet configuration. |
+| `native` | Controls the custody model. `true` = tokens are escrowed (for assets originating on this chain). `false` = tokens are burned (for bridged/imported assets). |
+| `chains` | A map of destination chains to their contract configuration. |
+| `chains[].token_contract` | The module ID of the `HyperFungibleToken` or `WrappedHyperFungibleToken` on that chain. For EVM chains, this is the 20-byte contract address. For substrate chains, this is the 8-byte pallet ID. |
+| `chains[].decimals` | The ERC20 decimal precision on that chain (typically `18` for EVM). |
+
+### EVM Contract Configuration
+
+On the EVM side, the `HyperFungibleToken` or `WrappedHyperFungibleToken` contract must call `addChain` to register this pallet as a trusted peer:
+
+```solidity
+// Register the substrate chain as a peer
+// The moduleId is the pallet's PALLET_ID bytes
+token.addChain(
+    StateMachine.polkadot(paraId),
+    abi.encodePacked(bytes8("pall_hft"))  // Must match PALLET_ID
+);
+```
+
+---
+
+## Sending Tokens Cross-Chain
+
+To make a cross-chain transfer, dispatch the `send` extrinsic:
+
+```rust lineNumbers
+pub struct SendParams<AssetId, Balance> {
+    /// Local asset ID
+    pub asset_id: AssetId,
+    /// Destination state machine
+    pub destination: StateMachine,
+    /// Recipient account on the destination chain (up to 32 bytes)
+    pub recipient: BoundedVec<u8, ConstU32<32>>,
+    /// Amount to send (in local denomination)
+    pub amount: Balance,
+    /// Request timeout in seconds
+    pub timeout: u64,
+    /// Relayer fee
+    pub relayer_fee: Balance,
+    /// Optional calldata to execute on the destination chain
+    pub call_data: Option<Vec<u8>>,
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `asset_id` | The local asset ID for the asset to transfer. |
+| `destination` | The destination chain. |
+| `recipient` | The beneficiary account on the destination. For EVM chains, use the 20-byte address. For substrate chains, use the 32-byte AccountId. |
+| `amount` | The amount to transfer in local denomination. Automatically converted to the destination chain's precision. |
+| `timeout` | Request timeout in seconds. |
+| `relayer_fee` | Fee paid to relayers for delivering the request. |
+| `call_data` | Optional SCALE-encoded `SubstrateCalldata` to execute on the destination chain after the transfer. |
+
+When sending, native assets (where `native = true`) are escrowed in the pallet's custody account, while non-native assets are burned. On the destination chain, the reverse happens.
+
+Funds from undelivered requests can be recovered by submitting a timeout message through `pallet-ismp`.
+
+---
+
+## Cross-Chain Message Format
+
+The pallet encodes messages using the same ABI format as the Solidity contracts:
+
+```solidity
+struct Message {
+    bytes from;    // original sender (for timeout refunds)
+    bytes to;      // recipient on destination chain
+    uint256 amount;
+    bytes data;    // optional calldata
+}
+```
+
+This ensures full compatibility between `pallet-hyper-fungible-token`, `HyperFungibleToken`, and `WrappedHyperFungibleToken` on any chain.
+
+---
+
+## Calldata Execution
+
+The `call_data` field in `SendParams` allows executing arbitrary runtime calls on the destination substrate chain after the tokens are transferred. The calldata is SCALE-encoded as:
+
+```rust lineNumbers
+pub struct SubstrateCalldata {
+    /// Optional SCALE-encoded MultiSignature of (account_nonce, runtime_call)
+    pub signature: Option<Vec<u8>>,
+    /// SCALE-encoded runtime call to execute
+    pub runtime_call: Vec<u8>,
+}
+```
+
+If a signature is provided, it is verified against the beneficiary's account nonce and the runtime call before dispatch. Supported signature types: Ed25519, Sr25519, ECDSA. The account nonce is incremented after dispatch to prevent replay.
+
+If no signature is provided, the origin is derived from the sender address in the cross-chain message.

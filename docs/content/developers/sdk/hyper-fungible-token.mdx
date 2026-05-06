@@ -1,0 +1,368 @@
+---
+title: Hyper Fungible Token
+description: Guide for bridging tokens cross-chain using the HyperFungibleToken SDK class.
+---
+
+# Bridging Tokens with HyperFungibleToken
+
+This guide walks through bridging ERC20 tokens cross-chain using the `HyperFungibleToken` SDK class. The class supports both `HyperFungibleToken` (burn/mint) and `WrappedHyperFungibleToken` (lock/unlock) contracts, with automatic type detection via ERC165.
+
+## Overview
+
+Each HyperFungibleToken is its own bridge application — there is no shared custody pool, no governance overhead, and no token-governor. The token contract itself handles cross-chain messaging via ISMP.
+
+The typical architecture deploys a `WrappedHyperFungibleToken` on the token's home chain (locking the canonical ERC20 supply) and a `HyperFungibleToken` on every remote chain (minting/burning). See the [EVM contract guide](/developers/evm/hyper-fungible-token) for deployment details.
+
+The SDK class abstracts over both contract types — it detects the type via ERC165 and handles approvals, fee quoting, and transaction building automatically.
+
+## Setup
+
+<Steps>
+<Step>
+### Install the SDK
+
+<Tabs items={['pnpm', 'yarn', 'npm']}>
+<Tab value="pnpm">
+```bash
+pnpm add @hyperbridge/sdk
+```
+</Tab>
+<Tab value="yarn">
+```bash
+yarn add @hyperbridge/sdk
+```
+</Tab>
+<Tab value="npm">
+```bash
+npm install @hyperbridge/sdk
+```
+</Tab>
+</Tabs>
+</Step>
+<Step>
+### Create chain instances
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import { EvmChain } from "@hyperbridge/sdk"
+
+const source = EvmChain.fromParams({
+  chainId: 97,          // BSC Testnet
+  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+  host: "0x...",        // IsmpHost address on BSC
+  consensusStateId: "BSC0",
+})
+
+const dest = EvmChain.fromParams({
+  chainId: 80002,       // Polygon Amoy
+  rpcUrl: "https://rpc-amoy.polygon.technology",
+  host: "0x...",        // IsmpHost address on Polygon
+  consensusStateId: "POL0",
+})
+```
+</Step>
+<Step>
+### Create the HyperFungibleToken instance
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import { HyperFungibleToken } from "@hyperbridge/sdk"
+
+const hft = new HyperFungibleToken({ source, dest })
+```
+</Step>
+</Steps>
+
+## Quoting Fees
+
+Before bridging, quote the fee to determine the cost:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import { parseEther } from "viem"
+
+const fee = await hft.quote({
+  token: "0x...",           // HFT or WrappedHFT contract address
+  from: senderAddress,
+  to: recipientAddress,
+  amount: parseEther("100"),
+  dest: "EVM-80002",
+})
+
+console.log(fee.totalNativeCost)       // msg.value if paying in native
+console.log(fee.totalFeeTokenCost)     // cost if paying in fee token
+console.log(fee.relayerFeeInFeeToken)  // relayer fee component
+```
+
+The fee estimation pipeline estimates gas for delivering the message on the destination chain, converts the destination gas cost to the destination fee token via Uniswap, scales decimals between source and destination fee tokens, then calls the on-chain `quote()` and `quoteNative()` methods to get the final cost.
+
+<Callout type="info">
+`totalNativeCost` may be `0n` on chains without a Uniswap router. In this case, use `payInFeeToken: true` when bridging.
+</Callout>
+
+## Bridging Tokens
+
+The `bridge()` method returns an async generator that yields steps for the caller to execute. This design gives the caller full control over transaction signing and submission.
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import { createWalletClient, createPublicClient, http, parseEther } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { bscTestnet } from "viem/chains"
+
+const account = privateKeyToAccount(PRIVATE_KEY)
+const walletClient = createWalletClient({
+  account,
+  chain: bscTestnet,
+  transport: http(BSC_RPC),
+})
+const publicClient = createPublicClient({
+  chain: bscTestnet,
+  transport: http(BSC_RPC),
+})
+
+const gen = hft.bridge({
+  token: "0x...",
+  from: account.address,
+  to: recipientAddress,
+  amount: parseEther("1"),
+  dest: "EVM-80002",
+  timeout: 3600n,          // 1 hour
+  payInFeeToken: true,     // pay in fee token instead of native
+})
+
+let result = await gen.next()
+
+while (!result.done) {
+  const step = result.value
+  if (!step) break
+
+  if (step.type === "approve") {
+    const hash = await walletClient.sendTransaction({
+      to: step.tx.to,
+      data: step.tx.data,
+    })
+    await publicClient.waitForTransactionReceipt({ hash })
+    result = await gen.next()
+    continue
+  }
+
+  if (step.type === "send") {
+    const hash = await walletClient.sendTransaction({
+      to: step.tx.to,
+      data: step.tx.data,
+      value: step.tx.value,
+    })
+    result = await gen.next(hash) // resume with tx hash
+    continue
+  }
+
+  if (step.type === "submitted") {
+    console.log("Commitment:", step.commitment)
+    result = await gen.next()
+    continue
+  }
+
+  result = await gen.next()
+}
+```
+
+### Generator Steps
+
+The generator yields these steps in order:
+
+| Step | When | What to do |
+|------|------|------------|
+| `approve` | WrappedHFT (underlying ERC20 approval) or `payInFeeToken: true` (fee token approval). Only if current allowance is insufficient. | Submit the approval tx, wait for receipt, call `gen.next()` |
+| `send` | Always | Submit the send tx, call `gen.next(txHash)` with the hash |
+| `submitted` | After send is mined | Read `step.commitment` — the ISMP request commitment hash |
+| `status` | Only if `ismpClient` was provided | Track the cross-chain lifecycle |
+
+## Tracking Cross-Chain Status
+
+To receive status updates after the transaction is submitted, provide an `IsmpClient`:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import {
+  IsmpClient,
+  createQueryClient,
+  SubstrateChain,
+  HyperFungibleToken,
+} from "@hyperbridge/sdk"
+
+const hyperbridge = await SubstrateChain.connect({
+  wsUrl: "wss://gargantua.rpc.polytope.technology",
+  consensusStateId: "PAS0",
+  hasher: "Keccak",
+  stateMachineId: "KUSAMA-4009",
+})
+
+const queryClient = createQueryClient({
+  url: "https://gargantua.indexer.polytope.technology",
+})
+
+const ismpClient = new IsmpClient({
+  queryClient,
+  source,
+  dest,
+  hyperbridge,
+  pollInterval: 5_000,
+})
+
+const hft = new HyperFungibleToken({ source, dest, ismpClient })
+```
+
+With `ismpClient` attached, the generator yields `status` steps after `submitted`:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+if (step.type === "status") {
+  console.log(`Status: ${step.status}`)
+
+  if (step.status === "DESTINATION" || step.status === "TIMED_OUT") {
+    break
+  }
+
+  result = await gen.next()
+  continue
+}
+```
+
+The status progression is:
+
+```
+SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINATION
+```
+
+| Status | Description |
+|--------|-------------|
+| `SOURCE_FINALIZED` | The source chain transaction has been finalized |
+| `HYPERBRIDGE_DELIVERED` | Hyperbridge has received and verified the message |
+| `HYPERBRIDGE_FINALIZED` | Hyperbridge has produced a proof for the destination chain. Metadata includes `calldata` for self-relay. |
+| `DESTINATION` | The message has been delivered on the destination chain |
+| `TIMED_OUT` | The request timed out without being delivered |
+
+## Handling Timeouts
+
+If a cross-chain transfer is not delivered before its `timeout` expires, the tokens are not automatically refunded. The developer must initiate the timeout flow to recover the locked/burned tokens.
+
+The bridge generator's status stream will detect when a request has timed out:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+if (step.type === "status") {
+  if (step.status === "TIMED_OUT") {
+    console.log("Request timed out — initiate timeout recovery")
+    break
+  }
+}
+```
+
+After detecting the timeout, the developer must start a separate timeout stream using the `IsmpClient` to track the timeout proof as it propagates through Hyperbridge back to the source chain:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import { TimeoutStatus } from "@hyperbridge/sdk"
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
+
+// commitment was captured from the "submitted" step earlier
+for await (const timeout of ismpClient.postRequestTimeoutStream(commitment)) {
+  console.log(`Timeout status: ${timeout.status}`)
+
+  if (timeout.status === TimeoutStatus.HYPERBRIDGE_FINALIZED_TIMEOUT) {
+    // The timeout proof is ready — submit it to the source chain handler
+    const hostParams = await sourcePublicClient.readContract({
+      address: SOURCE_HOST_ADDRESS,
+      abi: EVM_HOST.ABI,
+      functionName: "hostParams",
+    })
+
+    const hash = await sourceWalletClient.sendTransaction({
+      to: hostParams.handler,
+      data: timeout.metadata.calldata,
+    })
+    await sourcePublicClient.waitForTransactionReceipt({ hash })
+    console.log("Timeout executed — tokens refunded")
+  }
+
+  if (timeout.status === TimeoutStatus.TIMED_OUT) break
+}
+```
+
+### Timeout Lifecycle
+
+The timeout flow progresses through these stages:
+
+```
+PENDING_TIMEOUT → DESTINATION_FINALIZED_TIMEOUT → HYPERBRIDGE_TIMED_OUT → HYPERBRIDGE_FINALIZED_TIMEOUT → TIMED_OUT
+```
+
+| Stage | Description |
+|-------|-------------|
+| `PENDING_TIMEOUT` | Request has exceeded its timeout period |
+| `DESTINATION_FINALIZED_TIMEOUT` | Destination chain finalized a block past the timeout |
+| `HYPERBRIDGE_TIMED_OUT` | Timeout processed on Hyperbridge, request deleted from state |
+| `HYPERBRIDGE_FINALIZED_TIMEOUT` | Hyperbridge finalized the timeout proof. Metadata includes `calldata` to submit to the source chain. |
+| `TIMED_OUT` | Timeout transaction executed on source chain — tokens refunded |
+
+When the timeout is executed on-chain:
+- **HyperFungibleToken**: re-mints the burned tokens to the original sender
+- **WrappedHyperFungibleToken**: transfers the locked underlying ERC20 back. For WETH, unwraps and sends native ETH.
+
+<Callout type="info">
+Timeout calldata is submitted to the **source** chain handler (not the destination), since the refund happens on the source chain where the tokens were burned or locked.
+</Callout>
+
+For the full timeout tracking reference, see [POST Request Timeouts](/developers/sdk/tracking/timeouts).
+
+## Self-Relay
+
+When `relayerFee` is set to `0n`, no relayer will deliver the message. Instead, extract the proof calldata from the `HYPERBRIDGE_FINALIZED` status and submit it to the destination chain yourself:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
+
+const gen = hft.bridge({
+  token: "0x...",
+  from: account.address,
+  to: account.address,
+  amount: parseEther("1"),
+  dest: "EVM-80002",
+  relayerFee: 0n,           // no relayer fee — self-relay
+  payInFeeToken: true,
+})
+
+// ... handle approve/send/submitted steps ...
+
+if (step.type === "status" && step.status === "HYPERBRIDGE_FINALIZED") {
+  const { calldata } = step.metadata
+
+  // Read the handler address from the destination host contract
+  const hostParams = await destPublicClient.readContract({
+    address: DEST_HOST_ADDRESS,
+    abi: EVM_HOST.ABI,
+    functionName: "hostParams",
+  })
+
+  // Submit the proof to the destination chain
+  const hash = await destWalletClient.sendTransaction({
+    to: hostParams.handler,
+    data: calldata,
+  })
+  await destPublicClient.waitForTransactionReceipt({ hash })
+}
+```
+
+This is useful for testing, for applications that want to guarantee delivery without relayer dependency, or for reducing costs by avoiding relayer fees.
+
+## Detecting Token Type
+
+To check whether a token contract is a `WrappedHyperFungibleToken` (lock/unlock) or a `HyperFungibleToken` (burn/mint):
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+const isWrapped = await hft.isWrapped(tokenAddress)
+// true  → WrappedHyperFungibleToken (lock/unlock)
+// false → HyperFungibleToken (burn/mint) or non-HFT contract
+```
+
+This uses ERC165 `supportsInterface` with interface ID `0x903d5332`.
+
+## Next Steps
+
+- [API Reference](/developers/sdk/api/hyper-fungible-token) — Full method signatures and types
+- [EVM Contract Guide](/developers/evm/hyper-fungible-token) — Deploy your own HFT contracts
+- [Substrate Pallet](/developers/polkadot/hyper-fungible-token) — Substrate-side implementation
+- [Request Tracking](/developers/sdk/tracking/post-requests) — Lower-level ISMP request monitoring

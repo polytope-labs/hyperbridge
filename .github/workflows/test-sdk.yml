@@ -140,6 +140,9 @@ jobs:
             - name: Run SDK test - requests
               run: pnpm --filter="@hyperbridge/sdk" test:requests
 
+            - name: Run SDK test - hyper-fungible-token
+              run: pnpm --filter="@hyperbridge/sdk" test:hyper-fungible-token
+
             - name: Run SDK test - intent-gateway
               run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
 

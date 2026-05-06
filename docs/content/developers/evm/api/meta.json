@@ -8,6 +8,8 @@
         "iconsensus",
         "iapp",
         "hyperapp",
+        "wrapped-hyper-fungible-token",
+        "hyper-fungible-token",
         "statemachine"
     ],
     "defaultOpen": false

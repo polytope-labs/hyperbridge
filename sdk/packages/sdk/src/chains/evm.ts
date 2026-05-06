@@ -706,9 +706,14 @@ export class EvmChain implements IChain {
 		return this.getAmountsIn(totalFee, feeToken.address, request.source)
 	}
 
-	private async getAmountsIn(amountOut: bigint, tokenOutForQuote: HexString, chain: string): Promise<bigint> {
-		const v2Router = this.configService.getUniswapRouterV2Address(chain)
-		const WETH = this.configService.getWrappedNativeAssetWithDecimals(chain).asset
+	/**
+	 * Given a desired output amount of a token, returns how much native is needed as input.
+	 * Uses the chain's Uniswap V2 router: WETH → tokenOut path.
+	 */
+	async getAmountsIn(amountOut: bigint, tokenOutForQuote: HexString, chain?: string): Promise<bigint> {
+		const chainId = chain ?? `EVM-${this.params.chainId}`
+		const v2Router = this.configService.getUniswapRouterV2Address(chainId)
+		const WETH = this.configService.getWrappedNativeAssetWithDecimals(chainId).asset
 		const v2AmountIn = await this.publicClient.simulateContract({
 			address: v2Router,
 			abi: UniswapRouterV2.ABI,
@@ -719,6 +724,26 @@ export class EvmChain implements IChain {
 		})
 
 		return v2AmountIn.result[0]
+	}
+
+	/**
+	 * Given an input amount of native token, returns how much of the output token you get.
+	 * Uses the chain's Uniswap V2 router: WETH → tokenOut path.
+	 */
+	async getAmountsOut(amountIn: bigint, tokenOutForQuote: HexString, chain?: string): Promise<bigint> {
+		const chainId = chain ?? `EVM-${this.params.chainId}`
+		const v2Router = this.configService.getUniswapRouterV2Address(chainId)
+		const WETH = this.configService.getWrappedNativeAssetWithDecimals(chainId).asset
+		const v2AmountOut = await this.publicClient.simulateContract({
+			address: v2Router,
+			abi: UniswapRouterV2.ABI,
+			// @ts-ignore
+			functionName: "getAmountsOut",
+			// @ts-ignore
+			args: [amountIn, [WETH, tokenOutForQuote]],
+		})
+
+		return v2AmountOut.result[1]
 	}
 	/**
 	 * Estimates the gas required for a post request execution on this chain.

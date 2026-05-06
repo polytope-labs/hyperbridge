@@ -1,0 +1,364 @@
+---
+title: HyperFungibleToken
+description: API reference for the HyperFungibleToken SDK class — cross-chain token bridging with fee quoting, ERC165 detection, and ISMP status tracking.
+---
+
+# HyperFungibleToken
+
+The `HyperFungibleToken` class provides a generator-based flow for bridging tokens cross-chain via Hyperbridge. It supports both `HyperFungibleToken` (burn/mint) and `WrappedHyperFungibleToken` (lock/unlock) contracts, with automatic type detection via ERC165.
+
+Unlike the deprecated [TokenGateway](/developers/sdk/api/token-gateway), each HyperFungibleToken is its own bridge application — no governance overhead or shared custody pool.
+
+## Constructor
+
+### new HyperFungibleToken(params)
+
+```typescript lineNumbers
+new HyperFungibleToken(params: {
+  source: EvmChain
+  dest: EvmChain
+  ismpClient?: IsmpClient
+})
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `params.source` | `EvmChain` | Source EVM chain where tokens are sent from |
+| `params.dest` | `EvmChain` | Destination EVM chain where tokens are received |
+| `params.ismpClient` | `IsmpClient` | Optional ISMP client for tracking request status after submission. If not provided, the bridge generator terminates at the `submitted` step. |
+
+**Example:**
+
+```typescript lineNumbers
+import {
+  HyperFungibleToken,
+  IsmpClient,
+  createQueryClient,
+  EvmChain,
+  SubstrateChain,
+} from "@hyperbridge/sdk"
+
+const source = EvmChain.fromParams({
+  chainId: 97,
+  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+  host: "0x...",
+  consensusStateId: "BSC0",
+})
+
+const dest = EvmChain.fromParams({
+  chainId: 80002,
+  rpcUrl: "https://rpc-amoy.polygon.technology",
+  host: "0x...",
+  consensusStateId: "POL0",
+})
+
+/* Without IsmpClient — generator ends at "submitted" */
+const hft = new HyperFungibleToken({ source, dest })
+
+/* With IsmpClient — generator streams status updates */
+const hyperbridge = await SubstrateChain.connect({
+  wsUrl: "wss://gargantua.rpc.polytope.technology",
+  consensusStateId: "PAS0",
+  hasher: "Keccak",
+  stateMachineId: "KUSAMA-4009",
+})
+
+const queryClient = createQueryClient({
+  url: "https://gargantua.indexer.polytope.technology",
+})
+
+const ismpClient = new IsmpClient({
+  queryClient,
+  source,
+  dest,
+  hyperbridge,
+  pollInterval: 5_000,
+})
+
+const hftWithTracking = new HyperFungibleToken({ source, dest, ismpClient })
+```
+
+## Methods
+
+### isWrapped(tokenAddress)
+
+Detects whether a token contract is a `WrappedHyperFungibleToken` via ERC165 interface detection.
+
+```typescript lineNumbers
+async isWrapped(tokenAddress: Address): Promise<boolean>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `tokenAddress` | `Address` | The token contract address to check |
+
+**Returns:** `true` if the contract implements `IWrappedHyperFungibleToken` (interface ID `0x903d5332`), `false` otherwise.
+
+---
+
+### quote(params)
+
+Quotes the fee for a cross-chain send. The fee estimation pipeline:
+
+1. Estimates gas for delivering the message on the destination chain
+2. Converts the dest gas cost to the dest chain's fee token via Uniswap
+3. Scales decimals if source and dest fee tokens differ in precision
+4. Calls the on-chain `quote()` and `quoteNative()` methods on the token contract
+
+```typescript lineNumbers
+async quote(params: BridgeParams): Promise<QuoteResult>
+```
+
+**Parameters:** See [BridgeParams](#bridgeparams).
+
+**Returns:** `Promise<QuoteResult>`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `totalNativeCost` | `bigint` | Native token amount needed as `msg.value` for `send()` (protocol fee + relayer fee). May be `0n` if no Uniswap router is available on the source chain. |
+| `totalFeeTokenCost` | `bigint` | Total fee in the host's fee token (protocol fee + relayer fee) |
+| `relayerFeeInFeeToken` | `bigint` | Relayer fee component in the source chain's fee token |
+
+**Example:**
+
+```typescript lineNumbers
+const fee = await hft.quote({
+  token: "0x...",
+  from: senderAddress,
+  to: recipientAddress,
+  amount: parseEther("100"),
+  dest: "EVM-80002",
+})
+
+console.log(`Native cost: ${fee.totalNativeCost}`)
+console.log(`Fee token cost: ${fee.totalFeeTokenCost}`)
+console.log(`Relayer fee: ${fee.relayerFeeInFeeToken}`)
+```
+
+---
+
+### bridge(params)
+
+Async generator that yields steps the caller must execute to complete a cross-chain token transfer. The generator handles ERC20 approvals, fee quoting, transaction building, commitment extraction, and ISMP status streaming.
+
+```typescript lineNumbers
+async *bridge(params: BridgeParams): AsyncGenerator<BridgeStep, void, HexString | undefined>
+```
+
+**Parameters:** See [BridgeParams](#bridgeparams).
+
+**Yields:** See [BridgeStep](#bridgestep).
+
+The generator flow:
+
+<Steps>
+### Approve (conditional)
+
+For `WrappedHyperFungibleToken` with a non-WETH underlying token: yields an `approve` step if the current allowance is less than the transfer amount.
+
+When `payInFeeToken` is `true`: yields an `approve` step for the fee token if the current allowance is insufficient.
+
+### Send
+
+Yields a `send` step with the encoded `send()` calldata and the appropriate `value` (native fee or `0n` if paying in fee token). **The caller must resume the generator with the submitted transaction hash.**
+
+### Submitted
+
+After the send transaction is mined, extracts the ISMP commitment from the `Sent` event logs and yields a `submitted` step.
+
+### Status (requires IsmpClient)
+
+If an `IsmpClient` was provided, streams ISMP request status updates until a terminal state is reached.
+
+</Steps>
+
+**Example:**
+
+```typescript lineNumbers
+import { createWalletClient, createPublicClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { bscTestnet } from "viem/chains"
+
+const account = privateKeyToAccount(PRIVATE_KEY)
+const walletClient = createWalletClient({
+  account,
+  chain: bscTestnet,
+  transport: http(BSC_RPC),
+})
+const publicClient = createPublicClient({
+  chain: bscTestnet,
+  transport: http(BSC_RPC),
+})
+
+const gen = hft.bridge({
+  token: "0x...",
+  from: account.address,
+  to: recipientAddress,
+  amount: parseEther("1"),
+  dest: "EVM-80002",
+  timeout: 3600n,
+  payInFeeToken: true,
+})
+
+let result = await gen.next()
+
+while (!result.done) {
+  const step = result.value
+  if (!step) break
+
+  if (step.type === "approve") {
+    const hash = await walletClient.sendTransaction({
+      to: step.tx.to,
+      data: step.tx.data,
+    })
+    await publicClient.waitForTransactionReceipt({ hash })
+    result = await gen.next()
+    continue
+  }
+
+  if (step.type === "send") {
+    const hash = await walletClient.sendTransaction({
+      to: step.tx.to,
+      data: step.tx.data,
+      value: step.tx.value,
+    })
+    /* Resume with the tx hash */
+    result = await gen.next(hash)
+    continue
+  }
+
+  if (step.type === "submitted") {
+    console.log("Commitment:", step.commitment)
+    result = await gen.next()
+    continue
+  }
+
+  if (step.type === "status") {
+    console.log(`Status: ${step.status}`)
+    if (step.status === "DESTINATION" || step.status === "TIMED_OUT") break
+    result = await gen.next()
+    continue
+  }
+
+  result = await gen.next()
+}
+```
+
+## Self-Relay
+
+When `relayerFee` is set to `0n`, no relayer will pick up the message. The caller can submit the proof calldata themselves when the `HYPERBRIDGE_FINALIZED` status is received:
+
+```typescript lineNumbers
+import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
+
+const gen = hft.bridge({
+  token: "0x...",
+  from: account.address,
+  to: account.address,
+  amount: parseEther("1"),
+  dest: "EVM-80002",
+  relayerFee: 0n,
+  payInFeeToken: true,
+})
+
+/* ... handle approve/send/submitted steps ... */
+
+if (step.type === "status" && step.status === "HYPERBRIDGE_FINALIZED") {
+  const { calldata } = step.metadata
+
+  /* Read handler address from dest host contract */
+  const hostParams = await destPublicClient.readContract({
+    address: DEST_HOST_ADDRESS,
+    abi: EVM_HOST.ABI,
+    functionName: "hostParams",
+  })
+
+  /* Submit proof to dest chain handler */
+  const hash = await destWalletClient.sendTransaction({
+    to: hostParams.handler,
+    data: calldata,
+  })
+  await destPublicClient.waitForTransactionReceipt({ hash })
+}
+```
+
+## Types
+
+### BridgeParams
+
+```typescript lineNumbers
+interface BridgeParams {
+  /** Address of the HFT or WrappedHFT contract on the source chain */
+  token: Address
+  /** The sender's address (needed for allowance checks and fee quoting) */
+  from: Address
+  /** Recipient on the destination chain (20 bytes for EVM, 32 bytes for substrate) */
+  to: HexString | Uint8Array
+  /** Amount of tokens to send (in token decimals) */
+  amount: bigint
+  /** Destination state machine ID (e.g. "EVM-97") */
+  dest: string | Uint8Array
+  /** Request timeout in seconds (default: 3600) */
+  timeout?: bigint
+  /** Optional calldata to execute on the destination chain */
+  data?: HexString
+  /** Pay fees in the host's feeToken instead of native. Default: false */
+  payInFeeToken?: boolean
+  /** Relayer fee override in feeToken units. If not set, automatically
+      estimated from destination gas cost. Set to 0n for self-relay. */
+  relayerFee?: bigint
+}
+```
+
+---
+
+### BridgeStep
+
+```typescript lineNumbers
+type BridgeStep =
+  | { type: "approve"; tx: { to: Address; data: HexString } }
+  | { type: "send"; tx: { to: Address; data: HexString; value: bigint } }
+  | { type: "submitted"; commitment: HexString }
+  | { type: "status" } & RequestStatusWithMetadata
+```
+
+| Step | Description |
+|------|-------------|
+| `approve` | ERC20 approval transaction. Yielded for WrappedHFT underlying tokens or fee token approvals. |
+| `send` | The cross-chain send transaction. Resume the generator with the tx hash. |
+| `submitted` | Emitted after the send tx is mined. Contains the ISMP commitment hash. |
+| `status` | ISMP request lifecycle update with full metadata. Only yielded if `ismpClient` was provided. |
+
+**Status progression:**
+
+```
+SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINATION
+```
+
+The `HYPERBRIDGE_FINALIZED` status includes a `calldata` field in its metadata — the encoded proof that can be submitted to the destination chain's handler for self-relay.
+
+---
+
+### QuoteResult
+
+```typescript lineNumbers
+interface QuoteResult {
+  /** Native token amount needed as msg.value for send() */
+  totalNativeCost: bigint
+  /** Total fee in the host's fee token */
+  totalFeeTokenCost: bigint
+  /** Relayer fee component in the source chain's fee token */
+  relayerFeeInFeeToken: bigint
+}
+```
+
+## Related
+
+- [Pallet Hyper Fungible Token](/developers/polkadot/hyper-fungible-token) — Substrate pallet for cross-chain token transfers
+- [IsmpClient](/developers/sdk/api/ismp-client) — Track ISMP post-request status independently
+- [Getting Started](/developers/sdk/getting-started) — Initialize chain clients and the indexer
+- [EVM Chain](/developers/sdk/api/evm-chain) — EVM chain utilities used by HyperFungibleToken

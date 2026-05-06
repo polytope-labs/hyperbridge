@@ -112,7 +112,6 @@ export class PostRequestClient {
 		return request
 	}
 
-
 	/**
 	 * Streaming status updates for a post request. Ends when the request reaches
 	 * the destination or a timeout becomes pending.
@@ -138,6 +137,7 @@ export class PostRequestClient {
 			while (!item.done) {
 				logger.trace(`Yielding Event(${item.value.status})`)
 				yield item.value
+				if (item.value.status === RequestStatus.DESTINATION) break
 				item = await combined.next()
 			}
 			logger.trace("Streaming complete")
@@ -364,7 +364,6 @@ export class PostRequestClient {
 
 		return commit(request)
 	}
-
 
 	/**
 	 * Streaming status updates for a timed-out post request.
@@ -735,15 +734,11 @@ export class PostRequestClient {
 			const commitment = postRequestCommitment(request).commitment
 			this.logger.trace(
 				`[streamFinalized] consensusProofs found (${consensusResult.proofs.length} proofs), provenHeight=${consensusResult.provenHeight}, ` +
-				`commitment=${commitment}, dest=${request.dest}`
+					`commitment=${commitment}, dest=${request.dest}`,
 			)
 
 			const proof = await this.fetchProofWithRetry(signal, () =>
-				hyperbridge.queryProof(
-					{ Requests: [commitment] },
-					request.dest,
-					consensusResult.provenHeight,
-				),
+				hyperbridge.queryProof({ Requests: [commitment] }, request.dest, consensusResult.provenHeight),
 			)
 
 			const calldata = destChain.encode({

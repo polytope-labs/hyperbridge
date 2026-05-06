@@ -471,6 +471,7 @@ pub fn run() -> Result<()> {
 					collator_options,
 					id,
 					hwbench,
+					cli.tesseract_config.clone(),
 				)
 				.await
 				.map_err(Into::into)

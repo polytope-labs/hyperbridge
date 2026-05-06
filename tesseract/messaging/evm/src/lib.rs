@@ -131,8 +131,7 @@ pub struct EvmConfig {
 	pub ismp_host: Option<H160>,
 	/// Relayer account private key. When omitted, the chain runs in
 	/// inbound-only mode: events are read but no transactions are submitted to
-	/// it, so it's excluded from outbound delivery, fee withdrawal, and
-	/// fisherman roles.
+	/// it, so it's excluded from outbound delivery and fee withdrawal.
 	#[serde(default)]
 	pub signer: Option<String>,
 	/// Batch size to parallelize tracing
@@ -280,8 +279,7 @@ impl EvmClient {
 		// throwaway one so all the signer-shaped fields downstream still
 		// type-check. Inbound-only chains never reach a path that signs,
 		// because the relayer's `outbound_enabled()` filter keeps them out
-		// of outbound, fee-withdrawal, and fisherman tasks before any
-		// signing call.
+		// of outbound and fee-withdrawal tasks before any signing call.
 		let signer_pair = match config.signer.as_deref() {
 			Some(raw) => {
 				let bytes = match from_hex(raw) {

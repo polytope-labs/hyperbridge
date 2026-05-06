@@ -9247,6 +9247,7 @@ dependencies = [
  "clap",
  "futures",
  "gargantua-runtime",
+ "hyperbridge-fisherman",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
  "jsonrpsee 0.24.10",
@@ -9254,6 +9255,7 @@ dependencies = [
  "mmr-gadget 29.0.1",
  "mmr-primitives",
  "nexus-runtime",
+ "pallet-fishermen",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
  "pallet-ismp",
@@ -9286,6 +9288,26 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "substrate-state-machine",
+]
+
+[[package]]
+name = "hyperbridge-fisherman"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "async-trait",
+ "futures",
+ "ismp",
+ "log",
+ "polkadot-sdk",
+ "serde",
+ "tesseract-config",
+ "tesseract-evm",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "toml 0.7.8",
 ]
 
 [[package]]
@@ -28012,7 +28034,6 @@ dependencies = [
  "tesseract-config",
  "tesseract-consensus-config",
  "tesseract-evm",
- "tesseract-fisherman",
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
@@ -28264,22 +28285,6 @@ dependencies = [
  "tesseract-evm",
  "tesseract-primitives",
  "tokio",
-]
-
-[[package]]
-name = "tesseract-fisherman"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "futures",
- "ismp",
- "log",
- "pallet-ismp",
- "polkadot-sdk",
- "sp-core",
- "tesseract-primitives",
- "tokio",
- "tracing",
 ]
 
 [[package]]

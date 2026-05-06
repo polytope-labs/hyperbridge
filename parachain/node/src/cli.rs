@@ -100,6 +100,14 @@ pub struct Cli {
 	#[arg(long)]
 	pub async_backing: bool,
 
+	/// Path to a tesseract relayer toml config. When the node runs as a
+	/// collator/authority this is required, and the fisherman task is spawned
+	/// using it to watch L2 chains across multiple RPC providers and submit
+	/// veto extrinsics on disagreement. When the node is a non-authority, the
+	/// flag is optional and ignored.
+	#[arg(long)]
+	pub tesseract_config: Option<PathBuf>,
+
 	/// Relay chain arguments
 	#[arg(raw = true)]
 	pub relay_chain_args: Vec<String>,

@@ -4,6 +4,7 @@ members = [
     # runtime
     "parachain/runtimes/gargantua",
     "parachain/runtimes/nexus",
+    "parachain/node/fisherman",
 
     # node
     "parachain/node",
@@ -111,7 +112,6 @@ members = [
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
     "tesseract/messaging/config",
-    "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
     "tesseract/consensus/arb-host",
@@ -344,11 +344,11 @@ mmr-gadget = { path = "modules/pallets/mmr/gadget" }
 # runtimes
 gargantua-runtime = { path = "./parachain/runtimes/gargantua", default-features = false }
 nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false }
+hyperbridge-fisherman = { path = "./parachain/node/fisherman" }
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
 messaging = { path = "tesseract/messaging/messaging" }
-tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
 tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }

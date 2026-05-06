@@ -222,9 +222,30 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 	}
 }
 
+/// True iff the account is in the active session validator set AND
+/// registered with `pallet-collator-selection` (invulnerable or candidate).
+/// Both gates must pass.
+pub struct IsCollator;
+impl frame_support::traits::Contains<AccountId> for IsCollator {
+	fn contains(account: &AccountId) -> bool {
+		if !pallet_session::Validators::<Runtime>::get().contains(account) {
+			return false;
+		}
+		if pallet_collator_selection::Invulnerables::<Runtime>::get()
+			.iter()
+			.any(|a| a == account)
+		{
+			return true;
+		}
+		pallet_collator_selection::CandidateList::<Runtime>::get()
+			.iter()
+			.any(|c| c.who == *account)
+	}
+}
+
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId>;
+	type IsCollator = IsCollator;
 }
 
 impl pallet_token_gateway_inspector::Config for Runtime {

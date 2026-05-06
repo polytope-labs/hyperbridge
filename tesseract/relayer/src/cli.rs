@@ -148,7 +148,8 @@ impl Cli {
 		tracing::trace!(target: crate::LOG_TARGET, count = consensus_hosts.len(), "consensus hosts built");
 
 		// One `Arc<dyn IsmpProvider>` per chain. Recreate providers for messaging DO NOT reuse the
-		// consensus host's provider; Some consensus hosts like op-host and arb-host overwrite the consensus state id for their internal needs
+		// consensus host's provider; Some consensus hosts like op-host and arb-host overwrite the
+		// consensus state id for their internal needs
 		let mut providers: HashMap<StateMachine, Arc<dyn IsmpProvider>> = HashMap::new();
 		for (sm, pc) in &config.chains {
 			let provider = pc
@@ -252,7 +253,6 @@ impl Cli {
 		// you want its inbound messages relayed. Fee accumulation is NOT wired
 		// here — it's an outbound-relayer concern and is spawned below only for
 		// chains that opted into outbound.
-		let fisherman_enabled = relayer.fisherman.unwrap_or(false);
 		for (state_machine, provider) in &providers {
 			let mut hb_for_messaging =
 				SubstrateClient::<KeccakSubstrateChain>::new(config.hyperbridge.substrate.clone())
@@ -270,27 +270,6 @@ impl Cli {
 				None,
 			)
 			.await?;
-
-			// Fisherman watches chain_b ↔ HB for byzantine state-machine updates
-			// and dispatches veto extrinsics. Opt-in via `relayer.fisherman =
-			// true`. Vetoes need to write to the chain (e.g. an EVM veto call
-			// reads the relayer's `address` slot), so the fisherman task is
-			// only spawned for chains with a signer configured.
-			if fisherman_enabled {
-				let hb_for_fisherman: Arc<dyn IsmpProvider> = Arc::new(
-					SubstrateClient::<KeccakSubstrateChain>::new(
-						config.hyperbridge.substrate.clone(),
-					)
-					.await?,
-				);
-				tesseract_fisherman::fish(
-					hb_for_fisherman,
-					provider.clone(),
-					&task_manager,
-					coprocessor,
-				)
-				.await?;
-			}
 
 			tracing::trace!(target: crate::LOG_TARGET, %state_machine, "initialized inbound messaging task");
 		}

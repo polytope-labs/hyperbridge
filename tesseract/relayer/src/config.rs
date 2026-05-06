@@ -45,7 +45,7 @@
 //! automatically. Presence of `[chain.consensus]` is the sole signal to spawn
 //! inbound consensus for that chain. Presence of a non-empty `signer` is the
 //! sole signal that this chain participates in the HB->chain outbound fan-out
-//! (and the related fee-withdrawal and fisherman roles).
+//! (and the related fee-withdrawal role).
 
 use anyhow::{anyhow, Context};
 use ismp::{consensus::StateMachineId, host::StateMachine};
@@ -62,7 +62,6 @@ pub struct RelayerConfig {
 	pub module_filter: Option<Vec<String>>,
 	#[serde(default)]
 	pub minimum_profit_percentage: u32,
-	pub fisherman: Option<bool>,
 	pub withdrawal_frequency: Option<u64>,
 	pub minimum_withdrawal_amount: Option<u64>,
 	pub unprofitable_retry_frequency: Option<u64>,
@@ -83,7 +82,6 @@ impl Default for RelayerConfig {
 		Self {
 			module_filter: None,
 			minimum_profit_percentage: 0,
-			fisherman: None,
 			withdrawal_frequency: None,
 			minimum_withdrawal_amount: None,
 			unprofitable_retry_frequency: None,
@@ -106,7 +104,6 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 			// gets inbound messaging spawned automatically.
 			delivery_endpoints: Vec::new(),
 			deliver_failed: config.deliver_failed,
-			fisherman: config.fisherman,
 			disable_fee_accumulation: config.disable_fee_accumulation,
 		}
 	}
@@ -128,10 +125,9 @@ pub struct PerChainConfig {
 
 impl PerChainConfig {
 	/// True when this chain participates in the HB->chain outbound fan-out
-	/// (and the related fee-withdrawal and fisherman roles). The toggle is
-	/// the messaging signer's presence: a configured non-empty signer means
-	/// the operator has provisioned a key to submit transactions on this
-	/// chain.
+	/// (and the related fee-withdrawal role). The toggle is the messaging
+	/// signer's presence: a configured non-empty signer means the operator
+	/// has provisioned a key to submit transactions on this chain.
 	pub fn outbound_enabled(&self) -> bool {
 		self.messaging.signer().is_some_and(|s| !s.is_empty())
 	}
@@ -367,7 +363,10 @@ pub fn setup_logging() -> Result<(), anyhow::Error> {
 	// raw bytes survive into the journal, and `journalctl` pages through
 	// `less -R` by default so colors render on read-out.
 	let use_ansi = std::env::var_os("NO_COLOR").is_none();
-	tracing_subscriber::registry().with(fmt::layer().with_ansi(use_ansi)).with(filter).init();
+	tracing_subscriber::registry()
+		.with(fmt::layer().with_ansi(use_ansi))
+		.with(filter)
+		.init();
 
 	Ok(())
 }

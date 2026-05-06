@@ -799,8 +799,8 @@ mod outbound_consensus_delivery {
 		use alloy_primitives::Address as AlloyAddress;
 
 		const RELAYER_ADDR: [u8; 20] = [
-			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
-			0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+			0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
 		];
 
 		/// The 21-byte shape `EvmStateMachine::verify_state_proof`
@@ -813,9 +813,8 @@ mod outbound_consensus_delivery {
 			raw.extend_from_slice(&RELAYER_ADDR);
 			assert_eq!(raw.len(), 21);
 
-			let decoded =
-				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
-					.expect("21-byte RLP-encoded address should decode");
+			let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
+				.expect("21-byte RLP-encoded address should decode");
 			assert_eq!(decoded, AlloyAddress::from_slice(&RELAYER_ADDR));
 		}
 
@@ -838,8 +837,7 @@ mod outbound_consensus_delivery {
 			raw.extend_from_slice(stripped);
 
 			assert!(
-				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
-					.is_none(),
+				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw).is_none(),
 			);
 		}
 
@@ -849,10 +847,9 @@ mod outbound_consensus_delivery {
 		/// `proof_results.get == None` and return None.
 		#[test]
 		fn rejects_rlp_empty_string() {
-			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&[
-				0x80,
-			])
-			.is_none());
+			assert!(
+				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&[0x80,]).is_none()
+			);
 		}
 
 		/// The pre-fix code expected this raw 32-byte form. Real EVM
@@ -867,8 +864,7 @@ mod outbound_consensus_delivery {
 			// 1-byte string `0x00` (which is invalid per RLP) or as
 			// trailing garbage; either way we expect None.
 			assert!(
-				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
-					.is_none(),
+				pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw).is_none(),
 				"raw 32-byte word must not decode — that was the broken legacy shape",
 			);
 		}
@@ -891,8 +887,7 @@ mod outbound_consensus_delivery {
 		fn rejects_explicit_zero_address() {
 			let mut raw = vec![0x94];
 			raw.extend_from_slice(&[0u8; 20]);
-			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
-				.is_none());
+			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw).is_none());
 		}
 
 		/// Anything longer than 20 bytes (after stripping the RLP
@@ -902,8 +897,7 @@ mod outbound_consensus_delivery {
 			let big = vec![0xab; 32];
 			let mut raw = vec![0x80 + big.len() as u8];
 			raw.extend_from_slice(&big);
-			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw)
-				.is_none());
+			assert!(pallet_ismp_relayer::Pallet::<Test>::decode_epochs_slot_address(&raw).is_none());
 		}
 	}
 

@@ -7,7 +7,7 @@ import { ERC20ABI } from "@/abis/erc20"
 import type { HexString, IPostRequest, RequestStatusWithMetadata } from "@/types"
 
 /** IWrappedHyperFungibleToken ERC165 interface ID */
-const WRAPPED_HFT_INTERFACE_ID = "0x903d5332" as HexString
+const WRAPPED_HFT_INTERFACE_ID = "0xe23d9765" as HexString
 
 /**
  * Human-readable parameters for bridging tokens cross-chain
@@ -80,18 +80,18 @@ export type BridgeStep =
 export class HyperFungibleToken {
 	private readonly source: EvmChain
 	private readonly dest: EvmChain
-	private readonly ismpClient?: IsmpClient
+	private readonly client?: IsmpClient
 
 	/**
 	 * @param params.source - Source EVM chain where tokens are sent from
 	 * @param params.dest - Destination EVM chain where tokens are received
-	 * @param params.ismpClient - Optional ISMP client for tracking request status after submission.
+	 * @param params.client - Optional ISMP client for tracking request status after submission.
 	 *   If not provided, the bridge generator terminates at the "submitted" step.
 	 */
-	constructor(params: { source: EvmChain; dest: EvmChain; ismpClient?: IsmpClient }) {
+	constructor(params: { source: EvmChain; dest: EvmChain; client?: IsmpClient }) {
 		this.source = params.source
 		this.dest = params.dest
-		this.ismpClient = params.ismpClient
+		this.client = params.client
 	}
 
 	/**
@@ -328,18 +328,28 @@ export class HyperFungibleToken {
 		}
 
 		// Step 3: Build and yield send tx
+		const isWeth = wrappedResult?.[0] ?? false
 		const sendData = encodeFunctionData({
 			abi: HyperFungibleTokenABI,
 			functionName: "send",
 			args: [{ dest, to, amount: params.amount, timeout, relayerFee: fee.relayerFeeInFeeToken, data }],
 		})
 
+		// For WETH wrappers: msg.value must include the amount being wrapped
+		// plus native fee payment (or just the amount if paying fees in fee token)
+		let value: bigint
+		if (isWeth) {
+			value = payInFeeToken ? params.amount : params.amount + fee.totalNativeCost
+		} else {
+			value = payInFeeToken ? 0n : fee.totalNativeCost
+		}
+
 		const txHash: HexString | undefined = yield {
 			type: "send",
 			tx: {
 				to: token,
 				data: sendData as HexString,
-				value: payInFeeToken ? 0n : fee.totalNativeCost,
+				value,
 			},
 		}
 
@@ -372,10 +382,10 @@ export class HyperFungibleToken {
 		yield { type: "submitted", commitment }
 
 		// Step 4: Stream ISMP status if client provided
-		if (this.ismpClient) {
-			for await (const update of this.ismpClient.postRequestStatusStream(commitment)) {
+		if (this.client) {
+			for await (const update of this.client.postRequestStatusStream(commitment)) {
 				yield { type: "status", ...update }
-				if (update.status === "DESTINATION" || update.status === "TIMED_OUT") {
+				if (update.status === "DESTINATION" || update.status === "PENDING_TIMEOUT") {
 					break
 				}
 			}

@@ -125,9 +125,10 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
     event Refunded(address to, uint256 amount);
 
     /**
-     * @notice Initializes the contract and sets the deployer as owner
+     * @notice Initializes the contract with the given owner
+     * @param initialOwner The address that will own this contract
      */
-    constructor() Ownable(msg.sender) {}
+    constructor(address initialOwner) Ownable(initialOwner) {}
 
     /**
      * @notice Returns the ISMP host address for this chain
@@ -285,7 +286,14 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
 
         HyperFungibleToken.Message memory message = abi.decode(request.body, (HyperFungibleToken.Message));
         address beneficiary = _toAddr(message.to);
-        IERC20(_underlying).safeTransfer(beneficiary, message.amount);
+
+        if (_isWeth) {
+            IWETH(_underlying).withdraw(message.amount);
+            (bool sent,) = beneficiary.call{value: message.amount}("");
+            if (!sent) revert TransferFailed();
+        } else {
+            IERC20(_underlying).safeTransfer(beneficiary, message.amount);
+        }
 
         if (message.data.length > 0) {
             ICallDispatcher(_dispatcher).dispatch(message.data);

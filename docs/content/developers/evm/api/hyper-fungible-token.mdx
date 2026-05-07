@@ -14,10 +14,10 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable
 ### Constructor
 
 ```solidity lineNumbers
-constructor(string memory name, string memory symbol)
+constructor(string memory name, string memory symbol, address initialOwner)
 ```
 
-Creates a new token with the given name and symbol. The deployer becomes the owner.
+Creates a new token with the given name, symbol, and owner.
 
 ---
 

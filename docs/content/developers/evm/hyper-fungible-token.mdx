@@ -103,7 +103,7 @@ Both contracts implement ERC165 for on-chain type detection:
 | Contract | Interface ID |
 |----------|-------------|
 | `IHyperFungibleToken` | `0x7200c457` |
-| `IWrappedHyperFungibleToken` | `0x903d5332` |
+| `IWrappedHyperFungibleToken` | `0xe23d9765` |
 
 The [TypeScript SDK](/developers/sdk/hyper-fungible-token) uses this to automatically determine which approval flow is needed.
 
@@ -148,7 +148,7 @@ import {WrappedHyperFungibleToken} from "@hyperbridge/core/apps/WrappedHyperFung
 import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
 
 bytes32 salt = keccak256("my-token-v1");
-WrappedHyperFungibleToken wrapper = new WrappedHyperFungibleToken{salt: salt}();
+WrappedHyperFungibleToken wrapper = new WrappedHyperFungibleToken{salt: salt}(msg.sender);
 ```
 </Step>
 <Step>
@@ -234,7 +234,7 @@ import {HyperFungibleToken} from "@hyperbridge/core/apps/HyperFungibleToken.sol"
 import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
 
 bytes32 salt = keccak256("my-token-v1");
-HyperFungibleToken token = new HyperFungibleToken{salt: salt}("Wrapped USDC", "wUSDC");
+HyperFungibleToken token = new HyperFungibleToken{salt: salt}("Wrapped USDC", "wUSDC", msg.sender);
 ```
 
 The deployer becomes the contract owner. The HFT has no initial supply — tokens are only minted when cross-chain transfers arrive.

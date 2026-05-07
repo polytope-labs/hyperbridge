@@ -144,11 +144,12 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
     event Refunded(address to, uint256 amount);
 
     /**
-     * @notice Initializes the token with a name, symbol, and sets the deployer as owner
+     * @notice Initializes the token with a name, symbol, and owner
      * @param name The name of the token
      * @param symbol The symbol of the token
+     * @param initialOwner The address that will own this contract
      */
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) Ownable(msg.sender) {}
+    constructor(string memory name, string memory symbol, address initialOwner) ERC20(name, symbol) Ownable(initialOwner) {}
 
     /**
      * @notice Returns the ISMP host address for this chain

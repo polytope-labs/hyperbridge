@@ -157,19 +157,9 @@ import {
 } from "@hyperbridge/sdk"
 import { parseEther } from "viem"
 
-const source = EvmChain.fromParams({
-	chainId: 97, // BSC Testnet
-	rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-	host: "0x...", // IsmpHost contract address
-	consensusStateId: "BSC0",
-})
-
-const dest = EvmChain.fromParams({
-	chainId: 80002, // Polygon Amoy
-	rpcUrl: "https://rpc-amoy.polygon.technology",
-	host: "0x...", // IsmpHost contract address
-	consensusStateId: "POL0",
-})
+// EvmChain.create auto-detects chain ID and resolves the IsmpHost address
+const source = await EvmChain.create("https://data-seed-prebsc-1-s1.binance.org:8545")
+const dest = await EvmChain.create("https://rpc-amoy.polygon.technology")
 
 const hft = new HyperFungibleToken({ source, dest })
 ```
@@ -272,7 +262,7 @@ while (!result.done) {
 | `approve` | ERC20 approval tx. Yielded for WrappedHFT (underlying token) or when `payInFeeToken` is true (fee token). Only if current allowance is insufficient. |
 | `send` | The cross-chain send tx. Resume the generator with the submitted tx hash. |
 | `submitted` | Emitted after the send tx is mined. Contains the ISMP `commitment` hash. |
-| `status` | ISMP request lifecycle updates. Only yielded if `ismpClient` was provided. |
+| `status` | ISMP request lifecycle updates. Only yielded if `client` was provided. |
 
 #### Tracking with IsmpClient
 
@@ -298,10 +288,10 @@ const ismpClient = new IsmpClient({
 	pollInterval: 5_000,
 })
 
-const hft = new HyperFungibleToken({ source, dest, ismpClient })
+const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
 ```
 
-Without `ismpClient`, the generator terminates after the `submitted` step.
+Without `client`, the generator terminates after the `submitted` step.
 
 #### Self-Relay
 

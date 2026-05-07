@@ -13,15 +13,15 @@ Extends [IHyperFungibleToken](/developers/evm/api/hyper-fungible-token) — inhe
 contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable
 ```
 
-**ERC165 Interface ID:** `0x903d5332`
+**ERC165 Interface ID:** `0xe23d9765`
 
 ## Constructor
 
 ```solidity lineNumbers
-constructor()
+constructor(address initialOwner)
 ```
 
-No arguments — the underlying token is configured via `configure()`.
+Takes the contract owner address. The underlying token and other settings are configured via `configure()`.
 
 ---
 
@@ -60,7 +60,7 @@ function send(SendParams calldata params) external payable whenNotPaused
 
 ## onAccept(incoming)
 
-Called by the ISMP host when a cross-chain transfer arrives. Verifies the source and transfers the underlying ERC20 to the recipient.
+Called by the ISMP host when a cross-chain transfer arrives. Verifies the source and releases the underlying tokens to the recipient. For WETH wrappers (`isWeth = true`), unwraps WETH and sends native ETH/BNB. For standard ERC20 wrappers, transfers the underlying token directly.
 
 ```solidity lineNumbers
 function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenNotPaused
@@ -100,7 +100,7 @@ function isWeth() public view returns (bool)
 
 ## supportsInterface(interfaceId)
 
-ERC165 interface detection. Returns `true` for `IWrappedHyperFungibleToken` (`0x903d5332`) and `IERC165`.
+ERC165 interface detection. Returns `true` for `IWrappedHyperFungibleToken` (`0xe23d9765`) and `IERC165`.
 
 ```solidity lineNumbers
 function supportsInterface(bytes4 interfaceId) public view returns (bool)
@@ -108,19 +108,98 @@ function supportsInterface(bytes4 interfaceId) public view returns (bool)
 
 ---
 
-## Inherited Methods
+## host()
 
-From [IHyperFungibleToken](/developers/evm/api/hyper-fungible-token):
+Returns the ISMP host contract address for this chain.
 
-- `host()` — Returns the ISMP host contract address
-- `dispatcher()` — Returns the CallDispatcher contract address
-- `supportedChain(chainId)` — Returns the peer module ID for a given chain
-- `addChain(chainId, moduleId)` — Registers a peer contract on a destination chain
-- `removeChain(chainId)` — Removes a chain from the supported set
-- `pause()` — Pauses all cross-chain operations
-- `unpause()` — Resumes all operations after a pause
-- `quote(request)` — Returns the fee in the host's fee token
-- `quoteNative(request)` — Returns the fee in the native token
+```solidity lineNumbers
+function host() public view returns (address)
+```
+
+---
+
+## dispatcher()
+
+Returns the CallDispatcher contract address used for executing calldata on receive.
+
+```solidity lineNumbers
+function dispatcher() public view returns (address)
+```
+
+---
+
+## supportedChain(chainId)
+
+Returns the peer module ID registered for a given chain. An empty result means the chain is not supported.
+
+```solidity lineNumbers
+function supportedChain(bytes calldata chainId) public view returns (bytes memory)
+```
+
+---
+
+## addChain(chainId, moduleId)
+
+Registers a peer contract on a destination chain. Only callable by the contract owner.
+
+```solidity lineNumbers
+function addChain(bytes calldata chainId, bytes calldata moduleId) external onlyOwner
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `bytes` | Destination chain ID (e.g., `StateMachine.evm(42161)`) |
+| `moduleId` | `bytes` | The peer contract address on that chain. 20 bytes for EVM, 8 bytes for substrate pallet. |
+
+---
+
+## removeChain(chainId)
+
+Removes a chain from the supported set. Transfers to/from this chain will revert after removal. Only callable by the contract owner.
+
+```solidity lineNumbers
+function removeChain(bytes calldata chainId) external onlyOwner
+```
+
+---
+
+## pause()
+
+Pauses all cross-chain operations. Only callable by the contract owner.
+
+```solidity lineNumbers
+function pause() external onlyOwner
+```
+
+---
+
+## unpause()
+
+Resumes all operations after a pause. Only callable by the contract owner.
+
+```solidity lineNumbers
+function unpause() external onlyOwner
+```
+
+---
+
+## quote(request)
+
+Returns the fee in the host's fee token for dispatching a cross-chain send. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+
+```solidity lineNumbers
+function quote(DispatchPost memory request) public view returns (uint256)
+```
+
+---
+
+## quoteNative(request)
+
+Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+
+```solidity lineNumbers
+function quoteNative(DispatchPost memory request) public view returns (uint256)
+```
 
 ---
 

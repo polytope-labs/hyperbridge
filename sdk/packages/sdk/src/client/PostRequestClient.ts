@@ -137,7 +137,11 @@ export class PostRequestClient {
 			while (!item.done) {
 				logger.trace(`Yielding Event(${item.value.status})`)
 				yield item.value
-				if (item.value.status === RequestStatus.DESTINATION) break
+				if (
+					item.value.status === RequestStatus.DESTINATION ||
+					item.value.status === TimeoutStatus.PENDING_TIMEOUT
+				)
+					break
 				item = await combined.next()
 			}
 			logger.trace("Streaming complete")

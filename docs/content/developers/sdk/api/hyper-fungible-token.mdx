@@ -17,7 +17,7 @@ Unlike the deprecated [TokenGateway](/developers/sdk/api/token-gateway), each Hy
 new HyperFungibleToken(params: {
   source: EvmChain
   dest: EvmChain
-  ismpClient?: IsmpClient
+  client?: IsmpClient
 })
 ```
 
@@ -27,7 +27,7 @@ new HyperFungibleToken(params: {
 |------|------|-------------|
 | `params.source` | `EvmChain` | Source EVM chain where tokens are sent from |
 | `params.dest` | `EvmChain` | Destination EVM chain where tokens are received |
-| `params.ismpClient` | `IsmpClient` | Optional ISMP client for tracking request status after submission. If not provided, the bridge generator terminates at the `submitted` step. |
+| `params.client` | `IsmpClient` | Optional ISMP client for tracking request status after submission. If not provided, the bridge generator terminates at the `submitted` step. |
 
 **Example:**
 
@@ -40,19 +40,9 @@ import {
   SubstrateChain,
 } from "@hyperbridge/sdk"
 
-const source = EvmChain.fromParams({
-  chainId: 97,
-  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-  host: "0x...",
-  consensusStateId: "BSC0",
-})
-
-const dest = EvmChain.fromParams({
-  chainId: 80002,
-  rpcUrl: "https://rpc-amoy.polygon.technology",
-  host: "0x...",
-  consensusStateId: "POL0",
-})
+// EvmChain.create auto-detects chain ID and resolves the IsmpHost address
+const source = await EvmChain.create("https://data-seed-prebsc-1-s1.binance.org:8545")
+const dest = await EvmChain.create("https://rpc-amoy.polygon.technology")
 
 /* Without IsmpClient — generator ends at "submitted" */
 const hft = new HyperFungibleToken({ source, dest })
@@ -77,7 +67,7 @@ const ismpClient = new IsmpClient({
   pollInterval: 5_000,
 })
 
-const hftWithTracking = new HyperFungibleToken({ source, dest, ismpClient })
+const hftWithTracking = new HyperFungibleToken({ source, dest, client: ismpClient })
 ```
 
 ## Methods
@@ -96,7 +86,7 @@ async isWrapped(tokenAddress: Address): Promise<boolean>
 |------|------|-------------|
 | `tokenAddress` | `Address` | The token contract address to check |
 
-**Returns:** `true` if the contract implements `IWrappedHyperFungibleToken` (interface ID `0x903d5332`), `false` otherwise.
+**Returns:** `true` if the contract implements `IWrappedHyperFungibleToken` (interface ID `0xe23d9765`), `false` otherwise.
 
 ---
 
@@ -156,24 +146,28 @@ async *bridge(params: BridgeParams): AsyncGenerator<BridgeStep, void, HexString 
 The generator flow:
 
 <Steps>
-### Approve (conditional)
+<Step>
+#### Approve (conditional)
 
 For `WrappedHyperFungibleToken` with a non-WETH underlying token: yields an `approve` step if the current allowance is less than the transfer amount.
 
 When `payInFeeToken` is `true`: yields an `approve` step for the fee token if the current allowance is insufficient.
-
-### Send
+</Step>
+<Step>
+#### Send
 
 Yields a `send` step with the encoded `send()` calldata and the appropriate `value` (native fee or `0n` if paying in fee token). **The caller must resume the generator with the submitted transaction hash.**
-
-### Submitted
+</Step>
+<Step>
+#### Submitted
 
 After the send transaction is mined, extracts the ISMP commitment from the `Sent` event logs and yields a `submitted` step.
-
-### Status (requires IsmpClient)
+</Step>
+<Step>
+#### Status (requires IsmpClient)
 
 If an `IsmpClient` was provided, streams ISMP request status updates until a terminal state is reached.
-
+</Step>
 </Steps>
 
 **Example:**
@@ -248,44 +242,6 @@ while (!result.done) {
 }
 ```
 
-## Self-Relay
-
-When `relayerFee` is set to `0n`, no relayer will pick up the message. The caller can submit the proof calldata themselves when the `HYPERBRIDGE_FINALIZED` status is received:
-
-```typescript lineNumbers
-import EVM_HOST from "@hyperbridge/sdk/abis/evmHost"
-
-const gen = hft.bridge({
-  token: "0x...",
-  from: account.address,
-  to: account.address,
-  amount: parseEther("1"),
-  dest: "EVM-80002",
-  relayerFee: 0n,
-  payInFeeToken: true,
-})
-
-/* ... handle approve/send/submitted steps ... */
-
-if (step.type === "status" && step.status === "HYPERBRIDGE_FINALIZED") {
-  const { calldata } = step.metadata
-
-  /* Read handler address from dest host contract */
-  const hostParams = await destPublicClient.readContract({
-    address: DEST_HOST_ADDRESS,
-    abi: EVM_HOST.ABI,
-    functionName: "hostParams",
-  })
-
-  /* Submit proof to dest chain handler */
-  const hash = await destWalletClient.sendTransaction({
-    to: hostParams.handler,
-    data: calldata,
-  })
-  await destPublicClient.waitForTransactionReceipt({ hash })
-}
-```
-
 ## Types
 
 ### BridgeParams
@@ -331,7 +287,7 @@ type BridgeStep =
 | `approve` | ERC20 approval transaction. Yielded for WrappedHFT underlying tokens or fee token approvals. |
 | `send` | The cross-chain send transaction. Resume the generator with the tx hash. |
 | `submitted` | Emitted after the send tx is mined. Contains the ISMP commitment hash. |
-| `status` | ISMP request lifecycle update with full metadata. Only yielded if `ismpClient` was provided. |
+| `status` | ISMP request lifecycle update with full metadata. Only yielded if `client` was provided. |
 
 **Status progression:**
 

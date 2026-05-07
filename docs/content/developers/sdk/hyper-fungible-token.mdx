@@ -9,7 +9,7 @@ This guide walks through bridging ERC20 tokens cross-chain using the `HyperFungi
 
 ## Overview
 
-Each HyperFungibleToken is its own bridge application — there is no shared custody pool, no governance overhead, and no token-governor. The token contract itself handles cross-chain messaging via ISMP.
+`HyperFungibleToken` replaces the deprecated [TokenGateway](/developers/sdk/api/token-gateway). TokenGateway required a shared custody pool across all tokens, a token-governor contract for cross-chain governance, and a token-gateway-inspector for validation — all of which added significant operational overhead and created a single point of failure for all bridged assets. With HyperFungibleToken, each token is its own self-contained bridge application, eliminating shared custody risk and governance complexity entirely.
 
 The typical architecture deploys a `WrappedHyperFungibleToken` on the token's home chain (locking the canonical ERC20 supply) and a `HyperFungibleToken` on every remote chain (minting/burning). See the [EVM contract guide](/developers/evm/hyper-fungible-token) for deployment details.
 
@@ -45,19 +45,9 @@ npm install @hyperbridge/sdk
 ```typescript lineNumbers title="bridge.ts" icon=typescript
 import { EvmChain } from "@hyperbridge/sdk"
 
-const source = EvmChain.fromParams({
-  chainId: 97,          // BSC Testnet
-  rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-  host: "0x...",        // IsmpHost address on BSC
-  consensusStateId: "BSC0",
-})
-
-const dest = EvmChain.fromParams({
-  chainId: 80002,       // Polygon Amoy
-  rpcUrl: "https://rpc-amoy.polygon.technology",
-  host: "0x...",        // IsmpHost address on Polygon
-  consensusStateId: "POL0",
-})
+// EvmChain.create auto-detects chain ID and resolves the IsmpHost address
+const source = await EvmChain.create("https://data-seed-prebsc-1-s1.binance.org:8545")
+const dest = await EvmChain.create("https://rpc-amoy.polygon.technology")
 ```
 </Step>
 <Step>
@@ -172,7 +162,7 @@ The generator yields these steps in order:
 | `approve` | WrappedHFT (underlying ERC20 approval) or `payInFeeToken: true` (fee token approval). Only if current allowance is insufficient. | Submit the approval tx, wait for receipt, call `gen.next()` |
 | `send` | Always | Submit the send tx, call `gen.next(txHash)` with the hash |
 | `submitted` | After send is mined | Read `step.commitment` — the ISMP request commitment hash |
-| `status` | Only if `ismpClient` was provided | Track the cross-chain lifecycle |
+| `status` | Only if `client` was provided | Track the cross-chain lifecycle |
 
 ## Tracking Cross-Chain Status
 
@@ -205,10 +195,10 @@ const ismpClient = new IsmpClient({
   pollInterval: 5_000,
 })
 
-const hft = new HyperFungibleToken({ source, dest, ismpClient })
+const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
 ```
 
-With `ismpClient` attached, the generator yields `status` steps after `submitted`:
+With `client` attached, the generator yields `status` steps after `submitted`:
 
 ```typescript lineNumbers title="bridge.ts" icon=typescript
 if (step.type === "status") {
@@ -236,6 +226,23 @@ SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED → HYPERBRIDGE_FINALIZED → DESTINA
 | `HYPERBRIDGE_FINALIZED` | Hyperbridge has produced a proof for the destination chain. Metadata includes `calldata` for self-relay. |
 | `DESTINATION` | The message has been delivered on the destination chain |
 | `TIMED_OUT` | The request timed out without being delivered |
+
+### Tracking independently
+
+If you prefer not to pass `client` to the `HyperFungibleToken` constructor, you can track the request separately using the commitment from the `submitted` step:
+
+```typescript lineNumbers title="bridge.ts" icon=typescript
+const hft = new HyperFungibleToken({ source, dest }) // no client
+
+// ... run bridge generator, capture commitment from "submitted" step ...
+
+for await (const status of ismpClient.postRequestStatusStream(commitment)) {
+  console.log(`Status: ${status.status}`)
+  if (status.status === "DESTINATION" || status.status === "TIMED_OUT") break
+}
+```
+
+This is useful when you want to decouple the bridge transaction from status tracking — for example, submitting the transaction in one process and monitoring it in another.
 
 ## Handling Timeouts
 
@@ -358,7 +365,7 @@ const isWrapped = await hft.isWrapped(tokenAddress)
 // false → HyperFungibleToken (burn/mint) or non-HFT contract
 ```
 
-This uses ERC165 `supportsInterface` with interface ID `0x903d5332`.
+This uses ERC165 `supportsInterface` with interface ID `0xe23d9765`.
 
 ## Next Steps
 

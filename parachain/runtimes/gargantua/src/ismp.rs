@@ -231,7 +231,6 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 
-
 impl pallet_bandwidth::Config for Runtime {
 	type Dispatcher = Ismp;
 }
@@ -258,7 +257,6 @@ impl pallet_hyper_fungible_token::Config for Runtime {
 	type EvmToSubstrate = ();
 	type WeightInfo = ();
 }
-
 
 #[cfg(feature = "runtime-benchmarks")]
 pub struct XcmBenchmarkHelper;

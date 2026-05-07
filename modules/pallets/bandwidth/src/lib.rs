@@ -33,8 +33,7 @@
 
 extern crate alloc;
 
-use polkadot_sdk::frame_support::traits::UnixTime;
-use polkadot_sdk::*;
+use polkadot_sdk::{frame_support::traits::UnixTime, *};
 
 pub mod abi;
 pub mod types;
@@ -281,10 +280,7 @@ pub mod pallet {
 			match config {
 				None => Tiers::<T>::remove(tier),
 				Some(cfg) => {
-					ensure!(
-						cfg.bytes > 0 && cfg.duration_secs > 0,
-						Error::<T>::InvalidTierConfig
-					);
+					ensure!(cfg.bytes > 0 && cfg.duration_secs > 0, Error::<T>::InvalidTierConfig);
 					Tiers::<T>::insert(tier, cfg);
 				},
 			}
@@ -315,10 +311,8 @@ pub mod pallet {
 				})
 				.unzip();
 
-			type SetTiersAbi = (
-				sol_data::Array<sol_data::Uint<256>>,
-				sol_data::Array<sol_data::Uint<256>>,
-			);
+			type SetTiersAbi =
+				(sol_data::Array<sol_data::Uint<256>>, sol_data::Array<sol_data::Uint<256>>);
 			let mut body = vec![ACTION_SET_TIERS];
 			body.extend(SetTiersAbi::abi_encode_params(&(tiers, prices)));
 
@@ -343,8 +337,7 @@ pub mod pallet {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 			let market = BandwidthMarkets::<T>::get(&target).ok_or(Error::<T>::UnknownMarket)?;
 
-			type WithdrawAbi =
-				(sol_data::Address, sol_data::Address, sol_data::Uint<256>);
+			type WithdrawAbi = (sol_data::Address, sol_data::Address, sol_data::Uint<256>);
 			let mut body = vec![ACTION_WITHDRAW];
 			body.extend(WithdrawAbi::abi_encode_params(&(
 				alloy_primitives::Address::from(token.0),
@@ -374,17 +367,18 @@ pub mod pallet {
 			let key = AppKey::truncate_from(app.to_vec());
 			let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
 			let map = Allowance::<T>::get(app_chain, &key);
-			let mut buckets: Vec<(TierIndex, AllowanceState)> = map
-				.into_iter()
-				.filter(|(_, s)| s.expires_at > now)
-				.collect();
+			let mut buckets: Vec<(TierIndex, AllowanceState)> =
+				map.into_iter().filter(|(_, s)| s.expires_at > now).collect();
 			buckets.sort_by_key(|(_, s)| s.expires_at);
 			buckets
 		}
 
 		/// Sum of all live buckets — what the gate would charge against.
 		pub fn remaining(app_chain: &StateMachine, app: &[u8]) -> u128 {
-			Self::allowances(app_chain, app).into_iter().map(|(_, s)| s.remaining_bytes).sum()
+			Self::allowances(app_chain, app)
+				.into_iter()
+				.map(|(_, s)| s.remaining_bytes)
+				.sum()
 		}
 
 		/// Wrap an outbound governance message and ship it to the
@@ -410,7 +404,7 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::DispatchFailed.into())
 		}
 
-/// Stack-or-reset: live bucket → bytes add, expiry pushes out by
+		/// Stack-or-reset: live bucket → bytes add, expiry pushes out by
 		/// `duration_secs`. Expired/missing → fresh window from now.
 		fn credit_bucket(
 			app_chain: &StateMachine,
@@ -532,51 +526,50 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 		let need: u128 = bytes.into();
 		let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
 
-		let outcome: Result<u128, GateError> = pallet::Allowance::<T>::mutate(source, &key, |map| {
-			let expired: Vec<TierIndex> = map
-				.iter()
-				.filter_map(|(t, s)| (s.expires_at <= now).then_some(*t))
-				.collect();
-			for t in expired {
-				map.remove(&t);
-			}
-
-			if map.is_empty() {
-				return Err(GateError::NoAllowance);
-			}
-
-			let total: u128 = map.values().map(|s| s.remaining_bytes).sum();
-			if total < need {
-				return Err(GateError::Insufficient { remaining: total, required: need });
-			}
-
-			if matches!(mode, EnforcementMode::Enforce) {
-				let mut order: Vec<(TierIndex, u64)> =
-					map.iter().map(|(t, s)| (*t, s.expires_at)).collect();
-				order.sort_by_key(|(_, e)| *e);
-
-				let mut left = need;
-				let mut drained: Vec<TierIndex> = Vec::new();
-				for (t, _) in order {
-					if left == 0 {
-						break;
-					}
-					if let Some(state) = map.get_mut(&t) {
-						let take = state.remaining_bytes.min(left);
-						state.remaining_bytes = state.remaining_bytes.saturating_sub(take);
-						left = left.saturating_sub(take);
-						if state.remaining_bytes == 0 {
-							drained.push(t);
-						}
-					}
-				}
-				for t in drained {
+		let outcome: Result<u128, GateError> =
+			pallet::Allowance::<T>::mutate(source, &key, |map| {
+				let expired: Vec<TierIndex> =
+					map.iter().filter_map(|(t, s)| (s.expires_at <= now).then_some(*t)).collect();
+				for t in expired {
 					map.remove(&t);
 				}
-			}
 
-			Ok(total)
-		});
+				if map.is_empty() {
+					return Err(GateError::NoAllowance);
+				}
+
+				let total: u128 = map.values().map(|s| s.remaining_bytes).sum();
+				if total < need {
+					return Err(GateError::Insufficient { remaining: total, required: need });
+				}
+
+				if matches!(mode, EnforcementMode::Enforce) {
+					let mut order: Vec<(TierIndex, u64)> =
+						map.iter().map(|(t, s)| (*t, s.expires_at)).collect();
+					order.sort_by_key(|(_, e)| *e);
+
+					let mut left = need;
+					let mut drained: Vec<TierIndex> = Vec::new();
+					for (t, _) in order {
+						if left == 0 {
+							break;
+						}
+						if let Some(state) = map.get_mut(&t) {
+							let take = state.remaining_bytes.min(left);
+							state.remaining_bytes = state.remaining_bytes.saturating_sub(take);
+							left = left.saturating_sub(take);
+							if state.remaining_bytes == 0 {
+								drained.push(t);
+							}
+						}
+					}
+					for t in drained {
+						map.remove(&t);
+					}
+				}
+
+				Ok(total)
+			});
 
 		match (mode, outcome) {
 			(EnforcementMode::Observe, Err(err)) => {

@@ -3,25 +3,29 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {TestConsensusClient} from "./TestConsensusClient.sol";
+import {TestHost} from "./TestHost.sol";
+import {FeeToken} from "./FeeToken.sol";
+import {HandlerV1} from "../../src/core/HandlerV1.sol";
+import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
+import {HostManager, HostManagerParams} from "../../src/core/HostManager.sol";
+
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
-import {DispatchPost} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 
 import {BandwidthManager, BandwidthPurchaseMsg} from "../../src/apps/BandwidthManager.sol";
 
-/// Stablecoin mock with configurable decimals.
-contract MockStable is ERC20 {
-    uint8 private immutable _dec;
+/// 6-decimal stablecoin used by the multi-decimal scaling test.
+contract Stable6d is ERC20 {
+    constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
-    constructor(string memory name_, string memory symbol_, uint8 dec_) ERC20(name_, symbol_) {
-        _dec = dec_;
-    }
-
-    function decimals() public view override returns (uint8) {
-        return _dec;
+    function decimals() public pure override returns (uint8) {
+        return 6;
     }
 
     function mint(address to, uint256 amount) external {
@@ -29,182 +33,155 @@ contract MockStable is ERC20 {
     }
 }
 
-/// Stand-in for `EvmHost` that records the last dispatched payload and
-/// exposes a mutable `feeToken()` so tests can simulate a host-side
-/// fee-token swap.
-contract MockHost {
-    bytes public hyperbridgeId;
-    address public feeTokenAddr;
-    DispatchPost public lastPost;
-    bool public dispatched;
-    bytes32 public lastCommitment;
-
-    constructor(bytes memory hb, address feeToken_) {
-        hyperbridgeId = hb;
-        feeTokenAddr = feeToken_;
-    }
-
-    function hyperbridge() external view returns (bytes memory) {
-        return hyperbridgeId;
-    }
-
-    function feeToken() external view returns (address) {
-        return feeTokenAddr;
-    }
-
-    function setFeeToken(address t) external {
-        feeTokenAddr = t;
-    }
-
-    function dispatch(DispatchPost memory post) external returns (bytes32) {
-        lastPost = post;
-        dispatched = true;
-        lastCommitment = keccak256(abi.encode(post));
-        return lastCommitment;
-    }
-}
-
 contract BandwidthManagerTest is Test {
-    BandwidthManager internal manager;
-    MockHost internal host;
-    MockStable internal stable;
-
+    bytes internal constant PALLET_TO = bytes("BWMARKET");
     bytes internal constant APP = hex"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
-    bytes internal constant APP_CHAIN = bytes("EVM-8453"); // Base. Opaque to the contract; pallet parses via `StateMachine::FromStr`.
+    bytes internal constant APP_CHAIN = bytes("EVM-8453");
+
     address internal constant BUYER = address(0xB0B);
     address internal constant TREASURY = address(0xCAFE);
-    bytes internal constant HYPERBRIDGE_ID = bytes("hb-test");
 
-    /// $1 expressed in canonical 18-decimal units — used as tier 1's price.
-    uint256 internal constant TIER1_PRICE_18D = 1e18;
+    uint256 internal constant PARA_ID = 2000;
     uint256 internal constant TIER1 = 1;
+    uint256 internal constant TIER1_PRICE_18D = 1e18;
+
+    /// Signature hash of `EvmHost.PostRequestEvent` — used to find the
+    /// dispatch log without hand-rolling a full ABI for `Vm.Log`.
+    bytes32 internal constant POST_REQUEST_SIG = keccak256(
+        "PostRequestEvent(string,string,address,bytes,uint256,uint256,bytes,uint256)"
+    );
+
+    TestHost internal host;
+    FeeToken internal feeToken;
+    BandwidthManager internal manager;
 
     function setUp() public {
-        stable = new MockStable("USD Coin", "USDC", 6);
-        host = new MockHost(HYPERBRIDGE_ID, address(stable));
+        // Pin chain id so `host.host()` is stable across runs.
+        vm.chainId(1337);
+
+        feeToken = new FeeToken(address(this), "HyperUSD", "USD.h");
+        feeToken.grantMinterRole(address(this));
+
+        host = _deployHost(address(feeToken));
         manager = new BandwidthManager(address(host));
 
-        _setTier(TIER1, TIER1_PRICE_18D);
+        _setTier(manager, host, TIER1, TIER1_PRICE_18D);
     }
 
-    function testConstructorState() public view {
-        assertEq(manager.host_(), address(host));
+    // ---------- happy path ----------
+
+    /// End-to-end: buyer is debited, manager is credited, the real
+    /// host stores the commitment, and its `PostRequestEvent` carries
+    /// the round-tripping `BandwidthPurchaseMsg`.
+    function testPurchaseDispatchesViaRealHost() public {
+        feeToken.mint(BUYER, TIER1_PRICE_18D);
+        vm.startPrank(BUYER);
+        feeToken.approve(address(manager), TIER1_PRICE_18D);
+
+        vm.recordLogs();
+        bytes32 commitment = manager.purchase(APP, TIER1, 1, APP_CHAIN);
+        vm.stopPrank();
+
+        assertEq(feeToken.balanceOf(BUYER), 0, "buyer not debited");
+        assertEq(feeToken.balanceOf(address(manager)), TIER1_PRICE_18D, "manager not credited");
+        assertEq(host.requestCommitments(commitment).sender, address(manager), "host did not record commitment");
+
+        BandwidthPurchaseMsg memory body = _findDispatchedBody(vm.getRecordedLogs(), address(host));
+        assertEq(body.app, APP);
+        assertEq(body.tier, TIER1);
+        assertEq(body.months, 1);
+        assertEq(body.appChain, APP_CHAIN);
     }
+
+    function testBulkPurchaseChargesProportionally() public {
+        uint256 months = 6;
+        uint256 expected = TIER1_PRICE_18D * months;
+        feeToken.mint(BUYER, expected);
+
+        vm.startPrank(BUYER);
+        feeToken.approve(address(manager), expected);
+        vm.recordLogs();
+        manager.purchase(APP, TIER1, months, APP_CHAIN);
+        vm.stopPrank();
+
+        assertEq(feeToken.balanceOf(address(manager)), expected, "bulk price not multiplied");
+        BandwidthPurchaseMsg memory body = _findDispatchedBody(vm.getRecordedLogs(), address(host));
+        assertEq(body.months, months, "months not propagated to pallet");
+    }
+
+    // ---------- multi-decimal scaling ----------
+
+    /// Verifies the `% scale` guard against a real 6-decimal token.
+    /// $1 in 18-d → 1e6 raw on a 6-d token, scaled cleanly.
+    function testScalesAgainstSixDecimalStablecoin() public {
+        Stable6d usd = new Stable6d("USD Coin", "USDC");
+        TestHost usdHost = _deployHost(address(usd));
+        BandwidthManager usdMgr = new BandwidthManager(address(usdHost));
+        _setTier(usdMgr, usdHost, TIER1, TIER1_PRICE_18D);
+
+        uint256 expected = 1_000_000;
+        usd.mint(BUYER, expected);
+        vm.startPrank(BUYER);
+        usd.approve(address(usdMgr), expected);
+        usdMgr.purchase(APP, TIER1, 1, APP_CHAIN);
+        vm.stopPrank();
+
+        assertEq(usd.balanceOf(address(usdMgr)), expected);
+    }
+
+    /// 1e11 in 18-d is sub-microcent on a 6-d token — would scale to
+    /// 0 raw, so the manager must reject before silently undercharging.
+    function testRejectsNonRepresentablePrice() public {
+        Stable6d usd = new Stable6d("USD Coin", "USDC");
+        TestHost usdHost = _deployHost(address(usd));
+        BandwidthManager usdMgr = new BandwidthManager(address(usdHost));
+        _setTier(usdMgr, usdHost, 2, 1e11);
+
+        vm.expectRevert(BandwidthManager.PriceNotRepresentable.selector);
+        vm.prank(BUYER);
+        usdMgr.purchase(APP, 2, 1, APP_CHAIN);
+    }
+
+    // ---------- rejection paths ----------
 
     function testRejectsUnknownTier() public {
-        vm.startPrank(BUYER);
         vm.expectRevert(BandwidthManager.UnknownTier.selector);
-        manager.purchase(APP, 99, APP_CHAIN);
-        vm.stopPrank();
+        vm.prank(BUYER);
+        manager.purchase(APP, 99, 1, APP_CHAIN);
     }
 
     function testRejectsEmptyApp() public {
-        vm.startPrank(BUYER);
         vm.expectRevert(BandwidthManager.InvalidPurchase.selector);
-        manager.purchase(hex"", TIER1, APP_CHAIN);
-        vm.stopPrank();
+        vm.prank(BUYER);
+        manager.purchase(hex"", TIER1, 1, APP_CHAIN);
     }
 
     function testRejectsEmptyAppChain() public {
-        vm.startPrank(BUYER);
         vm.expectRevert(BandwidthManager.InvalidPurchase.selector);
-        manager.purchase(APP, TIER1, hex"");
-        vm.stopPrank();
+        vm.prank(BUYER);
+        manager.purchase(APP, TIER1, 1, hex"");
     }
 
-    /// $1 USDC (6d) = 1e6 raw — tier price scales down cleanly.
-    function testPurchaseScalesSixDecimalToken() public {
-        uint256 expectedAmount = 1_000_000;
-        stable.mint(BUYER, expectedAmount);
-
-        vm.startPrank(BUYER);
-        stable.approve(address(manager), expectedAmount);
-        bytes32 commit = manager.purchase(APP, TIER1, APP_CHAIN);
-        vm.stopPrank();
-
-        assertTrue(host.dispatched(), "dispatch not invoked");
-        assertEq(commit, host.lastCommitment(), "commitment not returned to caller");
-        assertEq(stable.balanceOf(address(manager)), expectedAmount, "manager did not pull funds");
-
-        DispatchPost memory post = _readPost();
-        BandwidthPurchaseMsg memory body = abi.decode(post.body, (BandwidthPurchaseMsg));
-        assertEq(body.app, APP);
-        assertEq(body.tier, TIER1);
-        assertEq(body.appChain, APP_CHAIN);
-        assertEq(post.fee, 0, "purchase carries no relayer fee");
-        assertEq(post.timeout, 0, "purchase has no timeout");
-        assertEq(post.payer, address(manager));
+    function testRejectsZeroMonths() public {
+        vm.expectRevert(BandwidthManager.InvalidPurchase.selector);
+        vm.prank(BUYER);
+        manager.purchase(APP, TIER1, 0, APP_CHAIN);
     }
 
-    /// 18-decimal feeToken — same tier price, no rescaling.
-    function testPurchaseEighteenDecimalToken() public {
-        MockStable bsc = new MockStable("USDC.bsc", "USDC", 18);
-        MockHost bscHost = new MockHost(HYPERBRIDGE_ID, address(bsc));
-        BandwidthManager bscMgr = new BandwidthManager(address(bscHost));
-        _setTierOn(bscMgr, bscHost, TIER1, TIER1_PRICE_18D);
-
-        bsc.mint(BUYER, TIER1_PRICE_18D);
-
-        vm.startPrank(BUYER);
-        bsc.approve(address(bscMgr), TIER1_PRICE_18D);
-        bscMgr.purchase(APP, TIER1, APP_CHAIN);
-        vm.stopPrank();
-
-        assertEq(bsc.balanceOf(address(bscMgr)), TIER1_PRICE_18D);
-    }
-
-    /// Tier price not divisible by `10**(18-dec)` is rejected so a
-    /// silent floor-rounding can't drain or undercharge the buyer.
-    function testRejectsNonRepresentablePrice() public {
-        // 1e11 in 18-d is sub-microcent on a 6-d token (would scale to 0).
-        _setTier(2, 1e11);
-
-        vm.startPrank(BUYER);
-        vm.expectRevert(BandwidthManager.PriceNotRepresentable.selector);
-        manager.purchase(APP, 2, APP_CHAIN);
-        vm.stopPrank();
-    }
-
-    function testRecurringPurchasesPullFundsEachTime() public {
-        uint256 amount = 1_000_000;
-        stable.mint(BUYER, amount * 2);
-
-        vm.startPrank(BUYER);
-        stable.approve(address(manager), amount * 2);
-        manager.purchase(APP, TIER1, APP_CHAIN);
-        manager.purchase(APP, TIER1, APP_CHAIN);
-        vm.stopPrank();
-
-        assertEq(stable.balanceOf(address(manager)), amount * 2);
-    }
-
-    /// A host-side feeToken swap must be picked up by the manager
-    /// without redeployment.
-    function testHostFeeTokenSwapTakesEffect() public {
-        MockStable next = new MockStable("USD Coin", "USDC", 6);
-        host.setFeeToken(address(next));
-
-        next.mint(BUYER, 1_000_000);
-
-        vm.startPrank(BUYER);
-        next.approve(address(manager), 1_000_000);
-        manager.purchase(APP, TIER1, APP_CHAIN);
-        vm.stopPrank();
-
-        assertEq(next.balanceOf(address(manager)), 1_000_000, "manager pulled from new feeToken");
-        assertEq(stable.balanceOf(address(manager)), 0, "old feeToken untouched");
-    }
+    // ---------- governance ----------
 
     function testOnAcceptRejectsNonHostCaller() public {
-        IncomingPostRequest memory inc = _governanceRequest(_setTiersBody(TIER1, TIER1_PRICE_18D));
+        IncomingPostRequest memory req =
+            _governanceRequestFor(host, _setTiersBody(TIER1, TIER1_PRICE_18D));
         vm.expectRevert();
-        manager.onAccept(inc);
+        manager.onAccept(req);
     }
 
     /// Defence-in-depth: even if the local host delivered it, only
     /// hyperbridge-source messages may govern the manager.
     function testOnAcceptRejectsNonHyperbridgeSource() public {
-        IncomingPostRequest memory inc = _governanceRequest(_setTiersBody(TIER1, TIER1_PRICE_18D));
+        IncomingPostRequest memory inc =
+            _governanceRequestFor(host, _setTiersBody(TIER1, TIER1_PRICE_18D));
         inc.request.source = bytes("some-other-chain");
         vm.prank(address(host));
         vm.expectRevert(BandwidthManager.UnauthorizedAction.selector);
@@ -222,79 +199,95 @@ contract BandwidthManagerTest is Test {
         prices[2] = 500e18;
 
         bytes memory body = bytes.concat(
-            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)),
-            abi.encode(tiers, prices)
+            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)), abi.encode(tiers, prices)
         );
+        IncomingPostRequest memory req = _governanceRequestFor(host, body);
         vm.prank(address(host));
-        manager.onAccept(_governanceRequest(body));
+        manager.onAccept(req);
 
         assertEq(manager.tierPrice(1), 5e18);
         assertEq(manager.tierPrice(2), 50e18);
         assertEq(manager.tierPrice(3), 500e18);
     }
 
-    function testGovernanceCanWithdraw() public {
-        uint256 amount = 1_000_000;
-        stable.mint(BUYER, amount);
+    /// Withdraw names the token explicitly in the body, so it
+    /// recovers both the live fee token and any stale balance left
+    /// behind by a host-side fee-token swap.
+    function testGovernanceCanWithdrawAcrossTokenSwap() public {
+        feeToken.mint(BUYER, TIER1_PRICE_18D);
         vm.startPrank(BUYER);
-        stable.approve(address(manager), amount);
-        manager.purchase(APP, TIER1, APP_CHAIN);
+        feeToken.approve(address(manager), TIER1_PRICE_18D);
+        manager.purchase(APP, TIER1, 1, APP_CHAIN);
         vm.stopPrank();
 
-        bytes memory body = bytes.concat(
-            bytes1(uint8(BandwidthManager.OnAcceptActions.Withdraw)),
-            abi.encode(address(stable), TREASURY, amount)
+        // Stand-in for "old fee token after a swap" — the manager
+        // shouldn't care which ERC20 it's asked to ship out.
+        FeeToken stale = new FeeToken(address(this), "OldUSD", "OUSD");
+        stale.grantMinterRole(address(this));
+        stale.mint(address(manager), 999e18);
+
+        IncomingPostRequest memory withdrawLive = _governanceRequestFor(
+            host,
+            bytes.concat(
+                bytes1(uint8(BandwidthManager.OnAcceptActions.Withdraw)),
+                abi.encode(address(feeToken), TREASURY, TIER1_PRICE_18D)
+            )
         );
         vm.prank(address(host));
-        manager.onAccept(_governanceRequest(body));
+        manager.onAccept(withdrawLive);
+        assertEq(feeToken.balanceOf(TREASURY), TIER1_PRICE_18D, "live fee token not withdrawn");
 
-        assertEq(stable.balanceOf(TREASURY), amount, "withdrawal did not credit beneficiary");
-        assertEq(stable.balanceOf(address(manager)), 0, "manager still holds funds");
-    }
-
-    /// Withdraw can recover balances of a token that is no longer the
-    /// host's `feeToken()` — the explicit token address makes feeToken
-    /// swaps non-destructive.
-    function testGovernanceCanWithdrawStaleToken() public {
-        uint256 amount = 1_000_000;
-        stable.mint(BUYER, amount);
-        vm.startPrank(BUYER);
-        stable.approve(address(manager), amount);
-        manager.purchase(APP, TIER1, APP_CHAIN);
-        vm.stopPrank();
-
-        // Host swaps to a brand-new feeToken; old USDC is now "stale".
-        MockStable next = new MockStable("USD Coin", "USDC", 6);
-        host.setFeeToken(address(next));
-
-        bytes memory body = bytes.concat(
-            bytes1(uint8(BandwidthManager.OnAcceptActions.Withdraw)),
-            abi.encode(address(stable), TREASURY, amount)
+        IncomingPostRequest memory withdrawStale = _governanceRequestFor(
+            host,
+            bytes.concat(
+                bytes1(uint8(BandwidthManager.OnAcceptActions.Withdraw)),
+                abi.encode(address(stale), TREASURY, 999e18)
+            )
         );
         vm.prank(address(host));
-        manager.onAccept(_governanceRequest(body));
-
-        assertEq(stable.balanceOf(TREASURY), amount, "stale token must still be recoverable");
+        manager.onAccept(withdrawStale);
+        assertEq(stale.balanceOf(TREASURY), 999e18, "stale token must still be recoverable");
     }
 
-    // ----- helpers -----
+    // ---------- helpers ----------
 
-    function _setTier(uint256 tier, uint256 price18d) internal {
-        _setTierOn(manager, host, tier, price18d);
+    function _deployHost(address feeTokenAddr) internal returns (TestHost h) {
+        TestConsensusClient cc = new TestConsensusClient();
+        HandlerV1 handler = new HandlerV1();
+        HostManager hm = new HostManager(HostManagerParams({admin: address(this), host: address(0)}));
+
+        uint256[] memory stateMachines = new uint256[](1);
+        stateMachines[0] = PARA_ID;
+        PerByteFee[] memory pbf = new PerByteFee[](0);
+
+        // `defaultPerByteFee = 0` so the manager doesn't need a
+        // treasury balance to cover dispatch fees on top of the
+        // tier price — purchase chains are expected to subsidise
+        // their own dispatch.
+        HostParams memory params = HostParams({
+            uniswapV2: address(0),
+            perByteFees: pbf,
+            admin: address(this),
+            hostManager: address(hm),
+            handler: address(handler),
+            defaultTimeout: 0,
+            unStakingPeriod: 21 * (60 * 60 * 24),
+            challengePeriod: 0,
+            consensusClient: address(cc),
+            defaultPerByteFee: 0,
+            stateCommitmentFee: 0,
+            feeToken: feeTokenAddr,
+            hyperbridge: StateMachine.kusama(PARA_ID),
+            stateMachines: stateMachines
+        });
+        h = new TestHost(params);
+        hm.setIsmpHost(address(h));
     }
 
-    function _setTierOn(BandwidthManager m, MockHost h, uint256 tier, uint256 price18d) internal {
-        uint256[] memory tiers = new uint256[](1);
-        uint256[] memory prices = new uint256[](1);
-        tiers[0] = tier;
-        prices[0] = price18d;
-
-        bytes memory body = bytes.concat(
-            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)),
-            abi.encode(tiers, prices)
-        );
+    function _setTier(BandwidthManager m, TestHost h, uint256 tier, uint256 price18d) internal {
+        IncomingPostRequest memory req = _governanceRequestFor(h, _setTiersBody(tier, price18d));
         vm.prank(address(h));
-        m.onAccept(_governanceRequest(body));
+        m.onAccept(req);
     }
 
     function _setTiersBody(uint256 tier, uint256 price18d) internal pure returns (bytes memory) {
@@ -307,14 +300,18 @@ contract BandwidthManagerTest is Test {
         );
     }
 
-    function _governanceRequest(bytes memory body) internal pure returns (IncomingPostRequest memory) {
+    function _governanceRequestFor(TestHost h, bytes memory body)
+        internal
+        view
+        returns (IncomingPostRequest memory)
+    {
         return IncomingPostRequest({
             request: PostRequest({
-                source: HYPERBRIDGE_ID,
-                dest: bytes("local"),
+                source: h.hyperbridge(),
+                dest: h.host(),
                 nonce: 0,
                 from: bytes("hyperbridge-governance"),
-                to: bytes("BWMARKET"),
+                to: PALLET_TO,
                 timeoutTimestamp: 0,
                 body: body
             }),
@@ -322,21 +319,22 @@ contract BandwidthManagerTest is Test {
         });
     }
 
-    function _readPost() internal view returns (DispatchPost memory) {
-        return _readPost(host);
-    }
-
-    /// Re-shape `MockHost.lastPost()` (which the auto-getter returns as a
-    /// tuple) back into a `DispatchPost` for readable call sites.
-    function _readPost(MockHost h) internal view returns (DispatchPost memory post) {
-        (
-            bytes memory dest,
-            bytes memory to,
-            bytes memory body,
-            uint64 timeout,
-            uint256 fee,
-            address payer
-        ) = h.lastPost();
-        post = DispatchPost({dest: dest, to: to, body: body, timeout: timeout, fee: fee, payer: payer});
+    /// Walks the recorded logs for the real host's `PostRequestEvent`
+    /// and decodes the dispatched body. Reverts if no matching log
+    /// is found, so callers can trust the return value.
+    function _findDispatchedBody(Vm.Log[] memory logs, address emitter)
+        internal
+        pure
+        returns (BandwidthPurchaseMsg memory)
+    {
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != emitter) continue;
+            if (logs[i].topics.length == 0 || logs[i].topics[0] != POST_REQUEST_SIG) continue;
+            (,, bytes memory to,,, bytes memory body,) =
+                abi.decode(logs[i].data, (string, string, bytes, uint256, uint256, bytes, uint256));
+            require(keccak256(to) == keccak256(PALLET_TO), "unexpected dispatch destination");
+            return abi.decode(body, (BandwidthPurchaseMsg));
+        }
+        revert("PostRequestEvent not emitted by host");
     }
 }

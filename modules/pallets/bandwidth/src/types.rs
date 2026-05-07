@@ -10,8 +10,52 @@ use scale_info::TypeInfo;
 
 pub type AppKey = BoundedVec<u8, ConstU32<32>>;
 
-pub type TierIndex = u32;
 pub type BandwidthBytes = u128;
+
+/// Closed enum: storage-keys are bounded by the variant set, so the
+/// per-app `BoundedBTreeMap` can never exceed `MaxTiers`. Adding a
+/// variant is the only way to grow the tier space.
+#[derive(
+	Encode,
+	Decode,
+	DecodeWithMemTracking,
+	TypeInfo,
+	MaxEncodedLen,
+	Clone,
+	Copy,
+	PartialEq,
+	Eq,
+	PartialOrd,
+	Ord,
+	RuntimeDebug,
+)]
+pub enum TierIndex {
+	StageOne = 1,
+	StageTwo = 2,
+	StageThree = 3,
+}
+
+impl TryFrom<u32> for TierIndex {
+	type Error = ();
+	fn try_from(value: u32) -> Result<Self, Self::Error> {
+		match value {
+			1 => Ok(TierIndex::StageOne),
+			2 => Ok(TierIndex::StageTwo),
+			3 => Ok(TierIndex::StageThree),
+			_ => Err(()),
+		}
+	}
+}
+
+impl From<TierIndex> for u32 {
+	fn from(t: TierIndex) -> u32 {
+		t as u32
+	}
+}
+
+/// Upper bound on `BoundedBTreeMap<TierIndex, AllowanceState>`. Keep
+/// in sync with the variant count of `TierIndex`.
+pub type MaxTiers = ConstU32<3>;
 
 /// A tier is a (bytes, duration) SKU. EVM holds the price; the pallet
 /// holds what you get and how long it lasts.
@@ -78,6 +122,17 @@ impl Default for EnforcementMode {
 	fn default() -> Self {
 		EnforcementMode::Disabled
 	}
+}
+
+/// Admin payload for `force_credit` — bundled into a struct because
+/// positional dispatch args beyond two get unreadable fast.
+#[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]
+pub struct ForceCreditParams {
+	pub app_chain: StateMachine,
+	pub app: AppKey,
+	pub tier: TierIndex,
+	pub bytes: BandwidthBytes,
+	pub duration_secs: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

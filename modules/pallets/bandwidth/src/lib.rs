@@ -15,14 +15,16 @@
 
 //! # pallet-bandwidth
 //!
-//! Prepaid `(chain, app, tier)` byte balances credited by tier
-//! purchases from `BandwidthManager.sol`. Each purchase carries its
-//! own `app_chain`, so any deployment can sponsor any app on any
-//! chain.
+//! Prepaid `(chain, app)` byte balances credited by tier purchases
+//! from `BandwidthManager.sol`. Each purchase carries its own
+//! `app_chain`, so any deployment can sponsor any app on any chain.
 //!
-//! Per-tier rows let same-tier re-buys stack their bytes and expiry,
-//! while different tiers keep independent expiries. The gate consumes
-//! FIFO by `expires_at` so users burn what's about to expire first.
+//! Tiers are a closed enum, and each `(chain, app)` row holds a
+//! `BoundedBTreeMap<TierIndex, AllowanceState>` — bounded by the
+//! variant count, so the gate is one storage read instead of an
+//! `iter_prefix`. Same-tier re-buys stack their bytes and expiry;
+//! different tiers keep independent expiries. The gate consumes FIFO
+//! by `expires_at` so users burn what's about to expire first.
 //!
 //! [`BandwidthGate`] is the hook the runtime's ISMP router consults
 //! for every message; insufficient balance → rejected.
@@ -39,8 +41,8 @@ pub mod types;
 
 pub use pallet::*;
 pub use types::{
-	AllowanceState, AppKey, BandwidthBytes, BandwidthGate, EnforcementMode, GateError, TierConfig,
-	TierIndex,
+	AllowanceState, AppKey, BandwidthBytes, BandwidthGate, EnforcementMode, ForceCreditParams,
+	GateError, MaxTiers, TierConfig, TierIndex,
 };
 
 #[frame_support::pallet]
@@ -48,7 +50,7 @@ pub mod pallet {
 	use super::*;
 	use crate::abi::PurchaseMessage;
 	use alloc::{format, vec::Vec};
-	use frame_support::{pallet_prelude::*, PalletId};
+	use frame_support::{pallet_prelude::*, BoundedBTreeMap, PalletId};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		host::StateMachine,
@@ -60,6 +62,8 @@ pub mod pallet {
 
 	/// `to` field on purchase messages; also the sovereign `PalletId`.
 	pub const PALLET_BANDWIDTH: PalletId = PalletId(*b"BWMARKET");
+
+	pub type TierMap = BoundedBTreeMap<TierIndex, AllowanceState, MaxTiers>;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -77,19 +81,19 @@ pub mod pallet {
 	pub type BandwidthMarkets<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, H160, OptionQuery>;
 
-	/// Keyed by `(app_chain, app, tier)`. `app_chain` comes from the
-	/// purchase message — not `request.source` — so a payer chain can
-	/// sponsor an app that lives elsewhere.
+	/// Keyed by `app_chain` from the purchase message — *not*
+	/// `request.source` — so a payer chain can sponsor an app that
+	/// lives elsewhere. The inner `BoundedBTreeMap` is bounded by the
+	/// `TierIndex` variant count, so the gate touches one storage row.
 	#[pallet::storage]
-	pub type Allowance<T: Config> = StorageNMap<
+	pub type Allowance<T: Config> = StorageDoubleMap<
 		_,
-		(
-			NMapKey<Twox64Concat, StateMachine>,
-			NMapKey<Blake2_128Concat, AppKey>,
-			NMapKey<Twox64Concat, TierIndex>,
-		),
-		AllowanceState,
-		OptionQuery,
+		Twox64Concat,
+		StateMachine,
+		Blake2_128Concat,
+		AppKey,
+		TierMap,
+		ValueQuery,
 	>;
 
 	/// Apps that bypass the gate. Used during phased rollout for
@@ -113,8 +117,7 @@ pub mod pallet {
 		},
 		TierSet {
 			tier: TierIndex,
-			bytes: BandwidthBytes,
-			duration_secs: u64,
+			config: Option<TierConfig>,
 		},
 		BandwidthCredited {
 			app_chain: StateMachine,
@@ -208,69 +211,70 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Admin-only out-of-band credit (migrations, refunds). Targets
-		/// a specific tier bucket so it follows the same stack/reset
-		/// rules as a real purchase.
+		/// Admin-only out-of-band credit (migrations, refunds). Same
+		/// stack/reset rules as a real purchase.
 		#[pallet::call_index(3)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn force_credit(
-			origin: OriginFor<T>,
-			app_chain: StateMachine,
-			app: AppKey,
-			tier: TierIndex,
-			bytes: BandwidthBytes,
-			duration_secs: u64,
-		) -> DispatchResult {
+		pub fn force_credit(origin: OriginFor<T>, params: ForceCreditParams) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-			let (tier_balance, expires_at) =
-				Self::credit_bucket(&app_chain, &app, tier, bytes, duration_secs);
+			let (tier_balance, expires_at) = Self::credit_bucket(
+				&params.app_chain,
+				&params.app,
+				params.tier,
+				params.bytes,
+				params.duration_secs,
+			);
 			Self::deposit_event(Event::ForceCredited {
-				app_chain,
-				app,
-				tier,
-				bytes,
+				app_chain: params.app_chain,
+				app: params.app,
+				tier: params.tier,
+				bytes: params.bytes,
 				tier_balance,
 				expires_at,
 			});
 			Ok(())
 		}
 
-		/// Pass `bytes = 0` to revoke a tier. `duration_secs` must be
-		/// non-zero on creation so purchases produce a real expiry.
+		/// Pass `config: None` to revoke. Non-zero `bytes` requires a
+		/// non-zero `duration_secs` so a purchase can't expire on
+		/// creation.
 		#[pallet::call_index(4)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn set_tier(
 			origin: OriginFor<T>,
 			tier: TierIndex,
-			bytes: BandwidthBytes,
-			duration_secs: u64,
+			config: Option<TierConfig>,
 		) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-			if bytes == 0 {
-				Tiers::<T>::remove(tier);
-			} else {
-				ensure!(duration_secs > 0, Error::<T>::InvalidTierConfig);
-				Tiers::<T>::insert(tier, TierConfig { bytes, duration_secs });
+			match config {
+				None => Tiers::<T>::remove(tier),
+				Some(cfg) => {
+					ensure!(
+						cfg.bytes > 0 && cfg.duration_secs > 0,
+						Error::<T>::InvalidTierConfig
+					);
+					Tiers::<T>::insert(tier, cfg);
+				},
 			}
-			Self::deposit_event(Event::TierSet { tier, bytes, duration_secs });
+			Self::deposit_event(Event::TierSet { tier, config });
 			Ok(())
 		}
 	}
 
 	impl<T: Config> Pallet<T> {
 		/// All non-expired buckets for `(app_chain, app)`, sorted FIFO
-		/// by expiry. Lazy: callers should treat returned snapshot as a
-		/// read-only view.
+		/// by expiry. Returned snapshot is a read-only view.
 		pub fn allowances(
 			app_chain: &StateMachine,
 			app: &[u8],
 		) -> Vec<(TierIndex, AllowanceState)> {
 			let key = AppKey::truncate_from(app.to_vec());
 			let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
-			let mut buckets: Vec<(TierIndex, AllowanceState)> =
-				Allowance::<T>::iter_prefix((app_chain, &key))
-					.filter(|(_, s)| s.expires_at > now)
-					.collect();
+			let map = Allowance::<T>::get(app_chain, &key);
+			let mut buckets: Vec<(TierIndex, AllowanceState)> = map
+				.into_iter()
+				.filter(|(_, s)| s.expires_at > now)
+				.collect();
 			buckets.sort_by_key(|(_, s)| s.expires_at);
 			buckets
 		}
@@ -280,9 +284,8 @@ pub mod pallet {
 			Self::allowances(app_chain, app).into_iter().map(|(_, s)| s.remaining_bytes).sum()
 		}
 
-		/// Stack-or-reset: if the bucket is still live, add bytes and
-		/// push expiry forward by `duration_secs`. If expired or
-		/// missing, start a fresh window from `now`.
+		/// Stack-or-reset: live bucket → bytes add, expiry pushes out by
+		/// `duration_secs`. Expired/missing → fresh window from now.
 		fn credit_bucket(
 			app_chain: &StateMachine,
 			app: &AppKey,
@@ -291,8 +294,8 @@ pub mod pallet {
 			duration_secs: u64,
 		) -> (BandwidthBytes, u64) {
 			let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
-			Allowance::<T>::mutate((app_chain, app, tier), |slot| {
-				let next = match slot.as_ref() {
+			Allowance::<T>::mutate(app_chain, app, |map| {
+				let next = match map.get(&tier) {
 					Some(s) if s.expires_at > now => AllowanceState {
 						remaining_bytes: s.remaining_bytes.saturating_add(bytes),
 						expires_at: s.expires_at.saturating_add(duration_secs),
@@ -303,7 +306,9 @@ pub mod pallet {
 					},
 				};
 				let result = (next.remaining_bytes, next.expires_at);
-				*slot = Some(next);
+				// Bounded by `MaxTiers` = `TierIndex` variant count, so
+				// `try_insert` can never hit the bound.
+				let _ = map.try_insert(tier, next);
 				result
 			})
 		}
@@ -337,19 +342,24 @@ pub mod pallet {
 			}
 
 			let msg = PurchaseMessage::try_from(request.body.as_slice())?;
-			let cfg = Tiers::<T>::get(msg.tier)
-				.ok_or_else(|| anyhow::anyhow!(format!("unknown tier {}", msg.tier)))?;
+			let tier = TierIndex::try_from(msg.tier)
+				.map_err(|_| anyhow::anyhow!(format!("unknown tier discriminant {}", msg.tier)))?;
+			let cfg = Tiers::<T>::get(tier)
+				.ok_or_else(|| anyhow::anyhow!(format!("tier {:?} is not configured", tier)))?;
+
+			let bytes = cfg.bytes.saturating_mul(msg.months as u128);
+			let duration = cfg.duration_secs.saturating_mul(msg.months as u64);
 
 			let key = AppKey::truncate_from(msg.app);
 			let (tier_balance, expires_at) =
-				Self::credit_bucket(&msg.app_chain, &key, msg.tier, cfg.bytes, cfg.duration_secs);
+				Self::credit_bucket(&msg.app_chain, &key, tier, bytes, duration);
 
 			Self::deposit_event(Event::BandwidthCredited {
 				app_chain: msg.app_chain,
 				app: key,
 				paid_from: request.source,
-				tier: msg.tier,
-				bytes_credited: cfg.bytes,
+				tier,
+				bytes_credited: bytes,
 				tier_balance,
 				expires_at,
 			});
@@ -361,9 +371,10 @@ pub mod pallet {
 			Err(ismp::Error::CannotHandleMessage.into())
 		}
 
-		/// Purchases dispatch with `timeout = 0`; swallow if it fires.
+		/// Purchases dispatch with `timeout = 0`. If `on_timeout` ever
+		/// fires it's an invariant violation, not a noop.
 		fn on_timeout(&self, _timeout: Timeout) -> Result<Weight, anyhow::Error> {
-			Ok(Weight::zero())
+			Err(anyhow::anyhow!("pallet-bandwidth purchases are non-timeouting"))
 		}
 	}
 }
@@ -389,88 +400,76 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 		let need: u128 = bytes.into();
 		let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
 
-		// Materialize so we can sort, then sweep expired rows. We do
-		// the sweep unconditionally (even on shortfall) so storage
-		// can't grow without bound from abandoned tiers.
-		let mut live: Vec<(TierIndex, AllowanceState)> = Vec::new();
-		for (tier, state) in Allowance::<T>::iter_prefix((source, &key)) {
-			if state.expires_at <= now {
-				Allowance::<T>::remove((source, &key, tier));
-			} else {
-				live.push((tier, state));
+		let outcome: Result<u128, GateError> = pallet::Allowance::<T>::mutate(source, &key, |map| {
+			let expired: Vec<TierIndex> = map
+				.iter()
+				.filter_map(|(t, s)| (s.expires_at <= now).then_some(*t))
+				.collect();
+			for t in expired {
+				map.remove(&t);
 			}
-		}
 
-		if live.is_empty() {
-			return finalize_shortfall::<T>(mode, source, &key, need, 0, GateError::NoAllowance);
-		}
-
-		live.sort_by_key(|(_, s)| s.expires_at);
-		let total: u128 = live.iter().map(|(_, s)| s.remaining_bytes).sum();
-
-		if total < need {
-			return finalize_shortfall::<T>(
-				mode,
-				source,
-				&key,
-				need,
-				total,
-				GateError::Insufficient { remaining: total, required: need },
-			);
-		}
-
-		// Sufficient. Observe is a noop on success — nothing to write,
-		// no event needed.
-		if matches!(mode, EnforcementMode::Observe) {
-			return Ok(());
-		}
-
-		let mut left = need;
-		for (tier, mut state) in live {
-			if left == 0 {
-				break;
+			if map.is_empty() {
+				return Err(GateError::NoAllowance);
 			}
-			let take = state.remaining_bytes.min(left);
-			state.remaining_bytes -= take;
-			left -= take;
-			if state.remaining_bytes == 0 {
-				Allowance::<T>::remove((source, &key, tier));
-			} else {
-				Allowance::<T>::insert((source, &key, tier), state);
-			}
-		}
 
-		Self::deposit_event(Event::BandwidthConsumed {
-			source: *source,
-			app: key,
-			bytes: need,
-			remaining: total - need,
+			let total: u128 = map.values().map(|s| s.remaining_bytes).sum();
+			if total < need {
+				return Err(GateError::Insufficient { remaining: total, required: need });
+			}
+
+			if matches!(mode, EnforcementMode::Enforce) {
+				let mut order: Vec<(TierIndex, u64)> =
+					map.iter().map(|(t, s)| (*t, s.expires_at)).collect();
+				order.sort_by_key(|(_, e)| *e);
+
+				let mut left = need;
+				let mut drained: Vec<TierIndex> = Vec::new();
+				for (t, _) in order {
+					if left == 0 {
+						break;
+					}
+					if let Some(state) = map.get_mut(&t) {
+						let take = state.remaining_bytes.min(left);
+						state.remaining_bytes -= take;
+						left -= take;
+						if state.remaining_bytes == 0 {
+							drained.push(t);
+						}
+					}
+				}
+				for t in drained {
+					map.remove(&t);
+				}
+			}
+
+			Ok(total)
 		});
 
-		Ok(())
-	}
-}
-
-/// Shared shortfall path for both Observe (emit + Ok) and Enforce
-/// (return Err) — keeps the gate body free of nested matches.
-fn finalize_shortfall<T: Config>(
-	mode: EnforcementMode,
-	source: &ismp::host::StateMachine,
-	key: &AppKey,
-	required: u128,
-	remaining: u128,
-	err: GateError,
-) -> Result<(), GateError> {
-	match mode {
-		EnforcementMode::Observe => {
-			Pallet::<T>::deposit_event(Event::WouldReject {
-				source: *source,
-				app: key.clone(),
-				required,
-				remaining,
-			});
-			Ok(())
-		},
-		_ => Err(err),
+		match (mode, outcome) {
+			(EnforcementMode::Observe, Err(err)) => {
+				let (required, remaining) = match err {
+					GateError::NoAllowance => (need, 0u128),
+					GateError::Insufficient { remaining, required } => (required, remaining),
+				};
+				Self::deposit_event(Event::WouldReject {
+					source: *source,
+					app: key,
+					required,
+					remaining,
+				});
+				Ok(())
+			},
+			(EnforcementMode::Enforce, Ok(total)) => {
+				Self::deposit_event(Event::BandwidthConsumed {
+					source: *source,
+					app: key,
+					bytes: need,
+					remaining: total - need,
+				});
+				Ok(())
+			},
+			(_, result) => result.map(|_| ()),
+		}
 	}
 }

@@ -16,6 +16,7 @@ sol! {
     struct BandwidthPurchaseMsgAbi {
         bytes app;
         uint256 tier;
+        uint256 months;
         bytes appChain;
     }
 }
@@ -24,6 +25,7 @@ sol! {
 pub struct PurchaseMessage {
     pub app: Vec<u8>,
     pub tier: u32,
+    pub months: u32,
     pub app_chain: StateMachine,
 }
 
@@ -37,12 +39,17 @@ impl TryFrom<&[u8]> for PurchaseMessage {
             .map_err(|err| anyhow::anyhow!(format!("invalid bandwidth purchase ABI: {err:?}")))?;
 
         let tier: u32 = abi.tier.try_into().map_err(|_| anyhow::anyhow!("tier exceeds u32"))?;
+        let months: u32 =
+            abi.months.try_into().map_err(|_| anyhow::anyhow!("months exceeds u32"))?;
+        if months == 0 {
+            return Err(anyhow::anyhow!("months must be >= 1"));
+        }
         let app_chain_str = str::from_utf8(&abi.appChain)
             .map_err(|err| anyhow::anyhow!(format!("appChain is not utf-8: {err}")))?;
         let app_chain = StateMachine::from_str(app_chain_str)
             .map_err(|err| anyhow::anyhow!(format!("invalid appChain {app_chain_str:?}: {err}")))?;
 
-        Ok(PurchaseMessage { app: abi.app.into(), tier, app_chain })
+        Ok(PurchaseMessage { app: abi.app.into(), tier, months, app_chain })
     }
 }
 
@@ -51,6 +58,7 @@ impl From<&PurchaseMessage> for Vec<u8> {
         let abi = BandwidthPurchaseMsgAbi {
             app: alloy_primitives::Bytes::from(msg.app.clone()),
             tier: alloy_primitives::U256::from(msg.tier),
+            months: alloy_primitives::U256::from(msg.months),
             appChain: alloy_primitives::Bytes::from(msg.app_chain.to_string().into_bytes()),
         };
         BandwidthPurchaseMsgAbi::abi_encode(&abi)

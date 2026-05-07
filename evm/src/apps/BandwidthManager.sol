@@ -30,6 +30,7 @@ import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 struct BandwidthPurchaseMsg {
     bytes app;
     uint256 tier;
+    uint256 months;
     /// UTF-8 chain id like `"EVM-8453"` or `"EVM-137"`.
     bytes appChain;
 }
@@ -55,6 +56,7 @@ contract BandwidthManager is HyperApp, ERC165 {
         address indexed payer,
         address feeToken,
         uint256 tier,
+        uint256 months,
         uint256 amountPaid,
         bytes app,
         bytes appChain,
@@ -82,25 +84,27 @@ contract BandwidthManager is HyperApp, ERC165 {
         return interfaceId == type(IApp).interfaceId || super.supportsInterface(interfaceId);
     }
 
-    function purchase(bytes calldata app, uint256 tier, bytes calldata appChain)
+    function purchase(bytes calldata app, uint256 tier, uint256 months, bytes calldata appChain)
         external
         returns (bytes32 commitment)
     {
-        if (app.length == 0 || appChain.length == 0) revert InvalidPurchase();
+        if (app.length == 0 || appChain.length == 0 || months == 0) revert InvalidPurchase();
         uint256 price18d = tierPrice[tier];
         if (price18d == 0) revert UnknownTier();
 
+        uint256 total18d = price18d * months;
         address feeToken = IHost(host_).feeToken();
         uint8 dec = IERC20Metadata(feeToken).decimals();
         uint256 scale = 10 ** (18 - dec);
-        if (price18d % scale != 0) revert PriceNotRepresentable();
-        uint256 amount = price18d / scale;
+        if (total18d % scale != 0) revert PriceNotRepresentable();
+        uint256 amount = total18d / scale;
 
         IERC20(feeToken).safeTransferFrom(msg.sender, address(this), amount);
 
         BandwidthPurchaseMsg memory body = BandwidthPurchaseMsg({
             app: app,
             tier: tier,
+            months: months,
             appChain: appChain
         });
 
@@ -119,6 +123,7 @@ contract BandwidthManager is HyperApp, ERC165 {
             payer: msg.sender,
             feeToken: feeToken,
             tier: tier,
+            months: months,
             amountPaid: amount,
             app: app,
             appChain: appChain,

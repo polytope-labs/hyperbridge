@@ -426,21 +426,13 @@ pub fn run() -> Result<()> {
 						// path used by real collators.
 						if is_authority {
 							if let Some(path) = tesseract_config.as_ref() {
-								let cfg = hyperbridge_fisherman::FishermanConfig::parse(path)
-									.await
-									.map_err(|e| {
-										sc_service::Error::Other(format!(
-											"failed to load tesseract config at {}: {e:?}",
-											path.display()
-										))
-									})?;
-								hyperbridge_fisherman::spawn(cfg, &task_manager)
-									.await
-									.map_err(|e| {
+								hyperbridge_fisherman::spawn(path, &task_manager).await.map_err(
+									|e| {
 										sc_service::Error::Other(format!(
 											"failed to spawn fisherman task: {e:?}"
 										))
-									})?;
+									},
+								)?;
 							}
 						} else if tesseract_config.is_some() {
 							log::info!(

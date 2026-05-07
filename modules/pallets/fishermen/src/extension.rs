@@ -8,7 +8,7 @@
 
 use crate::pallet::{Call, Config};
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use frame_support::traits::IsSubType;
+use frame_support::traits::{Contains, IsSubType};
 use polkadot_sdk::*;
 use scale_info::TypeInfo;
 use sp_runtime::{
@@ -74,7 +74,15 @@ where
 	) -> ValidateResult<Self::Val, T::RuntimeCall> {
 		let mut valid = ValidTransaction::default();
 		if let Some(Call::veto_state_commitment { .. }) = call.is_sub_type() {
-			valid.priority = TransactionPriority::MAX;
+			if let Ok(account) = polkadot_sdk::frame_system::ensure_signed::<
+				<T as polkadot_sdk::frame_system::Config>::RuntimeOrigin,
+				T::AccountId,
+			>(origin.clone())
+			{
+				if T::IsCollator::contains(&account) {
+					valid.priority = TransactionPriority::MAX;
+				}
+			}
 		}
 		Ok((valid, (), origin))
 	}

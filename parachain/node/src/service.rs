@@ -228,13 +228,7 @@ where
 				"--tesseract-config is required when running as a collator/authority".to_string(),
 			)
 		})?;
-		let cfg = hyperbridge_fisherman::FishermanConfig::parse(&path).await.map_err(|e| {
-			sc_service::Error::Other(format!(
-				"failed to load tesseract config at {}: {e:?}",
-				path.display()
-			))
-		})?;
-		hyperbridge_fisherman::spawn(cfg, &task_manager).await.map_err(|e| {
+		hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(|e| {
 			sc_service::Error::Other(format!("failed to spawn fisherman task: {e:?}"))
 		})?;
 	} else if tesseract_config.is_some() {

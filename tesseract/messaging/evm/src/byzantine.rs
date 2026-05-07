@@ -23,7 +23,7 @@ const MIN_PROVIDERS_FOR_QUORUM: usize = 2;
 const MAX_TRANSPORT_RETRIES: usize = 3;
 
 /// Backoff between retries.
-const RETRY_BACKOFF: Duration = Duration::from_millis(500);
+const RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
 /// Outcome of fetching the L2 block for a single provider, after retries.
 enum FetchOutcome {
@@ -101,21 +101,9 @@ impl ByzantineHandler for EvmClient {
 			}
 		}
 
-		let responding = state_roots.len() + missing;
-		if responding < MIN_PROVIDERS_FOR_QUORUM {
-			log::warn!(
-				target: crate::LOG_TARGET,
-				"insufficient signal for {} on {}: {} state-roots, {missing} missing, {errored} errored. Abstaining.",
-				self.state_machine,
-				counterparty_state_id,
-				state_roots.len(),
-			);
-			return Ok(());
-		}
-
-		// Quorum agrees the height does not exist on the L2 yet hyperbridge has
-		// a commitment for it: fraud.
-		if state_roots.is_empty() {
+		// Quorum of providers report the height doesn't exist on the L2 yet
+		// hyperbridge holds a commitment for it: fraud, veto.
+		if missing >= MIN_PROVIDERS_FOR_QUORUM {
 			log::info!(
 				target: crate::LOG_TARGET,
 				"Vetoing State Machine Update for {} on {}: {missing} providers report no block at height {}",
@@ -127,12 +115,14 @@ impl ByzantineHandler for EvmClient {
 			return Ok(());
 		}
 
-		// Some providers see the block, others say it doesn't exist: split
-		// signal, abstain.
+		// Below quorum on positive responses (state roots), no signal worth
+		// acting on. Reasons can be: fewer providers responding overall, all
+		// errored after retries, or split between Found and Missing without
+		// either side reaching quorum.
 		if state_roots.len() < MIN_PROVIDERS_FOR_QUORUM {
 			log::warn!(
 				target: crate::LOG_TARGET,
-				"split signal for {} on {} at height {}: {} state-roots, {missing} missing, {errored} errored. Abstaining.",
+				"insufficient quorum for {} on {} at height {}: {} state-roots, {missing} missing, {errored} errored. Abstaining.",
 				self.state_machine,
 				counterparty_state_id,
 				event.latest_height,

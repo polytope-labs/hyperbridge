@@ -9308,13 +9308,13 @@ dependencies = [
  "ismp",
  "log",
  "polkadot-sdk",
+ "tesseract",
  "tesseract-config",
  "tesseract-evm",
  "tesseract-fisherman",
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
- "toml 0.7.8",
 ]
 
 [[package]]

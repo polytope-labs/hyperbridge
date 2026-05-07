@@ -59,7 +59,6 @@ ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
 ismp-pharos = { workspace =  true }
 ismp-tendermint = { workspace = true }
-pallet-messaging-fees = { workspace = true }
 evm-state-machine = { workspace = true }
 substrate-state-machine = { workspace = true }
 
@@ -167,7 +166,6 @@ std = [
     "ismp-optimism/std",
     "ismp-polygon/std",
     "ismp-tendermint/std",
-    "pallet-messaging-fees/std",
     "evm-state-machine/std",
     "substrate-state-machine/std",
     "ismp-pharos/std",
@@ -180,7 +178,6 @@ runtime-benchmarks = [
     "polkadot-sdk/runtime-benchmarks",
     "ismp-grandpa/runtime-benchmarks",
     "ismp-parachain/runtime-benchmarks",
-    "pallet-messaging-fees/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
     "pallet-beefy-consensus-proofs/runtime-benchmarks",
 ]

@@ -1,7 +1,7 @@
 [package]
 name = "pallet-messaging-fees"
 version = "0.1.0"
-description = "FRAME pallet for incentivizing hyperbridge messaging relayers with rewards"
+description = "FRAME pallet that mints reputation tokens to relayers proportional to bytes delivered"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 edition = "2021"
 publish = false
@@ -12,12 +12,8 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 codec = { workspace = true }
 scale-info = { workspace = true }
-pallet-ismp = { workspace = true, default-features = false }
 ismp = { workspace = true, default-features = false }
-pallet-ismp-host-executive = { workspace = true, default-features = false }
-pallet-hyperbridge = { workspace = true, default-features = false }
-hyperbridge-client-machine =  { workspace = true, default-features = false }
-pallet-ismp-relayer = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true, default-features = false }
 crypto-utils = { workspace = true, default-features = false }
 log = { workspace = true }
 
@@ -27,8 +23,8 @@ features = [
     "frame-support",
     "frame-system",
     "sp-runtime",
-    "pallet-session",
     "sp-application-crypto",
+    "sp-io",
 ]
 
 [features]
@@ -37,13 +33,9 @@ std = [
     "codec/std",
     "scale-info/std",
     "polkadot-sdk/std",
-    "pallet-ismp/std",
-    "pallet-ismp-relayer/std",
-    "ismp/std",
-    "hyperbridge-client-machine/std",
-    "pallet-ismp-host-executive/std",
-    "pallet-hyperbridge/std",
     "polkadot-sdk/sp-application-crypto",
+    "pallet-ismp/std",
+    "ismp/std",
     "crypto-utils/std",
     "log/std",
 ]

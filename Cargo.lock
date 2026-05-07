@@ -8241,7 +8241,6 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
- "pallet-messaging-fees",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
@@ -15474,13 +15473,9 @@ name = "pallet-messaging-fees"
 version = "0.1.0"
 dependencies = [
  "crypto-utils",
- "hyperbridge-client-machine",
  "ismp",
  "log",
- "pallet-hyperbridge",
  "pallet-ismp",
- "pallet-ismp-host-executive",
- "pallet-ismp-relayer",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",

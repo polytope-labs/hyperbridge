@@ -379,6 +379,10 @@ pub fn run() -> Result<()> {
 						let watcher_cache = bid_cache.clone();
 						let watcher_sender = bid_sender.clone();
 						let is_authority = config.role.is_authority();
+						// Grab the keystore handle before `components` is moved
+						// into `start_simnode` — fisherman uses it to auto-fill
+						// the signer when the toml leaves it unset.
+						let keystore = components.keystore_container.local_keystore();
 
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
@@ -426,13 +430,13 @@ pub fn run() -> Result<()> {
 						// path used by real collators.
 						if is_authority {
 							if let Some(path) = tesseract_config.as_ref() {
-								hyperbridge_fisherman::spawn(path, &task_manager).await.map_err(
-									|e| {
+								hyperbridge_fisherman::spawn(path, keystore, &task_manager)
+									.await
+									.map_err(|e| {
 										sc_service::Error::Other(format!(
 											"failed to spawn fisherman task: {e:?}"
 										))
-									},
-								)?;
+									})?;
 							}
 						} else if tesseract_config.is_some() {
 							log::info!(

@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true, default-features = true }
+hex = { workspace = true, default-features = true }
 log = "0.4"
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
 
@@ -22,4 +23,11 @@ tesseract-substrate = { workspace = true }
 [dependencies.polkadot-sdk]
 workspace = true
 default-features = true
-features = ["sc-service"]
+features = [
+    "sc-keystore",
+    "sc-service",
+    "sp-application-crypto",
+    "sp-consensus-aura",
+    "sp-core",
+    "sp-keystore",
+]

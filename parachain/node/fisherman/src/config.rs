@@ -23,13 +23,8 @@ use tesseract_evm::registry::{
 const MIN_RPC_URLS_PER_L2: usize = 2;
 
 /// Enforce the collator-side rules. Returns the first violation as `Err`.
+/// The signer is sourced from the local AURA keystore by the wrapper
 pub fn validate(config: &HyperbridgeConfig) -> anyhow::Result<()> {
-	if config.hyperbridge.substrate.signer.as_deref().unwrap_or("").trim().is_empty() {
-		return Err(anyhow!(
-			"[hyperbridge].signer is required (sr25519 seed of a registered collator account)"
-		));
-	}
-
 	let mut configured_l2s: Vec<u64> = Vec::new();
 	for (state_machine, per_chain) in &config.chains {
 		let AnyConfig::Evm(evm) = &per_chain.messaging else { continue };

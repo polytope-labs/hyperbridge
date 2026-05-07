@@ -9305,6 +9305,7 @@ name = "hyperbridge-fisherman"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
  "ismp",
  "log",
  "polkadot-sdk",
@@ -18705,6 +18706,7 @@ dependencies = [
  "sc-consensus-slots",
  "sc-executor",
  "sc-informant",
+ "sc-keystore",
  "sc-network",
  "sc-network-common",
  "sc-network-sync",

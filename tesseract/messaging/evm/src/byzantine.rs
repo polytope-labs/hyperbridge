@@ -13,9 +13,12 @@ use tesseract_primitives::{BoxStream, ByzantineHandler, IsmpProvider};
 
 use crate::{AlloyProvider, EvmClient};
 
-/// Floor where unanimity across providers is a meaningful signal. Below this we
-/// abstain rather than veto.
-const MIN_PROVIDERS_FOR_QUORUM: usize = 2;
+/// Supermajority quorum threshold over `total` providers, computed as the
+/// classic BFT bound `⌊2/3·N⌋ + 1` so the threshold scales with the
+/// configured RPC fan-out instead of being a hard-coded floor.
+fn quorum_threshold(total: usize) -> usize {
+	total * 2 / 3 + 1
+}
 
 /// Each per-provider block fetch is retried up to this many times on transport
 /// errors before being recorded as a non-signal. Transport errors do not by
@@ -78,11 +81,14 @@ impl ByzantineHandler for EvmClient {
 
 		let counterparty_state_id = counterparty.state_machine_id().state_id;
 
-		// Multi-RPC quorum is mandatory: an EvmClient configured with fewer
-		// than `MIN_PROVIDERS_FOR_QUORUM` URLs cannot run a meaningful
-		// byzantine check, so we abstain without any veto. Transport errors
-		// after retries also don't count toward the quorum — no veto on RPC
-		// failure.
+		// Multi-RPC quorum is mandatory. With no byzantine providers there's
+		// nothing to fan out to; bail before constructing any futures.
+		if self.byzantine_providers.is_empty() {
+			return Ok(());
+		}
+
+		// Transport errors after retries don't count toward the quorum, no
+		// veto on RPC failure.
 		let outcomes = futures::future::join_all(
 			self.byzantine_providers
 				.iter()
@@ -90,20 +96,22 @@ impl ByzantineHandler for EvmClient {
 		)
 		.await;
 
+		let quorum = quorum_threshold(self.byzantine_providers.len());
 		let mut state_roots: Vec<H256> = Vec::with_capacity(outcomes.len());
 		let mut missing = 0usize;
-		let mut errored = 0usize;
 		for outcome in outcomes {
 			match outcome {
 				FetchOutcome::Found(root) => state_roots.push(root),
 				FetchOutcome::Missing => missing += 1,
-				FetchOutcome::Errored => errored += 1,
+				// Transport errors after retries don't drive any decision —
+				// they're silent non-signals.
+				FetchOutcome::Errored => {},
 			}
 		}
 
 		// Quorum of providers report the height doesn't exist on the L2 yet
 		// hyperbridge holds a commitment for it: fraud, veto.
-		if missing >= MIN_PROVIDERS_FOR_QUORUM {
+		if missing >= quorum {
 			log::info!(
 				target: crate::LOG_TARGET,
 				"Vetoing State Machine Update for {} on {}: {missing} providers report no block at height {}",
@@ -116,13 +124,13 @@ impl ByzantineHandler for EvmClient {
 		}
 
 		// Below quorum on positive responses (state roots), no signal worth
-		// acting on. Reasons can be: fewer providers responding overall, all
-		// errored after retries, or split between Found and Missing without
-		// either side reaching quorum.
-		if state_roots.len() < MIN_PROVIDERS_FOR_QUORUM {
+		// acting on. Either too few providers responded, or the remaining
+		// responses split between Found and Missing without either side
+		// reaching quorum.
+		if state_roots.len() < quorum {
 			log::warn!(
 				target: crate::LOG_TARGET,
-				"insufficient quorum for {} on {} at height {}: {} state-roots, {missing} missing, {errored} errored. Abstaining.",
+				"insufficient quorum for {} on {} at height {}: {} state-roots, {missing} missing (threshold {quorum}). Abstaining.",
 				self.state_machine,
 				counterparty_state_id,
 				event.latest_height,

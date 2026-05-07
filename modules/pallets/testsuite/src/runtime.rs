@@ -101,6 +101,7 @@ frame_support::construct_runtime!(
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
 		IsmpBsc: ismp_bsc::pallet,
 		TokenGateway: pallet_token_gateway,
+		HyperFungibleToken: pallet_hyper_fungible_token,
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
@@ -317,6 +318,25 @@ impl pallet_token_gateway::Config for Test {
 	type CreateOrigin = EnsureSigned<AccountId32>;
 	type Decimals = Decimals;
 	type AssetAdmin = AssetAdmin;
+	type EvmToSubstrate = ();
+	type WeightInfo = ();
+}
+
+pub struct HftNativeAssetId;
+
+impl Get<H256> for HftNativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
+	}
+}
+
+impl pallet_hyper_fungible_token::Config for Test {
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type NativeCurrency = Balances;
+	type NativeAssetId = HftNativeAssetId;
+	type CreateOrigin = EnsureSigned<AccountId32>;
+	type Decimals = Decimals;
 	type EvmToSubstrate = ();
 	type WeightInfo = ();
 }
@@ -735,6 +755,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		balances: vec![
 			(ALICE, INITIAL_BALANCE),
 			(TokenGateway::pallet_account(), INITIAL_BALANCE),
+			(HyperFungibleToken::pallet_account(), INITIAL_BALANCE),
 			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
 		],
 		..Default::default()
@@ -775,6 +796,26 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			call_dispatcher: H160::random(),
 		};
 		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
+
+		// Setup HyperFungibleToken pallet storage
+		// Register the native asset with a mock EVM contract address
+		let hft_contract = vec![0xABu8; 20];
+		pallet_hyper_fungible_token::TokenContracts::<Test>::insert(
+			StateMachine::Evm(1),
+			HftNativeAssetId::get(),
+			hft_contract.clone(),
+		);
+		pallet_hyper_fungible_token::ContractToAsset::<Test>::insert(
+			StateMachine::Evm(1),
+			hft_contract,
+			HftNativeAssetId::get(),
+		);
+		pallet_hyper_fungible_token::NativeAssets::<Test>::insert(HftNativeAssetId::get(), true);
+		pallet_hyper_fungible_token::Precisions::<Test>::insert(
+			HftNativeAssetId::get(),
+			StateMachine::Evm(1),
+			18,
+		);
 
 		// Initialize BEEFY consensus state in pallet-ismp storage for outbound proofs
 		pallet_ismp::ConsensusStates::<Test>::insert(*b"BEEF", vec![0u8; 32]);

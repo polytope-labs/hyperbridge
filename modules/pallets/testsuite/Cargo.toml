@@ -40,6 +40,7 @@ pallet-ismp-relayer = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 pallet-call-decompressor = { workspace = true, default-features = true }
 pallet-xcm-gateway = { workspace = true, default-features = true }
+pallet-hyper-fungible-token = { workspace = true, default-features = true }
 pallet-token-gateway = { workspace = true, default-features = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-tree = { workspace = true, default-features = true }

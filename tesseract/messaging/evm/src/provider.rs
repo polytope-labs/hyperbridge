@@ -400,7 +400,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn handler_v2_address(&self) -> Option<H160> {
-	   self.handler().await.ok()
+		self.handler().await.ok()
 	}
 
 	fn block_max_gas(&self) -> u64 {

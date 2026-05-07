@@ -1,0 +1,5 @@
+@openzeppelin/=node_modules/@openzeppelin
+@layerzerolabs/=node_modules/@layerzerolabs
+@hyperbridge/core/=node_modules/@hyperbridge/core/contracts/
+@polytope-labs/solidity-merkle-trees/=node_modules/@polytope-labs/solidity-merkle-trees
+forge-std/=node_modules/forge-std/src/

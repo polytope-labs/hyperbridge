@@ -232,7 +232,9 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 }
 
 
-impl pallet_bandwidth::Config for Runtime {}
+impl pallet_bandwidth::Config for Runtime {
+	type Dispatcher = Ismp;
+}
 
 parameter_types! {
 	pub const HftDecimals: u8 = 10;

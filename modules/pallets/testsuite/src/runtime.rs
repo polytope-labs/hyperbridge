@@ -288,7 +288,9 @@ impl pallet_hyperbridge::Config for Test {
 	type IsmpHost = Ismp;
 }
 
-impl pallet_bandwidth::Config for Test {}
+impl pallet_bandwidth::Config for Test {
+	type Dispatcher = Ismp;
+}
 
 parameter_types! {
 	pub const Decimals: u8 = 10;

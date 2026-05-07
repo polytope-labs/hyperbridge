@@ -8,8 +8,9 @@
 
 use polkadot_sdk::*;
 
+use alloy_sol_types::{sol_data, SolType};
 use ismp::{host::StateMachine, module::IsmpModule, router::PostRequest};
-use sp_core::H160;
+use sp_core::{H160, U256};
 
 use pallet_bandwidth::{
     abi::PurchaseMessage,
@@ -502,6 +503,131 @@ fn purchase_rejects_zero_months() {
             .expect_err("zero months must be rejected at decode time");
         assert!(bucket(APP_CHAIN, TIER1).is_none());
     });
+}
+
+// ---------- outbound governance dispatch ----------
+
+const ACTION_SET_TIERS: u8 = 0;
+const ACTION_WITHDRAW: u8 = 1;
+
+/// Decode a `dispatch_set_tiers` body back into `(tiers, prices)` so
+/// we can assert the wire matches what `BandwidthManager.onAccept`
+/// would parse.
+fn decode_set_tiers(body: &[u8]) -> (Vec<u128>, Vec<u128>) {
+    assert_eq!(body[0], ACTION_SET_TIERS, "first byte must be SetTiers discriminant");
+    type Abi = (sol_data::Array<sol_data::Uint<256>>, sol_data::Array<sol_data::Uint<256>>);
+    let (tiers, prices) = Abi::abi_decode_params(&body[1..]).unwrap();
+    (
+        tiers.into_iter().map(|t| t.try_into().unwrap()).collect(),
+        prices.into_iter().map(|p| p.try_into().unwrap()).collect(),
+    )
+}
+
+fn decode_withdraw(body: &[u8]) -> (H160, H160, u128) {
+    assert_eq!(body[0], ACTION_WITHDRAW);
+    type Abi = (sol_data::Address, sol_data::Address, sol_data::Uint<256>);
+    let (token, beneficiary, amount) = Abi::abi_decode_params(&body[1..]).unwrap();
+    (
+        H160::from_slice(token.as_slice()),
+        H160::from_slice(beneficiary.as_slice()),
+        amount.try_into().unwrap(),
+    )
+}
+
+#[test]
+fn dispatch_set_tiers_rejects_unknown_market() {
+    new_test_ext().execute_with(|| {
+        Bandwidth::dispatch_set_tiers(
+            RuntimeOrigin::root(),
+            APP_CHAIN,
+            vec![(TIER1, U256::from(1_000_000_000_000_000_000u128))],
+        )
+        .expect_err("no market registered for APP_CHAIN");
+    });
+}
+
+#[test]
+fn dispatch_set_tiers_rejects_empty_batch() {
+    new_test_ext().execute_with(|| {
+        register_market(APP_CHAIN);
+        Bandwidth::dispatch_set_tiers(RuntimeOrigin::root(), APP_CHAIN, vec![])
+            .expect_err("empty batch must be rejected");
+    });
+}
+
+#[test]
+fn dispatch_set_tiers_admin_only() {
+    new_test_ext().execute_with(|| {
+        register_market(APP_CHAIN);
+        let alice: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([1u8; 32]);
+        Bandwidth::dispatch_set_tiers(
+            RuntimeOrigin::signed(alice),
+            APP_CHAIN,
+            vec![(TIER1, U256::from(5u128))],
+        )
+        .expect_err("non-admin must be rejected");
+    });
+}
+
+#[test]
+fn dispatch_withdraw_rejects_unknown_market() {
+    new_test_ext().execute_with(|| {
+        let token = H160([0x10; 20]);
+        let beneficiary = H160([0x20; 20]);
+        Bandwidth::dispatch_withdraw(
+            RuntimeOrigin::root(),
+            APP_CHAIN,
+            token,
+            beneficiary,
+            U256::from(42u128),
+        )
+        .expect_err("no market registered");
+    });
+}
+
+#[test]
+fn set_tiers_body_round_trips() {
+    // Pure body-encoding test, doesn't dispatch — proves the wire
+    // format we send matches the contract's `abi.decode((uint256[],
+    // uint256[]))` shape.
+    use alloy_sol_types::SolType;
+    type Abi = (sol_data::Array<sol_data::Uint<256>>, sol_data::Array<sol_data::Uint<256>>);
+    let tiers: Vec<alloy_primitives::U256> = vec![1u128, 2u128, 3u128]
+        .into_iter()
+        .map(alloy_primitives::U256::from)
+        .collect();
+    let prices: Vec<alloy_primitives::U256> = vec![5u128, 50u128, 500u128]
+        .into_iter()
+        .map(alloy_primitives::U256::from)
+        .collect();
+    let body = Abi::abi_encode_params(&(tiers.clone(), prices.clone()));
+    let (tiers_back, prices_back) = Abi::abi_decode_params(&body).unwrap();
+    assert_eq!(tiers, tiers_back);
+    assert_eq!(prices, prices_back);
+
+    // And our pallet helper builds the same body.
+    let (decoded_tiers, decoded_prices) = decode_set_tiers(
+        &[&[ACTION_SET_TIERS][..], &body[..]].concat(),
+    );
+    assert_eq!(decoded_tiers, vec![1, 2, 3]);
+    assert_eq!(decoded_prices, vec![5, 50, 500]);
+}
+
+#[test]
+fn withdraw_body_round_trips() {
+    let body = {
+        type Abi = (sol_data::Address, sol_data::Address, sol_data::Uint<256>);
+        Abi::abi_encode_params(&(
+            alloy_primitives::Address::from([0x10u8; 20]),
+            alloy_primitives::Address::from([0x20u8; 20]),
+            alloy_primitives::U256::from(42u128),
+        ))
+    };
+    let (token, beneficiary, amount) =
+        decode_withdraw(&[&[ACTION_WITHDRAW][..], &body[..]].concat());
+    assert_eq!(token, H160([0x10; 20]));
+    assert_eq!(beneficiary, H160([0x20; 20]));
+    assert_eq!(amount, 42);
 }
 
 #[test]

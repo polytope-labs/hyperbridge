@@ -273,7 +273,9 @@ impl pallet_hyperbridge::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
-impl pallet_bandwidth::Config for Runtime {}
+impl pallet_bandwidth::Config for Runtime {
+	type Dispatcher = Ismp;
+}
 
 parameter_types! {
 	pub const Decimals: u8 = 10;

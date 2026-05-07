@@ -49,21 +49,29 @@ pub use types::{
 pub mod pallet {
 	use super::*;
 	use crate::abi::PurchaseMessage;
-	use alloc::{format, vec::Vec};
+	use alloc::{format, vec, vec::Vec};
+	use alloy_sol_types::{sol_data, SolType};
 	use frame_support::{pallet_prelude::*, BoundedBTreeMap, PalletId};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
+		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 		host::StateMachine,
 		module::IsmpModule,
 		router::{PostRequest, Response, Timeout},
 	};
-	use primitive_types::H160;
-	use sp_runtime::Weight;
+	use primitive_types::{H160, U256};
+	use sp_core::H256;
+	use sp_runtime::{traits::AccountIdConversion, DispatchError, Weight};
 
 	/// `to` field on purchase messages; also the sovereign `PalletId`.
 	pub const PALLET_BANDWIDTH: PalletId = PalletId(*b"BWMARKET");
 
 	pub type TierMap = BoundedBTreeMap<TierIndex, AllowanceState, MaxTiers>;
+
+	/// Maps the EVM contract's `OnAcceptActions` enum. Discriminants
+	/// must stay in sync with `BandwidthManager.sol`.
+	const ACTION_SET_TIERS: u8 = 0;
+	const ACTION_WITHDRAW: u8 = 1;
 
 	#[pallet::pallet]
 	#[pallet::without_storage_info]
@@ -73,6 +81,12 @@ pub mod pallet {
 	pub trait Config:
 		polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_ismp::Config
 	{
+		/// ISMP dispatcher used to push outbound governance messages
+		/// (tier-price updates, treasury withdrawals) to EVM markets.
+		type Dispatcher: IsmpDispatcher<
+				Account = Self::AccountId,
+				Balance = <Self as pallet_ismp::Config>::Balance,
+			> + Default;
 	}
 
 	/// Authorised purchase contract per source chain. A purchase whose
@@ -158,6 +172,20 @@ pub mod pallet {
 			tier_balance: BandwidthBytes,
 			expires_at: u64,
 		},
+		/// Outbound `SetTiers` message dispatched to the registered market.
+		TiersDispatched {
+			target: StateMachine,
+			count: u32,
+			commitment: H256,
+		},
+		/// Outbound `Withdraw` message dispatched to the registered market.
+		WithdrawalDispatched {
+			target: StateMachine,
+			token: H160,
+			beneficiary: H160,
+			amount: U256,
+			commitment: H256,
+		},
 	}
 
 	#[pallet::error]
@@ -167,6 +195,10 @@ pub mod pallet {
 		InvalidPurchaseBody,
 		UnknownTier,
 		InvalidTierConfig,
+		/// Outbound dispatch to the destination market failed.
+		DispatchFailed,
+		/// `dispatch_set_tiers` got an empty updates list.
+		EmptyTierBatch,
 	}
 
 	#[pallet::call]
@@ -259,6 +291,77 @@ pub mod pallet {
 			Self::deposit_event(Event::TierSet { tier, config });
 			Ok(())
 		}
+
+		/// Push tier prices to a remote `BandwidthManager` (the EVM
+		/// side holds prices; this pallet holds bytes/duration).
+		/// `updates` is `(tier, price18d)` pairs.
+		#[pallet::call_index(5)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn dispatch_set_tiers(
+			origin: OriginFor<T>,
+			target: StateMachine,
+			updates: Vec<(TierIndex, U256)>,
+		) -> DispatchResult {
+			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
+			ensure!(!updates.is_empty(), Error::<T>::EmptyTierBatch);
+			let market = BandwidthMarkets::<T>::get(&target).ok_or(Error::<T>::UnknownMarket)?;
+
+			let count = updates.len() as u32;
+			let (tiers, prices): (Vec<_>, Vec<_>) = updates
+				.into_iter()
+				.map(|(t, p)| {
+					let id_u32: u32 = t.into();
+					(to_alloy_u256(U256::from(id_u32)), to_alloy_u256(p))
+				})
+				.unzip();
+
+			type SetTiersAbi = (
+				sol_data::Array<sol_data::Uint<256>>,
+				sol_data::Array<sol_data::Uint<256>>,
+			);
+			let mut body = vec![ACTION_SET_TIERS];
+			body.extend(SetTiersAbi::abi_encode_params(&(tiers, prices)));
+
+			let commitment = Self::dispatch_governance(target, market, body)?;
+			Self::deposit_event(Event::TiersDispatched { target, count, commitment });
+			Ok(())
+		}
+
+		/// Push a `Withdraw` message to a remote `BandwidthManager` so
+		/// it ships `amount` of `token` to `beneficiary`. Token is
+		/// named explicitly because the contract supports recovering
+		/// stale fee tokens after a host-side swap.
+		#[pallet::call_index(6)]
+		#[pallet::weight(T::DbWeight::get().writes(1))]
+		pub fn dispatch_withdraw(
+			origin: OriginFor<T>,
+			target: StateMachine,
+			token: H160,
+			beneficiary: H160,
+			amount: U256,
+		) -> DispatchResult {
+			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
+			let market = BandwidthMarkets::<T>::get(&target).ok_or(Error::<T>::UnknownMarket)?;
+
+			type WithdrawAbi =
+				(sol_data::Address, sol_data::Address, sol_data::Uint<256>);
+			let mut body = vec![ACTION_WITHDRAW];
+			body.extend(WithdrawAbi::abi_encode_params(&(
+				alloy_primitives::Address::from(token.0),
+				alloy_primitives::Address::from(beneficiary.0),
+				to_alloy_u256(amount),
+			)));
+
+			let commitment = Self::dispatch_governance(target, market, body)?;
+			Self::deposit_event(Event::WithdrawalDispatched {
+				target,
+				token,
+				beneficiary,
+				amount,
+				commitment,
+			});
+			Ok(())
+		}
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -284,7 +387,30 @@ pub mod pallet {
 			Self::allowances(app_chain, app).into_iter().map(|(_, s)| s.remaining_bytes).sum()
 		}
 
-		/// Stack-or-reset: live bucket → bytes add, expiry pushes out by
+		/// Wrap an outbound governance message and ship it to the
+		/// market on `target` via the configured dispatcher. Used by
+		/// `dispatch_set_tiers` and `dispatch_withdraw`.
+		fn dispatch_governance(
+			target: StateMachine,
+			market: H160,
+			body: Vec<u8>,
+		) -> Result<H256, DispatchError> {
+			let payer: T::AccountId = PALLET_BANDWIDTH.into_account_truncating();
+			T::Dispatcher::default()
+				.dispatch_request(
+					DispatchRequest::Post(DispatchPost {
+						dest: target,
+						from: PALLET_BANDWIDTH.0.to_vec(),
+						to: market.0.to_vec(),
+						timeout: 0,
+						body,
+					}),
+					FeeMetadata { payer, fee: Default::default() },
+				)
+				.map_err(|_| Error::<T>::DispatchFailed.into())
+		}
+
+/// Stack-or-reset: live bucket → bytes add, expiry pushes out by
 		/// `duration_secs`. Expired/missing → fresh window from now.
 		fn credit_bucket(
 			app_chain: &StateMachine,
@@ -376,6 +502,12 @@ pub mod pallet {
 		fn on_timeout(&self, _timeout: Timeout) -> Result<Weight, anyhow::Error> {
 			Err(anyhow::anyhow!("pallet-bandwidth purchases are non-timeouting"))
 		}
+	}
+
+	/// Convert `primitive_types::U256` to `alloy_primitives::U256` for
+	/// ABI encoding. Both store little-endian limbs of identical width.
+	pub(crate) fn to_alloy_u256(v: U256) -> alloy_primitives::U256 {
+		alloy_primitives::U256::from_le_bytes(v.to_little_endian())
 	}
 }
 

@@ -2,10 +2,10 @@
     "title": "EVM",
     "pages": [
         "overview",
-        "dispatching",
-        "receiving",
+        "messaging",
         "hyper-fungible-token",
-        "testnet-fee-token",
+        "intent-gateway",
+        "lz-endpoint",
         "contract-addresses",
         "api"
     ],

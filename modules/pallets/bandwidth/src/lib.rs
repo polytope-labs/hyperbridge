@@ -431,8 +431,8 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 					}
 					if let Some(state) = map.get_mut(&t) {
 						let take = state.remaining_bytes.min(left);
-						state.remaining_bytes -= take;
-						left -= take;
+						state.remaining_bytes = state.remaining_bytes.saturating_sub(take);
+						left = left.saturating_sub(take);
 						if state.remaining_bytes == 0 {
 							drained.push(t);
 						}

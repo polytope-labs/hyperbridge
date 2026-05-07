@@ -29,8 +29,8 @@ const MARKET: H160 = H160([0xAA; 20]);
 const APP: H160 = H160([0xBB; 20]);
 const IMPOSTER: H160 = H160([0xCC; 20]);
 
-const TIER1: TierIndex = TierIndex::StageOne;
-const TIER2: TierIndex = TierIndex::StageTwo;
+const TIER1: TierIndex = TierIndex::TierOne;
+const TIER2: TierIndex = TierIndex::TierTwo;
 const TIER1_BYTES: u128 = 1_000;
 const TIER2_BYTES: u128 = 5_000;
 

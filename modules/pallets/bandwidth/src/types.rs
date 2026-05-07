@@ -30,18 +30,20 @@ pub type BandwidthBytes = u128;
 	RuntimeDebug,
 )]
 pub enum TierIndex {
-	StageOne = 1,
-	StageTwo = 2,
-	StageThree = 3,
+	TierOne = 1,
+	TierTwo = 2,
+	TierThree = 3,
+	TierFour = 4,
 }
 
 impl TryFrom<u32> for TierIndex {
 	type Error = ();
 	fn try_from(value: u32) -> Result<Self, Self::Error> {
 		match value {
-			1 => Ok(TierIndex::StageOne),
-			2 => Ok(TierIndex::StageTwo),
-			3 => Ok(TierIndex::StageThree),
+			1 => Ok(TierIndex::TierOne),
+			2 => Ok(TierIndex::TierTwo),
+			3 => Ok(TierIndex::TierThree),
+			4 => Ok(TierIndex::TierFour),
 			_ => Err(()),
 		}
 	}
@@ -55,7 +57,7 @@ impl From<TierIndex> for u32 {
 
 /// Upper bound on `BoundedBTreeMap<TierIndex, AllowanceState>`. Keep
 /// in sync with the variant count of `TierIndex`.
-pub type MaxTiers = ConstU32<3>;
+pub type MaxTiers = ConstU32<4>;
 
 /// A tier is a (bytes, duration) SKU. EVM holds the price; the pallet
 /// holds what you get and how long it lasts.

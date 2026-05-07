@@ -19,14 +19,14 @@ import {WrappedHyperFungibleToken} from "@hyperbridge/core/apps/WrappedHyperFung
 
 // Concrete HyperFungibleToken for testing
 contract TestHFT is HyperFungibleToken {
-    constructor() HyperFungibleToken("Test HFT", "tHFT") {
+    constructor() HyperFungibleToken("Test HFT", "tHFT", msg.sender) {
         _mint(msg.sender, 1000 ether);
     }
 }
 
 // Concrete WrappedHyperFungibleToken for testing
 contract TestWrappedHFT is WrappedHyperFungibleToken {
-    constructor() WrappedHyperFungibleToken() {}
+    constructor() WrappedHyperFungibleToken(msg.sender) {}
 }
 
 // Minimal WETH9 mock

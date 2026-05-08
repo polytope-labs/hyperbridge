@@ -149,6 +149,34 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
     function placeOrder(Order memory order, bytes32 graffiti) public payable {
         if (order.inputs.length == 0) revert InvalidInput();
 
+        // Reject duplicate output tokens — partial fill progress is keyed by
+        // (commitment, outputToken), so duplicates share one bucket and can
+        // cause legs to be skipped as already-filled.
+        uint256 outputsLen_ = order.output.assets.length;
+        for (uint256 i; i < outputsLen_;) {
+            bytes32 token = order.output.assets[i].token;
+            assembly ("memory-safe") {
+                if tload(token) {
+                    mstore(0, 0xb4fa3fb3) // InvalidInput.selector
+                    revert(0x1c, 0x04)
+                }
+                tstore(token, 1)
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        // Clean up transient storage so repeated placeOrder calls in the same tx don't false-positive.
+        for (uint256 i; i < outputsLen_;) {
+            bytes32 token = order.output.assets[i].token;
+            assembly ("memory-safe") {
+                tstore(token, 0)
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
         address hostAddr = host();
         order.user = bytes32(uint256(uint160(msg.sender)));
         order.source = IDispatcher(hostAddr).host();

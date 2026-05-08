@@ -1996,19 +1996,18 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         vm.stopPrank();
     }
 
-    /// @notice Distinct input tokens must still work — no false positives from the duplicate check.
+    /// @notice Distinct input and output tokens must still work — no false positives from the duplicate check.
     function testPlaceOrder_DistinctInputTokens_StillWorks() public {
         uint256 usdcAmount = 1000 * 1e6;
         uint256 daiAmount = 500 * 1e18;
-        uint256 outputAmount = 1 ether;
 
         TokenInfo[] memory inputs = new TokenInfo[](2);
         inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
         inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
 
         TokenInfo[] memory outputAssets = new TokenInfo[](2);
-        outputAssets[0] = TokenInfo({token: bytes32(0), amount: outputAmount / 2});
-        outputAssets[1] = TokenInfo({token: bytes32(0), amount: outputAmount / 2});
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(0), amount: 1 ether});
 
         PaymentInfo memory output =
             PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
@@ -2035,5 +2034,79 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // Verify both tokens were escrowed
         assertEq(usdc.balanceOf(address(intentGateway)), usdcAmount, "Gateway should hold escrowed USDC");
         assertEq(dai.balanceOf(address(intentGateway)), daiAmount, "Gateway should hold escrowed DAI");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                   DUPLICATE OUTPUT TOKEN REJECTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Placing an order with duplicate output tokens must revert.
+    /// Regression test for: same-chain partial fills prematurely finalize repeated output legs.
+    function testRevert_PlaceOrder_DuplicateOutputTokens() public {
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+
+        // Two output legs both requesting DAI — shares one _partialFills bucket
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 400 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 600 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 1000 * 1e6);
+        dai.approve(address(intentGateway), 500 * 1e18);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @notice Distinct output tokens must still work.
+    function testPlaceOrder_DistinctOutputTokens_StillWorks() public {
+        uint256 inputAmount = 1000 * 1e6;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(address(intentGateway)), inputAmount, "Gateway should hold escrowed USDC");
     }
 }

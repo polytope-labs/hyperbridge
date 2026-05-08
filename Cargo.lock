@@ -9316,6 +9316,7 @@ dependencies = [
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
+ "url",
 ]
 
 [[package]]

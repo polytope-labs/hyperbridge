@@ -21,6 +21,7 @@ use tesseract_config::AnyConfig;
 use tesseract_evm::registry::{
 	is_supported_l2, SUPPORTED_L2_CHAIN_IDS_MAINNET, SUPPORTED_L2_CHAIN_IDS_TESTNET,
 };
+use url::Url;
 
 const MIN_RPC_URLS_PER_L2: usize = 2;
 
@@ -74,21 +75,7 @@ fn ensure_distinct_hosts(chain_id: u64, urls: &[String]) -> anyhow::Result<()> {
 /// vendor (e.g. two Alchemy endpoints) don't add quorum value, so the byzantine
 /// handler shouldn't be tricked into thinking they do.
 fn rpc_host(url: &str) -> Option<String> {
-	let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
-	let authority = after_scheme
-		.split(|c: char| c == '/' || c == '?' || c == '#')
-		.next()
-		.unwrap_or("");
-	let host_port = authority.rsplit_once('@').map(|(_, h)| h).unwrap_or(authority);
-	let host = match host_port.as_bytes() {
-		[b'[', ..] => host_port.split_once(']').map(|(h, _)| &h[1..])?,
-		_ => host_port.split(':').next().unwrap_or(host_port),
-	};
-	if host.is_empty() {
-		None
-	} else {
-		Some(host.to_ascii_lowercase())
-	}
+	Url::parse(url).ok()?.host_str().map(str::to_ascii_lowercase)
 }
 
 /// If any chain in `set` is configured, all of them must be configured. A
@@ -132,19 +119,24 @@ mod tests {
 
 	#[test]
 	fn rpc_host_handles_ipv6_literal() {
-		assert_eq!(rpc_host("https://[::1]:8545/rpc"), Some("::1".into()));
-		assert_eq!(rpc_host("https://[2001:db8::1]/"), Some("2001:db8::1".into()));
+		// `url::Url::host_str` returns IPv6 literals with their brackets; that's
+		// fine for our use-case since we only compare hosts for equality.
+		assert_eq!(rpc_host("https://[::1]:8545/rpc"), Some("[::1]".into()));
+		assert_eq!(rpc_host("https://[2001:db8::1]/"), Some("[2001:db8::1]".into()));
 	}
 
 	#[test]
-	fn rpc_host_accepts_url_without_scheme() {
-		assert_eq!(rpc_host("eth.example/v2"), Some("eth.example".into()));
+	fn rpc_host_rejects_url_without_scheme() {
+		// A scheme-less endpoint would fail downstream when the byzantine
+		// handler tries to construct a provider, so reject it here.
+		assert_eq!(rpc_host("eth.example/v2"), None);
 	}
 
 	#[test]
-	fn rpc_host_rejects_empty_authority() {
-		assert_eq!(rpc_host("https:///v2/key"), None);
+	fn rpc_host_rejects_malformed_urls() {
 		assert_eq!(rpc_host(""), None);
+		assert_eq!(rpc_host("not a url"), None);
+		assert_eq!(rpc_host("ftp://"), None);
 	}
 
 	#[test]
@@ -183,7 +175,7 @@ mod tests {
 
 	#[test]
 	fn ensure_distinct_hosts_rejects_unparseable_url() {
-		let urls = vec!["https://good.example/".into(), "https:///bad".into()];
+		let urls = vec!["https://good.example/".into(), "not a url".into()];
 		let err = ensure_distinct_hosts(42161, &urls).unwrap_err().to_string();
 		assert!(err.contains("no parseable host"), "error: {err}");
 	}

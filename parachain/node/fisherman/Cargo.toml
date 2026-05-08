@@ -11,6 +11,7 @@ anyhow = { workspace = true, default-features = true }
 hex = { workspace = true, default-features = true }
 log = "0.4"
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+url = "2"
 
 ismp = { workspace = true, default-features = true }
 tesseract = { workspace = true }

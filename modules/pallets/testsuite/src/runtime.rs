@@ -519,7 +519,6 @@ impl pallet_consensus_incentives::Config for Test {
 impl pallet_messaging_fees::Config for Test {
 	type ReputationAsset = ReputationAsset;
 	type AdminOrigin = EnsureRoot<AccountId32>;
-	type WeightInfo = ();
 }
 
 parameter_types! {

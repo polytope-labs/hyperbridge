@@ -165,13 +165,26 @@ async function runBridgeFlow(params: {
 					functionName: "hostParams",
 				})
 
-				const hash = await destWalletClient.sendTransaction({
-					to: hostParams.handler as `0x${string}`,
-					data: calldata,
-				})
-				console.log("Dest tx:", hash)
-				await destPublicClient.waitForTransactionReceipt({ hash })
-				console.log("Dest tx confirmed")
+				try {
+					const hash = await destWalletClient.sendTransaction({
+						to: hostParams.handler as `0x${string}`,
+						data: calldata,
+					})
+					console.log("Dest tx:", hash)
+					await destPublicClient.waitForTransactionReceipt({ hash })
+					console.log("Dest tx confirmed")
+				} catch (e) {
+					const receipt = await destPublicClient.readContract({
+						address: destHost,
+						abi: EVM_HOST.ABI,
+						functionName: "requestReceipts",
+						args: [commitment as `0x${string}`],
+					})
+					if (receipt === "0x0000000000000000000000000000000000000000") {
+						throw e
+					}
+					console.log("Already delivered by:", receipt)
+				}
 			}
 
 			if (step.status === "DESTINATION" || step.status === "TIMED_OUT") break

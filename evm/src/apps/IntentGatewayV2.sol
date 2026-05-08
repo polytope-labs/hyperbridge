@@ -240,7 +240,10 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
                 uint256 dust = balance - requiredAmount;
                 if (dust > 0) emit DustCollected(token, dust);
 
-                _orders[commitment][token] += reducedInputs[i].amount;
+                // Reject duplicate input tokens — escrow is keyed by (commitment, token),
+                // so duplicates would merge and cause over-release on partial fills.
+                if (_orders[commitment][token] != 0) revert InvalidInput();
+                _orders[commitment][token] = reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -259,7 +262,8 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
                     IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
                 }
 
-                _orders[commitment][token] += reducedInputs[i].amount;
+                if (_orders[commitment][token] != 0) revert InvalidInput();
+                _orders[commitment][token] = reducedInputs[i].amount;
 
                 unchecked {
                     ++i;

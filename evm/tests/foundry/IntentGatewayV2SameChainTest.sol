@@ -1912,4 +1912,128 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // Solver spent exactly solverEth in ETH
         assertEq(solverEthBefore - solver.balance, solverEth, "Solver should have spent exactly solverEth");
     }
+
+    /*//////////////////////////////////////////////////////////////
+                    DUPLICATE INPUT TOKEN REJECTION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Placing an order with duplicate input tokens must revert.
+    /// Regression test for: same-chain partial fills over-release repeated input escrow.
+    function testRevert_PlaceOrder_DuplicateInputTokens() public {
+        // Two input legs both using USDC — this previously merged into one escrow bucket
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1200 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), 2200 * 1e6);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @notice Duplicate input tokens with protocol fees enabled must also revert.
+    function testRevert_PlaceOrder_DuplicateInputTokens_WithProtocolFee() public {
+        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        Params memory intentParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: SURPLUS_SHARE_BPS,
+            protocolFeeBps: PROTOCOL_FEE_BPS,
+            priceOracle: address(0)
+        });
+        gatewayWithFees.setParams(intentParams);
+
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 600 * 1e6});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 400 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 300 * 1e18});
+        outputAssets[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 400 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(gatewayWithFees), 1000 * 1e6);
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gatewayWithFees.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+    }
+
+    /// @notice Distinct input tokens must still work — no false positives from the duplicate check.
+    function testPlaceOrder_DistinctInputTokens_StillWorks() public {
+        uint256 usdcAmount = 1000 * 1e6;
+        uint256 daiAmount = 500 * 1e18;
+        uint256 outputAmount = 1 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](2);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: usdcAmount});
+        inputs[1] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: daiAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](2);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: outputAmount / 2});
+        outputAssets[1] = TokenInfo({token: bytes32(0), amount: outputAmount / 2});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), usdcAmount);
+        dai.approve(address(intentGateway), daiAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Verify both tokens were escrowed
+        assertEq(usdc.balanceOf(address(intentGateway)), usdcAmount, "Gateway should hold escrowed USDC");
+        assertEq(dai.balanceOf(address(intentGateway)), daiAmount, "Gateway should hold escrowed DAI");
+    }
 }

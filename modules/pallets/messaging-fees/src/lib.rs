@@ -50,7 +50,10 @@ use ismp::{
 };
 use pallet_ismp::fee_handler::FeeHandler;
 
+pub mod types;
+
 pub use pallet::*;
+pub use types::WeightInfo;
 
 /// Trait kept for `pallet-collator-manager`'s Config bound. The
 /// reputation-mint flow doesn't accumulate per-session state, so the
@@ -83,6 +86,8 @@ pub mod pallet {
 		type ReputationAsset: fungible::Mutate<Self::AccountId>;
 		/// Origin allowed to update the per-byte mint rate.
 		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+		/// Per-call weight inputs.
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Reputation tokens minted per byte of delivered payload. Zero
@@ -113,7 +118,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Update the per-byte mint rate. Pass zero to disable minting.
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
+		#[pallet::weight(T::WeightInfo::set_mint_per_byte())]
 		pub fn set_mint_per_byte(
 			origin: OriginFor<T>,
 			amount: BalanceOf<T>,

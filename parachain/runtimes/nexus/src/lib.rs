@@ -905,6 +905,7 @@ impl pallet_proxy::Config for Runtime {
 impl pallet_messaging_fees::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type AdminOrigin = EnsureRoot<AccountId>;
+	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 }
 
 parameter_types! {

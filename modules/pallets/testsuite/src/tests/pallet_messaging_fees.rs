@@ -1,449 +1,171 @@
 #![cfg(test)]
 
-use codec::{Decode, Encode};
+//! Integration tests for the slim `pallet-messaging-fees`. The pallet
+//! mints reputation tokens to relayers per byte delivered; the rate
+//! is set by governance and zero disables minting.
+
+use codec::Encode;
 use polkadot_sdk::{
-	frame_support::traits::fungible::{Inspect, Mutate},
-	sp_runtime::{
-		traits::{AccountIdConversion, OpaqueKeys},
-		KeyTypeId, Weight,
-	},
+    frame_support::traits::fungibles::Inspect,
+    sp_runtime::Weight,
 };
+use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair};
 
-use scale_info::TypeInfo;
-use sp_core::{crypto::AccountId32, keccak_256, sr25519, ByteArray, Pair, H256, U256};
-
-use hyperbridge_client_machine::OnRequestProcessed;
 use ismp::{
-	consensus::{StateMachineHeight, StateMachineId},
-	host::StateMachine,
-	messaging::{hash_request, Message, MessageWithWeight, Proof, RequestMessage},
-	router::{PostRequest, Request},
+    consensus::{StateMachineHeight, StateMachineId},
+    host::StateMachine,
+    messaging::{Message, MessageWithWeight, Proof, RequestMessage},
+    router::PostRequest,
 };
 use pallet_ismp::fee_handler::FeeHandler;
-use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_ismp_relayer::withdrawal::Signature;
-use pallet_messaging_fees::{IncentivesManager, TotalBytesProcessed};
+use pallet_messaging_fees::MintPerByte;
 
 use crate::{
-	runtime::{
-		new_test_ext, Assets, Balances, ReputationAssetId, RuntimeOrigin, Test, TreasuryAccount,
-		UNIT,
-	},
-	tests::common::setup_relayer_and_asset,
+    runtime::{
+        new_test_ext, Assets, MessagingRelayerIncentives, ReputationAssetId, RuntimeOrigin, Test,
+    },
+    tests::common::setup_relayer_and_asset,
 };
 
-fn setup_balances(relayer_account: &AccountId32, treasury_account: &AccountId32) {
-	setup_relayer_and_asset(&relayer_account);
+const SOURCE: StateMachine = StateMachine::Evm(1);
+const DEST: StateMachine = StateMachine::Polkadot(1000);
 
-	assert_eq!(Balances::balance(relayer_account), 0);
-	Balances::mint_into(relayer_account, 1000 * UNIT).unwrap();
-	assert_eq!(Balances::balance(relayer_account), 1000 * UNIT);
+/// Builds a `MessageWithWeight` that the slim pallet's `on_executed`
+/// will treat as relayer-signed — the relayer account derives from
+/// the sr25519 signature on the encoded `requests`.
+fn signed_request(relayer: &sr25519::Pair, body: Vec<u8>) -> MessageWithWeight {
+    let post = PostRequest {
+        source: SOURCE,
+        dest: DEST,
+        nonce: 0,
+        from: vec![1; 32],
+        to: vec![2; 32],
+        timeout_timestamp: 100,
+        body,
+    };
+    let requests = vec![post];
+    let signed = keccak_256(&requests.encode());
+    let sig = relayer.sign(&signed);
+    let signer = Signature::Sr25519 {
+        public_key: relayer.public().to_raw_vec(),
+        signature: sig.to_raw_vec(),
+    }
+    .encode();
 
-	assert_eq!(Balances::balance(treasury_account), 0);
-	Balances::mint_into(treasury_account, 20000 * UNIT).unwrap();
+    MessageWithWeight {
+        message: Message::Request(RequestMessage {
+            requests,
+            proof: Proof {
+                height: StateMachineHeight {
+                    id: StateMachineId { state_id: SOURCE, consensus_state_id: *b"mock" },
+                    height: 1,
+                },
+                proof: vec![],
+            },
+            signer,
+        }),
+        weight: Weight::zero(),
+    }
 }
 
-fn setup_host_params(source_chain: StateMachine, dest_chain: StateMachine) {
-	let host_params = HostParam::EvmHostParam(EvmHostParam {
-		per_byte_fees: vec![PerByteFee {
-			state_id: H256(keccak_256(&dest_chain.to_string().as_bytes())),
-			per_byte_fee: U256::from(10_000_000_000_000_000u128),
-		}]
-		.try_into()
-		.unwrap(),
-		..Default::default()
-	});
-
-	pallet_ismp_host_executive::HostParams::<Test>::insert(source_chain, host_params);
-	pallet_ismp_host_executive::FeeTokenDecimals::<Test>::insert(source_chain, 18);
-}
-
-fn create_request_message(
-	source_chain: StateMachine,
-	dest_chain: StateMachine,
-	relayer_pair: &sr25519::Pair,
-	body: &Vec<u8>,
-) -> MessageWithWeight {
-	let post_request = PostRequest {
-		source: source_chain,
-		dest: dest_chain,
-		nonce: 0,
-		from: vec![1; 32],
-		to: vec![2; 32],
-		timeout_timestamp: 100,
-		body: body.clone(),
-	};
-
-	let requests = vec![post_request];
-	let signed_data = keccak_256(&requests.encode());
-	let signature = relayer_pair.sign(&signed_data);
-	let signature = Signature::Sr25519 {
-		public_key: relayer_pair.public().to_raw_vec(),
-		signature: signature.to_raw_vec(),
-	};
-
-	let request_message = RequestMessage {
-		requests,
-		proof: Proof {
-			height: StateMachineHeight {
-				id: StateMachineId { state_id: source_chain, consensus_state_id: *b"mock" },
-				height: 1,
-			},
-			proof: vec![],
-		},
-		signer: signature.encode(),
-	};
-
-	let request_message =
-		MessageWithWeight { message: Message::Request(request_message), weight: Weight::zero() };
-
-	request_message
-}
-
-fn create_bad_request_message(
-	source_chain: StateMachine,
-	dest_chain: StateMachine,
-	relayer_pair: &sr25519::Pair,
-	evil_pair: &sr25519::Pair,
-) -> MessageWithWeight {
-	let post_request = PostRequest {
-		source: source_chain,
-		dest: dest_chain,
-		nonce: 0,
-		from: vec![1; 32],
-		to: vec![2; 32],
-		timeout_timestamp: 100,
-		body: vec![0; 100],
-	};
-
-	let requests = vec![post_request];
-	let signed_data = keccak_256(&requests.encode());
-	let signature = relayer_pair.sign(&signed_data);
-	let signer_tuple = (evil_pair.public(), signature);
-
-	let request_message = RequestMessage {
-		requests,
-		proof: Proof {
-			height: StateMachineHeight {
-				id: StateMachineId { state_id: source_chain, consensus_state_id: *b"mock" },
-				height: 1,
-			},
-			proof: vec![],
-		},
-		signer: signer_tuple.encode(),
-	};
-
-	let request_message =
-		MessageWithWeight { message: Message::Request(request_message), weight: Weight::zero() };
-
-	request_message
+fn relayer_balance(account: &AccountId32) -> u128 {
+    Assets::balance(ReputationAssetId::get(), account)
 }
 
 #[test]
-fn test_incentivize_relayer_for_request_message() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
-		let treasury_account = TreasuryAccount::get().into_account_truncating();
-		let source_chain = StateMachine::Evm(2000);
-		let dest_chain = StateMachine::Evm(3000);
+fn set_mint_per_byte_updates_rate() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(MintPerByte::<Test>::get(), 0);
+        MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 7).unwrap();
+        assert_eq!(MintPerByte::<Test>::get(), 7);
 
-		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(source_chain, dest_chain);
-
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			source_chain,
-		)
-		.unwrap();
-
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			dest_chain,
-		)
-		.unwrap();
-
-		let body = vec![0; 100];
-		let request_message =
-			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
-
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
-
-		let initial_relayer_balance = Balances::balance(&relayer_account);
-		let initial_relayer_reputation_asset_balance =
-			Assets::balance(ReputationAssetId::get(), &relayer_account);
-
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![])
-			.unwrap();
-		dbg!(initial_relayer_balance);
-		dbg!(Balances::balance(&relayer_account));
-
-		assert!(Balances::balance(&relayer_account) > initial_relayer_balance);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), body.len() as u32);
-		assert!(
-			Assets::balance(ReputationAssetId::get(), &relayer_account) >
-				initial_relayer_reputation_asset_balance
-		);
-	});
+        // Zero re-disables the mint.
+        MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 0).unwrap();
+        assert_eq!(MintPerByte::<Test>::get(), 0);
+    });
 }
 
 #[test]
-fn test_charge_relayer_when_target_size_is_exceeded() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
-		let treasury_account = TreasuryAccount::get().into_account_truncating();
-		let source_chain = StateMachine::Evm(2000);
-		let dest_chain = StateMachine::Evm(3000);
+fn on_executed_mints_reputation_proportional_to_bytes() {
+    new_test_ext().execute_with(|| {
+        let relayer_pair = sr25519::Pair::from_seed(&[7u8; 32]);
+        let relayer_account = AccountId32::new(relayer_pair.public().0);
+        setup_relayer_and_asset(&relayer_account);
 
-		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(source_chain, dest_chain);
+        let rate: u128 = 3;
+        MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), rate).unwrap();
 
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			source_chain,
-		)
-		.unwrap();
+        let body = vec![0u8; 100];
+        let msg = signed_request(&relayer_pair, body.clone());
+        MessagingRelayerIncentives::on_executed(vec![msg], vec![]).unwrap();
 
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			dest_chain,
-		)
-		.unwrap();
-
-		pallet_messaging_fees::Pallet::<Test>::set_target_message_size(
-			RuntimeOrigin::root(),
-			20000u32,
-		)
-		.unwrap();
-
-		let initial_relayer_balance = Balances::balance(&relayer_account);
-		let initial_bytes_processed = TotalBytesProcessed::<Test>::get();
-		let target_size: u32 = pallet_messaging_fees::TargetMessageSize::<Test>::get().unwrap();
-		TotalBytesProcessed::<Test>::put(target_size + 1);
-
-		let body = vec![0; 100];
-		let request_message =
-			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
-
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
-		let current_relayer_balance = Balances::balance(&relayer_account);
-		dbg!(initial_relayer_balance);
-		dbg!(current_relayer_balance);
-		assert!(current_relayer_balance < initial_relayer_balance);
-		assert!(initial_bytes_processed < TotalBytesProcessed::<Test>::get());
-	});
+        assert_eq!(relayer_balance(&relayer_account), rate * 100);
+    });
 }
+
+/// The bandwidth gate counts a 32-byte minimum even on empty bodies;
+/// the mint follows the same floor so undersized payloads can't sneak
+/// in for free.
 #[test]
-fn test_skip_incentivizing_for_unsupported_route_but_fees_should_still_be_paid() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
-		let treasury_account = TreasuryAccount::get().into_account_truncating();
-		let source_chain = StateMachine::Evm(2000);
-		let dest_chain = StateMachine::Evm(3000);
+fn on_executed_applies_thirty_two_byte_floor() {
+    new_test_ext().execute_with(|| {
+        let relayer_pair = sr25519::Pair::from_seed(&[8u8; 32]);
+        let relayer_account = AccountId32::new(relayer_pair.public().0);
+        setup_relayer_and_asset(&relayer_account);
 
-		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(source_chain, dest_chain);
+        MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 1).unwrap();
 
-		let body = vec![0; 100];
-		let request_message =
-			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
+        let msg = signed_request(&relayer_pair, vec![]);
+        MessagingRelayerIncentives::on_executed(vec![msg], vec![]).unwrap();
 
-		let initial_relayer_balance = Balances::balance(&relayer_account);
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
-		let current_relayer_balance = Balances::balance(&relayer_account);
-
-		assert!(current_relayer_balance < initial_relayer_balance);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 100);
-	});
+        assert_eq!(relayer_balance(&relayer_account), 32);
+    });
 }
 
 #[test]
-fn test_skip_incentivizing_for_invalid_signature() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
-		let evil_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let treasury_account = TreasuryAccount::get().into_account_truncating();
-		let source_chain = StateMachine::Evm(2000);
-		let dest_chain = StateMachine::Evm(3000);
+fn on_executed_does_not_mint_when_rate_is_zero() {
+    new_test_ext().execute_with(|| {
+        let relayer_pair = sr25519::Pair::from_seed(&[9u8; 32]);
+        let relayer_account = AccountId32::new(relayer_pair.public().0);
+        setup_relayer_and_asset(&relayer_account);
 
-		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(source_chain, dest_chain);
+        // MintPerByte defaults to 0.
+        let msg = signed_request(&relayer_pair, vec![0u8; 100]);
+        MessagingRelayerIncentives::on_executed(vec![msg], vec![]).unwrap();
 
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			source_chain,
-		)
-		.unwrap();
-
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			dest_chain,
-		)
-		.unwrap();
-
-		let request_message =
-			create_bad_request_message(source_chain, dest_chain, &relayer_pair, &evil_pair);
-
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
-
-		assert_eq!(Balances::balance(&relayer_account), 1000 * UNIT);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
-	});
+        assert_eq!(relayer_balance(&relayer_account), 0);
+    });
 }
 
 #[test]
-fn test_reward_decreases_as_messages_increase() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let relayer_account: AccountId32 = relayer_pair.public().into();
-		let treasury_account = TreasuryAccount::get().into_account_truncating();
-		let source_chain = StateMachine::Evm(2000);
-		let dest_chain = StateMachine::Evm(3000);
-
-		setup_balances(&relayer_account, &treasury_account);
-		setup_host_params(source_chain, dest_chain);
-
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			source_chain,
-		)
-		.unwrap();
-
-		pallet_messaging_fees::Pallet::<Test>::set_supported_route(
-			RuntimeOrigin::root(),
-			dest_chain,
-		)
-		.unwrap();
-
-		let mut last_reward = u128::MAX;
-		let mut previous_balance = Balances::balance(&relayer_account);
-		let number_of_messages = 5;
-
-		for i in 0..number_of_messages {
-			let body = vec![0; 100];
-			let request_message =
-				create_request_message(source_chain, dest_chain, &relayer_pair, &body);
-			let _ =
-				pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
-
-			let current_balance = Balances::balance(&relayer_account);
-			let reward_received = current_balance.saturating_sub(previous_balance);
-
-			println!(
-				"Message {}: TotalBytes={}, Reward Received={}",
-				i + 1,
-				TotalBytesProcessed::<Test>::get(),
-				reward_received
-			);
-
-			assert!(reward_received < last_reward);
-
-			last_reward = reward_received;
-			previous_balance = current_balance;
-		}
-	});
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Default, Encode, Decode, TypeInfo)]
-pub struct MockOpaqueKeys;
-
-impl OpaqueKeys for MockOpaqueKeys {
-	type KeyTypeIdProviders = ();
-
-	fn key_ids() -> &'static [KeyTypeId] {
-		todo!()
-	}
-
-	fn get_raw(&self, _i: KeyTypeId) -> &[u8] {
-		todo!()
-	}
+fn set_mint_per_byte_requires_admin_origin() {
+    new_test_ext().execute_with(|| {
+        let alice: AccountId32 = AccountId32::new([1u8; 32]);
+        MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::signed(alice), 5)
+            .expect_err("non-admin must be rejected");
+        assert_eq!(MintPerByte::<Test>::get(), 0);
+    });
 }
 
 #[test]
-fn test_on_new_session_resets_state() {
-	new_test_ext().execute_with(|| {
-		TotalBytesProcessed::<Test>::put(500);
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 500);
+fn unsigned_message_does_not_mint() {
+    new_test_ext().execute_with(|| {
+        let relayer_pair = sr25519::Pair::from_seed(&[10u8; 32]);
+        let relayer_account = AccountId32::new(relayer_pair.public().0);
+        setup_relayer_and_asset(&relayer_account);
 
-		pallet_messaging_fees::Pallet::<Test>::reset_incentives();
+        MessagingRelayerIncentives::set_mint_per_byte(RuntimeOrigin::root(), 1).unwrap();
 
-		assert_eq!(TotalBytesProcessed::<Test>::get(), 0);
-	});
+        // Replace the signature bytes with garbage — the pallet must
+        // refuse to mint when it can't recover a relayer.
+        let mut msg = signed_request(&relayer_pair, vec![0u8; 50]);
+        if let Message::Request(ref mut r) = msg.message {
+            r.signer = vec![0u8; 64];
+        }
+        MessagingRelayerIncentives::on_executed(vec![msg], vec![]).unwrap();
+
+        assert_eq!(relayer_balance(&relayer_account), 0);
+    });
 }
 
-#[test]
-fn test_reward_curve_visualization_to_one_megabyte() {
-	new_test_ext().execute_with(|| {
-		const ONE_MEGABYTE: u32 = 1_048_576;
-		const BASE_REWARD: u128 = 1_000_000_000;
-		const TARGET_SIZE: u32 = ONE_MEGABYTE;
-
-		println!("\n--- Reward Curve Visualization ---");
-		println!("Base Reward: {}, Target Size: {} bytes (1 MB)", BASE_REWARD, TARGET_SIZE);
-		println!("{:<20} | {:<20} | {}", "Progress", "Total Bytes", "Calculated Reward");
-		println!("{:-<22}|{:-<22}|{:-<22}", "", "", "");
-
-		let mut last_reward = u128::MAX;
-
-		for i in 0..=10 {
-			let percentage = i * 10;
-			let total_bytes = (TARGET_SIZE as u64 * percentage as u64 / 100) as u32;
-
-			let reward = pallet_messaging_fees::Pallet::<Test>::calculate_reward(
-				total_bytes,
-				TARGET_SIZE,
-				BASE_REWARD,
-			)
-			.unwrap();
-
-			println!("{:<20} | {:<20} | {}", format!("{}%", percentage), total_bytes, reward);
-
-			assert!(reward <= last_reward);
-			last_reward = reward;
-		}
-	});
-}
-
-#[test]
-fn test_protocol_fee_accumulation() {
-	new_test_ext().execute_with(|| {
-		let relayer_pair = sr25519::Pair::from_seed(&H256::random().0);
-		let source_chain = StateMachine::Substrate(*b"dock");
-		let dest_chain = StateMachine::Evm(1000);
-		let request = PostRequest {
-			source: source_chain,
-			dest: dest_chain,
-			nonce: 0,
-			from: vec![1; 32],
-			to: vec![2; 32],
-			timeout_timestamp: 100,
-			body: vec![0; 100],
-		};
-		let commitment = hash_request::<<Test as pallet_messaging_fees::Config>::IsmpHost>(
-			&Request::Post(request.clone()),
-		);
-		let body = vec![0; 100];
-		let request_message =
-			create_request_message(source_chain, dest_chain, &relayer_pair, &body);
-		let fee = 1_000_000u128;
-
-		setup_host_params(source_chain, dest_chain);
-
-		pallet_messaging_fees::Pallet::<Test>::note_request_fee(commitment, fee);
-		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_some());
-
-		let _ = pallet_messaging_fees::Pallet::<Test>::on_executed(vec![request_message], vec![]);
-
-		assert!(pallet_messaging_fees::CommitmentFees::<Test>::get(commitment).is_none());
-
-		let relayer_address: Vec<u8> = relayer_pair.public().0.into();
-		let expected_fee_u256 = U256::from(fee);
-		assert_eq!(
-			pallet_ismp_relayer::Fees::<Test>::get(source_chain, relayer_address),
-			expected_fee_u256
-		);
-	});
-}

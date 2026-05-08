@@ -96,44 +96,90 @@ endpoint.setEidMapping(30184, StateMachine.evm(8453));
 </Step>
 </Steps>
 
-## Migrating an OFT
+## Using with an OFT
 
-To migrate an existing OFT from LayerZero to Hyperbridge:
+### New Deployments
 
-<Steps>
-<Step>
-### Point the OFT to the adapter
-
-Update the OFT's endpoint address to the `HyperbridgeLzEndpoint` deployment. For OFTs using the standard `OApp` base, this is set in the constructor or via `setEndpoint()`.
-</Step>
-<Step>
-### Set peers
-
-Configure the OFT's peers as usual via `setPeer(dstEid, peerAddress)`. The adapter handles routing — the OFT doesn't need to know about ISMP.
-</Step>
-<Step>
-### Send as normal
-
-The OFT's `send()` call goes through the adapter transparently:
+Pass the `HyperbridgeLzEndpoint` address as the endpoint in the OFT constructor:
 
 ```solidity lineNumbers
-// This works exactly the same as with the standard LZ endpoint
-oft.send(
-    SendParam({
-        dstEid: 30110,                          // Arbitrum
-        to: bytes32(uint256(uint160(recipient))),
-        amountLD: 1 ether,
-        minAmountLD: 1 ether,
-        extraOptions: "",
-        composeMsg: "",
-        oftCmd: ""
-    }),
-    MessagingFee({nativeFee: quotedFee, lzTokenFee: 0}),
+import {OFT} from "@layerzerolabs/oft-evm/contracts/OFT.sol";
+
+OFT oft = new OFT(
+    "My Token",
+    "MTK",
+    address(hyperbridgeLzEndpoint), // use adapter instead of LZ endpoint
     msg.sender
 );
 ```
+
+Then configure peers as usual via `setPeer(dstEid, peerAddress)`. The adapter handles routing transparently — the OFT doesn't need to know about ISMP.
+
+### Migrating Existing Proxy Deployments
+
+For OFTs deployed behind an upgradeable proxy (e.g. UUPS or TransparentProxy), you can migrate to Hyperbridge by upgrading the implementation to one that points to the `HyperbridgeLzEndpoint`. The storage layout is unchanged — the only difference in the new implementation is the endpoint address passed to the constructor, which is stored as an immutable and lives in bytecode, not storage:
+
+<Steps>
+<Step>
+### Deploy a new implementation
+
+Deploy a new OFT implementation that uses the `HyperbridgeLzEndpoint` as its endpoint:
+
+```solidity lineNumbers
+OFTUpgradeable newImpl = new OFTUpgradeable(address(hyperbridgeLzEndpoint));
+```
+</Step>
+<Step>
+### Upgrade the proxy
+
+Upgrade the proxy to the new implementation. For UUPS proxies:
+
+```solidity lineNumbers
+proxy.upgradeToAndCall(address(newImpl), "");
+```
+
+For TransparentProxy:
+
+```solidity lineNumbers
+ProxyAdmin(proxyAdmin).upgradeAndCall(proxy, address(newImpl), "");
+```
+</Step>
+<Step>
+### Update peers
+
+Re-configure peers to point to the `HyperbridgeLzEndpoint` deployments on each chain:
+
+```solidity lineNumbers
+OFT(proxy).setPeer(dstEid, peerAddress);
+```
 </Step>
 </Steps>
+
+## Using with an OApp
+
+The same approach works for any OApp, not just OFTs.
+
+### New Deployments
+
+Pass the `HyperbridgeLzEndpoint` as the endpoint in the OApp constructor:
+
+```solidity lineNumbers
+import {OApp} from "@layerzerolabs/oapp-evm/contracts/oapp/OApp.sol";
+
+contract MyOApp is OApp {
+    constructor(address endpoint, address owner) OApp(endpoint, owner) {}
+
+    // your cross-chain logic
+}
+
+MyOApp app = new MyOApp(address(hyperbridgeLzEndpoint), msg.sender);
+```
+
+All `_lzSend()` calls from your OApp will route through Hyperbridge automatically. Incoming messages arrive via `_lzReceive()` as usual.
+
+### Migrating Existing Proxy Deployments
+
+Same as OFTs — the endpoint is an immutable in bytecode, so deploy a new implementation with the adapter address and upgrade the proxy. Storage layout is unchanged.
 
 ## Related
 

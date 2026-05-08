@@ -37,13 +37,13 @@ jobs:
     check-evm:
         name: Check EVM Contracts
         runs-on: ubuntu-latest
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request_target.draft != true
         steps:
             - uses: actions/checkout@v3
               with:
                   submodules: recursive
                   token: ${{ secrets.GH_TOKEN }}
-                  ref: ${{ github.event.pull_request.head.sha }}
+                  ref: ${{ github.event.pull_request_target.head.sha }}
 
             - uses: pnpm/action-setup@v2
               with:
@@ -79,13 +79,13 @@ jobs:
     integration-tests-rust:
         name: Rust Integration Tests (revm)
         runs-on: ubuntu-latest
-        if: github.event.pull_request.draft != true
+        if: github.event.pull_request_target.draft != true
         steps:
             - uses: actions/checkout@v3
               with:
                   submodules: recursive
                   token: ${{ secrets.GH_TOKEN }}
-                  ref: ${{ github.event.pull_request.head.sha }}
+                  ref: ${{ github.event.pull_request_target.head.sha }}
 
             - uses: pnpm/action-setup@v2
               with:

@@ -55,6 +55,7 @@
 		"test:intent-gateway": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/intentGateway.test.ts",
 		"test:intents-coprocessor": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/intentsCoprocessor.test.ts",
 		"test:token-gateway": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/tokenGateway.test.ts",
+		"test:hyper-fungible-token": "vitest --watch=false --dangerouslyIgnoreUnhandledErrors --sequence.concurrent=false ./src/tests/sequential/hyperFungibleToken.test.ts",
 		"test:evm-substrate": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/evm-substrate.test.ts",
 		"test:token-list": "vitest --watch=false --sequence.concurrent=false ./src/tests/sequential/tokenList.test.ts",
 		"test:watch": "vitest --exclude=./src/tests/sequential",

@@ -554,7 +554,7 @@ You can make your users self-relay responses or run a server which relays respon
 
 Timeouts are optional for GET requests and typically unnecessary for most applications. However, if your use case requires time-sensitive data, you can specify a non-zero `timeout` period—any requests that exceed this duration will be **rejected** during processing.
 
-Like [POST request timeouts](/developers/evm/dispatching/post-requests#timeouts), GET request timeouts require a cryptographic proof from the destination chain showing the timeout period has elapsed. Anyone can submit the timeout proof by calling [`IHandler.handleGetRequestTimeouts()`](/developers/evm/api/ihandler#handlegettimeouttimeouts). Unlike POST requests, GET requests don't have relayer fees, so there are no refunds to process on timeout.
+Like [POST request timeouts](/developers/evm/messaging/post-requests#timeouts), GET request timeouts require a cryptographic proof from the destination chain showing the timeout period has elapsed. Anyone can submit the timeout proof by calling [`IHandler.handleGetRequestTimeouts()`](/developers/evm/api/ihandler#handlegettimeouttimeouts). Unlike POST requests, GET requests don't have relayer fees, so there are no refunds to process on timeout.
 
 The timeout is specified in seconds when dispatching the GET request:
 

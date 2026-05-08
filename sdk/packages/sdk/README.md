@@ -141,103 +141,195 @@ const hyperbridge = new SubstrateChain({
 const proof = await hyperbridge.queryStateProof(blockNumber, keys)
 ```
 
-### TokenGateway - Cross-Chain Token Transfers
+### HyperFungibleToken - Cross-Chain Token Transfers
 
-The TokenGateway class provides methods for estimating fees and managing cross-chain token teleports via Hyperbridge. Supports both EVM and Substrate chains as destination.
+The `HyperFungibleToken` class provides a generator-based flow for bridging tokens cross-chain via Hyperbridge. It supports both `HyperFungibleToken` (burn/mint) and `WrappedHyperFungibleToken` (lock/unlock) contracts, with automatic type detection via ERC165.
+
+#### Setup
 
 ```ts
-import { TokenGateway, EvmChain, SubstrateChain } from "@hyperbridge/sdk"
-import { keccak256, toHex, pad, parseEther } from "viem"
+import {
+	HyperFungibleToken,
+	IsmpClient,
+	createQueryClient,
+	EvmChain,
+	SubstrateChain
+} from "@hyperbridge/sdk"
+import { parseEther } from "viem"
 
-// Create chain instances
-const sourceChain = new EvmChain({
-	chainId: 97, // BSC Testnet
-	rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
-	host: "0x...", // IsmpHost contract address
-	consensusStateId: "BSC0"
-})
+// EvmChain.create auto-detects chain ID and resolves the IsmpHost address
+const source = await EvmChain.create("https://data-seed-prebsc-1-s1.binance.org:8545")
+const dest = await EvmChain.create("https://rpc-amoy.polygon.technology")
 
-const destChain = new EvmChain({
-	chainId: 10200, // Gnosis Chiado
-	rpcUrl: "https://rpc.chiadochain.net",
-	host: "0x...", // IsmpHost contract address
-	consensusStateId: "GNO0"
-})
-
-// Initialize TokenGateway (destination can be EvmChain or SubstrateChain)
-const tokenGateway = new TokenGateway({
-	source: sourceChain,
-	dest: destChain // EvmChain or SubstrateChain
-})
-
-// Estimate fees for a teleport
-const assetId = keccak256(toHex("USDC")) // Asset identifier
-const recipientAddress = pad("0xRecipientAddress", { size: 32 })
-
-const teleportParams = {
-	amount: parseEther("100"), // Amount to teleport
-	assetId: assetId,
-	redeem: true, // Redeem as ERC20 on destination
-	to: recipientAddress,
-	dest: "EVM-10200", // Destination chain
-	timeout: 3600n, // Timeout in seconds
-	data: "0x" // Optional call data
-}
-
-// Get native cost estimate (protocol + relayer fees)
-// For EVM destination chains, the relayer fee is automatically estimated by:
-// 1. Creating a dummy post request with 191 bytes of random data
-// 2. Estimating gas for delivery on the destination chain
-// 3. Converting gas cost to native tokens and adding 1% buffer
-// 4. Converting relayer fee to source fee token using getAmountsOut
-// For Substrate destination chains, relayer fee is set to zero
-// Returns: totalNativeCost (protocol fee with 1% buffer) and relayerFeeInSourceFeeToken
-const { totalNativeCost, relayerFeeInSourceFeeToken } = await tokenGateway.quoteNative(teleportParams)
-console.log(`Total native cost: ${totalNativeCost} wei`)
-console.log(`Relayer fee in fee token: ${relayerFeeInSourceFeeToken}`)
-
-// Example with Substrate destination
-const substrateDestChain = new SubstrateChain({
-	stateMachineId: "KUSAMA-4009",
-	wsUrl: "wss://gargantua.polytope.technology",
-	hasher: "Keccak",
-	consensusStateId: "PAS0"
-})
-
-const tokenGatewayToSubstrate = new TokenGateway({
-	source: sourceChain,
-	dest: substrateDestChain // SubstrateChain destination
-})
-
-// For Substrate destinations, relayer fee will be 0
-const { totalNativeCost: substrateCost, relayerFeeInSourceFeeToken: substrateRelayerFee } = 
-	await tokenGatewayToSubstrate.quoteNative({
-		amount: parseEther("100"),
-		assetId: assetId,
-		redeem: true,
-		to: recipientAddress,
-		dest: "KUSAMA-4009",
-		timeout: 3600n
-	})
-console.log(`Substrate destination - Native cost: ${substrateCost} wei`)
-console.log(`Substrate destination - Relayer fee: ${substrateRelayerFee}`) // Will be 0
-
-// Get token addresses
-const erc20Address = await tokenGateway.getErc20Address(assetId)
-const erc6160Address = await tokenGateway.getErc6160Address(assetId)
-
-// Get gateway parameters
-const params = await tokenGateway.getParams()
-console.log(`Host: ${params.host}, Dispatcher: ${params.dispatcher}`)
+const hft = new HyperFungibleToken({ source, dest })
 ```
 
-**TokenGateway Methods:**
+#### Detect Token Type
 
-- `quoteNative(params)` - Estimate native token cost for a teleport operation. For EVM destination chains, the relayer fee is automatically estimated by generating a dummy post request with 191 bytes of random data, estimating gas on the destination chain, converting to native tokens, and adding a 1% buffer to the relayer fee. The relayer fee is then converted to source chain fee token using Uniswap V2's `getAmountsOut`. For Substrate destinations, relayer fee is set to zero. Returns an object with `totalNativeCost` (relayer fee + protocol fee, both with 1% buffers) and `relayerFeeInSourceFeeToken` (relayer fee converted to source chain fee token).
-- `getErc20Address(assetId)` - Get the ERC20 contract address for an asset
-- `getErc6160Address(assetId)` - Get the ERC6160 (hyper-fungible) contract address for an asset
-- `getInstanceAddress(destination)` - Get the TokenGateway address on the destination chain
-- `getParams()` - Get the TokenGateway contract parameters (host and dispatcher addresses)
+```ts
+/* Returns true for WrappedHyperFungibleToken contracts (ERC165) */
+const isWrapped = await hft.isWrapped(tokenAddress)
+```
+
+#### Quote Fees
+
+```ts
+const fee = await hft.quote({
+	token: "0x...",       // HFT or WrappedHFT contract address
+	from: senderAddress,
+	to: recipientAddress, // 20-byte EVM or 32-byte substrate address
+	amount: parseEther("100"),
+	dest: "EVM-80002",   // Destination state machine ID
+})
+
+console.log(fee.totalNativeCost)       // msg.value needed (native token)
+console.log(fee.totalFeeTokenCost)     // equivalent in host fee token
+console.log(fee.relayerFeeInFeeToken)  // relayer fee component
+```
+
+Fee estimation works by:
+1. Estimating gas cost for message delivery on the destination chain
+2. Converting dest gas cost to dest fee token via Uniswap
+3. Scaling decimals between source and dest fee tokens
+4. Calling the on-chain `quote()` / `quoteNative()` methods
+
+#### Bridge Tokens
+
+The `bridge()` method returns an async generator that yields steps for the caller to execute:
+
+```ts
+const gen = hft.bridge({
+	token: "0x...",
+	from: account.address,
+	to: recipientAddress,
+	amount: parseEther("1"),
+	dest: "EVM-80002",
+	timeout: 3600n,           // optional, default 3600s
+	payInFeeToken: false,     // optional, default false (pay in native)
+	relayerFee: undefined,    // optional, override relayer fee (0n for self-relay)
+})
+
+let result = await gen.next()
+
+while (!result.done) {
+	const step = result.value
+
+	if (step.type === "approve") {
+		/* ERC20 approval needed (WrappedHFT or feeToken) */
+		const hash = await walletClient.sendTransaction({
+			to: step.tx.to,
+			data: step.tx.data,
+		})
+		await publicClient.waitForTransactionReceipt({ hash })
+		result = await gen.next()
+		continue
+	}
+
+	if (step.type === "send") {
+		/* The cross-chain send transaction */
+		const hash = await walletClient.sendTransaction({
+			to: step.tx.to,
+			data: step.tx.data,
+			value: step.tx.value,
+		})
+		result = await gen.next(hash) // resume with tx hash
+		continue
+	}
+
+	if (step.type === "submitted") {
+		console.log("Commitment:", step.commitment)
+		result = await gen.next()
+		continue
+	}
+
+	if (step.type === "status") {
+		console.log("Status:", step.status)
+		/* Statuses: SOURCE_FINALIZED → HYPERBRIDGE_DELIVERED →
+		   HYPERBRIDGE_FINALIZED → DESTINATION */
+		if (step.status === "DESTINATION") break
+		result = await gen.next()
+		continue
+	}
+
+	result = await gen.next()
+}
+```
+
+#### Generator Steps
+
+| Step | Description |
+|------|-------------|
+| `approve` | ERC20 approval tx. Yielded for WrappedHFT (underlying token) or when `payInFeeToken` is true (fee token). Only if current allowance is insufficient. |
+| `send` | The cross-chain send tx. Resume the generator with the submitted tx hash. |
+| `submitted` | Emitted after the send tx is mined. Contains the ISMP `commitment` hash. |
+| `status` | ISMP request lifecycle updates. Only yielded if `client` was provided. |
+
+#### Tracking with IsmpClient
+
+To receive status updates after submission, provide an `IsmpClient`:
+
+```ts
+const hyperbridge = await SubstrateChain.connect({
+	wsUrl: "wss://gargantua.rpc.polytope.technology",
+	consensusStateId: "PAS0",
+	hasher: "Keccak",
+	stateMachineId: "KUSAMA-4009",
+})
+
+const queryClient = createQueryClient({
+	url: "https://gargantua.indexer.polytope.technology",
+})
+
+const ismpClient = new IsmpClient({
+	queryClient,
+	source,
+	dest,
+	hyperbridge,
+	pollInterval: 5_000,
+})
+
+const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
+```
+
+Without `client`, the generator terminates after the `submitted` step.
+
+#### Self-Relay
+
+Set `relayerFee: 0n` and handle the `HYPERBRIDGE_FINALIZED` status to submit the proof calldata yourself:
+
+```ts
+const gen = hft.bridge({
+	token: "0x...",
+	from: account.address,
+	to: account.address,
+	amount: parseEther("1"),
+	dest: "EVM-80002",
+	relayerFee: 0n,
+	payInFeeToken: true,
+})
+
+/* ... handle approve/send/submitted steps ... */
+
+if (step.type === "status" && step.status === "HYPERBRIDGE_FINALIZED") {
+	const { calldata } = step.metadata
+	/* Submit calldata to the dest chain's handler contract */
+	const hostParams = await destPublicClient.readContract({
+		address: destHostAddress,
+		abi: evmHostABI,
+		functionName: "hostParams",
+	})
+	await destWalletClient.sendTransaction({
+		to: hostParams.handler,
+		data: calldata,
+	})
+}
+```
+
+**HyperFungibleToken Methods:**
+
+- `isWrapped(tokenAddress)` - Detect whether a token is a WrappedHyperFungibleToken via ERC165
+- `quote(params)` - Quote the cross-chain fee. Returns `{ totalNativeCost, totalFeeTokenCost, relayerFeeInFeeToken }`
+- `bridge(params)` - Async generator that yields `approve`, `send`, `submitted`, and `status` steps
 
 ## Vite Integration
 
@@ -268,18 +360,20 @@ The plugin automatically copies the necessary WebAssembly files to the correct l
 ### Classes
 
 - **IsmpClient** - Main client for tracking ISMP requests via the indexer
+- **HyperFungibleToken** - Generator-based cross-chain token bridging with fee quoting and ISMP status tracking
 - **IntentGateway** - Cross-chain intent order placement and status tracking (pair with `withQueryClient(queryClient)` for indexer-backed order status)
-- **TokenGateway** - Cross-chain token transfers and teleport status tracking (pair with `withQueryClient(queryClient)` for indexer-backed teleport status)
 - **EvmChain** - Utilities for EVM chain interaction
 - **SubstrateChain** - Utilities for Substrate chain interaction
-- **TokenGateway** - Utilities for cross-chain token transfers and fee estimation
 
 ### Types
 
 - RequestStatus - Enum of possible request statuses
 - TimeoutStatus - Enum of possible timeout statuses
+- BridgeParams - Parameters for `HyperFungibleToken.bridge()` and `quote()`
+- BridgeStep - Union type yielded by the bridge generator
+- QuoteResult - Fee quote returned by `HyperFungibleToken.quote()`
 - HexString - Type for hex-encoded strings
 
 ### Examples
 
-See the tests [directory](/packages/sdk/src/tests/postRequest.test.ts) for complete examples.
+See the [HyperFungibleToken tests](/packages/sdk/src/tests/hyperFungibleToken.test.ts) and [request tracking tests](/packages/sdk/src/tests/sequential/requests.test.ts) for complete examples.

@@ -18,7 +18,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
+import {IHyperFungibleToken} from "../interfaces/IHyperFungibleToken.sol";
 import {PostRequest} from "../libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "../interfaces/IDispatcher.sol";
 import {IncomingPostRequest} from "../interfaces/IApp.sol";
@@ -39,7 +41,7 @@ import {HyperApp} from "./HyperApp.sol";
  * Supports optional calldata execution on the destination chain via CallDispatcher,
  * enabling composable cross-chain interactions (e.g., transfer-and-swap).
  */
-contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
+contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
     /**
      * @title SendParams
      * @notice Parameters for initiating a cross-chain token transfer
@@ -142,11 +144,12 @@ contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
     event Refunded(address to, uint256 amount);
 
     /**
-     * @notice Initializes the token with a name, symbol, and sets the deployer as owner
+     * @notice Initializes the token with a name, symbol, and owner
      * @param name The name of the token
      * @param symbol The symbol of the token
+     * @param initialOwner The address that will own this contract
      */
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) Ownable(msg.sender) {}
+    constructor(string memory name, string memory symbol, address initialOwner) ERC20(name, symbol) Ownable(initialOwner) {}
 
     /**
      * @notice Returns the ISMP host address for this chain
@@ -302,5 +305,20 @@ contract HyperFungibleToken is ERC20, HyperApp, Ownable, Pausable {
         assembly {
             addr := mload(add(b, 20))
         }
+    }
+
+    /// @notice Pauses ERC20 transfers
+    function transfer(address to, uint256 value) public override whenNotPaused returns (bool) {
+        return super.transfer(to, value);
+    }
+
+    /// @notice Pauses ERC20 transferFrom
+    function transferFrom(address from, address to, uint256 value) public override whenNotPaused returns (bool) {
+        return super.transferFrom(from, to, value);
+    }
+
+    /// @notice ERC165 interface detection
+    function supportsInterface(bytes4 interfaceId) public view override(ERC165) returns (bool) {
+        return interfaceId == type(IHyperFungibleToken).interfaceId || super.supportsInterface(interfaceId);
     }
 }

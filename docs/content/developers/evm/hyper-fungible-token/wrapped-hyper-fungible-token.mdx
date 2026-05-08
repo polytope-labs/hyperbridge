@@ -1,0 +1,135 @@
+---
+title: WrappedHyperFungibleToken
+description: Deploying and configuring lock/unlock WrappedHyperFungibleToken contracts on the home chain.
+---
+
+# WrappedHyperFungibleToken
+
+Deploy this on the token's **home chain** where the canonical ERC20 supply lives. The wrapper custodies the underlying token without minting any new supply — it locks tokens when users bridge out and unlocks them when users bridge back. No pre-funding is required.
+
+For WETH wrappers (`isWeth = true`), users can send native ETH/BNB directly via `msg.value` and the contract wraps it automatically. On receive, the contract unwraps WETH and sends native tokens to the recipient. On timeout, the contract unwraps and refunds native tokens.
+
+## Deployment
+
+<Steps>
+<Step>
+### Deploy with CREATE2
+
+```solidity lineNumbers
+import {WrappedHyperFungibleToken} from "@hyperbridge/core/apps/WrappedHyperFungibleToken.sol";
+
+bytes32 salt = keccak256("my-token-v1");
+WrappedHyperFungibleToken wrapper = new WrappedHyperFungibleToken{salt: salt}(msg.sender);
+```
+</Step>
+<Step>
+### Configure
+
+Set the ISMP host, CallDispatcher, the underlying ERC20 token, and whether it's a WETH contract. The host address is immutable after the first `configure` call.
+
+```solidity lineNumbers
+import {IWrappedHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+IWrappedHyperFungibleToken(address(wrapper)).configure(
+    IWrappedHyperFungibleToken.WrappedConfigOptions({
+        host: ISMP_HOST_ADDRESS,
+        dispatcher: CALL_DISPATCHER_ADDRESS,
+        underlying: USDC_ADDRESS,
+        isWeth: false
+    })
+);
+```
+
+Find the `IsmpHost` address for your chain on the [contract addresses](/developers/evm/contract-addresses/mainnet) page. Existing `CallDispatcher` deployments are also listed there.
+
+**WETH example:**
+
+```solidity lineNumbers
+IWrappedHyperFungibleToken(address(wrapper)).configure(
+    IWrappedHyperFungibleToken.WrappedConfigOptions({
+        host: ISMP_HOST_ADDRESS,
+        dispatcher: CALL_DISPATCHER_ADDRESS,
+        underlying: WETH_ADDRESS,
+        isWeth: true
+    })
+);
+```
+</Step>
+<Step>
+### Register peer chains
+
+Each contract must know the address of its peer on every destination chain. **Both sides must register each other** — this is how the contracts verify the authenticity of incoming cross-chain messages.
+
+```solidity lineNumbers
+import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
+import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+// Register the HFT peer on Arbitrum
+IHyperFungibleToken(address(wrapper)).addChain(
+    StateMachine.evm(42161),
+    abi.encodePacked(arbitrumHftAddress)
+);
+```
+
+For substrate chain peers, the module ID is the pallet's 8-byte ID:
+
+```solidity lineNumbers
+IHyperFungibleToken(address(wrapper)).addChain(
+    StateMachine.polkadot(paraId),
+    abi.encodePacked(bytes8("pall_hft"))
+);
+```
+</Step>
+</Steps>
+
+## Sending Tokens
+
+### ERC20 Mode
+
+Users approve the wrapper then call `send()`:
+
+```solidity lineNumbers
+import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
+
+// Approve the underlying token
+IERC20(underlying).approve(address(wrapper), amount);
+
+// Lock tokens and dispatch cross-chain transfer
+IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(
+    IHyperFungibleToken.SendParams({
+        dest: StateMachine.evm(42161),
+        to: abi.encodePacked(recipientAddress),
+        amount: 1 ether,
+        timeout: 3600,
+        relayerFee: relayerFee,
+        data: ""
+    })
+);
+```
+
+### WETH Mode
+
+When `isWeth = true`, users send native ETH/BNB via `msg.value`. The value must cover both the token amount and the native fee:
+
+```solidity lineNumbers
+// msg.value = amount + nativeFee
+// The contract wraps `amount` via WETH.deposit() and forwards the remainder as fee payment
+IHyperFungibleToken(address(wrapper)).send{value: amount + nativeFee}(
+    IHyperFungibleToken.SendParams({
+        dest: StateMachine.evm(42161),
+        to: abi.encodePacked(recipientAddress),
+        amount: 1 ether,
+        timeout: 3600,
+        relayerFee: relayerFee,
+        data: ""
+    })
+);
+```
+
+To pay fees in fee token instead of native in WETH mode, set `msg.value = amount` (just the wrap amount, no fee surplus).
+
+## Related
+
+- [API Reference](/developers/evm/api/wrapped-hyper-fungible-token) — Full method signatures
+- [HyperFungibleToken](/developers/evm/hyper-fungible-token/hyper-fungible-token) — Burn/mint token for remote chains
+- [Overview](/developers/evm/hyper-fungible-token/overview) — Architecture, message format, and security model

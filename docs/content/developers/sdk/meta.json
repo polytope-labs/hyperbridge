@@ -1,10 +1,11 @@
 {
-    "title": "Hyperbridge SDK",
+    "title": "Typescript SDK",
     "pages": [
         "overview",
         "getting-started",
         "vite-integration",
-         "tracking",
+        "hyper-fungible-token",
+        "tracking",
         "api"
     ]
 }

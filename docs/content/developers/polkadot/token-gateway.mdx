@@ -1,9 +1,13 @@
 ---
-title: Token Gateway
-description: An ISMP module that allows standalone chains or parachains to send and receive cross-chain asset transfers.
+title: Token Gateway (Deprecated)
+description: Deprecated — use pallet-hyper-fungible-token instead.
 ---
 
-# Pallet Token Gateway
+# Pallet Token Gateway (Deprecated)
+
+<Callout type="warn">
+**Token Gateway has been deprecated.** It has been replaced by [pallet-hyper-fungible-token](/developers/polkadot/hyper-fungible-token) — each token is its own bridge application, with no governance overhead, no shared custody pool, and no token-governor.
+</Callout>
 
 This is an ISMP module that allows standalone chains or parachains to send and receive cross-chain asset transfers. It handles locking/burning assets on the source chain, dispatching cross-chain requests via ISMP, and minting/unlocking assets on the destination chain.
 

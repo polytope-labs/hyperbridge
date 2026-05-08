@@ -86,7 +86,7 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
     /// @notice Compose message queue: keccak256(from, to, guid, index) => keccak256(message)
     mapping(bytes32 => bytes32) internal _composeQueue;
 
-    constructor() Ownable(msg.sender) {}
+    constructor(address initialOwner) Ownable(initialOwner) {}
 
     // ==================== Configuration ====================
 

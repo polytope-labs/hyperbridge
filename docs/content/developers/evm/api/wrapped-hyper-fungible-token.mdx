@@ -1,0 +1,245 @@
+---
+title: IWrappedHyperFungibleToken
+description: API reference for the WrappedHyperFungibleToken contract — cross-chain wrapper for existing ERC20 tokens.
+---
+
+# IWrappedHyperFungibleToken
+
+A cross-chain wrapper for existing ERC20 tokens. Locks the underlying token on the source chain and unlocks on the destination. Also supports native token wrapping via WETH.
+
+Extends [IHyperFungibleToken](/developers/evm/api/hyper-fungible-token) — inherits `send`, `addChain`, `removeChain`, `pause`, `unpause`, and all view functions.
+
+```solidity lineNumbers
+contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable
+```
+
+**ERC165 Interface ID:** `0xe23d9765`
+
+## Constructor
+
+```solidity lineNumbers
+constructor(address initialOwner)
+```
+
+Takes the contract owner address. The underlying token and other settings are configured via `configure()`.
+
+---
+
+## configure(options)
+
+Sets the ISMP host, CallDispatcher, underlying token, and WETH flag. The host address can only be set once.
+
+```solidity lineNumbers
+function configure(WrappedConfigOptions calldata options) external onlyOwner
+```
+
+```solidity lineNumbers
+struct WrappedConfigOptions {
+    address host;       // ISMP host contract address
+    address dispatcher; // CallDispatcher for executing calldata on receive
+    address underlying; // The ERC20 token to wrap
+    bool isWeth;        // Whether the underlying is a WETH contract
+}
+```
+
+---
+
+## send(params)
+
+Locks underlying tokens and dispatches a cross-chain transfer. Uses the same `SendParams` struct as [IHyperFungibleToken](/developers/evm/api/hyper-fungible-token).
+
+```solidity lineNumbers
+function send(SendParams calldata params) external payable whenNotPaused
+```
+
+**WETH mode (`isWeth = true`):** If `msg.value >= params.amount`, wraps the native tokens via WETH deposit. The remainder of `msg.value` after wrapping is forwarded as native fee payment.
+
+**ERC20 mode (`isWeth = false`):** Pulls `params.amount` of the underlying token from `msg.sender` via `safeTransferFrom`. The caller must approve this contract first.
+
+---
+
+## onAccept(incoming)
+
+Called by the ISMP host when a cross-chain transfer arrives. Verifies the source and releases the underlying tokens to the recipient. For WETH wrappers (`isWeth = true`), unwraps WETH and sends native ETH/BNB. For standard ERC20 wrappers, transfers the underlying token directly.
+
+```solidity lineNumbers
+function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenNotPaused
+```
+
+---
+
+## onPostRequestTimeout(request)
+
+Called when a sent message times out. For WETH: unwraps and sends native tokens. For ERC20: transfers the underlying back to the sender.
+
+```solidity lineNumbers
+function onPostRequestTimeout(PostRequest calldata request) external onlyHost whenNotPaused
+```
+
+---
+
+## underlying()
+
+Returns the address of the underlying ERC20 token being wrapped.
+
+```solidity lineNumbers
+function underlying() public view returns (address)
+```
+
+---
+
+## isWeth()
+
+Returns whether the underlying token is a WETH contract. When `true`, the contract accepts native ETH via `msg.value` and handles unwrapping on timeout refunds.
+
+```solidity lineNumbers
+function isWeth() public view returns (bool)
+```
+
+---
+
+## supportsInterface(interfaceId)
+
+ERC165 interface detection. Returns `true` for `IWrappedHyperFungibleToken` (`0xe23d9765`) and `IERC165`.
+
+```solidity lineNumbers
+function supportsInterface(bytes4 interfaceId) public view returns (bool)
+```
+
+---
+
+## host()
+
+Returns the ISMP host contract address for this chain.
+
+```solidity lineNumbers
+function host() public view returns (address)
+```
+
+---
+
+## dispatcher()
+
+Returns the CallDispatcher contract address used for executing calldata on receive.
+
+```solidity lineNumbers
+function dispatcher() public view returns (address)
+```
+
+---
+
+## supportedChain(chainId)
+
+Returns the peer module ID registered for a given chain. An empty result means the chain is not supported.
+
+```solidity lineNumbers
+function supportedChain(bytes calldata chainId) public view returns (bytes memory)
+```
+
+---
+
+## addChain(chainId, moduleId)
+
+Registers a peer contract on a destination chain. Only callable by the contract owner.
+
+```solidity lineNumbers
+function addChain(bytes calldata chainId, bytes calldata moduleId) external onlyOwner
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `chainId` | `bytes` | Destination chain ID (e.g., `StateMachine.evm(42161)`) |
+| `moduleId` | `bytes` | The peer contract address on that chain. 20 bytes for EVM, 8 bytes for substrate pallet. |
+
+---
+
+## removeChain(chainId)
+
+Removes a chain from the supported set. Transfers to/from this chain will revert after removal. Only callable by the contract owner.
+
+```solidity lineNumbers
+function removeChain(bytes calldata chainId) external onlyOwner
+```
+
+---
+
+## pause()
+
+Pauses all cross-chain operations. Only callable by the contract owner.
+
+```solidity lineNumbers
+function pause() external onlyOwner
+```
+
+---
+
+## unpause()
+
+Resumes all operations after a pause. Only callable by the contract owner.
+
+```solidity lineNumbers
+function unpause() external onlyOwner
+```
+
+---
+
+## quote(request)
+
+Returns the fee in the host's fee token for dispatching a cross-chain send. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+
+```solidity lineNumbers
+function quote(DispatchPost memory request) public view returns (uint256)
+```
+
+---
+
+## quoteNative(request)
+
+Returns the fee in the native token (e.g. ETH) for dispatching a cross-chain send. Uses the host's Uniswap V2 router to convert from fee token to native. Inherited from [HyperApp](/developers/evm/api/hyperapp).
+
+```solidity lineNumbers
+function quoteNative(DispatchPost memory request) public view returns (uint256)
+```
+
+---
+
+## Events
+
+Events emitted by the `WrappedHyperFungibleToken` contract.
+
+#### Sent
+
+Emitted when underlying tokens are locked and a cross-chain transfer is dispatched.
+
+```solidity lineNumbers
+event Sent(address from, bytes to, string dest, uint256 amount, bytes32 commitment);
+```
+---
+
+#### Received
+
+Emitted when underlying tokens are unlocked from an incoming cross-chain transfer.
+
+```solidity lineNumbers
+event Received(bytes from, address to, string source, uint256 amount);
+```
+---
+
+#### Refunded
+
+Emitted when underlying tokens are returned after a cross-chain transfer times out.
+
+```solidity lineNumbers
+event Refunded(address to, uint256 amount);
+```
+
+---
+
+## Errors
+
+| Error | Description |
+|-------|-------------|
+| `InvalidAddress(uint256 length)` | Provided bytes too short to extract a 20-byte address |
+| `UnsupportedChain()` | Destination or source chain not registered via `addChain` |
+| `UnauthorizedSource()` | Incoming message's source address doesn't match the registered peer |
+| `TransferFailed()` | Native ETH transfer failed during WETH timeout refund |

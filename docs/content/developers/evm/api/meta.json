@@ -8,6 +8,9 @@
         "iconsensus",
         "iapp",
         "hyperapp",
+        "wrapped-hyper-fungible-token",
+        "hyper-fungible-token",
+        "lz-endpoint",
         "statemachine"
     ],
     "defaultOpen": false

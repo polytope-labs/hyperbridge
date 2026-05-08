@@ -25,7 +25,7 @@ env:
 jobs:
     test:
         name: Build & Test
-        if: github.event_name != 'pull_request_target' || github.event.pull_request.draft == false
+        if: github.event_name != 'pull_request_target' || github.event.pull_request_target.draft == false
         runs-on: ubuntu-latest
         defaults:
             run:

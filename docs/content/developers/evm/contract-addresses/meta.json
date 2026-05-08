@@ -1,6 +1,6 @@
 {
   "title": "Contract Addresses",
-  "defaultOpen": true,
+  "defaultOpen": false,
   "pages": [
     "mainnet",
     "testnet"

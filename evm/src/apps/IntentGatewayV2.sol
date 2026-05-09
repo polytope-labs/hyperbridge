@@ -97,6 +97,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
     function setParams(Params memory p) public {
         if (msg.sender != _admin) revert Unauthorized();
 
+        _validateParams(p);
         _admin = address(0);
         _params = p;
     }

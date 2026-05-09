@@ -42,8 +42,8 @@ contract SolverAccountTest is Test {
         intentGateway = new IntentGatewayV2(address(this));
 
         Params memory params = Params({
-            host: address(0x1),
-            dispatcher: address(0x2),
+            host: address(new MockContract()),
+            dispatcher: address(new MockContract()),
             solverSelection: true,
             surplusShareBps: 5000,
             protocolFeeBps: 0,
@@ -510,4 +510,8 @@ contract SolverAccountTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverPrivateKey, ethSignedMessageHash);
         return abi.encodePacked(r, s, v);
     }
+}
+
+contract MockContract {
+    fallback() external payable {}
 }

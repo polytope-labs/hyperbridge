@@ -474,22 +474,40 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
+     * @dev Validates gateway configuration parameters. Reverts with InvalidInput if any
+     * value would brick the gateway or cause arithmetic errors in fee calculations.
+     *
+     * @param p The parameters to validate.
+     */
+    function _validateParams(Params memory p) internal view {
+        if (p.host == address(0) || p.host.code.length == 0) revert InvalidInput();
+        if (p.dispatcher == address(0) || p.dispatcher.code.length == 0) revert InvalidInput();
+        if (p.surplusShareBps > 10_000) revert InvalidInput();
+        if (p.protocolFeeBps >= 10_000) revert InvalidInput();
+        if (p.priceOracle != address(0) && p.priceOracle.code.length == 0) revert InvalidInput();
+    }
+
+    /**
      * @dev Updates the gateway's configuration parameters and per-destination protocol fees.
      * Called by Hyperbridge governance to modify fee settings, host address, dispatcher,
      * price oracle, and other operational parameters.
      *
-     * Emits ParamsUpdated with the old and new params, then iterates over any destination-
-     * specific fee overrides and applies them to `_destinationProtocolFees`.
+     * Validates all params before applying. Emits ParamsUpdated with the old and new params,
+     * then iterates over any destination-specific fee overrides and applies them to
+     * `_destinationProtocolFees`.
      *
      * @param update The parameter update containing new params and destination fee overrides.
      */
     function _updateParams(ParamsUpdate memory update) internal {
+        _validateParams(update.params);
+
         emit ParamsUpdated({previous: _params, current: update.params});
         _params = update.params;
 
         for (uint256 i; i < update.destinationFees.length;) {
             bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
             uint256 feeBps = update.destinationFees[i].destinationFeeBps;
+            if (feeBps >= 10_000) revert InvalidInput();
             _destinationProtocolFees[stateMachineId] = feeBps;
 
             unchecked {

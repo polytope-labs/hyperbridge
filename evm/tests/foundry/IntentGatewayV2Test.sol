@@ -2403,8 +2403,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     function testOnAcceptUpdateParams() public {
         Params memory newParams = Params({
-            host: address(0x5678),
-            dispatcher: address(0x9ABC),
+            host: address(host),
+            dispatcher: address(dispatcher),
             solverSelection: true,
             surplusShareBps: 10000,
             protocolFeeBps: 0,
@@ -3412,5 +3412,118 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         // Solver should only have spent outputAmount
         assertEq(filler.balance, fillerEthBefore - outputAmount, "Solver overpayment should be refunded");
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                    PARAMS VALIDATION TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice setParams rejects zero host address.
+    function testRevert_SetParams_ZeroHost() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(0),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.setParams(p);
+    }
+
+    /// @notice setParams rejects EOA dispatcher (no code).
+    function testRevert_SetParams_EOADispatcher() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(0xdead),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.setParams(p);
+    }
+
+    /// @notice setParams rejects surplusShareBps > 10000.
+    function testRevert_SetParams_SurplusShareBpsTooHigh() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 10001,
+            protocolFeeBps: 0,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.setParams(p);
+    }
+
+    /// @notice setParams rejects protocolFeeBps >= 10000.
+    function testRevert_SetParams_ProtocolFeeBpsTooHigh() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 10000,
+            priceOracle: address(0)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.setParams(p);
+    }
+
+    /// @notice setParams rejects non-contract priceOracle.
+    function testRevert_SetParams_EOAPriceOracle() public {
+        IntentGatewayV2 gw = new IntentGatewayV2(address(this));
+        Params memory p = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: 5000,
+            protocolFeeBps: 0,
+            priceOracle: address(0xbeef)
+        });
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        gw.setParams(p);
+    }
+
+    /// @notice updateParams via governance rejects destinationFeeBps >= 10000.
+    function testRevert_UpdateParams_DestinationFeeBpsTooHigh() public {
+        DestinationFee[] memory fees = new DestinationFee[](1);
+        fees[0] = DestinationFee({stateMachineId: keccak256("ARBITRUM"), destinationFeeBps: 10000});
+
+        ParamsUpdate memory update = ParamsUpdate({
+            params: Params({
+                host: address(host),
+                dispatcher: address(dispatcher),
+                solverSelection: false,
+                surplusShareBps: 5000,
+                protocolFeeBps: 0,
+                priceOracle: address(0)
+            }),
+            destinationFees: fees
+        });
+
+        bytes memory body = bytes.concat(bytes1(uint8(IntentsBase.RequestKind.UpdateParams)), abi.encode(update));
+
+        PostRequest memory request = PostRequest({
+            source: host.hyperbridge(),
+            dest: host.host(),
+            nonce: 0,
+            from: abi.encodePacked(address(intentGateway)),
+            to: abi.encodePacked(address(intentGateway)),
+            body: body,
+            timeoutTimestamp: 0
+        });
+
+        vm.prank(address(host));
+        vm.expectRevert(IntentsBase.InvalidInput.selector);
+        intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));
     }
 }

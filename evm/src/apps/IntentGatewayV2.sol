@@ -150,9 +150,7 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
     function placeOrder(Order memory order, bytes32 graffiti) public payable {
         if (order.inputs.length == 0) revert InvalidInput();
 
-        // Reject duplicate output tokens — partial fill progress is keyed by
-        // (commitment, outputToken), so duplicates share one bucket and can
-        // cause legs to be skipped as already-filled.
+        // Reject duplicate output tokens 
         uint256 outputsLen_ = order.output.assets.length;
         for (uint256 i; i < outputsLen_;) {
             bytes32 token = order.output.assets[i].token;

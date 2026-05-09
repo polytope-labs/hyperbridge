@@ -2237,4 +2237,300 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // Solver should only have spent outputAmount, overpayment refunded
         assertEq(solver.balance, solverBalBefore - outputAmount, "Solver overpayment should be refunded");
     }
+
+    /*//////////////////////////////////////////////////////////////
+                  FEE-ON-TRANSFER TOKEN TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Escrow correctly reflects actual received amount for fee-on-transfer tokens.
+    function testPlaceOrder_FeeOnTransferToken_EscrowMatchesReceived() public {
+        // Deploy a 1% fee-on-transfer token
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% = 100 bps
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 inputAmount = 1000 * 1e18;
+        uint256 expectedReceived = inputAmount - (inputAmount * 100) / 10000; // 990
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        fot.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Gateway should hold only what it actually received
+        assertEq(fot.balanceOf(address(intentGateway)), expectedReceived, "Gateway balance should match received amount");
+
+        // Reconstruct the order as placeOrder would have mutated it
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = expectedReceived;
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        // Escrow should match actual received, not the user-specified amount
+        assertEq(
+            intentGateway._orders(commitment, address(fot)),
+            expectedReceived,
+            "Escrow should equal actual received amount"
+        );
+    }
+
+    /// @notice Fee-on-transfer with protocol fees: both deductions applied correctly.
+    function testPlaceOrder_FeeOnTransferToken_WithProtocolFee() public {
+        IntentGatewayV2 gatewayWithFees = new IntentGatewayV2(address(this));
+        Params memory intentParams = Params({
+            host: address(host),
+            dispatcher: address(dispatcher),
+            solverSelection: false,
+            surplusShareBps: SURPLUS_SHARE_BPS,
+            protocolFeeBps: PROTOCOL_FEE_BPS, // 30 bps
+            priceOracle: address(0)
+        });
+        gatewayWithFees.setParams(intentParams);
+
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 inputAmount = 1000 * 1e18;
+        uint256 receivedAfterTransferFee = inputAmount - (inputAmount * 100) / 10000; // 990
+        uint256 protocolFee = (receivedAfterTransferFee * PROTOCOL_FEE_BPS) / 10000;
+        uint256 expectedEscrow = receivedAfterTransferFee - protocolFee;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 900 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        fot.approve(address(gatewayWithFees), inputAmount);
+        gatewayWithFees.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Reconstruct commitment: inputs mutated to received, then reduced by protocol fee
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = expectedEscrow; // commitment is hashed with reduced amount
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        assertEq(
+            gatewayWithFees._orders(commitment, address(fot)),
+            expectedEscrow,
+            "Escrow should equal received minus protocol fee"
+        );
+    }
+
+    /// @notice Full round-trip: place with fee-on-transfer, fill, solver withdraws exact escrow.
+    function testPlaceAndFill_FeeOnTransferToken_RoundTrip() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 inputAmount = 1000 * 1e18;
+        uint256 receivedByGateway = inputAmount - (inputAmount * 100) / 10000; // 990
+        uint256 outputAmount = 900 * 1e18;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        // Place order
+        vm.startPrank(user);
+        fot.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Reconstruct order as placeOrder mutated it
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = receivedByGateway; // actual received
+
+        // Solver fills
+        uint256 solverFotBefore = fot.balanceOf(solver);
+
+        vm.startPrank(solver);
+        dai.approve(address(intentGateway), outputAmount);
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: outputAmount});
+
+        intentGateway.fillOrder(order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs}));
+        vm.stopPrank();
+
+        // Solver should receive the escrowed FOT (with transfer fee applied on the way out)
+        uint256 solverFotReceived = fot.balanceOf(solver) - solverFotBefore;
+        uint256 expectedSolverReceived = receivedByGateway - (receivedByGateway * 100) / 10000; // 990 - 1% fee
+        assertEq(solverFotReceived, expectedSolverReceived, "Solver should receive escrowed FOT minus transfer fee");
+
+        // Gateway should have zero FOT left
+        assertEq(fot.balanceOf(address(intentGateway)), 0, "Gateway should have no FOT remaining");
+    }
+
+    /// @notice Fee-on-transfer through the predispatch path: escrow reflects actual received.
+    function testPlaceOrder_FeeOnTransferToken_Predispatch() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1% transfer fee
+        fot.mint(user, 10000 * 1e18);
+
+        uint256 predispatchAmount = 1000 * 1e18;
+        // After transferring to dispatcher: 1% fee = dispatcher receives 990
+        uint256 dispatcherReceived = predispatchAmount - (predispatchAmount * 100) / 10000;
+        // After dispatcher transfers to gateway: another 1% fee = gateway receives ~980.1
+        uint256 gatewayReceived = dispatcherReceived - (dispatcherReceived * 100) / 10000;
+
+        // Predispatch: send FOT to dispatcher, the "call" is a no-op (empty calls array)
+        TokenInfo[] memory predispatchAssets = new TokenInfo[](1);
+        predispatchAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: predispatchAmount});
+
+        // The predispatch call is an empty Call[] dispatch (no-op, tokens just sit on dispatcher)
+        Call[] memory emptyCalls = new Call[](0);
+        bytes memory predispatchCall = abi.encode(emptyCalls);
+
+        // Inputs: expect the FOT that lands on dispatcher after predispatch
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(fot)))), amount: dispatcherReceived});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 500 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: predispatchAssets, call: predispatchCall}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        fot.approve(address(intentGateway), predispatchAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        // Gateway should hold only what it actually received (double fee-on-transfer)
+        assertEq(fot.balanceOf(address(intentGateway)), gatewayReceived, "Gateway should hold double-taxed amount");
+
+        // Reconstruct commitment
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+        order.inputs[0].amount = gatewayReceived; // mutated to actual received
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        assertEq(
+            intentGateway._orders(commitment, address(fot)),
+            gatewayReceived,
+            "Escrow should match actual received after double transfer fee"
+        );
+    }
+}
+
+/// @dev ERC20 with a configurable transfer fee (in basis points).
+contract FeeOnTransferToken {
+    string public name = "FeeOnTransferToken";
+    string public symbol = "FOT";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    uint256 public feeBps;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    constructor(uint256 _feeBps) {
+        feeBps = _feeBps;
+    }
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        return _transfer(msg.sender, to, amount);
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        uint256 allowed = allowance[from][msg.sender];
+        if (allowed != type(uint256).max) {
+            allowance[from][msg.sender] = allowed - amount;
+        }
+        return _transfer(from, to, amount);
+    }
+
+    function _transfer(address from, address to, uint256 amount) internal returns (bool) {
+        uint256 fee = (amount * feeBps) / 10_000;
+        uint256 received = amount - fee;
+        balanceOf[from] -= amount;
+        balanceOf[to] += received;
+        // fee is burned
+        totalSupply -= fee;
+        return true;
+    }
 }

@@ -184,40 +184,11 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
         order.nonce = _nonce++;
 
         uint256 inputsLen = order.inputs.length;
-        bytes32 destinationHash = keccak256(order.destination);
-        uint256 protocolFeeBps = _destinationProtocolFees[destinationHash];
-        if (protocolFeeBps == 0) {
-            protocolFeeBps = _params.protocolFeeBps;
-        }
-        TokenInfo[] memory reducedInputs;
-        bytes32 commitment;
 
-        if (protocolFeeBps > 0) {
-            reducedInputs = new TokenInfo[](inputsLen);
-            for (uint256 i; i < inputsLen;) {
-                uint256 originalAmount = order.inputs[i].amount;
-                if (originalAmount == 0) revert InvalidInput();
-                uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
-                uint256 reducedAmount = originalAmount - protocolFee;
-                address token = address(uint160(uint256(order.inputs[i].token)));
-
-                if (protocolFee > 0) emit DustCollected(token, protocolFee);
-
-                reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
-                unchecked {
-                    ++i;
-                }
-            }
-
-            TokenInfo[] memory originalInputs = order.inputs;
-            order.inputs = reducedInputs;
-            commitment = keccak256(abi.encode(order));
-            order.inputs = originalInputs;
-        } else {
-            reducedInputs = order.inputs;
-            commitment = keccak256(abi.encode(order));
-        }
-
+        // Phase 1: Transfer tokens and record actual received amounts.
+        // For fee-on-transfer tokens, the gateway receives less than the requested amount.
+        // We mutate order.inputs to reflect actual received so the commitment and escrow
+        // are consistent with what the gateway holds.
         uint256 msgValue = msg.value;
         if (order.predispatch.call.length > 0 && order.predispatch.assets.length > 0) {
             address dispatcher = _params.dispatcher;
@@ -245,34 +216,29 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
 
             ICallDispatcher(dispatcher).dispatch(order.predispatch.call);
 
+            // Build sweep calls and snapshot gateway balances before the sweep.
             Call[] memory transferCalls = new Call[](inputsLen);
+            uint256[] memory balancesBefore = new uint256[](inputsLen);
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
                 address token = address(uint160(uint256(order.inputs[i].token)));
                 uint256 requiredAmount = order.inputs[i].amount;
-                uint256 balance;
 
                 if (token == address(0)) {
-                    balance = address(dispatcher).balance;
+                    uint256 balance = address(dispatcher).balance;
                     if (balance < requiredAmount) revert InsufficientNativeToken();
                     transferCalls[i] = Call({to: address(this), value: balance, data: ""});
+                    balancesBefore[i] = address(this).balance;
                 } else {
-                    balance = IERC20(token).balanceOf(dispatcher);
+                    uint256 balance = IERC20(token).balanceOf(dispatcher);
                     if (balance < requiredAmount) revert InvalidInput();
                     transferCalls[i] = Call({
                         to: token,
                         value: 0,
                         data: abi.encodeWithSelector(IERC20.transfer.selector, address(this), balance)
                     });
+                    balancesBefore[i] = IERC20(token).balanceOf(address(this));
                 }
-
-                uint256 dust = balance - requiredAmount;
-                if (dust > 0) emit DustCollected(token, dust);
-
-                // Reject duplicate input tokens — escrow is keyed by (commitment, token),
-                // so duplicates would merge and cause over-release on partial fills.
-                if (_orders[commitment][token] != 0) revert InvalidInput();
-                _orders[commitment][token] = reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
@@ -280,6 +246,28 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
             }
 
             ICallDispatcher(dispatcher).dispatch(abi.encode(transferCalls));
+
+            // Measure actual received, emit dust for excess, update order.inputs.
+            for (uint256 i; i < inputsLen;) {
+                address token = address(uint160(uint256(order.inputs[i].token)));
+                uint256 received;
+                if (token == address(0)) {
+                    received = address(this).balance - balancesBefore[i];
+                } else {
+                    received = IERC20(token).balanceOf(address(this)) - balancesBefore[i];
+                }
+
+                if (received > order.inputs[i].amount) {
+                    uint256 dust = received - order.inputs[i].amount;
+                    emit DustCollected(token, dust);
+                } else {
+                    order.inputs[i].amount = received;
+                }
+
+                unchecked {
+                    ++i;
+                }
+            }
         } else {
             for (uint256 i; i < inputsLen;) {
                 if (order.inputs[i].amount == 0) revert InvalidInput();
@@ -288,15 +276,59 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
                     if (msgValue < order.inputs[i].amount) revert InsufficientNativeToken();
                     msgValue -= order.inputs[i].amount;
                 } else {
+                    uint256 balBefore = IERC20(token).balanceOf(address(this));
                     IERC20(token).safeTransferFrom(msg.sender, address(this), order.inputs[i].amount);
+                    order.inputs[i].amount = IERC20(token).balanceOf(address(this)) - balBefore;
                 }
-
-                if (_orders[commitment][token] != 0) revert InvalidInput();
-                _orders[commitment][token] = reducedInputs[i].amount;
 
                 unchecked {
                     ++i;
                 }
+            }
+        }
+
+        // Phase 2: Compute protocol fees and commitment from actual received amounts.
+        bytes32 destinationHash = keccak256(order.destination);
+        uint256 protocolFeeBps = _destinationProtocolFees[destinationHash];
+        if (protocolFeeBps == 0) {
+            protocolFeeBps = _params.protocolFeeBps;
+        }
+        TokenInfo[] memory reducedInputs;
+        bytes32 commitment;
+
+        if (protocolFeeBps > 0) {
+            reducedInputs = new TokenInfo[](inputsLen);
+            for (uint256 i; i < inputsLen;) {
+                uint256 originalAmount = order.inputs[i].amount;
+                if (originalAmount == 0) revert InvalidInput();
+                uint256 protocolFee = (originalAmount * protocolFeeBps) / 10_000;
+                uint256 reducedAmount = originalAmount - protocolFee;
+                address token = address(uint160(uint256(order.inputs[i].token)));
+
+                if (protocolFee > 0) emit DustCollected(token, protocolFee);
+
+                reducedInputs[i] = TokenInfo({token: order.inputs[i].token, amount: reducedAmount});
+                unchecked {
+                    ++i;
+                }
+            }
+
+            order.inputs = reducedInputs;
+            commitment = keccak256(abi.encode(order));
+        } else {
+            reducedInputs = order.inputs;
+            commitment = keccak256(abi.encode(order));
+        }
+
+        // Phase 3: Credit escrow.
+        for (uint256 i; i < inputsLen;) {
+            address token = address(uint160(uint256(order.inputs[i].token)));
+            // Reject duplicate input tokens
+            if (_orders[commitment][token] != 0) revert InvalidInput();
+            _orders[commitment][token] = reducedInputs[i].amount;
+
+            unchecked {
+                ++i;
             }
         }
 

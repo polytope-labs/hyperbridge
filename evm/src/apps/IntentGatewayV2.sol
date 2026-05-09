@@ -307,14 +307,21 @@ contract IntentGatewayV2 is IntrinsicIntents, ExtrinsicIntents {
                 address[] memory path = new address[](2);
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
-                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
+                uint256[] memory amounts = IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees, path, address(this), block.timestamp
                 );
+                msgValue -= amounts[0];
             } else {
                 IERC20(feeToken).safeTransferFrom(msg.sender, address(this), order.fees);
             }
 
             _orders[commitment][TRANSACTION_FEES] = order.fees;
+        }
+
+        // Refund any unspent native tokens to the user.
+        if (msgValue > 0) {
+            (bool sent,) = msg.sender.call{value: msgValue}("");
+            if (!sent) revert InsufficientNativeToken();
         }
 
         emit OrderPlaced({

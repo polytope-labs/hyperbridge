@@ -3323,4 +3323,94 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         }
         assertTrue(dustFound, "DustCollected should be emitted");
     }
+
+    /*//////////////////////////////////////////////////////////////
+                NATIVE TOKEN OVERPAYMENT REFUND TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice placeOrder with fee swap refunds unused ETH after swapETHForExactTokens.
+    function testPlaceOrder_FeeSwap_RefundsExcessNativeToken() public {
+        uint256 inputAmount = 1000 * 1e6;
+        uint256 feeAmount = 1 * 1e18; // 1 DAI worth of fees
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 1000,
+            nonce: 0,
+            fees: feeAmount,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        uint256 userEthBefore = user.balance;
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        // Send 5 ETH for a fee swap that should cost much less
+        intentGateway.placeOrder{value: 5 ether}(order, bytes32(0));
+        vm.stopPrank();
+
+        // User should get back most of the 5 ETH — the swap only needed a tiny fraction
+        uint256 ethSpent = userEthBefore - user.balance;
+        assertTrue(ethSpent < 1 ether, "User should have been refunded most of the 5 ETH");
+        assertTrue(ethSpent > 0, "User should have spent some ETH on the fee swap");
+    }
+
+    /// @notice Cross-chain fillOrder refunds solver's excess native ETH.
+    function testFillCrossChain_RefundsSolverExcessNativeToken() public {
+        uint256 outputAmount = 1 ether;
+        uint256 overpayment = 0.5 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: outputAmount}); // native ETH output
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        // Cross-chain order: source is remote, destination is current chain
+        Order memory order = Order({
+            user: bytes32(uint256(uint160(user))),
+            source: bytes("SOURCE_CHAIN"),
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(0), amount: outputAmount});
+
+        uint256 fillerEthBefore = filler.balance;
+
+        vm.startPrank(filler);
+        // Approve fee token for cross-chain dispatch
+        dai.approve(address(intentGateway), type(uint256).max);
+        intentGateway.fillOrder{value: outputAmount + overpayment}(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+        );
+        vm.stopPrank();
+
+        // Solver should only have spent outputAmount
+        assertEq(filler.balance, fillerEthBefore - outputAmount, "Solver overpayment should be refunded");
+    }
 }

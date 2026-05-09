@@ -153,8 +153,15 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         if (options.nativeDispatchFee > 0 && msgValue >= options.nativeDispatchFee) {
             IDispatcher(hostAddr).dispatch{value: options.nativeDispatchFee}(request);
+            msgValue -= options.nativeDispatchFee;
         } else {
             dispatchWithFeeToken(request, msg.sender);
+        }
+
+        // Refund any unspent native tokens to the solver.
+        if (msgValue > 0) {
+            (bool sent,) = msg.sender.call{value: msgValue}("");
+            if (!sent) revert InsufficientNativeToken();
         }
 
         emit OrderFilled({commitment: commitment, filler: msg.sender});

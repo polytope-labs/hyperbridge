@@ -2109,4 +2109,132 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         assertEq(usdc.balanceOf(address(intentGateway)), inputAmount, "Gateway should hold escrowed USDC");
     }
+
+    /*//////////////////////////////////////////////////////////////
+                NATIVE TOKEN OVERPAYMENT REFUND TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Excess msg.value beyond native input legs is refunded to the user.
+    function testPlaceOrder_RefundsExcessNativeToken() public {
+        uint256 inputAmount = 1 ether;
+        uint256 overpayment = 0.5 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(0), amount: inputAmount}); // native ETH
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        uint256 userBalBefore = user.balance;
+
+        vm.prank(user);
+        intentGateway.placeOrder{value: inputAmount + overpayment}(order, bytes32(0));
+
+        // User should only have spent inputAmount, overpayment refunded
+        assertEq(user.balance, userBalBefore - inputAmount, "Overpayment should be refunded");
+        assertEq(address(intentGateway).balance, inputAmount, "Gateway should only hold escrowed amount");
+    }
+
+    /// @notice Exact msg.value with no overpayment still works.
+    function testPlaceOrder_ExactNativeToken_NoRefundNeeded() public {
+        uint256 inputAmount = 1 ether;
+
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(0), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: 1000 * 1e6});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        uint256 userBalBefore = user.balance;
+
+        vm.prank(user);
+        intentGateway.placeOrder{value: inputAmount}(order, bytes32(0));
+
+        assertEq(user.balance, userBalBefore - inputAmount, "User should spend exactly inputAmount");
+    }
+
+    /// @notice Solver overpaying native ETH on fillOrder gets the excess refunded.
+    function testFillOrder_RefundsSolverExcessNativeToken() public {
+        uint256 inputAmount = 1000 * 1e6; // 1000 USDC
+        uint256 outputAmount = 1 ether;
+        uint256 overpayment = 0.5 ether;
+
+        // User places order: USDC -> ETH
+        TokenInfo[] memory inputs = new TokenInfo[](1);
+        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
+
+        TokenInfo[] memory outputAssets = new TokenInfo[](1);
+        outputAssets[0] = TokenInfo({token: bytes32(0), amount: outputAmount});
+
+        PaymentInfo memory output =
+            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
+
+        Order memory order = Order({
+            user: bytes32(0),
+            source: "",
+            destination: host.host(),
+            deadline: block.number + 100,
+            nonce: 0,
+            fees: 0,
+            session: address(0),
+            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
+            inputs: inputs,
+            output: output
+        });
+
+        vm.startPrank(user);
+        usdc.approve(address(intentGateway), inputAmount);
+        intentGateway.placeOrder(order, bytes32(0));
+        vm.stopPrank();
+
+        order.user = bytes32(uint256(uint160(user)));
+        order.source = host.host();
+        order.nonce = 0;
+
+        // Solver fills with overpayment
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(0), amount: outputAmount});
+
+        uint256 solverBalBefore = solver.balance;
+
+        vm.prank(solver);
+        intentGateway.fillOrder{value: outputAmount + overpayment}(
+            order, FillOptions({relayerFee: 0, nativeDispatchFee: 0, outputs: solverOutputs})
+        );
+
+        // Solver should only have spent outputAmount, overpayment refunded
+        assertEq(solver.balance, solverBalBefore - outputAmount, "Solver overpayment should be refunded");
+    }
 }

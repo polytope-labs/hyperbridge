@@ -231,14 +231,16 @@ abstract contract IntentsBase is EIP712 {
     /**
      * @dev Emitted when escrowed tokens are released to the solver after a successful fill.
      * @param commitment The order commitment hash.
+     * @param tokens The tokens and amounts released.
      */
-    event EscrowReleased(bytes32 indexed commitment);
+    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when escrowed tokens are refunded to the original user after cancellation.
      * @param commitment The order commitment hash.
+     * @param tokens The tokens and amounts refunded.
      */
-    event EscrowRefunded(bytes32 indexed commitment);
+    event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when the gateway's configuration parameters are updated via governance.
@@ -364,9 +366,9 @@ abstract contract IntentsBase is EIP712 {
             }
 
             if (isRefund) {
-                emit EscrowRefunded({commitment: body.commitment});
+                emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
             } else {
-                emit EscrowReleased({commitment: body.commitment});
+                emit EscrowReleased({commitment: body.commitment, tokens: body.tokens});
             }
         }
     }

@@ -215,8 +215,10 @@ abstract contract IntentsBase is EIP712 {
      * @dev Emitted when an order is fully filled by a solver.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who filled the order.
+     * @param outputs The output token amounts provided by the solver.
+     * @param inputs The escrowed input tokens released to the solver.
      */
-    event OrderFilled(bytes32 indexed commitment, address filler);
+    event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
      * @dev Emitted when an order is partially filled by a solver. Only applicable

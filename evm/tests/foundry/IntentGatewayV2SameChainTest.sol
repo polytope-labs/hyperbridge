@@ -57,9 +57,9 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         TokenInfo[] inputs,
         PaymentInfo output
     );
-    event OrderFilled(bytes32 indexed commitment, address indexed filler);
-    event EscrowReleased(bytes32 indexed commitment);
-    event EscrowRefunded(bytes32 indexed commitment);
+    event OrderFilled(bytes32 indexed commitment, address indexed filler, TokenInfo[] outputs, TokenInfo[] inputs);
+    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
+    event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
     event DustCollected(address indexed token, uint256 amount);
 
     function setUp() public override {

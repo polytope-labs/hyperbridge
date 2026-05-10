@@ -2272,8 +2272,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         uint256 userBalanceBefore = usdc.balanceOf(user);
 
-        vm.expectEmit(true, false, false, true);
-        emit IntentsBase.EscrowRefunded(commitment);
+        vm.expectEmit(true, false, false, false);
+        emit IntentsBase.EscrowRefunded(commitment, inputs);
 
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: address(0), request: request}));

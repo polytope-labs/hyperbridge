@@ -92,6 +92,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
 
         uint256 msgValue = msg.value;
         address beneficiary = address(uint160(uint256(order.output.beneficiary)));
+        TokenInfo[] memory outputFills = new TokenInfo[](outputsLen);
 
         for (uint256 i; i < outputsLen; i++) {
             bytes32 outputToken = order.output.assets[i].token;
@@ -129,6 +130,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
                 }
             }
             if (protocolShare > 0) emit DustCollected(token, protocolShare);
+            outputFills[i] = TokenInfo({token: outputToken, amount: totalRequired});
         }
 
         _execute(order, outputsLen);
@@ -164,7 +166,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             if (!sent) revert InsufficientNativeToken();
         }
 
-        emit OrderFilled({commitment: commitment, filler: msg.sender});
+        emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: order.inputs});
     }
 
     /**

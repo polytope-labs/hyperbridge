@@ -27,6 +27,7 @@ json = { workspace = true, default-features = true }
 # local
 gargantua-runtime = { workspace = true, default-features = true }
 nexus-runtime = { workspace = true, default-features = true }
+hyperbridge-fisherman = { workspace = true }
 pallet-ismp-rpc = { workspace = true }
 pallet-intents-rpc = { workspace = true }
 pallet-intents-coprocessor = { workspace = true, default-features = true }
@@ -36,6 +37,7 @@ mmr-gadget = { workspace = true }
 mmr-primitives = { workspace = true, default-features = true }
 pallet-mmr-runtime-api = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
+pallet-fishermen = { workspace = true, default-features = true }
 ismp-parachain-runtime-api = { workspace = true }
 ismp-parachain = { workspace = true }
 

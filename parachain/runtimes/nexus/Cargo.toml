@@ -54,6 +54,7 @@ pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-pharos = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
 pallet-messaging-fees = { workspace = true }
 pallet-collator-manager = { workspace = true }
@@ -167,6 +168,7 @@ std = [
     "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
     "ismp-optimism/std",
+    "ismp-pharos/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
     "ismp-polygon/std",

@@ -174,9 +174,20 @@ parameter_types! {
 	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
 }
 
+parameter_types! {
+	pub static CollatorSet: alloc::vec::Vec<AccountId32> = alloc::vec::Vec::new();
+}
+
+pub struct IsCollatorMock;
+impl frame_support::traits::Contains<AccountId32> for IsCollatorMock {
+	fn contains(t: &AccountId32) -> bool {
+		CollatorSet::get().contains(t)
+	}
+}
+
 impl pallet_fishermen::Config for Test {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId32>;
+	type IsCollator = IsCollatorMock;
 }
 
 impl pallet_sudo::Config for Test {

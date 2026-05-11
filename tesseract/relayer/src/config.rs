@@ -45,7 +45,7 @@
 //! automatically. Presence of `[chain.consensus]` is the sole signal to spawn
 //! inbound consensus for that chain. Presence of a non-empty `signer` is the
 //! sole signal that this chain participates in the HB->chain outbound fan-out
-//! (and the related fee-withdrawal and fisherman roles).
+//! (and the related fee-withdrawal role).
 
 use anyhow::{anyhow, Context};
 use ismp::{consensus::StateMachineId, host::StateMachine};
@@ -62,7 +62,6 @@ pub struct RelayerConfig {
 	pub module_filter: Option<Vec<String>>,
 	#[serde(default)]
 	pub minimum_profit_percentage: u32,
-	pub fisherman: Option<bool>,
 	pub withdrawal_frequency: Option<u64>,
 	pub minimum_withdrawal_amount: Option<u64>,
 	pub unprofitable_retry_frequency: Option<u64>,
@@ -83,7 +82,6 @@ impl Default for RelayerConfig {
 		Self {
 			module_filter: None,
 			minimum_profit_percentage: 0,
-			fisherman: None,
 			withdrawal_frequency: None,
 			minimum_withdrawal_amount: None,
 			unprofitable_retry_frequency: None,
@@ -106,7 +104,6 @@ impl From<RelayerConfig> for tesseract_primitives::config::RelayerConfig {
 			// gets inbound messaging spawned automatically.
 			delivery_endpoints: Vec::new(),
 			deliver_failed: config.deliver_failed,
-			fisherman: config.fisherman,
 			disable_fee_accumulation: config.disable_fee_accumulation,
 		}
 	}
@@ -128,10 +125,9 @@ pub struct PerChainConfig {
 
 impl PerChainConfig {
 	/// True when this chain participates in the HB->chain outbound fan-out
-	/// (and the related fee-withdrawal and fisherman roles). The toggle is
-	/// the messaging signer's presence: a configured non-empty signer means
-	/// the operator has provisioned a key to submit transactions on this
-	/// chain.
+	/// (and the related fee-withdrawal role). The toggle is the messaging
+	/// signer's presence: a configured non-empty signer means the operator
+	/// has provisioned a key to submit transactions on this chain.
 	pub fn outbound_enabled(&self) -> bool {
 		self.messaging.signer().is_some_and(|s| !s.is_empty())
 	}
@@ -179,16 +175,21 @@ impl HyperbridgeConfig {
 			.map_err(|err| anyhow!("Error reading config file: {err:?}"))?;
 		let table = toml_str.parse::<Table>()?;
 
-		if !table.contains_key(HYPERBRIDGE) || !table.contains_key(RELAYER) {
-			return Err(anyhow!("Missing [hyperbridge] or [relayer] section in config"));
+		if !table.contains_key(HYPERBRIDGE) {
+			return Err(anyhow!("Missing [hyperbridge] section in config"));
 		}
 
 		let hyperbridge =
 			parse_hyperbridge_section(table.get(HYPERBRIDGE).cloned().expect("checked above"))
 				.await?;
 
-		let relayer: RelayerConfig =
-			table.get(RELAYER).cloned().expect("checked above").try_into()?;
+		// `[relayer]` is optional. Collator-only nodes (which run the
+		// fisherman task but no relayer roles) don't need to set any of the
+		// relayer knobs, so omit the section entirely and take the defaults.
+		let relayer: RelayerConfig = match table.get(RELAYER).cloned() {
+			Some(value) => value.try_into().with_context(|| "failed to parse [relayer] section")?,
+			None => RelayerConfig::default(),
+		};
 
 		let mut chains = HashMap::new();
 		for (name, raw) in &table {

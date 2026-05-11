@@ -238,17 +238,3 @@ pub fn host_params_storage_key(state_machine: StateMachine) -> Vec<u8> {
 
 	[pallet_prefix, storage_prefix, key_1, state_machine.encode()].concat()
 }
-
-pub fn fisherman_storage_key(address: Vec<u8>) -> Vec<u8> {
-	let address = {
-		let mut dest = [0u8; 32];
-		dest.copy_from_slice(&address);
-		dest
-	};
-	let pallet_prefix = twox_128(b"Fishermen").to_vec();
-
-	let storage_prefix = twox_128(b"Fishermen").to_vec();
-	let key_1 = twox_64(&address.encode()).to_vec();
-
-	[pallet_prefix, storage_prefix, key_1, address.encode()].concat()
-}

@@ -94,8 +94,7 @@ impl AnyConfig {
 	/// per-chain TOML block, which is the secp256k1 private key (EVM family) or
 	/// SR25519 seed (Substrate). `None` signals that this chain does not
 	/// participate in roles that require signing (outbound delivery, fee
-	/// withdrawal POSTs, fisherman vetoes), and the relayer skips it for
-	/// those tasks.
+	/// withdrawal POSTs), and the relayer skips it for those tasks.
 	pub fn signer(&self) -> Option<&str> {
 		match self {
 			Self::Substrate(config) => config.signer.as_deref(),

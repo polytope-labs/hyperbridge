@@ -34,7 +34,7 @@ pub struct Cli {
 }
 
 impl Cli {
-	/// Start the consensus and optionally fisherman tasks
+	/// Start the consensus tasks
 	pub async fn start_consensus(&self) -> Result<(), anyhow::Error> {
 		logging::setup()?;
 		log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract consensus");

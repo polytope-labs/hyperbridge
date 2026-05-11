@@ -431,6 +431,11 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
+
             - name: Run Simnet Tests
               run: |
                   cargo build -p hyperbridge --release

@@ -154,6 +154,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
+		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler =
@@ -176,9 +177,27 @@ impl pallet_call_decompressor::Config for Runtime {
 	type MaxCallSize = ConstU32<3>;
 }
 
+/// True when the account is registered with `pallet-collator-selection` as
+/// an invulnerable or as a bonded candidate. Active session membership is
+/// not required: a freshly registered candidate who hasn't been selected for
+/// the current session is still a legitimate fisherman. Candidates that have
+/// called `leave_intent` are removed from `CandidateList` in the same block,
+/// so being in this list also implies "has not declared intent to withdraw."
+pub struct IsCollator;
+impl frame_support::traits::Contains<AccountId> for IsCollator {
+	fn contains(account: &AccountId) -> bool {
+		if pallet_collator_selection::Invulnerables::<Runtime>::get().contains(account) {
+			return true;
+		}
+		pallet_collator_selection::CandidateList::<Runtime>::get()
+			.iter()
+			.any(|c| c.who == *account)
+	}
+}
+
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId>;
+	type IsCollator = IsCollator;
 }
 
 impl ismp_parachain::Config for Runtime {

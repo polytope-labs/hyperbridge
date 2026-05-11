@@ -67,8 +67,7 @@ pub struct SubstrateConfig {
 	pub max_rpc_payload_size: Option<u32>,
 	/// Relayer account seed. When omitted, the chain runs in inbound-only
 	/// mode: events are read but no extrinsics are submitted on this chain,
-	/// so it's excluded from outbound delivery, fee withdrawal, and fisherman
-	/// roles.
+	/// so it's excluded from outbound delivery and fee withdrawal.
 	#[serde(default)]
 	pub signer: Option<String>,
 	/// Initial height from which to start querying messages
@@ -181,8 +180,7 @@ where
 		// throwaway one so all the signer-shaped fields downstream still
 		// type-check. Inbound-only chains never reach a path that signs,
 		// because the relayer's `outbound_enabled()` filter keeps them out
-		// of outbound, fee-withdrawal, and fisherman tasks before any
-		// signing call.
+		// of outbound and fee-withdrawal tasks before any signing call.
 		let signer = match config.signer.as_deref() {
 			Some(raw) => {
 				let bytes = from_hex(raw).context("Signer must be a valid hex-encoded String")?;

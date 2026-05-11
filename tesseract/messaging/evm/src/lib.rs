@@ -131,8 +131,7 @@ pub struct EvmConfig {
 	pub ismp_host: Option<H160>,
 	/// Relayer account private key. When omitted, the chain runs in
 	/// inbound-only mode: events are read but no transactions are submitted to
-	/// it, so it's excluded from outbound delivery, fee withdrawal, and
-	/// fisherman roles.
+	/// it, so it's excluded from outbound delivery and fee withdrawal.
 	#[serde(default)]
 	pub signer: Option<String>,
 	/// Batch size to parallelize tracing
@@ -235,6 +234,11 @@ impl Default for EvmConfig {
 pub struct EvmClient {
 	/// Execution Rpc client
 	pub client: Arc<AlloyProvider>,
+	/// One provider per configured RPC URL, used by the byzantine handler to
+	/// fan out queries and reach a quorum independently of `client`'s
+	/// fallback transport. Empty for single-URL chains where quorum is not
+	/// meaningful.
+	pub byzantine_providers: Vec<Arc<AlloyProvider>>,
 	/// Transaction signer provider. For chains the operator did not configure
 	/// a signer for, this is built from a randomly generated key. The
 	/// relayer's spawn-time filter (`PerChainConfig::outbound_enabled`) keeps
@@ -280,8 +284,7 @@ impl EvmClient {
 		// throwaway one so all the signer-shaped fields downstream still
 		// type-check. Inbound-only chains never reach a path that signs,
 		// because the relayer's `outbound_enabled()` filter keeps them out
-		// of outbound, fee-withdrawal, and fisherman tasks before any
-		// signing call.
+		// of outbound and fee-withdrawal tasks before any signing call.
 		let signer_pair = match config.signer.as_deref() {
 			Some(raw) => {
 				let bytes = match from_hex(raw) {
@@ -311,15 +314,17 @@ impl EvmClient {
 			match config.transport {
 				RpcTransport::Tron => {
 					use crate::transport::TronLayer;
-					let http = alloy::transports::http::Http::with_client(http_client, url);
+					let http = alloy::transports::http::Http::with_client(http_client.clone(), url);
 					let rpc_client = alloy::rpc::client::ClientBuilder::default()
 						.layer(TronLayer)
 						.transport(http, false);
 					RootProvider::new(rpc_client)
 				},
 				RpcTransport::Standard => {
-					let rpc_client =
-						alloy::rpc::client::RpcClient::new_http_with_client(http_client, url);
+					let rpc_client = alloy::rpc::client::RpcClient::new_http_with_client(
+						http_client.clone(),
+						url,
+					);
 					RootProvider::new(rpc_client)
 				},
 			}
@@ -350,6 +355,28 @@ impl EvmClient {
 			}
 		};
 		let client = Arc::new(root_provider.clone());
+
+		// One direct provider per URL for byzantine quorum. Skipped for
+		// single-URL chains (no quorum to reach) and for the Tron transport
+		// (Tron isn't an L2 the fisherman watches).
+		let byzantine_providers: Vec<Arc<AlloyProvider>> =
+			if config.rpc_urls.len() > 1 && matches!(config.transport, RpcTransport::Standard) {
+				config
+					.rpc_urls
+					.iter()
+					.map(|u| {
+						let url: alloy::transports::http::reqwest::Url = u.parse()?;
+						let rpc_client = alloy::rpc::client::RpcClient::new_http_with_client(
+							http_client.clone(),
+							url,
+						);
+						Ok::<_, anyhow::Error>(Arc::new(RootProvider::new(rpc_client)))
+					})
+					.collect::<Result<Vec<_>, _>>()?
+			} else {
+				Vec::new()
+			};
+
 		let chain_id = client.get_chain_id().await?;
 
 		// Build the signer provider. Whether `signer_pair` was parsed from
@@ -379,6 +406,7 @@ impl EvmClient {
 
 		let mut partial_client = Self {
 			client,
+			byzantine_providers,
 			signer,
 			address,
 			consensus_state_id,
@@ -596,6 +624,7 @@ impl Clone for EvmClient {
 	fn clone(&self) -> Self {
 		Self {
 			client: self.client.clone(),
+			byzantine_providers: self.byzantine_providers.clone(),
 			signer: self.signer.clone(),
 			address: self.address.clone(),
 			consensus_state_id: self.consensus_state_id,

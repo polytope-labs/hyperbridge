@@ -88,7 +88,7 @@ alloy_sol_macro::sol! {
 	function EncodeCommitment(SolCommitment commitment) external pure returns (bytes);
 	function EncodeLeaf(PartialBeefyMmrLeaf leaf) external pure returns (bytes);
 
-	// BeefyV1.verify — the canonical entrypoint used by the consensus router.
+	// EcdsaBeefy.verify — the canonical entrypoint used by the consensus router.
 	// Returns (new encoded state, finalized intermediate states, next authority set id).
 	function verify(bytes previousState, bytes proof)
 		external
@@ -103,7 +103,7 @@ fn deploy_beefy_test(env: &mut TestEnv) -> alloy_primitives::Address {
 
 fn deploy_beefy_v1(env: &mut TestEnv) -> alloy_primitives::Address {
 	let out_dir = env.evm_out_dir_public();
-	env.deploy_named(&out_dir, "BeefyV1")
+	env.deploy_named(&out_dir, "EcdsaBeefy")
 }
 
 #[test]
@@ -251,7 +251,7 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 	let initial_state: ConsensusState = prover.get_initial_consensus_state(None).await?;
 	let mut consensus_state: BeefyConsensusState = initial_state.into();
 
-	// Deploy BeefyV1 directly. (The BeefyConsensusClientTest wrapper's `beefy` state
+	// Deploy EcdsaBeefy directly. (The BeefyConsensusClientTest wrapper's `beefy` state
 	// variable is only initialized in forge's setUp() which revm does not invoke.)
 	let mut env = TestEnv::new();
 	let beefy_v1 = deploy_beefy_v1(&mut env);
@@ -301,7 +301,7 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 			proof.relay.signedCommitment.votes.len(),
 		);
 
-		// BeefyV1.verify expects proof bytes to decode as (RelayChainProof, ParachainProof)
+		// EcdsaBeefy.verify expects proof bytes to decode as (RelayChainProof, ParachainProof)
 		// — abi.decode(bytes, (A, B)) — which is tuple-params encoding, NOT a wrapper struct.
 		let proof_bytes =
 			SolValue::abi_encode_params(&(proof.relay.clone(), proof.parachain.clone()));
@@ -329,7 +329,7 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 			},
 			Err(revert) => {
 				panic!(
-					"BeefyV1.verify reverted with output 0x{} at block {}",
+					"EcdsaBeefy.verify reverted with output 0x{} at block {}",
 					hex::encode(&revert),
 					proof.relay.signedCommitment.commitment.blockNumber
 				);

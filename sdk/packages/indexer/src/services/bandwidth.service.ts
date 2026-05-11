@@ -46,13 +46,6 @@ export class BandwidthService {
 		return raw.toLowerCase().replace(/^0x/, "")
 	}
 
-	/** UTC `YYYY-MM-DD` for the day a `blockTimestampMs` falls in. */
-	static isoDateUtc(blockTimestampMs: bigint): string {
-		const day = timestampToDate(blockTimestampMs)
-		day.setUTCHours(0, 0, 0, 0)
-		return day.toISOString().slice(0, 10)
-	}
-
 	/**
 	 * Get-or-create `BandwidthApp`. Caller still has to `.save()` after
 	 * mutating any counters.
@@ -183,14 +176,17 @@ export class BandwidthService {
 		app.lifetimeBytesConsumed += params.bytes
 		await app.save()
 
-		const isoDate = this.isoDateUtc(params.blockTimestampMs)
-		const dayId = this.dailyConsumptionId(params.chain, params.appHex, isoDate)
+		const day = timestampToDate(params.blockTimestampMs)
+		day.setUTCHours(0, 0, 0, 0)
+		const dateString = day.toISOString().slice(0, 10)
+		const dayId = this.dailyConsumptionId(params.chain, params.appHex, dateString)
+
 		let bucket = await BandwidthAppDailyConsumption.get(dayId)
 		if (!bucket) {
 			bucket = BandwidthAppDailyConsumption.create({
 				id: dayId,
 				appId: app.id,
-				date: new Date(`${isoDate}T00:00:00.000Z`),
+				date: day,
 				bytesConsumed: BigInt(0),
 			})
 		}

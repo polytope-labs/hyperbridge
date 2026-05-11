@@ -16,7 +16,7 @@
 //! Convenient type conversions
 
 use crate::{
-	beefy::Beefy::IntermediateState,
+	ecdsa_beefy::Beefy::IntermediateState,
 	evm_host::EvmHost::{
 		GetRequest, GetRequestEvent, GetRequestHandled, GetRequestTimeoutHandled, GetResponse,
 		HostFrozen, HostParamsUpdated, HostWithdrawal, PostRequest, PostRequestEvent,
@@ -65,7 +65,7 @@ impl ToU256 for usize {
 mod beefy {
 	use super::ToU256;
 	use crate::{
-		beefy::Beefy::{
+		ecdsa_beefy::Beefy::{
 			AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
 			Commitment, Parachain, ParachainProof, Payload, RelayChainProof, SignedCommitment,
 			Vote,
@@ -576,7 +576,7 @@ impl From<router::GetResponse> for GetResponse {
 			values: value
 				.values
 				.into_iter()
-				.map(|storage_value| crate::evm_host::MerklePatricia::StorageValue {
+				.map(|storage_value| crate::evm_host::StorageValue {
 					key: storage_value.key.into(),
 					value: storage_value.value.unwrap_or_default().into(),
 				})

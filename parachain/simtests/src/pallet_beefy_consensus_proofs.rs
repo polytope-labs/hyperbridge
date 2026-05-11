@@ -60,7 +60,7 @@ use beefy_verifier_primitives::{
 	ConsensusMessage, ConsensusState, MmrProof, ParachainHeader, ParachainProof,
 	SignatureWithAuthorityIndex, SignedCommitment as BvpSignedCommitment,
 };
-use ismp_solidity_abi::beefy::{
+use ismp_solidity_abi::ecdsa_beefy::{
 	BeefyConsensusProof as SolBeefyConsensusProof, BeefyConsensusState as SolBeefyConsensusState,
 };
 use primitive_types::H256;

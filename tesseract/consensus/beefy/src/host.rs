@@ -30,7 +30,7 @@ use ismp::{
 	consensus::ConsensusStateId,
 	messaging::{CreateConsensusState, Message},
 };
-use ismp_solidity_abi::beefy::BeefyConsensusState;
+use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState;
 use tesseract_primitives::{IsmpHost, IsmpProvider};
 use tesseract_substrate::SubstrateClient;
 use zk_beefy::BeefyProver as Sp1BeefyProverTrait;

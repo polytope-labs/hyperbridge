@@ -8,7 +8,7 @@ import "../src/core/HandlerV1.sol";
 import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
 
-import "../src/consensus/BeefyV1.sol";
+import "../src/consensus/EcdsaBeefy.sol";
 import "../src/consensus/ConsensusRouter.sol";
 import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
@@ -30,7 +30,7 @@ import {PharosHost} from "../src/hosts/Pharos.sol";
 
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
-import {BeefyV1} from "../src/consensus/BeefyV1.sol";
+import {EcdsaBeefy} from "../src/consensus/EcdsaBeefy.sol";
 import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
@@ -64,14 +64,14 @@ contract DeployScript is BaseScript {
 
         // Deploy SP1 ZK consensus client
         SP1Verifier verifier = new SP1Verifier{salt: salt}();
-        SP1Beefy sp1BeefyClient = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
+        SP1Beefy sp1Beefy = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
 
-        // Deploy BeefyV1 naive consensus client
-        BeefyV1 beefyV1Client = new BeefyV1{salt: salt}();
+        // Deploy EcdsaBeefy naive consensus client
+        EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
 
         // Deploy ConsensusRouter wrapping both consensus clients
         ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
-            IConsensus(address(sp1BeefyClient)), IConsensus(address(beefyV1Client)), IConsensus(address(address(0)))
+            IConsensus(address(sp1Beefy)), IConsensus(address(ecdsaBeefy)), IConsensus(address(address(0)))
         );
         consensusClient = address(consensusRouter);
 

@@ -22,28 +22,47 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
  * @title The Consensus Router.
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice Routes consensus verification to either SP1Beefy (ZK proof), BeefyV1 (naive proof),
- * or BeefyV1FiatShamir (Fiat-Shamir sampled proof) based on the first byte of the proof.
+ * @notice Routes consensus verification to the appropriate BEEFY verifier based on a
+ * single-byte proof type prefix:
+ *
+ *   0x00 (Naive)      -> EcdsaBeefy: Verifies all secp256k1 signatures and authority set
+ *                        membership proofs on-chain. Most gas-expensive but fully trustless.
+ *
+ *   0x01 (ZK)         -> SP1Beefy: Delegates signature verification, authority set membership,
+ *                        and MMR leaf inclusion to an SP1 zero-knowledge proof. Cheapest on-chain
+ *                        verification at the cost of off-chain proving.
+ *
+ *   0x02 (FiatShamir) -> FiatShamirBeefy: Uses the Fiat-Shamir heuristic to deterministically
+ *                        sample a subset of validators to verify on-chain, reducing gas costs
+ *                        compared to the naive approach while remaining fully on-chain.
+ *
+ * The router strips the first byte before forwarding the remaining proof bytes to the
+ * selected verifier. All three verifiers implement IConsensus and IConsensusV2, and the
+ * router itself exposes both interfaces.
+ *
+ * @dev The verifier addresses are set as immutables at construction time and cannot be changed.
+ * Reverts with EmptyProof if no proof data is provided, or InvalidProofType if the prefix
+ * byte is outside the valid range (0x00-0x02).
  */
 contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     // Proof type enum
     enum ProofType {
-        // 0x00 - BeefyV1 naive proof
+        // 0x00 - EcdsaBeefy naive proof
         Naive,
         // 0x01 - SP1Beefy ZK proof
         ZK,
-        // 0x02 - BeefyV1FiatShamir sampled proof
+        // 0x02 - FiatShamirBeefy sampled proof
         FiatShamir
     }
 
     // SP1 Beefy consensus client
     IConsensus public immutable sp1Beefy;
 
-    // BeefyV1 consensus client
-    IConsensus public immutable beefyV1;
+    // EcdsaBeefy consensus client
+    IConsensus public immutable ecdsaBeefy;
 
-    // BeefyV1FiatShamir consensus client
-    IConsensus public immutable beefyV1FiatShamir;
+    // FiatShamirBeefy consensus client
+    IConsensus public immutable fiatShamirBeefy;
 
     // Invalid proof type provided
     error InvalidProofType(uint8 proofType);
@@ -51,10 +70,10 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     // Empty proof provided
     error EmptyProof();
 
-    constructor(IConsensus _sp1Beefy, IConsensus _beefyV1, IConsensus _beefyV1FiatShamir) {
+    constructor(IConsensus _sp1Beefy, IConsensus _ecdsaBeefy, IConsensus _fiatShamirBeefy) {
         sp1Beefy = _sp1Beefy;
-        beefyV1 = _beefyV1;
-        beefyV1FiatShamir = _beefyV1FiatShamir;
+        ecdsaBeefy = _ecdsaBeefy;
+        fiatShamirBeefy = _fiatShamirBeefy;
     }
 
     /**
@@ -66,10 +85,10 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     }
 
     /**
-     * @dev Given some opaque consensus proof, routes to the appropriate verifier based on the first byte.
-     * First byte 0x00 -> BeefyV1 (naive proof)
-     * First byte 0x01 -> SP1Beefy (ZK proof)
-     * First byte 0x02 -> BeefyV1FiatShamir (Fiat-Shamir sampled proof)
+     * @dev Routes to the appropriate verifier based on the first byte of the proof.
+     * @param encodedState The ABI-encoded BeefyConsensusState.
+     * @param encodedProof The proof prefixed with a single-byte ProofType discriminator.
+     * @return The updated consensus state and any newly finalized intermediate states.
      */
     function verifyConsensus(bytes calldata encodedState, bytes calldata encodedProof)
         external
@@ -94,18 +113,22 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
             // Route to SP1Beefy for ZK proof verification
             return IConsensus(address(sp1Beefy)).verifyConsensus(encodedState, actualProof);
         } else if (proofType == ProofType.Naive) {
-            // Route to BeefyV1 for naive proof verification
-            return IConsensus(address(beefyV1)).verifyConsensus(encodedState, actualProof);
+            // Route to EcdsaBeefy for naive proof verification
+            return IConsensus(address(ecdsaBeefy)).verifyConsensus(encodedState, actualProof);
         } else if (proofType == ProofType.FiatShamir) {
-            // Route to BeefyV1FiatShamir for Fiat-Shamir sampled proof verification
-            return IConsensus(address(beefyV1FiatShamir)).verifyConsensus(encodedState, actualProof);
+            // Route to FiatShamirBeefy for Fiat-Shamir sampled proof verification
+            return IConsensus(address(fiatShamirBeefy)).verifyConsensus(encodedState, actualProof);
         } else {
             revert InvalidProofType(proofTypeByte);
         }
     }
 
     /**
-     * @dev IConsensusV2 verify which routes to the appropriate verifier based on the first byte of the proof.
+     * @dev IConsensusV2 variant that additionally returns the latest authority set id.
+     * @param previousState The ABI-encoded BeefyConsensusState.
+     * @param encodedProof The proof prefixed with a single-byte ProofType discriminator.
+     * @return The updated consensus state, newly finalized intermediate states, and the
+     *         latest authority set id from the selected verifier.
      */
     function verify(bytes calldata previousState, bytes calldata encodedProof)
         external
@@ -128,9 +151,9 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
         if (proofType == ProofType.ZK) {
             return IConsensusV2(address(sp1Beefy)).verify(previousState, actualProof);
         } else if (proofType == ProofType.Naive) {
-            return IConsensusV2(address(beefyV1)).verify(previousState, actualProof);
+            return IConsensusV2(address(ecdsaBeefy)).verify(previousState, actualProof);
         } else if (proofType == ProofType.FiatShamir) {
-            return IConsensusV2(address(beefyV1FiatShamir)).verify(previousState, actualProof);
+            return IConsensusV2(address(fiatShamirBeefy)).verify(previousState, actualProof);
         } else {
             revert InvalidProofType(proofTypeByte);
         }

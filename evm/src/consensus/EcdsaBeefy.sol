@@ -14,18 +14,6 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {Codec} from "./Codec.sol";
-import {Header, HeaderImpl} from "./Header.sol";
-import {
-    Vote,
-    RelayChainProof,
-    BeefyConsensusProof,
-    Commitment,
-    BeefyConsensusState,
-    PartialBeefyMmrLeaf,
-    Parachain,
-    ParachainProof
-} from "./Types.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
@@ -38,14 +26,42 @@ import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
+import {Codec} from "./Codec.sol";
+import {
+    Header,
+    HeaderImpl,
+    AuthoritySetCommitment,
+    Vote,
+    RelayChainProof,
+    BeefyConsensusProof,
+    Commitment,
+    BeefyConsensusState,
+    PartialBeefyMmrLeaf,
+    Parachain,
+    ParachainProof
+} from "./Types.sol";
+
 /**
- * @title The BEEFY Consensus Client.
+ * @title The ECDSA BEEFY Consensus Client.
  * @author Polytope Labs (hello@polytope.technology)
  *
- * @notice This verifies secp256k1 signatures and authority set membership merkle proofs
- * in order to confirm newly finalized states of the Hyperbridge blockchain.
+ * @notice Verifies BEEFY consensus proofs by checking a 2/3+1 supermajority of secp256k1
+ * signatures on-chain, along with merkle multi-proofs of authority set membership. This is
+ * the most gas-expensive verifier but requires no off-chain proving infrastructure.
+ *
+ * @dev The verification flow is:
+ *  1. Confirm the commitment's validator set id matches a known authority set.
+ *  2. Verify that enough signatures are present to meet the supermajority threshold.
+ *  3. Recover signer addresses via ecrecover and verify their membership in the authority
+ *     set via a merkle multi-proof against the authority set root.
+ *  4. Extract the MMR root from the commitment payload and verify the latest MMR leaf
+ *     inclusion via a merkle mountain range proof.
+ *  5. Verify parachain header inclusion in the MMR leaf's parachain heads root.
+ *  6. Decode each parachain header to extract finalized state commitments.
+ *
+ * Stale proofs (commitment block number <= trusted latest height) are treated as no-ops.
  */
-contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
+contract EcdsaBeefy is IConsensus, IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // The PayloadId for the mmr root.
@@ -53,11 +69,6 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
-
-    // Provided consensus proof height is stale
-
-    // Provided ultra plonk proof was invalid
-    error InvalidUltraPlonkProof();
 
     // Mmr root hash was not found in header digests
     error MmrRootHashMissing();
@@ -82,6 +93,8 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
             || super.supportsInterface(interfaceId);
     }
 
+    /// @dev IConsensusV2 entry point. Decodes the proof, verifies consensus, and returns
+    /// the updated state along with the latest authority set id.
     function verify(bytes calldata previousState, bytes calldata proof)
         external
         pure
@@ -97,6 +110,7 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
+    /// @dev IConsensus entry point. Decodes the proof and verifies consensus.
     function verifyConsensus(bytes memory encodedState, bytes memory encodedProof)
         external
         pure
@@ -140,18 +154,9 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
         pure
         returns (BeefyConsensusState memory, bytes32)
     {
-        uint256 signatures_length = relayProof.signedCommitment.votes.length;
+        uint256 sigLen = relayProof.signedCommitment.votes.length;
         uint256 latestHeight = relayProof.signedCommitment.commitment.blockNumber;
-
-        if (
-            !checkParticipationThreshold(signatures_length, trustedState.currentAuthoritySet.len)
-                && !checkParticipationThreshold(signatures_length, trustedState.nextAuthoritySet.len)
-        ) {
-            revert SuperMajorityRequired();
-        }
-
         Commitment memory commitment = relayProof.signedCommitment.commitment;
-
         if (
             commitment.validatorSetId != trustedState.currentAuthoritySet.id
                 && commitment.validatorSetId != trustedState.nextAuthoritySet.id
@@ -159,45 +164,38 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
             revert UnknownAuthoritySet();
         }
 
-        bool is_current_authorities = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
+        bool isCurrentAuthorities = commitment.validatorSetId == trustedState.currentAuthoritySet.id;
+        AuthoritySetCommitment memory authoritySet =
+            isCurrentAuthorities ? trustedState.currentAuthoritySet : trustedState.nextAuthoritySet;
+        if (!checkParticipationThreshold(sigLen, authoritySet.len)) revert SuperMajorityRequired();
 
-        uint256 payload_len = commitment.payload.length;
+        uint256 payloadLength = commitment.payload.length;
         bytes32 mmrRoot;
-
-        for (uint256 i = 0; i < payload_len; i++) {
+        for (uint256 i = 0; i < payloadLength; i++) {
             if (commitment.payload[i].id == MMR_ROOT_PAYLOAD_ID && commitment.payload[i].data.length == 32) {
                 mmrRoot = Bytes.toBytes32(commitment.payload[i].data);
             }
         }
-
         if (mmrRoot == bytes32(0)) revert MmrRootHashMissing();
 
-        bytes32 commitment_hash = keccak256(Codec.Encode(commitment));
-        MerkleMultiProof.Leaf[] memory authorities = new MerkleMultiProof.Leaf[](signatures_length);
-
-        // verify authorities' votes
-        for (uint256 i = 0; i < signatures_length; i++) {
+        // verify the commitment
+        bytes32 commitmentHash = keccak256(Codec.Encode(commitment));
+        MerkleMultiProof.Leaf[] memory authorities = new MerkleMultiProof.Leaf[](sigLen);
+        for (uint256 i = 0; i < sigLen; i++) {
             Vote memory vote = relayProof.signedCommitment.votes[i];
-            address authority = ECDSA.recover(commitment_hash, vote.signature);
-            authorities[i] = MerkleMultiProof.Leaf(vote.authorityIndex, keccak256(abi.encodePacked(authority)));
+            address authority = ECDSA.recover(commitmentHash, vote.signature);
+            authorities[i] =
+                MerkleMultiProof.Leaf({index: vote.authorityIndex, hash: keccak256(abi.encodePacked(authority))});
         }
 
-        bool valid;
-        // check authorities proof
-        if (is_current_authorities) {
-            valid = MerkleMultiProof.VerifyProof(trustedState.currentAuthoritySet.root, relayProof.proof, authorities, trustedState.currentAuthoritySet.len);
-        } else {
-            valid = MerkleMultiProof.VerifyProof(trustedState.nextAuthoritySet.root, relayProof.proof, authorities, trustedState.nextAuthoritySet.len);
-        }
+        bool valid = MerkleMultiProof.VerifyProof(authoritySet.root, relayProof.proof, authorities, authoritySet.len);
         if (!valid) revert InvalidAuthoritiesProof();
 
         verifyMmrLeaf(trustedState, relayProof, mmrRoot);
-
         if (relayProof.latestMmrLeaf.nextAuthoritySet.id > trustedState.nextAuthoritySet.id) {
             trustedState.currentAuthoritySet = trustedState.nextAuthoritySet;
             trustedState.nextAuthoritySet = relayProof.latestMmrLeaf.nextAuthoritySet;
         }
-
         trustedState.latestHeight = latestHeight;
 
         return (trustedState, relayProof.latestMmrLeaf.extra);
@@ -220,10 +218,8 @@ contract BeefyV1 is IConsensus, IConsensusV2, ERC165 {
             )
         );
         uint256 leafCount = leafIndex(trustedState.beefyActivationBlock, relay.latestMmrLeaf.parentNumber) + 1;
-
         MerkleMountainRange.Leaf[] memory leaves = new MerkleMountainRange.Leaf[](1);
-        leaves[0] = MerkleMountainRange.Leaf(relay.latestMmrLeaf.leafIndex, hash);
-
+        leaves[0] = MerkleMountainRange.Leaf({index: relay.latestMmrLeaf.leafIndex, hash: hash});
         bool valid = MerkleMountainRange.VerifyProof(mmrRoot, relay.mmrProof, leaves, leafCount);
 
         if (!valid) revert InvalidMmrProof();

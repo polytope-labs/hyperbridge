@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "stringutils/strings.sol";
 
 import {EvmHost, HostParams} from "../src/core/EvmHost.sol";
-import {BeefyV1} from "../src/consensus/BeefyV1.sol";
+import {EcdsaBeefy} from "../src/consensus/EcdsaBeefy.sol";
 import {BaseScript} from "./BaseScript.sol";
 import "../src/core/HandlerV2.sol";
 
@@ -22,8 +22,8 @@ contract DeployScript is BaseScript {
     /// @dev This function is called within a broadcast context
     function deploy() internal override {
         // Deploy consensus clients
-        BeefyV1 beefyV1 = new BeefyV1{salt: salt}();
-        console.log("BeefyV1 deployed at:", address(beefyV1));
+        EcdsaBeefy ecdsaBeefy = new EcdsaBeefy{salt: salt}();
+        console.log("EcdsaBeefy deployed at:", address(ecdsaBeefy));
 
         SP1Verifier verifier = new SP1Verifier{salt: salt}();
         console.log("SP1Verifier deployed at:", address(verifier));
@@ -32,7 +32,7 @@ contract DeployScript is BaseScript {
         console.log("SP1Beefy deployed at:", address(sp1));
 
         ConsensusRouter consensusClient =
-            new ConsensusRouter{salt: salt}(IConsensus(sp1), IConsensus(beefyV1), IConsensus(address(0)));
+            new ConsensusRouter{salt: salt}(IConsensus(sp1), IConsensus(ecdsaBeefy), IConsensus(address(0)));
         console.log("ConsensusRouter deployed at:", address(consensusClient));
 
         HandlerV2 handler = new HandlerV2{salt: salt}();

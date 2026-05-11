@@ -3,14 +3,14 @@ pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
-import "../../src/consensus/BeefyV1FiatShamir.sol";
+import "../../src/consensus/FiatShamirBeefy.sol";
 import {RelayChainProof, ParachainProof, BeefyConsensusState} from "../../src/consensus/Types.sol";
 
 contract BeefyFiatShamirDebugDetailedTest is Test {
-    BeefyV1FiatShamir public consensus;
+    FiatShamirBeefy public consensus;
 
     function setUp() public {
-        consensus = new BeefyV1FiatShamir();
+        consensus = new FiatShamirBeefy();
     }
 
     function testDebugWithManualDecode() public {

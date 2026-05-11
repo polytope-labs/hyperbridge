@@ -76,7 +76,7 @@ pub mod pallet {
 		host::IsmpHost,
 		messaging::{ConsensusMessage as IsmpConsensusMessage, Message},
 	};
-	use ismp_solidity_abi::beefy::BeefyConsensusState as SolBeefyConsensusState;
+	use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState as SolBeefyConsensusState;
 	use primitive_types::H256;
 	use sp_runtime::traits::AccountIdConversion;
 
@@ -442,11 +442,11 @@ pub mod pallet {
 					},
 					types::PROOF_TYPE_NAIVE => {
 						let p =
-						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+						<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;
-						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_encode_params(&p)
+						<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_encode_params(&p)
 					},
 					_ => Err(Error::<T>::UnknownProofType)?,
 				};
@@ -736,7 +736,7 @@ pub mod pallet {
 				},
 				types::PROOF_TYPE_NAIVE => {
 					let abi_proof =
-						<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+						<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 							abi_payload,
 						)
 						.map_err(|_| Error::<T>::AbiDecodeFailed)?;

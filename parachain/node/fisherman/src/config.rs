@@ -184,4 +184,131 @@ mod tests {
 	fn ensure_distinct_hosts_accepts_empty() {
 		ensure_distinct_hosts(42161, &[]).unwrap();
 	}
+
+	mod parses_tesseract_config {
+		use std::collections::HashMap;
+
+		use ismp::host::StateMachine;
+		use tesseract::config::{
+			HyperbridgeConfig, HyperbridgeSection, PerChainConfig, RelayerConfig,
+		};
+		use tesseract_config::AnyConfig;
+		use tesseract_evm::EvmConfig;
+		use tesseract_substrate::SubstrateConfig;
+
+		use crate::config::validate;
+
+		fn evm_l2(chain_id: u32, rpc_urls: &[&str]) -> PerChainConfig {
+			PerChainConfig {
+				messaging: AnyConfig::Evm(EvmConfig {
+					rpc_urls: rpc_urls.iter().map(|s| (*s).to_string()).collect(),
+					state_machine: Some(StateMachine::Evm(chain_id)),
+					..EvmConfig::default()
+				}),
+				consensus: None,
+			}
+		}
+
+		fn substrate_hyperbridge() -> SubstrateConfig {
+			SubstrateConfig {
+				state_machine: Some(StateMachine::Polkadot(4009)),
+				hashing: None,
+				consensus_state_id: Some("DOT0".into()),
+				rpc_ws: "ws://127.0.0.1:9933".into(),
+				max_rpc_payload_size: None,
+				signer: None,
+				initial_height: None,
+				max_concurent_queries: None,
+				poll_interval: None,
+				fee_token_decimals: None,
+			}
+		}
+
+		/// Returns a fully-resolved [`HyperbridgeConfig`] covering the complete
+		/// testnet L2 set (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia)
+		/// with two distinct-host rpc_urls each. The relayer section is left
+		/// at its [`Default`] (collators don't need to populate it).
+		fn complete_testnet_collator_config() -> HyperbridgeConfig {
+			let mut chains = HashMap::new();
+			for (chain_id, rpcs) in [
+				(
+					421614u32,
+					["https://arb-sepolia.alchemy.com/v2/k", "https://arb-sepolia.infura.io/v3/k"],
+				),
+				(
+					11155420,
+					["https://opt-sepolia.alchemy.com/v2/k", "https://opt-sepolia.infura.io/v3/k"],
+				),
+				(
+					84532,
+					[
+						"https://base-sepolia.alchemy.com/v2/k",
+						"https://base-sepolia.infura.io/v3/k",
+					],
+				),
+			] {
+				chains.insert(StateMachine::Evm(chain_id), evm_l2(chain_id, &rpcs));
+			}
+			HyperbridgeConfig {
+				hyperbridge: HyperbridgeSection {
+					substrate: substrate_hyperbridge(),
+					consensus: None,
+				},
+				chains,
+				relayer: RelayerConfig::default(),
+			}
+		}
+
+		#[test]
+		fn validate_accepts_complete_testnet_collator_config() {
+			let cfg = complete_testnet_collator_config();
+			validate(&cfg).expect("validate should accept a complete testnet collator config");
+		}
+
+		#[test]
+		fn validate_rejects_partial_l2_coverage() {
+			let mut cfg = complete_testnet_collator_config();
+			cfg.chains.remove(&StateMachine::Evm(84532));
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("testnet"), "error: {err}");
+			assert!(err.contains("84532"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_chain_with_fewer_than_two_rpc_urls() {
+			let mut cfg = complete_testnet_collator_config();
+			let AnyConfig::Evm(ref mut evm) = cfg
+				.chains
+				.get_mut(&StateMachine::Evm(421614))
+				.expect("arb sepolia present")
+				.messaging
+			else {
+				panic!("expected evm config");
+			};
+			evm.rpc_urls.truncate(1);
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("421614"), "error: {err}");
+			assert!(err.contains("at least"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_duplicate_host_within_chain() {
+			let mut cfg = complete_testnet_collator_config();
+			let AnyConfig::Evm(ref mut evm) = cfg
+				.chains
+				.get_mut(&StateMachine::Evm(421614))
+				.expect("arb sepolia present")
+				.messaging
+			else {
+				panic!("expected evm config");
+			};
+			evm.rpc_urls = vec![
+				"https://arb-sepolia.alchemy.com/v2/key1".into(),
+				"https://arb-sepolia.alchemy.com/v2/key2".into(),
+			];
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("arb-sepolia.alchemy.com"), "error: {err}");
+			assert!(err.contains("distinct providers"), "error: {err}");
+		}
+	}
 }

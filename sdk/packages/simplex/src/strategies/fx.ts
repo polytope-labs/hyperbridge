@@ -342,6 +342,7 @@ export class FXFiller implements FillerStrategy {
 				const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
 				let policyMaxOutput = rawPolicyMaxOutput
 				if (rawPolicyMaxOutput > overfillCeiling) {
+					const priceSource = venuePrice ? "venue" : "policy"
 					this.logger.warn(
 						{
 							orderId: order.id,
@@ -351,11 +352,18 @@ export class FXFiller implements FillerStrategy {
 							unclamped: rawPolicyMaxOutput.toString(),
 							clamped: overfillCeiling.toString(),
 							maxOverfillBps: this.maxOverfillBps.toString(),
+							priceSource,
 						},
 						"Overfill clamp activated",
 					)
 					policyMaxOutput = overfillCeiling
-					anyLegClamped = true
+					// Only count venue-sourced clamps toward the halt counter. Offline
+					// price-curve clamps still warn but never halt — the curve is
+					// operator-authored, so a mismatch is a config issue, not a live
+					// market signal worth tripping the kill switch over.
+					if (venuePrice) {
+						anyLegClamped = true
+					}
 				}
 
 				// Cap by wallet balance on the destination chain, optionally topped up via LP removal.
@@ -641,8 +649,10 @@ export class FXFiller implements FillerStrategy {
 
 	/**
 	 * Update consecutive-clamp counter after a successful order evaluation.
-	 * Halts the filler if maxConsecutiveClamps is reached — a pattern that strongly
-	 * suggests a systemic pricing bug rather than benign one-off over-provision.
+	 * Only venue-priced legs feed this counter (see clamp site) — a streak of those
+	 * is the signal that a live market source has gone off (stale pool, manipulated
+	 * venue) and the filler should stop until an operator investigates. Offline
+	 * price-curve clamps warn but never reach here.
 	 */
 	private recordOrderOutcome(clamped: boolean, orderId: string | undefined) {
 		if (clamped) {
@@ -651,7 +661,7 @@ export class FXFiller implements FillerStrategy {
 				this.halted = true
 				this.logger.error(
 					{ orderId, consecutiveClamps: this.consecutiveClamps, maxConsecutiveClamps: this.maxConsecutiveClamps },
-					"FXFiller HALTED — overfill clamp triggered consecutively; restart required after investigation",
+					"FXFiller HALTED — venue-priced overfill clamp triggered consecutively; restart required after investigation",
 				)
 			}
 		} else {

@@ -222,19 +222,16 @@ impl ismp_beefy::BeefyClientConfig for Runtime {
 	}
 }
 
-/// True iff the account is in the active session validator set AND
-/// registered with `pallet-collator-selection` (invulnerable or candidate).
-/// Both gates must pass.
+/// True when the account is registered with `pallet-collator-selection` as
+/// an invulnerable or as a bonded candidate. Active session membership is
+/// not required: a freshly registered candidate who hasn't been selected for
+/// the current session is still a legitimate fisherman. Candidates that have
+/// called `leave_intent` are removed from `CandidateList` in the same block,
+/// so being in this list also implies "has not declared intent to withdraw."
 pub struct IsCollator;
 impl frame_support::traits::Contains<AccountId> for IsCollator {
 	fn contains(account: &AccountId) -> bool {
-		if !pallet_session::Validators::<Runtime>::get().contains(account) {
-			return false;
-		}
-		if pallet_collator_selection::Invulnerables::<Runtime>::get()
-			.iter()
-			.any(|a| a == account)
-		{
+		if pallet_collator_selection::Invulnerables::<Runtime>::get().contains(account) {
 			return true;
 		}
 		pallet_collator_selection::CandidateList::<Runtime>::get()

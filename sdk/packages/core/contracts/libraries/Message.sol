@@ -13,7 +13,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 import {StateMachineHeight} from "../interfaces/IConsensus.sol";
 
 /**
@@ -87,7 +87,7 @@ struct GetResponse {
     /// @notice The original GET request being responded to
     GetRequest request;
     /// @notice Retrieved storage values from the queried chain
-    MerklePatricia.StorageValue[] values;
+    StorageValue[] values;
 }
 
 /**

@@ -206,10 +206,10 @@ type     = "evm"
 rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 # Hex-encoded private key for the relayer account on this chain.
 # Setting `signer` opts the chain into the HB to chain outbound
-# fan-out (and the fee-withdrawal and fisherman roles). Omit it to
-# run the chain inbound-only: events are read and pushed to
-# Hyperbridge using the [hyperbridge] signer, but no transactions
-# are submitted on this chain.
+# fan-out (and the fee-withdrawal role). Omit it to run the chain
+# inbound-only: events are read and pushed to Hyperbridge using the
+# [hyperbridge] signer, but no transactions are submitted on this
+# chain.
 signer = ""
 
 # Substrate chain template.
@@ -278,10 +278,14 @@ messages per batch** to stay inside EVM calldata and gas limits.
 
 To opt a chain out of the outbound fan-out, omit `signer` from that
 chain's block. Without a signer the relayer cannot submit transactions
-on that chain, so it is automatically excluded from outbound delivery,
-fee-withdrawal POSTs, and fisherman vetoes. Inbound messaging and
-inbound consensus (if `[<chain>.consensus]` is set) continue to work,
-since both submit on Hyperbridge using the `[hyperbridge]` signer.
+on that chain, so it is automatically excluded from outbound delivery
+and fee-withdrawal POSTs. Inbound messaging and inbound consensus (if
+`[<chain>.consensus]` is set) continue to work, since both submit on
+Hyperbridge using the `[hyperbridge]` signer.
+
+Fisherman duty no longer lives in the relayer. It now runs as a task
+inside the hyperbridge collator binary. See the collator operator docs
+for setup.
 
 ## Per-chain configurations
 
@@ -299,8 +303,8 @@ need to pin a specific `ismp_host` by hand, the current values are in
 the [mainnet](/developers/evm/contract-addresses/mainnet) and
 [testnet](/developers/evm/contract-addresses/testnet) address tables.
 Setting `signer` opts the chain into the Hyperbridge to chain outbound
-fan-out (and the fee-withdrawal and fisherman roles); omit it to keep
-the chain inbound only.
+fan-out (and the fee-withdrawal role); omit it to keep the chain
+inbound only.
 
 ### Ethereum
 

@@ -110,7 +110,7 @@ impl Cli {
 			// for new deployments and owns fee accumulation as a top-level
 			// task). Retiring this binary is tracked as follow-up work.
 			messaging::inbound(
-				new_hyperbridge.clone(),
+				new_hyperbridge,
 				client.clone(),
 				relayer.clone(),
 				coprocessor,
@@ -120,16 +120,6 @@ impl Cli {
 				None,
 			)
 			.await?;
-
-			if relayer.fisherman.unwrap_or_default() {
-				tesseract_fisherman::fish(
-					Arc::new(new_hyperbridge),
-					client.clone(),
-					&task_manager,
-					coprocessor,
-				)
-				.await?
-			}
 
 			metadata.push((
 				state_machine.clone(),

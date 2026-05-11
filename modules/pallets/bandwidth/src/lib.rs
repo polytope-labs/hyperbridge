@@ -68,6 +68,9 @@ pub mod pallet {
 	/// `to` field on purchase messages; also the sovereign `PalletId`.
 	pub const PALLET_BANDWIDTH: PalletId = PalletId(*b"BWMARKET");
 
+	/// FIFO list of subscriptions stored per `(chain, app)`, bounded
+	/// by [`MAX_SUBSCRIPTIONS`]. Pushes onto a full list evict the
+	/// oldest entry.
 	pub type SubscriptionList = BoundedVec<Subscription, MaxSubscriptions>;
 
 	/// Maps the EVM contract's `OnAcceptActions` enum. Discriminants
@@ -79,6 +82,8 @@ pub mod pallet {
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
+	/// Runtime hooks the pallet depends on. Inherits admin gating and
+	/// the timestamp provider from `pallet_ismp::Config`.
 	#[pallet::config]
 	pub trait Config:
 		polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_ismp::Config
@@ -118,20 +123,29 @@ pub mod pallet {
 	pub type Allowlist<T: Config> =
 		StorageDoubleMap<_, Twox64Concat, StateMachine, Blake2_128Concat, AppKey, (), OptionQuery>;
 
+	/// Active tier SKUs keyed by `TierIndex`. Absent (or `None` via
+	/// `set_tier`) means the tier is unconfigured; purchases against
+	/// it are rejected.
 	#[pallet::storage]
 	pub type Tiers<T: Config> = StorageMap<_, Twox64Concat, TierIndex, TierConfig, OptionQuery>;
 
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
+		/// A `BandwidthManager` contract was bound to a source chain by
+		/// admin. Future purchases from that chain are accepted only if
+		/// `request.from` matches.
 		ManagerRegistered {
 			source: StateMachine,
 			manager: H160,
 		},
+		/// A tier SKU was created, updated, or revoked (`config: None`).
 		TierSet {
 			tier: TierIndex,
 			config: Option<TierConfig>,
 		},
+		/// A new subscription was appended on the `(app_chain, app)`
+		/// list as a result of a paid purchase from `paid_from`.
 		BandwidthCredited {
 			app_chain: StateMachine,
 			app: AppKey,
@@ -141,17 +155,24 @@ pub mod pallet {
 			bytes: BandwidthBytes,
 			expires_at: u64,
 		},
+		/// The gate deducted `bytes` from the head subscription(s) of
+		/// `(source, app)`; `remaining` is the post-deduct sum across
+		/// what's left.
 		BandwidthConsumed {
 			source: StateMachine,
 			app: AppKey,
 			bytes: u128,
 			remaining: u128,
 		},
+		/// Allowlist membership flipped: `on = true` makes the app
+		/// bypass the gate on `source`, `false` revokes the bypass.
 		AllowlistChanged {
 			source: StateMachine,
 			app: AppKey,
 			on: bool,
 		},
+		/// Admin-pushed subscription (migrations, refunds). Shape
+		/// mirrors `BandwidthCredited` minus the cross-chain payer.
 		ForceCredited {
 			app_chain: StateMachine,
 			app: AppKey,
@@ -185,10 +206,19 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
+		/// No `BandwidthManager` has been registered for the target
+		/// source chain. Admin must call `set_manager` first.
 		UnknownManager,
+		/// The purchase message arrived from a sender that doesn't
+		/// match the registered manager for its source chain.
 		UnauthorizedManager,
+		/// The ABI body of a purchase message failed to decode.
 		InvalidPurchaseBody,
+		/// The purchase referenced a tier discriminant that doesn't
+		/// map to a `TierIndex` variant, or has no `TierConfig` set.
 		UnknownTier,
+		/// `set_tier` rejected a config with zero `bytes` or zero
+		/// `duration_secs` — use `None` to revoke instead.
 		InvalidTierConfig,
 		/// Outbound dispatch to the destination manager failed.
 		DispatchFailed,
@@ -198,6 +228,8 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		/// Register (or overwrite) the `BandwidthManager` contract that
+		/// is authorised to send purchase messages from `source`.
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn set_manager(
@@ -211,6 +243,8 @@ pub mod pallet {
 			Ok(())
 		}
 
+		/// Flip an `(source, app)` allowlist bypass. While set, the gate
+		/// returns `Ok` for that app without touching its subscriptions.
 		#[pallet::call_index(1)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn set_allowlist(

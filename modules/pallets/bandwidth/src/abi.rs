@@ -13,6 +13,8 @@ use ismp::host::StateMachine;
 sol! {
 	#![sol(all_derives)]
 
+	/// Wire mirror of `BandwidthPurchaseMsg` from `BandwidthManager.sol`.
+	/// Field order and types must stay byte-identical.
 	struct BandwidthPurchaseMsgAbi {
 		bytes app;
 		uint256 tier;
@@ -36,11 +38,20 @@ sol! {
 	}
 }
 
+/// Pallet-side decoded form of [`BandwidthPurchaseMsgAbi`]. `tier`
+/// and `months` are narrowed to `u32` and `chain` is parsed into
+/// `StateMachine` — anything that fails those checks is rejected
+/// at decode time rather than reaching storage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurchaseMessage {
+	/// Recipient app on the credit chain. Truncated to `AppKey` later.
 	pub app: Vec<u8>,
+	/// Tier discriminant; must map to a `TierIndex` variant.
 	pub tier: u32,
+	/// Multiplier on `cfg.bytes` and `cfg.duration_secs`. `0` is rejected.
 	pub months: u32,
+	/// Chain where the credit lands. Differs from `request.source` on
+	/// sponsorship.
 	pub chain: StateMachine,
 }
 

@@ -8,8 +8,12 @@ use ismp::host::StateMachine;
 use polkadot_sdk::frame_support::pallet_prelude::*;
 use scale_info::TypeInfo;
 
+/// Recipient app identifier on the credit chain. Bounded so it fits
+/// inline in storage; usually a 20-byte EVM address right-padded.
 pub type AppKey = BoundedVec<u8, ConstU32<32>>;
 
+/// Byte balance unit. `u128` so a single subscription can carry
+/// multi-month allowances without overflow concerns.
 pub type BandwidthBytes = u128;
 
 /// Hard cap on the subscription list per `(chain, app)`. Pushes
@@ -17,6 +21,9 @@ pub type BandwidthBytes = u128;
 pub const MAX_SUBSCRIPTIONS: u32 = 1024;
 pub type MaxSubscriptions = ConstU32<MAX_SUBSCRIPTIONS>;
 
+/// Closed enum of available tier SKUs. Discriminants are stable —
+/// must match the EVM side's `tier` field in `BandwidthPurchaseMsg`.
+/// Adding a tier means adding a variant on both sides.
 #[derive(
 	Encode,
 	Decode,
@@ -32,9 +39,13 @@ pub type MaxSubscriptions = ConstU32<MAX_SUBSCRIPTIONS>;
 	RuntimeDebug,
 )]
 pub enum TierIndex {
+	/// Entry tier — discriminant `1` on the wire.
 	TierOne = 1,
+	/// Discriminant `2` on the wire.
 	TierTwo = 2,
+	/// Discriminant `3` on the wire.
 	TierThree = 3,
+	/// Discriminant `4` on the wire.
 	TierFour = 4,
 }
 
@@ -72,7 +83,11 @@ impl From<TierIndex> for u32 {
 	RuntimeDebug,
 )]
 pub struct TierConfig {
+	/// Bytes credited per single-month purchase of this tier. Multi-month
+	/// purchases scale this linearly.
 	pub bytes: BandwidthBytes,
+	/// Window length per single-month purchase, in seconds. Multi-month
+	/// purchases scale this linearly.
 	pub duration_secs: u64,
 }
 
@@ -91,7 +106,11 @@ pub struct TierConfig {
 	RuntimeDebug,
 )]
 pub struct Subscription {
+	/// SKU this subscription was bought against; for analytics/events
+	/// only — the gate doesn't look at it during drain.
 	pub tier: TierIndex,
+	/// Bytes left to spend. Decrements as the gate drains; the entry
+	/// is popped once this hits zero.
 	pub remaining_bytes: BandwidthBytes,
 	/// Unix seconds. Gate sweeps entries where `expires_at <= now`.
 	pub expires_at: u64,
@@ -103,16 +122,27 @@ pub struct Subscription {
 /// positional dispatch args beyond two get unreadable fast.
 #[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]
 pub struct ForceCreditParams {
+	/// Chain whose `(chain, app)` bucket gets the new subscription.
 	pub app_chain: StateMachine,
+	/// Recipient app on `app_chain`.
 	pub app: AppKey,
+	/// Tier label recorded on the subscription; doesn't have to match
+	/// a configured `TierConfig` (this is the admin escape hatch).
 	pub tier: TierIndex,
+	/// Bytes to credit on the new subscription.
 	pub bytes: BandwidthBytes,
+	/// Window length in seconds — `expires_at = now + duration_secs`.
 	pub duration_secs: u64,
 }
 
+/// Why the gate refused a request. Surfaces back to the ISMP router.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GateError {
+	/// The app has no live subscriptions on `(chain, app)`.
 	NoAllowance,
+	/// Live subscriptions exist but the sum of `remaining_bytes` is
+	/// short of what the message needs. The gate makes no mutation in
+	/// this case — the caller can retry after a top-up.
 	Insufficient { remaining: u128, required: u128 },
 }
 

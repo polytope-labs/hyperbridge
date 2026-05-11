@@ -18,7 +18,7 @@ import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 
-import {BandwidthManager, BandwidthPurchaseMsg} from "../../src/apps/BandwidthManager.sol";
+import {BandwidthManager, BandwidthPurchaseMsg, Tier, Withdrawal} from "../../src/apps/BandwidthManager.sol";
 
 /// 6-decimal stablecoin used by the multi-decimal scaling test.
 contract Stable6d is ERC20 {
@@ -90,7 +90,7 @@ contract BandwidthManagerTest is Test {
         assertEq(body.app, APP);
         assertEq(body.tier, TIER1);
         assertEq(body.months, 1);
-        assertEq(body.appChain, APP_CHAIN);
+        assertEq(body.chain, APP_CHAIN);
     }
 
     function testBulkPurchaseChargesProportionally() public {
@@ -189,17 +189,13 @@ contract BandwidthManagerTest is Test {
     }
 
     function testGovernanceCanSetMultipleTiers() public {
-        uint256[] memory tiers = new uint256[](3);
-        uint256[] memory prices = new uint256[](3);
-        tiers[0] = 1;
-        tiers[1] = 2;
-        tiers[2] = 3;
-        prices[0] = 5e18;
-        prices[1] = 50e18;
-        prices[2] = 500e18;
+        Tier[] memory updates = new Tier[](3);
+        updates[0] = Tier({tier: 1, price: 5e18});
+        updates[1] = Tier({tier: 2, price: 50e18});
+        updates[2] = Tier({tier: 3, price: 500e18});
 
         bytes memory body = bytes.concat(
-            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)), abi.encode(tiers, prices)
+            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)), abi.encode(updates)
         );
         IncomingPostRequest memory req = _governanceRequestFor(host, body);
         vm.prank(address(host));
@@ -230,7 +226,7 @@ contract BandwidthManagerTest is Test {
             host,
             bytes.concat(
                 bytes1(uint8(BandwidthManager.OnAcceptActions.Withdraw)),
-                abi.encode(address(feeToken), TREASURY, TIER1_PRICE_18D)
+                abi.encode(Withdrawal({token: address(feeToken), beneficiary: TREASURY, amount: TIER1_PRICE_18D}))
             )
         );
         vm.prank(address(host));
@@ -241,7 +237,7 @@ contract BandwidthManagerTest is Test {
             host,
             bytes.concat(
                 bytes1(uint8(BandwidthManager.OnAcceptActions.Withdraw)),
-                abi.encode(address(stale), TREASURY, 999e18)
+                abi.encode(Withdrawal({token: address(stale), beneficiary: TREASURY, amount: 999e18}))
             )
         );
         vm.prank(address(host));
@@ -291,12 +287,10 @@ contract BandwidthManagerTest is Test {
     }
 
     function _setTiersBody(uint256 tier, uint256 price18d) internal pure returns (bytes memory) {
-        uint256[] memory tiers = new uint256[](1);
-        uint256[] memory prices = new uint256[](1);
-        tiers[0] = tier;
-        prices[0] = price18d;
+        Tier[] memory updates = new Tier[](1);
+        updates[0] = Tier({tier: tier, price: price18d});
         return bytes.concat(
-            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)), abi.encode(tiers, prices)
+            bytes1(uint8(BandwidthManager.OnAcceptActions.SetTiers)), abi.encode(updates)
         );
     }
 

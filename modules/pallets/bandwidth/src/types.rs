@@ -98,34 +98,6 @@ pub struct AllowanceState {
 	pub expires_at: u64,
 }
 
-#[derive(
-	Encode,
-	Decode,
-	DecodeWithMemTracking,
-	TypeInfo,
-	MaxEncodedLen,
-	Clone,
-	Copy,
-	PartialEq,
-	Eq,
-	RuntimeDebug,
-)]
-pub enum EnforcementMode {
-	/// Gate no-ops.
-	Disabled,
-	/// Always `Ok`, but emits `WouldReject` on shortfall so apps can
-	/// preview what `Enforce` will reject.
-	Observe,
-	/// Shortfall returns `Err`; success deducts.
-	Enforce,
-}
-
-impl Default for EnforcementMode {
-	fn default() -> Self {
-		EnforcementMode::Disabled
-	}
-}
-
 /// Admin payload for `force_credit` — bundled into a struct because
 /// positional dispatch args beyond two get unreadable fast.
 #[derive(Encode, Decode, DecodeWithMemTracking, TypeInfo, Clone, PartialEq, Eq, RuntimeDebug)]

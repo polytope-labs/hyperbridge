@@ -308,9 +308,8 @@ impl pallet_assets::Config for Runtime {
 
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
-		// Bandwidth gate. Behaviour follows the pallet's `EnforcementMode`
-		// (Disabled / Observe / Enforce); skipped for purchase messages so
-		// the recharge flow itself doesn't need bandwidth.
+		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
+		// recharge flow itself doesn't need bandwidth.
 		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
 			let bytes = core::cmp::max(request.body.len(), 32) as u32;
 			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(

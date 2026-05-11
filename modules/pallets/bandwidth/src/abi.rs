@@ -17,7 +17,22 @@ sol! {
 		bytes app;
 		uint256 tier;
 		uint256 months;
-		bytes appChain;
+		bytes chain;
+	}
+
+	/// One row of a `SetTiers` governance batch — must match the Sol
+	/// `Tier` struct in `BandwidthManager.sol`.
+	struct TierAbi {
+		uint256 tier;
+		uint256 price;
+	}
+
+	/// `Withdraw` payload — must match the Sol `Withdrawal` struct in
+	/// `BandwidthManager.sol`.
+	struct WithdrawalAbi {
+		address token;
+		address beneficiary;
+		uint256 amount;
 	}
 }
 
@@ -26,10 +41,10 @@ pub struct PurchaseMessage {
 	pub app: Vec<u8>,
 	pub tier: u32,
 	pub months: u32,
-	pub app_chain: StateMachine,
+	pub chain: StateMachine,
 }
 
-/// `appChain` is the UTF-8 form of `StateMachine::Display` (e.g.
+/// `chain` is the UTF-8 form of `StateMachine::Display` (e.g.
 /// `"EVM-8453"`) so EVM dapps can build it with string concat.
 impl TryFrom<&[u8]> for PurchaseMessage {
 	type Error = anyhow::Error;
@@ -44,12 +59,12 @@ impl TryFrom<&[u8]> for PurchaseMessage {
 		if months == 0 {
 			return Err(anyhow::anyhow!("months must be >= 1"));
 		}
-		let app_chain_str = str::from_utf8(&abi.appChain)
-			.map_err(|err| anyhow::anyhow!(format!("appChain is not utf-8: {err}")))?;
-		let app_chain = StateMachine::from_str(app_chain_str)
-			.map_err(|err| anyhow::anyhow!(format!("invalid appChain {app_chain_str:?}: {err}")))?;
+		let chain_str = str::from_utf8(&abi.chain)
+			.map_err(|err| anyhow::anyhow!(format!("chain is not utf-8: {err}")))?;
+		let chain = StateMachine::from_str(chain_str)
+			.map_err(|err| anyhow::anyhow!(format!("invalid chain {chain_str:?}: {err}")))?;
 
-		Ok(PurchaseMessage { app: abi.app.into(), tier, months, app_chain })
+		Ok(PurchaseMessage { app: abi.app.into(), tier, months, chain })
 	}
 }
 
@@ -59,7 +74,7 @@ impl From<&PurchaseMessage> for Vec<u8> {
 			app: alloy_primitives::Bytes::from(msg.app.clone()),
 			tier: alloy_primitives::U256::from(msg.tier),
 			months: alloy_primitives::U256::from(msg.months),
-			appChain: alloy_primitives::Bytes::from(msg.app_chain.to_string().into_bytes()),
+			chain: alloy_primitives::Bytes::from(msg.chain.to_string().into_bytes()),
 		};
 		BandwidthPurchaseMsgAbi::abi_encode(&abi)
 	}

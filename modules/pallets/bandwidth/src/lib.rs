@@ -40,16 +40,16 @@ pub mod types;
 
 pub use pallet::*;
 pub use types::{
-	AllowanceState, AppKey, BandwidthBytes, BandwidthGate, EnforcementMode, ForceCreditParams,
-	GateError, MaxTiers, TierConfig, TierIndex,
+	AllowanceState, AppKey, BandwidthBytes, BandwidthGate, ForceCreditParams, GateError, MaxTiers,
+	TierConfig, TierIndex,
 };
 
 #[frame_support::pallet]
 pub mod pallet {
 	use super::*;
-	use crate::abi::PurchaseMessage;
+	use crate::abi::{PurchaseMessage, TierAbi, WithdrawalAbi};
 	use alloc::{format, vec, vec::Vec};
-	use alloy_sol_types::{sol_data, SolType};
+	use alloy_sol_types::SolValue;
 	use frame_support::{pallet_prelude::*, BoundedBTreeMap, PalletId};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
@@ -81,7 +81,7 @@ pub mod pallet {
 		polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>> + pallet_ismp::Config
 	{
 		/// ISMP dispatcher used to push outbound governance messages
-		/// (tier-price updates, treasury withdrawals) to EVM markets.
+		/// (tier-price updates, treasury withdrawals) to EVM managers.
 		type Dispatcher: IsmpDispatcher<
 				Account = Self::AccountId,
 				Balance = <Self as pallet_ismp::Config>::Balance,
@@ -91,7 +91,7 @@ pub mod pallet {
 	/// Authorised purchase contract per source chain. A purchase whose
 	/// `request.from` doesn't match this is rejected.
 	#[pallet::storage]
-	pub type BandwidthMarkets<T: Config> =
+	pub type BandwidthManager<T: Config> =
 		StorageMap<_, Twox64Concat, StateMachine, H160, OptionQuery>;
 
 	/// Keyed by `app_chain` from the purchase message — *not*
@@ -118,15 +118,12 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Tiers<T: Config> = StorageMap<_, Twox64Concat, TierIndex, TierConfig, OptionQuery>;
 
-	#[pallet::storage]
-	pub type Mode<T: Config> = StorageValue<_, EnforcementMode, ValueQuery>;
-
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		MarketRegistered {
+		ManagerRegistered {
 			source: StateMachine,
-			market: H160,
+			manager: H160,
 		},
 		TierSet {
 			tier: TierIndex,
@@ -148,16 +145,6 @@ pub mod pallet {
 			bytes: u128,
 			remaining: u128,
 		},
-		/// Would-have-rejected event under Observe mode.
-		WouldReject {
-			source: StateMachine,
-			app: AppKey,
-			required: u128,
-			remaining: u128,
-		},
-		ModeChanged {
-			mode: EnforcementMode,
-		},
 		AllowlistChanged {
 			source: StateMachine,
 			app: AppKey,
@@ -171,13 +158,13 @@ pub mod pallet {
 			tier_balance: BandwidthBytes,
 			expires_at: u64,
 		},
-		/// Outbound `SetTiers` message dispatched to the registered market.
+		/// Outbound `SetTiers` message dispatched to the registered manager.
 		TiersDispatched {
 			target: StateMachine,
 			count: u32,
 			commitment: H256,
 		},
-		/// Outbound `Withdraw` message dispatched to the registered market.
+		/// Outbound `Withdraw` message dispatched to the registered manager.
 		WithdrawalDispatched {
 			target: StateMachine,
 			token: H160,
@@ -189,12 +176,12 @@ pub mod pallet {
 
 	#[pallet::error]
 	pub enum Error<T> {
-		UnknownMarket,
-		UnauthorizedMarket,
+		UnknownManager,
+		UnauthorizedManager,
 		InvalidPurchaseBody,
 		UnknownTier,
 		InvalidTierConfig,
-		/// Outbound dispatch to the destination market failed.
+		/// Outbound dispatch to the destination manager failed.
 		DispatchFailed,
 		/// `dispatch_set_tiers` got an empty updates list.
 		EmptyTierBatch,
@@ -204,27 +191,18 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn set_market(
+		pub fn set_manager(
 			origin: OriginFor<T>,
 			source: StateMachine,
-			market: H160,
+			manager: H160,
 		) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-			BandwidthMarkets::<T>::insert(source, market);
-			Self::deposit_event(Event::MarketRegistered { source, market });
+			BandwidthManager::<T>::insert(source, manager);
+			Self::deposit_event(Event::ManagerRegistered { source, manager });
 			Ok(())
 		}
 
 		#[pallet::call_index(1)]
-		#[pallet::weight(T::DbWeight::get().writes(1))]
-		pub fn set_enforcement_mode(origin: OriginFor<T>, mode: EnforcementMode) -> DispatchResult {
-			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-			Mode::<T>::put(mode);
-			Self::deposit_event(Event::ModeChanged { mode });
-			Ok(())
-		}
-
-		#[pallet::call_index(2)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn set_allowlist(
 			origin: OriginFor<T>,
@@ -244,7 +222,7 @@ pub mod pallet {
 
 		/// Admin-only out-of-band credit (migrations, refunds). Same
 		/// stack/reset rules as a real purchase.
-		#[pallet::call_index(3)]
+		#[pallet::call_index(2)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn force_credit(origin: OriginFor<T>, params: ForceCreditParams) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
@@ -269,7 +247,7 @@ pub mod pallet {
 		/// Pass `config: None` to revoke. Non-zero `bytes` requires a
 		/// non-zero `duration_secs` so a purchase can't expire on
 		/// creation.
-		#[pallet::call_index(4)]
+		#[pallet::call_index(3)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn set_tier(
 			origin: OriginFor<T>,
@@ -291,7 +269,7 @@ pub mod pallet {
 		/// Push tier prices to a remote `BandwidthManager` (the EVM
 		/// side holds prices; this pallet holds bytes/duration).
 		/// `updates` is `(tier, price18d)` pairs.
-		#[pallet::call_index(5)]
+		#[pallet::call_index(4)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn dispatch_set_tiers(
 			origin: OriginFor<T>,
@@ -300,23 +278,21 @@ pub mod pallet {
 		) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
 			ensure!(!updates.is_empty(), Error::<T>::EmptyTierBatch);
-			let market = BandwidthMarkets::<T>::get(&target).ok_or(Error::<T>::UnknownMarket)?;
+			let manager = BandwidthManager::<T>::get(&target).ok_or(Error::<T>::UnknownManager)?;
 
 			let count = updates.len() as u32;
-			let (tiers, prices): (Vec<_>, Vec<_>) = updates
+			let rows: Vec<TierAbi> = updates
 				.into_iter()
 				.map(|(t, p)| {
 					let id_u32: u32 = t.into();
-					(to_alloy_u256(U256::from(id_u32)), to_alloy_u256(p))
+					TierAbi { tier: to_alloy_u256(U256::from(id_u32)), price: to_alloy_u256(p) }
 				})
-				.unzip();
+				.collect();
 
-			type SetTiersAbi =
-				(sol_data::Array<sol_data::Uint<256>>, sol_data::Array<sol_data::Uint<256>>);
 			let mut body = vec![ACTION_SET_TIERS];
-			body.extend(SetTiersAbi::abi_encode_params(&(tiers, prices)));
+			body.extend(rows.abi_encode());
 
-			let commitment = Self::dispatch_governance(target, market, body)?;
+			let commitment = Self::dispatch_governance(target, manager, body)?;
 			Self::deposit_event(Event::TiersDispatched { target, count, commitment });
 			Ok(())
 		}
@@ -325,7 +301,7 @@ pub mod pallet {
 		/// it ships `amount` of `token` to `beneficiary`. Token is
 		/// named explicitly because the contract supports recovering
 		/// stale fee tokens after a host-side swap.
-		#[pallet::call_index(6)]
+		#[pallet::call_index(5)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn dispatch_withdraw(
 			origin: OriginFor<T>,
@@ -335,17 +311,17 @@ pub mod pallet {
 			amount: U256,
 		) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-			let market = BandwidthMarkets::<T>::get(&target).ok_or(Error::<T>::UnknownMarket)?;
+			let manager = BandwidthManager::<T>::get(&target).ok_or(Error::<T>::UnknownManager)?;
 
-			type WithdrawAbi = (sol_data::Address, sol_data::Address, sol_data::Uint<256>);
+			let payload = WithdrawalAbi {
+				token: alloy_primitives::Address::from(token.0),
+				beneficiary: alloy_primitives::Address::from(beneficiary.0),
+				amount: to_alloy_u256(amount),
+			};
 			let mut body = vec![ACTION_WITHDRAW];
-			body.extend(WithdrawAbi::abi_encode_params(&(
-				alloy_primitives::Address::from(token.0),
-				alloy_primitives::Address::from(beneficiary.0),
-				to_alloy_u256(amount),
-			)));
+			body.extend(payload.abi_encode());
 
-			let commitment = Self::dispatch_governance(target, market, body)?;
+			let commitment = Self::dispatch_governance(target, manager, body)?;
 			Self::deposit_event(Event::WithdrawalDispatched {
 				target,
 				token,
@@ -382,11 +358,11 @@ pub mod pallet {
 		}
 
 		/// Wrap an outbound governance message and ship it to the
-		/// market on `target` via the configured dispatcher. Used by
+		/// manager on `target` via the configured dispatcher. Used by
 		/// `dispatch_set_tiers` and `dispatch_withdraw`.
 		fn dispatch_governance(
 			target: StateMachine,
-			market: H160,
+			manager: H160,
 			body: Vec<u8>,
 		) -> Result<H256, DispatchError> {
 			let payer: T::AccountId = PALLET_BANDWIDTH.into_account_truncating();
@@ -395,7 +371,7 @@ pub mod pallet {
 					DispatchRequest::Post(DispatchPost {
 						dest: target,
 						from: PALLET_BANDWIDTH.0.to_vec(),
-						to: market.0.to_vec(),
+						to: manager.0.to_vec(),
 						timeout: 0,
 						body,
 					}),
@@ -436,7 +412,7 @@ pub mod pallet {
 		/// The router uses this to skip the gate on purchases —
 		/// otherwise a depleted app couldn't recharge.
 		pub fn is_purchase_message(request: &PostRequest) -> bool {
-			BandwidthMarkets::<T>::get(&request.source)
+			BandwidthManager::<T>::get(&request.source)
 				.map(|m| request.from == m.0.to_vec())
 				.unwrap_or(false)
 		}
@@ -450,14 +426,14 @@ pub mod pallet {
 
 	impl<T: Config> IsmpModule for Pallet<T> {
 		fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
-			let market = BandwidthMarkets::<T>::get(&request.source).ok_or_else(|| {
-				anyhow::anyhow!(format!("no bandwidth market registered for {:?}", request.source))
+			let manager = BandwidthManager::<T>::get(&request.source).ok_or_else(|| {
+				anyhow::anyhow!(format!("no bandwidth manager registered for {:?}", request.source))
 			})?;
 
-			if request.from != market.0.to_vec() {
+			if request.from != manager.0.to_vec() {
 				return Err(anyhow::anyhow!(format!(
 					"purchase from unauthorised sender on {:?}: expected {:x?}, got {:x?}",
-					request.source, market.0, request.from
+					request.source, manager.0, request.from
 				)));
 			}
 
@@ -472,10 +448,10 @@ pub mod pallet {
 
 			let key = AppKey::truncate_from(msg.app);
 			let (tier_balance, expires_at) =
-				Self::credit_bucket(&msg.app_chain, &key, tier, bytes, duration);
+				Self::credit_bucket(&msg.chain, &key, tier, bytes, duration);
 
 			Self::deposit_event(Event::BandwidthCredited {
-				app_chain: msg.app_chain,
+				app_chain: msg.chain,
 				app: key,
 				paid_from: request.source,
 				tier,
@@ -513,11 +489,6 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 	) -> Result<(), GateError> {
 		use alloc::vec::Vec;
 
-		let mode = Mode::<T>::get();
-		if matches!(mode, EnforcementMode::Disabled) {
-			return Ok(());
-		}
-
 		let key = AppKey::truncate_from(app.to_vec());
 		if Allowlist::<T>::contains_key(source, &key) {
 			return Ok(());
@@ -526,75 +497,54 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 		let need: u128 = bytes.into();
 		let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
 
-		let outcome: Result<u128, GateError> =
-			pallet::Allowance::<T>::mutate(source, &key, |map| {
-				let expired: Vec<TierIndex> =
-					map.iter().filter_map(|(t, s)| (s.expires_at <= now).then_some(*t)).collect();
-				for t in expired {
-					map.remove(&t);
+		let total = pallet::Allowance::<T>::mutate(source, &key, |map| {
+			let expired: Vec<TierIndex> =
+				map.iter().filter_map(|(t, s)| (s.expires_at <= now).then_some(*t)).collect();
+			for t in expired {
+				map.remove(&t);
+			}
+
+			if map.is_empty() {
+				return Err(GateError::NoAllowance);
+			}
+
+			let total: u128 = map.values().map(|s| s.remaining_bytes).sum();
+			if total < need {
+				return Err(GateError::Insufficient { remaining: total, required: need });
+			}
+
+			let mut order: Vec<(TierIndex, u64)> =
+				map.iter().map(|(t, s)| (*t, s.expires_at)).collect();
+			order.sort_by_key(|(_, e)| *e);
+
+			let mut left = need;
+			let mut drained: Vec<TierIndex> = Vec::new();
+			for (t, _) in order {
+				if left == 0 {
+					break;
 				}
-
-				if map.is_empty() {
-					return Err(GateError::NoAllowance);
-				}
-
-				let total: u128 = map.values().map(|s| s.remaining_bytes).sum();
-				if total < need {
-					return Err(GateError::Insufficient { remaining: total, required: need });
-				}
-
-				if matches!(mode, EnforcementMode::Enforce) {
-					let mut order: Vec<(TierIndex, u64)> =
-						map.iter().map(|(t, s)| (*t, s.expires_at)).collect();
-					order.sort_by_key(|(_, e)| *e);
-
-					let mut left = need;
-					let mut drained: Vec<TierIndex> = Vec::new();
-					for (t, _) in order {
-						if left == 0 {
-							break;
-						}
-						if let Some(state) = map.get_mut(&t) {
-							let take = state.remaining_bytes.min(left);
-							state.remaining_bytes = state.remaining_bytes.saturating_sub(take);
-							left = left.saturating_sub(take);
-							if state.remaining_bytes == 0 {
-								drained.push(t);
-							}
-						}
-					}
-					for t in drained {
-						map.remove(&t);
+				if let Some(state) = map.get_mut(&t) {
+					let take = state.remaining_bytes.min(left);
+					state.remaining_bytes = state.remaining_bytes.saturating_sub(take);
+					left = left.saturating_sub(take);
+					if state.remaining_bytes == 0 {
+						drained.push(t);
 					}
 				}
+			}
+			for t in drained {
+				map.remove(&t);
+			}
 
-				Ok(total)
-			});
+			Ok(total)
+		})?;
 
-		match (mode, outcome) {
-			(EnforcementMode::Observe, Err(err)) => {
-				let (required, remaining) = match err {
-					GateError::NoAllowance => (need, 0u128),
-					GateError::Insufficient { remaining, required } => (required, remaining),
-				};
-				Self::deposit_event(Event::WouldReject {
-					source: *source,
-					app: key,
-					required,
-					remaining,
-				});
-				Ok(())
-			},
-			(EnforcementMode::Enforce, Ok(total)) => {
-				Self::deposit_event(Event::BandwidthConsumed {
-					source: *source,
-					app: key,
-					bytes: need,
-					remaining: total - need,
-				});
-				Ok(())
-			},
-			(_, result) => result.map(|_| ()),
-		}
+		Self::deposit_event(Event::BandwidthConsumed {
+			source: *source,
+			app: key,
+			bytes: need,
+			remaining: total - need,
+		});
+		Ok(())
 	}
 }

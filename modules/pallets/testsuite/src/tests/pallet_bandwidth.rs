@@ -8,14 +8,14 @@
 
 use polkadot_sdk::*;
 
-use alloy_sol_types::{sol_data, SolType};
+use alloy_sol_types::SolValue;
 use ismp::{host::StateMachine, module::IsmpModule, router::PostRequest};
 use sp_core::{H160, U256};
 
 use pallet_bandwidth::{
-	abi::PurchaseMessage,
-	pallet::{Allowance, BandwidthMarkets, Mode, Tiers, PALLET_BANDWIDTH},
-	AppKey, BandwidthGate, EnforcementMode, ForceCreditParams, GateError, TierConfig, TierIndex,
+	abi::{PurchaseMessage, TierAbi, WithdrawalAbi},
+	pallet::{Allowance, BandwidthManager, Tiers, PALLET_BANDWIDTH},
+	AppKey, BandwidthGate, ForceCreditParams, GateError, TierConfig, TierIndex,
 };
 
 use crate::runtime::{new_test_ext, set_timestamp, Bandwidth, RuntimeOrigin, Test};
@@ -26,7 +26,7 @@ use crate::runtime::{new_test_ext, set_timestamp, Bandwidth, RuntimeOrigin, Test
 const APP_CHAIN: StateMachine = StateMachine::Evm(8453); // Base
 const PAYER_CHAIN: StateMachine = StateMachine::Evm(137); // Polygon
 
-const MARKET: H160 = H160([0xAA; 20]);
+const MANAGER: H160 = H160([0xAA; 20]);
 const APP: H160 = H160([0xBB; 20]);
 const IMPOSTER: H160 = H160([0xCC; 20]);
 
@@ -55,21 +55,13 @@ fn jump_to(secs: u64) {
 	set_timestamp::<Test>(secs.saturating_mul(1_000));
 }
 
-fn register_market(chain: StateMachine) {
-	Bandwidth::set_market(RuntimeOrigin::root(), chain, MARKET).unwrap();
+fn register_manager(chain: StateMachine) {
+	Bandwidth::set_manager(RuntimeOrigin::root(), chain, MANAGER).unwrap();
 }
 
 fn configure_tier(tier: TierIndex, bytes: u128, duration_secs: u64) {
 	Bandwidth::set_tier(RuntimeOrigin::root(), tier, Some(TierConfig { bytes, duration_secs }))
 		.unwrap();
-}
-
-fn enforce() {
-	Bandwidth::set_enforcement_mode(RuntimeOrigin::root(), EnforcementMode::Enforce).unwrap();
-}
-
-fn observe() {
-	Bandwidth::set_enforcement_mode(RuntimeOrigin::root(), EnforcementMode::Observe).unwrap();
 }
 
 fn consume(bytes: u32) -> Result<(), GateError> {
@@ -112,7 +104,7 @@ fn purchase_request_raw(
 	app_chain: StateMachine,
 ) -> PostRequest {
 	let body: Vec<u8> =
-		(&PurchaseMessage { app: APP.0.to_vec(), tier: tier_raw, months, app_chain }).into();
+		(&PurchaseMessage { app: APP.0.to_vec(), tier: tier_raw, months, chain: app_chain }).into();
 
 	PostRequest {
 		source: payer_chain,
@@ -133,11 +125,11 @@ fn dispatch(req: PostRequest) -> Result<(), anyhow::Error> {
 
 /// One-line happy-path purchase: APP_CHAIN as both payer and credit chain.
 fn buy(tier: TierIndex) -> Result<(), anyhow::Error> {
-	dispatch(purchase_request(APP_CHAIN, MARKET, tier, APP_CHAIN))
+	dispatch(purchase_request(APP_CHAIN, MANAGER, tier, APP_CHAIN))
 }
 
 fn buy_months(tier: TierIndex, months: u32) -> Result<(), anyhow::Error> {
-	dispatch(purchase_request_with_months(APP_CHAIN, MARKET, tier, months, APP_CHAIN))
+	dispatch(purchase_request_with_months(APP_CHAIN, MANAGER, tier, months, APP_CHAIN))
 }
 
 // ---------- tests ----------
@@ -146,7 +138,7 @@ fn buy_months(tier: TierIndex, months: u32) -> Result<(), anyhow::Error> {
 fn purchase_credits_allowance_with_expiry() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
 		buy(TIER1).unwrap();
@@ -163,16 +155,15 @@ fn purchase_credits_allowance_with_expiry() {
 fn cross_chain_purchase_credits_app_chain_not_payer_chain() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(PAYER_CHAIN);
+		register_manager(PAYER_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
-		dispatch(purchase_request(PAYER_CHAIN, MARKET, TIER1, APP_CHAIN)).unwrap();
+		dispatch(purchase_request(PAYER_CHAIN, MANAGER, TIER1, APP_CHAIN)).unwrap();
 
 		let state = bucket(APP_CHAIN, TIER1).expect("bucket must exist");
 		assert_eq!(state.remaining_bytes, TIER1_BYTES);
 		assert!(bucket(PAYER_CHAIN, TIER1).is_none());
 
-		enforce();
 		assert_eq!(consume(100), Ok(()));
 	});
 }
@@ -185,7 +176,7 @@ fn same_tier_repurchase_stacks_bytes_and_extends_expiry() {
 	new_test_ext().execute_with(|| {
 		let five_days = 5 * 24 * 60 * 60;
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
 		buy(TIER1).unwrap();
@@ -211,7 +202,7 @@ fn same_tier_repurchase_stacks_bytes_and_extends_expiry() {
 fn different_tier_purchases_create_separate_buckets() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 		configure_tier(TIER2, TIER2_BYTES, QUARTER_SECS);
 
@@ -234,12 +225,11 @@ fn different_tier_purchases_create_separate_buckets() {
 fn gate_consumes_earliest_expiry_bucket_first() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, QUARTER_SECS);
 		configure_tier(TIER2, TIER2_BYTES, MONTH_SECS);
 		buy(TIER1).unwrap();
 		buy(TIER2).unwrap();
-		enforce();
 
 		assert_eq!(consume(200), Ok(()));
 		assert_eq!(bucket(APP_CHAIN, TIER1).unwrap().remaining_bytes, TIER1_BYTES);
@@ -251,12 +241,11 @@ fn gate_consumes_earliest_expiry_bucket_first() {
 fn gate_spills_into_next_bucket_when_first_drained() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, QUARTER_SECS);
 		configure_tier(TIER2, 300, MONTH_SECS);
 		buy(TIER1).unwrap();
 		buy(TIER2).unwrap();
-		enforce();
 
 		// 500 = drain all 300 of tier 2, then 200 from tier 1.
 		assert_eq!(consume(500), Ok(()));
@@ -269,10 +258,9 @@ fn gate_spills_into_next_bucket_when_first_drained() {
 fn expired_buckets_are_skipped_and_swept() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 		buy(TIER1).unwrap();
-		enforce();
 
 		jump_to(T0 + MONTH_SECS + 1);
 		assert_eq!(consume(1), Err(GateError::NoAllowance));
@@ -284,7 +272,7 @@ fn expired_buckets_are_skipped_and_swept() {
 fn purchase_after_expiry_resets_bucket() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 		buy(TIER1).unwrap();
 
@@ -302,7 +290,7 @@ fn purchase_after_expiry_resets_bucket() {
 fn unauthorised_market_rejected() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
 		dispatch(purchase_request(APP_CHAIN, IMPOSTER, TIER1, APP_CHAIN))
@@ -316,7 +304,7 @@ fn unknown_payer_chain_rejected() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
-		dispatch(purchase_request(PAYER_CHAIN, MARKET, TIER1, APP_CHAIN))
+		dispatch(purchase_request(PAYER_CHAIN, MANAGER, TIER1, APP_CHAIN))
 			.expect_err("missing market registration must reject");
 	});
 }
@@ -326,8 +314,8 @@ fn unknown_payer_chain_rejected() {
 fn unknown_tier_discriminant_rejected() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
-		dispatch(purchase_request_raw(APP_CHAIN, MARKET, 99, 1, APP_CHAIN))
+		register_manager(APP_CHAIN);
+		dispatch(purchase_request_raw(APP_CHAIN, MANAGER, 99, 1, APP_CHAIN))
 			.expect_err("unknown tier discriminant must reject");
 	});
 }
@@ -337,36 +325,27 @@ fn unknown_tier_discriminant_rejected() {
 fn unconfigured_tier_rejected() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		buy(TIER1).expect_err("purchases against unconfigured tiers must reject");
 	});
 }
 
 #[test]
-fn gate_disabled_short_circuits() {
+fn gate_no_allowance_rejects() {
 	new_test_ext().execute_with(|| {
-		assert_eq!(consume(9_999), Ok(()));
-	});
-}
-
-#[test]
-fn gate_enforce_no_allowance_rejects() {
-	new_test_ext().execute_with(|| {
-		enforce();
 		assert_eq!(consume(100), Err(GateError::NoAllowance));
 	});
 }
 
 #[test]
-fn gate_enforce_insufficient_across_buckets_does_not_deduct() {
+fn gate_insufficient_across_buckets_does_not_deduct() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, 100, MONTH_SECS);
 		configure_tier(TIER2, 50, QUARTER_SECS);
 		buy(TIER1).unwrap();
 		buy(TIER2).unwrap();
-		enforce();
 
 		assert_eq!(consume(200), Err(GateError::Insufficient { remaining: 150, required: 200 }),);
 		assert_eq!(bucket(APP_CHAIN, TIER1).unwrap().remaining_bytes, 100);
@@ -374,26 +353,9 @@ fn gate_enforce_insufficient_across_buckets_does_not_deduct() {
 	});
 }
 
-/// Critical: Observe mode must surface what would happen without
-/// affecting state, so flipping to Enforce later is non-destructive.
-#[test]
-fn gate_observe_does_not_mutate_on_shortfall() {
-	new_test_ext().execute_with(|| {
-		jump_to(T0);
-		register_market(APP_CHAIN);
-		configure_tier(TIER1, 100, MONTH_SECS);
-		buy(TIER1).unwrap();
-		observe();
-
-		assert_eq!(consume(200), Ok(()));
-		assert_eq!(bucket(APP_CHAIN, TIER1).unwrap().remaining_bytes, 100);
-	});
-}
-
 #[test]
 fn allowlist_bypasses_gate() {
 	new_test_ext().execute_with(|| {
-		enforce();
 		Bandwidth::set_allowlist(RuntimeOrigin::root(), APP_CHAIN, app_key(), true).unwrap();
 
 		assert_eq!(consume(99_999), Ok(()));
@@ -403,10 +365,10 @@ fn allowlist_bypasses_gate() {
 #[test]
 fn is_purchase_message_recognises_authorised_sender() {
 	new_test_ext().execute_with(|| {
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 		assert!(Bandwidth::is_purchase_message(&purchase_request(
-			APP_CHAIN, MARKET, TIER1, APP_CHAIN,
+			APP_CHAIN, MANAGER, TIER1, APP_CHAIN,
 		)));
 		assert!(!Bandwidth::is_purchase_message(&purchase_request(
 			APP_CHAIN, IMPOSTER, TIER1, APP_CHAIN,
@@ -433,7 +395,7 @@ fn force_credit_creates_bucket_with_expiry() {
 		let state = bucket(APP_CHAIN, TIER1).unwrap();
 		assert_eq!(state.remaining_bytes, 7_777);
 		assert_eq!(state.expires_at, T0 + MONTH_SECS);
-		assert!(BandwidthMarkets::<Test>::get(APP_CHAIN).is_none());
+		assert!(BandwidthManager::<Test>::get(APP_CHAIN).is_none());
 	});
 }
 
@@ -474,7 +436,7 @@ fn bulk_purchase_credits_proportional_bytes_and_extends_expiry() {
 	new_test_ext().execute_with(|| {
 		let months = 6_u32;
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
 		buy_months(TIER1, months).unwrap();
@@ -489,10 +451,10 @@ fn bulk_purchase_credits_proportional_bytes_and_extends_expiry() {
 fn purchase_rejects_zero_months() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
-		dispatch(purchase_request_raw(APP_CHAIN, MARKET, TIER1.into(), 0, APP_CHAIN))
+		dispatch(purchase_request_raw(APP_CHAIN, MANAGER, TIER1.into(), 0, APP_CHAIN))
 			.expect_err("zero months must be rejected at decode time");
 		assert!(bucket(APP_CHAIN, TIER1).is_none());
 	});
@@ -508,22 +470,20 @@ const ACTION_WITHDRAW: u8 = 1;
 /// would parse.
 fn decode_set_tiers(body: &[u8]) -> (Vec<u128>, Vec<u128>) {
 	assert_eq!(body[0], ACTION_SET_TIERS, "first byte must be SetTiers discriminant");
-	type Abi = (sol_data::Array<sol_data::Uint<256>>, sol_data::Array<sol_data::Uint<256>>);
-	let (tiers, prices) = Abi::abi_decode_params(&body[1..]).unwrap();
+	let rows: Vec<TierAbi> = <Vec<TierAbi>>::abi_decode(&body[1..]).unwrap();
 	(
-		tiers.into_iter().map(|t| t.try_into().unwrap()).collect(),
-		prices.into_iter().map(|p| p.try_into().unwrap()).collect(),
+		rows.iter().map(|r| r.tier.try_into().unwrap()).collect(),
+		rows.iter().map(|r| r.price.try_into().unwrap()).collect(),
 	)
 }
 
 fn decode_withdraw(body: &[u8]) -> (H160, H160, u128) {
 	assert_eq!(body[0], ACTION_WITHDRAW);
-	type Abi = (sol_data::Address, sol_data::Address, sol_data::Uint<256>);
-	let (token, beneficiary, amount) = Abi::abi_decode_params(&body[1..]).unwrap();
+	let w = WithdrawalAbi::abi_decode(&body[1..]).unwrap();
 	(
-		H160::from_slice(token.as_slice()),
-		H160::from_slice(beneficiary.as_slice()),
-		amount.try_into().unwrap(),
+		H160::from_slice(w.token.as_slice()),
+		H160::from_slice(w.beneficiary.as_slice()),
+		w.amount.try_into().unwrap(),
 	)
 }
 
@@ -542,7 +502,7 @@ fn dispatch_set_tiers_rejects_unknown_market() {
 #[test]
 fn dispatch_set_tiers_rejects_empty_batch() {
 	new_test_ext().execute_with(|| {
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		Bandwidth::dispatch_set_tiers(RuntimeOrigin::root(), APP_CHAIN, vec![])
 			.expect_err("empty batch must be rejected");
 	});
@@ -551,7 +511,7 @@ fn dispatch_set_tiers_rejects_empty_batch() {
 #[test]
 fn dispatch_set_tiers_admin_only() {
 	new_test_ext().execute_with(|| {
-		register_market(APP_CHAIN);
+		register_manager(APP_CHAIN);
 		let alice: sp_core::crypto::AccountId32 = sp_core::crypto::AccountId32::new([1u8; 32]);
 		Bandwidth::dispatch_set_tiers(
 			RuntimeOrigin::signed(alice),
@@ -581,24 +541,16 @@ fn dispatch_withdraw_rejects_unknown_market() {
 #[test]
 fn set_tiers_body_round_trips() {
 	// Pure body-encoding test, doesn't dispatch — proves the wire
-	// format we send matches the contract's `abi.decode((uint256[],
-	// uint256[]))` shape.
-	use alloy_sol_types::SolType;
-	type Abi = (sol_data::Array<sol_data::Uint<256>>, sol_data::Array<sol_data::Uint<256>>);
-	let tiers: Vec<alloy_primitives::U256> = vec![1u128, 2u128, 3u128]
+	// format we send matches the contract's `abi.decode((Tier[]))` shape.
+	let rows: Vec<TierAbi> = vec![(1u128, 5u128), (2u128, 50u128), (3u128, 500u128)]
 		.into_iter()
-		.map(alloy_primitives::U256::from)
+		.map(|(t, p)| TierAbi {
+			tier: alloy_primitives::U256::from(t),
+			price: alloy_primitives::U256::from(p),
+		})
 		.collect();
-	let prices: Vec<alloy_primitives::U256> = vec![5u128, 50u128, 500u128]
-		.into_iter()
-		.map(alloy_primitives::U256::from)
-		.collect();
-	let body = Abi::abi_encode_params(&(tiers.clone(), prices.clone()));
-	let (tiers_back, prices_back) = Abi::abi_decode_params(&body).unwrap();
-	assert_eq!(tiers, tiers_back);
-	assert_eq!(prices, prices_back);
+	let body = rows.abi_encode();
 
-	// And our pallet helper builds the same body.
 	let (decoded_tiers, decoded_prices) =
 		decode_set_tiers(&[&[ACTION_SET_TIERS][..], &body[..]].concat());
 	assert_eq!(decoded_tiers, vec![1, 2, 3]);
@@ -607,14 +559,12 @@ fn set_tiers_body_round_trips() {
 
 #[test]
 fn withdraw_body_round_trips() {
-	let body = {
-		type Abi = (sol_data::Address, sol_data::Address, sol_data::Uint<256>);
-		Abi::abi_encode_params(&(
-			alloy_primitives::Address::from([0x10u8; 20]),
-			alloy_primitives::Address::from([0x20u8; 20]),
-			alloy_primitives::U256::from(42u128),
-		))
-	};
+	let body = WithdrawalAbi {
+		token: alloy_primitives::Address::from([0x10u8; 20]),
+		beneficiary: alloy_primitives::Address::from([0x20u8; 20]),
+		amount: alloy_primitives::U256::from(42u128),
+	}
+	.abi_encode();
 	let (token, beneficiary, amount) =
 		decode_withdraw(&[&[ACTION_WITHDRAW][..], &body[..]].concat());
 	assert_eq!(token, H160([0x10; 20]));
@@ -622,13 +572,3 @@ fn withdraw_body_round_trips() {
 	assert_eq!(amount, 42);
 }
 
-#[test]
-fn mode_storage_round_trips() {
-	new_test_ext().execute_with(|| {
-		assert_eq!(Mode::<Test>::get(), EnforcementMode::Disabled);
-		observe();
-		assert_eq!(Mode::<Test>::get(), EnforcementMode::Observe);
-		enforce();
-		assert_eq!(Mode::<Test>::get(), EnforcementMode::Enforce);
-	});
-}

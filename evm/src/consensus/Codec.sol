@@ -16,10 +16,17 @@ pragma solidity ^0.8.17;
 
 import "@polytope-labs/solidity-merkle-trees/src/trie/polkadot/ScaleCodec.sol";
 import "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
-import "./Header.sol";
 import "./Types.sol";
 
-// @dev type encoding stuff
+/**
+ * @title Codec
+ * @author Polytope Labs (hello@polytope.technology)
+ *
+ * @notice SCALE encoding and decoding utilities for BEEFY consensus types. Provides
+ * functions to SCALE-encode commitments and MMR leaves (for hashing and verification),
+ * decode Substrate block headers (extracting digests, state roots, and timestamps),
+ * and decode SCALE compact unsigned integers.
+ */
 library Codec {
     uint8 internal constant DIGEST_ITEM_OTHER = 0;
     uint8 internal constant DIGEST_ITEM_CONSENSUS = 4;
@@ -38,7 +45,6 @@ library Codec {
         }
 
         bytes memory payload = bytes.concat(ScaleCodec.encodeUintCompact(payloadLen), accumulator);
-
         bytes memory rest = bytes.concat(
             ScaleCodec.encode32(uint32(commitment.blockNumber)), ScaleCodec.encode64(uint64(commitment.validatorSetId))
         );
@@ -92,6 +98,7 @@ library Codec {
         return Header(parentHash, blockNumber, stateRoot, extrinsicsRoot, digests);
     }
 
+    /// @dev Decodes a SCALE-encoded digest item (4-byte consensus id + length-prefixed data).
     function decodeDigestItem(ByteSlice memory slice) internal pure returns (DigestItem memory) {
         bytes4 id = Bytes.toBytes4(read(slice, 4), 0);
         uint256 length = ScaleCodec.decodeUintCompact(slice);
@@ -99,6 +106,7 @@ library Codec {
         return DigestItem(id, data);
     }
 
+    /// @dev Reads `len` bytes from the slice at the current offset and advances the cursor.
     function read(ByteSlice memory self, uint256 len) internal pure returns (bytes memory) {
         require(self.offset + len <= self.data.length);
         if (len == 0) {
@@ -110,6 +118,7 @@ library Codec {
         return slice;
     }
 
+    /// @dev Reads a single byte from the slice at the current offset and advances the cursor.
     function readByte(ByteSlice memory self) internal pure returns (uint8) {
         require(self.offset + 1 <= self.data.length);
 
@@ -156,14 +165,5 @@ library Codec {
             revert("Code should be unreachable");
         }
         return (value);
-    }
-
-    // @dev Convert the provided type to a bn254 field element
-    function toFieldElements(bytes32 source) internal pure returns (bytes32, bytes32) {
-        // is assembly cheaper?
-        bytes32 left = bytes32(uint256(uint128(bytes16(source))));
-        bytes32 right = bytes32(uint256(uint128(uint256(source))));
-
-        return (left, right);
     }
 }

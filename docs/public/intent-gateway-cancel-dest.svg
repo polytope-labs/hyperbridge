@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 340" fill="none">
+  <defs>
+    <marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#888"/>
+    </marker>
+  </defs>
+
+  <rect width="860" height="340" rx="8" fill="#111"/>
+
+  <!-- Title -->
+  <text x="430" y="30" text-anchor="middle" fill="#ccc" font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace" font-size="15" font-weight="600">Cancel from Destination Chain</text>
+
+  <!-- Source Chain (left) -->
+  <rect x="20" y="60" width="240" height="155" rx="4" fill="#181818" stroke="#333" stroke-width="1"/>
+  <text x="140" y="80" text-anchor="middle" fill="#777" font-family="ui-monospace, monospace" font-size="10" font-weight="600">Source Chain</text>
+
+  <rect x="45" y="98" width="190" height="55" rx="3" fill="none" stroke="#555" stroke-width="1"/>
+  <text x="140" y="117" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="11" font-weight="600">IntentGateway</text>
+  <text x="140" y="138" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">escrow: 100 USDT</text>
+
+  <text x="140" y="185" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">escrow released back to user</text>
+
+  <!-- Hyperbridge (middle) -->
+  <rect x="310" y="60" width="240" height="155" rx="4" fill="#181818" stroke="#333" stroke-width="1"/>
+  <text x="430" y="80" text-anchor="middle" fill="#777" font-family="ui-monospace, monospace" font-size="10" font-weight="600">Hyperbridge</text>
+
+  <rect x="335" y="98" width="190" height="55" rx="3" fill="none" stroke="#555" stroke-width="1"/>
+  <text x="430" y="117" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="11" font-weight="600">ISMP</text>
+  <text x="430" y="138" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">relay RefundEscrow</text>
+
+  <!-- Destination Chain (right) -->
+  <rect x="600" y="60" width="240" height="155" rx="4" fill="#181818" stroke="#333" stroke-width="1"/>
+  <text x="720" y="80" text-anchor="middle" fill="#777" font-family="ui-monospace, monospace" font-size="10" font-weight="600">Destination Chain</text>
+
+  <rect x="625" y="98" width="190" height="55" rx="3" fill="none" stroke="#555" stroke-width="1"/>
+  <text x="720" y="117" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="11" font-weight="600">cancelOrder()</text>
+  <text x="720" y="138" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">after deadline</text>
+
+  <text x="720" y="185" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">callable by user or anyone</text>
+  <text x="720" y="200" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">after expiry</text>
+
+  <!-- Arrow: Destination -> Hyperbridge (RefundEscrow) -->
+  <path d="M 600 125 L 550 125" stroke="#555" stroke-width="1" fill="none" marker-end="url(#ah)" stroke-dasharray="4,3"/>
+  <text x="575" y="118" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">RefundEscrow</text>
+
+  <!-- Arrow: Hyperbridge -> Source (relay to source) -->
+  <path d="M 310 125 L 260 125" stroke="#555" stroke-width="1" fill="none" marker-end="url(#ah)" stroke-dasharray="4,3"/>
+  <text x="285" y="118" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">release escrow</text>
+
+  <!-- User (bottom) -->
+  <rect x="170" y="265" width="520" height="50" rx="4" fill="none" stroke="#666" stroke-width="1"/>
+  <text x="430" y="287" text-anchor="middle" fill="#ddd" font-family="ui-monospace, monospace" font-size="13" font-weight="600">User</text>
+  <text x="430" y="305" text-anchor="middle" fill="#666" font-family="ui-monospace, monospace" font-size="9">escrowed tokens refunded</text>
+
+  <!-- Arrow: User -> Destination (cancel) -->
+  <path d="M 590 265 L 720 215" stroke="#555" stroke-width="1" fill="none" marker-end="url(#ah)"/>
+  <text x="685" y="245" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">cancelOrder()</text>
+
+  <!-- Arrow: Source -> User (refund) -->
+  <path d="M 140 215 L 270 265" stroke="#555" stroke-width="1" fill="none" marker-end="url(#ah)"/>
+  <text x="175" y="245" text-anchor="middle" fill="#555" font-family="ui-monospace, monospace" font-size="8">refund</text>
+</svg>

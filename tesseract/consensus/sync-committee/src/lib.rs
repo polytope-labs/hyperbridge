@@ -13,11 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-sync-committee";
+
+use alloy::providers::Provider;
 use arb_host::{ArbConfig, ArbHost};
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-};
 use ismp::{consensus::ConsensusStateId, host::StateMachine};
 pub use ismp_sync_committee::types::{BeaconClientUpdate, ConsensusState};
 use ismp_sync_committee::{
@@ -47,10 +47,8 @@ mod notification;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeConfig {
 	/// Host config
+	#[serde(flatten)]
 	pub host: HostConfig,
-	/// General ethereum config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 	/// Supported L2s
 	pub layer_twos: Option<Vec<String>>,
 }
@@ -65,16 +63,18 @@ pub struct HostConfig {
 }
 
 impl SyncCommitteeConfig {
-	/// Convert the config into a client.
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
 	pub async fn into_sepolia(
 		self,
+		evm_config: EvmConfig,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> anyhow::Result<Arc<dyn IsmpHost>> {
 		let client = SyncCommitteeHost::<
 			Sepolia,
 			ETH1_DATA_VOTES_BOUND_ETH,
 			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-		>::new(&self.host, &self.evm_config, l2_config)
+		>::new(&self.host, &evm_config, l2_config)
 		.await?;
 
 		Ok(Arc::new(client))
@@ -82,42 +82,39 @@ impl SyncCommitteeConfig {
 
 	pub async fn into_mainnet(
 		self,
+		evm_config: EvmConfig,
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> anyhow::Result<Arc<dyn IsmpHost>> {
 		let client = SyncCommitteeHost::<
 			Mainnet,
 			ETH1_DATA_VOTES_BOUND_ETH,
 			PROPOSER_LOOK_AHEAD_LIMIT_ETHEREUM,
-		>::new(&self.host, &self.evm_config, l2_config)
+		>::new(&self.host, &evm_config, l2_config)
 		.await?;
 
 		Ok(Arc::new(client))
 	}
 
-	pub async fn into_chiado(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
+	pub async fn into_chiado(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
 		let client = SyncCommitteeHost::<
 			gnosis::Testnet,
 			ETH1_DATA_VOTES_BOUND_GNO,
 			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
-		>::new(&self.host, &self.evm_config, Default::default())
+		>::new(&self.host, &evm_config, Default::default())
 		.await?;
 
 		Ok(Arc::new(client))
 	}
 
-	pub async fn into_gnosis(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
+	pub async fn into_gnosis(self, evm_config: EvmConfig) -> anyhow::Result<Arc<dyn IsmpHost>> {
 		let client = SyncCommitteeHost::<
 			gnosis::Mainnet,
 			ETH1_DATA_VOTES_BOUND_GNO,
 			PROPOSER_LOOK_AHEAD_LIMIT_GNO,
-		>::new(&self.host, &self.evm_config, Default::default())
+		>::new(&self.host, &evm_config, Default::default())
 		.await?;
 
 		Ok(Arc::new(client))
-	}
-
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
 	}
 }
 
@@ -139,7 +136,7 @@ pub struct SyncCommitteeHost<
 
 	pub evm: EvmConfig,
 	/// Eth L1 execution client
-	pub el: Arc<Provider<Http>>,
+	pub el: Arc<tesseract_evm::AlloyProvider>,
 
 	/// Ismp Provider
 	pub provider: Arc<dyn IsmpProvider>,
@@ -157,10 +154,7 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 		l2_config: BTreeMap<StateMachine, L2Config>,
 	) -> Result<Self, anyhow::Error> {
 		let prover = SyncCommitteeProver::new(host.beacon_http_urls.clone());
-		let el = Provider::new(Http::new_client_with_chain_middleware(
-			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			None,
-		));
+		let el = tesseract_evm::create_provider(&evm.rpc_urls)?;
 
 		let provider = Arc::new(EvmClient::new(evm.clone()).await?);
 
@@ -169,24 +163,20 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 
 		for (state_machine, config) in l2_config {
 			match config {
-				L2Config::ArbitrumOrbit(arb_config) => {
-					let host = ArbHost::new(&arb_config.host, &arb_config.evm_config).await?;
+				L2Config::ArbitrumOrbit(arb_config, arb_evm) => {
+					let host = ArbHost::new(&arb_config.host, &arb_evm).await?;
 					l2_clients.insert(state_machine, L2Host::ArbitrumOrbit(host));
 				},
-				L2Config::OpStack(op_config) => {
-					let host = OpHost::new(&op_config.host, &op_config.evm_config).await?;
+				L2Config::OpStack(op_config, op_evm) => {
+					let host = OpHost::new(&op_config.host, &op_evm).await?;
 					l2_clients.insert(state_machine, L2Host::OpStack(host));
 				},
 			}
 		}
 
 		Ok(Self {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
-			state_machine: evm.state_machine,
+			consensus_state_id: provider.consensus_state_id,
+			state_machine: provider.state_machine,
 			l2_clients,
 			prover,
 			provider,
@@ -230,11 +220,11 @@ impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LI
 			l2_consensus.insert(state_machine, L2Consensus::ArbitrumOrbit(address));
 		}
 
-		let chain_id = self.el.get_chainid().await?;
+		let chain_id = self.el.get_chain_id().await?;
 		let consensus_state = ConsensusState {
 			frozen_height: None,
 			light_client_state: client_state,
-			chain_id: chain_id.low_u32(),
+			chain_id: chain_id as u32,
 			l2_consensus,
 		};
 
@@ -250,10 +240,12 @@ pub enum L2Host {
 }
 
 #[derive(Clone)]
-/// Configuration for various L2 consensus types
+/// Configuration for various L2 consensus types. Each variant now pairs the
+/// consensus config with its matching `EvmConfig` since the consensus structs
+/// no longer embed EVM host details themselves.
 pub enum L2Config {
-	ArbitrumOrbit(ArbConfig),
-	OpStack(OpConfig),
+	ArbitrumOrbit(ArbConfig, EvmConfig),
+	OpStack(OpConfig, EvmConfig),
 }
 
 impl<C: Config, const ETH1_DATA_VOTES_BOUND: usize, const PROPOSER_LOOK_AHEAD_LIMIT: usize> Clone

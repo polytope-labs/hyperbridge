@@ -1,0 +1,69 @@
+[package]
+name = "pallet-beefy-consensus-proofs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+description = "Pallet that verifies BEEFY consensus proofs and rewards submitters for useful work"
+publish = false
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true }
+log = { workspace = true }
+
+# ismp
+ismp = { workspace = true, default-features = false }
+pallet-ismp = { workspace = true }
+ismp-beefy = { workspace = true, default-features = false }
+
+# beefy
+beefy-verifier = { workspace = true, default-features = false }
+beefy-verifier-primitives = { workspace = true, default-features = false }
+
+# ABI
+alloy-sol-types = { workspace = true, default-features = false }
+ismp-solidity-abi = { workspace = true, default-features = false }
+
+# misc
+anyhow = { workspace = true, default-features = false }
+primitive-types = { workspace = true, default-features = false }
+sp-core = { workspace = true, default-features = false }
+sp-io = { workspace = true, default-features = false }
+hex-literal = { workspace = true, optional = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = [
+    "frame-support",
+    "frame-system",
+    "sp-runtime",
+    "sp-consensus-beefy",
+    "sp-mmr-primitives",
+]
+
+[features]
+default = ["std"]
+std = [
+    "polkadot-sdk/std",
+    "codec/std",
+    "scale-info/std",
+    "log/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "ismp-beefy/std",
+    "beefy-verifier/std",
+    "beefy-verifier-primitives/std",
+    "alloy-sol-types/std",
+    "ismp-solidity-abi/std",
+    "anyhow/std",
+    "primitive-types/std",
+    "sp-core/std",
+    "sp-io/std"
+]
+runtime-benchmarks = [
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
+    "dep:hex-literal",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

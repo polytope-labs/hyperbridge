@@ -1,39 +1,34 @@
 use crate::{
-	abi::{beefy::BeefyConsensusState, erc_20::Erc20, EvmHost},
-	gas_oracle::is_orbit_chain,
+	abi::{erc_20::Erc20Instance, EvmHostInstance},
 	state_comitment_key, EvmClient,
 };
+use alloy::{
+	eips::BlockId,
+	primitives::{Address, B256, U256 as AlloyU256},
+	providers::Provider,
+	sol_types::SolType,
+};
+use alloy_sol_types::SolEvent;
 use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::ConsensusState;
 use codec::Encode;
-use ethers::{
-	abi::AbiDecode,
-	providers::Middleware,
-	types::{CallFrame, GethDebugTracingCallOptions, GethTrace, GethTraceFrame},
-};
 
 use evm_state_machine::types::EvmStateProof;
-use geth_primitives::new_u256;
+
+use geth_primitives::alloy_u256_to_primitive;
 use ismp::{
 	consensus::{ConsensusStateId, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
 	messaging::{Message, StateCommitmentHeight},
 };
-use ismp_solidity_abi::evm_host::{PostRequestHandledFilter, PostResponseHandledFilter};
+use ismp_solidity_abi::evm_host::{PostRequestHandled, PostResponseHandled};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 
 use crate::{
 	gas_oracle::{get_current_gas_cost_in_usd, get_l2_data_cost},
-	tx::{generate_contract_calls, get_chain_gas_limit},
+	tx::get_chain_gas_limit,
 };
 use ethereum_triedb::StorageProof;
-use ethers::{
-	contract::parse_log,
-	types::{
-		CallConfig, GethDebugBuiltInTracerConfig, GethDebugBuiltInTracerType,
-		GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, Log,
-	},
-};
 use futures::{stream::FuturesOrdered, FutureExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight},
@@ -45,8 +40,10 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, TxResult,
+	StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
 };
+
+use ismp_solidity_abi::beefy::BeefyConsensusState;
 
 #[async_trait::async_trait]
 impl IsmpProvider for EvmClient {
@@ -55,18 +52,19 @@ impl IsmpProvider for EvmClient {
 		at: Option<u64>,
 		_: ConsensusStateId,
 	) -> Result<Vec<u8>, Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
 		let value = {
-			let call = if let Some(block) = at {
-				contract.consensus_state().block(block)
+			let call = contract.consensusState();
+			if let Some(block) = at {
+				call.block(BlockId::number(block)).call().await?
 			} else {
-				contract.consensus_state()
-			};
-			call.call().await?
+				call.block(BlockId::latest()).call().await?
+			}
 		};
 
 		// Convert these bytes into BeefyConsensusState for rust and scale encode
-		let consensus_state: ConsensusState = BeefyConsensusState::decode(&value.0)?.into();
+		let consensus_state: ConsensusState = BeefyConsensusState::abi_decode(&value)?.into();
 		Ok(consensus_state.encode())
 	}
 
@@ -76,14 +74,43 @@ impl IsmpProvider for EvmClient {
 			StateMachine::Kusama(para_id) => para_id,
 			_ => Err(anyhow!("Unexpected state machine"))?,
 		};
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let value = contract.latest_state_machine_height(id.into()).call().await?;
-		Ok(value.low_u64() as u32)
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let value = contract
+			.latestStateMachineHeight(AlloyU256::from(id))
+			.block(BlockId::latest())
+			.call()
+			.await?;
+		Ok(value.try_into().unwrap_or(0))
 	}
 
 	async fn query_finalized_height(&self) -> Result<u64, Error> {
 		let value = self.client.get_block_number().await?;
-		Ok(value.low_u64())
+		Ok(value)
+	}
+
+	async fn query_storage(
+		&self,
+		key: StorageKey,
+		at: Option<u64>,
+	) -> Result<Option<Vec<u8>>, Error> {
+		match key {
+			StorageKey::Substrate(_) =>
+				Err(anyhow!("StorageKey::Substrate not supported on EVM provider")),
+			StorageKey::Evm { contract, slot } => {
+				let addr = Address::from_slice(&contract.0);
+				let block_id = match at {
+					Some(h) => BlockId::number(h),
+					None => BlockId::latest(),
+				};
+				let value = self
+					.client
+					.get_storage_at(addr, B256::from_slice(&slot.0).into())
+					.block_id(block_id)
+					.await?;
+				Ok(Some(value.to_be_bytes::<32>().to_vec()))
+			},
+		}
 	}
 
 	async fn query_state_machine_commitment(
@@ -100,61 +127,60 @@ impl IsmpProvider for EvmClient {
 		};
 		let (timestamp_key, overlay_key, state_root_key) =
 			state_comitment_key(id.into(), height.height.into());
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+
+		let block = BlockId::latest();
 		let timestamp = {
 			let timestamp = self
 				.client
-				.get_storage_at(
-					ethers::types::H160(self.config.ismp_host.0),
-					timestamp_key.0.into(),
-					None,
-				)
+				.get_storage_at(host_addr, B256::from_slice(&timestamp_key.0).into())
+				.block_id(block)
 				.await?;
-			U256::from_big_endian(timestamp.as_bytes()).low_u64()
+			U256::from_big_endian(&timestamp.to_be_bytes::<32>()).low_u64()
 		};
 		let overlay_root = self
 			.client
-			.get_storage_at(
-				ethers::types::H160(self.config.ismp_host.0),
-				overlay_key.0.into(),
-				None,
-			)
-			.await?
-			.0
-			.into();
+			.get_storage_at(host_addr, B256::from_slice(&overlay_key.0).into())
+			.block_id(block)
+			.await?;
 		let state_root = self
 			.client
-			.get_storage_at(
-				ethers::types::H160(self.config.ismp_host.0),
-				state_root_key.0.into(),
-				None,
-			)
-			.await?
-			.0
-			.into();
-		Ok(StateCommitment { timestamp, overlay_root: Some(overlay_root), state_root })
+			.get_storage_at(host_addr, B256::from_slice(&state_root_key.0).into())
+			.block_id(block)
+			.await?;
+		Ok(StateCommitment {
+			timestamp,
+			overlay_root: Some(H256::from_slice(&overlay_root.to_be_bytes::<32>())),
+			state_root: H256::from_slice(&state_root.to_be_bytes::<32>()),
+		})
 	}
 
 	async fn query_state_machine_update_time(
 		&self,
 		height: StateMachineHeight,
 	) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let value =
-			contract.state_machine_commitment_update_time(height.try_into()?).call().await?;
-		Ok(Duration::from_secs(value.low_u64()))
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let value = contract
+			.stateMachineCommitmentUpdateTime(height.try_into()?)
+			.block(BlockId::latest())
+			.call()
+			.await?;
+		Ok(Duration::from_secs(value.try_into().unwrap_or(0)))
 	}
 
 	async fn query_challenge_period(&self, _id: StateMachineId) -> Result<Duration, Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let value = contract.challenge_period().call().await?;
-		Ok(Duration::from_secs(value.low_u64()))
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let value = contract.challengePeriod().block(BlockId::latest()).call().await?;
+		Ok(Duration::from_secs(value.try_into().unwrap_or(0)))
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
-		let client = Arc::new(self.client.clone());
-		let contract = EvmHost::new(self.config.ismp_host.0, client);
-		let value = contract.timestamp().call().await?;
-		Ok(Duration::from_secs(value.low_u64()))
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let value = contract.timestamp().block(BlockId::latest()).call().await?;
+		Ok(Duration::from_secs(value.try_into().unwrap_or(0)))
 	}
 
 	async fn query_requests_proof(
@@ -163,28 +189,23 @@ impl IsmpProvider for EvmClient {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let keys = keys
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let keys: Vec<B256> = keys
 			.into_iter()
-			.map(|query| self.request_commitment_key(query.commitment).1 .0.into())
+			.map(|query| B256::from_slice(&self.request_commitment_key(query.commitment).1 .0))
 			.collect();
 
-		let proof = self
-			.client
-			.get_proof(ethers::types::H160(self.config.ismp_host.0), keys, Some(at.into()))
-			.await?;
+		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
 		let proof = EvmStateProof {
-			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
+			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.to_vec()).collect(),
 			storage_proof: {
 				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
-					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into()))
+					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.to_vec()))
 				});
 				let merged_proofs = StorageProof::merge(storage_proofs);
-				vec![(
-					self.config.ismp_host.0.to_vec(),
-					merged_proofs.into_nodes().into_iter().collect(),
-				)]
-				.into_iter()
-				.collect()
+				vec![(self.ismp_host.0.to_vec(), merged_proofs.into_nodes().into_iter().collect())]
+					.into_iter()
+					.collect()
 			},
 		};
 		Ok(proof.encode())
@@ -196,27 +217,23 @@ impl IsmpProvider for EvmClient {
 		keys: Vec<Query>,
 		_counterparty: StateMachine,
 	) -> Result<Vec<u8>, Error> {
-		let keys = keys
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let keys: Vec<B256> = keys
 			.into_iter()
-			.map(|query| self.response_commitment_key(query.commitment).1 .0.into())
+			.map(|query| B256::from_slice(&self.response_commitment_key(query.commitment).1 .0))
 			.collect();
-		let proof = self
-			.client
-			.get_proof(ethers::types::H160(self.config.ismp_host.0), keys, Some(at.into()))
-			.await?;
+
+		let proof = self.client.get_proof(host_addr, keys).block_id(at.into()).await?;
 		let proof = EvmStateProof {
-			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.0.into()).collect(),
+			contract_proof: proof.account_proof.into_iter().map(|bytes| bytes.to_vec()).collect(),
 			storage_proof: {
 				let storage_proofs = proof.storage_proof.into_iter().map(|proof| {
-					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.0.into()))
+					StorageProof::new(proof.proof.into_iter().map(|bytes| bytes.to_vec()))
 				});
 				let merged_proofs = StorageProof::merge(storage_proofs);
-				vec![(
-					self.config.ismp_host.0.to_vec(),
-					merged_proofs.into_nodes().into_iter().collect(),
-				)]
-				.into_iter()
-				.collect()
+				vec![(self.ismp_host.0.to_vec(), merged_proofs.into_nodes().into_iter().collect())]
+					.into_iter()
+					.collect()
 			},
 		};
 		Ok(proof.encode())
@@ -230,25 +247,19 @@ impl IsmpProvider for EvmClient {
 		let state_proof = match keys {
 			StateProofQueryType::Ismp(keys) => {
 				let mut map: BTreeMap<Vec<u8>, Vec<Vec<u8>>> = BTreeMap::new();
-				let locations = keys.iter().map(|key| H256::from_slice(key).0.into()).collect();
-				let proof = self
-					.client
-					.get_proof(
-						ethers::types::H160(self.config.ismp_host.0),
-						locations,
-						Some(at.into()),
-					)
-					.await?;
+				let host_addr = Address::from_slice(&self.ismp_host.0);
+				let locations: Vec<B256> = keys.iter().map(|key| B256::from_slice(key)).collect();
+				let proof = self.client.get_proof(host_addr, locations).block_id(at.into()).await?;
 				let mut storage_proofs = vec![];
 				for proof in proof.storage_proof {
 					storage_proofs.push(StorageProof::new(
-						proof.proof.into_iter().map(|bytes| bytes.0.into()),
+						proof.proof.into_iter().map(|bytes| bytes.to_vec()),
 					));
 				}
 
 				let storage_proof = StorageProof::merge(storage_proofs);
 				map.insert(
-					self.config.ismp_host.0.to_vec(),
+					self.ismp_host.0.to_vec(),
 					storage_proof.into_nodes().into_iter().collect(),
 				);
 
@@ -256,7 +267,7 @@ impl IsmpProvider for EvmClient {
 					contract_proof: proof
 						.account_proof
 						.into_iter()
-						.map(|bytes| bytes.0.into())
+						.map(|bytes| bytes.to_vec())
 						.collect(),
 					storage_proof: map,
 				};
@@ -269,7 +280,10 @@ impl IsmpProvider for EvmClient {
 
 				for key in keys {
 					if key.len() != 20 && key.len() != 52 {
-						Err(anyhow!("All arbitrary keys must have a length of 52 bytes or 20 bytes when querying state proofs, found key with length {}", key.len()))?
+						Err(anyhow!(
+							"All arbitrary keys must have a length of 52 bytes or 20 bytes when querying state proofs, found key with length {}",
+							key.len()
+						))?
 					}
 
 					let contract_address = H160::from_slice(&key[..20]);
@@ -283,22 +297,18 @@ impl IsmpProvider for EvmClient {
 				}
 
 				for (contract_address, slot_hashes) in contract_addresses_to_keys {
-					let proof = self
-						.client
-						.get_proof(
-							ethers::types::H160(contract_address.0),
-							slot_hashes.into_iter().map(|slot| slot.0.into()).collect(),
-							Some(at.into()),
-						)
-						.await?;
+					let addr = Address::from_slice(&contract_address.0);
+					let slots: Vec<B256> =
+						slot_hashes.into_iter().map(|slot| B256::from_slice(&slot.0)).collect();
+					let proof = self.client.get_proof(addr, slots).block_id(at.into()).await?;
 					contract_proofs.push(StorageProof::new(
-						proof.account_proof.into_iter().map(|node| node.0.into()),
+						proof.account_proof.into_iter().map(|node| node.to_vec()),
 					));
 
 					if !proof.storage_proof.is_empty() {
 						let storage_proofs = proof.storage_proof.into_iter().map(|storage_proof| {
 							StorageProof::new(
-								storage_proof.proof.into_iter().map(|bytes| bytes.0.into()),
+								storage_proof.proof.into_iter().map(|bytes| bytes.to_vec()),
 							)
 						});
 
@@ -342,7 +352,7 @@ impl IsmpProvider for EvmClient {
 				Ok(batch) => events.extend(batch),
 				Err(err) => {
 					log::error!(
-						"Error while querying events in range {}..{} from {:?}: {err:?}",
+						target: crate::LOG_TARGET, "Error while querying events in range {}..{} from {:?}: {err:?}",
 						start,
 						end,
 						self.state_machine
@@ -355,15 +365,26 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn query_request_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let address = host_contract.request_receipts(hash.into()).call().await?;
-		Ok(address.0.to_vec())
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
+		let address = host_contract
+			.requestReceipts(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?;
+		Ok(address.to_vec())
 	}
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let address = host_contract.response_receipts(hash.into()).call().await?.relayer;
-		Ok(address.0.to_vec())
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
+		let address = host_contract
+			.responseReceipts(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?
+			.relayer;
+		Ok(address.to_vec())
 	}
 
 	fn name(&self) -> String {
@@ -374,6 +395,14 @@ impl IsmpProvider for EvmClient {
 		StateMachineId { state_id: self.state_machine, consensus_state_id: self.consensus_state_id }
 	}
 
+	fn ismp_host_contract(&self) -> Option<H160> {
+		Some(self.ismp_host)
+	}
+
+	async fn handler_v2_address(&self) -> Option<H160> {
+		self.handler().await.ok()
+	}
+
 	fn block_max_gas(&self) -> u64 {
 		get_chain_gas_limit(self.state_machine)
 	}
@@ -382,157 +411,51 @@ impl IsmpProvider for EvmClient {
 		self.initial_height
 	}
 
-	/// Returns gas estimate for message excecution and it value in USD.
-	async fn estimate_gas(
+	/// Returns gas estimate for message execution and it's value in USD.
+	/// Uses debug_traceCall to verify that the message would actually be handled successfully.
+	async fn estimate_gas(&self, msg: Vec<Message>) -> Result<Vec<EstimateGasReturnParams>, Error> {
+		use crate::tx::generate_contract_calls;
+		let (tx_requests, _) = generate_contract_calls(self, &msg, true).await?;
+		estimate_gas_for_tx_requests(self, &tx_requests, &msg).await
+	}
+
+	/// Returns gas estimates where each non-consensus message is simulated
+	/// inside a `batchCall([prelude, msg])` so the estimate reflects the
+	/// light-client update that will land in the same tx. Falls back to
+	/// standalone estimation when `prelude` is `None`.
+	async fn estimate_gas_batched(
 		&self,
-		_msg: Vec<Message>,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, Error> {
-		use tokio_stream::StreamExt;
-		let messages = _msg.clone();
-
-		// The clients we support(erigon and geth) both use Geth style tracing
-		let debug_trace_call_options = GethDebugTracingCallOptions {
-			tracing_options: GethDebugTracingOptions {
-				disable_storage: Some(true),
-				enable_memory: Some(false),
-				tracer: Some(GethDebugTracerType::BuiltInTracer(
-					GethDebugBuiltInTracerType::CallTracer,
-				)),
-				tracer_config: Some(GethDebugTracerConfig::BuiltInTracer(
-					GethDebugBuiltInTracerConfig::CallTracer(CallConfig {
-						only_top_call: Some(false),
-						with_log: Some(true),
-					}),
-				)),
-				..Default::default()
-			},
-			..GethDebugTracingCallOptions::default()
-		};
-
-		let calls = generate_contract_calls(self, messages, true).await?;
-		let gas_breakdown = get_current_gas_cost_in_usd(
-			self.state_machine,
-			self.config.ismp_host.0.into(),
-			self.client.clone(),
-		)
-		.await?;
-		let mut gas_estimates = vec![];
-		let batch_size = self.config.tracing_batch_size.unwrap_or(10);
-		for (calls, msgs) in calls.chunks(batch_size).zip(_msg.chunks(batch_size)) {
-			let processes = calls
-				.into_iter()
-				.zip(msgs)
-				.map(|(call, _msg)| {
-					let client = self.clone();
-					let debug_trace_call_options = debug_trace_call_options.clone();
-					let mut call = call.clone();
-					let _msg = _msg.clone();
-					tokio::spawn(async move {
-						let address = H160::from_slice(client.address().as_slice());
-						call.tx.set_from(address.0.into());
-
-						let call_debug = client
-							.client
-							.debug_trace_call(
-								call.tx.clone(),
-								call.block.clone(),
-								debug_trace_call_options,
-							)
-							.await?;
-						let mut gas_to_be_used = U256::zero();
-						let mut successful_execution = false;
-
-						match call_debug {
-							GethTrace::Known(GethTraceFrame::CallTracer(call_frame)) => {
-								match _msg {
-									Message::Request(_) => {
-										successful_execution = check_trace_for_event(
-											call_frame.clone(),
-											CheckTraceForEventParams::Request,
-										);
-										if !successful_execution {
-											log::trace!(
-												"debug_traceCall request message failed on {:?}",
-												client.state_machine
-											);
-										}
-									},
-									Message::Response(_) => {
-										successful_execution = check_trace_for_event(
-											call_frame.clone(),
-											CheckTraceForEventParams::Response,
-										);
-										if !successful_execution {
-											log::trace!(
-												"debug_traceCall response message failed on {:?}",
-												client.state_machine
-											);
-										}
-									},
-									_ => {
-										unreachable!("Only request/responses are estimated");
-									},
-								};
-
-								if successful_execution && is_orbit_chain(client.chain_id as u32) {
-									let _temp_gas =
-										client.client.estimate_gas(&call.tx, call.block).await?;
-									gas_to_be_used = new_u256(_temp_gas);
-								} else {
-									gas_to_be_used = new_u256(call_frame.gas_used);
-								}
-							},
-							trace => {
-								log::error!("an unknown geth trace was reached {trace:?}")
-							},
-						};
-
-						let gas_cost_for_data_in_usd = match client.state_machine {
-							StateMachine::Evm(_) =>
-								get_l2_data_cost(
-									call.tx.rlp(),
-									client.state_machine,
-									client.client.clone(),
-									gas_breakdown.unit_wei_cost,
-								)
-								.await?,
-							_ => U256::zero().into(),
-						};
-
-						let execution_cost = (gas_breakdown.gas_price_cost * gas_to_be_used) +
-							gas_cost_for_data_in_usd;
-						Ok::<_, Error>(EstimateGasReturnParams {
-							execution_cost,
-							successful_execution,
-						})
-					})
-				})
-				.collect::<FuturesOrdered<_>>();
-
-			let estimates = processes
-				.collect::<Result<Vec<_>, _>>()
-				.await?
-				.into_iter()
-				.collect::<Result<Vec<_>, _>>()?;
-
-			gas_estimates.extend(estimates);
-		}
-
-		Ok(gas_estimates)
+		use crate::tx::generate_batched_contract_calls;
+		let (tx_requests, _) =
+			generate_batched_contract_calls(self, prelude.as_ref(), &msgs, true).await?;
+		estimate_gas_for_tx_requests(self, &tx_requests, &msgs).await
 	}
 
 	async fn query_request_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let fee_metadata = host_contract.request_commitments(hash.into()).call().await?;
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
+		let fee_metadata = host_contract
+			.requestCommitments(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		// erc20 tokens are formatted in 18 decimals
-		return Ok(new_u256(fee_metadata.fee));
+		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
 	}
 
 	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let fee_metadata = host_contract.response_commitments(hash.into()).call().await?;
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
+		let fee_metadata = host_contract
+			.responseCommitments(B256::from_slice(&hash.0))
+			.block(BlockId::latest())
+			.call()
+			.await?;
 		// erc20 tokens are formatted in 18 decimals
-		return Ok(new_u256(fee_metadata.fee));
+		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -554,7 +477,7 @@ impl IsmpProvider for EvmClient {
 				tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 				// wait for an update with a greater height
 				let block_number = match client.client.get_block_number().await {
-					Ok(number) => number.low_u64(),
+					Ok(number) => number,
 					Err(err) => {
 						if let Err(err) = tx
 							.send(Err(anyhow!(
@@ -562,7 +485,7 @@ impl IsmpProvider for EvmClient {
 							).into()))
 							.await
 						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						continue;
@@ -587,7 +510,7 @@ impl IsmpProvider for EvmClient {
 							).into()))
 							.await
 						{
-							log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+							log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 							return
 						}
 						latest_height = block_number;
@@ -604,7 +527,7 @@ impl IsmpProvider for EvmClient {
 
 				if let Some(event) = event {
 					if let Err(err) = tx.send(Ok(event.clone())).await {
-						log::trace!(target: "tesseract", "Failed to send state commitment vetoed event over channel on {state_machine:?}->{:?} \n {err:?}", update_height.id.state_id);
+						log::trace!(target: crate::LOG_TARGET, "Failed to send state commitment vetoed event over channel on {state_machine:?}->{:?} \n {err:?}", update_height.id.state_id);
 						return
 					};
 				}
@@ -633,7 +556,7 @@ impl IsmpProvider for EvmClient {
 		};
 
 		if is_empty {
-			let initial_height = self.client.get_block_number().await?.low_u64();
+			let initial_height = self.client.get_block_number().await?;
 			let client = self.clone();
 			let poll_interval = self.config.poll_interval.unwrap_or(10);
 
@@ -644,14 +567,14 @@ impl IsmpProvider for EvmClient {
 					tokio::time::sleep(Duration::from_secs(poll_interval)).await;
 					// wait for an update with a greater height
 					let block_number = match client.client.get_block_number().await {
-						Ok(number) => number.low_u64(),
+						Ok(number) => number,
 						Err(err) => {
 							if let Err(err) = tx
 								.send(Err(anyhow!(
 									"Error fetching latest block height on {state_machine:?} {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
@@ -675,7 +598,7 @@ impl IsmpProvider for EvmClient {
 									"Error encountered while querying ismp events {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							latest_height = block_number;
@@ -702,7 +625,7 @@ impl IsmpProvider for EvmClient {
 										"Error encountered while querying state_machine_update_time {err:?}"
 									).into()))
 								{
-									log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+									log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 									return
 								}
 								latest_height = block_number;
@@ -718,12 +641,12 @@ impl IsmpProvider for EvmClient {
 								match _res {
 									Ok(_) => {
 										if let Err(err) = tx.send(Ok(event.clone())) {
-											log::trace!(target: "tesseract", "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
+											log::trace!(target: crate::LOG_TARGET, "Failed to send state machine update over channel on {state_machine:?} - {:?} \n {err:?}", counterparty_state_id.state_id);
 											return
 										};
 									}
 									Err(err) => {
-										log::error!(target: "tesseract", "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
+										log::error!(target: crate::LOG_TARGET, "Error waiting for challenge period in {state_machine:?} - {:?} update stream \n {err:?}", counterparty_state_id.state_id);
 									}
 								}
 							}
@@ -731,11 +654,11 @@ impl IsmpProvider for EvmClient {
 							_res = state_commitment_vetoed_stream.next() => {
 								match _res {
 									Some(Ok(_)) => {
-										log::error!(target: "tesseract", "State Commitment for {event:?} was vetoed on {state_machine}");
+										log::error!(target: crate::LOG_TARGET, "State Commitment for {event:?} was vetoed on {state_machine}");
 									}
 
 									_ => {
-										log::error!(target: "tesseract", "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
+										log::error!(target: crate::LOG_TARGET, "Error in state machine vetoed stream {state_machine:?} - {:?}", counterparty_state_id.state_id);
 									}
 								}
 							}
@@ -764,7 +687,7 @@ impl IsmpProvider for EvmClient {
 		let queue = self
 			.queue
 			.as_ref()
-			.ok_or_else(|| anyhow!("Trasnsaction submission pipeline was not initialized"))?
+			.ok_or_else(|| anyhow!("Transaction submission pipeline was not initialized"))?
 			.clone();
 		queue.send(messages).await?
 	}
@@ -794,11 +717,13 @@ impl IsmpProvider for EvmClient {
 	}
 
 	fn sign(&self, msg: &[u8]) -> Signature {
+		use alloy::signers::SignerSync;
+		let hash = B256::from_slice(msg);
 		let signature = self
-			.signer
-			.signer()
-			.sign_hash(H256::from_slice(msg).0.into())
+			.private_key_signer
+			.sign_hash_sync(&hash)
 			.expect("Infallible")
+			.as_bytes()
 			.to_vec();
 		Signature::Evm { address: self.address.clone(), signature }
 	}
@@ -823,7 +748,7 @@ impl IsmpProvider for EvmClient {
 	}
 
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
-		// let contract = EvmHost::new(self.config.ismp_host, self.client.clone());
+		// let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		// if let Some(_) = contract
 		// 	.veto_state_commitment(ismp_solidity_abi::beefy::StateMachineHeight {
 		// 		state_machine_id: match height.id.state_id {
@@ -836,8 +761,8 @@ impl IsmpProvider for EvmClient {
 		// 	.await?
 		// 	.await?
 		// {
-		// 	log::info!("Frozen consensus client on {:?}", self.state_machine);
-		// }
+		// 	log::info!(target: crate::LOG_TARGET, "Frozen consensus client on {:?}",
+		// self.state_machine); }
 		Ok(())
 	}
 
@@ -845,40 +770,40 @@ impl IsmpProvider for EvmClient {
 		&self,
 		_state_machine: StateMachine,
 	) -> Result<HostParam<u128>, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let params: ismp_solidity_abi::evm_host::HostParams = contract.host_params().call().await?;
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let params = contract.hostParams().block(BlockId::latest()).call().await?;
 		let evm_params = EvmHostParam {
-			default_timeout: params.default_timeout.low_u128(),
-			default_per_byte_fee: new_u256(params.default_per_byte_fee),
-			state_commitment_fee: new_u256(params.state_commitment_fee),
-			fee_token: params.fee_token.0.into(),
-			admin: params.admin.0.into(),
-			handler: params.handler.0.into(),
-			host_manager: params.host_manager.0.into(),
-			uniswap_v2: params.uniswap_v2.0.into(),
-			un_staking_period: params.un_staking_period.low_u128(),
-			challenge_period: params.challenge_period.low_u128(),
-			consensus_client: params.consensus_client.0.into(),
+			default_timeout: params.defaultTimeout.try_into().unwrap_or(0),
+			default_per_byte_fee: alloy_u256_to_primitive(params.defaultPerByteFee),
+			state_commitment_fee: alloy_u256_to_primitive(params.stateCommitmentFee),
+			fee_token: H160::from_slice(params.feeToken.as_slice()),
+			admin: H160::from_slice(params.admin.as_slice()),
+			handler: H160::from_slice(params.handler.as_slice()),
+			host_manager: H160::from_slice(params.hostManager.as_slice()),
+			uniswap_v2: H160::from_slice(params.uniswapV2.as_slice()),
+			un_staking_period: params.unStakingPeriod.try_into().unwrap_or(0),
+			challenge_period: params.challengePeriod.try_into().unwrap_or(0),
+			consensus_client: H160::from_slice(params.consensusClient.as_slice()),
 			state_machines: params
-				.state_machines
+				.stateMachines
 				.into_iter()
-				.map(|id| id.low_u32())
+				.map(|id| id.try_into().unwrap_or(0))
 				.collect::<Vec<_>>()
 				.try_into()
 				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
 			per_byte_fees: params
-				.per_byte_fees
+				.perByteFees
 				.into_iter()
 				.map(|p| PerByteFee {
-					per_byte_fee: new_u256(p.per_byte_fee),
-					state_id: p.state_id_hash.into(),
+					per_byte_fee: alloy_u256_to_primitive(p.perByteFee),
+					state_id: H256::from_slice(p.stateIdHash.as_slice()),
 				})
 				.collect::<Vec<_>>()
 				.try_into()
 				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
 			hyperbridge: params
 				.hyperbridge
-				.0
 				.to_vec()
 				.try_into()
 				.map_err(|_| anyhow!("Failed to convert bounded vec"))?,
@@ -896,9 +821,10 @@ impl IsmpProvider for EvmClient {
 			_ => Err(anyhow!("Unexpected host params"))?,
 		};
 
-		let contract = Erc20::new(fee_token.0, self.client.clone());
+		let fee_token_addr = Address::from_slice(&fee_token.0);
+		let contract = Erc20Instance::new(fee_token_addr, self.client.clone());
 
-		let decimals = contract.decimals().call().await?;
+		let decimals = contract.decimals().block(BlockId::latest()).call().await?;
 
 		Ok(decimals)
 	}
@@ -909,53 +835,244 @@ pub enum CheckTraceForEventParams {
 	Response,
 }
 
-pub fn check_trace_for_event(call_frame: CallFrame, event_in: CheckTraceForEventParams) -> bool {
-	if let Some(error) = call_frame.revert_reason {
-		log::error!("Error in main call frame: {error}");
+pub fn check_trace_for_event(
+	call_frame: &alloy::rpc::types::trace::geth::CallFrame,
+	event_in: CheckTraceForEventParams,
+) -> bool {
+	if let Some(ref error) = call_frame.revert_reason {
+		log::error!(target: crate::LOG_TARGET, "Error in main call frame: {error}");
+	}
+	any_frame_has_event(call_frame, &event_in)
+}
+
+/// Walk the full call tree (DFS, pre-order) and return `true` as soon as any
+/// frame emits the target event. The pre-batchCall version of this check
+/// only looked at the last direct inner call — that worked when the handler
+/// function was the top-level call and the host emitted its
+/// `PostRequestHandled` / `PostResponseHandled` log one level down. With
+/// `IHandlerV2.batchCall([consensus, msg])` the structure is:
+///
+/// ```text
+/// batchCall (handler_addr)
+/// ├── delegatecall — handleConsensus
+/// │    └── call — host.handleConsensus (consensus logs)
+/// └── delegatecall — handlePost{Requests,Responses}
+///      └── call — host.dispatchPost…
+///          └── call — module.onAccept
+///              └── log: PostRequest/ResponseHandled (from host)
+/// ```
+///
+/// The event log can land in any frame depending on where the host emitted
+/// it — `.calls.last().logs` would miss it. We recurse over the whole tree
+/// and also log any sub-frame errors so failures are surfaced regardless of
+/// depth.
+fn any_frame_has_event(
+	frame: &alloy::rpc::types::trace::geth::CallFrame,
+	event_in: &CheckTraceForEventParams,
+) -> bool {
+	use alloy::primitives::LogData;
+
+	if let Some(ref error) = frame.error {
+		log::error!(target: crate::LOG_TARGET, "Error in call frame {:?}: {error}", frame.to);
 	}
 
-	if let Some((logs, frame)) = call_frame
-		.calls
-		.map(|inner| inner.last().cloned())
-		.flatten()
-		.map(|last_call_frame| last_call_frame.logs.clone().map(|logs| (logs, last_call_frame)))
-		.flatten()
-	{
-		if let Some(error) = frame.error {
-			log::error!("Error in inner call frame: {error}");
+	for log in &frame.logs {
+		let topics = log.topics.clone().unwrap_or_default();
+		let data = log.data.clone().unwrap_or_default();
+		let Some(log_data) = LogData::new(topics, data) else { continue };
+		let prim_log =
+			alloy::primitives::Log { address: log.address.unwrap_or_default(), data: log_data };
+		let matched = match event_in {
+			CheckTraceForEventParams::Request => PostRequestHandled::decode_log(&prim_log).is_ok(),
+			CheckTraceForEventParams::Response =>
+				PostResponseHandled::decode_log(&prim_log).is_ok(),
+		};
+		if matched {
+			return true;
 		}
-		for log in logs {
-			let log = Log {
-				topics: log.clone().topics.unwrap_or_default(),
-				data: log.clone().data.unwrap_or_default(),
-				..Default::default()
-			};
+	}
 
-			match event_in {
-				CheckTraceForEventParams::Request => {
-					let event = parse_log::<PostRequestHandledFilter>(log.clone());
-					match event {
-						Ok(_) => return true,
-						Err(err) => {
-							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to)
-						},
-					}
-				},
-				CheckTraceForEventParams::Response => {
-					let event = parse_log::<PostResponseHandledFilter>(log.clone());
-
-					match event {
-						Ok(_) => return true,
-						Err(err) => {
-							log::error!("Failed to parse {:?} trace log: {err:?}", frame.to)
-						},
-					}
-				},
-			};
+	for child in &frame.calls {
+		if any_frame_has_event(child, event_in) {
+			return true;
 		}
-	} else {
-		log::error!("Debug trace frame not found!");
 	}
 
 	false
+}
+
+/// Shared body of gas estimation for a pre-built `Vec<TransactionRequest>`
+/// + the matching `Vec<Message>`. Splits into `tracing_batch_size` chunks,
+/// fires `debug_traceCall` per entry, walks each trace to confirm the
+/// `PostRequest/PostResponseHandled` event is emitted, and computes the
+/// actual gas used (+ L2 calldata-fee padding).
+///
+/// Called from both [`IsmpProvider::estimate_gas`] (one tx per message) and
+/// [`IsmpProvider::estimate_gas_batched`] (one `batchCall([prelude, msg])`
+/// tx per message). In the batched case the trace still surfaces the inner
+/// `PostRequest/PostResponseHandled` event emitted by the handler's
+/// delegate-call, so the same success-check works for both shapes.
+async fn estimate_gas_for_tx_requests(
+	client_outer: &EvmClient,
+	tx_requests: &[alloy::rpc::types::TransactionRequest],
+	msg: &[Message],
+) -> Result<Vec<EstimateGasReturnParams>, Error> {
+	use crate::gas_oracle::is_orbit_chain;
+	use alloy::{
+		providers::ext::DebugApi,
+		rpc::types::{
+			trace::geth::{
+				CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+				GethDebugTracingCallOptions, GethDebugTracingOptions, GethDefaultTracingOptions,
+				GethTrace,
+			},
+			TransactionRequest,
+		},
+	};
+
+	let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
+	let debug_trace_call_options = GethDebugTracingCallOptions {
+		tracing_options: GethDebugTracingOptions {
+			config: GethDefaultTracingOptions {
+				disable_storage: Some(true),
+				enable_memory: Some(false),
+				..Default::default()
+			},
+			tracer: Some(GethDebugTracerType::BuiltInTracer(
+				GethDebugBuiltInTracerType::CallTracer,
+			)),
+			tracer_config: GethDebugTracerConfig(serde_json::to_value(call_config)?),
+			..Default::default()
+		},
+		..Default::default()
+	};
+
+	let handler = client_outer.handler().await?;
+	let handler_addr = Address::from_slice(&handler.0);
+	let from_address = Address::from_slice(&client_outer.address);
+
+	let gas_breakdown = get_current_gas_cost_in_usd(
+		client_outer.state_machine,
+		client_outer.ismp_host.0.into(),
+		client_outer.client.clone(),
+	)
+	.await?;
+	let mut gas_estimates = vec![];
+	let batch_size = client_outer.config.tracing_batch_size.unwrap_or(10);
+
+	for (tx_batch, msgs) in tx_requests.chunks(batch_size).zip(msg.chunks(batch_size)) {
+		let processes = tx_batch
+			.iter()
+			.zip(msgs)
+			.map(|(tx_req, _msg)| {
+				let client = client_outer.clone();
+				let debug_trace_call_options = debug_trace_call_options.clone();
+				let gas_breakdown_unit_wei_cost = gas_breakdown.unit_wei_cost;
+				let gas_breakdown_gas_price_cost = gas_breakdown.gas_price_cost;
+				let calldata = tx_req.input.input().cloned().unwrap_or_default().to_vec();
+				let tx_req = tx_req.clone();
+				let _msg = _msg.clone();
+				tokio::spawn(async move {
+					let call_debug = client
+						.client
+						.debug_trace_call(tx_req, BlockId::latest(), debug_trace_call_options)
+						.await;
+
+					let mut gas_to_be_used = U256::zero();
+					let mut successful_execution = false;
+
+					match call_debug {
+						Ok(GethTrace::CallTracer(call_frame)) => {
+							match _msg {
+								Message::Request(_) => {
+									successful_execution = check_trace_for_event(
+										&call_frame,
+										CheckTraceForEventParams::Request,
+									);
+									if !successful_execution {
+										log::trace!(
+											target: crate::LOG_TARGET, "debug_traceCall request message failed on {:?}",
+											client.state_machine
+										);
+									}
+								},
+								Message::Response(_) => {
+									successful_execution = check_trace_for_event(
+										&call_frame,
+										CheckTraceForEventParams::Response,
+									);
+									if !successful_execution {
+										log::trace!(
+											target: crate::LOG_TARGET, "debug_traceCall response message failed on {:?}",
+											client.state_machine
+										);
+									}
+								},
+								_ => unreachable!("Only request/responses are estimated"),
+							};
+
+							if successful_execution && is_orbit_chain(client.chain_id as u32) {
+								let estimate_tx = TransactionRequest::default()
+									.from(from_address)
+									.to(handler_addr)
+									.input(alloy::primitives::Bytes::from(calldata.clone()).into());
+								let estimated_gas = client.client.estimate_gas(estimate_tx).await?;
+								gas_to_be_used = U256::from(estimated_gas);
+							} else {
+								gas_to_be_used = alloy_u256_to_primitive(call_frame.gas_used);
+							}
+						},
+						Ok(trace) => {
+							log::error!(target: crate::LOG_TARGET, "Unexpected geth trace variant: {trace:?}");
+						},
+						Err(err) => {
+							log::error!(
+								target: crate::LOG_TARGET, "debug_traceCall failed on {:?}: {err:?}",
+								client.state_machine
+							);
+						},
+					};
+
+					let gas_cost_for_data_in_usd = match client.state_machine {
+						StateMachine::Evm(_) => {
+							use alloy::{consensus::TxLegacy, primitives::TxKind};
+							use alloy_rlp::Encodable;
+
+							let unsigned_tx = TxLegacy {
+								to: TxKind::Call(handler_addr),
+								input: alloy::primitives::Bytes::from(calldata),
+								..Default::default()
+							};
+							let mut rlp_buf = Vec::new();
+							unsigned_tx.encode(&mut rlp_buf);
+
+							get_l2_data_cost(
+								rlp_buf.into(),
+								client.state_machine,
+								client.client.clone(),
+								gas_breakdown_unit_wei_cost,
+							)
+							.await?
+						},
+						_ => U256::zero().into(),
+					};
+
+					let execution_cost =
+						(gas_breakdown_gas_price_cost * gas_to_be_used) + gas_cost_for_data_in_usd;
+					Ok::<_, Error>(EstimateGasReturnParams { execution_cost, successful_execution })
+				})
+			})
+			.collect::<FuturesOrdered<_>>();
+
+		use futures::StreamExt;
+		let estimates_result: Vec<_> = processes.collect().await;
+		let estimates_result = estimates_result
+			.into_iter()
+			.map(|r| r.map_err(|e| anyhow!("Join error: {e:?}"))?)
+			.collect::<Result<Vec<_>, Error>>()?;
+
+		gas_estimates.extend(estimates_result);
+	}
+
+	Ok(gas_estimates)
 }

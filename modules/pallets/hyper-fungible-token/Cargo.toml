@@ -1,0 +1,44 @@
+[package]
+name = "pallet-hyper-fungible-token"
+version = "2512.0.0"
+edition = "2021"
+description = "A substrate pallet for cross-chain token transfers via HyperFungibleToken contracts"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+
+[dependencies]
+primitive-types = { workspace = true }
+log = { workspace = true }
+codec = { workspace = true }
+scale-info = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-sol-types = { workspace = true }
+
+ismp = { workspace = true }
+pallet-ismp = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-runtime", "sp-core", "sp-io"]
+
+[features]
+default = ["std"]
+std = [
+    "polkadot-sdk/std",
+    "primitive-types/std",
+    "ismp/std",
+    "pallet-ismp/std",
+    "log/std",
+    "scale-info/std",
+    "anyhow/std",
+    "alloy-primitives/std",
+]
+runtime-benchmarks = [
+    "polkadot-sdk/frame-benchmarking",
+    "polkadot-sdk/runtime-benchmarks",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

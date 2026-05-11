@@ -66,10 +66,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						Err(_) =>
 							return Some((
 								Err(anyhow!(
-						"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
-						client.state_machine,
-						counterparty.state_machine_id().state_id
-					)),
+									"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
+									client.state_machine,
+									counterparty.state_machine_id().state_id
+								)),
 								(interval, None),
 							)),
 					};
@@ -84,10 +84,10 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 					} else {
 						return Some((
 							Err(anyhow!(
-							"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
-							client.state_machine,
-							counterparty.state_machine_id().state_id
-						)),
+								"Not a fatal error: Error fetching consensus state for {:?} on {:?}",
+								client.state_machine,
+								counterparty.state_machine_id().state_id
+							)),
 							(interval, None),
 						));
 					};
@@ -125,7 +125,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						let enactment_epoch = compute_epoch(rotation_block, epoch_length);
 
 						log::trace!(
-							"Enacting Authority Set Rotation for {:?} on {}",
+							target: crate::LOG_TARGET, "Enacting Authority Set Rotation for {:?} on {}",
 							client.state_machine,
 							counterparty.state_machine_id().state_id
 						);
@@ -199,9 +199,11 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										);
 
 									if validators_bit_set.iter().as_bitslice().count_ones() <
-										((2 * next_validators.validators.len() / 3) + 1)
+										(2 * next_validators.validators.len() / 3)
 									{
-										log::trace!("Not enough participants in bsc update for block {block:?}");
+										log::trace!(
+											target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
+										);
 										block += 1;
 										continue;
 									}
@@ -231,20 +233,20 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								Err(_) =>
 									return Some((
 										Err(anyhow!(
-										"Not a fatal error: Error fetching authority enactment update for {}",
-										client.state_machine
-									)),
+											"Not a fatal error: Error fetching authority enactment update for {}",
+											client.state_machine
+										)),
 										(interval, None),
 									)),
 							}
 						}
-						log::trace!("No valid update found to enact authority set change");
+						log::trace!(target: crate::LOG_TARGET, "No valid update found to enact authority set change");
 						return Some((Ok(None), (interval, None)));
 					}
 					// Try to sync the client first
 					if attested_epoch > current_epoch && consensus_state.next_validators.is_none() {
 						log::info!(
-							"Syncing {} on {}",
+							target: crate::LOG_TARGET, "Syncing {} on {}",
 							client.state_machine,
 							counterparty.state_machine_id().state_id
 						);
@@ -313,9 +315,11 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 										);
 
 									if validators_bit_set.iter().as_bitslice().count_ones() <
-										((2 * consensus_state.current_validators.len() / 3) + 1)
+										(2 * consensus_state.current_validators.len() / 3)
 									{
-										log::trace!("Not enough participants in bsc update for block {block:?}");
+										log::trace!(
+											target: crate::LOG_TARGET, "Not enough participants in bsc update for block {block:?}"
+										);
 										block += 1;
 										continue;
 									}
@@ -369,15 +373,15 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 								Err(err) =>
 									return Some((
 										Err(anyhow!(
-										"Not a fatal error: Error fetching sync update for {} \n {err:?}",
-										client.state_machine
-									)),
+											"Not a fatal error: Error fetching sync update for {} \n {err:?}",
+											client.state_machine
+										)),
 										(interval, None),
 									)),
 							}
 						}
 
-						log::trace!("No valid sync update found for {next_epoch}");
+						log::trace!(target: crate::LOG_TARGET, "No valid sync update found for {next_epoch}");
 						return Some((Ok(None), (interval, None)));
 					}
 
@@ -431,7 +435,7 @@ impl<C: Config> IsmpHost for BscPosHost<C> {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}

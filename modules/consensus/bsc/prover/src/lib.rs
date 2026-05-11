@@ -17,13 +17,18 @@
 mod test;
 use polkadot_sdk::*;
 
+use alloy::{
+	eips::BlockId,
+	primitives::B256,
+	providers::{Provider, RootProvider},
+	rpc::client::RpcClient,
+	transports::{
+		http::{reqwest::Url, Http},
+		layers::FallbackService,
+	},
+};
 use anyhow::anyhow;
 use bsc_verifier::primitives::{compute_epoch, parse_extra, BscClientUpdate, Config};
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-	types::BlockId,
-};
 use geth_primitives::CodecHeader;
 use ismp::messaging::Keccak256;
 use sp_core::H256;
@@ -33,9 +38,9 @@ use tracing::{instrument, trace};
 
 #[derive(Clone)]
 pub struct BscPosProver<C: Config> {
-	/// Execution Rpc client
-	pub client: Arc<Provider<Http>>,
-	/// Phamtom data
+	/// Execution RPC client with fallback support for multiple URLs
+	pub client: Arc<RootProvider>,
+	/// Phantom data
 	_phantom_data: PhantomData<C>,
 }
 
@@ -50,15 +55,31 @@ pub struct UpdateParams {
 	pub fetch_val_set_change: bool,
 }
 impl<C: Config> BscPosProver<C> {
-	pub fn new(client: Provider<Http>) -> Self {
-		Self { client: Arc::new(client), _phantom_data: PhantomData }
+	pub fn new(urls: Vec<Url>) -> Result<Self, anyhow::Error> {
+		if urls.is_empty() {
+			return Err(anyhow!("At least one RPC URL must be provided"));
+		}
+
+		let client = if urls.len() == 1 {
+			let url =
+				urls.into_iter().next().ok_or_else(|| anyhow!("Expected at least one URL"))?;
+			RootProvider::new_http(url)
+		} else {
+			let transports: Vec<Http<_>> = urls.into_iter().map(|url| Http::new(url)).collect();
+			let active_count = transports.len();
+			let service = FallbackService::new(transports, active_count);
+			let rpc_client = RpcClient::builder().transport(service, false);
+			RootProvider::new(rpc_client)
+		};
+
+		Ok(Self { client: Arc::new(client), _phantom_data: PhantomData })
 	}
 
 	pub async fn fetch_header<T: Into<BlockId> + Send + Sync + Debug + Copy>(
 		&self,
 		block: T,
 	) -> Result<Option<CodecHeader>, anyhow::Error> {
-		let block = self.client.get_block(block).await?.map(|header| header.into());
+		let block = self.client.get_block(block.into()).await?.map(|b| b.into());
 
 		Ok(block)
 	}
@@ -68,7 +89,7 @@ impl<C: Config> BscPosProver<C> {
 		trace!(target: "bsc-prover", "fetching latest header");
 		let block_number = self.client.get_block_number().await?;
 		let header = self
-			.fetch_header(block_number.as_u64())
+			.fetch_header(block_number)
 			.await?
 			.ok_or_else(|| anyhow!("Latest header block could not be fetched {block_number}"))?;
 		Ok(header)
@@ -91,11 +112,11 @@ impl<C: Config> BscPosProver<C> {
 		}
 
 		let source_header = self
-			.fetch_header(ethers::core::types::H256::from(source_hash.0))
+			.fetch_header(B256::from(source_hash.0))
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {source_hash}"))?;
 		let target_header = self
-			.fetch_header(ethers::core::types::H256::from(target_hash.0))
+			.fetch_header(B256::from(target_hash.0))
 			.await?
 			.ok_or_else(|| anyhow!("header block could not be fetched {target_hash}"))?;
 
@@ -113,20 +134,15 @@ impl<C: Config> BscPosProver<C> {
             // We will skip such updates.
             (params.fetch_val_set_change && source_header.number.low_u64() > epoch_header_number)
 		{
-			let mut header = self
-				.fetch_header(ethers::core::types::H256::from(source_header.parent_hash.0))
-				.await?
-				.ok_or_else(|| {
-					anyhow!("header block could not be fetched {}", source_header.parent_hash)
-				})?;
+			let mut header =
+				self.fetch_header(B256::from(source_header.parent_hash.0)).await?.ok_or_else(
+					|| anyhow!("header block could not be fetched {}", source_header.parent_hash),
+				)?;
 			epoch_header_ancestry.insert(0, header.clone());
 			while header.number.low_u64() > epoch_header_number {
-				header = self
-					.fetch_header(ethers::core::types::H256::from(header.parent_hash.0))
-					.await?
-					.ok_or_else(|| {
-						anyhow!("header block could not be fetched {}", header.parent_hash)
-					})?;
+				header = self.fetch_header(B256::from(header.parent_hash.0)).await?.ok_or_else(
+					|| anyhow!("header block could not be fetched {}", header.parent_hash),
+				)?;
 				epoch_header_ancestry.insert(0, header.clone());
 			}
 		}
@@ -171,16 +187,76 @@ impl<C: Config> BscPosProver<C> {
 	}
 }
 
-// Get the maximum block that can be signed by previous validator set before authority set rotation
-// occurs Validator set change happens at
-// block%EPOCH_LENGTH == validator_size / 2
-pub fn get_rotation_block(mut block: u64, validator_size: u64, epoch_length: u64) -> u64 {
-	loop {
-		if block % epoch_length == (validator_size / 2) {
-			break;
+// Get the maximum block that can be signed by the previous validator set before
+// authority set rotation occurs. Validator set change happens at
+// `block % epoch_length == validator_size / 2`, so this returns the smallest
+// `n >= block` satisfying that congruence.
+//
+// Closed-form (constant-time) — previously this walked one block at a time in a
+// loop which was O(epoch_length) in the worst case.
+pub fn get_rotation_block(block: u64, validator_size: u64, epoch_length: u64) -> u64 {
+	let target = validator_size / 2;
+	let current = block % epoch_length;
+	// Distance forward to the next slot `epoch * epoch_length + target`, wrapping
+	// to the next epoch if we're already past `target` inside the current one.
+	let offset = (target + epoch_length - current) % epoch_length;
+	block + offset
+}
+
+#[cfg(test)]
+mod get_rotation_block_tests {
+	use super::get_rotation_block;
+
+	// Reference implementation used by the original loop-based version.
+	fn reference(mut block: u64, validator_size: u64, epoch_length: u64) -> u64 {
+		loop {
+			if block % epoch_length == (validator_size / 2) {
+				return block;
+			}
+			block += 1;
 		}
-		block += 1
 	}
 
-	block
+	#[test]
+	fn matches_reference_across_epoch() {
+		let epoch_length = 1000u64;
+		let validator_size = 21u64;
+		for block in 0..(epoch_length * 3) {
+			assert_eq!(
+				get_rotation_block(block, validator_size, epoch_length),
+				reference(block, validator_size, epoch_length),
+				"block={block}",
+			);
+		}
+	}
+
+	#[test]
+	fn varies_with_validator_size() {
+		let epoch_length = 200u64;
+		// Only sizes where `validator_size / 2 < epoch_length` are meaningful:
+		// larger sizes make the rotation slot `block % epoch_length == target`
+		// unreachable, which causes the loop-based reference impl to spin
+		// forever. Real BSC has `validator_size << epoch_length` anyway.
+		for validator_size in [1u64, 2, 3, 21, 64, 199] {
+			for block in [0u64, 1, 99, 100, 101, 199, 200, 201, 399, 400] {
+				assert_eq!(
+					get_rotation_block(block, validator_size, epoch_length),
+					reference(block, validator_size, epoch_length),
+					"validator_size={validator_size} block={block}",
+				);
+			}
+		}
+	}
+
+	#[test]
+	fn already_on_rotation_boundary_is_identity() {
+		// block=1010, epoch=1000, validator_size=21 → target=10, already at slot.
+		assert_eq!(get_rotation_block(1010, 21, 1000), 1010);
+	}
+
+	#[test]
+	fn jumps_to_next_epoch_when_past_target() {
+		// block=1015, epoch=1000, validator_size=21 → target=10, must skip to 2010.
+		assert_eq!(get_rotation_block(1015, 21, 1000), 2010);
+	}
 }

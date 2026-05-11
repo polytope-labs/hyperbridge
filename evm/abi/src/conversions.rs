@@ -14,68 +14,93 @@
 // limitations under the License.
 
 //! Convenient type conversions
-#![allow(unused_imports)]
+
 use crate::{
-	beefy::IntermediateState,
-	evm_host::EvmHostEvents,
-	shared_types::{
-		GetRequest, GetResponse, PostRequest, PostResponse, StateCommitment, StateMachineHeight,
-		StorageValue,
+	beefy::Beefy::IntermediateState,
+	evm_host::EvmHost::{
+		GetRequest, GetRequestEvent, GetRequestHandled, GetRequestTimeoutHandled, GetResponse,
+		HostFrozen, HostParamsUpdated, HostWithdrawal, PostRequest, PostRequestEvent,
+		PostRequestHandled, PostRequestTimeoutHandled, PostResponse, PostResponseEvent,
+		PostResponseFunded, PostResponseHandled, PostResponseTimeoutHandled, RequestFunded,
+		StateCommitment, StateCommitmentRead, StateCommitmentVetoed as EvmStateCommitmentVetoed,
+		StateMachineHeight, StateMachineUpdated as EvmStateMachineUpdated,
 	},
 };
 
+use alloc::string::{String, ToString};
+use alloy_primitives::{FixedBytes, U256};
 use anyhow::anyhow;
-use ismp::{host::StateMachine, router};
-
-use crate::evm_host::{GetRequestEventFilter, PostRequestEventFilter};
-#[cfg(feature = "beefy")]
-pub use beefy::*;
+use core::str::FromStr;
 use ismp::{
 	consensus::StateMachineId,
 	events::{StateCommitmentVetoed, StateMachineUpdated, TimeoutHandled},
+	host::StateMachine,
+	router,
 };
 use primitive_types::{H160, H256};
-use std::str::FromStr;
 
-#[cfg(feature = "beefy")]
+/// Helper trait for converting primitive types to alloy U256
+trait ToU256 {
+	fn to_u256(self) -> U256;
+}
+
+impl ToU256 for u32 {
+	fn to_u256(self) -> U256 {
+		U256::from(self)
+	}
+}
+
+impl ToU256 for u64 {
+	fn to_u256(self) -> U256 {
+		U256::from(self)
+	}
+}
+
+impl ToU256 for usize {
+	fn to_u256(self) -> U256 {
+		U256::from(self)
+	}
+}
+
 mod beefy {
+	use super::ToU256;
 	use crate::{
-		beefy::{
+		beefy::Beefy::{
 			AuthoritySetCommitment, BeefyConsensusProof, BeefyConsensusState, BeefyMmrLeaf,
-			Commitment, Node, Parachain, ParachainProof, Payload, RelayChainProof,
-			SignedCommitment, Vote,
+			Commitment, Parachain, ParachainProof, Payload, RelayChainProof, SignedCommitment,
+			Vote,
 		},
-		sp1_beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
+		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
-	use beefy_verifier_primitives::{ConsensusMessage, ConsensusState, MmrProof};
-	use merkle_mountain_range::{leaf_index_to_mmr_size, leaf_index_to_pos};
+	use alloc::{vec, vec::Vec};
+	use alloy_primitives::{Bytes, FixedBytes, U256};
+	use beefy_verifier_primitives::{
+		ConsensusMessage, ConsensusState, MmrProof, ParachainHeader as BvpParachainHeader,
+		ParachainProof as BvpParachainProof, SignatureWithAuthorityIndex,
+		SignedCommitment as BvpSignedCommitment, Sp1BeefyProof, TSignature,
+	};
 	use polkadot_sdk::*;
 	use primitive_types::H256;
-	use sp_consensus_beefy::mmr::BeefyNextAuthoritySet;
+	use sp_consensus_beefy::{
+		mmr::{BeefyNextAuthoritySet, MmrLeafVersion},
+		Payload as BeefyPayload,
+	};
+	use sp_mmr_primitives::LeafProof;
 
 	impl From<beefy_verifier_primitives::ParachainProof> for ParachainProof {
 		fn from(value: beefy_verifier_primitives::ParachainProof) -> Self {
 			ParachainProof {
-				parachain: value
+				parachains: value
 					.parachains
 					.into_iter()
 					.map(|parachain| Parachain {
-						index: parachain.index.into(),
-						id: parachain.para_id.into(),
-						header: parachain.header.into(),
-					})
-					.collect::<Vec<_>>()[0]
-					.clone(),
-				proof: value
-					.proof
-					.into_iter()
-					.map(|layer| {
-						layer
-							.into_iter()
-							.map(|(index, node)| Node { k_index: index.into(), node: node.into() })
-							.collect()
+						index: parachain.index.to_u256(),
+						id: parachain.para_id.to_u256(),
+						header: Bytes::from(parachain.header),
 					})
 					.collect(),
+				proof: value.proof.into_iter().map(|hash| FixedBytes::from(hash)).collect(),
+				leafCount: value.total_leaves.to_u256(),
 			}
 		}
 	}
@@ -91,11 +116,13 @@ mod beefy {
 		fn from(value: SpCommitment) -> Self {
 			Commitment {
 				payload: vec![Payload {
-					id: b"mh".clone(),
-					data: value.payload.get_raw(b"mh").unwrap().clone().into(),
+					id: FixedBytes::from(*b"mh"),
+					data: Bytes::from(
+						value.payload.get_raw(b"mh").expect("mmr payload not present").clone(),
+					),
 				}],
-				block_number: value.block_number.into(),
-				validator_set_id: value.validator_set_id.into(),
+				blockNumber: value.block_number.to_u256(),
+				validatorSetId: value.validator_set_id.to_u256(),
 			}
 		}
 	}
@@ -103,8 +130,8 @@ mod beefy {
 	impl From<SpCommitment> for MiniCommitment {
 		fn from(value: SpCommitment) -> Self {
 			MiniCommitment {
-				block_number: value.block_number.into(),
-				validator_set_id: value.validator_set_id.into(),
+				blockNumber: value.block_number.to_u256(),
+				validatorSetId: value.validator_set_id.to_u256(),
 			}
 		}
 	}
@@ -112,19 +139,24 @@ mod beefy {
 	type SpMmrLeaf = sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256>;
 	impl From<beefy_verifier_primitives::ParachainHeader> for ParachainHeader {
 		fn from(value: beefy_verifier_primitives::ParachainHeader) -> Self {
-			ParachainHeader { header: value.header.into(), id: value.para_id.into() }
+			ParachainHeader { header: Bytes::from(value.header), id: value.para_id.to_u256() }
 		}
 	}
 
 	// useful for Sp1Beefy verifier
 	impl From<SpMmrLeaf> for PartialBeefyMmrLeaf {
 		fn from(value: SpMmrLeaf) -> Self {
+			use crate::sp1_beefy::SP1Beefy::AuthoritySetCommitment as Sp1AuthoritySetCommitment;
 			PartialBeefyMmrLeaf {
-				version: 0.into(),
-				parent_number: value.parent_number_and_hash.0.into(),
-				parent_hash: value.parent_number_and_hash.1.into(),
-				next_authority_set: value.beefy_next_authority_set.into(),
-				extra: value.leaf_extra.into(),
+				version: U256::ZERO,
+				parentNumber: value.parent_number_and_hash.0.to_u256(),
+				parentHash: FixedBytes::from(value.parent_number_and_hash.1 .0),
+				nextAuthoritySet: Sp1AuthoritySetCommitment {
+					id: value.beefy_next_authority_set.id.to_u256(),
+					len: value.beefy_next_authority_set.len.to_u256(),
+					root: FixedBytes::from(value.beefy_next_authority_set.keyset_commitment.0),
+				},
+				extra: FixedBytes::from(value.leaf_extra.0),
 			}
 		}
 	}
@@ -132,44 +164,38 @@ mod beefy {
 	impl From<MmrProof> for RelayChainProof {
 		fn from(value: MmrProof) -> Self {
 			let leaf_index = value.mmr_proof.leaf_indices[0];
-			let k_index = mmr_primitives::mmr_position_to_k_index(
-				vec![leaf_index_to_pos(leaf_index)],
-				leaf_index_to_mmr_size(leaf_index),
-			)[0]
-			.1;
 
 			RelayChainProof {
-				signed_commitment: SignedCommitment {
+				signedCommitment: SignedCommitment {
 					commitment: value.signed_commitment.commitment.into(),
 					votes: value
 						.signed_commitment
 						.signatures
 						.into_iter()
 						.map(|a| Vote {
-							signature: a.signature.to_vec().into(),
-							authority_index: a.index.into(),
+							signature: Bytes::from(a.signature.to_vec()),
+							authorityIndex: a.index.to_u256(),
 						})
 						.collect(),
 				},
-				latest_mmr_leaf: BeefyMmrLeaf {
-					version: 0.into(),
-					parent_number: value.latest_mmr_leaf.parent_number_and_hash.0.into(),
-					parent_hash: value.latest_mmr_leaf.parent_number_and_hash.1.into(),
-					next_authority_set: value.latest_mmr_leaf.beefy_next_authority_set.into(),
-					extra: value.latest_mmr_leaf.leaf_extra.into(),
-					k_index: k_index.into(),
-					leaf_index: leaf_index.into(),
+				latestMmrLeaf: BeefyMmrLeaf {
+					version: U256::ZERO,
+					parentNumber: value.latest_mmr_leaf.parent_number_and_hash.0.to_u256(),
+					parentHash: FixedBytes::from(value.latest_mmr_leaf.parent_number_and_hash.1 .0),
+					nextAuthoritySet: value.latest_mmr_leaf.beefy_next_authority_set.into(),
+					extra: FixedBytes::from(value.latest_mmr_leaf.leaf_extra.0),
+					leafIndex: leaf_index.to_u256(),
 				},
-				mmr_proof: value.mmr_proof.items.into_iter().map(Into::into).collect(),
+				mmrProof: value
+					.mmr_proof
+					.items
+					.into_iter()
+					.map(|h| FixedBytes::from(h.0))
+					.collect(),
 				proof: value
 					.authority_proof
 					.into_iter()
-					.map(|layer| {
-						layer
-							.into_iter()
-							.map(|(index, node)| Node { k_index: index.into(), node: node.into() })
-							.collect()
-					})
+					.map(|hash| FixedBytes::from(hash))
 					.collect(),
 			}
 		}
@@ -178,9 +204,9 @@ mod beefy {
 	impl From<BeefyNextAuthoritySet<H256>> for AuthoritySetCommitment {
 		fn from(value: BeefyNextAuthoritySet<H256>) -> Self {
 			AuthoritySetCommitment {
-				id: value.id.into(),
-				len: value.len.into(),
-				root: value.keyset_commitment.into(),
+				id: value.id.to_u256(),
+				len: value.len.to_u256(),
+				root: FixedBytes::from(value.keyset_commitment.0),
 			}
 		}
 	}
@@ -188,10 +214,10 @@ mod beefy {
 	impl From<ConsensusState> for BeefyConsensusState {
 		fn from(value: ConsensusState) -> Self {
 			BeefyConsensusState {
-				latest_height: value.latest_beefy_height.into(),
-				beefy_activation_block: value.beefy_activation_block.into(),
-				current_authority_set: value.current_authorities.into(),
-				next_authority_set: value.next_authorities.into(),
+				latestHeight: value.latest_beefy_height.to_u256(),
+				beefyActivationBlock: value.beefy_activation_block.to_u256(),
+				currentAuthoritySet: value.current_authorities.into(),
+				nextAuthoritySet: value.next_authorities.into(),
 			}
 		}
 	}
@@ -199,19 +225,209 @@ mod beefy {
 	impl From<BeefyConsensusState> for ConsensusState {
 		fn from(value: BeefyConsensusState) -> Self {
 			ConsensusState {
-				beefy_activation_block: value.beefy_activation_block.as_u32(),
-				latest_beefy_height: value.latest_height.as_u32(),
+				beefy_activation_block: value
+					.beefyActivationBlock
+					.try_into()
+					.expect("beefy activation block out of bounds"),
+				latest_beefy_height: value
+					.latestHeight
+					.try_into()
+					.expect("Beefy latest height out of bounds"),
 				mmr_root_hash: Default::default(),
 				current_authorities: BeefyNextAuthoritySet {
-					id: value.current_authority_set.id.as_u64(),
-					len: value.current_authority_set.len.as_u32(),
-					keyset_commitment: value.current_authority_set.root.into(),
+					id: value
+						.currentAuthoritySet
+						.id
+						.try_into()
+						.expect("current authority set id out of bounds"),
+					len: value
+						.currentAuthoritySet
+						.len
+						.try_into()
+						.expect("current authority set length out of bounds"),
+					keyset_commitment: H256(value.currentAuthoritySet.root.0),
 				},
 				next_authorities: BeefyNextAuthoritySet {
-					id: value.next_authority_set.id.as_u64(),
-					len: value.next_authority_set.len.as_u32(),
-					keyset_commitment: value.next_authority_set.root.into(),
+					id: value
+						.nextAuthoritySet
+						.id
+						.try_into()
+						.expect("next authority set out of bounds"),
+					len: value
+						.nextAuthoritySet
+						.len
+						.try_into()
+						.expect("next authority set length out of bounds"),
+					keyset_commitment: H256(value.nextAuthoritySet.root.0),
 				},
+			}
+		}
+	}
+
+	impl From<PartialBeefyMmrLeaf> for sp_consensus_beefy::mmr::MmrLeaf<u32, H256, H256, H256> {
+		fn from(value: PartialBeefyMmrLeaf) -> Self {
+			let version: u8 = value.version.try_into().expect("mmr leaf version out of bounds");
+			sp_consensus_beefy::mmr::MmrLeaf {
+				version: MmrLeafVersion::new(version >> 5, version & 0b11111),
+				parent_number_and_hash: (
+					value.parentNumber.try_into().expect("parent number out of bounds"),
+					H256(value.parentHash.0),
+				),
+				beefy_next_authority_set: BeefyNextAuthoritySet {
+					id: value
+						.nextAuthoritySet
+						.id
+						.try_into()
+						.expect("next authority set id out of bounds"),
+					len: value
+						.nextAuthoritySet
+						.len
+						.try_into()
+						.expect("next authority set len out of bounds"),
+					keyset_commitment: H256(value.nextAuthoritySet.root.0),
+				},
+				leaf_extra: H256(value.extra.0),
+			}
+		}
+	}
+
+	impl From<ParachainHeader> for beefy_verifier_primitives::ParachainHeader {
+		fn from(value: ParachainHeader) -> Self {
+			beefy_verifier_primitives::ParachainHeader {
+				header: value.header.to_vec(),
+				para_id: value.id.try_into().expect("para id out of bounds"),
+				// SP1 proves inclusion directly so any value here is fine.
+				index: 0,
+			}
+		}
+	}
+
+	impl From<Parachain> for BvpParachainHeader {
+		fn from(value: Parachain) -> Self {
+			BvpParachainHeader {
+				header: value.header.to_vec(),
+				index: value.index.try_into().expect("parachain leaf index out of bounds"),
+				para_id: value.id.try_into().expect("para id out of bounds"),
+			}
+		}
+	}
+
+	impl From<ParachainProof> for BvpParachainProof {
+		fn from(value: ParachainProof) -> Self {
+			BvpParachainProof {
+				parachains: value.parachains.into_iter().map(Into::into).collect(),
+				proof: value.proof.into_iter().map(|h| h.0).collect(),
+				total_leaves: value.leafCount.try_into().expect("leaf count out of bounds"),
+			}
+		}
+	}
+
+	impl From<BeefyMmrLeaf> for SpMmrLeaf {
+		fn from(value: BeefyMmrLeaf) -> Self {
+			let version: u8 = value.version.try_into().expect("mmr leaf version out of bounds");
+			sp_consensus_beefy::mmr::MmrLeaf {
+				version: MmrLeafVersion::new(version >> 5, version & 0b11111),
+				parent_number_and_hash: (
+					value.parentNumber.try_into().expect("parent number out of bounds"),
+					H256(value.parentHash.0),
+				),
+				beefy_next_authority_set: BeefyNextAuthoritySet {
+					id: value
+						.nextAuthoritySet
+						.id
+						.try_into()
+						.expect("next authority set id out of bounds"),
+					len: value
+						.nextAuthoritySet
+						.len
+						.try_into()
+						.expect("next authority set len out of bounds"),
+					keyset_commitment: H256(value.nextAuthoritySet.root.0),
+				},
+				leaf_extra: H256(value.extra.0),
+			}
+		}
+	}
+
+	impl From<Commitment> for SpCommitment {
+		/// BEEFY commitment reconstruction. Reassembles the `Payload` from its
+		/// `(id, data)` entries, starting with the first entry and pushing the rest via
+		/// `push_raw` (which re-sorts by id to keep the invariant `Payload` expects).
+		fn from(value: Commitment) -> Self {
+			let mut iter = value.payload.into_iter();
+			let first = iter.next().expect("commitment has at least one payload entry");
+			let mut payload = BeefyPayload::from_single_entry(first.id.0, first.data.to_vec());
+			for p in iter {
+				payload = payload.push_raw(p.id.0, p.data.to_vec());
+			}
+			sp_consensus_beefy::Commitment {
+				payload,
+				block_number: value.blockNumber.try_into().expect("block number out of bounds"),
+				validator_set_id: value
+					.validatorSetId
+					.try_into()
+					.expect("validator set id out of bounds"),
+			}
+		}
+	}
+
+	impl From<Vote> for SignatureWithAuthorityIndex {
+		fn from(value: Vote) -> Self {
+			let sig_bytes = value.signature.to_vec();
+			let mut signature: TSignature = [0u8; 65];
+			signature.copy_from_slice(&sig_bytes);
+			SignatureWithAuthorityIndex {
+				signature,
+				index: value.authorityIndex.try_into().expect("authority index out of bounds"),
+			}
+		}
+	}
+
+	impl From<RelayChainProof> for MmrProof {
+		fn from(value: RelayChainProof) -> Self {
+			let leaf_index: u64 =
+				value.latestMmrLeaf.leafIndex.try_into().expect("mmr leaf index out of bounds");
+			let items: Vec<H256> = value.mmrProof.into_iter().map(|h| H256(h.0)).collect();
+			let mmr_proof = LeafProof {
+				leaf_indices: vec![leaf_index],
+				leaf_count: leaf_index.saturating_add(1),
+				items,
+			};
+
+			MmrProof {
+				signed_commitment: BvpSignedCommitment {
+					commitment: value.signedCommitment.commitment.into(),
+					signatures: value.signedCommitment.votes.into_iter().map(Into::into).collect(),
+				},
+				latest_mmr_leaf: value.latestMmrLeaf.into(),
+				mmr_proof,
+				authority_proof: value.proof.into_iter().map(|h| h.0).collect(),
+			}
+		}
+	}
+
+	impl From<BeefyConsensusProof> for ConsensusMessage {
+		fn from(value: BeefyConsensusProof) -> Self {
+			ConsensusMessage { mmr: value.relay.into(), parachain: value.parachain.into() }
+		}
+	}
+
+	impl From<crate::sp1_beefy::SP1Beefy::SP1BeefyProof> for Sp1BeefyProof {
+		fn from(value: crate::sp1_beefy::SP1Beefy::SP1BeefyProof) -> Self {
+			Sp1BeefyProof {
+				block_number: value
+					.commitment
+					.blockNumber
+					.try_into()
+					.expect("block number out of bounds"),
+				validator_set_id: value
+					.commitment
+					.validatorSetId
+					.try_into()
+					.expect("validator set id out of bounds"),
+				mmr_leaf: value.mmrLeaf.into(),
+				headers: value.headers.into_iter().map(Into::into).collect(),
+				proof: value.proof.to_vec(),
 			}
 		}
 	}
@@ -221,13 +437,16 @@ impl From<IntermediateState> for local::IntermediateState {
 	fn from(value: IntermediateState) -> Self {
 		local::IntermediateState {
 			height: local::StateMachineHeight {
-				state_machine_id: value.state_machine_id.as_u32(),
-				height: value.height.as_u32(),
+				state_machine_id: value
+					.stateMachineId
+					.try_into()
+					.expect("state machine id out of bounds"),
+				height: value.height.try_into().expect("state machine height out of bounds"),
 			},
 			commitment: local::StateCommitment {
-				timestamp: value.commitment.timestamp.as_u64(),
-				state_root: H256(value.commitment.state_root),
-				overlay_root: H256(value.commitment.overlay_root),
+				timestamp: value.commitment.timestamp.try_into().expect("timestamp out of bounds"),
+				state_root: H256(value.commitment.stateRoot.0),
+				overlay_root: H256(value.commitment.overlayRoot.0),
 			},
 		}
 	}
@@ -238,7 +457,7 @@ impl From<router::PostResponse> for PostResponse {
 		PostResponse {
 			request: value.post.into(),
 			response: value.response.into(),
-			timeout_timestamp: value.timeout_timestamp.into(),
+			timeoutTimestamp: value.timeout_timestamp,
 		}
 	}
 }
@@ -246,13 +465,66 @@ impl From<router::PostResponse> for PostResponse {
 impl From<router::PostRequest> for PostRequest {
 	fn from(value: router::PostRequest) -> Self {
 		PostRequest {
-			source: value.source.to_string().as_bytes().to_vec().into(),
-			dest: value.dest.to_string().as_bytes().to_vec().into(),
-			nonce: value.nonce.into(),
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
+			nonce: value.nonce,
 			from: value.from.into(),
 			to: value.to.into(),
-			timeout_timestamp: value.timeout_timestamp.into(),
+			timeoutTimestamp: value.timeout_timestamp,
 			body: value.body.into(),
+		}
+	}
+}
+
+impl From<router::PostRequest> for crate::handler::Handler::PostRequest {
+	fn from(value: router::PostRequest) -> Self {
+		Self {
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
+			nonce: value.nonce,
+			from: value.from.into(),
+			to: value.to.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+			body: value.body.into(),
+		}
+	}
+}
+
+impl From<router::PostResponse> for crate::handler::Handler::PostResponse {
+	fn from(value: router::PostResponse) -> Self {
+		Self {
+			request: value.post.into(),
+			response: value.response.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+		}
+	}
+}
+
+// HandlerV2 carries its own distinct `sol!`-generated `PostRequest` /
+// `PostResponse` types (same ABI shape as V1, different Rust type identity
+// since they live in a separate `sol!` module). Provide the same conversions
+// so callers submitting through `HandlerV2Instance` can reuse the ISMP
+// `router::Post{Request,Response}` as-is.
+impl From<router::PostRequest> for crate::handler::handler_v2::HandlerV2::PostRequest {
+	fn from(value: router::PostRequest) -> Self {
+		Self {
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
+			nonce: value.nonce,
+			from: value.from.into(),
+			to: value.to.into(),
+			timeoutTimestamp: value.timeout_timestamp,
+			body: value.body.into(),
+		}
+	}
+}
+
+impl From<router::PostResponse> for crate::handler::handler_v2::HandlerV2::PostResponse {
+	fn from(value: router::PostResponse) -> Self {
+		Self {
+			request: value.post.into(),
+			response: value.response.into(),
+			timeoutTimestamp: value.timeout_timestamp,
 		}
 	}
 }
@@ -261,14 +533,18 @@ impl TryFrom<PostRequest> for router::PostRequest {
 	type Error = anyhow::Error;
 	fn try_from(value: PostRequest) -> Result<Self, Self::Error> {
 		Ok(router::PostRequest {
-			source: StateMachine::from_str(&String::from_utf8(value.source.to_vec())?)
-				.map_err(|err| anyhow!("{err}"))?,
-			dest: StateMachine::from_str(&String::from_utf8(value.dest.to_vec())?)
-				.map_err(|err| anyhow!("{err}"))?,
-			nonce: value.nonce,
+			source: StateMachine::from_str(
+				&String::from_utf8(value.source.to_vec()).map_err(|e| anyhow!("{e}"))?,
+			)
+			.map_err(|err| anyhow!("{err}"))?,
+			dest: StateMachine::from_str(
+				&String::from_utf8(value.dest.to_vec()).map_err(|e| anyhow!("{e}"))?,
+			)
+			.map_err(|err| anyhow!("{err}"))?,
+			nonce: value.nonce.try_into().map_err(|e| anyhow!("{e}"))?,
 			from: value.from.to_vec(),
 			to: value.to.to_vec(),
-			timeout_timestamp: value.timeout_timestamp.into(),
+			timeout_timestamp: value.timeoutTimestamp.try_into().map_err(|e| anyhow!("{e}"))?,
 			body: value.body.to_vec(),
 		})
 	}
@@ -277,17 +553,17 @@ impl TryFrom<PostRequest> for router::PostRequest {
 impl From<router::GetRequest> for GetRequest {
 	fn from(value: router::GetRequest) -> Self {
 		GetRequest {
-			source: value.source.to_string().as_bytes().to_vec().into(),
-			dest: value.dest.to_string().as_bytes().to_vec().into(),
+			source: value.source.to_string().into_bytes().into(),
+			dest: value.dest.to_string().into_bytes().into(),
 			nonce: value.nonce,
 			keys: value.keys.into_iter().map(Into::into).collect(),
 			from: {
 				let mut address = H160::default();
 				address.0.copy_from_slice(&value.from);
-				address.0.into()
+				alloy_primitives::Address::from(address.0)
 			},
 			context: value.context.into(),
-			timeout_timestamp: value.timeout_timestamp,
+			timeoutTimestamp: value.timeout_timestamp,
 			height: value.height,
 		}
 	}
@@ -300,7 +576,7 @@ impl From<router::GetResponse> for GetResponse {
 			values: value
 				.values
 				.into_iter()
-				.map(|storage_value| StorageValue {
+				.map(|storage_value| crate::evm_host::MerklePatricia::StorageValue {
 					key: storage_value.key.into(),
 					value: storage_value.value.unwrap_or_default().into(),
 				})
@@ -313,11 +589,11 @@ impl TryFrom<ismp::consensus::StateMachineHeight> for StateMachineHeight {
 	type Error = anyhow::Error;
 	fn try_from(value: ismp::consensus::StateMachineHeight) -> Result<Self, anyhow::Error> {
 		Ok(StateMachineHeight {
-			state_machine_id: match value.id.state_id {
-				StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.into(),
+			stateMachineId: match value.id.state_id {
+				StateMachine::Polkadot(id) | StateMachine::Kusama(id) => id.to_u256(),
 				state_machine => Err(anyhow!("Unsupported state machine {state_machine:?}"))?,
 			},
-			height: value.height.into(),
+			height: value.height.to_u256(),
 		})
 	}
 }
@@ -325,135 +601,162 @@ impl TryFrom<ismp::consensus::StateMachineHeight> for StateMachineHeight {
 impl From<ismp::consensus::StateCommitment> for StateCommitment {
 	fn from(value: ismp::consensus::StateCommitment) -> Self {
 		StateCommitment {
-			timestamp: value.timestamp.into(),
-			state_root: value.state_root.0,
-			overlay_root: value.overlay_root.unwrap_or_default().0,
+			timestamp: value.timestamp.to_u256(),
+			stateRoot: FixedBytes::from(value.state_root.0),
+			overlayRoot: FixedBytes::from(value.overlay_root.unwrap_or_default().0),
 		}
 	}
+}
+
+/// Enum representing all EvmHost events for conversion
+pub enum EvmHostEvents {
+	GetRequestEvent(GetRequestEvent),
+	PostRequestEvent(PostRequestEvent),
+	PostResponseEvent(PostResponseEvent),
+	PostRequestHandled(PostRequestHandled),
+	GetRequestHandled(GetRequestHandled),
+	PostResponseHandled(PostResponseHandled),
+	StateMachineUpdated(EvmStateMachineUpdated),
+	PostRequestTimeoutHandled(PostRequestTimeoutHandled),
+	PostResponseTimeoutHandled(PostResponseTimeoutHandled),
+	GetRequestTimeoutHandled(GetRequestTimeoutHandled),
+	StateCommitmentVetoed(EvmStateCommitmentVetoed),
+	StateCommitmentRead(StateCommitmentRead),
+	HostFrozen(HostFrozen),
+	HostWithdrawal(HostWithdrawal),
+	HostParamsUpdated(HostParamsUpdated),
+	PostResponseFunded(PostResponseFunded),
+	RequestFunded(RequestFunded),
 }
 
 impl TryFrom<EvmHostEvents> for ismp::events::Event {
 	type Error = anyhow::Error;
 	fn try_from(event: EvmHostEvents) -> Result<Self, Self::Error> {
 		match event {
-			EvmHostEvents::GetRequestEventFilter(get) =>
+			EvmHostEvents::GetRequestEvent(get) =>
 				Ok(ismp::events::Event::GetRequest(get.try_into()?)),
-			EvmHostEvents::PostRequestEventFilter(post) =>
+			EvmHostEvents::PostRequestEvent(post) =>
 				Ok(ismp::events::Event::PostRequest(post.try_into()?)),
-			EvmHostEvents::PostResponseEventFilter(resp) =>
+			EvmHostEvents::PostResponseEvent(resp) =>
 				Ok(ismp::events::Event::PostResponse(router::PostResponse {
 					post: router::PostRequest {
 						source: StateMachine::from_str(&resp.dest).map_err(|e| anyhow!("{}", e))?,
 						dest: StateMachine::from_str(&resp.source).map_err(|e| anyhow!("{}", e))?,
-						nonce: resp.nonce.low_u64(),
-						from: resp.to.0.into(),
-						to: resp.from.0.into(),
-						timeout_timestamp: resp.timeout_timestamp.low_u64(),
-						body: resp.body.0.into(),
+						nonce: resp.nonce.try_into().map_err(|e| anyhow!("{e}"))?,
+						from: resp.to.0.to_vec(),
+						to: resp.from.0.to_vec(),
+						timeout_timestamp: resp
+							.timeoutTimestamp
+							.try_into()
+							.map_err(|e| anyhow!("{e}"))?,
+						body: resp.body.to_vec(),
 					},
-					response: resp.response.0.into(),
-					timeout_timestamp: resp.response_timeout_timestamp.low_u64(),
+					response: resp.response.to_vec(),
+					timeout_timestamp: resp
+						.responseTimeoutTimestamp
+						.try_into()
+						.map_err(|e| anyhow!("{e}"))?,
 				})),
-			EvmHostEvents::PostRequestHandledFilter(handled) =>
+			EvmHostEvents::PostRequestHandled(handled) =>
 				Ok(ismp::events::Event::PostRequestHandled(ismp::events::RequestResponseHandled {
-					commitment: handled.commitment.into(),
-					relayer: handled.relayer.as_bytes().to_vec(),
+					commitment: H256(handled.commitment.0),
+					relayer: handled.relayer.0.to_vec(),
 				})),
-			EvmHostEvents::GetRequestHandledFilter(handled) =>
+			EvmHostEvents::GetRequestHandled(handled) =>
 				Ok(ismp::events::Event::GetRequestHandled(ismp::events::RequestResponseHandled {
-					commitment: handled.commitment.into(),
-					relayer: handled.relayer.as_bytes().to_vec(),
+					commitment: H256(handled.commitment.0),
+					relayer: handled.relayer.0.to_vec(),
 				})),
 
-			EvmHostEvents::PostResponseHandledFilter(handled) =>
+			EvmHostEvents::PostResponseHandled(handled) =>
 				Ok(ismp::events::Event::PostResponseHandled(ismp::events::RequestResponseHandled {
-					commitment: handled.commitment.into(),
-					relayer: handled.relayer.as_bytes().to_vec(),
+					commitment: H256(handled.commitment.0),
+					relayer: handled.relayer.0.to_vec(),
 				})),
-			EvmHostEvents::StateMachineUpdatedFilter(filter) =>
+			EvmHostEvents::StateMachineUpdated(filter) =>
 				Ok(ismp::events::Event::StateMachineUpdated(StateMachineUpdated {
 					state_machine_id: ismp::consensus::StateMachineId {
-						state_id: StateMachine::from_str(&filter.state_machine_id)
+						state_id: StateMachine::from_str(&filter.stateMachineId)
 							.map_err(|e| anyhow!("{}", e))?,
 						consensus_state_id: Default::default(),
 					},
-					latest_height: filter.height.low_u64(),
+					latest_height: filter.height.try_into().map_err(|e| anyhow!("{e}"))?,
 				})),
-			EvmHostEvents::PostRequestTimeoutHandledFilter(handled) => {
+			EvmHostEvents::PostRequestTimeoutHandled(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostRequestTimeoutHandled(TimeoutHandled {
-					commitment: handled.commitment.into(),
+					commitment: H256(handled.commitment.0),
 					dest: dest.clone(),
 					source: dest.clone(),
 				}))
 			},
-			EvmHostEvents::PostResponseTimeoutHandledFilter(handled) => {
+			EvmHostEvents::PostResponseTimeoutHandled(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::PostResponseTimeoutHandled(TimeoutHandled {
-					commitment: handled.commitment.into(),
+					commitment: H256(handled.commitment.0),
 					dest: dest.clone(),
 					source: dest.clone(),
 				}))
 			},
-			EvmHostEvents::GetRequestTimeoutHandledFilter(handled) => {
+			EvmHostEvents::GetRequestTimeoutHandled(handled) => {
 				let dest = StateMachine::from_str(&handled.dest).map_err(|e| anyhow!("{}", e))?;
 				Ok(ismp::events::Event::GetRequestTimeoutHandled(TimeoutHandled {
-					commitment: handled.commitment.into(),
+					commitment: H256(handled.commitment.0),
 					dest: dest.clone(),
 					source: dest.clone(),
 				}))
 			},
-			EvmHostEvents::StateCommitmentVetoedFilter(vetoed) =>
+			EvmHostEvents::StateCommitmentVetoed(vetoed) =>
 				Ok(ismp::events::Event::StateCommitmentVetoed(StateCommitmentVetoed {
 					height: ismp::consensus::StateMachineHeight {
 						id: StateMachineId {
-							state_id: StateMachine::from_str(&vetoed.state_machine_id)
+							state_id: StateMachine::from_str(&vetoed.stateMachineId)
 								.map_err(|e| anyhow!("{}", e))?,
 							consensus_state_id: Default::default(),
 						},
-						height: vetoed.height.low_u64(),
+						height: vetoed.height.try_into().map_err(|e| anyhow!("{e}"))?,
 					},
-					fisherman: vetoed.fisherman.as_bytes().to_vec(),
+					fisherman: vetoed.fisherman.0.to_vec(),
 				})),
-			EvmHostEvents::StateCommitmentReadFilter(_) |
-			EvmHostEvents::HostFrozenFilter(_) |
-			EvmHostEvents::HostWithdrawalFilter(_) |
-			EvmHostEvents::HostParamsUpdatedFilter(_) |
-			EvmHostEvents::PostResponseFundedFilter(_) |
-			EvmHostEvents::RequestFundedFilter(_) => Err(anyhow!("Unsupported Event!"))?,
+			EvmHostEvents::StateCommitmentRead(_) |
+			EvmHostEvents::HostFrozen(_) |
+			EvmHostEvents::HostWithdrawal(_) |
+			EvmHostEvents::HostParamsUpdated(_) |
+			EvmHostEvents::PostResponseFunded(_) |
+			EvmHostEvents::RequestFunded(_) => Err(anyhow!("Unsupported Event!"))?,
 		}
 	}
 }
 
-impl TryFrom<PostRequestEventFilter> for router::PostRequest {
+impl TryFrom<PostRequestEvent> for router::PostRequest {
 	type Error = anyhow::Error;
 
-	fn try_from(post: PostRequestEventFilter) -> Result<Self, Self::Error> {
+	fn try_from(post: PostRequestEvent) -> Result<Self, Self::Error> {
 		Ok(router::PostRequest {
 			source: StateMachine::from_str(&post.source).map_err(|e| anyhow!("{}", e))?,
 			dest: StateMachine::from_str(&post.dest).map_err(|e| anyhow!("{}", e))?,
-			nonce: post.nonce.low_u64(),
-			from: post.from.0.into(),
-			to: post.to.0.into(),
-			timeout_timestamp: post.timeout_timestamp.low_u64(),
-			body: post.body.0.into(),
+			nonce: post.nonce.try_into().map_err(|e| anyhow!("{e}"))?,
+			from: post.from.0.to_vec(),
+			to: post.to.0.to_vec(),
+			timeout_timestamp: post.timeoutTimestamp.try_into().map_err(|e| anyhow!("{e}"))?,
+			body: post.body.to_vec(),
 		})
 	}
 }
 
-impl TryFrom<GetRequestEventFilter> for router::GetRequest {
+impl TryFrom<GetRequestEvent> for router::GetRequest {
 	type Error = anyhow::Error;
 
-	fn try_from(get: GetRequestEventFilter) -> Result<Self, Self::Error> {
+	fn try_from(get: GetRequestEvent) -> Result<Self, Self::Error> {
 		Ok(router::GetRequest {
 			source: StateMachine::from_str(&get.source).map_err(|e| anyhow!("{}", e))?,
 			dest: StateMachine::from_str(&get.dest).map_err(|e| anyhow!("{}", e))?,
-			nonce: get.nonce.low_u64(),
-			from: get.from.0.into(),
-			keys: get.keys.into_iter().map(|key| key.0.into()).collect(),
-			height: get.height.low_u64(),
-			context: get.context.as_ref().to_vec(),
-			timeout_timestamp: get.timeout_timestamp.low_u64(),
+			nonce: get.nonce.try_into().map_err(|e| anyhow!("{e}"))?,
+			from: get.from.0.to_vec(),
+			keys: get.keys.into_iter().map(|key| key.to_vec()).collect(),
+			height: get.height.try_into().map_err(|e| anyhow!("{e}"))?,
+			context: get.context.to_vec(),
+			timeout_timestamp: get.timeoutTimestamp.try_into().map_err(|e| anyhow!("{e}"))?,
 		})
 	}
 }

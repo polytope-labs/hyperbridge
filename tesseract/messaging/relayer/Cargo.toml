@@ -1,6 +1,6 @@
 [package]
-name = "tesseract"
-version = "1.4.0"
+name = "tesseract-messaging"
+version = "1.7.0"
 edition = "2021"
 description = "Chain agnostic relayer implementation for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]
@@ -12,7 +12,7 @@ dist = true
 [dependencies]
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
-tesseract-messaging = { workspace = true }
+messaging = { workspace = true }
 tesseract-fisherman = { workspace = true }
 tesseract-evm = { workspace = true }
 transaction-fees = { workspace = true }
@@ -21,7 +21,8 @@ tesseract-config = { workspace = true }
 ismp = { workspace = true, default-features = true }
 pallet-ismp = { workspace = true, default-features = true }
 ismp-sync-committee = { workspace = true, default-features = true }
-ethers = { workspace = true }
+tokio-stream = { workspace = true }
+primitive-types = { workspace = true }
 codec = { workspace = true, default-features = true, features = ["derive"] }
 sp-core = { workspace = true, default-features = true, features = [
     "full_crypto",

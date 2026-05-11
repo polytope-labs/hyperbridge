@@ -1,0 +1,17 @@
+# Dotenv file
+.env*
+
+# Node modules
+node_modules/
+
+# IDE files
+.idea
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Foundry artifacts
+out/
+cache/

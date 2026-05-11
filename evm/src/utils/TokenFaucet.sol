@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {HyperFungibleToken} from "@hyperbridge/core/apps/HyperFungibleToken.sol";
+import {HyperFungibleTokenImpl} from "./HyperFungibleTokenImpl.sol";
 
 /**
  * @title The TokenFaucet.
@@ -35,6 +35,6 @@ contract TokenFaucet {
         }
 
         consumers[msg.sender] = block.timestamp;
-        HyperFungibleToken(token).mint(msg.sender, 1000 * 1e18);
+        HyperFungibleTokenImpl(token).mint(msg.sender, 1000 * 1e18);
     }
 }

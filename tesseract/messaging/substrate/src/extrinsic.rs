@@ -22,7 +22,7 @@ use subxt::{
 	config::HashFor,
 	ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType},
 	tx::{Payload, TxInBlock, TxProgress, TxStatus},
-	utils::{MultiSignature, H256},
+	utils::{AccountId32, MultiSignature, H256},
 	OnlineClient,
 };
 
@@ -55,6 +55,22 @@ impl subxt::events::StaticEvent for PostResponseHandledEvent {
 	const EVENT: &'static str = "PostResponseHandled";
 }
 
+/// Mirror of `pallet_beefy_consensus_proofs::Event::ProofAccepted` for subxt
+/// type-driven decoding. Balance is `u128` on the Hyperbridge runtime.
+#[derive(Decode, Encode, DecodeAsType, EncodeAsType, Clone, Debug, Eq, PartialEq)]
+#[decode_as_type(crate_path = ":: subxt :: ext :: scale_decode")]
+#[encode_as_type(crate_path = ":: subxt :: ext :: scale_encode")]
+pub struct ProofAcceptedEvent {
+	pub submitter: AccountId32,
+	pub height: u64,
+	pub new_set_id: Option<u64>,
+	pub rewarded: u128,
+}
+impl subxt::events::StaticEvent for ProofAcceptedEvent {
+	const PALLET: &'static str = "BeefyConsensusProofs";
+	const EVENT: &'static str = "ProofAccepted";
+}
+
 /// Send an unsigned extrinsic for ISMP messages.
 pub async fn send_unsigned_extrinsic<T: subxt::Config, Tx: Payload>(
 	client: &OnlineClient<T>,
@@ -68,7 +84,7 @@ where
 	let progress = match ext.submit_and_watch().await {
 		Ok(p) => {
 			log::info!(
-				"Unsigned extrinsic successfully inserted into pool with hash: {:?}",
+				target: crate::LOG_TARGET, "Unsigned extrinsic successfully inserted into pool with hash: {:?}",
 				p.extrinsic_hash()
 			);
 
@@ -94,10 +110,13 @@ where
 	};
 
 	let block_hash = extrinsic.block_hash();
+	let block = client.blocks().at(block_hash).await?;
+	let status = if wait_for_finalization { "finalized" } else { "inserted" };
+	log::info!("Unsigned extrinsic successfully {status} at block {}", block.number().into());
 
 	let (hash, receipts) = match extrinsic.wait_for_success().await {
 		Ok(p) => {
-			log::trace!(target: "tesseract", "Successfully executed unsigned extrinsic {ext_hash:?}");
+			log::trace!(target: crate::LOG_TARGET, "Successfully executed unsigned extrinsic {ext_hash:?}");
 			let mut receipts = p
 				.find::<PostRequestHandledEvent>()
 				.filter_map(|ev| ev.ok().map(|e| e.0.commitment.0.into()))
@@ -110,7 +129,7 @@ where
 			(block_hash, receipts)
 		},
 		Err(err) => {
-			log::trace!(target: "tesseract", "extrinsic execution failed {:?}", err);
+			log::trace!(target: crate::LOG_TARGET, "extrinsic execution failed {:?}", err);
 			Err(refine_subxt_error(err))
 				.context(format!("Error executing unsigned extrinsic {ext_hash:?}"))?
 		},

@@ -52,7 +52,6 @@ library HeaderImpl {
     uint256 public constant SLOT_DURATION = 12000;
 
     error TimestampNotFound();
-    error ChildTrieRootNotFound();
 
     // Extracts the `StateCommitment` from the provided header.
     function stateCommitment(Header calldata self) public pure returns (StateCommitment memory) {
@@ -74,7 +73,6 @@ library HeaderImpl {
 
         // sanity check
         if (timestamp == 0) revert TimestampNotFound();
-        if (childTrieRoot == bytes32(0)) revert ChildTrieRootNotFound();
 
         return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
     }

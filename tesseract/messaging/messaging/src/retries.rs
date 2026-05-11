@@ -29,7 +29,7 @@ pub async fn retry_unprofitable_messages(
 	fee_acc_sender: Option<FeeAccSender>,
 ) -> Result<(), anyhow::Error> {
 	tracing::trace!(
-		"Starting message retries background task for deliveries to  {:?}",
+		target: crate::LOG_TARGET, "Starting message retries background task for deliveries to  {:?}",
 		dest.name()
 	);
 	// Default to every 5 minutes
@@ -139,7 +139,7 @@ pub async fn retry_unprofitable_messages(
 		}
 
 		if !unbatched_messages.is_empty() {
-			tracing::trace!("Starting retries of previously unprofitable or failed messages");
+			tracing::trace!(target: crate::LOG_TARGET, "Starting retries of previously unprofitable or failed messages");
 			let mut request_messages = vec![];
 			let mut response_messages = vec![];
 			let mut ids = BTreeSet::new();
@@ -224,6 +224,10 @@ pub async fn retry_unprofitable_messages(
 				coprocessor,
 				&client_map,
 				config.deliver_failed.unwrap_or_default(),
+				// Retry loop doesn't carry a fresh consensus update — by the
+				// time it runs the light client is already at whatever height
+				// the original delivery saw.
+				None,
 			)
 			.await
 			{
@@ -249,9 +253,9 @@ pub async fn retry_unprofitable_messages(
 
 					if !successful_queries.is_empty() {
 						tracing::trace!(
-								"Unprofitable Messages Retries: Querying request proof for batch length {}",
-								successful_queries.len()
-							);
+							target: crate::LOG_TARGET, "Unprofitable Messages Retries: Querying request proof for batch length {}",
+							successful_queries.len()
+						);
 						let chunks = chunk_size(dest.state_machine_id().state_id);
 						let query_chunks = successful_queries.chunks(chunks);
 						let post_request_chunks = post_requests.chunks(chunks);
@@ -284,7 +288,7 @@ pub async fn retry_unprofitable_messages(
 					new_unprofitable_messages.extend(request_profitablility.retriable_messages);
 				},
 				Err(err) => {
-					tracing::error!("Unprofitable Messages Retries: Debug tracing failed: {err:?}")
+					tracing::error!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Debug tracing failed: {err:?}")
 				},
 			}
 
@@ -296,6 +300,7 @@ pub async fn retry_unprofitable_messages(
 				coprocessor,
 				&client_map,
 				config.deliver_failed.unwrap_or_default(),
+				None,
 			)
 			.await
 			{
@@ -321,7 +326,7 @@ pub async fn retry_unprofitable_messages(
 
 					if !successful_queries.is_empty() {
 						tracing::trace!(
-							"Unprofitable Messages Retries: Querying response proof for batch length {}",
+							target: crate::LOG_TARGET, "Unprofitable Messages Retries: Querying response proof for batch length {}",
 							successful_queries.len()
 						);
 						let chunks = chunk_size(dest.state_machine_id().state_id);
@@ -358,25 +363,25 @@ pub async fn retry_unprofitable_messages(
 					new_unprofitable_messages.extend(response_profitablility.retriable_messages);
 				},
 				Err(err) => {
-					tracing::error!("Unprofitable Messages Retries: Debug tracing failed: {err:?}")
+					tracing::error!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Debug tracing failed: {err:?}")
 				},
 			}
 
 			if !outgoing_messages.is_empty() {
 				tracing::info!(
-					target: "tesseract",
+					target: crate::LOG_TARGET,
 					"Unprofitable Messages Retries: 🛰️ Transmitting ismp messages from {} to {}", hyperbridge.name(), dest.name()
 				);
-				if let Ok(TxResult { receipts, unsuccessful }) =
+				if let Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) =
 					dest.submit(outgoing_messages, coprocessor).await
 				{
 					if let Some(fee_acc_sender) = fee_acc_sender.clone() {
 						if !receipts.is_empty() {
 							// Store receipts in database before auto accumulation
-							tracing::trace!(target: "tesseract", "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
+							tracing::trace!(target: crate::LOG_TARGET, "Persisting {} deliveries from {}->{} to the db", receipts.len(), hyperbridge.name(), dest.name());
 							if let Err(err) = tx_payment.store_messages(receipts.clone()).await {
 								tracing::error!(
-									"Failed to persist {} deliveries to database: {err:?}",
+									target: crate::LOG_TARGET, "Failed to persist {} deliveries to database: {err:?}",
 									receipts.len()
 								)
 							}
@@ -384,7 +389,7 @@ pub async fn retry_unprofitable_messages(
 							match fee_acc_sender.send(receipts).await {
 								Err(_sent) => {
 									tracing::error!(
-										"Fee auto accumulation failed You can try again manually"
+										target: crate::LOG_TARGET, "Fee auto accumulation failed You can try again manually"
 									)
 								},
 								_ => {},
@@ -393,7 +398,7 @@ pub async fn retry_unprofitable_messages(
 					}
 
 					if !unsuccessful.is_empty() {
-						tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unsuccessful messages going to {} to the db", unsuccessful.len(), dest.name());
+						tracing::trace!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Persisting {} unsuccessful messages going to {} to the db", unsuccessful.len(), dest.name());
 						let _ = tx_payment
 							.store_unprofitable_messages(
 								unsuccessful,
@@ -405,7 +410,7 @@ pub async fn retry_unprofitable_messages(
 			}
 			// Delete previous batch from db
 			if !ids.is_empty() {
-				tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Deleting some unprofitable messages from the Db");
+				tracing::trace!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Deleting some unprofitable messages from the Db");
 				let _ = tx_payment.delete_unprofitable_messages(ids).await;
 			}
 			// Store the new batch
@@ -440,7 +445,7 @@ pub async fn retry_unprofitable_messages(
 					})
 					.collect::<Vec<_>>();
 				if !retriable_msgs.is_empty() {
-					tracing::trace!(target: "tesseract", "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
+					tracing::trace!(target: crate::LOG_TARGET, "Unprofitable Messages Retries: Persisting {} unprofitable messages going to {} to the db", retriable_msgs.len(), dest.name());
 					let _ = tx_payment
 						.store_unprofitable_messages(
 							retriable_msgs,

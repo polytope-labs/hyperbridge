@@ -17,8 +17,10 @@
 
 use anyhow::anyhow;
 use clap::Parser;
+use std::sync::Arc;
 use tesseract_beefy::prover::{BeefyProver, Prover};
 use tesseract_consensus::logging;
+use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient,
@@ -56,19 +58,41 @@ async fn main() -> Result<(), anyhow::Error> {
 		SubstrateClient::new(substrate_config.try_into()?).await?
 	};
 
-	let mut beefy_prover = {
-		let beefy_config =
-			config.remove("beefy").ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
-		BeefyProver::<Blake2SubstrateChain, KeccakSubstrateChain, zk_beefy::LocalProver>::new(
-			beefy_config.try_into()?,
-			substrate,
-			prover,
-		)
+	let beefy_prover = {
+		let beefy_config: tesseract_beefy::prover::BeefyProverConfig = config
+			.remove("beefy")
+			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?
+			.try_into()?;
+
+		let backend: Arc<dyn tesseract_beefy::backend::ProofBackend> = match beefy_config.backend {
+			tesseract_beefy::backend::ProofBackendConfig::Redis { ref config } => {
+				let mut cfg = config.clone();
+				cfg.realtime = true;
+				Arc::new(tesseract_beefy::backend::RedisProofBackend::new(cfg).await?)
+			},
+			tesseract_beefy::backend::ProofBackendConfig::Onchain => {
+				let mut state_machine_id = substrate.state_machine_id();
+				state_machine_id.consensus_state_id = beefy_config.consensus_state_id;
+				Arc::new(tesseract_beefy::backend::OnchainBackend::<KeccakSubstrateChain>::new(
+					substrate.client.clone(),
+					substrate.rpc_client.clone(),
+					substrate.signer.clone(),
+					state_machine_id,
+				))
+			},
+			ref b => Err(anyhow!("Unsupported backend configuration: {b:?}"))?,
+		};
+
+		BeefyProver::<
+			Blake2SubstrateChain,
+			KeccakSubstrateChain,
+			zk_beefy::LocalProver,
+			dyn tesseract_beefy::backend::ProofBackend,
+		>::new(beefy_config, substrate, prover, backend)
 		.await?
 	};
 
-	beefy_prover.init_queues().await?;
-	// run the prover
+	// run the prover (queues are initialized in new())
 	beefy_prover.run().await;
 
 	Ok(())

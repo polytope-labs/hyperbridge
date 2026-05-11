@@ -1,0 +1,24 @@
+[package]
+name = "tesseract-pharos-evm"
+version = "0.1.0"
+edition = "2024"
+description = "Pharos EVM client for ISMP messaging relay"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[dependencies]
+log = { workspace = true }
+anyhow = { workspace = true }
+async-trait = "0.1.71"
+primitive-types = { workspace = true, default-features = true }
+sp-core = { workspace = true, features = ["full_crypto"] }
+codec = { package = "parity-scale-codec", version = "3.2.2", features = ["derive"] }
+
+ismp = { workspace = true, default-features = true }
+tesseract-primitives = { workspace = true, default-features = true }
+tesseract-evm = { workspace = true, default-features = true }
+pharos-prover = { workspace = true, default-features = true }
+pharos-primitives = { workspace = true, default-features = true }
+pharos-state-machine = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+serde = { workspace = true, features = ["derive", "alloc"] }

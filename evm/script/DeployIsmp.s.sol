@@ -9,7 +9,7 @@ import "../src/core/EvmHost.sol";
 import "../src/core/HostManager.sol";
 
 import "../src/consensus/BeefyV1.sol";
-import "../src/consensus/MultiProofClient.sol";
+import "../src/consensus/ConsensusRouter.sol";
 import "../src/hosts/Ethereum.sol";
 import "../src/hosts/Arbitrum.sol";
 import "../src/hosts/Optimism.sol";
@@ -20,21 +20,21 @@ import "../src/hosts/Unichain.sol";
 import "../src/hosts/Sei.sol";
 
 import {HyperFungibleTokenImpl} from "../src/utils/HyperFungibleTokenImpl.sol";
-import {TokenGateway, TokenGatewayParams, AssetMetadata} from "../src/apps/TokenGateway.sol";
 import {TokenFaucet} from "../src/utils/TokenFaucet.sol";
 
 import {PingModule} from "../src/utils/PingModule.sol";
 import {BscHost} from "../src/hosts/Bsc.sol";
 import {PolygonHost} from "../src/hosts/Polygon.sol";
 import {PolkadotHost} from "../src/hosts/Polkadot.sol";
+import {PharosHost} from "../src/hosts/Pharos.sol";
 
 import {SP1Verifier} from "@sp1-contracts/v5.0.0/SP1VerifierGroth16.sol";
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {BeefyV1} from "../src/consensus/BeefyV1.sol";
-import {MultiProofClient} from "../src/consensus/MultiProofClient.sol";
+import {ConsensusRouter} from "../src/consensus/ConsensusRouter.sol";
 import {IConsensus} from "@hyperbridge/core/interfaces/IConsensus.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
-import {FeeToken} from "../test/FeeToken.sol";
+import {FeeToken} from "../tests/foundry/FeeToken.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -69,12 +69,11 @@ contract DeployScript is BaseScript {
         // Deploy BeefyV1 naive consensus client
         BeefyV1 beefyV1Client = new BeefyV1{salt: salt}();
 
-        // Deploy MultiProofClient wrapping both consensus clients
-        MultiProofClient multiProofClient = new MultiProofClient{salt: salt}(
-            IConsensus(address(sp1BeefyClient)),
-            IConsensus(address(beefyV1Client))
+        // Deploy ConsensusRouter wrapping both consensus clients
+        ConsensusRouter consensusRouter = new ConsensusRouter{salt: salt}(
+            IConsensus(address(sp1BeefyClient)), IConsensus(address(beefyV1Client)), IConsensus(address(address(0)))
         );
-        consensusClient = address(multiProofClient);
+        consensusClient = address(consensusRouter);
 
         if (isMainnet) {
             // use feeToken configured in environment variables
@@ -151,18 +150,10 @@ contract DeployScript is BaseScript {
         // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
-        // token gateway
-        TokenGateway tokenGateway = new TokenGateway{salt: salt}(admin);
-        tokenGateway.init(TokenGatewayParams({host: hostAddress, dispatcher: address(callDispatcher)}));
-
         IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
         intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));
 
         if (!isMainnet) {
-            // Grant TokenGateway minter and burner roles for feeToken
-            feeTokenInstance.grantMinterRole(address(tokenGateway));
-            feeTokenInstance.grantBurnerRole(address(tokenGateway));
-
             PingModule ping = new PingModule{salt: salt}(admin);
             ping.setIsmpHost(hostAddress, address(faucet));
             config.set("PING", address(ping));
@@ -174,7 +165,6 @@ contract DeployScript is BaseScript {
         config.set("HANDLER", address(handler));
         config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
-        config.set("TOKEN_GATEWAY", address(tokenGateway));
         config.set("INTENT_GATEWAY", address(intentGateway));
     }
 
@@ -234,6 +224,11 @@ contract DeployScript is BaseScript {
         // Polkadot Asset Hub (mainnet: 420420419, testnet: 420420417)
         else if (chainId == 420420419 || chainId == 420420417) {
             PolkadotHost h = new PolkadotHost{salt: salt}(params);
+            return address(h);
+        }
+        // Pharos (mainnet: 688600, testnet: 688689)
+        else if (chainId == 688600 || chainId == 688689) {
+            PharosHost h = new PharosHost{salt: salt}(params);
             return address(h);
         }
 

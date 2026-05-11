@@ -13,10 +13,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Generated types for the ismp-solidity ABI
+//! Generated types for the ismp-solidity ABI.
+//!
+//! Every `sol!` binding under [`mod@generated`] and the conversion impls in
+//! [`mod@conversions`] compile in both `std` and `no_std`. Only `#[sol(rpc)]` (the
+//! provider-backed contract-call bindings, via `alloy-contract` / `alloy-provider` /
+//! `alloy-network` / `alloy-transport`) is gated on `std`, since those crates are std-only.
 
-mod conversions;
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
 mod generated;
+
+pub mod conversions;
+pub mod shared_types;
 
 pub use conversions::*;
 pub use generated::*;

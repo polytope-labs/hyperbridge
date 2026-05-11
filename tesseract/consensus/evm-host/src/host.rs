@@ -27,14 +27,14 @@ impl IsmpHost for EvmHost {
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		log::info!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			"Starting EVM Host dummy consensus client for {} -> {}",
 			self.provider().name(),
 			counterparty.name()
 		);
 
 		log::info!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			"⚠️  EVM Host is a dummy consensus client - it will not produce any consensus updates"
 		);
 
@@ -53,7 +53,7 @@ impl IsmpHost for EvmHost {
 
 	async fn query_initial_consensus_state(&self) -> Result<Option<CreateConsensusState>, Error> {
 		log::info!(
-			target: "tesseract",
+			target: crate::LOG_TARGET,
 			"EVM Host is a dummy consensus client - no initial consensus state available"
 		);
 

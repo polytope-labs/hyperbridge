@@ -66,7 +66,7 @@ async fn setup_clients() -> Result<
 	let chain_b = GrandpaHost::<Blake2SubstrateChain, Blake2SubstrateChain>::new(&config_b).await?;
 
 	let message_for_a = chain_b.query_initial_consensus_state().await?.unwrap();
-	log::info!("🧊 Setting consensus states");
+	log::info!(target: crate::LOG_TARGET, "🧊 Setting consensus states");
 	chain_b.provider().set_initial_consensus_state(message_for_b).await?;
 	chain_a.provider().set_initial_consensus_state(message_for_a).await?;
 	Ok((chain_a, chain_b))
@@ -76,7 +76,7 @@ async fn setup_clients() -> Result<
 async fn test_grandpa_messaging_relay() -> Result<(), anyhow::Error> {
 	setup_logging();
 
-	log::info!("🧊 Initializing tesseract consensus");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract consensus");
 
 	let (chain_a, chain_b) = setup_clients().await?;
 
@@ -92,7 +92,7 @@ async fn test_grandpa_messaging_relay() -> Result<(), anyhow::Error> {
 		async move { chain_b.start_consensus(chain_a.provider()).await.unwrap() }
 	});
 
-	log::info!("🧊 Initialized consensus tasks");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initialized consensus tasks");
 
 	let _ = tokio::join!(handle, handle_b);
 

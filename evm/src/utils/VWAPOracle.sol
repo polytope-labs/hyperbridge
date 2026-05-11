@@ -20,6 +20,7 @@ import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IDispatcher, PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IIntentPriceOracle} from "@hyperbridge/core/apps/IntentPriceOracle.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
 
 /**
  * @title VWAPOracle
@@ -28,7 +29,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @dev Only supports same-token swaps
  * @dev Tracks spreads per (source chain, token address)
  */
-contract VWAPOracle is IIntentPriceOracle, HyperApp {
+contract VWAPOracle is IIntentPriceOracle, HyperApp, Context {
     /**
      * @dev Enum representing the different kinds of incoming requests
      */
@@ -87,6 +88,11 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp {
     address private _admin;
 
     /**
+     * @dev Address for the intent gateway contract
+     */
+    address public _intentGateway;
+
+    /**
      * @dev Mapping from (sourceChainHash, token) => decimals for remote source chain tokens
      * @dev Destination chain token decimals are read directly from IERC20Metadata.decimals()
      */
@@ -103,8 +109,15 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp {
     /// @notice Thrown when invalid input is provided
     error InvalidInput();
 
-    constructor(address admin) {
+    // restricts call to the provided `caller`
+    modifier restrict(address caller) {
+        if (_msgSender() != caller) revert Unauthorized();
+        _;
+    }
+
+    constructor(address admin, address intentGateway) {
         _admin = admin;
+        _intentGateway = intentGateway;
     }
 
     /**
@@ -159,7 +172,7 @@ contract VWAPOracle is IIntentPriceOracle, HyperApp {
         bytes memory sourceChain,
         TokenInfo[] calldata inputs,
         TokenInfo[] calldata outputs
-    ) external {
+    ) external restrict(_intentGateway) {
         // Validate inputs and outputs have the same length
         if (inputs.length != outputs.length || inputs.length == 0) {
             return;

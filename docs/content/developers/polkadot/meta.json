@@ -7,8 +7,9 @@
     "solochains",
     "dispatching",
     "receiving",
-    "token-gateway",
+    "hyper-fungible-token",
     "fees",
+    "token-gateway",
     "..."
   ]
 }

@@ -16,7 +16,8 @@ hex = "0.4.3"
 hex-literal = "0.4.1"
 primitive-types = "0.12.1"
 futures = "0.3.28"
-ethers = { workspace = true, features = ["ethers-solc"], default-features = false }
+alloy-sol-types = { workspace = true }
+alloy = { workspace = true, features = ["providers", "signer-local", "network", "reqwest-default-tls"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 merkle-mountain-range = { workspace = true }
@@ -31,7 +32,7 @@ sp-io = { workspace = true }
 tesseract-grandpa = { workspace = true }
 tesseract-beefy = { path = "../beefy"  }
 tesseract-substrate = { workspace = true, features = ["testing"] }
-tesseract-messaging = { workspace = true  }
+messaging = { workspace = true  }
 tesseract-primitives = { workspace = true  }
 tesseract-evm = { workspace = true  }
 tesseract-sync-committee = { workspace = true, features = ["testing"] }
@@ -50,6 +51,9 @@ substrate-state-machine = { workspace = true }
 arb-host = { workspace = true }
 op-host = { workspace = true }
 grandpa-verifier-primitives = { workspace = true }
+tesseract-pharos = { workspace = true }
+ismp-pharos = { workspace = true }
+pharos-primitives = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true

@@ -78,74 +78,74 @@ mod tests {
 	// 	}
 	// }
 
-	#[tokio::test]
-	#[ignore]
-	async fn test_kava_tendermint_integration() {
-		let _ = tracing_subscriber::fmt::try_init();
-		trace!(
-			"Testing Kava Tendermint with {} validator set transitions",
-			VALIDATOR_SET_TRANSITIONS
-		);
+	// #[tokio::test]
+	// #[ignore]
+	// async fn test_kava_tendermint_integration() {
+	// 	let _ = tracing_subscriber::fmt::try_init();
+	// 	trace!(
+	// 		"Testing Kava Tendermint with {} validator set transitions",
+	// 		VALIDATOR_SET_TRANSITIONS
+	// 	);
 
-		match timeout(Duration::from_secs(3600), run_integration_test_standard(&&get_kava_rpc()))
-			.await
-		{
-			Ok(inner) => match inner {
-				Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
-				Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
-			},
-			Err(_) => {
-				trace!("Standard Tendermint integration test timed out after 10 minutes");
-			},
-		}
-	}
+	// 	match timeout(Duration::from_secs(3600), run_integration_test_standard(&&get_kava_rpc()))
+	// 		.await
+	// 	{
+	// 		Ok(inner) => match inner {
+	// 			Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
+	// 			Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
+	// 		},
+	// 		Err(_) => {
+	// 			trace!("Standard Tendermint integration test timed out after 10 minutes");
+	// 		},
+	// 	}
+	// }
 
-	#[tokio::test]
-	#[ignore]
-	async fn test_cronos_tendermint_integration() {
-		let _ = tracing_subscriber::fmt::try_init();
-		trace!(
-			"Testing Cronos Tendermint with {} validator set transitions",
-			VALIDATOR_SET_TRANSITIONS
-		);
+	// #[tokio::test]
+	// #[ignore]
+	// async fn test_cronos_tendermint_integration() {
+	// 	let _ = tracing_subscriber::fmt::try_init();
+	// 	trace!(
+	// 		"Testing Cronos Tendermint with {} validator set transitions",
+	// 		VALIDATOR_SET_TRANSITIONS
+	// 	);
 
-		match timeout(Duration::from_secs(3600), run_integration_test_standard(&&get_cronos_rpc()))
-			.await
-		{
-			Ok(inner) => match inner {
-				Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
-				Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
-			},
-			Err(_) => {
-				trace!("Standard Tendermint integration test timed out after 10 minutes");
-			},
-		}
-	}
+	// 	match timeout(Duration::from_secs(3600), run_integration_test_standard(&&get_cronos_rpc()))
+	// 		.await
+	// 	{
+	// 		Ok(inner) => match inner {
+	// 			Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
+	// 			Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
+	// 		},
+	// 		Err(_) => {
+	// 			trace!("Standard Tendermint integration test timed out after 10 minutes");
+	// 		},
+	// 	}
+	// }
 
-	#[tokio::test]
-	#[ignore]
-	async fn test_injective_tendermint_integration() {
-		let _ = tracing_subscriber::fmt::try_init();
-		trace!(
-			"Testing Injective Tendermint with {} validator set transitions",
-			VALIDATOR_SET_TRANSITIONS
-		);
+	// #[tokio::test]
+	// #[ignore]
+	// async fn test_injective_tendermint_integration() {
+	// 	let _ = tracing_subscriber::fmt::try_init();
+	// 	trace!(
+	// 		"Testing Injective Tendermint with {} validator set transitions",
+	// 		VALIDATOR_SET_TRANSITIONS
+	// 	);
 
-		match timeout(
-			Duration::from_secs(3600),
-			run_integration_test_standard(&&get_injective_rpc()),
-		)
-		.await
-		{
-			Ok(inner) => match inner {
-				Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
-				Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
-			},
-			Err(_) => {
-				trace!("Standard Tendermint integration test timed out after 10 minutes");
-			},
-		}
-	}
+	// 	match timeout(
+	// 		Duration::from_secs(3600),
+	// 		run_integration_test_standard(&&get_injective_rpc()),
+	// 	)
+	// 	.await
+	// 	{
+	// 		Ok(inner) => match inner {
+	// 			Ok(()) => trace!("Standard Tendermint integration test completed successfully"),
+	// 			Err(e) => trace!("Standard Tendermint integration test failed: {}", e),
+	// 		},
+	// 		Err(_) => {
+	// 			trace!("Standard Tendermint integration test timed out after 10 minutes");
+	// 		},
+	// 	}
+	// }
 
 	#[tokio::test]
 	#[ignore]
@@ -222,52 +222,53 @@ mod tests {
 	// 	Ok(())
 	// }
 
-	#[tokio::test]
-	#[ignore]
-	async fn kava_evm_state_proof() -> anyhow::Result<()> {
-		verify_evm_state_proof(
-			&get_kava_rpc(),
-			StateMachine::Evm(2222),
-			"919C1c267BC06a7039e03fcc2eF738525769109c",
-			"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f",
-		)
-		.await?;
+	// #[tokio::test]
+	// #[ignore]
+	// async fn kava_evm_state_proof() -> anyhow::Result<()> {
+	// 	verify_evm_state_proof(
+	// 		&get_kava_rpc(),
+	// 		StateMachine::Evm(2222),
+	// 		"919C1c267BC06a7039e03fcc2eF738525769109c",
+	// 		"1b00e2a2c0ae74b184fd3ef909a7e5ebd1f1c91a7b37432bb365c42bc211a82f",
+	// 	)
+	// 	.await?;
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
-	#[tokio::test]
-	#[ignore]
-	async fn cronos_evm_state_proof() -> anyhow::Result<()> {
-		verify_evm_state_proof(
-			&get_cronos_rpc(),
-			StateMachine::Evm(25),
-			"c21223249CA28397B4B6541dfFaEcC539BfF0c59",
-			"b7b7f25334beca82ade183c84c51052234dc1618b0ff321ea2332dbf08c55523",
-		)
-		.await?;
+	// #[tokio::test]
+	// #[ignore]
+	// async fn cronos_evm_state_proof() -> anyhow::Result<()> {
+	// 	verify_evm_state_proof(
+	// 		&get_cronos_rpc(),
+	// 		StateMachine::Evm(25),
+	// 		"c21223249CA28397B4B6541dfFaEcC539BfF0c59",
+	// 		"b7b7f25334beca82ade183c84c51052234dc1618b0ff321ea2332dbf08c55523",
+	// 	)
+	// 	.await?;
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
-	#[tokio::test]
-	#[ignore]
-	async fn injective_evm_state_proof() -> anyhow::Result<()> {
-		verify_evm_state_proof(
-			&get_injective_rpc(),
-			StateMachine::Evm(1439),
-			"E83c1acd1c9cc3780D0a560E36DCCAA236B86412",
-			"a9bd8c5aa26805e4fe15acd0af182cd60120b2f98da76707238f637028baf59b",
-		)
-		.await?;
+	// #[tokio::test]
+	// #[ignore]
+	// async fn injective_evm_state_proof() -> anyhow::Result<()> {
+	// 	verify_evm_state_proof(
+	// 		&get_injective_rpc(),
+	// 		StateMachine::Evm(1439),
+	// 		"E83c1acd1c9cc3780D0a560E36DCCAA236B86412",
+	// 		"a9bd8c5aa26805e4fe15acd0af182cd60120b2f98da76707238f637028baf59b",
+	// 	)
+	// 	.await?;
 
-		Ok(())
-	}
+	// 	Ok(())
+	// }
 
 	async fn test_abci_query_milestone_proof_inner() -> Result<(), Box<dyn std::error::Error>> {
 		use cometbft_rpc::endpoint::abci_query::AbciQuery;
 
-		let client = HeimdallClient::new(&get_polygon_rpc_url(), &get_polygon_execution_rpc_url())?;
+		let client =
+			HeimdallClient::new(&get_polygon_rpc_url(), &[get_polygon_execution_rpc_url()])?;
 		let latest_height = client.latest_height().await?;
 
 		let (milestone_number, milestone) =
@@ -454,8 +455,9 @@ mod tests {
 	async fn run_integration_test_heimdall(
 		rpc_url: &str,
 	) -> Result<(), Box<dyn std::error::Error>> {
-		let client: HeimdallClient = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
-			.expect("Failed to create client");
+		let client: HeimdallClient =
+			HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])
+				.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;
 		let latest_height = client.latest_height().await?;
@@ -595,7 +597,7 @@ mod tests {
 
 	/// Basic Heimdall RPC test: header and validator retrieval
 	async fn test_polygon_basic_rpc(rpc_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-		let client = HeimdallClient::new(rpc_url, &get_polygon_execution_rpc_url())
+		let client = HeimdallClient::new(rpc_url, &[get_polygon_execution_rpc_url()])
 			.expect("Failed to create client");
 		ensure_healthy(&client).await?;
 		let chain_id = client.chain_id().await?;

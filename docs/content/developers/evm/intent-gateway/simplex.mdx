@@ -1,0 +1,487 @@
+---
+title: Simplex
+description: Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably, earning fees by providing liquidity and execution services.
+---
+
+# Simplex
+
+Simplex is an automated binary that monitors Intent Gateway orders and fills them profitably. It watches configured chains for `OrderPlaced` events, waits for sufficient confirmations based on the order's value, evaluates profitability across all configured strategies, and executes the best fill. Fillers earn the difference between order inputs and outputs.
+
+## Quick Start
+
+### Docker (Recommended)
+
+```bash lineNumbers
+docker pull polytopelabs/simplex:latest
+docker run --rm -it polytopelabs/simplex:latest --help
+```
+
+## Strategies
+
+Simplex ships with two built-in strategies configured as `[[strategies]]` entries in your TOML config. For every order, Simplex evaluates all configured strategies and executes whichever returns the highest profit.
+
+### Basic
+
+Basic strategy fills cross-chain orders where the input and output token are the same — USDC→USDC or USDT→USDT across chains. It checks your balance on the destination chain, estimates `order fees - (gas + protocol fees + relayer fees)`, and fills directly if profitable.
+
+The `bpsCurve` sets the minimum basis-point margin required at each order size. Points are interpolated, so you can model tighter spreads for larger orders:
+
+```toml lineNumbers
+[[strategies]]
+type = "basic"
+bpsCurve = [
+    { amount = "100",    value = 100 },   # $100 orders: 1% minimum margin
+    { amount = "1000",   value = 50  },   # $1000 orders: 0.5%
+    { amount = "10000",  value = 25  },   # $10k orders: 0.25%
+    { amount = "100000", value = 10  },   # $100k orders: 0.1%
+]
+```
+
+BasicFiller requires pre-positioned stablecoins on each destination chain.
+
+---
+
+### HyperFX
+
+HyperFX fills swaps between USD-pegged stablecoins (USDC/USDT) and a single configurable exotic token — for example, cNGN (a Nigerian naira stablecoin). It supports both **same-chain** and **cross-chain** orders.
+
+Same-chain orders (`source == destination`) are filled immediately without waiting for additional confirmations. Cross-chain orders use the configured **confirmation policy** for HyperFX to determine how many confirmations to wait for before bidding.
+
+Profit comes from two sources: the **bid/ask spread** on the exotic token, and **order fees** minus gas. The filler holds both stablecoins and the exotic token. When a user swaps stable→exotic the filler sells exotic at the ask price; when the user swaps exotic→stable the filler buys at the bid price. The spread between the two curves is the filler's margin per trade.
+
+Both curves are expressed in **exotic tokens per USD**. A higher bid means the filler acknowledges fewer stables are owed per exotic received (the filler profits more on the exotic→stable leg). A lower ask means the filler sends fewer exotic tokens per stable received (the filler profits more on the stable→exotic leg).
+
+`maxOrderUsd` caps the filler's exposure per order. Orders larger than the cap are partially filled up to that amount — the IntentGateway releases inputs proportionally to the fraction of outputs provided, so partial fills work without any extra on-chain logic.
+
+HyperFX always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
+
+On startup, Simplex automatically delegates the filler's EOA to the `SolverAccount` contract via EIP-7702 — submitting a no-op UserOp through the bundler so the delegation lands without requiring the EOA to hold native gas. Circle Paymaster covers the delegation tx (and subsequent fills) in USDC on chains where it is deployed; on chains without the paymaster (e.g. BSC), Simplex falls back to a direct type-0x04 delegation tx and tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+# Bid price curve: exotic per USD when *buying* exotic from a user (exotic→stable leg).
+bidPriceCurve = [
+    { amount = "100",  price = "1580" },
+    { amount = "1000", price = "1575" },
+    { amount = "5000", price = "1570" },
+]
+
+# Ask price curve: exotic per USD when *selling* exotic to a user (stable→exotic leg).
+askPriceCurve = [
+    { amount = "100",  price = "1560" },
+    { amount = "1000", price = "1555" },
+    { amount = "5000", price = "1550" },
+]
+
+[strategies.token1]
+"EVM-56"  = "0xExoticTokenAddressOnBsc"
+"EVM-137" = "0xExoticTokenAddressOnPolygon"
+```
+
+
+#### Vaults
+
+When the solver's wallet balance on the destination chain is insufficient to fill an order, HyperFX can automatically withdraw liquidity from on-chain positions to cover the deficit. Withdrawal calls are prepended to the UserOperation as ERC-7821 batch calls, making the funding atomic with the fill.
+
+Configured under `[strategies.vault.uniswapV4]` within the HyperFX strategy block. Decreases liquidity from concentrated Uniswap V4 positions via PositionManager NFTs. Slippage tolerance is set by `spreadBps` (default 50 bps / 0.50%), deadline defaults to the order's deadline. Only the `tokenId` (the ERC-721 position NFT ID) is required; pool details are read on-chain at startup.
+
+```toml lineNumbers
+[strategies.vault.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "123456789" },
+]
+```
+
+<Callout type="info">
+Vaults are initialized at startup; on-demand **refresh** runs before each withdrawal plan so calculations use current on-chain reserves. Simplex can aggregate withdrawals across multiple vaults if needed.
+</Callout>
+
+To find your `tokenId`, open your position on the Uniswap V4 app — the token ID is the number in the URL (e.g. `app.uniswap.org/positions/v4/8453/2087350` → `tokenId = "2087350"`).
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![Uniswap V4 position NFT](/uniswap_nft.svg)
+
+<figcaption>Copy the token ID from your Uniswap V4 NFT position page to use as the <code>tokenId</code> in your vault config.</figcaption>
+</figure>
+
+#### Pool-Based Pricing
+
+When **`[strategies.vault.uniswapV4]`** lists at least one position, HyperFX derives bid/ask prices from **Uniswap V4 pool state** (current tick). This is the recommended approach — let the pool act as your price oracle rather than maintaining static curves.
+
+With Uniswap V4 positions configured, you can **omit** `bidPriceCurve` and `askPriceCurve` entirely. The optional **`spreadBps`** field (basis points) sets the slippage tolerance for on-chain LP redemptions. For example, `spreadBps = 50` applies a 0.50% slippage tolerance on remove-liquidity operations. Defaults to `50` if omitted.
+
+Uniswap V4 venue pricing uses pools that pair the exotic token with **USDC or USDT** (addresses from your chain config). When multiple positions exist for the same exotic token on a chain, the most-liquid qualifying pool’s price is used.
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+spreadBps = 50  # 0.5% slippage tolerance on LP redemptions
+
+[strategies.token1]
+"EVM-8453" = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+[strategies.vault.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+```
+
+<Callout type="info">
+Startup validation requires a pricing source: **either** full static `bidPriceCurve` and `askPriceCurve` (≥2 points each), **or** at least one `[strategies.vault.uniswapV4]` position. Omitting both curves without Uniswap V4 positions fails validation.
+</Callout>
+
+#### Example profit calculation
+
+For a \$1000 USDC → cNGN order, the curve interpolates to bid 1575, ask 1555 at the $1000 size:
+
+```
+User sends:       $1000 USDC
+Filler delivers:  1,555,000 cNGN      (1000 × ask 1555)
+Filler's cost:    1,555,000 / 1575    = $987.30  (valued at bid)
+Spread profit:    $1000 − $987.30     = $12.70
+Fee profit:       $2.80 − $1.30 costs = $1.50
+Total profit:     ~$14.20
+```
+
+## Configuration
+
+### `[simplex]`
+
+```toml lineNumbers
+[simplex]
+maxConcurrentOrders = 5
+logging             = "info"                     # trace | debug | info | warn | error
+
+# Required for HyperFX / solver selection
+substratePrivateKey = "0x.."                     # Hex seed or mnemonic for Hyperbridge extrinsics
+hyperbridgeWsUrl    = "wss://nexus.ibp.network"  # Hyperbridge WebSocket endpoint
+
+[simplex.queue]
+maxRechecks    = 10
+recheckDelayMs = 30000
+```
+
+### Signer Configuration
+
+The `[simplex.signer]` section defines how Simplex signs EVM transactions. Two modes are supported:
+
+The signer is a tagged union — set `type` to select the variant, then add the variant's fields directly under `[simplex.signer]`:
+
+**Private Key** — Signs transactions locally using a raw private key:
+
+```toml lineNumbers
+[simplex.signer]
+type = "privateKey"
+key  = "0x..."
+```
+
+**MPC Vault** — Signs transactions via [MPC Vault](https://mpcvault.com), an institutional custody service that uses MPC for signing ceremonies:
+
+```toml lineNumbers
+[simplex.signer]
+type                          = "mpcVault"
+apiToken                      = "your-api-token"
+vaultUuid                     = "your-vault-uuid"
+accountAddress                = "0xYourWalletAddress"
+callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+# grpcTarget = "api.mpcvault.com:443"  # optional, this is the default
+```
+
+<Callout type="info">
+MPC Vault requires an Ed25519 keypair registered in the MPC Vault console and a running client-signer container (<code>ghcr.io/mpcvault/client-signer:latest</code>). See the <a href="https://docs.mpcvault.com">MPC Vault documentation</a> for setup instructions.
+</Callout>
+
+**Turnkey** — Signs transactions via [Turnkey](https://turnkey.com), a key management platform with HD wallet support. Create a wallet in the Turnkey Dashboard and use `signWith` to reference your existing Ethereum address:
+
+```toml lineNumbers
+[simplex.signer]
+type             = "turnkey"
+organizationId   = "your-org-id"
+apiPublicKey     = "your-api-public-key"
+apiPrivateKey    = "your-api-private-key"
+signWith         = "0xYourWalletAddress"
+```
+
+<Callout type="info">
+Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
+</Callout>
+
+### Delegation & Gas Payment
+
+Solver selection requires each filler's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
+
+- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When the Circle Paymaster is deployed on the chain and the filler holds ≥1 USDC, the paymaster pays gas in USDC (EIP-2612 permit) so the filler never needs native gas for delegation.
+- **Fallback** — if the bundler path fails or the chain has no paymaster (e.g. BSC), Simplex sends a direct type-0x04 delegation tx using the filler's native balance. On these chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
+
+No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
+
+### Overfill Protection
+
+Bounds per-leg loss if the filler's internal pricing is wrong (bug, stale cache, manipulated venue). For every order, the filler clamps its computed output to at most `(1 + maxOverfillBps) × user-requested amount`. After `maxConsecutiveClamps` consecutive orders where the clamp activated, the strategy halts itself — a pattern that strongly suggests a systemic pricing error — and requires an operator restart. The FX strategy additionally rejects any order where the total output USD value ≥ total input USD value.
+
+Defaults are sensible (`maxOverfillBps = 100` ≈ 1% ceiling, `maxConsecutiveClamps = 3`). Override under `[simplex.overfillProtection]`:
+
+```toml lineNumbers
+[simplex.overfillProtection]
+maxOverfillBps       = 100   # 1% ceiling above user-requested output
+maxConsecutiveClamps = 3     # halt threshold
+```
+
+### Confirmation Policy
+
+<Callout type="info">
+Confirmation policies are configured per strategy. Both BasicFiller and HyperFX can use confirmation policies for cross-chain orders.
+</Callout>
+
+Before processing a cross-chain order, Simplex waits for enough block confirmations to guard against chain reorganizations. The number of confirmations scales with order value using a curve — small orders are processed quickly, large orders wait longer. Same-chain orders always proceed without additional confirmation delay.
+
+#### Built-in Defaults
+
+Simplex ships with default confirmation policies for common chains. These apply automatically when no user-configured policy exists for a chain. User-configured policies override the default for that chain.
+
+| Chain | Chain ID | Min ($1,000) | Max ($100,000) | Block Time |
+|---|---|---|---|---|
+| Ethereum | 1 | 2 blocks (~24s) | 15 blocks (~3m) | ~12s |
+| BNB Chain | 56 | 2 blocks (~6s) | 3 blocks (~9s) | ~3s |
+| Polygon | 137 | 2 blocks (~4s) | 32 blocks (~1m) | ~2s |
+| Base | 8453 | 2 blocks (~4s) | 90 blocks (~3m) | ~2s |
+| Arbitrum | 42161 | 8 blocks (~2s) | 720 blocks (~3m) | ~0.25s |
+
+Values between the min and max order amounts are linearly interpolated.
+
+#### Custom Overrides
+
+Confirmation policies are configured **per strategy** under `[strategies.confirmationPolicies."<chainId>"]`. Unlisted chains keep their defaults:
+
+```toml lineNumbers
+[[strategies]]
+type = "basic"
+bpsCurve = [
+    { amount = "100",    value = 100 },
+    { amount = "100000", value = 10  },
+]
+
+[strategies.confirmationPolicies."1"]     # Ethereum Mainnet (~12s blocks)
+points = [
+    { amount = "1000",   value = 3  },   # $1k → 3 blocks (~36s)
+    { amount = "50000",  value = 15 },   # $50k → 15 blocks (~3m)
+    { amount = "100000", value = 20 },   # $100k → 20 blocks (~4m)
+]
+
+[strategies.confirmationPolicies."56"]    # BSC (~3s blocks)
+points = [
+    { amount = "1000",   value = 2  },
+    { amount = "100000", value = 5  },
+]
+```
+
+HyperFX uses the same schema:
+
+```toml lineNumbers
+[[strategies]]
+type = "hyperfx"
+maxOrderUsd = 5000
+
+[strategies.token1]
+"EVM-56"  = "0xExoticTokenAddressOnBsc"
+"EVM-137" = "0xExoticTokenAddressOnPolygon"
+
+[strategies.confirmationPolicies."56"]    # BSC
+points = [
+    { amount = "1",    value = 3  },
+    { amount = "500",  value = 6  },
+    { amount = "5000", value = 15 },
+]
+
+[strategies.confirmationPolicies."42161"] # Arbitrum
+points = [
+    { amount = "2",    value = 2  },
+    { amount = "1000", value = 5  },
+    { amount = "8000", value = 10 },
+]
+```
+
+<Callout type="info">
+Confirmation policies are optional — built-in defaults cover Ethereum, BNB Chain, Base, Arbitrum, Polygon, and Unichain. Custom <code>[strategies.confirmationPolicies."&lt;chainId&gt;"]</code> entries override the default for that chain only.
+</Callout>
+
+### RPC Quorum
+
+Each `[[chains]]` entry declares its RPC endpoints as a non-empty array in `rpcUrls`. Simplex validates the array at startup and rejects it if any two URLs share a hostname, so a "quorum" of aliases pointing at the same upstream is caught before the filler starts.
+
+```toml lineNumbers
+[[chains]]  # Ethereum
+rpcUrls = [
+    "https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY",
+    "https://mainnet.infura.io/v3/YOUR_KEY",
+    "https://rpc.ankr.com/eth/YOUR_KEY",
+]
+bundlerUrl = "https://..."
+```
+
+When two or more URLs are configured, the event monitor fans every `eth_getLogs` batch out to all providers in parallel and accepts the batch once a **Byzantine-fault-tolerant quorum** of providers agree. The threshold is the standard BFT bound — strictly more than two thirds, i.e. `floor(2N/3) + 1` providers:
+
+| Providers (N) | Quorum threshold | Faults tolerated |
+|---|---|---|
+| 1 | 1 | 0 |
+| 2 | 2 | 0 |
+| 3 | 3 | 0 |
+| 4 | 3 | 1 |
+| 5 | 4 | 1 |
+| 7 | 5 | 2 |
+| 10 | 7 | 3 |
+
+Provider errors, timeouts, and divergent results are all tolerated up to the BFT bound. Beyond it, the batch fails with a `QuorumError` that enumerates each failing URL and the size of the largest agreeing group — the scan cursor does not advance, so the same range is retried on the next tick. Agreement is computed by sorting logs by `(blockNumber, logIndex, transactionHash)` and comparing only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`); provider-added extras such as `blockTimestamp` are deliberately excluded so debug metadata on one node does not manufacture a quorum failure. `getBlockNumber` resolves to the highest block at which `floor(2N/3) + 1` providers have indexed — preventing the scanner from running ahead of BFT-supported state.
+
+A single-entry `rpcUrls` array is legal and keeps the pre-existing single-provider behaviour; the quorum machinery only engages when you list more than one endpoint. **To actually tolerate a faulty or co-opted provider you need at least four endpoints** — with three, the threshold is still three and any single failure halts scanning.
+
+#### Why this matters for cross-chain orders
+
+On a cross-chain fill, Simplex observes an `OrderPlaced` (or `PartialFill` / `OrderFilled`) event on the source chain and then commits capital on the destination chain. Unlike same-chain fills — where the destination `fillOrder` call will revert if the source-chain order does not exist — cross-chain bids submitted through Hyperbridge are evaluated from the filler's own reading of source-chain state. A single RPC is therefore both an availability and an integrity choke point: if it lies about which orders were placed, the filler can be induced to pay out against events that never happened, and there is no on-chain safety net to catch it after the fact.
+
+<Callout type="warn">
+Co-opted RPC nodes are not hypothetical. LayerZero has publicly disclosed an incident where an RPC endpoint serving part of their relaying path was compromised — see [LayerZero's post-mortem thread](https://x.com/LayerZero_Core/status/2046081551574983137?s=20). Quorum queries turn that failure mode from "one bad node silently succeeds" into "one bad node fails the batch and halts the scan".
+</Callout>
+
+The practical guidance is to configure **at least two organisationally independent providers** (e.g. Alchemy **and** Infura, not two Alchemy regions) for every chain that can act as a source of a cross-chain order. Three or more is better for chains with large notional flow — each additional independent provider raises the bar for an attacker from "compromise one vendor" to "compromise all of them simultaneously for the duration of the fill window". The cost is a slightly higher RPC bill and the tail latency of the slowest provider in each batch; the benefit is that event-driven bids are only acted on when every independent witness agrees on what the source chain actually emitted.
+
+
+## Setup
+
+<Tabs items={["docker-compose.yml", "config.toml"]}>
+<Tab value="docker-compose.yml">
+```yaml lineNumbers
+version: "3.8"
+services:
+    simplex:
+        image: polytopelabs/simplex:latest
+        container_name: simplex
+        restart: unless-stopped
+        command: ["--config", "/app/config.toml", "--data-dir", "/app", "--port", "9090"]
+        ports:
+            - "9090:9090"  # Prometheus metrics
+        volumes:
+            - .:/app
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+```
+</Tab>
+<Tab value="config.toml">
+```toml lineNumbers
+[simplex]
+maxConcurrentOrders = 5
+logging             = "info"
+hyperbridgeWsUrl    = "wss://nexus.ibp.network"
+substratePrivateKey = ""
+
+[simplex.signer]
+type                          = "mpcVault"
+apiToken                      = ""
+vaultUuid                     = ""
+accountAddress                = "0x..."
+callbackClientSignerPublicKey = "ssh-ed25519 AAAA..."
+
+[simplex.queue]
+maxRechecks    = 10
+recheckDelayMs = 30000
+
+# Optional — defaults: maxOverfillBps = 100, maxConsecutiveClamps = 3
+# [simplex.overfillProtection]
+# maxOverfillBps       = 100
+# maxConsecutiveClamps = 3
+
+[[strategies]]
+type        = "hyperfx"
+maxOrderUsd = 50000
+
+[strategies.token1]
+"EVM-1"     = "0x..."  # Ethereum
+"EVM-56"    = "0x..."  # BSC
+"EVM-8453"  = "0x..."  # Base
+"EVM-137"   = "0x..."  # Polygon
+
+[strategies.vault.uniswapV4]
+positions = [
+    { chain = "EVM-8453", tokenId = "2087350" },
+]
+
+# rpcUrls is always an array. Listing more than one independent endpoint
+# activates quorum log scanning — see "RPC Quorum" above.
+[[chains]]  # Ethereum
+rpcUrls = [
+    "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+
+[[chains]]  # Base
+rpcUrls = [
+    "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://base-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+
+[[chains]]  # Arbitrum
+rpcUrls = [
+    "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+
+[[chains]]  # Polygon
+rpcUrls = [
+    "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
+    "https://polygon-mainnet.infura.io/v3/YOUR_INFURA_KEY",
+]
+bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+```
+</Tab>
+</Tabs>
+
+## Requirements
+
+You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. For HyperFX, also hold the exotic token on each chain, plus a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. These extrinsic fees are claimable — Simplex claims them automatically after each batch of bids is executed on-chain or when the filler stops.
+
+RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` so the event monitor runs in quorum mode — see [RPC Quorum](#rpc-quorum).
+
+## Troubleshooting
+
+For verbose output, set `logging = "debug"` in `[simplex]`. Report bugs to the Hyperbridge GitHub with full logs (redact private keys).
+
+### **No profitable strategy found**
+Gas prices may be too high relative to the order fee, or your `bpsCurve` thresholds are set too conservatively. Check balances on the destination chain and review current gas prices.
+
+---
+
+### **Insufficient token balances**
+Deposit more stablecoins (and exotic tokens for HyperFX) on the destination chains.
+
+---
+
+### **RPC rate limiting (429 errors)**
+Switch to a premium RPC provider or reduce `maxConcurrentOrders`.
+
+---
+
+### **HyperFX bid submission fails**
+Confirm `substratePrivateKey`, `hyperbridgeWsUrl`, and `bundlerUrl` are set in `[simplex]`, and that your Substrate account has BRIDGE tokens. On chains with the Circle Paymaster, make sure the filler's smart account holds ≥1 USDC so the paymaster can cover gas. On chains without the paymaster (e.g. BSC), the filler needs native balance — Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (default 3M) at current gas price. If using MPC Vault, verify the client-signer container is running and reachable.
+
+---
+
+### **Funding venue withdrawal failed**
+Confirm the LP position has sufficient liquidity and that the token addresses match the exotic token configured in HyperFX. Verify the `tokenId` exists and is owned by the solver account. Check logs for specific revert reasons.
+
+---
+
+### **Venue price returns null / bid-ask not updating**
+Confirm the configured positions contain a pool that pairs the exotic token with **USDC or USDT**. Pools with other quote tokens cannot derive a USD price from the Uniswap V4 venue. Check that the position's `tokenId` is valid and owned by the solver.
+
+---

@@ -54,6 +54,7 @@ impl HyperbridgeConfig {
 			.expect("Hyperbridge Config is Present")
 			.try_into()
 			.expect("Failed to parse hyperbridge config");
+		let hyperbridge = hyperbridge.resolve().await?;
 		let relayer: RelayerConfig = table
 			.get(RELAYER)
 			.cloned()
@@ -63,6 +64,7 @@ impl HyperbridgeConfig {
 		for (key, val) in table {
 			if &key != HYPERRIDGE && key != RELAYER {
 				let any_conf: AnyConfig = val.try_into().unwrap();
+				let any_conf = any_conf.resolve().await?;
 				chains.insert(any_conf.state_machine(), any_conf);
 			}
 		}

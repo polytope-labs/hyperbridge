@@ -15,19 +15,16 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	governance::WhitelistedCaller,
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, TechnicalCollectiveInstance, Timestamp,
-	TokenGatewayInspector, TreasuryPalletId, XcmGateway, EXISTENTIAL_DEPOSIT,
-	MIN_TECH_COLLECTIVE_APPROVAL,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGateway, TokenGatewayInspector,
+	TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
 use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
-	traits::{AsEnsureOriginWithArg, EitherOfDiverse},
-	PalletId,
+	traits::AsEnsureOriginWithArg,
 };
 use frame_system::EnsureRoot;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
@@ -42,13 +39,33 @@ use ismp_sync_committee::constants::{gnosis, mainnet::Mainnet};
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
-use pallet_xcm_gateway::AssetGatewayParams;
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
-use sp_runtime::{Permill, Weight};
+use sp_runtime::Weight;
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
+use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
+
+/// Deprecated TokenGateway contract addresses whose incoming ISMP Post requests
+/// must be rejected unconditionally by the nexus runtime.
+/// Any [`PostRequest`] whose `from` field matches any of these 20-byte addresses
+/// is rejected in [`ProxyModule::on_accept`] before any other processing — the
+/// message is neither dispatched locally nor forwarded onwards.
+pub const DEPRECATED_TOKEN_GATEWAY_ADDRESSES: &[[u8; 20]] = &[
+	// Ethereum / Arbitrum / Optimism / Base / BSC / Gnosis TokenGateway
+	hex_literal::hex!("Fd413e3AFe560182C4471F4d143A96d3e259B6dE"),
+	// Polygon / Unichain TokenGateway
+	hex_literal::hex!("8b536105b6Fae2aE9199f5146D3C57Dfe53b614E"),
+	// Soneium TokenGateway
+	hex_literal::hex!("Ce304770236f39F9911BfCC51afBdfF3b8635718"),
+];
+
+/// Returns `true` if `from` is exactly one of the deprecated TokenGateway
+/// contract addresses in [`DEPRECATED_TOKEN_GATEWAY_ADDRESSES`].
+fn is_deprecated_token_gateway(from: &[u8]) -> bool {
+	DEPRECATED_TOKEN_GATEWAY_ADDRESSES.iter().any(|deprecated| deprecated == from)
+}
 
 #[derive(Default)]
 pub struct ProxyModule;
@@ -65,38 +82,17 @@ pub type Ethereum = ismp_sync_committee::pallet::Instance1;
 pub type Gnosis = ismp_sync_committee::pallet::Instance2;
 
 impl ismp_sync_committee::pallet::Config<Ethereum> for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_sync_committee::pallet::Config<Gnosis> for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type IsmpHost = Ismp;
 }
 
 impl ismp_bsc::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
 }
@@ -117,14 +113,7 @@ impl Get<Option<StateMachine>> for Coprocessor {
 impl ismp_grandpa::Config for Runtime {
 	type IsmpHost = pallet_ismp::Pallet<Runtime>;
 	type WeightInfo = weights::ismp_grandpa::WeightInfo<Runtime>;
-	type RootOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 pub struct ParachainStateMachineProvider;
@@ -141,14 +130,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 }
 
 impl pallet_ismp::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 	type HostStateMachine = HostStateMachine;
 	type TimestampProvider = Timestamp;
 	type Router = Router;
@@ -176,30 +158,18 @@ impl pallet_ismp::Config for Runtime {
 	type OffchainDB = Mmr;
 	type FeeHandler =
 		(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
+	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 
 impl pallet_ismp_relayer::Config for Runtime {
 	type IsmpHost = Ismp;
-	type RelayerOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type RelayerOrigin = EnsureRoot<AccountId>;
+	type TreasuryPalletId = TreasuryPalletId;
 }
 
 impl pallet_ismp_host_executive::Config for Runtime {
 	type IsmpHost = Ismp;
-	type HostExecutiveOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type HostExecutiveOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_call_decompressor::Config for Runtime {
@@ -208,112 +178,43 @@ impl pallet_call_decompressor::Config for Runtime {
 
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type FishermenOrigin = EnsureRoot<AccountId>;
 }
 
 impl ismp_parachain::Config for Runtime {
 	type IsmpHost = Ismp;
 	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
-	type RootOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
-}
-
-parameter_types! {
-	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
-	pub const TransferParams: AssetGatewayParams = AssetGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
-}
-
-impl pallet_xcm_gateway::Config for Runtime {
-	type PalletId = AssetPalletId;
-	type Params = TransferParams;
-	type IsmpHost = Ismp;
-	type Assets = Assets;
-	type GatewayOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type RootOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_token_governor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type GovernorOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type GovernorOrigin = EnsureRoot<AccountId>;
 }
 
 impl pallet_consensus_incentives::Config for Runtime {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type IncentivesOrigin = EnsureRoot<AccountId>;
 	type ReputationAsset = ReputationAsset;
 	type WeightInfo = ();
 }
 
 impl ismp_arbitrum::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
 }
 
 impl ismp_optimism::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 
 	type IsmpHost = Ismp;
 }
 
 impl ismp_tendermint::pallet::Config for Runtime {
-	type AdminOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -365,14 +266,41 @@ impl pallet_assets::Config for Runtime {
 }
 
 impl pallet_token_gateway_inspector::Config for Runtime {
-	type GatewayOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type GatewayOrigin = EnsureRoot<AccountId>;
+}
+
+impl pallet_hyperbridge::Config for Runtime {
+	type IsmpHost = Ismp;
+}
+
+parameter_types! {
+	pub const Decimals: u8 = 10;
+}
+
+pub struct NativeAssetId;
+impl Get<H256> for NativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
+	}
+}
+
+pub struct AssetAdmin;
+impl Get<AccountId> for AssetAdmin {
+	fn get() -> AccountId {
+		TokenGateway::pallet_account()
+	}
+}
+
+impl pallet_token_gateway::Config for Runtime {
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type NativeCurrency = Balances;
+	type NativeAssetId = NativeAssetId;
+	type CreateOrigin = EnsureRoot<AccountId>;
+	type Decimals = Decimals;
+	type AssetAdmin = AssetAdmin;
+	type EvmToSubstrate = ();
+	type WeightInfo = crate::weights::pallet_token_gateway::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -383,18 +311,22 @@ impl pallet_intents_coprocessor::Config for Runtime {
 	type Dispatcher = Ismp;
 	type Currency = Balances;
 	type StorageDepositFee = IntentsStorageDepositFee;
-	type GovernanceOrigin = EitherOfDiverse<
-		WhitelistedCaller,
-		pallet_collective::EnsureMembers<
-			AccountId,
-			TechnicalCollectiveInstance,
-			MIN_TECH_COLLECTIVE_APPROVAL,
-		>,
-	>;
+	type GovernanceOrigin = EnsureRoot<AccountId>;
 	type WeightInfo = weights::pallet_intents_coprocessor::WeightInfo<Runtime>;
 }
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
+		// Permanently reject any request originating from a deprecated TokenGateway
+		// deployment, regardless of destination. This short-circuits both the
+		// forwarding path (dest != host) and the locally-dispatched path below.
+		if is_deprecated_token_gateway(&request.from) {
+			return Err(anyhow!(
+				"rejecting request from deprecated TokenGateway address {:?} on {:?}",
+				request.from,
+				request.source,
+			));
+		}
+
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -408,11 +340,11 @@ impl IsmpModule for ProxyModule {
 		let pallet_id =
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
-		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(&request.source));
-
 		match pallet_id {
-			id if id == xcm_gateway =>
-				pallet_xcm_gateway::Module::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
+				pallet_token_gateway::Pallet::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
+				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
@@ -430,16 +362,28 @@ impl IsmpModule for ProxyModule {
 	}
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
-		let (from, source, dest) = match &timeout {
+		// Permanently reject Post-request timeouts whose originating module is a
+		// deprecated TokenGateway deployment, before any other handling runs. Only
+		// Post requests are subject to this — Get requests and Response timeouts
+		// are untouched.
+		if let Timeout::Request(Request::Post(post)) = &timeout {
+			if is_deprecated_token_gateway(&post.from) {
+				return Err(anyhow!(
+					"rejecting Post-request timeout from deprecated TokenGateway address {:?}",
+					post.from,
+				));
+			}
+		}
+
+		let (from, source) = match &timeout {
 			Timeout::Request(Request::Post(post)) => {
 				if post.source != HostStateMachine::get() {
 					TokenGatewayInspector::handle_timeout(post)?;
 				}
-				(&post.from, &post.source, &post.dest)
+				(&post.from, &post.source)
 			},
-			Timeout::Request(Request::Get(get)) => (&get.from, &get.source, &get.dest),
-			Timeout::Response(res) =>
-				(&res.source_module(), &res.source_chain(), &res.dest_chain()),
+			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
+			Timeout::Response(res) => (&res.source_module(), &res.source_chain()),
 		};
 
 		if *source != HostStateMachine::get() {
@@ -447,10 +391,9 @@ impl IsmpModule for ProxyModule {
 		}
 
 		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-		let xcm_gateway = ModuleId::Evm(XcmGateway::token_gateway_address(dest));
 		match pallet_id {
-			id if id == xcm_gateway =>
-				pallet_xcm_gateway::Module::<Runtime>::default().on_timeout(timeout),
+			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
+				pallet_token_gateway::Pallet::<Runtime>::default().on_timeout(timeout),
 			// instead of returning an error, do nothing. The timeout is for a connected chain.
 			_ => Ok(Weight::from_parts(300_000_000, 0)),
 		}

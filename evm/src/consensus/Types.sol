@@ -14,8 +14,6 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import {Node} from "@polytope-labs/solidity-merkle-trees/src/Types.sol";
-
 struct SP1BeefyProof {
     // BEEFY Commitment message
     MiniCommitment commitment;
@@ -39,6 +37,13 @@ struct ParachainHeader {
     bytes header;
 }
 
+struct ParachainHeaderHash {
+    // Parachain Id
+    uint256 id;
+    // header hash
+    bytes32 hash;
+}
+
 /// The public values encoded as a struct that can be easily deserialized inside Solidity.
 struct PublicInputs {
     // merkle commitment to all authorities
@@ -48,7 +53,7 @@ struct PublicInputs {
     // BEEFY mmr leaf hash
     bytes32 leaf_hash;
     // Parachain header hashes
-    bytes32[] headers;
+    ParachainHeaderHash[] headers;
 }
 
 struct Payload {
@@ -77,7 +82,6 @@ struct BeefyMmrLeaf {
     bytes32 parentHash;
     AuthoritySetCommitment nextAuthoritySet;
     bytes32 extra;
-    uint256 kIndex;
     uint256 leafIndex;
 }
 
@@ -102,7 +106,7 @@ struct PartialBeefyMmrLeaf {
 }
 
 struct Parachain {
-    /// k-index for latestHeadsRoot
+    /// 0-based leaf index in the parachain heads merkle tree
     uint256 index;
     /// Parachain Id
     uint256 id;
@@ -111,6 +115,42 @@ struct Parachain {
 }
 
 struct ParachainProof {
-    Parachain parachain;
-    Node[][] proof;
+    Parachain[] parachains;
+    bytes32[] proof;
+    uint256 leafCount;
+}
+
+struct Vote {
+    // secp256k1 signature from a member of the authority set
+    bytes signature;
+    // 0-based index of the authority in the authority set
+    uint256 authorityIndex;
+}
+
+// The signed commitment holds a commitment to the latest
+// finalized state as well as votes from a supermajority
+// of the authority set which confirms this state
+struct SignedCommitment {
+    // A commitment to the finalized state
+    Commitment commitment;
+    // The confirming votes
+    Vote[] votes;
+}
+
+struct RelayChainProof {
+    // Signed commitment
+    SignedCommitment signedCommitment;
+    // Latest leaf added to mmr
+    BeefyMmrLeaf latestMmrLeaf;
+    // Proof for the latest mmr leaf
+    bytes32[] mmrProof;
+    // Proof for authorities in current/next session
+    bytes32[] proof;
+}
+
+struct BeefyConsensusProof {
+    // The proof items for the relay chain consensus
+    RelayChainProof relay;
+    // Proof items for parachain headers
+    ParachainProof parachain;
 }

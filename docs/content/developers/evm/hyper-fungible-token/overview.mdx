@@ -1,0 +1,159 @@
+---
+title: Overview
+description: Cross-chain token standard where each token is its own bridge application.
+---
+
+# Hyper Fungible Token
+
+HyperFungibleToken is a cross-chain token standard where each token deployment is its own bridge application. There is no shared custody pool, no governance overhead, and no token-governor — the token contract itself handles cross-chain messaging via [ISMP](/protocol/ismp).
+
+## Architecture
+
+The typical deployment uses a `WrappedHyperFungibleToken` on the token's home chain and a `HyperFungibleToken` on every remote chain. This keeps canonical supply on the home chain — the WrappedHFT accumulates locked tokens as users bridge out and releases them when users bridge back.
+
+<svg viewBox="0 0 800 220" xmlns="http://www.w3.org/2000/svg" style={{width: '100%', maxWidth: 800}}>
+  <defs>
+    <marker id="arrow-lock" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1"/>
+    </marker>
+  </defs>
+  <rect x="20" y="30" width="300" height="160" rx="12" fill="none" stroke="#374151" strokeWidth="1.5"/>
+  <text x="170" y="22" textAnchor="middle" fill="#9ca3af" fontSize="13" fontFamily="sans-serif">Home Chain (e.g. Ethereum)</text>
+  <rect x="50" y="60" width="240" height="40" rx="8" fill="#1e1b4b" stroke="#4f46e5" strokeWidth="1"/>
+  <text x="170" y="85" textAnchor="middle" fill="#c7d2fe" fontSize="13" fontFamily="monospace">WrappedHyperFungibleToken</text>
+  <rect x="80" y="120" width="80" height="30" rx="6" fill="#1c1917" stroke="#78716c" strokeWidth="1"/>
+  <text x="120" y="140" textAnchor="middle" fill="#d6d3d1" fontSize="11" fontFamily="sans-serif">USDC</text>
+  <text x="170" y="170" textAnchor="middle" fill="#6b7280" fontSize="11" fontFamily="sans-serif" fontStyle="italic">locks / unlocks</text>
+  <rect x="480" y="30" width="300" height="160" rx="12" fill="none" stroke="#374151" strokeWidth="1.5"/>
+  <text x="630" y="22" textAnchor="middle" fill="#9ca3af" fontSize="13" fontFamily="sans-serif">Remote Chain (e.g. Arbitrum)</text>
+  <rect x="510" y="60" width="240" height="40" rx="8" fill="#1a2e05" stroke="#65a30d" strokeWidth="1"/>
+  <text x="630" y="85" textAnchor="middle" fill="#bef264" fontSize="13" fontFamily="monospace">HyperFungibleToken</text>
+  <text x="630" y="140" textAnchor="middle" fill="#6b7280" fontSize="11" fontFamily="sans-serif" fontStyle="italic">burns / mints</text>
+  <line x1="320" y1="90" x2="480" y2="90" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-lock)"/>
+  <text x="400" y="82" textAnchor="middle" fill="#818cf8" fontSize="11" fontFamily="sans-serif">ISMP POST</text>
+  <line x1="480" y1="120" x2="320" y2="120" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-lock)"/>
+  <text x="400" y="140" textAnchor="middle" fill="#818cf8" fontSize="11" fontFamily="sans-serif">ISMP POST</text>
+</svg>
+
+## Multi-Chain Topology
+
+For a token to be transferable across N chains, deploy a `WrappedHyperFungibleToken` on the home chain and a `HyperFungibleToken` on every remote chain, then register peers bidirectionally on each pair.
+
+<svg viewBox="0 0 800 340" xmlns="http://www.w3.org/2000/svg" style={{width: '100%', maxWidth: 800}}>
+  <defs>
+    <marker id="arrow-multi" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1"/>
+    </marker>
+  </defs>
+  <rect x="280" y="10" width="240" height="60" rx="12" fill="#1e1b4b" stroke="#4f46e5" strokeWidth="1.5"/>
+  <text x="400" y="35" textAnchor="middle" fill="#c7d2fe" fontSize="13" fontFamily="sans-serif" fontWeight="bold">Ethereum</text>
+  <text x="400" y="55" textAnchor="middle" fill="#818cf8" fontSize="11" fontFamily="monospace">WrappedHFT (USDC)</text>
+  <rect x="20" y="150" width="200" height="60" rx="12" fill="#1a2e05" stroke="#65a30d" strokeWidth="1.5"/>
+  <text x="120" y="175" textAnchor="middle" fill="#bef264" fontSize="13" fontFamily="sans-serif" fontWeight="bold">Arbitrum</text>
+  <text x="120" y="195" textAnchor="middle" fill="#a3e635" fontSize="11" fontFamily="monospace">HFT</text>
+  <rect x="300" y="150" width="200" height="60" rx="12" fill="#1a2e05" stroke="#65a30d" strokeWidth="1.5"/>
+  <text x="400" y="175" textAnchor="middle" fill="#bef264" fontSize="13" fontFamily="sans-serif" fontWeight="bold">Base</text>
+  <text x="400" y="195" textAnchor="middle" fill="#a3e635" fontSize="11" fontFamily="monospace">HFT</text>
+  <rect x="580" y="150" width="200" height="60" rx="12" fill="#1a2e05" stroke="#65a30d" strokeWidth="1.5"/>
+  <text x="680" y="175" textAnchor="middle" fill="#bef264" fontSize="13" fontFamily="sans-serif" fontWeight="bold">Polygon</text>
+  <text x="680" y="195" textAnchor="middle" fill="#a3e635" fontSize="11" fontFamily="monospace">HFT</text>
+  <line x1="340" y1="70" x2="160" y2="150" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-multi)"/>
+  <line x1="400" y1="70" x2="400" y2="150" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-multi)"/>
+  <line x1="460" y1="70" x2="640" y2="150" stroke="#6366f1" strokeWidth="1.5" markerEnd="url(#arrow-multi)"/>
+  <line x1="220" y1="180" x2="300" y2="180" stroke="#374151" strokeWidth="1" markerEnd="url(#arrow-multi)" strokeDasharray="4,4"/>
+  <line x1="500" y1="180" x2="580" y2="180" stroke="#374151" strokeWidth="1" markerEnd="url(#arrow-multi)" strokeDasharray="4,4"/>
+  <line x1="220" y1="210" x2="580" y2="210" stroke="#374151" strokeWidth="1" markerEnd="url(#arrow-multi)" strokeDasharray="4,4"/>
+  <text x="400" y="260" textAnchor="middle" fill="#6b7280" fontSize="11" fontFamily="sans-serif">Solid lines: home ↔ remote (lock/unlock ↔ burn/mint)</text>
+  <text x="400" y="280" textAnchor="middle" fill="#6b7280" fontSize="11" fontFamily="sans-serif">Dashed lines: remote ↔ remote (burn/mint ↔ burn/mint)</text>
+  <text x="400" y="310" textAnchor="middle" fill="#9ca3af" fontSize="11" fontFamily="sans-serif" fontStyle="italic">All peers registered bidirectionally</text>
+</svg>
+
+Using CREATE2 with the same salt and deployer across all chains gives each contract the same address, simplifying peer registration and frontend integration.
+
+## Cross-Chain Message Format
+
+Both contracts encode the same ABI message body, ensuring full interoperability between `HyperFungibleToken`, `WrappedHyperFungibleToken`, and [`pallet-hyper-fungible-token`](/developers/polkadot/hyper-fungible-token):
+
+```solidity lineNumbers
+struct Message {
+    bytes from;     // original sender (for timeout refunds)
+    bytes to;       // recipient on destination chain
+    uint256 amount; // token amount
+    bytes data;     // optional calldata for CallDispatcher
+}
+```
+
+## CallDispatcher
+
+Both contracts support optional calldata execution on the destination chain. If the `data` field in `SendParams` is non-empty, the contract calls `ICallDispatcher.dispatch(data)` after minting/unlocking tokens. This enables composable cross-chain interactions like transfer-and-swap or transfer-and-stake. Existing `CallDispatcher` deployments are listed on the [contract addresses](/developers/evm/contract-addresses/mainnet) page.
+
+## ERC165 Interface Detection
+
+Both contracts implement ERC165 for on-chain type detection:
+
+| Contract | Interface ID |
+|----------|-------------|
+| `IHyperFungibleToken` | `0x7200c457` |
+| `IWrappedHyperFungibleToken` | `0xe23d9765` |
+
+The [TypeScript SDK](/developers/sdk/hyper-fungible-token) uses this to automatically determine which approval flow is needed.
+
+## Security Model
+
+### Source Verification
+
+Every incoming message is verified against the registered peer:
+
+```solidity lineNumbers
+bytes memory expectedSource = _supportedChains[request.source];
+if (keccak256(request.from) != keccak256(expectedSource)) revert UnauthorizedSource();
+```
+
+Only messages from registered peer contracts are accepted. An attacker cannot spoof messages from unregistered chains or impersonate the peer contract address on a registered chain — ISMP provides cryptographic proof that the message was actually dispatched on the source chain.
+
+### Host Authorization
+
+All ISMP callbacks (`onAccept`, `onPostRequestTimeout`) are protected by the `onlyHost` modifier inherited from [HyperApp](/developers/evm/api/hyperapp). Only the ISMP host contract can call these functions.
+
+### Set-Once Host
+
+The host address can only be set once via `configure()`. After the first call, subsequent calls cannot change the host — only the dispatcher can be updated.
+
+## Pausability
+
+Both contracts inherit from OpenZeppelin's `Pausable`. The owner can pause and unpause all operations:
+
+```solidity lineNumbers
+IHyperFungibleToken(tokenAddress).pause();
+IHyperFungibleToken(tokenAddress).unpause();
+```
+
+When paused, `HyperFungibleToken` blocks all ERC20 transfers (`transfer` and `transferFrom`) in addition to cross-chain `send()` and `onAccept()`. This is a full stop on all token movement — use it for emergency situations or during migrations.
+
+## Installation
+
+<Tabs items={['pnpm', 'yarn', 'npm']}>
+<Tab value="pnpm">
+```bash lineNumbers
+pnpm add @hyperbridge/core
+```
+</Tab>
+<Tab value="yarn">
+```bash lineNumbers
+yarn add @hyperbridge/core
+```
+</Tab>
+<Tab value="npm">
+```bash lineNumbers
+npm install @hyperbridge/core
+```
+</Tab>
+</Tabs>
+
+## Related
+
+- [HyperFungibleToken](/developers/evm/hyper-fungible-token/hyper-fungible-token) — Deploy burn/mint tokens on remote chains
+- [WrappedHyperFungibleToken](/developers/evm/hyper-fungible-token/wrapped-hyper-fungible-token) — Deploy lock/unlock wrappers on the home chain
+- [API Reference](/developers/evm/api/hyper-fungible-token) — Full contract method signatures
+- [TypeScript SDK](/developers/sdk/hyper-fungible-token) — Bridge tokens from a frontend or Node.js
+- [Substrate Pallet](/developers/polkadot/hyper-fungible-token) — Substrate-side implementation

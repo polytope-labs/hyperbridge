@@ -78,9 +78,19 @@ impl From<IsmpEvent> for Event {
 
 /// Translates events emitted from [`source`] into messages to be submitted to the counterparty
 /// The [`state_machine_height`] parameter is the latest available height of [`source`] on
-/// the counterparty chain
+/// the counterparty chain.
+///
+/// `consensus_prelude` is the source-side consensus update that will land in
+/// the same batch as these messages (the outbound fan-out passes the
+/// `Message::Consensus` it built from the current `ProofAccepted` event).
+/// When present, it's passed through to gas estimation so each per-message
+/// estimate reflects the post-update state — without it, EVM sinks would
+/// simulate messages against the pre-update state commitment and either
+/// misestimate or fail the success check. Callers that don't submit a
+/// consensus message alongside (inbound pipeline) pass `None`.
+///
 /// Returns a tuple where the first item are messages to be submitted to the sink
-/// and the second tuple are currently unprofitable messages
+/// and the second tuple are currently unprofitable messages.
 pub async fn translate_events_to_messages(
 	source: Arc<dyn IsmpProvider>,
 	sink: Arc<dyn IsmpProvider>,
@@ -89,6 +99,7 @@ pub async fn translate_events_to_messages(
 	config: RelayerConfig,
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
+	consensus_prelude: Option<Message>,
 ) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
 	let mut post_request_queries = vec![];
 	let mut response_queries = vec![];
@@ -119,7 +130,7 @@ pub async fn translate_events_to_messages(
 								post.timeout_timestamp <= counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
-									"Found timed out request, request: {}, counterparty: {}",
+									target: crate::LOG_TARGET, "Found timed out request, request: {}, counterparty: {}",
 									post.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
@@ -128,7 +139,7 @@ pub async fn translate_events_to_messages(
 
 							if !is_allowed_module(&config, &post.from) {
 								tracing::trace!(
-									"Request from module {}, filtered by module filter",
+									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
 									hex::encode(&post.from),
 								);
 								return Ok(None);
@@ -166,7 +177,7 @@ pub async fn translate_events_to_messages(
 									counterparty_timestamp.as_secs()
 							{
 								tracing::trace!(
-									"Found timed out request, request: {}, counterparty: {}",
+									target: crate::LOG_TARGET, "Found timed out request, request: {}, counterparty: {}",
 									post_response.timeout_timestamp,
 									counterparty_timestamp.as_secs()
 								);
@@ -175,7 +186,7 @@ pub async fn translate_events_to_messages(
 
 							if !is_allowed_module(&config, &post_response.source_module()) {
 								tracing::trace!(
-									"Request from module {}, filtered by module filter",
+									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
 									hex::encode(&post_response.source_module()),
 								);
 								return Ok(None);
@@ -249,7 +260,7 @@ pub async fn translate_events_to_messages(
 	let (post_requests, post_request_queries, post_responses, response_queries) = {
 		if !request_messages.is_empty() || !response_messages.is_empty() {
 			tracing::trace!(
-				"Tracing transactions to {:?}, from: {:?}",
+				target: crate::LOG_TARGET, "Tracing transactions to {:?}, from: {:?}",
 				sink.state_machine_id().state_id,
 				source.state_machine_id().state_id
 			);
@@ -263,6 +274,7 @@ pub async fn translate_events_to_messages(
 			coprocessor,
 			&client_map,
 			config.deliver_failed.unwrap_or_default(),
+			consensus_prelude.clone(),
 		)
 		.await?;
 
@@ -296,6 +308,7 @@ pub async fn translate_events_to_messages(
 			coprocessor,
 			&client_map,
 			config.deliver_failed.unwrap_or_default(),
+			consensus_prelude.clone(),
 		)
 		.await?;
 
@@ -331,7 +344,7 @@ pub async fn translate_events_to_messages(
 	let mut messages = vec![];
 
 	if !post_request_queries.is_empty() {
-		tracing::trace!("Querying request proof for batch length {}", post_request_queries.len());
+		tracing::trace!(target: crate::LOG_TARGET, "Querying request proof for batch length {}", post_request_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = post_request_queries.chunks(chunks);
 		let post_request_chunks = post_requests.chunks(chunks);
@@ -353,7 +366,7 @@ pub async fn translate_events_to_messages(
 	}
 
 	if !response_queries.is_empty() {
-		tracing::trace!("Querying response proof for batch length {}", response_queries.len());
+		tracing::trace!(target: crate::LOG_TARGET, "Querying response proof for batch length {}", response_queries.len());
 		let chunks = chunk_size(sink.state_machine_id().state_id);
 		let query_chunks = response_queries.chunks(chunks);
 		let post_request_chunks = post_responses.chunks(chunks);
@@ -430,6 +443,7 @@ pub async fn return_successful_queries(
 	coprocessor: StateMachine,
 	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	deliver_failed: bool,
+	consensus_prelude: Option<Message>,
 ) -> Result<ProfitabilityResult, anyhow::Error> {
 	if messages.is_empty() {
 		return Ok(Default::default());
@@ -437,7 +451,10 @@ pub async fn return_successful_queries(
 
 	let mut queries_to_be_relayed = Vec::new();
 	let mut retriable_messages = Vec::new();
-	let gas_estimates = sink.estimate_gas(messages.clone()).await?;
+	// Estimate each message together with the consensus update it rides in
+	// with; EVM sinks use `batchCall([prelude, msg])` so the simulation sees
+	// the post-update state commitment.
+	let gas_estimates = sink.estimate_gas_batched(consensus_prelude, messages.clone()).await?;
 
 	// We'll be querying from possibly multiple chains, Let's use the lowest tracing batch size
 	// from all clients(except the coprocessor) and use that as the max concurrency
@@ -462,7 +479,7 @@ pub async fn return_successful_queries(
 				let client_map = client_map.clone();
 				async move {
 					if !est.successful_execution && !deliver_failed {
-						tracing::info!("Skipping Failed tx");
+						tracing::info!(target: crate::LOG_TARGET, "Skipping Failed tx");
 						// if msg has not been delivered return the message as retriable
 						let relayer = match &msg {
 							Message::Request(_) => {
@@ -485,7 +502,7 @@ pub async fn return_successful_queries(
 						let total_gas_to_be_expended_in_usd = est.execution_cost;
 						// what kind of message is this?
 						let Some(og_source)  = client_map.get(&query.source_chain) else {
-							tracing::info!("Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
+							tracing::info!(target: crate::LOG_TARGET, "Skipping tx because fee metadata cannot be queried, client for {:?} was not provided", query.source_chain);
 							return Ok((None, None))
 						};
 
@@ -509,11 +526,11 @@ pub async fn return_successful_queries(
 						};
 
 						if fee_metadata < fee_with_profit {
-							tracing::info!("Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
+							tracing::info!(target: crate::LOG_TARGET, "Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
 							(None, Some(msg))
 						} else {
 							tracing::trace!(
-								"Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
+								target: crate::LOG_TARGET, "Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
 									sink.state_machine_id().state_id, Cost(profit)
 							);
 							(Some(query), None)
@@ -521,7 +538,7 @@ pub async fn return_successful_queries(
 
 					} else {
 						// We only deliver sucessful messages to hyperbridge
-						tracing::trace!("Pushing tx to {:?}", sink.state_machine_id().state_id);
+						tracing::trace!(target: crate::LOG_TARGET, "Pushing tx to {:?}", sink.state_machine_id().state_id);
 						(Some(query), None)
 					};
 

@@ -1,5 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
+use alloy::{eips::BlockId, providers::Provider};
 use async_trait::async_trait;
 use cometbft::{
 	account::Id as CometbftAccountId,
@@ -13,17 +14,14 @@ use ismp_polygon::Milestone;
 use reqwest::Client as ReqwestClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tendermint_primitives::{Client, ProverError};
-
-use ethers::{
-	prelude::Provider,
-	providers::{Http, Middleware},
-	types::BlockId,
-};
+use tendermint_primitives::{Client as TendermintClient, ProverError};
 
 use base64::Engine;
 
-#[derive(Debug, Clone)]
+/// Type alias for alloy HTTP provider
+pub type AlloyProvider = tesseract_evm::AlloyProvider;
+
+#[derive(Clone)]
 /// A client implementation for interacting with Heimdall nodes.
 ///
 /// This client uses HTTP requests to communicate with Heimdall nodes,
@@ -33,7 +31,7 @@ pub struct HeimdallClient {
 	raw_client: ReqwestClient,
 	consensus_rpc_url: String,
 	http_client: HttpClient,
-	execution_rpc_client: Arc<Provider<Http>>,
+	execution_rpc_client: Arc<AlloyProvider>,
 }
 
 impl HeimdallClient {
@@ -54,7 +52,7 @@ impl HeimdallClient {
 	/// - The consensus RPC URL is invalid
 	/// - The HTTP client cannot be created
 	/// - The execution RPC provider cannot be created
-	pub fn new(url: &str, execution_rpc: &str) -> Result<Self, ProverError> {
+	pub fn new(url: &str, execution_rpcs: &[String]) -> Result<Self, ProverError> {
 		let raw_client = ReqwestClient::new();
 		let consensus_rpc_url = url.to_string();
 		let client_url = url
@@ -64,8 +62,8 @@ impl HeimdallClient {
 		let http_client =
 			HttpClient::new(client_url).map_err(|e| ProverError::NetworkError(e.to_string()))?;
 
-		let provider = Provider::<Http>::try_from(execution_rpc).map_err(|e| {
-			ProverError::NetworkError(format!("Failed to create ethers provider: {}", e))
+		let provider = tesseract_evm::create_provider(execution_rpcs).map_err(|e| {
+			ProverError::NetworkError(format!("Failed to create execution RPC provider: {}", e))
 		})?;
 		let execution_rpc_client = Arc::new(provider);
 
@@ -328,7 +326,7 @@ impl HeimdallClient {
 	) -> Result<Option<CodecHeader>, ProverError> {
 		let block = self
 			.execution_rpc_client
-			.get_block(block)
+			.get_block(block.into())
 			.await
 			.map_err(|e| ProverError::NetworkError(format!("Failed to get block: {}", e)))?;
 		if let Some(block) = block {
@@ -359,7 +357,7 @@ impl HeimdallClient {
 			self.execution_rpc_client.get_block_number().await.map_err(|e| {
 				ProverError::NetworkError(format!("Failed to get block number: {}", e))
 			})?;
-		let header = self.fetch_header(block_number.as_u64()).await?.ok_or_else(|| {
+		let header = self.fetch_header(block_number).await?.ok_or_else(|| {
 			ProverError::NetworkError(format!(
 				"Latest header block could not be fetched {block_number}"
 			))
@@ -369,7 +367,7 @@ impl HeimdallClient {
 }
 
 #[async_trait]
-impl Client for HeimdallClient {
+impl TendermintClient for HeimdallClient {
 	async fn latest_height(&self) -> Result<u64, ProverError> {
 		let status: StatusResponse = self.rpc_request("status", json!({})).await?;
 		Ok(status.sync_info.latest_block_height.value())
@@ -389,7 +387,7 @@ impl Client for HeimdallClient {
 		let mut expected_total = 0usize;
 
 		loop {
-			log::debug!(target: "tesseract", "Requesting validators page {} with page_size {} for height {}",
+			log::debug!(target: crate::LOG_TARGET, "Requesting validators page {} with page_size {} for height {}",
 					   page, page_size, height);
 
 			let heimdall_response: HeimdallValidatorsResponse = self
@@ -403,7 +401,7 @@ impl Client for HeimdallClient {
 				)
 				.await?;
 
-			log::trace!(target: "tesseract", "Received {} validators in page {}",
+			log::trace!(target: crate::LOG_TARGET, "Received {} validators in page {}",
 					   heimdall_response.validators.len(), page);
 
 			if page == 1 {
@@ -412,22 +410,22 @@ impl Client for HeimdallClient {
 					.parse()
 					.map_err(|_| ProverError::ConversionError("Invalid total count".to_string()))?;
 
-				log::info!(target: "tesseract", "Total validators expected: {} for height {}",
+				log::info!(target: crate::LOG_TARGET, "Total validators expected: {} for height {}",
 						  expected_total, height);
 			}
 
 			let validators_before = all_validators.len();
 			all_validators.extend(heimdall_response.clone().validators);
 
-			log::trace!(target: "tesseract", "Added {} validators, total collected: {}/{}",
+			log::trace!(target: crate::LOG_TARGET, "Added {} validators, total collected: {}/{}",
 					   all_validators.len() - validators_before, all_validators.len(), expected_total);
 
 			if all_validators.len() >= expected_total {
 				if all_validators.len() > expected_total {
-					log::warn!(target: "tesseract", "Collected more validators than expected! Got {}, expected {}. Truncating to expected count.",
+					log::warn!(target: crate::LOG_TARGET, "Collected more validators than expected! Got {}, expected {}. Truncating to expected count.",
 							  all_validators.len(), expected_total);
 				} else {
-					log::debug!(target: "tesseract", "Successfully collected all {} validators for height {}",
+					log::debug!(target: crate::LOG_TARGET, "Successfully collected all {} validators for height {}",
 							   expected_total, height);
 				}
 

@@ -49,7 +49,7 @@ where
 			// If block header is not found veto the state commitment
 
 			log::info!(
-				"Vetoing state commitment for {} on {}: block header not found for {}",
+				target: crate::LOG_TARGET, "Vetoing state commitment for {} on {}: block header not found for {}",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id,
 				event.latest_height
@@ -81,7 +81,7 @@ where
 
 		if finalized_state_commitment.state_root != state_root.into() {
 			log::info!(
-				"Vetoing state commitment for {} on {}, state commitment mismatch",
+				target: crate::LOG_TARGET, "Vetoing state commitment for {} on {}, state commitment mismatch",
 				self.state_machine_id().state_id,
 				counterparty.state_machine_id().state_id
 			);
@@ -113,7 +113,7 @@ where
 									"Error encountered while fetching finalized head"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							continue;
@@ -137,7 +137,7 @@ where
 									"Error encountered while querying ismp events {err:?}"
 								).into()))
 							{
-								log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+								log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 								return
 							}
 							latest_height = header.number().into();
@@ -159,7 +159,7 @@ where
 						if let Err(err) = tx
 										.send(Ok(events))
 									{
-										log::error!(target: "tesseract", "Failed to send message over channel on {state_machine:?} \n {err:?}");
+										log::error!(target: crate::LOG_TARGET, "Failed to send message over channel on {state_machine:?} \n {err:?}");
 										return
 									}
 					}

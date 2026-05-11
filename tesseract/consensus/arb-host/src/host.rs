@@ -1,10 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::ArbHost;
+use alloy::providers::Provider;
 use anyhow::{anyhow, Error};
 
 use codec::{Decode, Encode};
-use ethers::prelude::Middleware;
 use futures::{stream, StreamExt};
 use ismp::{
 	consensus::{StateCommitment, StateMachineId},
@@ -45,7 +45,7 @@ impl IsmpHost for ArbHost {
 			let client = self.clone();
 			let counterparty = counterparty_clone.clone();
 			let consensus_state = consensus_state.clone();
-			let state_machine = client.evm.state_machine();
+			let state_machine = client.state_machine;
 
 			async move {
 				interval.tick().await;
@@ -73,7 +73,7 @@ impl IsmpHost for ArbHost {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
 											state_machine_id: StateMachineId {
-												state_id: self.evm.state_machine,
+												state_id: self.state_machine,
 												consensus_state_id: self.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -116,7 +116,7 @@ impl IsmpHost for ArbHost {
 									Ok(payload) => {
 										let update = ArbitrumUpdate {
 											state_machine_id: StateMachineId {
-												state_id: self.evm.state_machine,
+												state_id: self.state_machine,
 												consensus_state_id: self.consensus_state_id,
 											},
 											l1_height: current_height,
@@ -179,13 +179,13 @@ impl IsmpHost for ArbHost {
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: crate::LOG_TARGET, "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}
 				},
 				Err(e) => {
-					log::error!(target: "tesseract","Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
+					log::error!(target: crate::LOG_TARGET,"Consensus task {}->{} encountered an error: {e:?}", provider.name(), counterparty.name())
 				},
 			}
 		}
@@ -203,17 +203,17 @@ impl IsmpHost for ArbHost {
 		let mut state_machine_commitments = vec![];
 
 		let number = self.arb_execution_client.get_block_number().await?;
-		let block = self.arb_execution_client.get_block(number).await?.ok_or_else(|| {
-			anyhow!("Didn't find block with number {number} on {:?}", self.evm.state_machine)
+		let block = self.arb_execution_client.get_block(number.into()).await?.ok_or_else(|| {
+			anyhow!("Didn't find block with number {number} on {:?}", self.state_machine)
 		})?;
 
 		let state_machine_id = StateMachineId {
-			state_id: self.evm.state_machine,
+			state_id: self.state_machine,
 			consensus_state_id: self.consensus_state_id.clone(),
 		};
 
 		let initial_consensus_state = ConsensusState {
-			finalized_height: number.as_u64(),
+			finalized_height: number,
 			state_machine_id,
 			l1_state_machine_id: StateMachineId {
 				state_id: self.l1_state_machine,
@@ -226,11 +226,11 @@ impl IsmpHost for ArbHost {
 			state_machine_id,
 			StateCommitmentHeight {
 				commitment: StateCommitment {
-					timestamp: block.timestamp.as_u64(),
+					timestamp: block.header.timestamp,
 					overlay_root: None,
-					state_root: block.state_root.0.into(),
+					state_root: block.header.state_root.0.into(),
 				},
-				height: number.as_u64(),
+				height: number,
 			},
 		));
 

@@ -21,7 +21,7 @@ use alloc::collections::BTreeMap;
 use cumulus_pallet_parachain_system::ParachainSetCode;
 use frame_support::{
 	derive_impl, parameter_types,
-	traits::{ConstU32, ConstU64, ConstU128, Get},
+	traits::{ConstU128, ConstU32, ConstU64, Get},
 	PalletId,
 };
 use frame_system::{EnsureRoot, EnsureSigned, EventRecord};
@@ -101,6 +101,7 @@ frame_support::construct_runtime!(
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
 		IsmpBsc: ismp_bsc::pallet,
 		TokenGateway: pallet_token_gateway,
+		HyperFungibleToken: pallet_hyper_fungible_token,
 		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
@@ -112,6 +113,7 @@ frame_support::construct_runtime!(
 		CollatorManager: pallet_collator_manager,
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
+		IsmpParachain: ismp_parachain,
 	}
 );
 
@@ -258,6 +260,13 @@ impl pallet_ismp::Config for Test {
 			Test,
 			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
 		>,
+		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
+		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
+		ismp_beefy::consensus::BeefyConsensusClient<
+			Ismp,
+			Test,
+			substrate_state_machine::SubstrateStateMachine<Test>,
+		>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler = (
@@ -271,6 +280,7 @@ impl pallet_ismp::Config for Test {
 			true,
 		>,
 	);
+	type MigrationWeightInfo = ();
 }
 
 impl pallet_hyperbridge::Config for Test {
@@ -305,6 +315,25 @@ impl pallet_token_gateway::Config for Test {
 	type CreateOrigin = EnsureSigned<AccountId32>;
 	type Decimals = Decimals;
 	type AssetAdmin = AssetAdmin;
+	type EvmToSubstrate = ();
+	type WeightInfo = ();
+}
+
+pub struct HftNativeAssetId;
+
+impl Get<H256> for HftNativeAssetId {
+	fn get() -> H256 {
+		sp_io::hashing::keccak_256(b"BRIDGE").into()
+	}
+}
+
+impl pallet_hyper_fungible_token::Config for Test {
+	type Dispatcher = Ismp;
+	type Assets = Assets;
+	type NativeCurrency = Balances;
+	type NativeAssetId = HftNativeAssetId;
+	type CreateOrigin = EnsureSigned<AccountId32>;
+	type Decimals = Decimals;
 	type EvmToSubstrate = ();
 	type WeightInfo = ();
 }
@@ -371,7 +400,7 @@ impl pallet_collator_selection::Config for Test {
 	type KickThreshold = ConstU64<1>;
 	type ValidatorId = AccountId32;
 	type ValidatorIdOf = ConvertInto;
-	type ValidatorRegistration = Session;
+	type ValidatorRegistration = CollatorManager;
 	type MinEligibleCollators = DesiredCollators;
 	type WeightInfo = ();
 }
@@ -420,6 +449,22 @@ impl ismp_grandpa::Config for Test {
 	type RootOrigin = EnsureRoot<AccountId32>;
 }
 
+impl ismp_parachain::Config for Test {
+	type IsmpHost = Ismp;
+	type WeightInfo = ();
+	type RootOrigin = EnsureRoot<AccountId32>;
+}
+
+impl ismp_beefy::BeefyClientConfig for Test {
+	fn is_parachain_tracked(para_id: u32) -> bool {
+		ismp_parachain::Parachains::<Test>::contains_key(para_id)
+	}
+
+	fn sp1_vkey_hash() -> Vec<u8> {
+		Vec::new()
+	}
+}
+
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
 }
@@ -436,9 +481,14 @@ impl pallet_mmr_tree::Config for Test {
 	type ForkIdentifierProvider = Ismp;
 }
 
+parameter_types! {
+	pub const OutboundRewardTreasury: PalletId = PalletId(*b"ob/rwrds");
+}
+
 impl pallet_ismp_relayer::Config for Test {
 	type IsmpHost = Ismp;
 	type RelayerOrigin = EnsureRoot<AccountId32>;
+	type TreasuryPalletId = OutboundRewardTreasury;
 }
 
 impl pallet_ismp_host_executive::Config for Test {
@@ -702,6 +752,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		balances: vec![
 			(ALICE, INITIAL_BALANCE),
 			(TokenGateway::pallet_account(), INITIAL_BALANCE),
+			(HyperFungibleToken::pallet_account(), INITIAL_BALANCE),
 			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
 		],
 		..Default::default()
@@ -742,6 +793,29 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			call_dispatcher: H160::random(),
 		};
 		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
+
+		// Setup HyperFungibleToken pallet storage
+		// Register the native asset with a mock EVM contract address
+		let hft_contract = vec![0xABu8; 20];
+		pallet_hyper_fungible_token::TokenContracts::<Test>::insert(
+			StateMachine::Evm(1),
+			HftNativeAssetId::get(),
+			hft_contract.clone(),
+		);
+		pallet_hyper_fungible_token::ContractToAsset::<Test>::insert(
+			StateMachine::Evm(1),
+			hft_contract,
+			HftNativeAssetId::get(),
+		);
+		pallet_hyper_fungible_token::NativeAssets::<Test>::insert(HftNativeAssetId::get(), true);
+		pallet_hyper_fungible_token::Precisions::<Test>::insert(
+			HftNativeAssetId::get(),
+			StateMachine::Evm(1),
+			18,
+		);
+
+		// Initialize BEEFY consensus state in pallet-ismp storage for outbound proofs
+		pallet_ismp::ConsensusStates::<Test>::insert(*b"BEEF", vec![0u8; 32]);
 	});
 	ext
 }

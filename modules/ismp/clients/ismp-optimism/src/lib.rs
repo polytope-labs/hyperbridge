@@ -19,8 +19,16 @@
 
 extern crate alloc;
 
+pub mod migrations;
 pub mod pallet;
 use pallet::{Pallet, SupportedStateMachines};
+
+/// Current storage version of `pallet-ismp-optimism`. Bumped to `1` alongside the
+/// [`migrations::SeedDisputeGameConfigs`] migration that translates
+/// `StateMachinesDisputeGameFactoriesTypes` from `(H160, Vec<u32>)` to the richer
+/// `(H160, Vec<GameTypeConfig>)` layout and seeds the per-game-type verification configs.
+pub const STORAGE_VERSION: polkadot_sdk::frame_support::traits::StorageVersion =
+	polkadot_sdk::frame_support::traits::StorageVersion::new(1);
 
 use alloc::{boxed::Box, collections::BTreeMap, string::ToString, vec::Vec};
 use codec::{Decode, Encode};
@@ -35,8 +43,8 @@ use ismp::{
 	messaging::StateCommitmentHeight,
 };
 use op_verifier::{
-	OptimismDisputeGameProof, OptimismPayloadProof, verify_optimism_dispute_game_proof,
-	verify_optimism_payload,
+	GameTypeConfig, OptimismDisputeGameProof, OptimismPayloadProof,
+	verify_optimism_dispute_game_proof, verify_optimism_payload,
 };
 
 pub const OPTIMISM_CONSENSUS_CLIENT_ID: ConsensusClientId = *b"OPTC";
@@ -47,7 +55,49 @@ pub struct ConsensusState {
 	pub state_machine_id: StateMachineId,
 	pub l1_state_machine_id: StateMachineId,
 	pub optimism_consensus_type: Option<OptimismConsensusType>,
-	pub respected_game_types: Option<Vec<u32>>,
+	/// Per-game-type verification configuration for `OpFaultProofGames`. See
+	/// [`op_verifier::GameTypeConfig`]. The op-host reads the authoritative configuration from
+	/// the `IsmpOptimism` pallet on Hyperbridge; this field is retained as informational
+	/// metadata on the consensus state.
+	pub game_type_configs: Option<Vec<GameTypeConfig>>,
+}
+
+impl ConsensusState {
+	/// SCALE-decode the consensus state while tolerating schema drift in the
+	/// trailing `game_type_configs` field.
+	///
+	/// `GameTypeConfig` gained the `expected_impl: H160` field after consensus
+	/// states had already been seeded. Stored entries encoded before that
+	/// change have 20 fewer bytes per config than the current struct expects,
+	/// so a strict decode fails with "Not enough data to fill buffer" partway
+	/// through the last field. Since the authoritative game-type configuration
+	/// for verification is read from pallet storage (see
+	/// `Pallet::state_machines_dispute_game_factories_types` in
+	/// [`verify_consensus`]) rather than from this blob, we can safely treat
+	/// the last field as `None` on old entries and let the consensus loop
+	/// reseed the state over time.
+	pub fn decode_tolerant(bytes: &[u8]) -> Result<Self, codec::Error> {
+		if let Ok(state) = Self::decode(&mut &*bytes) {
+			return Ok(state);
+		}
+
+		#[derive(codec::Decode)]
+		struct PrefixOnly {
+			finalized_height: u64,
+			state_machine_id: StateMachineId,
+			l1_state_machine_id: StateMachineId,
+			optimism_consensus_type: Option<OptimismConsensusType>,
+		}
+
+		let prefix = PrefixOnly::decode(&mut &*bytes)?;
+		Ok(Self {
+			finalized_height: prefix.finalized_height,
+			state_machine_id: prefix.state_machine_id,
+			l1_state_machine_id: prefix.l1_state_machine_id,
+			optimism_consensus_type: prefix.optimism_consensus_type,
+			game_type_configs: None,
+		})
+	}
 }
 
 #[derive(Encode, Decode)]
@@ -111,7 +161,7 @@ impl<
 			OptimismUpdate::decode(&mut &consensus_proof[..])
 				.map_err(|_| Error::Custom("Cannot decode optimism update".to_string()))?;
 
-		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
+		let mut consensus_state = ConsensusState::decode_tolerant(&trusted_consensus_state)
 			.map_err(|_| Error::Custom("Cannot decode trusted consensus state".to_string()))?;
 
 		let l1_state_machine_height =
@@ -156,14 +206,14 @@ impl<
 				}
 			},
 			OptimismConsensusProof::OpFaultProofGames(dispute_proof) => {
-				if let Some((dispute_game_factory, respected_game_types)) =
+				if let Some((dispute_game_factory, game_type_configs)) =
 					Pallet::<T>::state_machines_dispute_game_factories_types(state_machine_id)
 				{
 					let state = verify_optimism_dispute_game_proof::<H>(
 						dispute_proof,
 						state_root,
 						dispute_game_factory,
-						respected_game_types,
+						game_type_configs,
 						consensus_state_id.clone(),
 					)?;
 

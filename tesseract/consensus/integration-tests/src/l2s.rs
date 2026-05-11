@@ -21,6 +21,7 @@ use ismp::{
 	messaging::{ConsensusMessage, CreateConsensusState, Message},
 };
 use op_host::OpHost;
+use op_verifier::{DisputeGameImpl, GameTypeConfig};
 use pallet_ismp::weights::IsmpModuleWeight;
 use substrate_state_machine::HashAlgorithm;
 use subxt_utils::{
@@ -89,7 +90,10 @@ async fn setup_clients() -> Result<
 			state_machine: StateMachine::Evm(11155111),
 			consensus_state_id: "ETH0".to_string(),
 			ismp_host: hex!("7BdE4Ce065400eE332C20f7df3a35d66674165f6").into(),
-			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			signer: Some(
+				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			),
+			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
 
@@ -113,8 +117,11 @@ async fn setup_clients() -> Result<
 			state_machine: StateMachine::Evm(421614),
 			consensus_state_id: "ARB0".to_string(),
 			ismp_host: hex!("3435bD7e5895356535459D6087D1eB982DAd90e7").into(),
-			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			signer: Some(
+				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			),
 			gas_price_buffer: Some(800),
+			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
 
@@ -145,8 +152,11 @@ async fn setup_clients() -> Result<
 			state_machine: StateMachine::Evm(11155420),
 			consensus_state_id: "OPT0".to_string(),
 			ismp_host: hex!("6d51b678836d8060d980605d2999eF211809f3C2").into(),
-			signer: "6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			signer: Some(
+				"6284acbdef4b15b21b64d9fbdcb7c7d4fa05f1a96364d12c2988bddc18356d84".to_string(),
+			),
 			gas_price_buffer: Some(500),
+			transport: tesseract_evm::transport::RpcTransport::Standard,
 			..Default::default()
 		};
 
@@ -180,7 +190,7 @@ async fn setup_clients() -> Result<
 	let optimism_initial_consensus_state_message_for_other_chains =
 		optimism_chain.query_initial_consensus_state().await?.unwrap();
 
-	log::info!("🧊 Setting consensus states");
+	log::info!(target: crate::LOG_TARGET, "🧊 Setting consensus states");
 	hyperbridge_chain
 		.provider()
 		.set_initial_consensus_state(
@@ -234,7 +244,7 @@ pub async fn set_optimism_config_on_hyperbridge(
 	hyperbridge_chain: GrandpaHost<Blake2SubstrateChain, Hyperbridge>,
 	state_machine_id: StateMachineId,
 	dispute_game_factory: H160,
-	respected_game_types: Vec<u32>,
+	game_type_configs: Vec<GameTypeConfig>,
 ) -> Result<(), anyhow::Error> {
 	println!("trying to set optimism config");
 
@@ -253,10 +263,12 @@ pub async fn set_optimism_config_on_hyperbridge(
 	let state_machine_id_value = state_machine_id_to_value(&state_machine_id);
 
 	let dispute_game_factory_value = Value::from_bytes(dispute_game_factory.0.to_vec());
-	let respected_game_types_value = value!(respected_game_types);
+	let game_type_configs_value = Value::unnamed_composite(
+		game_type_configs.iter().map(game_type_config_to_value).collect::<Vec<_>>(),
+	);
 
 	let inner_tx_args =
-		vec![state_machine_id_value, dispute_game_factory_value, respected_game_types_value];
+		vec![state_machine_id_value, dispute_game_factory_value, game_type_configs_value];
 
 	let call = subxt::dynamic::tx("IsmpOptimism", "set_dispute_game_factories", inner_tx_args);
 	println!("constructing sudo call");
@@ -266,12 +278,27 @@ pub async fn set_optimism_config_on_hyperbridge(
 	Ok(())
 }
 
+fn game_type_config_to_value(config: &GameTypeConfig) -> Value {
+	let kind = match config.kind {
+		DisputeGameImpl::OPSuccinct => Value::unnamed_variant("OPSuccinct", Vec::<Value>::new()),
+		DisputeGameImpl::FaultDisputeGame =>
+			Value::unnamed_variant("FaultDisputeGame", Vec::<Value>::new()),
+		DisputeGameImpl::AggregateVerifier =>
+			Value::unnamed_variant("AggregateVerifier", Vec::<Value>::new()),
+	};
+	Value::named_composite(vec![
+		("game_type", value!(config.game_type)),
+		("expected_impl", Value::from_bytes(config.expected_impl.0.to_vec())),
+		("kind", kind),
+	])
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
 	setup_logging();
 
-	log::info!("🧊 Initializing tesseract consensus");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initializing tesseract consensus");
 
 	let (hyperbridge_chain, sync_committee_chain, arbitrum_chain, optimism_chain) =
 		setup_clients().await?;
@@ -299,7 +326,7 @@ async fn test_consensus_messaging_relay() -> Result<(), anyhow::Error> {
 		async move { optimism_chain.start_consensus(hyperbridge_chain.provider()).await.unwrap() }
 	});
 
-	log::info!("🧊 Initialized consensus tasks");
+	log::info!(target: crate::LOG_TARGET, "🧊 Initialized consensus tasks");
 
 	let _ = tokio::join!(handle_a, handle_b, handle_c);
 

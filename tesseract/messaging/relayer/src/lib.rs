@@ -1,3 +1,6 @@
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-relayer";
+
 mod cli;
 mod config;
 pub mod logging;

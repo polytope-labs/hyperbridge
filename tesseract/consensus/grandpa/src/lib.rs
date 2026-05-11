@@ -13,6 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-grandpa";
+
 use std::sync::Arc;
 
 use ::polkadot_sdk::sp_runtime::traits::{One, Zero};
@@ -37,14 +40,18 @@ const DEFAULT_BLOCK_RANGE: u32 = 2400;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GrandpaConfig {
-	/// substrate config options
-	pub substrate: SubstrateConfig,
 	/// Host config
+	#[serde(flatten)]
 	pub grandpa: HostConfig,
 }
 
 impl GrandpaConfig {
-	pub async fn into_client<H, C>(&self) -> anyhow::Result<Arc<dyn IsmpHost>>
+	/// Convert the config into a client. Caller supplies the chain's substrate
+	/// host config; we no longer bundle it into this struct.
+	pub async fn into_client<H, C>(
+		&self,
+		substrate: SubstrateConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>>
 	where
 		H: subxt::Config + Send + Sync + Clone,
 		C: subxt::Config + Send + Sync + Clone,
@@ -65,7 +72,7 @@ impl GrandpaConfig {
 		<C::ExtrinsicParams as ExtrinsicParams<C>>::Params: Send + Sync + DefaultParams,
 		H256: From<HashFor<C>>,
 	{
-		let host = GrandpaHost::<H, C>::new(&self).await?;
+		let host = GrandpaHost::<H, C>::new(&substrate, self).await?;
 		Ok(Arc::new(host))
 	}
 }
@@ -115,30 +122,22 @@ where
 	C::AccountId: From<AccountId32> + Into<C::Address> + Clone + 'static + Send + Sync,
 	H256: From<HashFor<C>>,
 {
-	pub async fn new(config: &GrandpaConfig) -> Result<Self, anyhow::Error> {
+	pub async fn new(
+		substrate: &SubstrateConfig,
+		config: &GrandpaConfig,
+	) -> Result<Self, anyhow::Error> {
+		let substrate_client = SubstrateClient::<C>::new(substrate.clone()).await?;
 		let prover = GrandpaProver::new(ProverOptions {
 			ws_url: config.grandpa.rpc.clone(),
 			para_ids: config.grandpa.para_ids.clone(),
-			state_machine: config.substrate.state_machine,
+			state_machine: substrate_client.state_machine(),
 			max_rpc_payload_size: 150 * 1024 * 1024,
 			max_block_range: config.grandpa.max_block_range.unwrap_or(DEFAULT_BLOCK_RANGE),
 		})
 		.await?;
-		let substrate_client = SubstrateClient::<C>::new(config.substrate.clone()).await?;
 		Ok(GrandpaHost {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(
-					config
-						.substrate
-						.consensus_state_id
-						.clone()
-						.expect("Expected consensus state id")
-						.as_bytes(),
-				);
-				consensus_state_id
-			},
-			state_machine: config.substrate.state_machine,
+			consensus_state_id: substrate_client.consensus_state_id(),
+			state_machine: substrate_client.state_machine(),
 			substrate_client,
 			prover,
 			config: config.clone(),

@@ -1,0 +1,273 @@
+---
+title: HyperbridgeLzEndpoint
+description: API reference for the HyperbridgeLzEndpoint contract — LayerZero V2 endpoint adapter backed by ISMP.
+---
+
+# HyperbridgeLzEndpoint
+
+A LayerZero V2 endpoint adapter that routes messages through Hyperbridge's ISMP protocol. Implements `ILayerZeroEndpointV2` for OApp compatibility and inherits [HyperApp](/developers/evm/api/hyperapp) for ISMP message handling.
+
+```solidity lineNumbers
+contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpointV2
+```
+
+See the [guide](/developers/evm/lz-endpoint) for deployment, configuration, and OFT migration.
+
+## Configuration
+
+### setHost(hostAddr, localEid)
+
+Sets the ISMP host address and local LayerZero endpoint ID. Also initializes the default relayer fee to $0.30 based on the host's fee token decimals.
+
+```solidity lineNumbers
+function setHost(address hostAddr, uint32 localEid) external onlyOwner
+```
+
+---
+
+### setEidMapping(lzEid, stateMachineId)
+
+Registers a bidirectional mapping between a LayerZero EID and an ISMP state machine ID.
+
+```solidity lineNumbers
+function setEidMapping(uint32 lzEid, bytes calldata stateMachineId) external onlyOwner
+```
+
+---
+
+### setRelayerFee(dstEid, fee)
+
+Sets the relayer fee for a specific destination chain in fee token units.
+
+```solidity lineNumbers
+function setRelayerFee(uint32 dstEid, uint256 fee) external onlyOwner
+```
+
+---
+
+### setDefaultRelayerFee(fee)
+
+Sets the default relayer fee used when no per-destination fee is configured.
+
+```solidity lineNumbers
+function setDefaultRelayerFee(uint256 fee) external onlyOwner
+```
+
+---
+
+### pause()
+
+Pauses all cross-chain operations (send and receive). Only callable by the contract owner.
+
+```solidity lineNumbers
+function pause() external onlyOwner
+```
+
+---
+
+### unpause()
+
+Resumes all operations after a pause. Only callable by the contract owner.
+
+```solidity lineNumbers
+function unpause() external onlyOwner
+```
+
+## Core Endpoint Functions
+
+### send(params, refundAddress)
+
+Encodes the LayerZero message into an ISMP POST request and dispatches it through Hyperbridge. Tracks outbound nonces and computes a globally unique GUID.
+
+```solidity lineNumbers
+function send(
+    MessagingParams calldata _params,
+    address _refundAddress
+) external payable returns (MessagingReceipt memory)
+```
+
+Fee payment follows the same model as other ISMP applications: if `msg.value > 0`, fees are paid in native token; otherwise fees are paid in the host's fee token.
+
+---
+
+### quote(params, sender)
+
+Returns the fee for sending a message. Uses the host's `quote()` or `quoteNative()` depending on whether `payInLzToken` is set.
+
+```solidity lineNumbers
+function quote(
+    MessagingParams calldata _params,
+    address _sender
+) external view returns (MessagingFee memory)
+```
+
+---
+
+### onAccept(incoming)
+
+Handles incoming ISMP messages. Decodes the LayerZero message, validates the source and nonce, then calls `lzReceive()` on the destination OApp.
+
+```solidity lineNumbers
+function onAccept(IncomingPostRequest calldata incoming) external onlyHost whenNotPaused
+```
+
+## Compose Functions
+
+### sendCompose(to, guid, index, message)
+
+Queues a compose message hash for later execution. Called by OApps during `lzReceive()`.
+
+```solidity lineNumbers
+function sendCompose(address _to, bytes32 _guid, uint16 _index, bytes calldata _message) external
+```
+
+---
+
+### lzCompose(from, to, guid, index, message, extraData)
+
+Executes a queued compose message. Verifies the message hash matches the queue, deletes it, then calls `lzCompose()` on the target `ILayerZeroComposer`. Can be called by anyone (typically a relayer).
+
+```solidity lineNumbers
+function lzCompose(
+    address _from,
+    address _to,
+    bytes32 _guid,
+    uint16 _index,
+    bytes calldata _message,
+    bytes calldata _extraData
+) external payable
+```
+
+---
+
+### composeQueue(from, to, guid, index)
+
+Returns the keccak256 hash of a queued compose message, or `bytes32(0)` if not queued.
+
+```solidity lineNumbers
+function composeQueue(
+    address _from,
+    address _to,
+    bytes32 _guid,
+    uint16 _index
+) external view returns (bytes32)
+```
+
+## View Functions
+
+### eid()
+
+Returns the local LayerZero endpoint ID.
+
+```solidity lineNumbers
+function eid() external view returns (uint32)
+```
+
+---
+
+### eidMapping(lzEid)
+
+Returns the ISMP state machine identifier for a given LZ endpoint ID.
+
+```solidity lineNumbers
+function eidMapping(uint32 lzEid) public view returns (bytes memory)
+```
+
+---
+
+### eidFor(stateMachineId)
+
+Returns the LZ endpoint ID for a given ISMP state machine identifier. Returns 0 if not configured.
+
+```solidity lineNumbers
+function eidFor(bytes calldata stateMachineId) public view returns (uint32)
+```
+
+---
+
+### relayerFee(dstEid)
+
+Returns the relayer fee for a destination, falling back to the default.
+
+```solidity lineNumbers
+function relayerFee(uint32 dstEid) public view returns (uint256)
+```
+
+---
+
+### defaultRelayerFee()
+
+Returns the default relayer fee in fee token units.
+
+```solidity lineNumbers
+function defaultRelayerFee() public view returns (uint256)
+```
+
+---
+
+### host()
+
+Returns the ISMP host contract address.
+
+```solidity lineNumbers
+function host() public view returns (address)
+```
+
+---
+
+### lzToken()
+
+Returns the host's fee token address (used as the LZ token for fee payment).
+
+```solidity lineNumbers
+function lzToken() external view returns (address)
+```
+
+---
+
+### isSupportedEid(lzEid)
+
+Returns whether a destination EID has a configured state machine mapping.
+
+```solidity lineNumbers
+function isSupportedEid(uint32 _lzEid) external view returns (bool)
+```
+
+---
+
+### inboundNonce(receiver, srcEid, sender)
+
+Returns the latest received nonce for a given path.
+
+```solidity lineNumbers
+function inboundNonce(address _receiver, uint32 _srcEid, bytes32 _sender) external view returns (uint64)
+```
+
+---
+
+### outboundNonce(sender, dstEid, receiver)
+
+Returns the latest sent nonce for a given path.
+
+```solidity lineNumbers
+function outboundNonce(address _sender, uint32 _dstEid, bytes32 _receiver) external view returns (uint64)
+```
+
+---
+
+### nextGuid(sender, dstEid, receiver)
+
+Returns the GUID that would be assigned to the next message on this path.
+
+```solidity lineNumbers
+function nextGuid(address _sender, uint32 _dstEid, bytes32 _receiver) external view returns (bytes32)
+```
+
+## Errors
+
+| Error | Description |
+|-------|-------------|
+| `UnknownEid(uint32 eid)` | Destination EID has no configured state machine mapping |
+| `UnknownSource()` | Incoming message source doesn't match the adapter's address, or source EID doesn't match the ISMP source chain |
+| `InvalidNonce(uint64 expected, uint64 got)` | Inbound nonce is out of order |
+| `InvalidCompose()` | Compose message doesn't match the queued hash, or no message was queued |

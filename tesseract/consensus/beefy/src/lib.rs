@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-beefy";
+
 use anyhow::anyhow;
 use primitive_types::H256;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use subxt::{
 	config::{ExtrinsicParams, HashFor},
 	tx::DefaultParams,
 	utils::{AccountId32, MultiSignature},
 };
+use tesseract_primitives::IsmpProvider as _;
 
 pub use beefy_verifier_primitives::ConsensusState;
 use host::{BeefyHost, BeefyHostConfig};
@@ -27,30 +32,32 @@ use ismp::host::StateMachine;
 use prover::{Prover, ProverConfig};
 use tesseract_substrate::{SubstrateClient, SubstrateConfig};
 
+pub mod backend;
 pub mod host;
 pub mod prover;
-mod redis_utils;
-
-const VALIDATOR_SET_ID_KEY: [u8; 32] =
-	hex_literal::hex!("08c41974a97dbf15cfbec28365bea2da8f05bccc2f70ec66a32999c5761156be");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeefyConfig {
 	// Configuration options for the BEEFY prover
 	#[serde(flatten)]
 	pub prover: ProverConfig,
-	/// Configuration options for the beefy prover and host
+	/// Configuration options for the beefy host
+	#[serde(flatten)]
 	pub host: BeefyHostConfig,
+	/// Configuration options for the prover (state machines and finalization)
+	#[serde(flatten)]
+	pub prover_config: prover::BeefyProverConfig,
 	/// substrate config
 	#[serde(flatten)]
 	pub substrate: SubstrateConfig,
 }
 
 impl BeefyConfig {
-	/// Constructs an instance of the [`IsmpHost`] from the provided configs
+	/// Constructs an instance of the [`IsmpHost`], selecting the proof backend based on
+	/// [`BeefyProverConfig::backend`](prover::BeefyProverConfig::backend).
 	pub async fn into_client<R, P>(
 		self,
-	) -> Result<BeefyHost<R, P, zk_beefy::LocalProver>, anyhow::Error>
+	) -> Result<BeefyHost<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>, anyhow::Error>
 	where
 		R: subxt::Config + Send + Sync + Clone,
 		P: subxt::Config + Send + Sync + Clone,
@@ -61,9 +68,33 @@ impl BeefyConfig {
 	{
 		let client = SubstrateClient::<P>::new(self.substrate).await?;
 		let prover = Prover::<R, P, zk_beefy::LocalProver>::new(self.prover.clone()).await?;
-		let host = BeefyHost::<R, P, zk_beefy::LocalProver>::new(self.host, prover, client).await?;
 
-		Ok(host)
+		let backend: Arc<dyn backend::ProofBackend> = match self.prover_config.backend.clone() {
+			backend::ProofBackendConfig::Redis { config } => {
+				let mut cfg = config;
+				cfg.realtime = true; // Enable real-time notifications
+				Arc::new(backend::RedisProofBackend::new(cfg).await?)
+			},
+			backend::ProofBackendConfig::Onchain => {
+				let mut sm_id = client.state_machine_id();
+				sm_id.consensus_state_id = self.host.consensus_state_id;
+				Arc::new(backend::OnchainBackend::<P>::new(
+					client.client.clone(),
+					client.rpc_client.clone(),
+					client.signer.clone(),
+					sm_id,
+				))
+			},
+			backend::ProofBackendConfig::InMemory => {
+				let initial_state = prover.query_initial_consensus_state(None).await?;
+				Arc::new(backend::InMemoryProofBackend::new(initial_state))
+			},
+		};
+
+		BeefyHost::<R, P, zk_beefy::LocalProver, dyn backend::ProofBackend>::new(
+			self.host, prover, client, backend,
+		)
+		.await
 	}
 }
 

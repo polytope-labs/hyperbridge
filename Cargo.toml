@@ -21,26 +21,29 @@ members = [
     "modules/pallets/call-decompressor",
     "modules/pallets/xcm-gateway",
     "modules/pallets/token-governor",
+    "modules/pallets/hyper-fungible-token",
     "modules/pallets/token-gateway",
     "modules/pallets/token-gateway/primitives",
     "modules/pallets/token-gateway-inspector",
     "modules/pallets/hyperbridge",
     "modules/pallets/intents-coprocessor",
+    "modules/pallets/intents-coprocessor/rpc",
     "modules/pallets/state-coprocessor",
     "modules/ismp/clients/sync-committee",
     "modules/ismp/clients/casper-ffg",
     "modules/ismp/clients/parachain/client",
-    "modules/ismp/clients/parachain/inherent",
     "modules/ismp/clients/parachain/runtime-api",
     "modules/ismp/clients/arbitrum",
     "modules/ismp/clients/optimism",
     "modules/ismp/clients/bsc",
+    "modules/ismp/clients/pharos",
     "modules/ismp/clients/grandpa",
     "modules/ismp/testsuite",
     "modules/ismp/clients/ismp-arbitrum",
     "modules/ismp/clients/ismp-optimism",
     "modules/ismp/clients/polygon",
     "modules/ismp/clients/tendermint",
+    "modules/ismp/clients/beefy",
     "modules/pallets/collator-manager",
 
     # cryptography
@@ -49,6 +52,7 @@ members = [
     "modules/consensus/sync-committee/primitives",
     "modules/consensus/beefy/primitives",
     "modules/consensus/beefy/prover",
+    "modules/consensus/beefy/verifier",
     "modules/consensus/geth-primitives",
     "modules/consensus/bsc/verifier",
     "modules/consensus/bsc/prover",
@@ -59,6 +63,9 @@ members = [
     "modules/consensus/tendermint/prover",
     "modules/consensus/tendermint/primitives",
     "modules/consensus/tendermint/ics23-primitives",
+    "modules/consensus/pharos/primitives",
+    "modules/consensus/pharos/verifier",
+    "modules/consensus/pharos/prover",
     "modules/trees/ethereum",
     "modules/pallets/mmr",
     "modules/pallets/mmr/primitives",
@@ -68,12 +75,14 @@ members = [
     "modules/ismp/state-machines/evm",
     "modules/ismp/state-machines/substrate",
     "modules/ismp/state-machines/hyperbridge",
+    "modules/ismp/state-machines/pharos",
     "modules/pallets/consensus-incentives",
     "modules/pallets/messaging-fees",
+    "modules/pallets/beefy-consensus-proofs",
 
     # evm stuff
-    # "evm/integration-tests",
-    # "evm/abi",
+    "evm/tests/rust",
+    "evm/abi",
 
     # hyperclient
     # "modules/hyperclient",
@@ -90,33 +99,40 @@ members = [
     "modules/utils/crypto",
 
     # tesseract
-    # "tesseract/messaging/primitives",
-    # "tesseract/messaging/messaging",
-    # "tesseract/messaging/substrate",
+    "tesseract/messaging/primitives",
+    "tesseract/messaging/messaging",
+    "tesseract/messaging/substrate",
     # "tesseract/messaging/relayer",
-    # "tesseract/messaging/evm",
-    # "tesseract/messaging/evm-tendermint",
-    # "tesseract/messaging/substrate-evm",
-    # "tesseract/messaging/fees",
-    # "tesseract/messaging/fees/prisma-cli",
-    # "tesseract/messaging/telemetry",
-    # "tesseract/messaging/config",
-    # "tesseract/messaging/fisherman",
+    "tesseract/messaging/evm",
+    "tesseract/messaging/tron",
+    "tesseract/messaging/evm-tendermint",
+    "tesseract/messaging/substrate-evm",
+    "tesseract/messaging/pharos-evm",
+    "tesseract/messaging/fees",
+    "tesseract/messaging/fees/prisma-cli",
+    "tesseract/messaging/telemetry",
+    "tesseract/messaging/config",
+    "tesseract/messaging/fisherman",
     # "tesseract/integration-test",
 
-    # "tesseract/consensus/arb-host",
-    # "tesseract/consensus/op-host",
-    # "tesseract/consensus/evm-host",
-    # "tesseract/consensus/bsc",
-    # "tesseract/consensus/sync-committee",
-    # "tesseract/consensus/grandpa",
-    # "tesseract/consensus/integration-tests",
-    # "tesseract/consensus/beefy",
-    # "tesseract/consensus/beefy/zk",
+    "tesseract/consensus/arb-host",
+    "tesseract/consensus/op-host",
+    "tesseract/consensus/evm-host",
+    "tesseract/consensus/bsc",
+    "tesseract/consensus/sync-committee",
+    "tesseract/consensus/grandpa",
+    "tesseract/consensus/integration-tests",
+    "tesseract/consensus/beefy",
+    "tesseract/consensus/beefy/zk",
     # "tesseract/consensus/relayer",
-    # "tesseract/consensus/polygon",
-    # "tesseract/consensus/tendermint",
+    "tesseract/consensus/admin-relayer",
+    "tesseract/consensus/polygon",
+    "tesseract/consensus/tendermint",
+    "tesseract/consensus/pharos",
+    "tesseract/consensus/parachain",
+    "tesseract/consensus/config",
 
+    "tesseract/relayer",
 
     # Airdrop
     "modules/pallets/bridge-drop",
@@ -181,12 +197,26 @@ hash-db = { version = "0.16.0", default-features = false }
 memory-db = { version = "0.32.0", default-features = false }
 log = { version = "0.4", default-features = false }
 anyhow = { version = "1.0", default-features = false }
-derive_more = { version = "1.0", default-features = false }
 thiserror = { version = "2", default-features = false }
-alloy-rlp = { version = "0.3.7", default-features = false }
-alloy-rlp-derive = "0.3.7"
-alloy-sol-macro = "1.5.2"
-alloy-sol-types = { version = "1.5.2", default-features = false }
+derive_more = { version = "1.0", default-features = false }
+alloy-rlp = { version = "0.3.13", default-features = false }
+alloy-rlp-derive = "0.3.13"
+alloy-sol-macro = { version = "1.5.7", features = ["json"] }
+alloy-sol-types = { version = "1.5.7", default-features = false }
+alloy = { version = "1.7.3", default-features = false }
+alloy-provider = { version = "1.7.3", default-features = false, features = ["reqwest", "reqwest-default-tls"] }
+alloy-transport = { version = "1.7.3", default-features = false }
+alloy-transport-http = { version = "1.7.3", default-features = false }
+alloy-signer = { version = "1.7.3", default-features = false }
+alloy-signer-local = { version = "1.7.3", default-features = false }
+alloy-contract = { version = "1.7.3", default-features = false }
+alloy-rpc-types = { version = "1.7.3", default-features = false }
+alloy-rpc-types-eth = { version = "1.7.3", default-features = false }
+alloy-json-rpc = { version = "1.7.3", default-features = false }
+alloy-network = { version = "1.7.3", default-features = false }
+alloy-consensus = { version = "1.7.3", default-features = false }
+alloy-eips = { version = "1.7.3", default-features = false }
+alloy-chains = { version = "0.2.30", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }
 hex-literal = "0.4.1"
@@ -203,11 +233,13 @@ tracing = "0.1.40"
 dotenv = "0.15.0"
 futures = "0.3.28"
 async-trait = "0.1.53"
+tower = { version = "0.5", default-features = false }
 reqwest-chain = "0.1.0"
 reqwest-middleware = "0.2.4"
 reqwest = { version="0.11.14", features=["json"]}
 prost = { version = "0.13.0", default-features = false }
 impl-trait-for-tuples = "0.2.3"
+k256 = { version = "0.13.3", default-features = false, features = ["ecdsa"] }
 
 # arkworks
 ark-ec = { version = "0.4.2", default-features = false }
@@ -230,13 +262,13 @@ crypto-utils = { version = "0.2.0", path = "modules/utils/crypto", default-featu
 grandpa-verifier-primitives = { version = "2512.0.0", path = "./modules/consensus/grandpa/primitives", default-features = false }
 grandpa-verifier = { version = "2512.0.0", path = "./modules/consensus/grandpa/verifier", default-features = false }
 ismp-grandpa = { version = "2512.0.0", path = "./modules/ismp/clients/grandpa", default-features = false }
-ismp-parachain = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
-ismp-parachain-inherent = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/inherent" }
+ismp-parachain = { version = "2512.2.0", path = "./modules/ismp/clients/parachain/client", default-features = false }
 ismp-parachain-runtime-api = { version = "2512.0.0", path = "./modules/ismp/clients/parachain/runtime-api", default-features = false }
-pallet-ismp = { version = "2512.0.0", path = "modules/pallets/ismp", default-features = false }
+pallet-ismp = { version = "2512.1.0", path = "modules/pallets/ismp", default-features = false }
 pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2512.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "2512.0.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
 pallet-token-gateway = { version = "2512.0.0", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "2512.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 substrate-state-machine = { version = "2512.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
@@ -252,6 +284,7 @@ subxt-utils = { path = "modules/utils/subxt", default-features = false }
 # consensus provers & verifiers
 beefy-verifier-primitives = { path = "./modules/consensus/beefy/primitives", default-features = false }
 beefy-prover = { path = "./modules/consensus/beefy/prover" }
+beefy-verifier = { path = "./modules/consensus/beefy/verifier", default-features = false }
 bsc-prover = { path = "./modules/consensus/bsc/prover" }
 bsc-verifier = { path = "./modules/consensus/bsc/verifier", default-features = false }
 geth-primitives = { path = "./modules/consensus/geth-primitives", default-features = false }
@@ -263,9 +296,13 @@ tendermint-verifier = { path = "./modules/consensus/tendermint/verifier", defaul
 tendermint-primitives = { path = "./modules/consensus/tendermint/primitives", default-features = false }
 tendermint-prover = { path = "./modules/consensus/tendermint/prover", default-features = false }
 tendermint-ics23-primitives = { path = "./modules/consensus/tendermint/ics23-primitives", default-features = false }
+pharos-primitives = { path = "./modules/consensus/pharos/primitives", default-features = false }
+pharos-verifier = { path = "./modules/consensus/pharos/verifier", default-features = false }
+pharos-prover = { path = "./modules/consensus/pharos/prover", default-features = false }
 
 # consensus clients
 ismp-bsc = { path = "./modules/ismp/clients/bsc", default-features = false }
+ismp-pharos = { path = "./modules/ismp/clients/pharos", default-features = false }
 ismp-sync-committee = { path = "./modules/ismp/clients/sync-committee", default-features = false }
 arbitrum-verifier = { path = "./modules/ismp/clients/arbitrum", default-features = false }
 op-verifier = { path = "./modules/ismp/clients/optimism", default-features = false }
@@ -276,6 +313,7 @@ ismp-tendermint = { path = "modules/ismp/clients/tendermint", default-features =
 
 # state machine clients
 evm-state-machine = { path = "./modules/ismp/state-machines/evm", default-features = false }
+pharos-state-machine = { path = "./modules/ismp/state-machines/pharos", default-features = false }
 hyperbridge-client-machine = { path = "modules/ismp/state-machines/hyperbridge", default-features = false }
 
 # ismp modules
@@ -286,13 +324,16 @@ pallet-ismp-host-executive = { path = "modules/pallets/host-executive", default-
 pallet-call-decompressor = { path = "modules/pallets/call-decompressor", default-features = false }
 pallet-consensus-incentives = { path = "modules/pallets/consensus-incentives", default-features = false }
 pallet-messaging-fees= { path = "modules/pallets/messaging-fees", default-features = false }
+pallet-beefy-consensus-proofs = { path = "modules/pallets/beefy-consensus-proofs", default-features = false }
 pallet-collator-manager = { path = "modules/pallets/collator-manager", default-features = false }
 pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
 pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
+pallet-intents-rpc = { path = "modules/pallets/intents-coprocessor/rpc" }
 pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
+ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false }
 
 # merkle trees
 ethereum-triedb = { version = "0.1.1", path = "./modules/trees/ethereum", default-features = false }
@@ -308,13 +349,15 @@ nexus-runtime = { path = "./parachain/runtimes/nexus", default-features = false 
 
 # tesseract
 tesseract-primitives = { path = "tesseract/messaging/primitives" }
-tesseract-messaging = { path = "tesseract/messaging/messaging" }
+messaging = { path = "tesseract/messaging/messaging" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
 tesseract-substrate = { path = "tesseract/messaging/substrate" }
 tesseract-substrate-evm = { path = "tesseract/messaging/substrate-evm" }
+tesseract-pharos-evm = { path = "tesseract/messaging/pharos-evm" }
 tesseract-evm = { path = "tesseract/messaging/evm" }
+tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
-tesseract = { path = "tesseract/messaging/relayer" }
+# tesseract-relayer = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -328,10 +371,19 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-tesseract-consensus = { path = "tesseract/consensus/relayer" }
+# tesseract-consensus = { path = "tesseract/consensus/relayer" }
+tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }
+tesseract-pharos = { path = "tesseract/consensus/pharos" }
+tesseract-parachain = { path = "tesseract/consensus/parachain" }
+tesseract-consensus-config = { path = "tesseract/consensus/config" }
+tesseract = { path = "tesseract/relayer" }
 
+[workspace.dependencies.rs_merkle]
+git = "https://github.com/polytope-labs/rs-merkle"
+rev = "f14a8aaec1a617dd5f8d032198821d658805ba92"
+default-features = false
 
 [workspace.dependencies.codec]
 package = "parity-scale-codec"
@@ -344,32 +396,10 @@ version = "18.0.0"
 default-features = false
 features = ["rlp", "parity-codec"]
 
-[workspace.dependencies.ethers]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-features = ["ethers-solc"]
+[workspace.dependencies.revm]
+version = "27"
 default-features = false
-
-[workspace.dependencies.ethers-core]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-default-features = false
-
-[workspace.dependencies.ethers-contract-abigen]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-
-[workspace.dependencies.ethers-solc]
-git = "https://github.com/polytope-labs/ethers-rs"
-rev = "45239225c50247e049892125d281442c084a2a92"
-
-# [workspace.dependencies.forge-testsuite]
-# git = "https://github.com/polytope-labs/forge-testsuite"
-# rev = "ff9fdc69c0200e3bb471198aa44ba933e043b78d"
-
-[workspace.dependencies.foundry-evm]
-git = "https://github.com/polytope-labs/foundry"
-rev = "1db7f747d7033a760c747fabbeef706576c88e34"
+features = ["std", "optional_eip3607"]
 
 [workspace.dependencies.merkle-mountain-range]
 package = "ckb-merkle-mountain-range"
@@ -377,7 +407,7 @@ version = "0.5.2"
 default-features = false
 
 [workspace.dependencies.alloy-primitives]
-version = "1.1.2"
+version = "1.5.7"
 default-features = false
 features = ["rlp"]
 
@@ -389,5 +419,3 @@ features = ["derive"]
 [workspace.dependencies.reconnecting-jsonrpsee-ws-client]
 version = "0.5.0"
 default-features = false
-
-[patch.crates-io]

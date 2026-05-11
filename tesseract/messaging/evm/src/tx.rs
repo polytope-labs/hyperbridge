@@ -6,497 +6,164 @@ use crate::{
 	},
 	EvmClient,
 };
+use alloy::{
+	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
+	primitives::{Address, Bytes, B256, U256 as AlloyU256},
+	providers::Provider,
+	rpc::types::{TransactionReceipt, TransactionRequest},
+	transports::TransportError,
+};
+use alloy_sol_types::SolEvent;
 use anyhow::anyhow;
 use codec::Decode;
-use ethers::{
-	abi::Detokenize,
-	contract::{parse_log, FunctionCall},
-	core::k256::ecdsa::{self, SigningKey},
-	middleware::SignerMiddleware,
-	prelude::{
-		signer::SignerMiddlewareError, transaction::eip2718::TypedTransaction, ContractError, Log,
-		NameOrAddress, Provider, ProviderError, Wallet,
-	},
-	providers::{Http, Middleware, PendingTransaction},
-	types::{TransactionReceipt, TransactionRequest, H160},
-};
-use geth_primitives::{new_u256, old_u256};
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
 	router::{Request, RequestResponse, Response},
 };
 use ismp_solidity_abi::{
-	beefy::StateMachineHeight,
-	evm_host::{PostRequestHandledFilter, PostResponseHandledFilter},
-	handler::{
-		Handler as IsmpHandler, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
-		PostResponseMessage, Proof,
+	evm_host::{PostRequestHandled, PostResponseHandled},
+	handler::handler_v2::{
+		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, PostResponseLeaf,
+		PostResponseMessage, Proof, StateMachineHeight,
 	},
 };
-use mmr_primitives::mmr_position_to_k_index;
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
-use polkadot_sdk::sp_mmr_primitives::utils::NodesUtils;
 use primitive_types::{H256, U256};
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
-use tesseract_primitives::{Hasher, Query, TxReceipt, TxResult};
+use std::{collections::BTreeSet, time::Duration};
+use tesseract_primitives::{Hasher, NewEpochEvent, Query, TxReceipt, TxResult};
 
 use crate::gas_oracle::get_current_gas_cost_in_usd;
 
-/// Type alias
-type SolidityFunctionCall<T> = FunctionCall<
-	Arc<SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>>,
-	SignerMiddleware<Provider<Http>, Wallet<ecdsa::SigningKey>>,
-	T,
->;
+// ── Pure helpers ──────────────────────────────────────────────────────────────
 
-#[async_recursion::async_recursion]
-pub async fn submit_messages(
-	client: &EvmClient,
-	messages: Vec<Message>,
-) -> anyhow::Result<(BTreeSet<H256>, Vec<Message>)> {
-	let calls = generate_contract_calls(client, messages.clone(), false).await?;
-	let mut events = BTreeSet::new();
-	let mut cancelled: Vec<Message> = vec![];
-	for (index, call) in calls.into_iter().enumerate() {
-		// Encode and Decode needed because of ether-rs and polkadot-sdk incompatibility
-		let gas_price = call.tx.gas_price().map(|price| new_u256(price));
-		match call.clone().send().await {
-			Ok(progress) => {
-				let retry = if matches!(messages[index], Message::Consensus(_)) {
-					Some(call)
-				} else {
-					None
-				};
-				let evs = wait_for_success(
-					&client.config.state_machine,
-					client.config.ismp_host.0.into(),
-					client.client.clone(),
-					client.signer.clone(),
-					progress,
-					gas_price,
-					retry,
-					matches!(messages[index], Message::Consensus(_)),
-				)
-				.await?;
-				if matches!(messages[index], Message::Request(_) | Message::Response(_)) &&
-					evs.is_empty()
-				{
-					cancelled.push(messages[index].clone())
-				}
-				events.extend(evs);
-			},
-			Err(err) => {
-				match err {
-					ContractError::MiddlewareError {
-						e:
-							SignerMiddlewareError::MiddlewareError(ProviderError::JsonRpcClientError(
-								ref error,
-							)),
-					} => {
-						if let Some(err) = error.as_error_response() {
-							// https://docs.alchemy.com/reference/error-reference#http-status-codes
-							if err.code == 429 {
-								// we should retry.
-								log::info!("Retrying tx submission, got error: {err:?}");
-								return submit_messages(&client, messages).await;
-							}
-						}
-					},
-					_ => {},
-				}
-
-				Err(err)?
-			},
-		}
+/// Check if an error is a rate limit (429) or other retryable RPC error.
+fn is_rate_limit_error(err: &anyhow::Error) -> bool {
+	if let Some(transport_err) = err.downcast_ref::<TransportError>() {
+		return match transport_err {
+			TransportError::Transport(kind) => kind.is_retry_err(),
+			TransportError::ErrorResp(payload) => payload.is_retry_err(),
+			_ => false,
+		};
 	}
-
-	if !events.is_empty() {
-		log::trace!("Got {} receipts from executing on {:?}", events.len(), client.state_machine);
-	}
-
-	Ok((events, cancelled))
+	format!("{err:?}").contains("429")
 }
 
-/// Waits for a transaction receipt by polling with a 7-second interval for up to 10 minutes.
-///
-/// # Arguments
-/// * `tx_hash` - The transaction hash to poll for
-/// * `provider` - The Ethereum provider to query
-///
-/// # Returns
-/// * `Ok(Some(TransactionReceipt))` if the receipt is found
-/// * `Ok(None)` if the receipt is not found after 10 minutes
-/// * `Err` if there's an error querying the provider
-pub async fn wait_for_transaction_receipt(
-	tx_hash: H256,
-	provider: Arc<Provider<Http>>,
-) -> Result<Option<TransactionReceipt>, anyhow::Error> {
-	let poll_interval = Duration::from_secs(7);
-	let max_duration = Duration::from_secs(5 * 60); // 5 minutes
-	let start_time = tokio::time::Instant::now();
-
-	loop {
-		// Check if we've exceeded the maximum duration
-		if start_time.elapsed() >= max_duration {
-			log::error!("Transaction receipt not found after 10 minutes for tx: {:?}", tx_hash);
-			return Ok(None);
-		}
-
-		// Query for the transaction receipt
-		match provider.get_transaction_receipt(tx_hash.0).await {
-			Ok(Some(receipt)) => {
-				log::trace!("Transaction receipt found for tx: {:?}", tx_hash);
-				return Ok(Some(receipt));
-			},
-			Ok(None) => {
-				// Receipt not yet available, continue polling
-				log::trace!(
-					"Transaction receipt not yet available for tx: {:?}, will retry in 7 seconds",
-					tx_hash
-				);
-			},
-			Err(err) => {
-				log::warn!("Error querying transaction receipt for tx: {:?}: {err:?}", tx_hash);
-				// Continue polling despite the error, as it might be transient
-			},
-		}
-
-		// Wait for the poll interval before the next attempt
-		tokio::time::sleep(poll_interval).await;
+/// Extract the numeric state machine ID, expecting Polkadot or Kusama.
+fn extract_state_machine_id(state_id: &StateMachine) -> anyhow::Result<AlloyU256> {
+	match state_id {
+		StateMachine::Polkadot(id) | StateMachine::Kusama(id) => Ok(AlloyU256::from(*id)),
+		other => Err(anyhow!("Expected Polkadot or Kusama state machine, got: {other:?}")),
 	}
 }
 
-#[async_recursion::async_recursion]
-pub async fn wait_for_success<'a, T>(
-	state_machine: &StateMachine,
-	ismp_host: H160,
-	provider: Arc<Provider<Http>>,
-	signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
-	tx: PendingTransaction<'a, Http>,
-	gas_price: Option<U256>,
-	retry: Option<SolidityFunctionCall<T>>,
-	is_consensus: bool,
-) -> Result<BTreeSet<H256>, anyhow::Error>
-where
-	'a: 'async_recursion,
-	T: Detokenize + Send + Sync,
-{
-	let log_receipt = |receipt: TransactionReceipt, cancelled: bool| -> Result<(), anyhow::Error> {
-		let prelude = if cancelled { "Cancellation Tx" } else { "Tx" };
-		if matches!(receipt.status.as_ref().map(|f| f.low_u64()), Some(1)) {
-			log::info!("{prelude} for {:?} succeeded", state_machine);
-		} else {
-			log::info!(
-				"{prelude} for {:?} with hash {:?} reverted",
-				state_machine,
-				receipt.transaction_hash
-			);
-			Err(anyhow!("Transaction reverted"))?
-		}
+/// Decode a raw MMR proof and extract the leaf indices.
+fn decode_mmr_proof(raw: &[u8]) -> anyhow::Result<(MmrProof<H256>, Vec<u64>)> {
+	let proof = MmrProof::<H256>::decode(&mut &*raw)?;
+	let leaf_indices = proof
+		.leaf_indices_and_pos
+		.iter()
+		.map(|LeafIndexAndPos { leaf_index, .. }| *leaf_index)
+		.collect();
+	Ok((proof, leaf_indices))
+}
 
-		Ok(())
-	};
+/// Build the solidity `Proof` struct from an MMR proof and ISMP height.
+fn build_solidity_proof(
+	mmr_proof: &MmrProof<H256>,
+	height: &ismp::consensus::StateMachineHeight,
+) -> anyhow::Result<Proof> {
+	Ok(Proof {
+		height: StateMachineHeight {
+			stateMachineId: extract_state_machine_id(&height.id.state_id)?,
+			height: AlloyU256::from(height.height),
+		},
+		multiproof: mmr_proof.items.iter().map(|node| B256::from_slice(&node.0)).collect(),
+		leafCount: AlloyU256::from(mmr_proof.leaf_count),
+	})
+}
 
-	let client_clone = provider.clone();
-	let signer_clone = signer.clone();
-	let state_machine_clone = state_machine.clone();
-	let ismp_host_clone = ismp_host.clone();
-
-	let handle_failed_tx = move || async move {
-		log::info!("No receipt for transaction on {:?}", state_machine_clone);
-
-		if let Some(call) = retry {
-			// lets retry
-			let gas_price: U256 =
-				get_current_gas_cost_in_usd(state_machine_clone, ismp_host, client_clone.clone())
-					.await?
-					.gas_price * 2; // for good measure
-			log::info!(
-				"Retrying consensus message on {:?} with gas {}",
-				state_machine_clone,
-				ethers::utils::format_units(
-					// Conversion needed because of ether-rs and polkadot-sdk incompatibility
-					old_u256(gas_price),
-					"gwei"
-				)?
-			);
-			// Conversion needed because of ether-rs and polkadot-sdk incompatibility
-			let call = call.gas_price(old_u256(gas_price));
-			let pending = call.send().await?;
-
-			// don't retry in the next callstack
-			wait_for_success::<()>(
-				&state_machine_clone,
-				ismp_host_clone,
-				client_clone.clone(),
-				signer_clone.clone(),
-				pending,
-				Some(gas_price),
-				None,
-				is_consensus,
-			)
-			.await
-		} else {
-			// cancel the transaction here
-			let pending = signer_clone
-				.send_transaction(
-					TypedTransaction::Legacy(TransactionRequest {
-						to: Some(NameOrAddress::Address(signer_clone.address())),
-						value: Some(Default::default()),
-						gas_price: gas_price.map(|price| {
-							let new_price: U256 = price * 10;
-							// Conversion needed because of ether-rs and polkadot-sdk
-							// incompatibility
-							old_u256(new_price)
-						}), // experiment with higher?
-						..Default::default()
-					}),
-					None,
-				)
-				.await;
-
-			if let Ok(pending) = pending {
-				let cancel_tx_hash = pending.tx_hash().0;
-				if let Ok(Some(receipt)) =
-					wait_for_transaction_receipt(cancel_tx_hash.into(), client_clone.clone()).await
-				{
-					// we're going to error anyways
-					let _ = log_receipt(receipt, true);
-				}
-			}
-
-			// Throw an error only when consensus messages are cancelled
-			// Consensus relayer expects an error when consensus messages fail to submit so they can
-			// be retried
-			if is_consensus {
-				Err(anyhow!("Transaction to {:?} was cancelled!", state_machine_clone))?
-			}
-
-			log::error!("Transaction to {:?} was cancelled!", state_machine_clone);
-			Ok(Default::default())
-		}
-	};
-
-	// Get the transaction hash from the PendingTransaction
-	let tx_hash = tx.tx_hash().0;
-
-	// Wait for the transaction receipt with custom polling logic
-	match wait_for_transaction_receipt(tx_hash.into(), provider.clone()).await? {
-		Some(receipt) => {
-			let events = receipt
-				.logs
-				.iter()
-				.filter_map(|l| {
-					let log = Log {
-						topics: l.clone().topics,
-						data: l.clone().data,
-						..Default::default()
-					};
-					if let Some(ev) = parse_log::<PostRequestHandledFilter>(log.clone()).ok() {
-						return Some(ev.commitment.into())
-					}
-					if let Some(ev) = parse_log::<PostResponseHandledFilter>(log.clone()).ok() {
-						return Some(ev.commitment.into())
-					}
-					None
+/// Extract post-request and post-response handled commitments from a receipt's logs.
+fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
+	receipt
+		.inner
+		.logs()
+		.iter()
+		.filter_map(|log| {
+			PostRequestHandled::decode_log(&log.inner)
+				.map(|ev| H256::from_slice(ev.commitment.as_slice()))
+				.ok()
+				.or_else(|| {
+					PostResponseHandled::decode_log(&log.inner)
+						.map(|ev| H256::from_slice(ev.commitment.as_slice()))
+						.ok()
 				})
-				.collect();
-			log_receipt(receipt, false)?;
-			Ok(events)
-		},
-		None => {
-			// Receipt not found after 10 minutes
-			return handle_failed_tx().await;
-		},
-	}
+		})
+		.collect()
 }
 
-/// Function generates FunctionCall(s) from a batchs of messages
-/// If `debug_trace` is true then the gas_price will not be set on the generated call
-pub async fn generate_contract_calls(
-	client: &EvmClient,
-	messages: Vec<Message>,
-	debug_trace: bool,
-) -> anyhow::Result<Vec<SolidityFunctionCall<()>>> {
-	let handler = client.handler().await?;
-	let contract = IsmpHandler::new(handler.0, client.signer.clone());
-	let ismp_host = client.config.ismp_host;
-	let mut calls = Vec::new();
-	// If debug trace is false or the client type is erigon, then the gas price must be set
-	// Geth does not require gas price to be set when debug tracing, but the erigon implementation
-	// does https://github.com/ledgerwatch/erigon/blob/cfb55a3cd44736ac092003be41659cc89061d1be/core/state_transition.go#L246
-	// Erigon does not support block overrides when tracing so we don't have the option of omiting
-	// the gas price by overriding the base fee
-	let set_gas_price = || !debug_trace || client.client_type.erigon();
-	let mut gas_price = if set_gas_price() {
-		get_current_gas_cost_in_usd(client.state_machine, ismp_host.0.into(), client.client.clone())
-			.await?
-			.gas_price
-	} else {
-		Default::default()
+/// Scan a receipt's logs for `HandlerV2::NewEpoch(set_id, relayer)`
+/// events addressed to `self_address`. Returns every `set_id` we won
+/// the race for in this submission — a single tx can carry multiple
+/// consensus messages (catch-up batches) and each one that lands a new
+/// authority set on chain emits its own `NewEpoch`. Each entry in the
+/// returned vec earns a separate per-chain outbound-consensus delivery
+/// reward.
+///
+/// Each entry is paired with the receipt's `block_number` so the
+/// outbound-claim task can build its storage proof at exactly the block
+/// in which `_epochs[set_id]` was written. Receipts without a
+/// `block_number` (shouldn't happen for mined receipts, but the alloy
+/// type is `Option<u64>`) are skipped — without a block we can't make a
+/// useful claim.
+fn extract_new_epochs_for_self(
+	receipt: &TransactionReceipt,
+	self_address: &[u8],
+) -> Vec<NewEpochEvent> {
+	let Some(block_number) = receipt.block_number else {
+		return Vec::new();
 	};
+	receipt
+		.inner
+		.logs()
+		.iter()
+		.filter_map(|log| {
+			let ev = NewEpoch::decode_log(&log.inner).ok()?;
+			if ev.relayer.as_slice() == self_address {
+				// `set_id` is uint256 on chain but always fits in u64 in practice
+				// (BEEFY authority set ids are monotonic counters).
+				let set_id = u64::try_from(ev.authoritySetId).ok()?;
+				Some(NewEpochEvent { set_id, block_number })
+			} else {
+				None
+			}
+		})
+		.collect()
+}
 
-	// Only use gas price buffer when submitting transactions
-	if !debug_trace && client.config.gas_price_buffer.is_some() {
-		let buffer = (U256::from(client.config.gas_price_buffer.unwrap_or_default()) * gas_price) /
-			U256::from(10000u32);
-		gas_price = gas_price + buffer
+/// Add a 5% buffer to a gas estimate.
+fn gas_with_buffer(estimated: u64) -> u64 {
+	estimated + (estimated * 5 / 100)
+}
+
+/// Build a `TransactionRequest`, optionally setting gas price.
+fn build_tx_request(
+	from: Address,
+	to: Address,
+	calldata: Bytes,
+	gas_price: U256,
+	gas_limit: u64,
+) -> TransactionRequest {
+	let base = TransactionRequest::default()
+		.from(from)
+		.to(to)
+		.input(calldata.into())
+		.gas_limit(gas_limit);
+	if gas_price.is_zero() {
+		base
+	} else {
+		base.gas_price(gas_price.low_u128())
 	}
-
-	for message in messages {
-		match message {
-			Message::Consensus(msg) => {
-				let call =
-					contract.handle_consensus(ismp_host.0.into(), msg.consensus_proof.into());
-				let estimated_gas = call
-					.estimate_gas()
-					.await
-					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
-																 // U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
-				let call = call.gas_price(old_u256(gas_price)).gas(gas_limit);
-
-				calls.push(call);
-			},
-			Message::Request(msg) => {
-				let membership_proof = MmrProof::<H256>::decode(&mut msg.proof.proof.as_slice())?;
-				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
-				let k_and_leaf_indices = membership_proof
-					.leaf_indices_and_pos
-					.into_iter()
-					.map(|LeafIndexAndPos { pos, leaf_index }| {
-						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
-						(k_index, leaf_index)
-					})
-					.collect::<Vec<_>>();
-
-				let mut leaves = msg
-					.requests
-					.into_iter()
-					.zip(k_and_leaf_indices)
-					.map(|(post, (k_index, leaf_index))| PostRequestLeaf {
-						request: post.into(),
-						index: leaf_index.into(),
-						k_index: k_index.into(),
-					})
-					.collect::<Vec<_>>();
-				leaves.sort_by_key(|leaf| leaf.index);
-				let post_message = PostRequestMessage {
-					proof: Proof {
-						height: StateMachineHeight {
-							state_machine_id: {
-								match msg.proof.height.id.state_id {
-									StateMachine::Polkadot(id) | StateMachine::Kusama(id) =>
-										id.into(),
-									_ => {
-										panic!("Expected polkadot or kusama state machines");
-									},
-								}
-							},
-							height: msg.proof.height.height.into(),
-						},
-						multiproof: membership_proof.items.into_iter().map(|node| node.0).collect(),
-						leaf_count: membership_proof.leaf_count.into(),
-					},
-					requests: leaves,
-				};
-
-				let call = contract.handle_post_requests(ismp_host.0.into(), post_message);
-				let estimated_gas = call
-					.estimate_gas()
-					.await
-					.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-				let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
-
-				// U256 Conversion needed because of ether-rs and polkadot-sdk incompatibility
-				let call = if set_gas_price() {
-					call.gas_price(old_u256(gas_price)).gas(gas_limit)
-				} else {
-					call.gas(gas_limit)
-				};
-				calls.push(call)
-			},
-			Message::Response(ResponseMessage { datagram, proof, .. }) => {
-				let membership_proof = MmrProof::<H256>::decode(&mut proof.proof.as_slice())?;
-				let mmr_size = NodesUtils::new(membership_proof.leaf_count).size();
-				let k_and_leaf_indices = membership_proof
-					.leaf_indices_and_pos
-					.into_iter()
-					.map(|LeafIndexAndPos { pos, leaf_index }| {
-						let k_index = mmr_position_to_k_index(vec![pos], mmr_size)[0].1;
-						(k_index, leaf_index)
-					})
-					.collect::<Vec<_>>();
-
-				let call = match datagram {
-					RequestResponse::Response(responses) => {
-						let mut leaves = responses
-							.into_iter()
-							.zip(k_and_leaf_indices)
-							.filter_map(|(res, (k_index, leaf_index))| match res {
-								Response::Post(res) => Some(PostResponseLeaf {
-									response: res.into(),
-									index: leaf_index.into(),
-									k_index: k_index.into(),
-								}),
-								_ => None,
-							})
-							.collect::<Vec<_>>();
-						leaves.sort_by_key(|leaf| leaf.index);
-						let message =
-							PostResponseMessage {
-								proof: Proof {
-									height: StateMachineHeight {
-										state_machine_id: {
-											match proof.height.id.state_id {
-												StateMachine::Polkadot(id) |
-												StateMachine::Kusama(id) => id.into(),
-												_ => {
-													log::error!("Expected polkadot or kusama state machines");
-													continue;
-												},
-											}
-										},
-										height: proof.height.height.into(),
-									},
-									multiproof: membership_proof
-										.items
-										.into_iter()
-										.map(|node| node.0)
-										.collect(),
-									leaf_count: membership_proof.leaf_count.into(),
-								},
-								responses: leaves,
-							};
-
-						let call = contract.handle_post_responses(ismp_host.0.into(), message);
-						let estimated_gas = call
-							.estimate_gas()
-							.await
-							.unwrap_or(get_chain_gas_limit(client.state_machine).into());
-						let gas_limit = estimated_gas + ((estimated_gas * 5) / 100); // 5% buffer
-
-						if set_gas_price() {
-							// U256 Conversion needed because of ether-rs and polkadot-sdk
-							// incompatibility
-							call.gas_price(old_u256(gas_price)).gas(gas_limit)
-						} else {
-							call.gas(gas_limit)
-						}
-					},
-					RequestResponse::Request(..) =>
-						Err(anyhow!("Get requests are not supported by relayer"))?,
-				};
-
-				calls.push(call);
-			},
-			Message::Timeout(_) => Err(anyhow!("Timeout messages not supported by relayer"))?,
-			Message::FraudProof(_) => Err(anyhow!("Unexpected fraud proof message"))?,
-		}
-	}
-
-	Ok(calls)
 }
 
 pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
@@ -518,12 +185,537 @@ pub fn get_chain_gas_limit(state_machine: StateMachine) -> u64 {
 	}
 }
 
-pub async fn handle_message_submission(
+// ── Gas price ─────────────────────────────────────────────────────────────────
+
+/// Fetch the current gas price, applying an optional buffer from config.
+///
+/// In debug-trace mode, gas price is omitted unless the client is Erigon (which requires it even
+/// during tracing: https://github.com/ledgerwatch/erigon/blob/cfb55a3/core/state_transition.go#L246).
+#[tracing::instrument(skip(client, debug_trace), fields(chain = ?client.state_machine))]
+async fn fetch_gas_price(client: &EvmClient, debug_trace: bool) -> anyhow::Result<U256> {
+	if debug_trace && !client.client_type.erigon() {
+		return Ok(U256::zero());
+	}
+
+	let mut price = get_current_gas_cost_in_usd(
+		client.state_machine,
+		client.ismp_host.0.into(),
+		client.client.clone(),
+	)
+	.await?
+	.gas_price;
+
+	if !debug_trace {
+		if let Some(bps) = client.config.gas_price_buffer {
+			price = price + (U256::from(bps) * price) / U256::from(10_000u32);
+		}
+	}
+
+	Ok(price)
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Poll for a transaction receipt, retrying every 7 seconds for up to 5 minutes.
+pub async fn wait_for_transaction_receipt(
+	tx_hash: H256,
+	client: &EvmClient,
+) -> anyhow::Result<Option<TransactionReceipt>> {
+	let provider = client.client.clone();
+	let poll_interval = Duration::from_secs(7);
+	let start = tokio::time::Instant::now();
+	let deadline = start + Duration::from_secs(5 * 60);
+
+	loop {
+		match provider.get_transaction_receipt(B256::from_slice(&tx_hash.0)).await {
+			Ok(Some(receipt)) => {
+				tracing::trace!(target: crate::LOG_TARGET, "Receipt available after {:?}", start.elapsed());
+				return Ok(Some(receipt));
+			},
+			Ok(None) =>
+				tracing::trace!(target: crate::LOG_TARGET, "Receipt not yet available, retrying in 7s"),
+			Err(err) =>
+				tracing::warn!(target: crate::LOG_TARGET, "Error querying receipt: {err:?}"),
+		}
+
+		if tokio::time::Instant::now() >= deadline {
+			tracing::error!(target: crate::LOG_TARGET, "No receipt after 5 minutes");
+			return Ok(None);
+		}
+
+		tokio::time::sleep(poll_interval).await;
+	}
+}
+
+/// Build unsigned `TransactionRequest`s for a batch of ISMP messages.
+///
+/// Returns the requests and the gas price used (needed for cancellation bumping).
+/// Pass `debug_trace = true` to skip gas price (except on Erigon).
+pub async fn generate_contract_calls(
+	client: &EvmClient,
+	messages: &[Message],
+	debug_trace: bool,
+) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let contract = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let ismp_host = Address::from_slice(&client.ismp_host.0);
+	let from = Address::from_slice(&client.address);
+	let gas_price = fetch_gas_price(client, debug_trace).await?;
+	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
+
+	let mut txs = Vec::with_capacity(messages.len());
+
+	for msg in messages {
+		let (calldata, gas_limit) = match msg {
+			Message::Consensus(msg) => {
+				let call =
+					contract.handleConsensus(ismp_host, Bytes::from(msg.consensus_proof.clone()));
+				let gas = call.estimate_gas().await.unwrap_or(chain_gas_limit / 4);
+				(call.calldata().clone(), gas_with_buffer(gas))
+			},
+
+			Message::Request(msg) => {
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&msg.proof.proof)?;
+				let mut leaves: Vec<PostRequestLeaf> = msg
+					.requests
+					.iter()
+					.zip(&leaf_indices)
+					.map(|(post, &leaf_index)| PostRequestLeaf {
+						request: post.clone().into(),
+						index: AlloyU256::from(leaf_index),
+					})
+					.collect();
+				leaves.sort_by_key(|l| l.index);
+				let proof = build_solidity_proof(&mmr_proof, &msg.proof.height)?;
+				let call = contract
+					.handlePostRequests(ismp_host, PostRequestMessage { proof, requests: leaves });
+				let gas = call.estimate_gas().await.unwrap_or_else(|_| chain_gas_limit / 4);
+				(call.calldata().clone(), gas_with_buffer(gas))
+			},
+
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Response(responses),
+				proof,
+				..
+			}) => {
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
+				let mut leaves: Vec<PostResponseLeaf> = responses
+					.iter()
+					.zip(&leaf_indices)
+					.filter_map(|(res, &leaf_index)| match res {
+						Response::Post(res) => Some(PostResponseLeaf {
+							response: res.clone().into(),
+							index: AlloyU256::from(leaf_index),
+						}),
+						_ => None,
+					})
+					.collect();
+				leaves.sort_by_key(|l| l.index);
+				let solidity_proof = build_solidity_proof(&mmr_proof, &proof.height)?;
+				let call = contract.handlePostResponses(
+					ismp_host,
+					PostResponseMessage { proof: solidity_proof, responses: leaves },
+				);
+				let gas = call.estimate_gas().await.unwrap_or_else(|_| chain_gas_limit / 4);
+				(call.calldata().clone(), gas_with_buffer(gas))
+			},
+
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Request(..), ..
+			}) => return Err(anyhow!("Get requests are not supported by relayer")),
+
+			Message::Timeout(_) => return Err(anyhow!("Timeout messages not supported by relayer")),
+
+			Message::FraudProof(_) => return Err(anyhow!("Unexpected fraud proof message")),
+		};
+
+		txs.push(build_tx_request(from, handler_addr, calldata, gas_price, gas_limit));
+	}
+
+	Ok((txs, gas_price))
+}
+
+/// Build the per-message inner calldata array for an `IHandlerV2.batchCall`.
+///
+/// Each entry is an ABI-encoded HandlerV1 call (`handleConsensus`,
+/// `handlePostRequests`, `handlePostResponses`) — `batchCall` delegatecalls
+/// self so those selectors still dispatch correctly against HandlerV2.
+async fn build_batch_inner_calls(
+	client: &EvmClient,
+	messages: &[Message],
+) -> anyhow::Result<Vec<Bytes>> {
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let contract = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let ismp_host = Address::from_slice(&client.ismp_host.0);
+
+	let mut inner = Vec::with_capacity(messages.len());
+	for msg in messages {
+		let calldata = match msg {
+			Message::Consensus(msg) => contract
+				.handleConsensus(ismp_host, Bytes::from(msg.consensus_proof.clone()))
+				.calldata()
+				.clone(),
+
+			Message::Request(msg) => {
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&msg.proof.proof)?;
+				let mut leaves: Vec<PostRequestLeaf> = msg
+					.requests
+					.iter()
+					.zip(&leaf_indices)
+					.map(|(post, &leaf_index)| PostRequestLeaf {
+						request: post.clone().into(),
+						index: AlloyU256::from(leaf_index),
+					})
+					.collect();
+				leaves.sort_by_key(|l| l.index);
+				let proof = build_solidity_proof(&mmr_proof, &msg.proof.height)?;
+				contract
+					.handlePostRequests(ismp_host, PostRequestMessage { proof, requests: leaves })
+					.calldata()
+					.clone()
+			},
+
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Response(responses),
+				proof,
+				..
+			}) => {
+				let (mmr_proof, leaf_indices) = decode_mmr_proof(&proof.proof)?;
+				let mut leaves: Vec<PostResponseLeaf> = responses
+					.iter()
+					.zip(&leaf_indices)
+					.filter_map(|(res, &leaf_index)| match res {
+						Response::Post(res) => Some(PostResponseLeaf {
+							response: res.clone().into(),
+							index: AlloyU256::from(leaf_index),
+						}),
+						_ => None,
+					})
+					.collect();
+				leaves.sort_by_key(|l| l.index);
+				let solidity_proof = build_solidity_proof(&mmr_proof, &proof.height)?;
+				contract
+					.handlePostResponses(
+						ismp_host,
+						PostResponseMessage { proof: solidity_proof, responses: leaves },
+					)
+					.calldata()
+					.clone()
+			},
+
+			Message::Response(ResponseMessage {
+				datagram: RequestResponse::Request(..), ..
+			}) => return Err(anyhow!("Get requests are not supported by batchCall")),
+
+			Message::Timeout(_) =>
+				return Err(anyhow!("Timeout messages are not supported by batchCall")),
+
+			Message::FraudProof(_) =>
+				return Err(anyhow!("Unexpected fraud proof message in batchCall")),
+		};
+		inner.push(calldata);
+	}
+	Ok(inner)
+}
+
+/// Build per-message `batchCall([prelude, msg_i])` [`TransactionRequest`]s —
+/// used for gas estimation so each non-consensus message is traced alongside
+/// the consensus update that will land with it in the same tx. Without the
+/// prelude the request's proof verification would simulate against the old
+/// state commitment and either underestimate or silently mis-trace.
+///
+/// If the prelude is `None`, falls through to [`generate_contract_calls`].
+pub async fn generate_batched_contract_calls(
+	client: &EvmClient,
+	prelude: Option<&Message>,
+	messages: &[Message],
+	debug_trace: bool,
+) -> anyhow::Result<(Vec<TransactionRequest>, U256)> {
+	let Some(prelude) = prelude else {
+		return generate_contract_calls(client, messages, debug_trace).await;
+	};
+
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let contract = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let from = Address::from_slice(&client.address);
+	let gas_price = fetch_gas_price(client, debug_trace).await?;
+	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
+
+	// Single-entry list so we can reuse `build_batch_inner_calls` to encode
+	// the prelude into its HandlerV1-shaped calldata.
+	let prelude_inner = build_batch_inner_calls(client, std::slice::from_ref(prelude)).await?;
+	let prelude_calldata = prelude_inner.into_iter().next().expect("one prelude in, one out");
+
+	let mut txs = Vec::with_capacity(messages.len());
+	for msg in messages {
+		// Rebuild the single-message inner calldata the same way
+		// `build_batch_inner_calls` does — reuses the same encoding path the
+		// real submission will use.
+		let msg_inner = build_batch_inner_calls(client, std::slice::from_ref(msg)).await?;
+		let msg_calldata = msg_inner.into_iter().next().expect("one msg in, one out");
+
+		let call = contract.batchCall(vec![prelude_calldata.clone(), msg_calldata]);
+		let gas = call.estimate_gas().await.unwrap_or_else(|_| (chain_gas_limit * 8) / 10);
+		txs.push(build_tx_request(
+			from,
+			handler_addr,
+			call.calldata().clone(),
+			gas_price,
+			gas_with_buffer(gas),
+		));
+	}
+
+	Ok((txs, gas_price))
+}
+
+/// Submit a full batch of ISMP messages as a single `IHandlerV2.batchCall` transaction.
+///
+/// One tx replaces what would otherwise be N separate txs (one per message),
+/// cutting gas overhead and nonce management complexity. Atomic: if any
+/// inner call reverts, the whole transaction reverts.
+pub async fn submit_batch_messages(
 	client: &EvmClient,
 	messages: Vec<Message>,
-) -> Result<TxResult, anyhow::Error> {
-	let (receipts, cancelled) = submit_messages(client, messages.clone()).await?;
-	let height = client.client.get_block_number().await?.low_u64();
+) -> anyhow::Result<SubmitOutcome> {
+	if messages.is_empty() {
+		return Ok((BTreeSet::new(), Vec::new(), Vec::new()));
+	}
+
+	let handler_addr = Address::from_slice(&client.handler().await?.0);
+	let from = Address::from_slice(&client.address);
+	let gas_price = fetch_gas_price(client, false).await?;
+	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
+
+	let inner_calls = build_batch_inner_calls(client, &messages).await?;
+	let handler_v2 = HandlerV2Instance::new(handler_addr, client.signer.clone());
+	let call = handler_v2.batchCall(inner_calls);
+	let gas = call.estimate_gas().await.unwrap_or_else(|_| (chain_gas_limit * 8) / 10);
+	let calldata = call.calldata().clone();
+	let calldata_len = calldata.len();
+	let tx_request =
+		build_tx_request(from, handler_addr, calldata, gas_price, gas_with_buffer(gas));
+
+	let nonce = client.signer.get_transaction_count(from).await?;
+	let tx = tx_request.nonce(nonce).transaction_type(0);
+
+	// Consensus updates and application messages share the batch — count the
+	// latter separately so logs make it obvious when a tx is carrying real
+	// work vs. just advancing the light client.
+	let non_consensus_msgs =
+		messages.iter().filter(|m| !matches!(m, Message::Consensus(_))).count();
+
+	tracing::info!(
+		target: crate::LOG_TARGET, chain = ?client.state_machine,
+		msgs = messages.len(),
+		non_consensus_msgs,
+		calldata_bytes = calldata_len,
+		gas_estimate = gas,
+		nonce,
+		"dispatching HandlerV2.batchCall",
+	);
+
+	// Bounded rate-limit retry. If the remote is throttling for longer than
+	// MAX_RATE_LIMIT_RETRIES * 1s, give up and let the outbound task retry on
+	// the next ProofAccepted event — avoids pinning a task forever.
+	const MAX_RATE_LIMIT_RETRIES: u32 = 5;
+	let mut attempt = 0u32;
+	let pending = loop {
+		match client.signer.send_transaction(tx.clone()).await {
+			Ok(p) => break p,
+			Err(err) => {
+				let err = anyhow::Error::from(err);
+				if is_rate_limit_error(&err) {
+					attempt += 1;
+					if attempt > MAX_RATE_LIMIT_RETRIES {
+						return Err(anyhow!(
+							"batchCall to {:?} exceeded {} rate-limit retries",
+							client.state_machine,
+							MAX_RATE_LIMIT_RETRIES,
+						));
+					}
+					tracing::info!(
+						target: crate::LOG_TARGET, chain = ?client.state_machine,
+						attempt,
+						max = MAX_RATE_LIMIT_RETRIES,
+						"rate limited; retrying batchCall in 1s",
+					);
+					tokio::time::sleep(Duration::from_secs(10)).await;
+				} else {
+					return Err(err);
+				}
+			},
+		}
+	};
+
+	let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
+	let (events, new_epochs) = match wait_for_success(client, tx_hash).await? {
+		Some(evs) => evs,
+		None => {
+			cancel_transaction(client, from, nonce, gas_price, tx_hash).await;
+			return Err(anyhow!("batchCall to {:?} was cancelled", client.state_machine));
+		},
+	};
+	tracing::info!(
+		target: crate::LOG_TARGET, chain = ?client.state_machine,
+		?tx_hash,
+		events = events.len(),
+		new_epochs = ?new_epochs,
+		"batchCall included",
+	);
+
+	// Atomic semantics: if the tx succeeded every inner call did, so no
+	// per-message unsuccessful bucket.
+	Ok((events, Vec::new(), new_epochs))
+}
+
+/// Result of a single transaction submission: which message commitments
+/// fired, which messages didn't, and any `NewEpoch` logs the relayer
+/// should claim on Hyperbridge.
+type SubmitOutcome = (BTreeSet<H256>, Vec<Message>, Vec<NewEpochEvent>);
+
+/// Send a zero-value self-transfer at 10× gas to evict a stuck transaction from the mempool.
+#[tracing::instrument(skip_all, fields(chain = ?client.state_machine))]
+async fn cancel_transaction(
+	client: &EvmClient,
+	from: Address,
+	nonce: u64,
+	gas_price: U256,
+	stuck_tx: H256,
+) {
+	tracing::warn!(target: crate::LOG_TARGET, "Cancelling stuck tx {stuck_tx:#?} at nonce {nonce}",);
+	let cancel_tx = TransactionRequest::default()
+		.to(from)
+		.value(AlloyU256::ZERO)
+		.gas_price((gas_price * U256::from(10)).low_u128())
+		.nonce(nonce)
+		.transaction_type(0);
+
+	let Ok(pending) = client.signer.send_transaction(cancel_tx).await else { return };
+	let cancel_hash = H256::from_slice(pending.tx_hash().as_slice());
+
+	if let Ok(Some(receipt)) = wait_for_transaction_receipt(cancel_hash, client).await {
+		let status = if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
+			"succeeded"
+		} else {
+			"reverted"
+		};
+		tracing::info!(target: crate::LOG_TARGET, "Cancellation tx for {:?} {status}", client.state_machine);
+	}
+}
+
+/// Submit ISMP messages as EVM transactions.
+///
+/// Retries individual sends on rate-limit errors. On timeout, consensus messages are retried once
+/// with 2× gas on the same nonce; all other messages are cancelled with a zero-value self-transfer
+/// on the same nonce so the sequence slot is freed for the next round.
+pub async fn submit_messages(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> anyhow::Result<SubmitOutcome> {
+	let (tx_requests, gas_price) = generate_contract_calls(client, &messages, false).await?;
+
+	let mut events = BTreeSet::new();
+	let mut unsuccessful = Vec::new();
+	let mut new_epochs: Vec<NewEpochEvent> = Vec::new();
+
+	let from = Address::from_slice(&client.address);
+
+	for (idx, tx) in tx_requests.into_iter().enumerate() {
+		// Fetch the pending nonce upfront so we can reuse it if the tx gets stuck.
+		let nonce = client.signer.get_transaction_count(from).await?;
+		let tx = tx.nonce(nonce).transaction_type(0);
+
+		// Retry the send on rate limits.
+		let pending = loop {
+			match client.signer.send_transaction(tx.clone()).await {
+				Ok(p) => break p,
+				Err(err) => {
+					let err = anyhow::Error::from(err);
+					if is_rate_limit_error(&err) {
+						tracing::info!(target: crate::LOG_TARGET, chain = ?client.state_machine, "Rate limited, retrying submission in 1s");
+						tokio::time::sleep(Duration::from_secs(1)).await;
+					} else {
+						return Err(err);
+					}
+				},
+			}
+		};
+
+		let tx_hash = H256::from_slice(pending.tx_hash().as_slice());
+
+		let (evs, epochs) = match wait_for_success(client, tx_hash).await? {
+			Some(evs) => evs,
+			None => {
+				cancel_transaction(client, from, nonce, gas_price, tx_hash).await;
+				return Err(anyhow!("Transaction to {:?} was cancelled", client.state_machine));
+			},
+		};
+
+		if matches!(messages[idx], Message::Request(_) | Message::Response(_)) && evs.is_empty() {
+			unsuccessful.push(messages[idx].clone());
+		}
+		events.extend(evs);
+		new_epochs.extend(epochs);
+	}
+
+	if !events.is_empty() {
+		tracing::trace!(
+			target: crate::LOG_TARGET, chain = ?client.state_machine,
+			"Got {} receipts",
+			events.len(),
+		);
+	}
+
+	Ok((events, unsuccessful, new_epochs))
+}
+
+/// Wait for a transaction to be mined and verify it succeeded.
+///
+/// Returns `Some((commitments, new_epochs))` on success — `commitments`
+/// from `PostRequest`/`PostResponseHandled` logs, `new_epochs` from
+/// every `HandlerV2::NewEpoch(set_id, relayer)` log that names this
+/// client as the relayer (empty when no such logs are present, multiple
+/// entries when a single tx batched multiple consensus messages). Each
+/// `NewEpochEvent` carries the destination block in which the log was
+/// emitted, so the outbound-claim task can later prove `_epochs[set_id]`
+/// at exactly that height.
+/// Returns `None` on timeout and `Err` if the tx reverted.
+#[tracing::instrument(skip(client), fields(chain = ?client.state_machine, ?tx_hash))]
+pub async fn wait_for_success(
+	client: &EvmClient,
+	tx_hash: H256,
+) -> anyhow::Result<Option<(BTreeSet<H256>, Vec<NewEpochEvent>)>> {
+	match wait_for_transaction_receipt(tx_hash, client).await? {
+		Some(receipt) =>
+			if receipt.inner.status_or_post_state() == Eip658Value::Eip658(true) {
+				tracing::info!(target: crate::LOG_TARGET, "Tx for {:?} succeeded", client.state_machine);
+				let commitments = extract_event_commitments(&receipt);
+				let new_epochs = extract_new_epochs_for_self(&receipt, &client.address);
+				Ok(Some((commitments, new_epochs)))
+			} else {
+				tracing::info!(
+					target: crate::LOG_TARGET, "Tx {:?} for {:?} reverted",
+					receipt.transaction_hash,
+					client.state_machine
+				);
+				Err(anyhow!("Transaction reverted"))
+			},
+		None => Ok(None),
+	}
+}
+
+/// Build `TxReceipt`s for every message in `messages` whose commitment
+/// appears in the on-chain event set `receipts`. Shared between serial and
+/// batched submission paths. `new_epochs` is propagated through verbatim
+/// so the outbound layer can enqueue an outbound consensus delivery claim
+/// for every set_id this submission won.
+fn build_tx_receipts(
+	receipts: BTreeSet<H256>,
+	unsuccessful: Vec<Message>,
+	messages: Vec<Message>,
+	height: u64,
+	new_epochs: Vec<NewEpochEvent>,
+) -> TxResult {
 	let mut results = vec![];
 	for msg in messages {
 		match msg {
@@ -532,7 +724,7 @@ pub async fn handle_message_submission(
 					let req = Request::Post(post);
 					let commitment = hash_request::<Hasher>(&req);
 					if receipts.contains(&commitment) {
-						let tx_receipt = TxReceipt::Request {
+						results.push(TxReceipt::Request {
 							query: Query {
 								source_chain: req.source_chain(),
 								dest_chain: req.dest_chain(),
@@ -540,9 +732,7 @@ pub async fn handle_message_submission(
 								commitment,
 							},
 							height,
-						};
-
-						results.push(tx_receipt);
+						});
 					}
 				},
 			Message::Response(ResponseMessage {
@@ -553,7 +743,7 @@ pub async fn handle_message_submission(
 					let commitment = hash_response::<Hasher>(&res);
 					let request_commitment = hash_request::<Hasher>(&res.request());
 					if receipts.contains(&commitment) {
-						let tx_receipt = TxReceipt::Response {
+						results.push(TxReceipt::Response {
 							query: Query {
 								source_chain: res.source_chain(),
 								dest_chain: res.dest_chain(),
@@ -562,98 +752,77 @@ pub async fn handle_message_submission(
 							},
 							request_commitment,
 							height,
-						};
-
-						results.push(tx_receipt);
+						});
 					}
 				},
 			_ => {},
 		}
 	}
+	TxResult { receipts: results, unsuccessful, new_epochs }
+}
 
-	Ok(TxResult { receipts: results, unsuccessful: cancelled })
+/// Top-level submission entry.
+///
+/// - **Batch of 1** (e.g. the mandatory-consensus-only chunks from the outbound rotation catch-up)
+///   routes through the legacy per-message [`submit_messages`] path. Wrapping a single call in
+///   `IHandlerV2.batchCall` adds a self-delegatecall frame with no upside, costs extra gas, and
+///   makes the receipt harder to interpret downstream.
+/// - **Batch of ≥2** dispatches through [`submit_batch_messages`], the atomic
+///   `IHandlerV2.batchCall` path. Chains whose handler doesn't implement `IHandlerV2` will revert
+///   at the handler address — the legacy serial-submit fallback is no longer supported for real
+///   batches.
+pub async fn handle_message_submission(
+	client: &EvmClient,
+	messages: Vec<Message>,
+) -> anyhow::Result<TxResult> {
+	if messages.is_empty() {
+		return Ok(TxResult::default());
+	}
+
+	let (receipts, unsuccessful, new_epochs) = if messages.len() == 1 {
+		submit_messages(client, messages.clone()).await?
+	} else {
+		submit_batch_messages(client, messages.clone()).await?
+	};
+	let height = client.client.get_block_number().await?;
+	Ok(build_tx_receipts(receipts, unsuccessful, messages, height, new_epochs))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ethers::providers::{Http, Provider};
-
-	#[tokio::test]
-	#[ignore] // Requires local RPC node
-	async fn test_wait_for_transaction_receipt() {
-		// Initialize logger
-		let _ = env_logger::builder().is_test(true).try_init();
-
-		// Create provider
-		let provider =
-			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
-		let provider = Arc::new(provider);
-
-		// Transaction hash to test
-		let tx_hash: H256 = "0xf43c2f2910bb84fdd9f4bd94378469195d4e0b401802c6fb8d3d74a20abef3da"
-			.parse()
-			.expect("Failed to parse transaction hash");
-
-		// Wait for transaction receipt
-		match wait_for_transaction_receipt(tx_hash, provider).await {
-			Ok(Some(receipt)) => {
-				println!("✅ Transaction receipt found!");
-				println!("Transaction hash: {:?}", receipt.transaction_hash);
-				println!("Block number: {:?}", receipt.block_number);
-				println!("Gas used: {:?}", receipt.gas_used);
-				println!("Status: {:?}", receipt.status);
-				println!("From: {:?}", receipt.from);
-				println!("To: {:?}", receipt.to);
-				println!("Number of logs: {}", receipt.logs.len());
-			},
-			Ok(None) => {
-				println!("❌ Transaction receipt not found after 10 minutes");
-			},
-			Err(err) => {
-				println!("❌ Error fetching transaction receipt: {err:?}");
-			},
-		}
-	}
+	use crate::AlloyProvider;
+	use std::sync::Arc;
 
 	#[tokio::test]
 	#[ignore] // Requires local RPC node
 	async fn test_get_block() {
-		// Initialize logger
 		let _ = env_logger::builder().is_test(true).try_init();
 
-		// Create provider
-		let provider =
-			Provider::<Http>::try_from("http://localhost:8545").expect("Failed to create provider");
-		let provider = Arc::new(provider);
+		let provider = Arc::new(AlloyProvider::new_http("http://localhost:8545".parse().unwrap()));
 
-		// Block number to test
 		let block_number: u64 = 4726213;
-
 		println!("Fetching block {block_number}...");
 
-		// Get block by number
-		match provider.get_block(block_number).await {
-			Ok(Some(block)) => {
-				println!("✅ Block found!");
-				println!("Block number: {:?}", block.number);
-				println!("Block hash: {:?}", block.hash);
-				println!("Parent hash: {:?}", block.parent_hash);
-				println!("Timestamp: {:?}", block.timestamp);
-				println!("Gas used: {:?}", block.gas_used);
-				println!("Gas limit: {:?}", block.gas_limit);
-				println!("Miner: {:?}", block.author);
+		let block: Option<alloy::rpc::types::Block> = provider
+			.get_block_by_number(block_number.into())
+			.full()
+			.await
+			.expect("Failed to fetch block");
+
+		match block {
+			Some(block) => {
+				println!("Block number: {:?}", block.header.number);
+				println!("Block hash: {:?}", block.header.hash);
+				println!("Parent hash: {:?}", block.header.parent_hash);
+				println!("Timestamp: {:?}", block.header.timestamp);
+				println!("Gas used: {:?}", block.header.gas_used);
+				println!("Gas limit: {:?}", block.header.gas_limit);
+				println!("Miner: {:?}", block.header.beneficiary);
 				println!("Number of transactions: {}", block.transactions.len());
-				println!("State root: {:?}", block.state_root);
+				println!("State root: {:?}", block.header.state_root);
 			},
-			Ok(None) => {
-				println!("❌ Block not found");
-				panic!("Block {block_number} should exist");
-			},
-			Err(err) => {
-				println!("❌ Error fetching block: {err:?}");
-				panic!("Failed to fetch block: {err:?}");
-			},
+			None => panic!("Block {block_number} not found"),
 		}
 	}
 }

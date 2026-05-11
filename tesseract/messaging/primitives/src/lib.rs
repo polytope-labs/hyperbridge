@@ -14,14 +14,90 @@
 // limitations under the License.
 
 //! Traits and types required to compose the tesseract relayer
+
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-primitives";
 pub mod config;
 #[cfg(feature = "testing")]
 pub mod mocks;
 pub mod queue;
+pub mod serde_adapters;
 
 use anyhow::anyhow;
 use futures::{Stream, StreamExt};
 pub use ismp::events::StateMachineUpdated;
+
+/// `ProofAccepted` event from `pallet-beefy-consensus-proofs`. `new_set_id.is_some()`
+/// indicates an authority-set rotation — treat as mandatory (must propagate to every
+/// destination even when no user messages target it).
+#[derive(Debug, Clone)]
+pub struct ProofAccepted {
+	pub height: u64,
+	pub new_set_id: Option<u64>,
+}
+
+/// Pulls the raw `payload.proof` bytes for an accepted BEEFY consensus proof
+/// (keyed by the parachain height it advanced HB to). Implementations live
+/// downstream — the relayer binary reads from HB's offchain storage via RPC,
+/// but tests mock it. Callers wrap the returned bytes in a
+/// [`ConsensusMessage`](ismp::messaging::ConsensusMessage).
+#[async_trait::async_trait]
+pub trait ConsensusProofSource: Send + Sync {
+	/// Fetch the proof bytes that advanced the parachain to `height`.
+	async fn fetch(&self, height: u64) -> Result<Vec<u8>, anyhow::Error>;
+
+	/// Return every stored rotation proof with `set_id > from_set_id`,
+	/// ordered ascending by set_id. Used by outbound to catch a lagging EVM
+	/// destination up across multiple authority-set epochs before submitting
+	/// the current update — BEEFY verification on the destination rejects a
+	/// messaging proof whose set_id is ahead of the locally-known authorities.
+	///
+	/// The default implementation returns an empty vec so mock / test
+	/// implementations don't have to care.
+	async fn rotation_proofs_from(
+		&self,
+		_from_set_id: u64,
+	) -> Result<Vec<RotationProof>, anyhow::Error> {
+		Ok(Vec::new())
+	}
+}
+
+/// One entry of [`ConsensusProofSource::rotation_proofs_from`]: a rotation
+/// proof plus the `(set_id, height)` it rotated the parachain to.
+#[derive(Debug, Clone)]
+pub struct RotationProof {
+	/// The BEEFY authority set id the parachain rotated to.
+	pub set_id: u64,
+	/// The parachain height the proof advanced to.
+	pub height: u64,
+	/// Raw `payload.proof` bytes to wrap in a `ConsensusMessage`.
+	pub proof: Vec<u8>,
+}
+
+/// BEEFY `ConsensusStateId` — matches the solidity `BEEFY_CONSENSUS_ID` and
+/// `pallet_beefy_consensus_proofs::BEEFY_CONSENSUS_ID`.
+pub const BEEFY_CONSENSUS_STATE_ID: [u8; 4] = *b"BEEF";
+
+/// Receipt emitted by the outbound pipeline after a successful delivery of a
+/// mandatory (authority-set rotation) consensus proof to a destination chain.
+///
+/// Trigger pushed by the outbound delivery task into the claim channel. The
+/// claim task consumes these and, mirroring the fee accumulation pattern,
+/// waits for Hyperbridge's consensus client for `destination` to verify a
+/// destination block at or past `delivery_height`, then builds a state
+/// proof of `HandlerV2._epochs[set_id]`, signs with the EVM key, and
+/// submits `pallet_ismp_relayer::claim_outbound_consensus_delivery_reward`.
+#[derive(Debug, Clone)]
+pub struct PendingConsensusDeliveryClaim {
+	/// EVM destination chain the rotation was delivered to.
+	pub destination: StateMachine,
+	/// Destination block height at which the rotation was delivered (the
+	/// block that contains the HandlerV2 transaction whose receipt has the
+	/// `NewEpoch` log).
+	pub delivery_height: u64,
+	/// Authority set id brought in by the rotation.
+	pub set_id: u64,
+}
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -34,7 +110,7 @@ use pallet_ismp_relayer::withdrawal::Key;
 pub use pallet_ismp_relayer::withdrawal::{Signature, WithdrawalProof};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::{Decode, Encode};
-use primitive_types::{H256, U256};
+use primitive_types::{H160, H256, U256};
 use sp_core::keccak_256;
 use std::{
 	fmt::{Debug, Display, Formatter},
@@ -160,6 +236,22 @@ pub enum StateProofQueryType {
 	Arbitrary(Vec<Vec<u8>>),
 }
 
+/// Chain-agnostic storage read target. The provider's [`IsmpProvider::query_storage`]
+/// implementation chooses the appropriate access pattern (substrate `state_getStorage` vs EVM
+/// `eth_getStorageAt`) based on the variant supplied.
+#[derive(Debug, Clone)]
+pub enum StorageKey {
+	/// Full substrate pallet storage key (pallet prefix + item prefix + hashed map keys).
+	Substrate(Vec<u8>),
+	/// EVM contract storage slot, read via `eth_getStorageAt(contract, slot, latest)`.
+	Evm {
+		/// Contract address.
+		contract: H160,
+		/// 32-byte storage slot key.
+		slot: H256,
+	},
+}
+
 /// Cloneable error, used in place of `anyhow::Error`` which does not implement `Clone` required by
 /// tokio::sync::broadcast
 #[derive(Clone, Debug)]
@@ -188,10 +280,38 @@ impl Keccak256 for Hasher {
 	}
 }
 
+/// One `HandlerV2::NewEpoch(set_id, relayer)` log emitted by the destination
+/// chain in response to a consensus delivery, attributed to this relayer.
+///
+/// `block_number` is the destination's block in which the log was emitted —
+/// i.e. the block at which `_epochs[set_id]` was actually written to the
+/// HandlerV2 contract. The outbound-claim task uses it as `delivery_height`
+/// so the storage proof we build is over a height the destination has
+/// already mined past, eliminating the prior race where we'd query the
+/// destination's `finalized` head before the outbound tx had even landed.
+#[derive(Debug, Clone, Copy)]
+pub struct NewEpochEvent {
+	pub set_id: u64,
+	pub block_number: u64,
+}
+
 #[derive(Debug, Default)]
 pub struct TxResult {
 	pub receipts: Vec<TxReceipt>,
 	pub unsuccessful: Vec<Message>,
+	/// Every `HandlerV2::NewEpoch(set_id, relayer)` log in this submission's
+	/// receipts whose `relayer` matches `self.address()`. A single tx can
+	/// carry several consensus messages (catch-up batches), and each one
+	/// that lands a new authority set on chain emits its own log — each
+	/// entry here earns a separate per-chain `OutboundConsensusDeliveryReward`.
+	/// Always empty for non-EVM submissions and for EVM tx receipts with
+	/// no matching `NewEpoch` log.
+	///
+	/// Each entry carries the destination block number that emitted the log,
+	/// so the claim task can build its state proof at exactly that height
+	/// (the slot is guaranteed populated there) instead of guessing a
+	/// post-tx finalized head.
+	pub new_epochs: Vec<NewEpochEvent>,
 }
 
 #[async_trait::async_trait]
@@ -252,6 +372,22 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, anyhow::Error>;
 
+	/// Fetch a raw storage value from the underlying chain. Substrate backends consume the
+	/// [`StorageKey::Substrate`] variant as a full pallet storage key; EVM backends consume
+	/// [`StorageKey::Evm`] as an `eth_getStorageAt(address, slot)` call. Providers return an
+	/// error when asked for a variant they don't support.
+	///
+	/// `at` anchors the read at a specific block number (finalized is the
+	/// typical caller intent). `None` defaults to the chain tip — callers
+	/// racing with unfinalized reorgs should pass a finalized height.
+	async fn query_storage(
+		&self,
+		_key: StorageKey,
+		_at: Option<u64>,
+	) -> Result<Option<Vec<u8>>, anyhow::Error> {
+		Err(anyhow!("query_storage is not supported on {}", self.name()))
+	}
+
 	/// Query all ismp events on naive that can be processed for a [`StateMachineUpdated`]
 	/// event on the counterparty
 	async fn query_ismp_events(
@@ -267,6 +403,23 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// on the counterparty chain
 	fn state_machine_id(&self) -> StateMachineId;
 
+	/// The address of the `IsmpHost` contract on this chain, for EVM
+	/// destinations. Returns `None` for chains that don't expose an on-chain
+	/// contract address (substrate). Used by the outbound-consensus claim
+	/// task to derive the destination-side storage slot for
+	/// `_stateCommitments[hbStateMachineId][rotation_height]`, which is
+	/// what the pallet's state proof verifier looks up.
+	fn ismp_host_contract(&self) -> Option<sp_core::H160>;
+
+	/// The HandlerV2 contract address on this chain (only meaningful on
+	/// EVM destinations that have HandlerV2 deployed). The EVM impl reads
+	/// `EvmHost.hostParams().handler` so the relayer doesn't have to be
+	/// told the address out of band — it stays in sync with whatever
+	/// governance has set on chain. Defaults to `None` for non-EVM chains
+	/// (mirroring [`Self::ismp_host_contract`]); the outbound-consensus
+	/// claim task is EVM-only and skips destinations that report `None`.
+	async fn handler_v2_address(&self) -> Option<sp_core::H160>;
+
 	/// Should return a numerical value for the max gas allowed for transactions in a block.
 	fn block_max_gas(&self) -> u64;
 
@@ -279,6 +432,27 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		&self,
 		msg: Vec<Message>,
 	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error>;
+
+	/// Estimate gas for a list of messages where each non-consensus entry is
+	/// simulated *together with* the supplied consensus prelude in the same
+	/// batch call. Used by the outbound fan-out so per-message estimates
+	/// reflect the light-client update that lands alongside them in the same
+	/// tx — on EVM chains that's materially different from estimating the
+	/// message against the pre-update state, because the state commitment
+	/// the verifier reads is only written by the consensus call.
+	///
+	/// The default implementation ignores `prelude` and delegates to
+	/// [`estimate_gas`] — substrate-family providers submit consensus and
+	/// messages as separate pallet extrinsics rather than a batched call, so
+	/// standalone estimation is already accurate there.
+	async fn estimate_gas_batched(
+		&self,
+		prelude: Option<Message>,
+		msgs: Vec<Message>,
+	) -> Result<Vec<EstimateGasReturnParams>, anyhow::Error> {
+		let _ = prelude;
+		self.estimate_gas(msgs).await
+	}
 
 	/// Should return fee relayer would be recieving to relay a request mesage giving a hash
 	/// (message commiment)
@@ -305,6 +479,15 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 		counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, anyhow::Error>;
 
+	/// Return a stream of [`ProofAccepted`] events emitted by
+	/// `pallet-beefy-consensus-proofs`. Only Hyperbridge runs this pallet — other
+	/// providers fall back to the default implementation which errors.
+	async fn proof_accepted_notification(&self) -> Result<BoxStream<ProofAccepted>, anyhow::Error> {
+		Err(anyhow!(
+			"proof_accepted_notification is only supported on Hyperbridge substrate clients"
+		))
+	}
+
 	/// Return a stream that watches for state machine commitment vetoes, starting at [`from`]
 	/// yields when a [`StateCommitmentVetoed`] event is observed for [`height`]
 	async fn state_commitment_vetoed_notification(
@@ -317,7 +500,12 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	/// this chain.
 	///
 	/// Should only return Ok if the transaction was successfully inserted into a block.
-	/// Should return a list of requests and responses that where successfully processed
+	/// Should return a list of requests and responses that where successfully processed.
+	///
+	/// EVM implementations transparently dispatch through `IHandlerV2.batchCall` when
+	/// the chain's handler contract supports it (one tx per call) and fall back to
+	/// the legacy one-tx-per-message path otherwise; both are wire-compatible from
+	/// the caller's perspective.
 	async fn submit(
 		&self,
 		messages: Vec<Message>,
@@ -486,7 +674,7 @@ pub async fn wait_for_challenge_period(
 	let challenge_period = client.query_challenge_period(counterparty_state_id).await?;
 	if challenge_period != Duration::ZERO {
 		log::info!(
-			"Waiting for challenge period {challenge_period:?} for {} on {}",
+			target: LOG_TARGET, "Waiting for challenge period {challenge_period:?} for {} on {}",
 			counterparty_state_id.state_id,
 			client.name()
 		);
@@ -511,6 +699,12 @@ pub async fn wait_for_state_machine_update(
 	counterparty: Arc<dyn IsmpProvider>,
 	height: u64,
 ) -> anyhow::Result<u64> {
+	tracing::debug!(
+		target: LOG_TARGET,
+		?state_id,
+		height,
+		"querying hyperbridge for latest state machine height",
+	);
 	let latest_height = hyperbridge.query_latest_height(state_id).await?.into();
 	if latest_height >= height {
 		observe_challenge_period(counterparty, hyperbridge, latest_height).await?;
@@ -526,7 +720,7 @@ pub async fn wait_for_state_machine_update(
 					return Ok(event.latest_height);
 				},
 			Err(err) => {
-				log::error!("State machine update stream returned an error {err:?}")
+				log::error!(target: LOG_TARGET, "State machine update stream returned an error {err:?}")
 			},
 		}
 	}

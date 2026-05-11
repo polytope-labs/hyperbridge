@@ -13,12 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "consensus-bsc";
+
+use alloy::providers::Provider;
 use bsc_prover::BscPosProver;
 pub use bsc_verifier::{
 	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
 	verify_bsc_header,
 };
-use ethers::providers::{Http, Middleware, Provider};
 pub use geth_primitives::Header;
 use ismp::{consensus::ConsensusStateId, host::StateMachine, messaging::Keccak256};
 pub use ismp_bsc::ConsensusState;
@@ -36,26 +39,32 @@ pub use bsc_verifier::primitives::{Mainnet, Testnet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BscPosConfig {
 	/// Host configuration options
+	#[serde(flatten)]
 	pub host: HostConfig,
-	/// General ethereum config
-	#[serde[flatten]]
-	pub evm_config: EvmConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostConfig {
 	pub consensus_update_frequency: Option<u64>,
+	/// BSC validator-set rotation cadence in blocks. Defaults to the
+	/// BEP-341 mainnet/testnet value of 1000 when omitted from the TOML
+	/// config so operators don't have to hand-set it.
+	#[serde(default = "default_epoch_length")]
 	pub epoch_length: u64,
 }
 
-impl BscPosConfig {
-	/// Convert the config into a client.
-	pub async fn into_client<C: Config + 'static>(self) -> anyhow::Result<Arc<dyn IsmpHost>> {
-		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &self.evm_config).await?))
-	}
+fn default_epoch_length() -> u64 {
+	1000
+}
 
-	pub fn state_machine(&self) -> StateMachine {
-		self.evm_config.state_machine
+impl BscPosConfig {
+	/// Convert the config into a client. Caller supplies the chain's EVM host
+	/// config; we no longer bundle it into this struct.
+	pub async fn into_client<C: Config + 'static>(
+		self,
+		evm_config: EvmConfig,
+	) -> anyhow::Result<Arc<dyn IsmpHost>> {
+		Ok(Arc::new(BscPosHost::<C>::new(&self.host, &evm_config).await?))
 	}
 }
 
@@ -77,20 +86,13 @@ pub struct BscPosHost<C: Config> {
 
 impl<C: Config> BscPosHost<C> {
 	pub async fn new(host: &HostConfig, evm: &EvmConfig) -> Result<Self, anyhow::Error> {
-		let provider = Provider::new(Http::new_client_with_chain_middleware(
-			evm.rpc_urls.iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			None,
-		));
-		let prover = BscPosProver::new(provider);
+		let urls = evm.rpc_urls.iter().map(|u| u.parse()).collect::<Result<Vec<_>, _>>()?;
+		let prover = BscPosProver::new(urls)?;
 		let ismp_provider = EvmClient::new(evm.clone()).await?;
 
 		Ok(Self {
-			consensus_state_id: {
-				let mut consensus_state_id: ConsensusStateId = Default::default();
-				consensus_state_id.copy_from_slice(evm.consensus_state_id.as_bytes());
-				consensus_state_id
-			},
-			state_machine: evm.state_machine,
+			consensus_state_id: ismp_provider.consensus_state_id,
+			state_machine: ismp_provider.state_machine,
 			prover,
 			host: host.clone(),
 			evm: evm.clone(),
@@ -104,14 +106,14 @@ impl<C: Config> BscPosHost<C> {
 			.fetch_finalized_state::<KeccakHasher>(self.host.epoch_length)
 			.await?;
 
-		let chain_id = self.prover.client.get_chainid().await?;
+		let chain_id = self.prover.client.get_chain_id().await?;
 		let consensus_state = ConsensusState {
 			current_validators,
 			next_validators: None,
 			finalized_hash: Header::from(&header).hash::<KeccakHasher>(),
 			finalized_height: header.number.as_u64(),
 			current_epoch: compute_epoch(header.number.low_u64(), self.host.epoch_length),
-			chain_id: chain_id.low_u32(),
+			chain_id: chain_id as u32,
 		};
 
 		Ok(consensus_state)

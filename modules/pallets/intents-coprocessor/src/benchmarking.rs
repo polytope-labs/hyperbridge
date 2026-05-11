@@ -20,7 +20,10 @@
 use super::*;
 use alloc::vec;
 use frame_benchmarking::v2::*;
-use frame_support::{traits::{Currency, EnsureOrigin}, BoundedVec};
+use frame_support::{
+	traits::{Currency, EnsureOrigin},
+	BoundedVec,
+};
 use frame_system::RawOrigin;
 use ismp::host::StateMachine;
 use primitive_types::{H160, H256, U256};
@@ -41,7 +44,7 @@ mod benchmarks {
 			vec![1u8; 100].try_into().expect("user_op fits in bounds");
 
 		// Fund the caller
-		let deposit = T::StorageDepositFee::get();
+		let deposit = Pallet::<T>::storage_deposit_fee();
 		let balance = deposit * 10u32.into();
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 
@@ -60,7 +63,7 @@ mod benchmarks {
 			vec![1u8; 100].try_into().expect("user_op fits in bounds");
 
 		// Fund the caller
-		let deposit = T::StorageDepositFee::get();
+		let deposit = Pallet::<T>::storage_deposit_fee();
 		let balance = deposit * 10u32.into();
 		<T as Config>::Currency::make_free_balance_be(&caller, balance);
 
@@ -114,12 +117,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(
-			origin.clone(),
-			state_machine,
-			gateway,
-			params.clone(),
-		);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params.clone());
 
 		let params_update = types::ParamsUpdate {
 			protocol_fee_bps: Some(U256::from(150)),
@@ -149,12 +147,7 @@ mod benchmarks {
 		};
 
 		// Add gateway first
-		let _ = Pallet::<T>::add_deployment(
-			origin.clone(),
-			state_machine,
-			gateway,
-			params.clone(),
-		);
+		let _ = Pallet::<T>::add_deployment(origin.clone(), state_machine, gateway, params.clone());
 
 		let dust_params = types::SweepDust { beneficiary: H160::default(), outputs: vec![] };
 

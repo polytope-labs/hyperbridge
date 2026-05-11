@@ -83,7 +83,7 @@ where
 					let consensus_state: ConsensusState =
 						codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 					log::trace!(
-						"Consensus state: {:#?}",
+						target: crate::LOG_TARGET, "Consensus state: {:#?}",
 						ConsensusState { current_authorities: vec![], ..consensus_state }
 					);
 					client.should_sync(consensus_state.current_set_id).await
@@ -116,7 +116,7 @@ where
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
 								log::trace!(
-									"Consensus state for {}: {:#?}",
+									target: crate::LOG_TARGET, "Consensus state for {}: {:#?}",
 									client.state_machine,
 									ConsensusState {
 										current_authorities: vec![],
@@ -181,7 +181,7 @@ where
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
 								log::trace!(
-									"Consensus state for {}: {:#?}",
+									target: crate::LOG_TARGET, "Consensus state for {}: {:#?}",
 									client.state_machine,
 									ConsensusState {
 										current_authorities: vec![],
@@ -246,7 +246,7 @@ where
 									codec::Decode::decode(&mut &consensus_state_bytes[..])?;
 
 								log::trace!(
-									"Consensus state for {}: {:#?}",
+									target: crate::LOG_TARGET, "Consensus state for {}: {:#?}",
 									client.state_machine,
 									ConsensusState {
 										current_authorities: vec![],
@@ -330,7 +330,7 @@ where
 						.await;
 					if let Err(err) = res {
 						log::error!(
-							"Failed to submit transaction to {}: {err:?}",
+							target: "tesseract", "Failed to submit transaction to {}: {err:?}",
 							counterparty.name()
 						)
 					}

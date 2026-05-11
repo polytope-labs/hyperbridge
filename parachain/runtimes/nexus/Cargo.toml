@@ -39,13 +39,16 @@ ismp-grandpa = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
 pallet-ismp-host-executive = { workspace = true }
 pallet-call-decompressor = { workspace = true }
-pallet-xcm-gateway = { workspace = true }
 pallet-token-governor = { workspace = true }
 pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
+pallet-hyperbridge = { workspace = true }
+pallet-token-gateway = { workspace = true }
+token-gateway-primitives = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
+mmr-primitives = { workspace = true }
 hyperbridge-client-machine = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
@@ -74,12 +77,12 @@ features = [
     "pallet-balances",
     "pallet-assets",
     "pallet-session",
-    "pallet-sudo",
     "pallet-timestamp",
     "pallet-transaction-payment",
     "pallet-transaction-payment-rpc-runtime-api",
     "pallet-message-queue",
     "pallet-utility",
+    "pallet-tx-pause",
     "pallet-treasury",
     "pallet-asset-rate",
     "pallet-collective",
@@ -118,6 +121,7 @@ features = [
     "cumulus-pallet-session-benchmarking",
     "cumulus-pallet-xcm",
     "cumulus-pallet-xcmp-queue",
+    "pallet-migrations",
     "cumulus-primitives-core",
     "cumulus-primitives-timestamp",
     "cumulus-primitives-aura",
@@ -146,14 +150,17 @@ std = [
     "pallet-ismp-relayer/std",
     "pallet-ismp-host-executive/std",
     "pallet-call-decompressor/std",
-    "pallet-xcm-gateway/std",
     "pallet-token-governor/std",
     "pallet-mmr-tree/std",
     "pallet-mmr-runtime-api/std",
+    "mmr-primitives/std",
     "simnode-runtime-api/std",
     "hyperbridge-client-machine/std",
     "anyhow/std",
     "pallet-token-gateway-inspector/std",
+    "pallet-hyperbridge/std",
+    "pallet-token-gateway/std",
+    "token-gateway-primitives/std",
     "pallet-fishermen/std",
     "pallet-state-coprocessor/std",
     "ismp-grandpa/std",
@@ -179,6 +186,7 @@ runtime-benchmarks = [
     "ismp-parachain/runtime-benchmarks",
     "pallet-intents-coprocessor/runtime-benchmarks",
     "pallet-messaging-fees/runtime-benchmarks",
+    "pallet-token-gateway/runtime-benchmarks",
 ]
 try-runtime = [
     "polkadot-sdk/try-runtime",

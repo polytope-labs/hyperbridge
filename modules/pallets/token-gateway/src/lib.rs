@@ -611,9 +611,7 @@ where
 							))?
 						}
 					},
-					MultiSignature::Eth(_) => {
-						Err(anyhow!("Eth signature type is not supported"))?
-					},
+					MultiSignature::Eth(_) => Err(anyhow!("Eth signature type is not supported"))?,
 				};
 
 				beneficiary.clone().into()

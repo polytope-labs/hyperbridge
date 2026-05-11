@@ -1,0 +1,50 @@
+[package]
+name = "evm-integration-tests"
+version = "0.1.1"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+description = "Integration tests for Evm Handler"
+publish = false
+
+[dependencies]
+# crates.io
+hex-literal = "0.4.1"
+hex = "0.4.3"
+primitive-types = { workspace = true, default-features = true }
+codec = { package = "parity-scale-codec", version = "3.2.2" }
+anyhow = { workspace = true, default-features = true }
+serde = "1.0.188"
+json = { workspace = true, default-features = true }
+
+trie-db = { workspace = true, default-features = true }
+merkle-mountain-range = { workspace = true, features = ["default"] }
+mmr-primitives = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+pallet-ismp = { workspace = true, default-features = true }
+pallet-ismp-host-executive = { workspace = true, default-features = true }
+pallet-mmr-tree = { workspace = true, default-features = true }
+pallet-ismp-relayer = { workspace = true, default-features = true }
+
+ismp-solidity-abi = {workspace = true, default-features = true }
+alloy-primitives = { workspace = true, default-features = true }
+alloy-sol-types = { workspace = true, default-features = true }
+alloy-sol-macro = { workspace = true }
+
+rs_merkle = { workspace = true, default-features = true }
+
+revm = { workspace = true }
+
+# Dependencies for the live beefy consensus integration test (ignored by default)
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+futures = { workspace = true }
+envy = "0.4"
+subxt = { workspace = true, features = ["native", "jsonrpsee"] }
+subxt-utils = { workspace = true, default-features = true }
+beefy-prover = { workspace = true }
+beefy-verifier-primitives = { workspace = true, default-features = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+default-features = true
+features = ["sp-consensus-beefy", "sp-core", "sp-runtime", "sp-trie"]

@@ -14,12 +14,23 @@
 // limitations under the License.
 pragma solidity ^0.8.20;
 
-import {IConsensus, IntermediateState} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensus, IntermediateState, StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {IConsensusV2} from "@hyperbridge/core/interfaces/IConsensusV2.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {ISP1Verifier} from "@sp1-contracts/ISP1Verifier.sol";
 
-import "./Codec.sol";
-import "./Types.sol";
+import {Codec} from "./Codec.sol";
+import {Header, HeaderImpl} from "./Header.sol";
+import {
+    AuthoritySetCommitment,
+    BeefyConsensusState,
+    MiniCommitment,
+    ParachainHeader,
+    ParachainHeaderHash,
+    PartialBeefyMmrLeaf,
+    PublicInputs,
+    SP1BeefyProof
+} from "./Types.sol";
 
 /**
  * @title The SP1 BEEFY Consensus Client.
@@ -28,34 +39,53 @@ import "./Types.sol";
  * @notice Similar to the BeefyV1 client but delegates secp256k1 signature verification, authority set membership proof checks
  * and mmr leaf to an SP1 program.
  */
-contract SP1Beefy is IConsensus, ERC165 {
+contract SP1Beefy is IConsensus, IConsensusV2, ERC165 {
     using HeaderImpl for Header;
 
     // SP1 verification key
-    bytes32 public immutable _verificationKey;
+    bytes32 public immutable verificationKey;
 
     // Sp1 verifier contract
-    ISP1Verifier public immutable _verifier;
+    ISP1Verifier public immutable verifier;
 
     // Provided authority set id was unknown
     error UnknownAuthoritySet();
 
-    // Provided consensus proof height is stale
-    error StaleHeight();
-
     // Genesis block should not be provided
     error IllegalGenesisBlock();
 
-    constructor(ISP1Verifier verifier, bytes32 verificationKey) {
-        _verifier = verifier;
-        _verificationKey = verificationKey;
+    constructor(ISP1Verifier v, bytes32 vk) {
+        verifier = v;
+        verificationKey = vk;
     }
 
     /**
      * @dev See {IERC165-supportsInterface}.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == type(IConsensus).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IConsensus).interfaceId || interfaceId == type(IConsensusV2).interfaceId
+            || super.supportsInterface(interfaceId);
+    }
+
+    function verify(bytes calldata previousState, bytes calldata proof)
+        external
+        view
+        returns (bytes memory, IntermediateState[] memory, uint256)
+    {
+        BeefyConsensusState memory consensusState = abi.decode(previousState, (BeefyConsensusState));
+        (
+            MiniCommitment memory commitment,
+            PartialBeefyMmrLeaf memory leaf,
+            ParachainHeader[] memory headers,
+            bytes memory plonkProof
+        ) = abi.decode(proof, (MiniCommitment, PartialBeefyMmrLeaf, ParachainHeader[], bytes));
+        SP1BeefyProof memory sp1Proof =
+            SP1BeefyProof({commitment: commitment, mmrLeaf: leaf, headers: headers, proof: plonkProof});
+
+        (BeefyConsensusState memory newState, IntermediateState[] memory intermediates) =
+            verifyConsensus(consensusState, sp1Proof);
+
+        return (abi.encode(newState), intermediates, newState.nextAuthoritySet.id);
     }
 
     /*
@@ -91,7 +121,11 @@ contract SP1Beefy is IConsensus, ERC165 {
         returns (BeefyConsensusState memory, IntermediateState[] memory)
     {
         MiniCommitment memory commitment = proof.commitment;
-        if (trustedState.latestHeight >= commitment.blockNumber) revert StaleHeight();
+        // Stale proofs are a no-op: return the previous state with no intermediates so replays
+        // are idempotent rather than reverting.
+        if (trustedState.latestHeight >= commitment.blockNumber) {
+            return (trustedState, new IntermediateState[](0));
+        }
 
         AuthoritySetCommitment memory authority;
         if (commitment.validatorSetId == trustedState.nextAuthoritySet.id) {
@@ -103,9 +137,12 @@ contract SP1Beefy is IConsensus, ERC165 {
         }
 
         uint256 headers_len = proof.headers.length;
-        bytes32[] memory headers = new bytes32[](headers_len);
+        ParachainHeaderHash[] memory headers = new ParachainHeaderHash[](headers_len);
         for (uint256 i = 0; i < headers_len; i++) {
-            headers[i] = keccak256(proof.headers[i].header);
+            headers[i] = ParachainHeaderHash({
+                id: proof.headers[i].id,
+                hash: keccak256(proof.headers[i].header)
+            });
         }
 
         bytes memory publicInputs = abi.encode(
@@ -117,7 +154,7 @@ contract SP1Beefy is IConsensus, ERC165 {
             })
         );
 
-        _verifier.verifyProof(_verificationKey, publicInputs, proof.proof);
+        verifier.verifyProof(verificationKey, publicInputs, proof.proof);
 
         uint256 statesLen = proof.headers.length;
         IntermediateState[] memory intermediates = new IntermediateState[](statesLen);

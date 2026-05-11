@@ -76,6 +76,12 @@ where
 			Prototype::List(2) => {
 				let (rlp, offset) = r.at_with_offset(0)?;
 				let (data, i) = (rlp.data()?, rlp.payload_info()?);
+				// The first byte of a leaf/extension node's partial key is the
+				// hex-prefix flag byte. A well-formed HP-encoded key is never
+				// empty, so reject here to avoid a panic on adversarial input.
+				if data.is_empty() {
+					return Err(DecoderError::Custom("empty HP-encoded partial key").into());
+				}
 				match (
 					NibbleSlicePlan::new(
 						(offset + i.header_len)..(offset + i.header_len + i.value_len),

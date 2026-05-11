@@ -21,7 +21,10 @@ use ismp_parachain::ParachainData;
 use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
 use pallet_ismp_demo::{EvmParams, GetRequest as GetRequestIsmpDemo, TransferParams};
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
-use pallet_ismp_relayer::withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof};
+use pallet_ismp_relayer::{
+	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
+	OutboundConsensusDeliveryClaim,
+};
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 
 fn to_single_message_value(message: &Message) -> Value<()> {
@@ -407,6 +410,22 @@ fn key_to_value(key: &Key) -> Value<()> {
 			Value::variant("Response", composite)
 		},
 	}
+}
+
+/// Build the `scale_value::Value` for [`OutboundConsensusDeliveryClaim`] so
+/// it can be passed to `subxt::dynamic::tx("Relayer",
+/// "claim_outbound_consensus_delivery_reward", ...)`. Field order matches the
+/// struct declaration, which is what SCALE encoding (and therefore subxt's
+/// metadata lookup) expects.
+pub fn outbound_consensus_delivery_claim_to_value(
+	claim: &OutboundConsensusDeliveryClaim,
+) -> Value<()> {
+	Value::named_composite(vec![
+		("state_proof".to_string(), proof_to_value(&claim.state_proof)),
+		("set_id".to_string(), Value::u128(claim.set_id as u128)),
+		("payee".to_string(), Value::from_bytes(claim.payee.to_vec())),
+		("signature".to_string(), signature_to_value(&claim.signature)),
+	])
 }
 
 fn proof_to_value(proof: &Proof) -> Value<()> {

@@ -1,10 +1,23 @@
-use crate::abi::{EvmHost, PingModule};
+/// Log/tracing target for this crate.
+pub const LOG_TARGET: &str = "messaging-evm";
 
-use ethers::{
-	core::k256::ecdsa::SigningKey,
-	prelude::{k256::SecretKey, LocalWallet, MiddlewareBuilder, SignerMiddleware, Wallet},
-	providers::{Http, Middleware, Provider},
-	signers::Signer,
+use crate::{
+	abi::{EvmHostInstance, PingModuleInstance},
+	transport::RpcTransport,
+};
+
+use alloy::{
+	eips::BlockId,
+	network::EthereumWallet,
+	primitives::{Address, U256 as AlloyU256},
+	providers::{
+		fillers::{
+			BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+			WalletFiller,
+		},
+		Identity, Provider, ProviderBuilder, RootProvider,
+	},
+	signers::local::PrivateKeySigner,
 };
 use ismp::{consensus::ConsensusStateId, events::Event, host::StateMachine, messaging::Message};
 use polkadot_sdk::frame_support::crypto::ecdsa::ECDSAExt;
@@ -28,12 +41,52 @@ use tx::handle_message_submission;
 pub mod abi;
 mod byzantine;
 pub mod gas_oracle;
+pub mod registry;
+pub mod transport;
 use tx::wait_for_transaction_receipt;
 pub mod provider;
 
 // #[cfg(test)]
 // mod test;
 pub mod tx;
+
+pub type AlloyProvider = RootProvider;
+
+/// Create a RootProvider from multiple URLs with automatic failover,
+/// which uses alloy FallbackService when multiple URLs are provided.
+pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
+	use alloy::{
+		rpc::client::RpcClient,
+		transports::{http::Http, layers::FallbackService},
+	};
+
+	if urls.is_empty() {
+		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
+	}
+
+	if urls.len() == 1 {
+		Ok(RootProvider::new_http(urls[0].parse()?))
+	} else {
+		let transports: Vec<Http<_>> = urls
+			.iter()
+			.map(|u| Ok(Http::new(u.parse()?)))
+			.collect::<Result<_, anyhow::Error>>()?;
+		let active_count = transports.len();
+		let service = FallbackService::new(transports, active_count);
+		let rpc_client = RpcClient::builder().transport(service, false);
+		Ok(RootProvider::new(rpc_client))
+	}
+}
+
+/// Recommended fillers for transaction sending (gas, blob gas, nonce, chain ID)
+type RecommendedFills =
+	JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>;
+
+/// Type alias for Alloy provider with signer (recommended fillers + wallet)
+pub type AlloySignerProvider = FillProvider<
+	JoinFill<JoinFill<Identity, RecommendedFills>, WalletFiller<EthereumWallet>>,
+	RootProvider,
+>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientType {
@@ -60,15 +113,28 @@ impl ClientType {
 pub struct EvmConfig {
 	/// RPC urls for the execution client
 	pub rpc_urls: Vec<String>,
-	/// State machine Identifier for this client on it's counterparties.
-	#[serde(with = "serde_hex_utils::as_string")]
-	pub state_machine: StateMachine,
-	/// Consensus state id for the consensus client on counterparty chain
-	pub consensus_state_id: String,
-	/// Ismp Host contract address
-	pub ismp_host: H160,
-	/// Relayer account private key
-	pub signer: String,
+	/// State machine Identifier for this client on its counterparties. When
+	/// omitted, [`EvmClient::new`] derives it from `eth_chainId` (so the
+	/// relayer config can stay minimal for any known chain).
+	#[serde(default, with = "tesseract_primitives::serde_adapters::option_state_machine")]
+	pub state_machine: Option<StateMachine>,
+	/// Consensus state id for the consensus client on counterparty chain.
+	/// When omitted, [`EvmClient::new`] looks it up in
+	/// [`registry::consensus_state_id_for_chain_id`] using the resolved
+	/// chain id.
+	#[serde(default)]
+	pub consensus_state_id: Option<String>,
+	/// `IsmpHost` contract address. When omitted, [`EvmClient::new`]
+	/// looks it up in [`registry::ismp_host_for_chain_id`] using the
+	/// resolved chain id.
+	#[serde(default)]
+	pub ismp_host: Option<H160>,
+	/// Relayer account private key. When omitted, the chain runs in
+	/// inbound-only mode: events are read but no transactions are submitted to
+	/// it, so it's excluded from outbound delivery, fee withdrawal, and
+	/// fisherman roles.
+	#[serde(default)]
+	pub signer: Option<String>,
 	/// Batch size to parallelize tracing
 	pub tracing_batch_size: Option<usize>,
 	/// Batch size when querying events
@@ -82,6 +148,11 @@ pub struct EvmConfig {
 	pub client_type: Option<ClientType>,
 	/// Initial height from which to start querying messages
 	pub initial_height: Option<u64>,
+	/// Selects the JSON-RPC transport variant.  Defaults to [`RpcTransport::Standard`].
+	/// Set to [`RpcTransport::Tron`] for TRON nodes whose JSON-RPC proxy rejects
+	/// EIP-1559 fields (`type`, `accessList`).
+	#[serde(default)]
+	pub transport: RpcTransport,
 }
 
 impl EvmConfig {
@@ -92,8 +163,52 @@ impl EvmConfig {
 		Ok(client)
 	}
 
+	/// Returns the resolved `state_machine`. Panics if the config has not
+	/// been resolved via [`EvmConfig::resolve`] — callers that read this
+	/// before resolution did so by mistake.
 	pub fn state_machine(&self) -> StateMachine {
-		self.state_machine
+		self.state_machine.expect(
+			"EvmConfig::state_machine called before resolve(); the parser must call \
+			 EvmConfig::resolve / AnyConfig::resolve before any consumer reads this field",
+		)
+	}
+
+	/// Fill in `state_machine`, `ismp_host`, and `consensus_state_id`
+	/// from the chain RPC + [`crate::registry`] when the operator left
+	/// them unset. Returns a new config with all three guaranteed
+	/// `Some(...)`;
+	pub async fn resolve(self) -> anyhow::Result<Self> {
+		let chain_id = {
+			let url = self.rpc_urls.first().ok_or_else(|| {
+				anyhow::anyhow!("evm config requires at least one rpc_urls entry to resolve")
+			})?;
+			crate::registry::fetch_chain_id(url).await?
+		};
+
+		let state_machine = StateMachine::Evm(chain_id as u32);
+
+		let ismp_host = crate::registry::ismp_host_for_chain_id(chain_id).ok_or_else(|| {
+			anyhow::anyhow!(
+				"no IsmpHost configured for chain_id={chain_id}; set ismp_host explicitly \
+				 or add the chain to tesseract_evm::registry"
+			)
+		})?;
+
+		let consensus_state_id = crate::registry::consensus_state_id_for_chain_id(chain_id)
+			.map(|s| s.to_string())
+			.ok_or_else(|| {
+				anyhow::anyhow!(
+					"no consensus_state_id configured for chain_id={chain_id}; set it \
+					 explicitly or add the chain to tesseract_evm::registry"
+				)
+			})?;
+
+		Ok(Self {
+			state_machine: Some(state_machine),
+			ismp_host: Some(ismp_host),
+			consensus_state_id: Some(consensus_state_id),
+			..self
+		})
 	}
 }
 
@@ -101,16 +216,17 @@ impl Default for EvmConfig {
 	fn default() -> Self {
 		Self {
 			rpc_urls: Default::default(),
-			state_machine: StateMachine::Evm(1),
-			consensus_state_id: Default::default(),
-			ismp_host: Default::default(),
-			signer: Default::default(),
+			state_machine: None,
+			consensus_state_id: None,
+			ismp_host: None,
+			signer: None,
 			tracing_batch_size: Default::default(),
 			query_batch_size: Default::default(),
 			poll_interval: Default::default(),
 			gas_price_buffer: Default::default(),
 			client_type: Default::default(),
 			initial_height: Default::default(),
+			transport: Default::default(),
 		}
 	}
 }
@@ -118,23 +234,35 @@ impl Default for EvmConfig {
 /// Core EVM client.
 pub struct EvmClient {
 	/// Execution Rpc client
-	pub client: Arc<Provider<Http>>,
-	/// Transaction signer
-	pub signer: Arc<SignerMiddleware<Provider<Http>, Wallet<SigningKey>>>,
+	pub client: Arc<AlloyProvider>,
+	/// Transaction signer provider. For chains the operator did not configure
+	/// a signer for, this is built from a randomly generated key. The
+	/// relayer's spawn-time filter (`PerChainConfig::outbound_enabled`) keeps
+	/// signer-less chains out of any task that would actually broadcast a
+	/// transaction, so the dummy is never used to send anything.
+	pub signer: Arc<AlloySignerProvider>,
 	/// Public Key Address
 	pub address: Vec<u8>,
-	/// Consensus state Id
+	/// Consensus state Id (resolved from config or registry).
 	pub consensus_state_id: ConsensusStateId,
-	/// State machine Identifier for this client.
+	/// State machine Identifier for this client (resolved from config or
+	/// `eth_chainId`).
 	pub state_machine: StateMachine,
+	/// `IsmpHost` contract address (resolved from config or registry).
+	pub ismp_host: H160,
 	/// Latest state machine height.
 	initial_height: u64,
-	/// Config
+	/// Config (user-supplied; the resolved `state_machine`, `ismp_host`,
+	/// and `consensus_state_id` are reflected on the dedicated fields
+	/// above, not in this snapshot).
 	pub config: EvmConfig,
 	/// EVM chain Id.
 	pub chain_id: u64,
 	/// Client type
 	pub client_type: ClientType,
+	/// Private key signer for synchronous signing operations. Same dummy-key
+	/// note as `signer`.
+	pub private_key_signer: PrivateKeySigner,
 	/// Producer for state machine updated stream
 	state_machine_update_sender: Arc<
 		tokio::sync::Mutex<
@@ -148,48 +276,119 @@ pub struct EvmClient {
 impl EvmClient {
 	pub async fn new(config: EvmConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
-		let bytes = match from_hex(config.signer.as_str()) {
-			Ok(bytes) => bytes,
-			Err(_) => {
-				// it's probably a file.
-				let contents = tokio::fs::read_to_string(config.signer.as_str()).await?;
-				from_hex(contents.as_str())?
+		// If the operator configured a signer, parse it; otherwise generate a
+		// throwaway one so all the signer-shaped fields downstream still
+		// type-check. Inbound-only chains never reach a path that signs,
+		// because the relayer's `outbound_enabled()` filter keeps them out
+		// of outbound, fee-withdrawal, and fisherman tasks before any
+		// signing call.
+		let signer_pair = match config.signer.as_deref() {
+			Some(raw) => {
+				let bytes = match from_hex(raw) {
+					Ok(bytes) => bytes,
+					Err(_) => {
+						// Treat the value as a file path containing hex bytes.
+						let contents = tokio::fs::read_to_string(raw).await?;
+						from_hex(contents.as_str())?
+					},
+				};
+				sp_core::ecdsa::Pair::from_seed_slice(&bytes)?
 			},
+			None => sp_core::ecdsa::Pair::generate().0,
 		};
-		let signer = sp_core::ecdsa::Pair::from_seed_slice(&bytes)?;
-		let address = signer.public().to_eth_address().expect("Infallible").to_vec();
+		let address = signer_pair.public().to_eth_address().expect("Infallible").to_vec();
 
-		let http_client = Http::new_client_with_chain_middleware(
-			config.rpc_urls.into_iter().map(|url| url.parse()).collect::<Result<_, _>>()?,
-			Some(Duration::from_secs(180)),
-		);
-		let provider = Provider::new(http_client);
-		let client = Arc::new(provider.clone());
-		let chain_id = client.get_chainid().await?.low_u64();
-		let signer = LocalWallet::from(SecretKey::from_slice(signer.seed().as_slice())?)
-			.with_chain_id(chain_id);
-		let signer = Arc::new(provider.with_signer(signer));
-		let consensus_state_id = {
-			let mut consensus_state_id: ConsensusStateId = Default::default();
-			consensus_state_id.copy_from_slice(config.consensus_state_id.as_bytes());
-			consensus_state_id
+		if config.rpc_urls.is_empty() {
+			return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
+		}
+
+		let http_client = alloy::transports::http::reqwest::Client::builder()
+			.timeout(Duration::from_secs(180))
+			.build()?;
+
+		let root_provider = if config.rpc_urls.len() == 1 {
+			let url: alloy::transports::http::reqwest::Url = config.rpc_urls[0].parse()?;
+			match config.transport {
+				RpcTransport::Tron => {
+					use crate::transport::TronLayer;
+					let http = alloy::transports::http::Http::with_client(http_client, url);
+					let rpc_client = alloy::rpc::client::ClientBuilder::default()
+						.layer(TronLayer)
+						.transport(http, false);
+					RootProvider::new(rpc_client)
+				},
+				RpcTransport::Standard => {
+					let rpc_client =
+						alloy::rpc::client::RpcClient::new_http_with_client(http_client, url);
+					RootProvider::new(rpc_client)
+				},
+			}
+		} else {
+			let transports: Vec<alloy::transports::http::Http<_>> = config
+				.rpc_urls
+				.iter()
+				.map(|u| {
+					let url: alloy::transports::http::reqwest::Url = u.parse()?;
+					Ok(alloy::transports::http::Http::with_client(http_client.clone(), url))
+				})
+				.collect::<Result<_, anyhow::Error>>()?;
+			let active_count = transports.len();
+			let service = alloy::transports::layers::FallbackService::new(transports, active_count);
+			match config.transport {
+				RpcTransport::Tron => {
+					use crate::transport::TronLayer;
+					let rpc_client = alloy::rpc::client::ClientBuilder::default()
+						.layer(TronLayer)
+						.transport(service, false);
+					RootProvider::new(rpc_client)
+				},
+				RpcTransport::Standard => {
+					let rpc_client =
+						alloy::rpc::client::RpcClient::builder().transport(service, false);
+					RootProvider::new(rpc_client)
+				},
+			}
 		};
+		let client = Arc::new(root_provider.clone());
+		let chain_id = client.get_chain_id().await?;
+
+		// Build the signer provider. Whether `signer_pair` was parsed from
+		// the configured key or freshly generated for an inbound-only chain,
+		// the type shape is the same downstream.
+		let private_key_signer = PrivateKeySigner::from_slice(signer_pair.seed().as_slice())?;
+		let wallet = EthereumWallet::from(private_key_signer.clone());
+		let signer_provider = ProviderBuilder::new().wallet(wallet).connect_provider(root_provider);
+		let signer = Arc::new(signer_provider);
 
 		let latest_height = if let Some(initial_height) = config.initial_height {
 			initial_height
 		} else {
-			client.get_block_number().await?.as_u64()
+			client.get_block_number().await?
 		};
+
+		let consensus_state_id = {
+			let mut bytes = [0u8; 4];
+			bytes.copy_from_slice(
+				config
+					.consensus_state_id
+					.expect("Consensus state should have been resolved")
+					.as_bytes(),
+			);
+			bytes
+		};
+
 		let mut partial_client = Self {
 			client,
 			signer,
 			address,
 			consensus_state_id,
-			state_machine: config.state_machine,
+			state_machine: config.state_machine.expect("Resolved"),
+			ismp_host: config.ismp_host.expect("Resolved"),
 			initial_height: latest_height,
 			config: config_clone,
 			chain_id,
 			client_type: config.client_type.unwrap_or_default(),
+			private_key_signer,
 			state_machine_update_sender: Arc::new(tokio::sync::Mutex::new(None)),
 			queue: None,
 		};
@@ -204,18 +403,50 @@ impl EvmClient {
 	}
 
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
-		let client = Arc::new(self.client.clone());
-		let contract = EvmHost::new(self.config.ismp_host.0, client);
-		let events = contract
-			.events()
-			.address(ethers::core::types::H160(self.config.ismp_host.0).into())
-			.from_block(from)
-			.to_block(to)
-			.query()
-			.await?
+		use alloy::rpc::types::Filter;
+		use alloy_sol_types::SolEvent;
+		use ismp_solidity_abi::{
+			evm_host::EvmHost::{
+				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
+				PostResponseEvent, PostResponseHandled,
+				StateMachineUpdated as EvmStateMachineUpdated,
+			},
+			EvmHostEvents,
+		};
+
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let filter = Filter::new().address(host_addr).from_block(from).to_block(to);
+
+		let logs = self.client.get_logs(&filter).await?;
+
+		let events = logs
 			.into_iter()
-			.filter_map(|ev| ev.try_into().ok())
-			.collect::<_>();
+			.filter_map(|log| {
+				// Try to decode as each event type and convert to EvmHostEvents
+				if let Ok(event) = PostRequestEvent::decode_log(&log.inner) {
+					return EvmHostEvents::PostRequestEvent(event.data).try_into().ok();
+				}
+				if let Ok(event) = PostResponseEvent::decode_log(&log.inner) {
+					return EvmHostEvents::PostResponseEvent(event.data).try_into().ok();
+				}
+				if let Ok(event) = GetRequestEvent::decode_log(&log.inner) {
+					return EvmHostEvents::GetRequestEvent(event.data).try_into().ok();
+				}
+				if let Ok(event) = PostRequestHandled::decode_log(&log.inner) {
+					return EvmHostEvents::PostRequestHandled(event.data).try_into().ok();
+				}
+				if let Ok(event) = PostResponseHandled::decode_log(&log.inner) {
+					return EvmHostEvents::PostResponseHandled(event.data).try_into().ok();
+				}
+				if let Ok(event) = GetRequestHandled::decode_log(&log.inner) {
+					return EvmHostEvents::GetRequestHandled(event.data).try_into().ok();
+				}
+				if let Ok(event) = EvmStateMachineUpdated::decode_log(&log.inner) {
+					return EvmHostEvents::StateMachineUpdated(event.data).try_into().ok();
+				}
+				None
+			})
+			.collect::<Vec<_>>();
 		Ok(events)
 	}
 
@@ -226,12 +457,16 @@ impl EvmClient {
 		height: StateMachineHeight,
 		commitment: StateCommitment,
 	) -> Result<(), anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.signer.clone());
-		let call = contract.set_consensus_state(consensus_state.clone().into(), height, commitment);
+		use alloy::primitives::Bytes;
+
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.signer.clone());
+		let call = contract.setConsensusState(Bytes::from(consensus_state), height, commitment);
 
 		let gas = call.estimate_gas().await?;
-		let tx_hash = call.gas(gas).send().await?.tx_hash().0;
-		wait_for_transaction_receipt(tx_hash.into(), self.client.clone()).await?;
+		let pending = call.gas(gas).send().await?;
+		let tx_hash = *pending.tx_hash();
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self).await?;
 
 		Ok(())
 	}
@@ -242,12 +477,14 @@ impl EvmClient {
 		address: H160,
 		para_id: u32,
 	) -> Result<(), anyhow::Error> {
-		let contract = PingModule::new(address.0, self.signer.clone());
-		let call = contract.dispatch_to_parachain(para_id.into());
+		let ping_addr = Address::from_slice(&address.0);
+		let contract = PingModuleInstance::new(ping_addr, self.signer.clone());
+		let call = contract.dispatchToParachain(AlloyU256::from(para_id));
 
 		let gas = call.estimate_gas().await?;
-		let tx_hash = call.gas(gas).send().await?.tx_hash().0;
-		wait_for_transaction_receipt(tx_hash.into(), self.client.clone()).await?;
+		let pending = call.gas(gas).send().await?;
+		let tx_hash = *pending.tx_hash();
+		wait_for_transaction_receipt(H256::from_slice(tx_hash.as_slice()), self).await?;
 
 		Ok(())
 	}
@@ -257,11 +494,14 @@ impl EvmClient {
 		counterparty: Arc<dyn IsmpProvider>,
 	) -> Result<(), anyhow::Error> {
 		if self.config.initial_height.is_none() {
-			self.initial_height =
-				counterparty.query_latest_height(self.state_machine_id()).await?.into();
+			self.initial_height = counterparty
+				.query_latest_height(self.state_machine_id())
+				.await
+				.unwrap_or(self.initial_height as u32)
+				.into();
 		}
 
-		log::info!("Initialized height for {:?} at {}", self.state_machine, self.initial_height);
+		log::info!(target: LOG_TARGET, "Initialized height for {:?} at {}", self.state_machine, self.initial_height);
 
 		Ok(())
 	}
@@ -293,15 +533,17 @@ impl EvmClient {
 	}
 
 	pub async fn host_manager(&self) -> Result<H160, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let params = contract.host_params().call().await?;
-		Ok(params.host_manager.0.into())
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let params = contract.hostParams().block(BlockId::latest()).call().await?;
+		Ok(H160::from_slice(params.hostManager.as_slice()))
 	}
 
 	pub async fn handler(&self) -> Result<H160, anyhow::Error> {
-		let contract = EvmHost::new(self.config.ismp_host.0, self.client.clone());
-		let params = contract.host_params().call().await?;
-		Ok(params.handler.0.into())
+		let host_addr = Address::from_slice(&self.ismp_host.0);
+		let contract = EvmHostInstance::new(host_addr, self.client.clone());
+		let params = contract.hostParams().block(BlockId::latest()).call().await?;
+		Ok(H160::from_slice(params.handler.as_slice()))
 	}
 }
 
@@ -358,10 +600,12 @@ impl Clone for EvmClient {
 			address: self.address.clone(),
 			consensus_state_id: self.consensus_state_id,
 			state_machine: self.state_machine,
+			ismp_host: self.ismp_host,
 			initial_height: self.initial_height,
 			config: self.config.clone(),
 			chain_id: self.chain_id.clone(),
 			client_type: self.client_type.clone(),
+			private_key_signer: self.private_key_signer.clone(),
 			state_machine_update_sender: self.state_machine_update_sender.clone(),
 			queue: self.queue.clone(),
 		}

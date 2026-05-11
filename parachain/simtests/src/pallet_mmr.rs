@@ -10,12 +10,12 @@ use polkadot_sdk::*;
 use sc_consensus_manual_seal::CreatedBlock;
 use sp_core::{crypto::Ss58Codec, keccak_256, offchain::StorageKind, Bytes, H256};
 use sp_keyring::sr25519::Keyring;
-use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils, INDEXING_PREFIX};
+use sp_mmr_primitives::{mmr_lib::leaf_index_to_pos, utils::NodesUtils};
 use sp_runtime::traits::Keccak256;
 use subxt::{backend::legacy::LegacyRpcMethods, ext::subxt_rpcs::rpc_params, utils::H160};
 
 use merkle_mountain_range::util::MemMMR;
-use mmr_primitives::DataOrHash;
+use mmr_primitives::{DataOrHash, INDEXING_PREFIX};
 use pallet_ismp::offchain::{FullLeaf, Leaf, ProofKeys};
 use pallet_mmr_tree::mmr::Hasher as MmrHasher;
 use subxt::ext::{scale_decode::DecodeAsType, scale_encode::EncodeAsType};
@@ -246,13 +246,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 
 	// Fork A
 	for i in 0..3 {
-		let params =
-			EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
-		let call = subxt::dynamic::tx(
-			"IsmpDemo",
-			"dispatch_to_evm",
-			vec![evm_params_to_value(&params)],
-		);
+		let params = EvmParams { module: H160::random(), destination: 1, timeout: 0, count: 10 };
+		let call =
+			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 
 		let call = client.tx().call_data(&call)?;
 		let extrinsic: Bytes = rpc_client
@@ -301,13 +297,9 @@ async fn dispatch_requests() -> Result<(), anyhow::Error> {
 	let mut parent_hash_b = fork_parent;
 
 	for i in 0..3 {
-		let params =
-			EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
-		let call = subxt::dynamic::tx(
-			"IsmpDemo",
-			"dispatch_to_evm",
-			vec![evm_params_to_value(&params)],
-		);
+		let params = EvmParams { module: H160::random(), destination: 97, timeout: 0, count: 10 };
+		let call =
+			subxt::dynamic::tx("IsmpDemo", "dispatch_to_evm", vec![evm_params_to_value(&params)]);
 
 		let call = client.tx().call_data(&call)?;
 		let extrinsic: Bytes = rpc_client

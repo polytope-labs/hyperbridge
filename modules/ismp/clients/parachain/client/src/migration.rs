@@ -13,11 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Storage migrations for ismp-parachain.
+
 use super::*;
 use log;
 use polkadot_sdk::*;
 
 pub use storage_v0::*;
+
+/// V0 to V1 migration: populate `Parachains` slot durations.
 pub mod storage_v0 {
 	use super::*;
 	use frame_support::{
@@ -25,9 +29,11 @@ pub mod storage_v0 {
 		weights::Weight,
 	};
 
+	/// Storage V0 migration helper.
 	pub struct StorageV0 {}
 
 	impl StorageV0 {
+		/// Migrate storage from V0 to V1.
 		pub fn migrate_to_v1<T: Config>() -> Weight {
 			return if Pallet::<T>::on_chain_storage_version() == 0 {
 				// track reads and write to be made

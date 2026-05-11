@@ -1,9 +1,11 @@
 # Exclude the executable files to be copied into the image
 target
 !target/release/tesseract-consensus
+!target/release/tesseract-admin-relayer
 !target/release/tesseract
 !target/release/telemetry-server
 !target/release/hyperbridge
+!target/release/polyhedron
 
 .github
 .cargo

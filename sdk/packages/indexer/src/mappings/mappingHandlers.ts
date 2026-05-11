@@ -57,3 +57,10 @@ export { handleTreasuryTransferEvent } from "@/handlers/events/treasury/treasury
 export { handleAccumulateFeesEvent } from "@/handlers/events/fees/accumulatedFees.event.handler"
 export { handleRelayerWithdrawEvent } from "@/handlers/events/relayer/relayerWithdraw.event.handler"
 export { handleCollatorRewardedEvent } from "@/handlers/events/collators/collatorRewarded.event.handler"
+
+// Bandwidth Pallet Handlers
+export { handleBandwidthCreditedEvent } from "@/handlers/events/bandwidth/bandwidthCredited.event.handler"
+export { handleBandwidthConsumedEvent } from "@/handlers/events/bandwidth/bandwidthConsumed.event.handler"
+export { handleSubscriptionEvictedEvent } from "@/handlers/events/bandwidth/subscriptionEvicted.event.handler"
+export { handleForceCreditedEvent } from "@/handlers/events/bandwidth/forceCredited.event.handler"
+export { handleTierSetEvent } from "@/handlers/events/bandwidth/tierSet.event.handler"

@@ -272,27 +272,25 @@ startup, before block production:
    your collator's keystore. Anything you put in `[hyperbridge].signer` is ignored by the fisherman path. The relayer signer (if
    you also run a relayer on the same node) is unaffected.
 
-A minimal mainnet collator config looks like this:
+A minimal mainnet collator config looks like this. The `[hyperbridge]` table holds the substrate host fields directly, and each L2
+is a top-level `[<chain>]` table with `type = "evm"`. The `[relayer]` section is optional for collators and can be omitted, since
+the fisherman task is the only role the collator path spawns.
 
 ```toml lineNumbers
+# Hyperbridge parachain host config. Required.
 [hyperbridge]
-type = "grandpa"
-
-[hyperbridge.grandpa]
-rpc = "wss://localhost:443"
-slot_duration = 6000
-para_ids = [4009]
-
-[hyperbridge.substrate]
-rpc_ws = "wss://localhost:443"
 state_machine = "POLKADOT-4009"
+hashing = "Keccak"
+rpc_ws = "ws://127.0.0.1:9933"
+# Leave the signer empty on a collator. The fisherman uses the AURA key
+# in the local keystore; anything set here is ignored by the collator path.
+signer = ""
 
 # Each of the five mainnet L2s must be present, with at least two
-# distinct-host rpc_urls. Hosts that match (case-insensitive) are
-# rejected as the same provider.
+# distinct-host rpc_urls. URLs that share a host (case-insensitive) are
+# rejected as the same provider, even if the API key in the path differs.
 [arbitrum]
 type = "evm"
-state_machine = "EVM-42161"
 rpc_urls = [
     "https://arb-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
     "https://arbitrum-mainnet.infura.io/v3/<your-infura-key>",
@@ -300,7 +298,6 @@ rpc_urls = [
 
 [base]
 type = "evm"
-state_machine = "EVM-8453"
 rpc_urls = [
     "https://base-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
     "https://base-mainnet.infura.io/v3/<your-infura-key>",
@@ -308,7 +305,6 @@ rpc_urls = [
 
 [optimism]
 type = "evm"
-state_machine = "EVM-10"
 rpc_urls = [
     "https://opt-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
     "https://optimism-mainnet.infura.io/v3/<your-infura-key>",
@@ -316,7 +312,6 @@ rpc_urls = [
 
 [unichain]
 type = "evm"
-state_machine = "EVM-130"
 rpc_urls = [
     "https://unichain-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
     "https://rpc.unichain.org",
@@ -324,14 +319,16 @@ rpc_urls = [
 
 [soneium]
 type = "evm"
-state_machine = "EVM-1868"
 rpc_urls = [
     "https://soneium.g.alchemy.com/v2/<your-alchemy-key>",
     "https://rpc.soneium.org",
 ]
-
-[relayer]
 ```
+
+`state_machine`, `ismp_host`, and `consensus_state_id` on each L2 table are derived from the chain's `eth_chainId` against the
+first RPC URL, so a minimal collator config only needs `type` and `rpc_urls`. Operators who also run a relayer alongside the
+collator can add a `[relayer]` section and `[<chain>.consensus]` sub-tables in the same file; those don't affect fisherman
+validation.
 
 Operators running on testnet substitute the testnet L2 set above (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia) instead of the
 mainnet entries. Mixing the two sets in one config is supported, but a partial set on either side is rejected.

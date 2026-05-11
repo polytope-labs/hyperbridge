@@ -175,16 +175,21 @@ impl HyperbridgeConfig {
 			.map_err(|err| anyhow!("Error reading config file: {err:?}"))?;
 		let table = toml_str.parse::<Table>()?;
 
-		if !table.contains_key(HYPERBRIDGE) || !table.contains_key(RELAYER) {
-			return Err(anyhow!("Missing [hyperbridge] or [relayer] section in config"));
+		if !table.contains_key(HYPERBRIDGE) {
+			return Err(anyhow!("Missing [hyperbridge] section in config"));
 		}
 
 		let hyperbridge =
 			parse_hyperbridge_section(table.get(HYPERBRIDGE).cloned().expect("checked above"))
 				.await?;
 
-		let relayer: RelayerConfig =
-			table.get(RELAYER).cloned().expect("checked above").try_into()?;
+		// `[relayer]` is optional. Collator-only nodes (which run the
+		// fisherman task but no relayer roles) don't need to set any of the
+		// relayer knobs, so omit the section entirely and take the defaults.
+		let relayer: RelayerConfig = match table.get(RELAYER).cloned() {
+			Some(value) => value.try_into().with_context(|| "failed to parse [relayer] section")?,
+			None => RelayerConfig::default(),
+		};
 
 		let mut chains = HashMap::new();
 		for (name, raw) in &table {

@@ -41,7 +41,7 @@ import {IQuoter} from "@uniswap/v3-periphery/contracts/interfaces/IQuoter.sol";
 import {IncomingPostRequest, IncomingGetResponse} from "@hyperbridge/core/interfaces/IApp.sol";
 import {PostRequest} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {GetRequest, GetResponse} from "@hyperbridge/core/libraries/Message.sol";
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
 contract IntentGatewayV2Test is MainnetForkBaseTest {
     IntentGatewayV2 public intentGateway;
@@ -2867,8 +2867,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             WithdrawalRequest({commitment: commitment, tokens: inputs, beneficiary: bytes32(uint256(uint160(user)))})
         );
 
-        MerklePatricia.StorageValue[] memory values = new MerklePatricia.StorageValue[](1);
-        values[0] = MerklePatricia.StorageValue({key: new bytes(0), value: new bytes(0)}); // Empty value = not filled
+        StorageValue[] memory values = new StorageValue[](1);
+        values[0] = StorageValue({key: new bytes(0), value: new bytes(0)}); // Empty value = not filled
 
         GetRequest memory getRequest = GetRequest({
             source: host.host(),

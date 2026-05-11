@@ -14,7 +14,7 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
-import "@polytope-labs/solidity-merkle-trees/src/trie/substrate/ScaleCodec.sol";
+import "@polytope-labs/solidity-merkle-trees/src/trie/polkadot/ScaleCodec.sol";
 import "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 import "./Header.sol";
 import "./Types.sol";

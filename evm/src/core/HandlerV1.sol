@@ -15,7 +15,7 @@
 pragma solidity ^0.8.17;
 
 import {MerkleMountainRange} from "@polytope-labs/solidity-merkle-trees/src/MerkleMountainRange.sol";
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {PolkadotTrie} from "@polytope-labs/solidity-merkle-trees/src/PolkadotTrie.sol";
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
 
 import {
@@ -291,7 +291,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(requestCommitment));
 
             // verify state trie non-membership proofs
-            MerklePatricia.StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(request, meta, requestCommitment);
@@ -330,7 +330,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             keys[0] = bytes.concat(RESPONSE_RECEIPTS_STORAGE_PREFIX, bytes.concat(responseCommitment));
 
             // verify state trie non-membership proofs
-            MerklePatricia.StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(response, meta, responseCommitment);
@@ -365,7 +365,7 @@ contract HandlerV1 is IHandler, ERC165, Context {
             keys[0] = bytes.concat(REQUEST_RECEIPTS_STORAGE_PREFIX, bytes.concat(commitment));
 
             // verify state trie non-membership proofs
-            MerklePatricia.StorageValue memory entry = MerklePatricia.VerifySubstrateProof(state.stateRoot, message.proof, keys)[0];
+            PolkadotTrie.StorageValue memory entry = PolkadotTrie.VerifyProof(state.stateRoot, message.proof, keys)[0];
             if (entry.value.length != 0) revert InvalidProof();
 
             host.dispatchTimeOut(request, meta, commitment);

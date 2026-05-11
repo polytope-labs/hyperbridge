@@ -2847,6 +2847,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "beefy-prover-daemon"
+version = "1.9.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rustls 0.23.36",
+ "subxt-utils",
+ "tesseract-beefy",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "toml 0.7.8",
+ "tracing-subscriber 0.3.22",
+ "zk-beefy",
+]
+
+[[package]]
 name = "beefy-verifier"
 version = "0.1.0"
 dependencies = [
@@ -25737,7 +25754,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=79cb95d9e86c002c60c568ae1bf65c1c0495a22f#79cb95d9e86c002c60c568ae1bf65c1c0495a22f"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=dc0c2006a5bce842b514b2b610f977af0da18d35#dc0c2006a5bce842b514b2b610f977af0da18d35"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "anyhow",
@@ -25759,7 +25776,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=79cb95d9e86c002c60c568ae1bf65c1c0495a22f#79cb95d9e86c002c60c568ae1bf65c1c0495a22f"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=dc0c2006a5bce842b514b2b610f977af0da18d35#dc0c2006a5bce842b514b2b610f977af0da18d35"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "parity-scale-codec",

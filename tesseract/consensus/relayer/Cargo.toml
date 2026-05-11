@@ -12,10 +12,6 @@ name = "tesseract-consensus"
 path = "bins/relayer.rs"
 
 [[bin]]
-name = "beefy-prover"
-path = "bins/prover.rs"
-
-[[bin]]
 name = "polyhedron"
 path = "bins/polyhedron.rs"
 

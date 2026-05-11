@@ -19,12 +19,15 @@
 //! from `BandwidthManager.sol`. Each purchase carries its own
 //! `app_chain`, so any deployment can sponsor any app on any chain.
 //!
-//! Tiers are a closed enum, and each `(chain, app)` row holds a
-//! `BoundedBTreeMap<TierIndex, AllowanceState>` — bounded by the
-//! variant count, so the gate is one storage read instead of an
-//! `iter_prefix`. Same-tier re-buys stack their bytes and expiry;
-//! different tiers keep independent expiries. The gate consumes FIFO
-//! by `expires_at` so users burn what's about to expire first.
+//! Each `(chain, app)` row holds a FIFO list of [`Subscription`]s
+//! (`BoundedVec`, capped at 1024). Every purchase appends a new
+//! subscription with a fixed `expires_at`; expiry never extends and
+//! same-tier repurchases don't stack — they queue. The gate drains
+//! the oldest live subscription first; once empty it moves to the
+//! next. Subscriptions that aren't reached before their expiry are
+//! swept silently — what you paid for is yours only until it expires.
+//! Pushes onto a full list evict the oldest entry and emit
+//! [`Event::SubscriptionEvicted`].
 //!
 //! [`BandwidthGate`] is the hook the runtime's ISMP router consults
 //! for every message; insufficient balance → rejected.
@@ -40,8 +43,8 @@ pub mod types;
 
 pub use pallet::*;
 pub use types::{
-	AllowanceState, AppKey, BandwidthBytes, BandwidthGate, ForceCreditParams, GateError, MaxTiers,
-	TierConfig, TierIndex,
+	AppKey, BandwidthBytes, BandwidthGate, ForceCreditParams, GateError, MaxSubscriptions,
+	Subscription, TierConfig, TierIndex, MAX_SUBSCRIPTIONS,
 };
 
 #[frame_support::pallet]
@@ -50,7 +53,7 @@ pub mod pallet {
 	use crate::abi::{PurchaseMessage, TierAbi, WithdrawalAbi};
 	use alloc::{format, vec, vec::Vec};
 	use alloy_sol_types::SolValue;
-	use frame_support::{pallet_prelude::*, BoundedBTreeMap, PalletId};
+	use frame_support::{pallet_prelude::*, PalletId};
 	use frame_system::pallet_prelude::*;
 	use ismp::{
 		dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
@@ -65,7 +68,7 @@ pub mod pallet {
 	/// `to` field on purchase messages; also the sovereign `PalletId`.
 	pub const PALLET_BANDWIDTH: PalletId = PalletId(*b"BWMARKET");
 
-	pub type TierMap = BoundedBTreeMap<TierIndex, AllowanceState, MaxTiers>;
+	pub type SubscriptionList = BoundedVec<Subscription, MaxSubscriptions>;
 
 	/// Maps the EVM contract's `OnAcceptActions` enum. Discriminants
 	/// must stay in sync with `BandwidthManager.sol`.
@@ -96,8 +99,8 @@ pub mod pallet {
 
 	/// Keyed by `app_chain` from the purchase message — *not*
 	/// `request.source` — so a payer chain can sponsor an app that
-	/// lives elsewhere. The inner `BoundedBTreeMap` is bounded by the
-	/// `TierIndex` variant count, so the gate touches one storage row.
+	/// lives elsewhere. The inner `BoundedVec` holds subscriptions in
+	/// chronological insertion order; the gate drains the front.
 	#[pallet::storage]
 	pub type Allowance<T: Config> = StorageDoubleMap<
 		_,
@@ -105,7 +108,7 @@ pub mod pallet {
 		StateMachine,
 		Blake2_128Concat,
 		AppKey,
-		TierMap,
+		SubscriptionList,
 		ValueQuery,
 	>;
 
@@ -135,8 +138,7 @@ pub mod pallet {
 			/// Chain that paid; differs from `app_chain` on sponsorship.
 			paid_from: StateMachine,
 			tier: TierIndex,
-			bytes_credited: BandwidthBytes,
-			tier_balance: BandwidthBytes,
+			bytes: BandwidthBytes,
 			expires_at: u64,
 		},
 		BandwidthConsumed {
@@ -155,8 +157,15 @@ pub mod pallet {
 			app: AppKey,
 			tier: TierIndex,
 			bytes: BandwidthBytes,
-			tier_balance: BandwidthBytes,
 			expires_at: u64,
+		},
+		/// The 1024-cap pushed out the oldest subscription. `lost_bytes`
+		/// is what the user paid for and won't get to use.
+		SubscriptionEvicted {
+			app_chain: StateMachine,
+			app: AppKey,
+			tier: TierIndex,
+			lost_bytes: BandwidthBytes,
 		},
 		/// Outbound `SetTiers` message dispatched to the registered manager.
 		TiersDispatched {
@@ -220,13 +229,14 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Admin-only out-of-band credit (migrations, refunds). Same
-		/// stack/reset rules as a real purchase.
+		/// Admin-only out-of-band credit (migrations, refunds). Pushes a
+		/// fresh subscription onto the FIFO list — same cap-and-evict
+		/// rules as a real purchase.
 		#[pallet::call_index(2)]
 		#[pallet::weight(T::DbWeight::get().writes(1))]
 		pub fn force_credit(origin: OriginFor<T>, params: ForceCreditParams) -> DispatchResult {
 			<T as pallet_ismp::Config>::AdminOrigin::ensure_origin(origin)?;
-			let (tier_balance, expires_at) = Self::credit_bucket(
+			let expires_at = Self::push_subscription(
 				&params.app_chain,
 				&params.app,
 				params.tier,
@@ -238,7 +248,6 @@ pub mod pallet {
 				app: params.app,
 				tier: params.tier,
 				bytes: params.bytes,
-				tier_balance,
 				expires_at,
 			});
 			Ok(())
@@ -334,27 +343,20 @@ pub mod pallet {
 	}
 
 	impl<T: Config> Pallet<T> {
-		/// All non-expired buckets for `(app_chain, app)`, sorted FIFO
-		/// by expiry. Returned snapshot is a read-only view.
-		pub fn allowances(
-			app_chain: &StateMachine,
-			app: &[u8],
-		) -> Vec<(TierIndex, AllowanceState)> {
+		/// Non-expired subscriptions for `(app_chain, app)` in insertion
+		/// (= FIFO drain) order. Read-only snapshot.
+		pub fn allowances(app_chain: &StateMachine, app: &[u8]) -> Vec<Subscription> {
 			let key = AppKey::truncate_from(app.to_vec());
 			let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
-			let map = Allowance::<T>::get(app_chain, &key);
-			let mut buckets: Vec<(TierIndex, AllowanceState)> =
-				map.into_iter().filter(|(_, s)| s.expires_at > now).collect();
-			buckets.sort_by_key(|(_, s)| s.expires_at);
-			buckets
+			Allowance::<T>::get(app_chain, &key)
+				.into_iter()
+				.filter(|s| s.expires_at > now)
+				.collect()
 		}
 
-		/// Sum of all live buckets — what the gate would charge against.
+		/// Sum of all live subscriptions — what the gate would charge against.
 		pub fn remaining(app_chain: &StateMachine, app: &[u8]) -> u128 {
-			Self::allowances(app_chain, app)
-				.into_iter()
-				.map(|(_, s)| s.remaining_bytes)
-				.sum()
+			Self::allowances(app_chain, app).iter().map(|s| s.remaining_bytes).sum()
 		}
 
 		/// Wrap an outbound governance message and ship it to the
@@ -380,33 +382,47 @@ pub mod pallet {
 				.map_err(|_| Error::<T>::DispatchFailed.into())
 		}
 
-		/// Stack-or-reset: live bucket → bytes add, expiry pushes out by
-		/// `duration_secs`. Expired/missing → fresh window from now.
-		fn credit_bucket(
+		/// Append a fresh subscription with a fixed expiry. If the list
+		/// is already at `MaxSubscriptions`, evict the oldest entry and
+		/// emit [`Event::SubscriptionEvicted`] so the lost bytes are
+		/// auditable. Returns the new subscription's `expires_at`.
+		fn push_subscription(
 			app_chain: &StateMachine,
 			app: &AppKey,
 			tier: TierIndex,
 			bytes: BandwidthBytes,
 			duration_secs: u64,
-		) -> (BandwidthBytes, u64) {
+		) -> u64 {
 			let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
-			Allowance::<T>::mutate(app_chain, app, |map| {
-				let next = match map.get(&tier) {
-					Some(s) if s.expires_at > now => AllowanceState {
-						remaining_bytes: s.remaining_bytes.saturating_add(bytes),
-						expires_at: s.expires_at.saturating_add(duration_secs),
-					},
-					_ => AllowanceState {
-						remaining_bytes: bytes,
-						expires_at: now.saturating_add(duration_secs),
-					},
+			let expires_at = now.saturating_add(duration_secs);
+			let new_sub = Subscription {
+				tier,
+				remaining_bytes: bytes,
+				expires_at,
+				purchased_at: now,
+			};
+
+			let evicted = Allowance::<T>::mutate(app_chain, app, |list| {
+				let evicted = if list.len() == MAX_SUBSCRIPTIONS as usize {
+					Some(list.remove(0))
+				} else {
+					None
 				};
-				let result = (next.remaining_bytes, next.expires_at);
-				// Bounded by `MaxTiers` = `TierIndex` variant count, so
-				// `try_insert` can never hit the bound.
-				let _ = map.try_insert(tier, next);
-				result
-			})
+				// Capacity is now guaranteed; try_push can't fail.
+				let _ = list.try_push(new_sub);
+				evicted
+			});
+
+			if let Some(old) = evicted {
+				Self::deposit_event(Event::SubscriptionEvicted {
+					app_chain: *app_chain,
+					app: app.clone(),
+					tier: old.tier,
+					lost_bytes: old.remaining_bytes,
+				});
+			}
+
+			expires_at
 		}
 
 		/// The router uses this to skip the gate on purchases —
@@ -447,16 +463,14 @@ pub mod pallet {
 			let duration = cfg.duration_secs.saturating_mul(msg.months as u64);
 
 			let key = AppKey::truncate_from(msg.app);
-			let (tier_balance, expires_at) =
-				Self::credit_bucket(&msg.chain, &key, tier, bytes, duration);
+			let expires_at = Self::push_subscription(&msg.chain, &key, tier, bytes, duration);
 
 			Self::deposit_event(Event::BandwidthCredited {
 				app_chain: msg.chain,
 				app: key,
 				paid_from: request.source,
 				tier,
-				bytes_credited: bytes,
-				tier_balance,
+				bytes,
 				expires_at,
 			});
 
@@ -487,8 +501,6 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 		app: &[u8],
 		bytes: u32,
 	) -> Result<(), GateError> {
-		use alloc::vec::Vec;
-
 		let key = AppKey::truncate_from(app.to_vec());
 		if Allowlist::<T>::contains_key(source, &key) {
 			return Ok(());
@@ -497,43 +509,30 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 		let need: u128 = bytes.into();
 		let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
 
-		let total = pallet::Allowance::<T>::mutate(source, &key, |map| {
-			let expired: Vec<TierIndex> =
-				map.iter().filter_map(|(t, s)| (s.expires_at <= now).then_some(*t)).collect();
-			for t in expired {
-				map.remove(&t);
-			}
+		let total = pallet::Allowance::<T>::mutate(source, &key, |list| {
+			// Sweep expired in-place. Order-preserving.
+			list.retain(|s| s.expires_at > now);
 
-			if map.is_empty() {
+			if list.is_empty() {
 				return Err(GateError::NoAllowance);
 			}
 
-			let total: u128 = map.values().map(|s| s.remaining_bytes).sum();
+			let total: u128 = list.iter().map(|s| s.remaining_bytes).sum();
 			if total < need {
 				return Err(GateError::Insufficient { remaining: total, required: need });
 			}
 
-			let mut order: Vec<(TierIndex, u64)> =
-				map.iter().map(|(t, s)| (*t, s.expires_at)).collect();
-			order.sort_by_key(|(_, e)| *e);
-
+			// Drain from the front in insertion order. Once a sub is
+			// fully consumed, pop it and continue with the next.
 			let mut left = need;
-			let mut drained: Vec<TierIndex> = Vec::new();
-			for (t, _) in order {
-				if left == 0 {
-					break;
+			while left > 0 {
+				let head = &mut list[0];
+				let take = head.remaining_bytes.min(left);
+				head.remaining_bytes = head.remaining_bytes.saturating_sub(take);
+				left = left.saturating_sub(take);
+				if head.remaining_bytes == 0 {
+					list.remove(0);
 				}
-				if let Some(state) = map.get_mut(&t) {
-					let take = state.remaining_bytes.min(left);
-					state.remaining_bytes = state.remaining_bytes.saturating_sub(take);
-					left = left.saturating_sub(take);
-					if state.remaining_bytes == 0 {
-						drained.push(t);
-					}
-				}
-			}
-			for t in drained {
-				map.remove(&t);
 			}
 
 			Ok(total)

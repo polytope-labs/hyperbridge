@@ -15,7 +15,8 @@ use sp_core::{H160, U256};
 use pallet_bandwidth::{
 	abi::{PurchaseMessage, TierAbi, WithdrawalAbi},
 	pallet::{Allowance, BandwidthManager, Tiers, PALLET_BANDWIDTH},
-	AppKey, BandwidthGate, ForceCreditParams, GateError, TierConfig, TierIndex,
+	AppKey, BandwidthGate, ForceCreditParams, GateError, Subscription, TierConfig, TierIndex,
+	MAX_SUBSCRIPTIONS,
 };
 
 use crate::runtime::{new_test_ext, set_timestamp, Bandwidth, RuntimeOrigin, Test};
@@ -68,9 +69,14 @@ fn consume(bytes: u32) -> Result<(), GateError> {
 	<Bandwidth as BandwidthGate>::try_consume(&APP_CHAIN, &APP.0, bytes)
 }
 
-/// Read the per-tier slot out of the per-`(chain, app)` BTreeMap.
-fn bucket(chain: StateMachine, tier: TierIndex) -> Option<pallet_bandwidth::AllowanceState> {
-	Allowance::<Test>::get(chain, app_key()).get(&tier).cloned()
+/// Look up a subscription at FIFO position `idx` (0 = oldest).
+fn sub_at(chain: StateMachine, idx: usize) -> Option<Subscription> {
+	Allowance::<Test>::get(chain, app_key()).get(idx).cloned()
+}
+
+/// Length of the subscription list for `(chain, APP)`.
+fn sub_count(chain: StateMachine) -> usize {
+	Allowance::<Test>::get(chain, app_key()).len()
 }
 
 // ---------- request builders ----------
@@ -135,7 +141,7 @@ fn buy_months(tier: TierIndex, months: u32) -> Result<(), anyhow::Error> {
 // ---------- tests ----------
 
 #[test]
-fn purchase_credits_allowance_with_expiry() {
+fn purchase_creates_subscription_with_fixed_expiry() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
@@ -143,9 +149,12 @@ fn purchase_credits_allowance_with_expiry() {
 
 		buy(TIER1).unwrap();
 
-		let state = bucket(APP_CHAIN, TIER1).expect("bucket must exist");
-		assert_eq!(state.remaining_bytes, TIER1_BYTES);
-		assert_eq!(state.expires_at, T0 + MONTH_SECS);
+		let sub = sub_at(APP_CHAIN, 0).expect("subscription must exist");
+		assert_eq!(sub.tier, TIER1);
+		assert_eq!(sub.remaining_bytes, TIER1_BYTES);
+		assert_eq!(sub.expires_at, T0 + MONTH_SECS);
+		assert_eq!(sub.purchased_at, T0);
+		assert_eq!(sub_count(APP_CHAIN), 1);
 	});
 }
 
@@ -160,19 +169,18 @@ fn cross_chain_purchase_credits_app_chain_not_payer_chain() {
 
 		dispatch(purchase_request(PAYER_CHAIN, MANAGER, TIER1, APP_CHAIN)).unwrap();
 
-		let state = bucket(APP_CHAIN, TIER1).expect("bucket must exist");
-		assert_eq!(state.remaining_bytes, TIER1_BYTES);
-		assert!(bucket(PAYER_CHAIN, TIER1).is_none());
+		let sub = sub_at(APP_CHAIN, 0).expect("subscription must exist on app chain");
+		assert_eq!(sub.remaining_bytes, TIER1_BYTES);
+		assert_eq!(sub_count(PAYER_CHAIN), 0, "payer chain has no credit");
 
 		assert_eq!(consume(100), Ok(()));
 	});
 }
 
-/// Same tier bought twice 5 days apart: bytes stack and the second
-/// expiry starts where the first ended (David's "rollover"). Buying 6
-/// months upfront falls out of this rule.
+/// Same tier bought twice 5 days apart: each becomes its own
+/// subscription with its own fixed expiry — no stacking, no rollover.
 #[test]
-fn same_tier_repurchase_stacks_bytes_and_extends_expiry() {
+fn same_tier_repurchase_creates_independent_subscriptions() {
 	new_test_ext().execute_with(|| {
 		let five_days = 5 * 24 * 60 * 60;
 		jump_to(T0);
@@ -180,26 +188,28 @@ fn same_tier_repurchase_stacks_bytes_and_extends_expiry() {
 		configure_tier(TIER1, TIER1_BYTES, MONTH_SECS);
 
 		buy(TIER1).unwrap();
-		let first_expiry = bucket(APP_CHAIN, TIER1).unwrap().expires_at;
-		assert_eq!(first_expiry, T0 + MONTH_SECS);
-
 		jump_to(T0 + five_days);
 		buy(TIER1).unwrap();
 
-		let state = bucket(APP_CHAIN, TIER1).unwrap();
-		assert_eq!(state.remaining_bytes, 2 * TIER1_BYTES, "bytes stack");
+		assert_eq!(sub_count(APP_CHAIN), 2, "each purchase is a separate sub");
+
+		let first = sub_at(APP_CHAIN, 0).unwrap();
+		let second = sub_at(APP_CHAIN, 1).unwrap();
+		assert_eq!(first.remaining_bytes, TIER1_BYTES);
+		assert_eq!(first.expires_at, T0 + MONTH_SECS, "first expiry never extends");
+		assert_eq!(second.remaining_bytes, TIER1_BYTES, "no stacking");
 		assert_eq!(
-			state.expires_at,
-			first_expiry + MONTH_SECS,
-			"second window starts when the first ended, not when bought",
+			second.expires_at,
+			T0 + five_days + MONTH_SECS,
+			"second expiry is fixed at purchase time + duration",
 		);
 	});
 }
 
-/// Different tiers live in independent BTreeMap entries with
-/// independent expiries.
+/// Different tiers each appear as their own subscription, in
+/// insertion order.
 #[test]
-fn different_tier_purchases_create_separate_buckets() {
+fn different_tier_purchases_create_separate_subscriptions() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
@@ -209,20 +219,24 @@ fn different_tier_purchases_create_separate_buckets() {
 		buy(TIER1).unwrap();
 		buy(TIER2).unwrap();
 
-		let b1 = bucket(APP_CHAIN, TIER1).unwrap();
-		let b2 = bucket(APP_CHAIN, TIER2).unwrap();
-		assert_eq!(b1.remaining_bytes, TIER1_BYTES);
-		assert_eq!(b1.expires_at, T0 + MONTH_SECS);
-		assert_eq!(b2.remaining_bytes, TIER2_BYTES);
-		assert_eq!(b2.expires_at, T0 + QUARTER_SECS);
+		let s1 = sub_at(APP_CHAIN, 0).unwrap();
+		let s2 = sub_at(APP_CHAIN, 1).unwrap();
+		assert_eq!(s1.tier, TIER1);
+		assert_eq!(s1.remaining_bytes, TIER1_BYTES);
+		assert_eq!(s1.expires_at, T0 + MONTH_SECS);
+		assert_eq!(s2.tier, TIER2);
+		assert_eq!(s2.remaining_bytes, TIER2_BYTES);
+		assert_eq!(s2.expires_at, T0 + QUARTER_SECS);
 		assert_eq!(Bandwidth::remaining(&APP_CHAIN, &APP.0), TIER1_BYTES + TIER2_BYTES);
 	});
 }
 
-/// FIFO-by-expiry: the bucket about to expire drains first, even when
-/// it was bought after the longer-lived bucket.
+/// FIFO by insertion: the first sub bought drains first, even when a
+/// later sub will expire sooner. Diagnostic shape — TIER1 has the
+/// longer duration but is bought first; an expiry-FIFO gate would
+/// drain TIER2 instead.
 #[test]
-fn gate_consumes_earliest_expiry_bucket_first() {
+fn gate_consumes_oldest_subscription_first() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
@@ -232,30 +246,39 @@ fn gate_consumes_earliest_expiry_bucket_first() {
 		buy(TIER2).unwrap();
 
 		assert_eq!(consume(200), Ok(()));
-		assert_eq!(bucket(APP_CHAIN, TIER1).unwrap().remaining_bytes, TIER1_BYTES);
-		assert_eq!(bucket(APP_CHAIN, TIER2).unwrap().remaining_bytes, TIER2_BYTES - 200);
+		assert_eq!(
+			sub_at(APP_CHAIN, 0).unwrap().remaining_bytes,
+			TIER1_BYTES - 200,
+			"oldest sub drains first",
+		);
+		assert_eq!(
+			sub_at(APP_CHAIN, 1).unwrap().remaining_bytes,
+			TIER2_BYTES,
+			"younger sub is untouched",
+		);
 	});
 }
 
 #[test]
-fn gate_spills_into_next_bucket_when_first_drained() {
+fn gate_spills_into_next_subscription_when_first_drained() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
-		configure_tier(TIER1, TIER1_BYTES, QUARTER_SECS);
-		configure_tier(TIER2, 300, MONTH_SECS);
+		configure_tier(TIER1, 300, MONTH_SECS);
+		configure_tier(TIER2, TIER2_BYTES, QUARTER_SECS);
 		buy(TIER1).unwrap();
 		buy(TIER2).unwrap();
 
-		// 500 = drain all 300 of tier 2, then 200 from tier 1.
+		// 500 = drain all 300 of sub#0 (TIER1), then 200 from sub#1 (TIER2).
 		assert_eq!(consume(500), Ok(()));
-		assert!(bucket(APP_CHAIN, TIER2).is_none(), "drained bucket gets removed");
-		assert_eq!(bucket(APP_CHAIN, TIER1).unwrap().remaining_bytes, TIER1_BYTES - 200);
+		assert_eq!(sub_count(APP_CHAIN), 1, "fully-drained sub gets removed");
+		assert_eq!(sub_at(APP_CHAIN, 0).unwrap().tier, TIER2);
+		assert_eq!(sub_at(APP_CHAIN, 0).unwrap().remaining_bytes, TIER2_BYTES - 200);
 	});
 }
 
 #[test]
-fn expired_buckets_are_skipped_and_swept() {
+fn expired_subscriptions_are_swept() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
@@ -264,12 +287,14 @@ fn expired_buckets_are_skipped_and_swept() {
 
 		jump_to(T0 + MONTH_SECS + 1);
 		assert_eq!(consume(1), Err(GateError::NoAllowance));
-		assert!(bucket(APP_CHAIN, TIER1).is_none(), "expired bucket swept by the gate");
+		assert_eq!(sub_count(APP_CHAIN), 0, "expired sub swept by the gate");
 	});
 }
 
+/// After expiry, a new purchase pushes a fresh subscription — the
+/// expired one is gone, no stacking with a phantom previous state.
 #[test]
-fn purchase_after_expiry_resets_bucket() {
+fn purchase_after_expiry_pushes_new_subscription() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
@@ -280,9 +305,39 @@ fn purchase_after_expiry_resets_bucket() {
 		jump_to(later);
 		buy(TIER1).unwrap();
 
-		let state = bucket(APP_CHAIN, TIER1).unwrap();
-		assert_eq!(state.remaining_bytes, TIER1_BYTES, "expired bucket resets, no stacking");
-		assert_eq!(state.expires_at, later + MONTH_SECS);
+		// Old one expired (still in the list — sweep happens on gate
+		// activity, not purchase), new one appended at the back.
+		let new_sub = sub_at(APP_CHAIN, sub_count(APP_CHAIN) - 1).unwrap();
+		assert_eq!(new_sub.remaining_bytes, TIER1_BYTES);
+		assert_eq!(new_sub.expires_at, later + MONTH_SECS);
+		assert_eq!(new_sub.purchased_at, later);
+	});
+}
+
+/// Critical ISP-style property: a sub whose drain never starts (because
+/// older subs are still being consumed) still expires on its own clock.
+/// What you don't reach in time, you lose.
+#[test]
+fn unused_subscription_expires_independently() {
+	new_test_ext().execute_with(|| {
+		jump_to(T0);
+		register_manager(APP_CHAIN);
+		// sub#0 is fat + long: drain stays inside it the whole test.
+		configure_tier(TIER1, 1_000_000, QUARTER_SECS);
+		// sub#1 is thin + short: nominally available, but never reached.
+		configure_tier(TIER2, 500, MONTH_SECS);
+		buy(TIER1).unwrap();
+		buy(TIER2).unwrap();
+
+		// Light usage stays inside sub#0.
+		assert_eq!(consume(100), Ok(()));
+		assert_eq!(sub_count(APP_CHAIN), 2);
+
+		// Cross sub#1's expiry; first gate hit after that prunes it.
+		jump_to(T0 + MONTH_SECS + 1);
+		assert_eq!(consume(100), Ok(()));
+		assert_eq!(sub_count(APP_CHAIN), 1, "unused sub#1 expired and was swept");
+		assert_eq!(sub_at(APP_CHAIN, 0).unwrap().tier, TIER1);
 	});
 }
 
@@ -295,7 +350,7 @@ fn unauthorised_market_rejected() {
 
 		dispatch(purchase_request(APP_CHAIN, IMPOSTER, TIER1, APP_CHAIN))
 			.expect_err("imposter must be rejected");
-		assert!(bucket(APP_CHAIN, TIER1).is_none());
+		assert_eq!(sub_count(APP_CHAIN), 0);
 	});
 }
 
@@ -338,7 +393,7 @@ fn gate_no_allowance_rejects() {
 }
 
 #[test]
-fn gate_insufficient_across_buckets_does_not_deduct() {
+fn gate_insufficient_across_subscriptions_does_not_deduct() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		register_manager(APP_CHAIN);
@@ -348,8 +403,8 @@ fn gate_insufficient_across_buckets_does_not_deduct() {
 		buy(TIER2).unwrap();
 
 		assert_eq!(consume(200), Err(GateError::Insufficient { remaining: 150, required: 200 }),);
-		assert_eq!(bucket(APP_CHAIN, TIER1).unwrap().remaining_bytes, 100);
-		assert_eq!(bucket(APP_CHAIN, TIER2).unwrap().remaining_bytes, 50);
+		assert_eq!(sub_at(APP_CHAIN, 0).unwrap().remaining_bytes, 100);
+		assert_eq!(sub_at(APP_CHAIN, 1).unwrap().remaining_bytes, 50);
 	});
 }
 
@@ -377,7 +432,7 @@ fn is_purchase_message_recognises_authorised_sender() {
 }
 
 #[test]
-fn force_credit_creates_bucket_with_expiry() {
+fn force_credit_pushes_subscription() {
 	new_test_ext().execute_with(|| {
 		jump_to(T0);
 		Bandwidth::force_credit(
@@ -392,9 +447,10 @@ fn force_credit_creates_bucket_with_expiry() {
 		)
 		.unwrap();
 
-		let state = bucket(APP_CHAIN, TIER1).unwrap();
-		assert_eq!(state.remaining_bytes, 7_777);
-		assert_eq!(state.expires_at, T0 + MONTH_SECS);
+		let sub = sub_at(APP_CHAIN, 0).unwrap();
+		assert_eq!(sub.tier, TIER1);
+		assert_eq!(sub.remaining_bytes, 7_777);
+		assert_eq!(sub.expires_at, T0 + MONTH_SECS);
 		assert!(BandwidthManager::<Test>::get(APP_CHAIN).is_none());
 	});
 }
@@ -431,8 +487,11 @@ fn set_tier_rejects_invalid_config() {
 	});
 }
 
+/// `months > 1` produces a single scaled subscription, not N
+/// back-to-back monthly ones — by design (matches "one purchase = one
+/// subscription").
 #[test]
-fn bulk_purchase_credits_proportional_bytes_and_extends_expiry() {
+fn bulk_purchase_creates_one_scaled_subscription() {
 	new_test_ext().execute_with(|| {
 		let months = 6_u32;
 		jump_to(T0);
@@ -441,9 +500,10 @@ fn bulk_purchase_credits_proportional_bytes_and_extends_expiry() {
 
 		buy_months(TIER1, months).unwrap();
 
-		let state = bucket(APP_CHAIN, TIER1).unwrap();
-		assert_eq!(state.remaining_bytes, TIER1_BYTES * months as u128);
-		assert_eq!(state.expires_at, T0 + MONTH_SECS * months as u64);
+		assert_eq!(sub_count(APP_CHAIN), 1);
+		let sub = sub_at(APP_CHAIN, 0).unwrap();
+		assert_eq!(sub.remaining_bytes, TIER1_BYTES * months as u128);
+		assert_eq!(sub.expires_at, T0 + MONTH_SECS * months as u64);
 	});
 }
 
@@ -456,7 +516,60 @@ fn purchase_rejects_zero_months() {
 
 		dispatch(purchase_request_raw(APP_CHAIN, MANAGER, TIER1.into(), 0, APP_CHAIN))
 			.expect_err("zero months must be rejected at decode time");
-		assert!(bucket(APP_CHAIN, TIER1).is_none());
+		assert_eq!(sub_count(APP_CHAIN), 0);
+	});
+}
+
+/// The 1024-sub cap evicts the oldest entry. force_credit reuses the
+/// same push path as purchase, so this also covers the purchase cap.
+#[test]
+fn subscription_cap_evicts_oldest() {
+	new_test_ext().execute_with(|| {
+		jump_to(T0);
+		let cap = MAX_SUBSCRIPTIONS as u128;
+
+		// Fill the list to exactly the cap. `bytes` encodes the index
+		// so we can prove which one got evicted.
+		for i in 0..cap {
+			Bandwidth::force_credit(
+				RuntimeOrigin::root(),
+				ForceCreditParams {
+					app_chain: APP_CHAIN,
+					app: app_key(),
+					tier: TIER1,
+					bytes: i + 1,
+					duration_secs: MONTH_SECS,
+				},
+			)
+			.unwrap();
+		}
+		assert_eq!(sub_count(APP_CHAIN), cap as usize);
+		assert_eq!(sub_at(APP_CHAIN, 0).unwrap().remaining_bytes, 1, "oldest is index 1");
+
+		// One more push: evicts the oldest, appends the new one.
+		Bandwidth::force_credit(
+			RuntimeOrigin::root(),
+			ForceCreditParams {
+				app_chain: APP_CHAIN,
+				app: app_key(),
+				tier: TIER1,
+				bytes: cap + 1,
+				duration_secs: MONTH_SECS,
+			},
+		)
+		.unwrap();
+
+		assert_eq!(sub_count(APP_CHAIN), cap as usize, "still capped");
+		assert_eq!(
+			sub_at(APP_CHAIN, 0).unwrap().remaining_bytes,
+			2,
+			"former second-oldest is now front",
+		);
+		assert_eq!(
+			sub_at(APP_CHAIN, (cap - 1) as usize).unwrap().remaining_bytes,
+			cap + 1,
+			"new sub is at the back",
+		);
 	});
 }
 

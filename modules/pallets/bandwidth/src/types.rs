@@ -12,9 +12,11 @@ pub type AppKey = BoundedVec<u8, ConstU32<32>>;
 
 pub type BandwidthBytes = u128;
 
-/// Closed enum: storage-keys are bounded by the variant set, so the
-/// per-app `BoundedBTreeMap` can never exceed `MaxTiers`. Adding a
-/// variant is the only way to grow the tier space.
+/// Hard cap on the subscription list per `(chain, app)`. Pushes
+/// beyond this evict the oldest entry (FIFO).
+pub const MAX_SUBSCRIPTIONS: u32 = 1024;
+pub type MaxSubscriptions = ConstU32<MAX_SUBSCRIPTIONS>;
+
 #[derive(
 	Encode,
 	Decode,
@@ -55,10 +57,6 @@ impl From<TierIndex> for u32 {
 	}
 }
 
-/// Upper bound on `BoundedBTreeMap<TierIndex, AllowanceState>`. Keep
-/// in sync with the variant count of `TierIndex`.
-pub type MaxTiers = ConstU32<4>;
-
 /// A tier is a (bytes, duration) SKU. EVM holds the price; the pallet
 /// holds what you get and how long it lasts.
 #[derive(
@@ -78,8 +76,9 @@ pub struct TierConfig {
 	pub duration_secs: u64,
 }
 
-/// One purchase of a single tier. Same-tier re-purchases stack into
-/// this row; different tiers live in their own row keyed by `tier`.
+/// One purchase, immutable across its lifetime: `remaining_bytes`
+/// drains via the gate, `expires_at` is fixed at purchase time and
+/// never extends. Repurchases append a new row instead of stacking.
 #[derive(
 	Encode,
 	Decode,
@@ -89,13 +88,15 @@ pub struct TierConfig {
 	Clone,
 	PartialEq,
 	Eq,
-	Default,
 	RuntimeDebug,
 )]
-pub struct AllowanceState {
+pub struct Subscription {
+	pub tier: TierIndex,
 	pub remaining_bytes: BandwidthBytes,
-	/// Unix seconds. Gate sweeps rows where `expires_at <= now`.
+	/// Unix seconds. Gate sweeps entries where `expires_at <= now`.
 	pub expires_at: u64,
+	/// Unix seconds at insertion — fixes FIFO order under same-block buys.
+	pub purchased_at: u64,
 }
 
 /// Admin payload for `force_credit` — bundled into a struct because
@@ -126,9 +127,9 @@ impl core::fmt::Display for GateError {
 	}
 }
 
-/// Atomic check-and-deduct across all of an app's tier buckets on
-/// `(chain, app)`. `source` is `request.source` (= the purchase's
-/// `app_chain`).
+/// Atomic check-and-deduct across all of an app's live subscriptions
+/// on `(chain, app)`. `source` is `request.source` (= the purchase's
+/// `app_chain`). Drains FIFO by insertion order.
 pub trait BandwidthGate {
 	fn try_consume(source: &StateMachine, app: &[u8], bytes: u32) -> Result<(), GateError>;
 }

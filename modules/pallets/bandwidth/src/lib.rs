@@ -558,9 +558,14 @@ impl<T: Config> BandwidthGate for Pallet<T> {
 
 			// Drain from the front in insertion order. Once a sub is
 			// fully consumed, pop it and continue with the next.
+			// `get_mut` defends against a malformed list that satisfies
+			// the `total >= need` precheck but is structurally empty;
+			// we'd otherwise panic via `list[0]`.
 			let mut left = need;
 			while left > 0 {
-				let head = &mut list[0];
+				let Some(head) = list.get_mut(0) else {
+					return Err(GateError::NoAllowance);
+				};
 				let take = head.remaining_bytes.min(left);
 				head.remaining_bytes = head.remaining_bytes.saturating_sub(take);
 				left = left.saturating_sub(take);

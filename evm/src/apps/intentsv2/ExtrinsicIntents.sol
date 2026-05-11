@@ -31,7 +31,7 @@ import {
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
 
 /**
  * @title ExtrinsicIntents
@@ -207,7 +207,7 @@ abstract contract ExtrinsicIntents is IntentsBase, HyperApp {
             dest: order.destination,
             keys: keys,
             timeout: 0,
-            height: SafeCast.toUint64(options.height),
+            height: options.height,
             fee: options.relayerFee,
             context: context
         });

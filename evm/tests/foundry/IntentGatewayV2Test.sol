@@ -1783,7 +1783,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // Roll past deadline
         vm.roll(block.number + 101);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: order.deadline + 1});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(order.deadline + 1)});
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);
@@ -1823,7 +1823,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         vm.roll(block.number + 101);
 
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: block.number + 100});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(block.number + 100)});
 
         // Different user tries to cancel
         vm.startPrank(filler);
@@ -1864,7 +1864,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         // Try to cancel before deadline
-        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: block.number + 50});
+        CancelOptions memory cancelOptions = CancelOptions({relayerFee: 0, height: uint64(block.number + 50)});
 
         vm.startPrank(user);
         dai.approve(address(intentGateway), type(uint256).max);

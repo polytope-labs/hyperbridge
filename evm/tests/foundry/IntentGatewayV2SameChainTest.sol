@@ -370,7 +370,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels order before deadline (same-chain allows this)
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
@@ -423,7 +423,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels order after deadline (same-chain allows this)
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
@@ -481,7 +481,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User tries to cancel already-filled order
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -522,7 +522,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Other user tries to cancel
         vm.startPrank(otherUser);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -632,7 +632,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // Cancel
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 
@@ -694,7 +694,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User tries to cancel after fill
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.Filled.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -740,7 +740,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels first
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 
@@ -1085,7 +1085,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User tries to cancel an order that was never placed
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
 
         vm.expectRevert(IntentsBase.UnknownOrder.selector);
         intentGateway.cancelOrder(order, cancelOpts);
@@ -1217,7 +1217,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
         // User cancels the partially filled order
         uint256 userUsdcBefore = usdc.balanceOf(user);
         vm.startPrank(user);
-        CancelOptions memory cancelOpts = CancelOptions({height: block.number, relayerFee: 0});
+        CancelOptions memory cancelOpts = CancelOptions({height: uint64(block.number), relayerFee: 0});
         intentGateway.cancelOrder(order, cancelOpts);
         vm.stopPrank();
 
@@ -1241,7 +1241,7 @@ contract IntentGatewayV2SameChainTest is MainnetForkBaseTest {
 
         // User cancels
         vm.prank(user);
-        intentGateway.cancelOrder(order, CancelOptions({height: block.number, relayerFee: 0}));
+        intentGateway.cancelOrder(order, CancelOptions({height: uint64(block.number), relayerFee: 0}));
 
         // Another solver tries to fill — should revert
         address solver2 = makeAddr("solver2");

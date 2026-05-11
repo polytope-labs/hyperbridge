@@ -154,6 +154,7 @@ impl pallet_ismp::Config for Runtime {
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
+		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler =

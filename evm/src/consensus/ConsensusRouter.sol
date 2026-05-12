@@ -47,11 +47,11 @@ import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
     // Proof type enum
     enum ProofType {
-        // 0x00 - EcdsaBeefy naive proof
-        Naive,
-        // 0x01 - SP1Beefy ZK proof
-        ZK,
-        // 0x02 - FiatShamirBeefy sampled proof
+        // 0x00 - EcdsaBeefy (full ECDSA signature verification)
+        Ecdsa,
+        // 0x01 - SP1Beefy (zero-knowledge proof)
+        Sp1,
+        // 0x02 - FiatShamirBeefy (Fiat-Shamir sampled proof)
         FiatShamir
     }
 
@@ -109,10 +109,10 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
         // Extract the actual proof data (skip the first byte)
         bytes calldata actualProof = encodedProof[1:];
 
-        if (proofType == ProofType.ZK) {
+        if (proofType == ProofType.Sp1) {
             // Route to SP1Beefy for ZK proof verification
             return IConsensus(address(sp1Beefy)).verifyConsensus(encodedState, actualProof);
-        } else if (proofType == ProofType.Naive) {
+        } else if (proofType == ProofType.Ecdsa) {
             // Route to EcdsaBeefy for naive proof verification
             return IConsensus(address(ecdsaBeefy)).verifyConsensus(encodedState, actualProof);
         } else if (proofType == ProofType.FiatShamir) {
@@ -148,9 +148,9 @@ contract ConsensusRouter is IConsensus, IConsensusV2, ERC165 {
         // Strip the first byte
         bytes calldata actualProof = encodedProof[1:];
 
-        if (proofType == ProofType.ZK) {
+        if (proofType == ProofType.Sp1) {
             return IConsensusV2(address(sp1Beefy)).verify(previousState, actualProof);
-        } else if (proofType == ProofType.Naive) {
+        } else if (proofType == ProofType.Ecdsa) {
             return IConsensusV2(address(ecdsaBeefy)).verify(previousState, actualProof);
         } else if (proofType == ProofType.FiatShamir) {
             return IConsensusV2(address(fiatShamirBeefy)).verify(previousState, actualProof);

@@ -27,7 +27,7 @@ use frame_support::{
 	traits::AsEnsureOriginWithArg,
 };
 use frame_system::EnsureRoot;
-use hyperbridge_client_machine::HyperbridgeClientMachine;
+use substrate_state_machine::SubstrateStateMachine;
 use ismp::{
 	consensus::StateMachineClient,
 	error::Error,
@@ -125,7 +125,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 			StateMachine::Evm(chain_id)
 				if chain_id == ismp_parachain::ASSET_HUB_MAINNET_CHAIN_ID =>
 				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
-			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+			_ => Ok(Box::new(SubstrateStateMachine::<Runtime>::from(id))),
 		}
 	}
 }
@@ -147,10 +147,7 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			ParachainStateMachineProvider,
 		>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,

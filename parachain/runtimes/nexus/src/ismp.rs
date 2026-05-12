@@ -100,6 +100,7 @@ impl ismp_bsc::pallet::Config for Runtime {
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
+	type BandwidthGate = pallet_bandwidth::Pallet<Runtime>;
 }
 
 pub struct Coprocessor;

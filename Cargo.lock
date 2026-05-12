@@ -16371,6 +16371,7 @@ dependencies = [
  "ismp",
  "log",
  "mmr-primitives",
+ "pallet-bandwidth",
  "pallet-ismp",
  "pallet-ismp-relayer",
  "parity-scale-codec",

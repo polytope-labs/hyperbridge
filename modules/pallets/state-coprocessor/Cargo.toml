@@ -19,6 +19,7 @@ pallet-ismp = { workspace = true }
 mmr-primitives = { workspace = true }
 evm-state-machine = { workspace = true }
 pallet-ismp-relayer = { workspace = true }
+pallet-bandwidth = { workspace = true }
 
 [dependencies.polkadot-sdk]
 workspace = true
@@ -43,6 +44,7 @@ std = [
     "mmr-primitives/std",
     "evm-state-machine/std",
     "pallet-ismp-relayer/std",
+    "pallet-bandwidth/std",
     "alloy-primitives/std",
 ]
 try-runtime = ["polkadot-sdk/try-runtime"]

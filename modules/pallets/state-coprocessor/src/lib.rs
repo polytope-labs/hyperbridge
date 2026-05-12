@@ -49,6 +49,12 @@ pub mod pallet {
 		///
 		/// Verified GetResponse(s) are stored in the mmr
 		type Mmr: OffchainDBProvider<Leaf = Leaf>;
+
+		/// Bandwidth gate that meters per-app data consumption. The
+		/// coprocessor charges `max(sum(keys.len()) + context.len(), 32)`
+		/// bytes per `GetRequest` against `(req.source, req.from)` before
+		/// any state proof work — fails fast for apps without allowance.
+		type BandwidthGate: pallet_bandwidth::BandwidthGate;
 	}
 
 	#[pallet::error]

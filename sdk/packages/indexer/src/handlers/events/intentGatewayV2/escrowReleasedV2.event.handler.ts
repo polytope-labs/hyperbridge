@@ -10,7 +10,7 @@ export const handleEscrowReleasedEventV2 = wrap(async (event: EscrowReleasedLog)
 	logger.info(`[Intent Gateway V2] Escrow Released Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event
-	const { commitment } = args!
+	const { commitment, tokens } = args!
 
 	if (!args) return
 
@@ -20,7 +20,7 @@ export const handleEscrowReleasedEventV2 = wrap(async (event: EscrowReleasedLog)
 	logger.info(
 		`[Intent Gateway V2] Escrow Released: ${stringify({
 			commitment,
-		})}`,
+		})}, tokens: ${stringify(tokens)}`,
 	)
 
 	await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.REDEEMED, {

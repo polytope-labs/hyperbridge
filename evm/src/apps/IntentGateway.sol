@@ -389,7 +389,7 @@ contract IntentGateway is HyperApp {
                 address[] memory path = new address[](2);
                 path[0] = WETH;
                 path[1] = IDispatcher(hostAddr).feeToken();
-                IUniswapV2Router02(uniswapV2).swapExactETHForTokens{value: msgValue}(
+                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msgValue}(
                     order.fees, path, address(this), block.timestamp
                 );
             } else {

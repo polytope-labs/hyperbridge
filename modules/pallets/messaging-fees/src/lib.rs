@@ -13,193 +13,204 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The pallet-messaging-relayer-incentives allows for incentivizing messaging relayers with
-//! rewards.
+//! # pallet-messaging-fees
 //!
-//! This pallet implements the FeeHandler trait from pallet-ismp to process messages
-//! and reward messaging relayers who deliver request and response messages.
+//! Mints reputation tokens to the relayer that delivered each
+//! message, scaled by message size. The per-byte mint rate is set by
+//! governance via [`Pallet::set_mint_per_byte`]; a rate of zero
+//! disables minting without uninstalling the pallet.
+//!
+//! [`pallet-collator-manager`] consumes the [`IncentivesManager`]
+//! trait so it stays exported here, but the canonical impl is a noop
+//! since this version doesn't accumulate per-session state.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
 use alloc::vec::Vec;
-
+use codec::{Decode, Encode};
 use frame_support::{
 	dispatch::{DispatchResultWithPostInfo, Pays, PostDispatchInfo},
 	pallet_prelude::*,
-	traits::Get,
+	traits::fungible::{self, Mutate},
 };
 use frame_system::pallet_prelude::*;
-use polkadot_sdk::*;
-
-use ismp::{
-	dispatcher::IsmpDispatcher,
-	host::{IsmpHost, StateMachine},
+use polkadot_sdk::{
+	sp_io,
+	sp_runtime::traits::{SaturatedConversion, Saturating, Zero},
+	*,
 };
+
+use crypto_utils::verification::Signature;
+use ismp::{
+	events::Event as IsmpEvent,
+	messaging::{Message, MessageWithWeight},
+	router::{RequestResponse, Response},
+};
+use pallet_ismp::fee_handler::FeeHandler;
+
 pub use pallet::*;
 
-use crate::types::*;
-
-mod impls;
-pub mod types;
-
-/// A trait for managing messaging incentives, primarily for resetting them.
+/// Trait kept for `pallet-collator-manager`'s Config bound. The
+/// reputation-mint flow doesn't accumulate per-session state, so the
+/// canonical impl on [`Pallet`] is a noop.
 pub trait IncentivesManager {
-	/// Resets any accumulated incentive data, called at the start of a new session.
 	fn reset_incentives();
 }
 
 #[frame_support::pallet]
 pub mod pallet {
-	use crate::frame_support::traits::fungible;
-	use frame_support::{pallet_prelude::StorageVersion, PalletId};
-	use polkadot_sdk::sp_core::H256;
-
 	use super::*;
-	const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+	use frame_support::pallet_prelude::StorageVersion;
+
+	pub type BalanceOf<T> = <<T as Config>::ReputationAsset as fungible::Inspect<
+		<T as frame_system::Config>::AccountId,
+	>>::Balance;
+
+	const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
 	#[pallet::pallet]
 	#[pallet::storage_version(STORAGE_VERSION)]
 	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
-	/// The config trait
 	#[pallet::config]
 	pub trait Config:
-		polkadot_sdk::frame_system::Config
-		+ pallet_ismp::Config
-		+ pallet_ismp_host_executive::Config
-		+ pallet_ismp_relayer::Config
+		polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>>
 	{
-		/// The underlying [`IsmpHost`] implementation
-		type IsmpHost: IsmpHost
-			+ IsmpDispatcher<Account = Self::AccountId, Balance = Self::Balance>
-			+ Default;
-
-		/// The account id for the treasury
-		type TreasuryAccount: Get<PalletId>;
-
-		/// Origin for privileged actions
-		type IncentivesOrigin: EnsureOrigin<Self::RuntimeOrigin>;
-
-		/// Price oracle for usd price conversion to bridge tokens
-		type PriceOracle: PriceOracle;
-
-		/// The pallet-assets instance used for managing the reputation token.
-		type ReputationAsset: fungible::Mutate<
-			Self::AccountId,
-			Balance = <Self as pallet_ismp::Config>::Balance,
-		>;
-		/// Weight information for operations
-		type WeightInfo: WeightInfo;
+		/// The fungible asset minted to relayers.
+		type ReputationAsset: fungible::Mutate<Self::AccountId>;
+		/// Origin allowed to update the per-byte mint rate.
+		type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
-	/// Total bytes processed in the current epoch for all chains
+	/// Reputation tokens minted per byte of delivered payload. Zero
+	/// disables minting; non-zero applies to every message executed
+	/// after it is set.
 	#[pallet::storage]
-	#[pallet::getter(fn total_bytes_processed)]
-	pub type TotalBytesProcessed<T: Config> = StorageValue<_, u32, ValueQuery>;
-
-	/// Stores whitelisted routes for incentives. The key is a tuple of (source, destination).
-	#[pallet::storage]
-	#[pallet::getter(fn incentivized_routes)]
-	pub type IncentivizedRoutes<T: Config> =
-		StorageMap<_, Twox64Concat, StateMachine, bool, OptionQuery>;
-
-	/// A map of request commitment to fees associated with them
-	#[pallet::storage]
-	#[pallet::getter(fn commitment_fees)]
-	pub type CommitmentFees<T: Config> =
-		StorageMap<_, Blake2_128Concat, H256, T::Balance, OptionQuery>;
-
-	/// Stores the Target Message Size value
-	#[pallet::storage]
-	#[pallet::getter(fn target_message_size)]
-	pub type TargetMessageSize<T: Config> = StorageValue<_, u32, OptionQuery>;
+	pub type MintPerByte<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
 
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Reward transfer failed
-		RewardTransferFailed,
-		/// Calculation overflow
-		CalculationOverflow,
-		/// Oracle Price conversion error
-		ErrorInPriceConversion,
-		/// State machine per byte fee not found
-		PerByteFeeNotFound,
-		/// Not enough balance for withdrawal
-		NotEnoughBalance,
-		/// Dispactch request failed
-		DispatchFailed,
-		/// Error
-		ErrorCompletingCall,
-		/// Reputation mint failed
 		ReputationMintFailed,
 	}
 
 	#[pallet::event]
-	#[pallet::generate_deposit(pub (super) fn deposit_event)]
+	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// State machine Routes supported for incentives
-		RouteSupported { state_machine: StateMachine },
-		/// A relayer was rewarded
-		FeeRewarded {
-			/// Relayer account that received the reward
-			relayer: T::AccountId,
-			/// Amount of the reward
-			amount: <T as pallet_ismp::Config>::Balance,
+		MintRateUpdated {
+			amount: BalanceOf<T>,
 		},
-		/// A relayer was charged a fee
-		FeePaid {
-			/// Relayer account that was charged
+		ReputationMinted {
 			relayer: T::AccountId,
-			/// Amount of the fee
-			amount: <T as pallet_ismp::Config>::Balance,
+			bytes: u32,
+			amount: BalanceOf<T>,
 		},
-		/// Target Message Size updated
-		TargetMessageSizeUpdated { new_size: u32 },
-		/// Resetting of Incentives has occurred
-		IncentivesReset,
 	}
 
 	#[pallet::call]
-	impl<T: Config> Pallet<T>
-	where
-		<T as frame_system::Config>::AccountId: From<[u8; 32]>,
-		u128: From<<T as pallet_ismp::Config>::Balance>,
-		T::AccountId: AsRef<[u8]>,
-	{
-		/// Whitelists a route for messaging fees.
+	impl<T: Config> Pallet<T> {
+		/// Update the per-byte mint rate. Pass zero to disable minting.
 		#[pallet::call_index(0)]
-		#[pallet::weight(T::WeightInfo::set_supported_route())]
-		pub fn set_supported_route(
+		#[pallet::weight(Weight::from_parts(10_000_000, 0).saturating_add(T::DbWeight::get().writes(1)))]
+		pub fn set_mint_per_byte(
 			origin: OriginFor<T>,
-			state_machine: StateMachine,
+			amount: BalanceOf<T>,
 		) -> DispatchResult {
-			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
-
-			IncentivizedRoutes::<T>::insert(&state_machine, true);
-
-			Self::deposit_event(Event::<T>::RouteSupported { state_machine });
-
-			Ok(())
-		}
-
-		/// Sets the Target Message Size
-		#[pallet::call_index(1)]
-		#[pallet::weight(T::WeightInfo::set_target_message_size())]
-		pub fn set_target_message_size(origin: OriginFor<T>, new_size: u32) -> DispatchResult {
-			<T as Config>::IncentivesOrigin::ensure_origin(origin)?;
-			TargetMessageSize::<T>::put(new_size);
-			Self::deposit_event(Event::<T>::TargetMessageSizeUpdated { new_size });
+			T::AdminOrigin::ensure_origin(origin)?;
+			MintPerByte::<T>::put(amount);
+			Self::deposit_event(Event::MintRateUpdated { amount });
 			Ok(())
 		}
 	}
 }
 
-impl<T: Config> IncentivesManager for Pallet<T> {
-	fn reset_incentives() {
-		TotalBytesProcessed::<T>::kill();
-		Self::deposit_event(Event::IncentivesReset);
+impl<T: Config> Pallet<T>
+where
+	T::AccountId: From<[u8; 32]>,
+{
+	/// Same minimum-byte rule as the bandwidth gate (`max(body, 32)`)
+	/// so undersized payloads can't game the mint by being charged 0.
+	fn message_bytes(message: &Message) -> u32 {
+		let raw = match message {
+			Message::Request(req) =>
+				req.requests.iter().map(|p| p.body.len()).sum::<usize>(),
+			Message::Response(res) => match &res.datagram {
+				RequestResponse::Response(responses) => responses
+					.iter()
+					.map(|r| match r {
+						Response::Post(p) => p.response.len(),
+						Response::Get(g) => g
+							.values
+							.iter()
+							.filter_map(|v| v.value.as_ref())
+							.map(|b| b.len())
+							.sum(),
+					})
+					.sum(),
+				RequestResponse::Request(_) => 0,
+			},
+			_ => 0,
+		};
+		core::cmp::max(raw as u32, 32)
 	}
+
+	/// Recover the relayer's account from the sr25519 signature on a
+	/// `Message`'s `signer` field. Returns `None` if the message has
+	/// no signer (e.g. consensus messages) or the signature is bad.
+	fn relayer_for(message: &Message) -> Option<T::AccountId> {
+		let (signer, signed) = match message {
+			Message::Request(msg) =>
+				(&msg.signer, sp_io::hashing::keccak_256(&msg.requests.encode())),
+			Message::Response(msg) =>
+				(&msg.signer, sp_io::hashing::keccak_256(&msg.datagram.encode())),
+			_ => return None,
+		};
+		Signature::decode(&mut &signer[..])
+			.ok()?
+			.verify_and_get_sr25519_pubkey(&signed, None)
+			.ok()
+			.map(T::AccountId::from)
+	}
+}
+
+impl<T: Config> FeeHandler for Pallet<T>
+where
+	T::AccountId: From<[u8; 32]>,
+{
+	fn on_executed(
+		messages: Vec<MessageWithWeight>,
+		_events: Vec<IsmpEvent>,
+	) -> DispatchResultWithPostInfo {
+		let rate = MintPerByte::<T>::get();
+		if !rate.is_zero() {
+			for mw in &messages {
+				let bytes = Self::message_bytes(&mw.message);
+				let bytes_balance: BalanceOf<T> = (bytes as u128).saturated_into();
+				let amount = rate.saturating_mul(bytes_balance);
+				if amount.is_zero() {
+					continue;
+				}
+				if let Some(relayer) = Self::relayer_for(&mw.message) {
+					match T::ReputationAsset::mint_into(&relayer, amount) {
+						Ok(_) => Self::deposit_event(Event::ReputationMinted {
+							relayer,
+							bytes,
+							amount,
+						}),
+						Err(err) => log::warn!(
+							target: "messaging-fees",
+							"reputation mint failed for {bytes}b: {err:?}",
+						),
+					}
+				}
+			}
+		}
+		Ok(PostDispatchInfo { actual_weight: None, pays_fee: Pays::No })
+	}
+}
+
+impl<T: Config> IncentivesManager for Pallet<T> {
+	fn reset_incentives() {}
 }

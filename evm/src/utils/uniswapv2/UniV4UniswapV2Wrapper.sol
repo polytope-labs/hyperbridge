@@ -60,36 +60,6 @@ contract UniV4UniswapV2Wrapper {
         return _params.WETH;
     }
 
-    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address recipient, uint256 deadline)
-        external
-        payable
-        returns (uint256[] memory amounts)
-    {
-        PoolKey memory poolKey = _createPoolKey(path[1]);
-
-        bytes[] memory params = new bytes[](3);
-        params[0] = abi.encode(poolKey, true, uint128(msg.value), uint128(amountOutMin), bytes(""));
-        params[1] = abi.encode(poolKey.currency0, msg.value, false);
-        params[2] = abi.encode(poolKey.currency1, recipient, uint256(0)); // Using 0 to take full output balance
-
-        bytes[] memory inputs = new bytes[](1);
-        inputs[0] = abi.encode(
-            abi.encodePacked(uint8(Actions.SWAP_EXACT_IN_SINGLE), uint8(Actions.SETTLE), uint8(Actions.TAKE)), params
-        );
-
-        uint256 balanceBefore = IERC20(path[1]).balanceOf(recipient);
-
-        IUniversalRouter(_params.universalRouter).execute{value: msg.value}(
-            abi.encodePacked(bytes1(uint8(Commands.V4_SWAP))), inputs, deadline
-        );
-
-        uint256 balanceAfter = IERC20(path[1]).balanceOf(recipient);
-
-        amounts = new uint256[](2);
-        amounts[0] = msg.value;
-        amounts[1] = balanceAfter - balanceBefore;
-    }
-
     function swapETHForExactTokens(uint256 amountOut, address[] calldata path, address recipient, uint256 deadline)
         external
         payable

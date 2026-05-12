@@ -14,12 +14,6 @@ export { handleGetRequestEvent } from "@/handlers/events/evmHost/getRequest.even
 export { handleGetRequestHandledEvent } from "@/handlers/events/evmHost/getRequestHandled.event.handler"
 export { handleGetRequestTimeoutHandled } from "@/handlers/events/evmHost/getRequestTimeoutHandled.event.handler"
 
-// Intent Gateway Handlers
-export { handleOrderPlacedEvent } from "@/handlers/events/intentGateway/orderPlaced.event.handler"
-export { handleOrderFilledEvent } from "@/handlers/events/intentGateway/orderFilled.event.handler"
-export { handleEscrowReleasedEvent } from "@/handlers/events/intentGateway/escrowReleased.event.handler"
-export { handleEscrowRefundedEvent } from "@/handlers/events/intentGateway/escrowRefunded.event.handler"
-
 // Intent Gateway V2 Handlers
 export { handleOrderPlacedEventV2 } from "@/handlers/events/intentGatewayV2/orderPlacedV2.event.handler"
 export { handleOrderFilledEventV2 } from "@/handlers/events/intentGatewayV2/orderFilledV2.event.handler"
@@ -57,3 +51,10 @@ export { handleTreasuryTransferEvent } from "@/handlers/events/treasury/treasury
 export { handleAccumulateFeesEvent } from "@/handlers/events/fees/accumulatedFees.event.handler"
 export { handleRelayerWithdrawEvent } from "@/handlers/events/relayer/relayerWithdraw.event.handler"
 export { handleCollatorRewardedEvent } from "@/handlers/events/collators/collatorRewarded.event.handler"
+
+// Bandwidth Pallet Handlers
+export { handleBandwidthCreditedEvent } from "@/handlers/events/bandwidth/bandwidthCredited.event.handler"
+export { handleBandwidthConsumedEvent } from "@/handlers/events/bandwidth/bandwidthConsumed.event.handler"
+export { handleSubscriptionEvictedEvent } from "@/handlers/events/bandwidth/subscriptionEvicted.event.handler"
+export { handleForceCreditedEvent } from "@/handlers/events/bandwidth/forceCredited.event.handler"
+export { handleTierSetEvent } from "@/handlers/events/bandwidth/tierSet.event.handler"

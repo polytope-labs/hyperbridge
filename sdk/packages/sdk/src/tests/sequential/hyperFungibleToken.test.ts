@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { createPublicClient, createWalletClient, http, parseEther, type Hex } from "viem"
+import { createPublicClient, createWalletClient, http, parseEther, encodeFunctionData, getContract, type Hex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet, polygonAmoy } from "viem/chains"
 import { EvmChain } from "@/chains/evm"
@@ -11,12 +11,20 @@ import EVM_HOST from "@/abis/evmHost"
 import type { HexString } from "@/types"
 
 // WrappedHFT wrapping WBNB on BSC testnet (lock/unlock)
-const BSC_WRAPPED_HFT = "0x5B1D14417f44D5DcC116bEd1fa50b91B4eF73dda" as const
+const BSC_WRAPPED_HFT = "0xfb1c7df9dd4787774c1ab05c95cd8ae3e3b4ae3b" as const
 // HFT on Polygon Amoy (burn/mint) — paired with BSC WrappedHFT
-const POLYGON_HFT = "0xc74d342B1907d724CbA584F663c7e180A8b708D3" as const
+const POLYGON_HFT = "0xa1e3545c1abe5b3839a8f60c78f40592a7aa0fc2" as const
 
 const BSC_HOST = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as const
 const POLYGON_HOST = "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE" as const
+
+// TokenFaucet addresses (drips 1000 fee tokens per day)
+const BSC_FAUCET = "0x1794aB22388303ce9Cb798bE966eeEBeFe59C3a3" as const
+const POLYGON_FAUCET = "0xc1a2d113c2b8edfd98cc4b10b4d5eaa05dad6e84" as const
+
+const FAUCET_ABI = [
+	{ type: "function", name: "drip", inputs: [{ name: "token", type: "address" }], outputs: [], stateMutability: "nonpayable" },
+] as const
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY as HexString
 const BSC_RPC = process.env.BSC_CHAPEL!
@@ -79,6 +87,54 @@ async function createIsmpClient(source: EvmChain, dest: EvmChain) {
 	})
 
 	return { ismpClient, hyperbridge }
+}
+
+/**
+ * Ensures the account has enough fee tokens on the source chain by calling the TokenFaucet.
+ * The faucet drips 1000 fee tokens per day. Silently skips if already dripped today.
+ */
+async function ensureFeeTokens(params: {
+	chain: typeof bscTestnet | typeof polygonAmoy
+	rpcUrl: string
+	host: `0x${string}`
+	faucet: `0x${string}`
+	account: ReturnType<typeof privateKeyToAccount>
+}) {
+	const { chain, rpcUrl, host, faucet, account } = params
+	const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
+	const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) })
+
+	const feeToken = await publicClient.readContract({
+		address: host,
+		abi: EVM_HOST.ABI,
+		functionName: "feeToken",
+	})
+
+	const balance = await publicClient.readContract({
+		address: feeToken as `0x${string}`,
+		abi: [{ type: "function", name: "balanceOf", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }], stateMutability: "view" }],
+		functionName: "balanceOf",
+		args: [account.address],
+	})
+
+	console.log(`Fee token balance on ${chain.name}: ${balance}`)
+
+	// Drip if balance is below 100 tokens
+	if (balance < parseEther("100")) {
+		try {
+			const hash = await walletClient.writeContract({
+				address: faucet,
+				abi: FAUCET_ABI,
+				functionName: "drip",
+				args: [feeToken as `0x${string}`],
+			})
+			console.log(`Faucet drip tx: ${hash}`)
+			await publicClient.waitForTransactionReceipt({ hash })
+			console.log("Faucet drip confirmed")
+		} catch (e) {
+			console.log("Faucet drip skipped (already dripped today or error)")
+		}
+	}
 }
 
 async function runBridgeFlow(params: {
@@ -221,6 +277,9 @@ describe("HyperFungibleToken SDK", () => {
 		const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
 		const account = privateKeyToAccount(PRIVATE_KEY)
 
+		// Ensure fee tokens on BSC (source chain for this flow)
+		await ensureFeeTokens({ chain: bscTestnet, rpcUrl: BSC_RPC, host: BSC_HOST, faucet: BSC_FAUCET, account })
+
 		console.log("=== Lock BNB on BSC → Mint on Polygon ===")
 		const { commitment, statuses } = await runBridgeFlow({
 			hft,
@@ -250,6 +309,9 @@ describe("HyperFungibleToken SDK", () => {
 		const { ismpClient, hyperbridge } = await createIsmpClient(source, dest)
 		const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
 		const account = privateKeyToAccount(PRIVATE_KEY)
+
+		// Ensure fee tokens on Polygon (source chain for this flow)
+		await ensureFeeTokens({ chain: polygonAmoy, rpcUrl: POLYGON_RPC, host: POLYGON_HOST, faucet: POLYGON_FAUCET, account })
 
 		console.log("=== Burn on Polygon → Unlock BNB on BSC ===")
 		const { commitment, statuses } = await runBridgeFlow({

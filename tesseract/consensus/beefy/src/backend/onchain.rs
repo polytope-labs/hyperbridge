@@ -245,7 +245,7 @@ fn extract_parachain_height(proof_bytes: &[u8]) -> Option<u32> {
 		},
 		PROOF_TYPE_NAIVE => {
 			let proof =
-				<ismp_solidity_abi::beefy::BeefyConsensusProof as SolType>::abi_decode_params(
+				<ismp_solidity_abi::ecdsa_beefy::BeefyConsensusProof as SolType>::abi_decode_params(
 					abi_payload,
 				)
 				.ok()?;

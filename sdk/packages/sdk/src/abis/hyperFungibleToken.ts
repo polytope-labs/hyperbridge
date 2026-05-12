@@ -1529,6 +1529,20 @@ export const HyperFungibleTokenABI = [
     "type": "error",
     "name": "UnsupportedChain",
     "inputs": []
+  },
+  {
+    "type": "function",
+    "name": "quote",
+    "inputs": [{ "name": "params", "type": "tuple", "internalType": "struct HyperFungibleToken.SendParams", "components": [{ "name": "dest", "type": "bytes", "internalType": "bytes" }, { "name": "to", "type": "bytes", "internalType": "bytes" }, { "name": "amount", "type": "uint256", "internalType": "uint256" }, { "name": "timeout", "type": "uint64", "internalType": "uint64" }, { "name": "relayerFee", "type": "uint256", "internalType": "uint256" }, { "name": "data", "type": "bytes", "internalType": "bytes" }] }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteNative",
+    "inputs": [{ "name": "params", "type": "tuple", "internalType": "struct HyperFungibleToken.SendParams", "components": [{ "name": "dest", "type": "bytes", "internalType": "bytes" }, { "name": "to", "type": "bytes", "internalType": "bytes" }, { "name": "amount", "type": "uint256", "internalType": "uint256" }, { "name": "timeout", "type": "uint64", "internalType": "uint64" }, { "name": "relayerFee", "type": "uint256", "internalType": "uint256" }, { "name": "data", "type": "bytes", "internalType": "bytes" }] }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
   }
 ] as const
 
@@ -2787,5 +2801,19 @@ export const WrappedHyperFungibleTokenABI = [
     "type": "error",
     "name": "UnsupportedChain",
     "inputs": []
+  },
+  {
+    "type": "function",
+    "name": "quote",
+    "inputs": [{ "name": "params", "type": "tuple", "internalType": "struct HyperFungibleToken.SendParams", "components": [{ "name": "dest", "type": "bytes", "internalType": "bytes" }, { "name": "to", "type": "bytes", "internalType": "bytes" }, { "name": "amount", "type": "uint256", "internalType": "uint256" }, { "name": "timeout", "type": "uint64", "internalType": "uint64" }, { "name": "relayerFee", "type": "uint256", "internalType": "uint256" }, { "name": "data", "type": "bytes", "internalType": "bytes" }] }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "quoteNative",
+    "inputs": [{ "name": "params", "type": "tuple", "internalType": "struct HyperFungibleToken.SendParams", "components": [{ "name": "dest", "type": "bytes", "internalType": "bytes" }, { "name": "to", "type": "bytes", "internalType": "bytes" }, { "name": "amount", "type": "uint256", "internalType": "uint256" }, { "name": "timeout", "type": "uint64", "internalType": "uint64" }, { "name": "relayerFee", "type": "uint256", "internalType": "uint256" }, { "name": "data", "type": "bytes", "internalType": "bytes" }] }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
   }
 ] as const

@@ -215,8 +215,10 @@ abstract contract IntentsBase is EIP712 {
      * @dev Emitted when an order is fully filled by a solver.
      * @param commitment The order commitment hash.
      * @param filler The address of the solver who filled the order.
+     * @param outputs The output token amounts provided by the solver.
+     * @param inputs The escrowed input tokens released to the solver.
      */
-    event OrderFilled(bytes32 indexed commitment, address filler);
+    event OrderFilled(bytes32 indexed commitment, address filler, TokenInfo[] outputs, TokenInfo[] inputs);
 
     /**
      * @dev Emitted when an order is partially filled by a solver. Only applicable
@@ -231,14 +233,16 @@ abstract contract IntentsBase is EIP712 {
     /**
      * @dev Emitted when escrowed tokens are released to the solver after a successful fill.
      * @param commitment The order commitment hash.
+     * @param tokens The tokens and amounts released.
      */
-    event EscrowReleased(bytes32 indexed commitment);
+    event EscrowReleased(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when escrowed tokens are refunded to the original user after cancellation.
      * @param commitment The order commitment hash.
+     * @param tokens The tokens and amounts refunded.
      */
-    event EscrowRefunded(bytes32 indexed commitment);
+    event EscrowRefunded(bytes32 indexed commitment, TokenInfo[] tokens);
 
     /**
      * @dev Emitted when the gateway's configuration parameters are updated via governance.
@@ -364,9 +368,9 @@ abstract contract IntentsBase is EIP712 {
             }
 
             if (isRefund) {
-                emit EscrowRefunded({commitment: body.commitment});
+                emit EscrowRefunded({commitment: body.commitment, tokens: body.tokens});
             } else {
-                emit EscrowReleased({commitment: body.commitment});
+                emit EscrowReleased({commitment: body.commitment, tokens: body.tokens});
             }
         }
     }
@@ -474,22 +478,40 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
+     * @dev Validates gateway configuration parameters. Reverts with InvalidInput if any
+     * value would brick the gateway or cause arithmetic errors in fee calculations.
+     *
+     * @param p The parameters to validate.
+     */
+    function _validateParams(Params memory p) internal view {
+        if (p.host == address(0) || p.host.code.length == 0) revert InvalidInput();
+        if (p.dispatcher == address(0) || p.dispatcher.code.length == 0) revert InvalidInput();
+        if (p.surplusShareBps > 10_000) revert InvalidInput();
+        if (p.protocolFeeBps >= 10_000) revert InvalidInput();
+        if (p.priceOracle != address(0) && p.priceOracle.code.length == 0) revert InvalidInput();
+    }
+
+    /**
      * @dev Updates the gateway's configuration parameters and per-destination protocol fees.
      * Called by Hyperbridge governance to modify fee settings, host address, dispatcher,
      * price oracle, and other operational parameters.
      *
-     * Emits ParamsUpdated with the old and new params, then iterates over any destination-
-     * specific fee overrides and applies them to `_destinationProtocolFees`.
+     * Validates all params before applying. Emits ParamsUpdated with the old and new params,
+     * then iterates over any destination-specific fee overrides and applies them to
+     * `_destinationProtocolFees`.
      *
      * @param update The parameter update containing new params and destination fee overrides.
      */
     function _updateParams(ParamsUpdate memory update) internal {
+        _validateParams(update.params);
+
         emit ParamsUpdated({previous: _params, current: update.params});
         _params = update.params;
 
         for (uint256 i; i < update.destinationFees.length;) {
             bytes32 stateMachineId = update.destinationFees[i].stateMachineId;
             uint256 feeBps = update.destinationFees[i].destinationFeeBps;
+            if (feeBps >= 10_000) revert InvalidInput();
             _destinationProtocolFees[stateMachineId] = feeBps;
 
             unchecked {

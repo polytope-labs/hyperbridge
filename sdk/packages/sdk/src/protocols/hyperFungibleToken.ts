@@ -194,14 +194,14 @@ export class HyperFungibleToken {
 			}
 		}
 
-		// Batch 3: call HyperApp.quote and HyperApp.quoteNative on the token contract
-		const dispatchPost = {
+		// Batch 3: call quote and quoteNative with SendParams on the token contract
+		const sendParams = {
 			dest,
-			to: peerModuleId,
-			body: messageBody,
+			to,
+			amount: params.amount,
 			timeout,
-			fee: relayerFeeInSourceFeeToken,
-			payer: params.from,
+			relayerFee: relayerFeeInSourceFeeToken,
+			data,
 		}
 
 		// quote() always works; quoteNative() may fail if no Uniswap router
@@ -209,7 +209,7 @@ export class HyperFungibleToken {
 			address: params.token,
 			abi: HyperFungibleTokenABI,
 			functionName: "quote",
-			args: [dispatchPost],
+			args: [sendParams],
 		})) as bigint
 
 		let totalNativeCost = 0n
@@ -218,7 +218,7 @@ export class HyperFungibleToken {
 				address: params.token,
 				abi: HyperFungibleTokenABI,
 				functionName: "quoteNative",
-				args: [dispatchPost],
+				args: [sendParams],
 			})) as bigint
 			totalNativeCost = (totalNativeCost * 101n) / 100n // 1% buffer
 		} catch {

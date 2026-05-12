@@ -11,23 +11,24 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
 
-//! BEEFY consensus prover
+//! Standalone BEEFY consensus prover daemon.
 
 use anyhow::anyhow;
 use clap::Parser;
 use std::sync::Arc;
 use tesseract_beefy::prover::{BeefyProver, Prover};
-use tesseract_consensus::logging;
 use tesseract_primitives::IsmpProvider;
 use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient,
 };
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// CLI interface for BEEFY prover
 #[derive(Parser, Debug)]
+#[command(name = "tesseract-prover", about = "Standalone BEEFY consensus prover daemon")]
 pub struct Cli {
 	/// Path to the relayer config file
 	#[arg(short, long)]
@@ -36,7 +37,10 @@ pub struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-	logging::setup()?;
+	let filter =
+		tracing_subscriber::EnvFilter::from_default_env().add_directive(LevelFilter::INFO.into());
+	tracing_subscriber::fmt().with_env_filter(filter).finish().try_init()?;
+
 	rustls::crypto::ring::default_provider()
 		.install_default()
 		.expect("Failed to install rustls crypto provider");

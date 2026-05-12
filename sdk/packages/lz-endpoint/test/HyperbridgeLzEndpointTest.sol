@@ -81,13 +81,13 @@ contract HyperbridgeLzEndpointTest is Test {
         alice = address(0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045);
 
         // Deploy source endpoint using the real mainnet host
-        srcEndpoint = new HyperbridgeLzEndpoint();
+        srcEndpoint = new HyperbridgeLzEndpoint(address(this));
         srcEndpoint.setHost(MAINNET_HOST, SRC_EID);
         srcEndpoint.setEidMapping(DST_EID, dstStateMachine);
         srcEndpoint.setEidMapping(SRC_EID, srcStateMachine);
 
         // Deploy destination endpoint (also on same fork for testing)
-        dstEndpoint = new HyperbridgeLzEndpoint();
+        dstEndpoint = new HyperbridgeLzEndpoint(address(this));
         dstEndpoint.setHost(MAINNET_HOST, DST_EID);
         dstEndpoint.setEidMapping(SRC_EID, srcStateMachine);
         dstEndpoint.setEidMapping(DST_EID, dstStateMachine);
@@ -101,7 +101,7 @@ contract HyperbridgeLzEndpointTest is Test {
         dstOft.setPeer(SRC_EID, bytes32(uint256(uint160(address(srcOft)))));
 
         // Fund alice with OFT tokens and ETH
-        srcOft.transfer(alice, 10_000 ether);
+        require(srcOft.transfer(alice, 10_000 ether), "transfer failed");
         vm.deal(alice, 100 ether);
 
         // Alice approves feeToken to the endpoint (for lzToken payment path)
@@ -138,7 +138,6 @@ contract HyperbridgeLzEndpointTest is Test {
 
     function testSendWithFeeToken() public {
         uint256 balanceBefore = srcOft.balanceOf(alice);
-        uint256 feeTokenBefore = IERC20(feeToken).balanceOf(alice);
         uint256 sendAmount = 100 ether;
 
         SendParam memory sendParam = SendParam({
@@ -185,6 +184,7 @@ contract HyperbridgeLzEndpointTest is Test {
 
         // OFT message: recipient (bytes32) + amountSD (uint64)
         // shared decimals = 6, local decimals = 18, conversion = 1e12
+        // forge-lint: disable-next-line(unsafe-typecast)
         uint64 amountSD = uint64(sendAmount / 1e12);
         bytes memory oftMessage = abi.encodePacked(bytes32(uint256(uint160(bob))), amountSD);
 
@@ -384,6 +384,7 @@ contract HyperbridgeLzEndpointTest is Test {
         uint64 nonce = 1;
         bytes32 guid = keccak256(abi.encodePacked(nonce, SRC_EID, sender, DST_EID, receiver));
 
+        // forge-lint: disable-next-line(unsafe-typecast)
         uint64 amountSD = uint64(sendAmount / 1e12);
         bytes memory oftMessage = abi.encodePacked(bytes32(uint256(uint160(bob))), amountSD);
 

@@ -176,7 +176,7 @@ struct CancelOptions {
     /// @dev The fee paid to the relayer for processing transactions.
     uint256 relayerFee;
     /// @dev Stores the height value.
-    uint256 height;
+    uint64 height;
 }
 
 /**

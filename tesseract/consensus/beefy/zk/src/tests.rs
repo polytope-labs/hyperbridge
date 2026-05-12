@@ -4,7 +4,7 @@ use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_solidity_abi::{
-	beefy::{BeefyConsensusProof, BeefyConsensusState},
+	ecdsa_beefy::{BeefyConsensusProof, BeefyConsensusState},
 	sp1_beefy::SP1BeefyProof,
 };
 use serde::Deserialize;

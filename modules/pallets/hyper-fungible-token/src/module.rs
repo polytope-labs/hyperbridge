@@ -56,8 +56,7 @@ where
 			.ok_or(HftError::UnknownSourceContract(source))?;
 
 		// Decode the Message
-		let message = Message::abi_decode(&body)
-			.map_err(HftError::DecodeError)?;
+		let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
 
 		// Convert recipient bytes to substrate AccountId
 		// If 32 bytes: use directly. If 20 bytes: left-pad with zeros.
@@ -82,7 +81,9 @@ where
 		};
 		let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), source)
 			.ok_or(HftError::DecimalsNotConfigured(source))?;
-		let amount = convert_to_balance::<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>(
+		let amount = convert_to_balance::<
+			<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
+		>(
 			U256::from_big_endian(&message.amount.to_be_bytes::<32>()),
 			erc_decimals,
 			decimals,
@@ -130,9 +131,10 @@ where
 					MultiSignature::Ed25519(sig) => {
 						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
 						let msg = sp_io::hashing::keccak_256(&payload);
-						let pub_key = beneficiary_bytes.as_slice().try_into().map_err(|_| {
-							HftError::SignatureVerificationFailed
-						})?;
+						let pub_key = beneficiary_bytes
+							.as_slice()
+							.try_into()
+							.map_err(|_| HftError::SignatureVerificationFailed)?;
 						if !sp_io::crypto::ed25519_verify(&sig, msg.as_ref(), &pub_key) {
 							Err(HftError::SignatureVerificationFailed)?
 						}
@@ -140,9 +142,10 @@ where
 					MultiSignature::Sr25519(sig) => {
 						let payload = (nonce, substrate_data.runtime_call.clone()).encode();
 						let msg = sp_io::hashing::keccak_256(&payload);
-						let pub_key = beneficiary_bytes.as_slice().try_into().map_err(|_| {
-							HftError::SignatureVerificationFailed
-						})?;
+						let pub_key = beneficiary_bytes
+							.as_slice()
+							.try_into()
+							.map_err(|_| HftError::SignatureVerificationFailed)?;
 						if !sp_io::crypto::sr25519_verify(&sig, msg.as_ref(), &pub_key) {
 							Err(HftError::SignatureVerificationFailed)?
 						}
@@ -166,8 +169,7 @@ where
 							Err(HftError::SignatureVerificationFailed)?
 						}
 					},
-					MultiSignature::Eth(_) =>
-						Err(HftError::EthSignatureUnsupported)?,
+					MultiSignature::Eth(_) => Err(HftError::EthSignatureUnsupported)?,
 				};
 
 				beneficiary.clone()
@@ -209,11 +211,8 @@ where
 
 	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		match request {
-			Timeout::Request(Request::Post(PostRequest {
-				body, to, dest, ..
-			})) => {
-				let message = Message::abi_decode(&body)
-					.map_err(HftError::DecodeError)?;
+			Timeout::Request(Request::Post(PostRequest { body, to, dest, .. })) => {
+				let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
 
 				// Refund the original sender
 				let from_bytes = message.from.as_ref();
@@ -240,7 +239,9 @@ where
 				};
 				let erc_decimals = Precisions::<T>::get(local_asset_id.clone(), dest)
 					.ok_or(HftError::DecimalsNotConfigured(dest))?;
-				let amount = convert_to_balance::<<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance>(
+				let amount = convert_to_balance::<
+					<<T as Config>::NativeCurrency as Currency<T::AccountId>>::Balance,
+				>(
 					U256::from_big_endian(&message.amount.to_be_bytes::<32>()),
 					erc_decimals,
 					decimals,

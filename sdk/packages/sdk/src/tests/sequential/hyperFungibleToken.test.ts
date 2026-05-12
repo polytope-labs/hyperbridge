@@ -11,9 +11,9 @@ import EVM_HOST from "@/abis/evmHost"
 import type { HexString } from "@/types"
 
 // WrappedHFT wrapping WBNB on BSC testnet (lock/unlock)
-const BSC_WRAPPED_HFT = "0x5B1D14417f44D5DcC116bEd1fa50b91B4eF73dda" as const
+const BSC_WRAPPED_HFT = "0xfb1c7df9dd4787774c1ab05c95cd8ae3e3b4ae3b" as const
 // HFT on Polygon Amoy (burn/mint) — paired with BSC WrappedHFT
-const POLYGON_HFT = "0xc74d342B1907d724CbA584F663c7e180A8b708D3" as const
+const POLYGON_HFT = "0xa1e3545c1abe5b3839a8f60c78f40592a7aa0fc2" as const
 
 const BSC_HOST = "0x8Aa0Dea6D675d785A882967Bf38183f6117C09b7" as const
 const POLYGON_HOST = "0x9a2840D050e64Db89c90Ac5857536E4ec66641DE" as const

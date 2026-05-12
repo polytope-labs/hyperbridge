@@ -225,24 +225,38 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
 
     /**
      * @notice Burns tokens and dispatches a cross-chain transfer message
-     * @dev Burns `params.amount` from the caller and sends an ISMP POST request to the
-     * destination chain. Fees can be paid in native tokens (via msg.value) or in the
-     * host's fee token (pulled from msg.sender).
-     * @param params The send parameters including destination, recipient, amount, and optional calldata
+     * @notice Returns the fee in the host's fee token for sending a cross-chain transfer.
+     * @param params The send parameters
+     * @return The fee amount in the fee token
      */
-    function send(SendParams calldata params) external payable whenNotPaused {
+    function quote(SendParams calldata params) public view returns (uint256) {
+        return quote(_buildDispatchPost(params));
+    }
+
+    /**
+     * @notice Returns the fee in native currency for sending a cross-chain transfer.
+     * @param params The send parameters
+     * @return The fee amount in native currency
+     */
+    function quoteNative(SendParams calldata params) public view returns (uint256) {
+        return quoteNative(_buildDispatchPost(params));
+    }
+
+    /**
+     * @dev Builds the DispatchPost from SendParams.
+     */
+    function _buildDispatchPost(SendParams calldata params) internal view returns (DispatchPost memory) {
         bytes memory dest = _supportedChains[params.dest];
         if (dest.length == 0) revert UnsupportedChain();
-        _burn(msg.sender, params.amount);
 
-        bytes memory from = abi.encodePacked(msg.sender);
         bytes memory body = abi.encode(Message({
-            from: from,
+            from: abi.encodePacked(msg.sender),
             to: params.to,
             amount: params.amount,
             data: params.data
         }));
-        DispatchPost memory request = DispatchPost({
+
+        return DispatchPost({
             dest: params.dest,
             to: dest,
             body: body,
@@ -250,6 +264,17 @@ contract HyperFungibleToken is ERC20, ERC165, HyperApp, Ownable, Pausable {
             fee: params.relayerFee,
             payer: msg.sender
         });
+    }
+
+    /**
+     * @dev Burns `params.amount` from the caller and sends an ISMP POST request to the
+     * destination chain. Fees can be paid in native tokens (via msg.value) or in the
+     * host's fee token (pulled from msg.sender).
+     * @param params The send parameters including destination, recipient, amount, and optional calldata
+     */
+    function send(SendParams calldata params) external payable whenNotPaused {
+        _burn(msg.sender, params.amount);
+        DispatchPost memory request = _buildDispatchPost(params);
 
         bytes32 commitment;
         if (msg.value > 0) {

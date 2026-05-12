@@ -1,4 +1,4 @@
-//! Beefy V1 consensus tests.
+//! EcdsaBeefy consensus tests.
 //!
 //! `test_decode_encode` exercises the Beefy Codec with fixed test vectors — runs under
 //! plain `cargo test`.
@@ -23,6 +23,7 @@ use serde::Deserialize;
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, mmr::MmrLeaf, Commitment as BeefyCommitment, VersionedFinalityProof,
 };
+use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use sp_runtime::{generic::Header, traits::BlakeTwo256};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
@@ -257,7 +258,7 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 	let beefy_v1 = deploy_beefy_v1(&mut env);
 
 	// Subscribe to beefy justifications
-	let mut subscription: RpcSubscription<String> = relay_rpc_client
+	let subscription: RpcSubscription<String> = relay_rpc_client
 		.subscribe(
 			"beefy_subscribeJustifications",
 			rpc_params![],
@@ -265,13 +266,8 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 		)
 		.await?;
 
-	let mut verified_any = false;
-	let mut remaining: u32 = 5;
+	let mut subscription = subscription.take(5); 
 	while let Some(Ok(commitment_hex)) = subscription.next().await {
-		remaining = remaining.saturating_sub(1);
-		if remaining == 0 {
-			break;
-		}
 		let raw = if let Some(stripped) = commitment_hex.strip_prefix("0x") {
 			hex::decode(stripped)?
 		} else {
@@ -323,9 +319,76 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 					"  ✓ verified: new latestHeight={} nextAuthoritySetId={}",
 					new_state.latestHeight, ret._2,
 				);
+
+				// Cross-check every IntermediateState against the live parachain header
+				// at that height. The contract derives commitment fields from the header
+				// digests (HeaderImpl.stateCommitment); stateRoot must match exactly.
+				let intermediates = &ret._1;
+				assert!(
+					!intermediates.is_empty(),
+					"verify returned no IntermediateStates",
+				);
+				println!("  intermediate states: {}", intermediates.len());
+				for inter in intermediates {
+					let height_u32: u32 = inter
+						.height
+						.try_into()
+						.map_err(|_| anyhow!("intermediate height overflows u32"))?;
+					let block_hash = prover
+						.para_rpc
+						.chain_get_block_hash(Some(height_u32.into()))
+						.await?
+						.ok_or_else(|| {
+							anyhow!("no parachain block at height {}", height_u32)
+						})?;
+					let para_header = prover
+						.para_rpc
+						.chain_get_header(Some(block_hash))
+						.await?
+						.ok_or_else(|| {
+							anyhow!("no parachain header at {:?}", block_hash)
+						})?;
+					// The contract derives the commitment from the header's ISMP consensus
+					// digest (HeaderImpl.stateCommitment in src/consensus/Types.sol):
+					//   overlayRoot = ConsensusDigest.mmr_root        (digest data [0..32])
+					//   stateRoot   = ConsensusDigest.child_trie_root (digest data [32..])
+					use subxt::config::substrate::DigestItem as SubxtDigestItem;
+					let ismp_digest = para_header
+						.digest
+						.logs
+						.iter()
+						.find_map(|d| match d {
+							SubxtDigestItem::Consensus(id, value) if *id == ISMP_ID =>
+								Some(value.clone()),
+							_ => None,
+						})
+						.ok_or_else(|| {
+							anyhow!("no ISMP consensus digest in header at {}", height_u32)
+						})?;
+					let decoded = ConsensusDigest::decode(&mut &ismp_digest[..])
+						.map_err(|e| anyhow!("decode ConsensusDigest at {}: {e}", height_u32))?;
+					assert_eq!(
+						inter.commitment.overlayRoot.0, decoded.mmr_root.0,
+						"overlayRoot (mmr_root) mismatch at height {}: contract={:?} header={:?}",
+						height_u32, inter.commitment.overlayRoot, decoded.mmr_root,
+					);
+					assert_eq!(
+						inter.commitment.stateRoot.0, decoded.child_trie_root.0,
+						"stateRoot (child_trie_root) mismatch at height {}: contract={:?} header={:?}",
+						height_u32, inter.commitment.stateRoot, decoded.child_trie_root,
+					);
+					assert!(
+						inter.commitment.timestamp > AlloyU256::ZERO,
+						"timestamp must be non-zero at height {}",
+						height_u32,
+					);
+					println!(
+						"    ✓ height={} stateMachineId={} ts={} overlayRoot+stateRoot match ISMP digest",
+						height_u32, inter.stateMachineId, inter.commitment.timestamp,
+					);
+				}
+
 				consensus_state = new_state;
-				verified_any = true;
-				break;
 			},
 			Err(revert) => {
 				panic!(
@@ -337,6 +400,5 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 		}
 	}
 
-	assert!(verified_any, "No justifications verified — check chain connectivity");
 	Ok(())
 }

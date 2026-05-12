@@ -72,35 +72,43 @@ Users call `send()` to burn tokens and dispatch a cross-chain transfer:
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
 
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee required for dispatching the transfer
+uint256 nativeFee = IHyperFungibleToken(token).quoteNative(params);
 // Pay fees in native token
-IHyperFungibleToken(tokenAddress).send{value: nativeFee}(
-    IHyperFungibleToken.SendParams({
-        dest: StateMachine.evm(42161),
-        to: abi.encodePacked(recipientAddress),
-        amount: 1 ether,
-        timeout: 3600,
-        relayerFee: relayerFee,
-        data: ""
-    })
-);
+IHyperFungibleToken(token).send{value: nativeFee}(params);
 ```
 
 To pay fees in the host's fee token instead, send with `msg.value = 0`. The contract pulls fee tokens from the caller via `transferFrom`:
 
 ```solidity lineNumbers
-IERC20(feeToken).approve(tokenAddress, feeAmount);
+import {IDispatcher} from "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
 
-IHyperFungibleToken(tokenAddress).send(
-    IHyperFungibleToken.SendParams({
-        dest: StateMachine.evm(42161),
-        to: abi.encodePacked(recipientAddress),
-        amount: 1 ether,
-        timeout: 3600,
-        relayerFee: relayerFee,
-        data: ""
-    })
-);
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the fee token amount required for dispatching the transfer
+uint256 feeTokenAmount = IHyperFungibleToken(token).quote(params);
+// Approve the fee token transfer from the caller
+address feeToken = IDispatcher(host()).feeToken();
+IERC20(feeToken).approve(token, feeTokenAmount);
+// Dispatch the transfer, fees will be withdrawn from the caller
+IHyperFungibleToken(token).send(params);
 ```
+
+For a higher-level experience, the [TypeScript SDK](/developers/sdk/hyper-fungible-token) handles fee estimation, token approvals, and decimal scaling automatically.
 
 ### Calldata Execution
 
@@ -152,10 +160,6 @@ IHyperFungibleToken(tokenAddress).send{value: nativeFee}(
 ```
 
 Tokens are minted to `to` first, then the `CallDispatcher` executes each call in sequence. If the calls need to spend the minted tokens, set `to` to the `CallDispatcher` address so tokens are minted directly to the dispatcher.
-
-### Fee Estimation
-
-Use the inherited [HyperApp](/developers/evm/api/hyperapp) `quote()` and `quoteNative()` methods to estimate fees on-chain. For a higher-level experience, use the [TypeScript SDK](/developers/sdk/hyper-fungible-token) which handles gas estimation, cross-chain fee token conversion, and decimal scaling automatically.
 
 ## Related
 

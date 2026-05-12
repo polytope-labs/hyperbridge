@@ -94,17 +94,43 @@ import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleTo
 // Approve the underlying token
 IERC20(underlying).approve(address(wrapper), amount);
 
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee required for dispatching the transfer
+uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quoteNative(params);
 // Lock tokens and dispatch cross-chain transfer
-IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(
-    IHyperFungibleToken.SendParams({
-        dest: StateMachine.evm(42161),
-        to: abi.encodePacked(recipientAddress),
-        amount: 1 ether,
-        timeout: 3600,
-        relayerFee: relayerFee,
-        data: ""
-    })
-);
+IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(params);
+```
+
+To pay fees in the host's fee token instead, send with `msg.value = 0`. The contract pulls fee tokens from the caller via `transferFrom`:
+
+```solidity lineNumbers
+import {IDispatcher} from "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
+
+// Approve the underlying token
+IERC20(underlying).approve(address(wrapper), amount);
+
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the fee token amount required for dispatching the transfer
+uint256 feeTokenAmount = IHyperFungibleToken(address(wrapper)).quote(params);
+address feeToken = IDispatcher(host()).feeToken();
+// Approve the fee token transfer from the caller
+IERC20(feeToken).approve(address(wrapper), feeTokenAmount);
+// Dispatch the transfer, fees will be withdrawn from the caller
+IHyperFungibleToken(address(wrapper)).send(params);
 ```
 
 ### WETH Mode
@@ -112,21 +138,24 @@ IHyperFungibleToken(address(wrapper)).send{value: nativeFee}(
 When `isWeth = true`, users send native ETH/BNB via `msg.value`. The value must cover both the token amount and the native fee:
 
 ```solidity lineNumbers
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee
+uint256 nativeFee = IHyperFungibleToken(address(wrapper)).quoteNative(params);
 // msg.value = amount + nativeFee
 // The contract wraps `amount` via WETH.deposit() and forwards the remainder as fee payment
-IHyperFungibleToken(address(wrapper)).send{value: amount + nativeFee}(
-    IHyperFungibleToken.SendParams({
-        dest: StateMachine.evm(42161),
-        to: abi.encodePacked(recipientAddress),
-        amount: 1 ether,
-        timeout: 3600,
-        relayerFee: relayerFee,
-        data: ""
-    })
-);
+IHyperFungibleToken(address(wrapper)).send{value: amount + nativeFee}(params);
 ```
 
 To pay fees in fee token instead of native in WETH mode, set `msg.value = amount` (just the wrap amount, no fee surplus).
+
+For a higher-level experience, the [TypeScript SDK](/developers/sdk/hyper-fungible-token) handles fee estimation, token approvals, and decimal scaling automatically.
 
 ### Calldata Execution
 

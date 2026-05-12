@@ -235,9 +235,7 @@ impl frame_support::traits::Contains<AccountId> for IsCollator {
 		if pallet_collator_selection::Invulnerables::<Runtime>::get().contains(account) {
 			return true;
 		}
-		pallet_collator_selection::CandidateList::<Runtime>::get()
-			.iter()
-			.any(|c| c.who == *account)
+		false
 	}
 }
 

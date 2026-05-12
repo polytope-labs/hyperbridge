@@ -41,7 +41,7 @@ use pallet_assets::BenchmarkHelper;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
-use sp_runtime::Weight;
+use sp_runtime::{traits::Zero, Weight};
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
@@ -177,21 +177,18 @@ impl pallet_call_decompressor::Config for Runtime {
 	type MaxCallSize = ConstU32<3>;
 }
 
-/// True when the account is registered with `pallet-collator-selection` as
-/// an invulnerable or as a bonded candidate. Active session membership is
-/// not required: a freshly registered candidate who hasn't been selected for
-/// the current session is still a legitimate fisherman. Candidates that have
-/// called `leave_intent` are removed from `CandidateList` in the same block,
-/// so being in this list also implies "has not declared intent to withdraw."
+/// True when the account is a bonded controller account registered with
+/// `pallet-collator-manager`. Controllers are paired with a stash that has
+/// bonded funds; `deregister` removes both entries in the same block, so an
+/// account present in `Stash` whose paired stash still holds a non-zero
+/// bond is a legitimate fisherman.
 pub struct IsCollator;
 impl frame_support::traits::Contains<AccountId> for IsCollator {
 	fn contains(account: &AccountId) -> bool {
-		if pallet_collator_selection::Invulnerables::<Runtime>::get().contains(account) {
-			return true;
-		}
-		pallet_collator_selection::CandidateList::<Runtime>::get()
-			.iter()
-			.any(|c| c.who == *account)
+		let Some(stash) = pallet_collator_manager::Stash::<Runtime>::get(account) else {
+			return false;
+		};
+		!pallet_collator_manager::Bonded::<Runtime>::get(&stash).is_zero()
 	}
 }
 

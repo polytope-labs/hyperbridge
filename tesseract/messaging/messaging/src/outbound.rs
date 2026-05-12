@@ -16,6 +16,7 @@
 use std::{
 	collections::{BTreeMap, HashMap},
 	sync::Arc,
+	time::{Duration, Instant},
 };
 
 use anyhow::anyhow;
@@ -47,6 +48,18 @@ const LOG_TARGET: &str = concat!("messaging", "-outbound");
 /// mainnet block gas on the hottest destinations.
 const MAX_CONSENSUS_PROOFS_PER_BATCH: usize = 3;
 
+/// Cadence of the outbound-loop heartbeat. Each tick logs the cursor, total
+/// proofs seen this run, and the time since the last `ProofAccepted` so an
+/// operator (or a log-watcher) can spot a silently-stalled subscription
+/// without having to wait for Hyperbridge to push something.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
+
+/// If no `ProofAccepted` has arrived within this window, the heartbeat
+/// upgrades to `WARN`. Comfortably above Hyperbridge's mandatory-proof
+/// cadence (a few minutes on testnets, less on mainnet) so transient
+/// quiet periods don't trip it.
+const STALE_PROOF_WARN_AFTER: Duration = Duration::from_secs(300);
+
 pub async fn run(
 	hyperbridge: Arc<dyn IsmpProvider>,
 	destinations: BTreeMap<StateMachine, Arc<dyn IsmpProvider>>,
@@ -65,7 +78,58 @@ pub async fn run(
 
 	tracing::info!(target: LOG_TARGET, source = %source_name, cursor, "Subscribed to Beefy Proof Notifications");
 
-	while let Some(item) = stream.next().await {
+	// Heartbeat plumbing. `last_proof_at` seeds at subscription time so the
+	// "age" reported by the first heartbeat is wall-clock since startup,
+	// not since `Instant::default()`. `proofs_seen` is a per-run counter
+	// the operator can correlate against Hyperbridge's own production rate
+	// to spot a silently-stalled subscription.
+	let mut last_proof_at = Instant::now();
+	let mut proofs_seen: u64 = 0;
+	let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+	// `interval`'s first tick fires immediately; skip it so the initial
+	// heartbeat lands one full interval after subscription instead of
+	// duplicating the line above.
+	heartbeat.tick().await;
+	heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+	loop {
+		let item = tokio::select! {
+			// Biased: a proof arriving at the same instant as a heartbeat
+			// tick gets processed first. The heartbeat is informational
+			// and can wait.
+			biased;
+			next = stream.next() => match next {
+				Some(item) => item,
+				// Upstream closed the stream — same shutdown semantics
+				// as the original `while let Some(...)` loop.
+				None => break,
+			},
+			_ = heartbeat.tick() => {
+				let age = last_proof_at.elapsed();
+				if age >= STALE_PROOF_WARN_AFTER {
+					tracing::warn!(
+						target: LOG_TARGET,
+						source = %source_name,
+						cursor,
+						proofs_seen,
+						last_proof_age_secs = age.as_secs(),
+						threshold_secs = STALE_PROOF_WARN_AFTER.as_secs(),
+						"outbound heartbeat — no ProofAccepted received in over the stale-proof threshold; \
+						 the BEEFY subscription may be silently stalled",
+					);
+				} else {
+					tracing::info!(
+						target: LOG_TARGET,
+						source = %source_name,
+						cursor,
+						proofs_seen,
+						last_proof_age_secs = age.as_secs(),
+						"outbound heartbeat",
+					);
+				}
+				continue;
+			},
+		};
 		let accepted: ProofAccepted = match item {
 			Ok(ev) => ev,
 			Err(err) => {
@@ -172,6 +236,14 @@ pub async fn run(
 		}
 
 		cursor = new_height;
+		// Reset the heartbeat clock and bump the per-run counter only
+		// once every per-proof side-effect has had a chance to run.
+		// Counts on the *receipt* of a proof rather than full successful
+		// fan-out: if every destination submit fails we still saw HB
+		// produce work, which is the signal the heartbeat exists to
+		// report on.
+		last_proof_at = Instant::now();
+		proofs_seen = proofs_seen.saturating_add(1);
 	}
 
 	Err(anyhow::anyhow!("proof_accepted stream ended (source={source_name})"))

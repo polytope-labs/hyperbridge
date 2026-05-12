@@ -28,7 +28,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 /// CLI interface for BEEFY prover
 #[derive(Parser, Debug)]
-#[command(name = "beefy-prover", about = "Standalone BEEFY consensus prover daemon")]
+#[command(name = "tesseract-prover", about = "Standalone BEEFY consensus prover daemon")]
 pub struct Cli {
 	/// Path to the relayer config file
 	#[arg(short, long)]

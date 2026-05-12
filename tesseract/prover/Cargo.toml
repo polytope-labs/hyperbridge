@@ -1,12 +1,12 @@
 [package]
-name = "beefy-prover-daemon"
+name = "tesseract-prover"
 version = "1.9.0"
 edition = "2021"
 description = "Standalone BEEFY consensus prover daemon"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 
 [[bin]]
-name = "beefy-prover"
+name = "tesseract-prover"
 path = "src/main.rs"
 
 [dependencies]
@@ -16,9 +16,10 @@ clap = { version = "4.3.5", features = ["derive"] }
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 rustls = { version = "0.23.23", features = ["ring"] }
+subxt-utils = { workspace = true }
 
-tesseract-beefy = { path = "../consensus/beefy" }
-zk-beefy = { path = "../consensus/beefy/zk" }
+tesseract-beefy = { workspace = true }
 tesseract-substrate = { workspace = true }
 tesseract-primitives = { workspace = true }
-subxt-utils = { workspace = true }
+
+zk-beefy = { path = "../consensus/beefy/zk" }

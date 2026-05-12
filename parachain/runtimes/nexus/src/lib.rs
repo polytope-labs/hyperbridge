@@ -34,7 +34,7 @@ use crate::sp_runtime::DispatchError;
 use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::{EverythingBut, InsideBoth, TransformOrigin, WithdrawReasons};
+use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
@@ -334,10 +334,7 @@ parameter_types! {
 
 // Configure FRAME pallets to include in runtime.
 
-use frame_support::{
-	derive_impl,
-	traits::{tokens::pay::PayAssetFromAccount, Contains},
-};
+use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
@@ -350,18 +347,6 @@ use sp_runtime::traits::{ConvertInto, IdentityLookup};
 use staging_xcm::latest::Location;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
-
-/// A type to identify calls to the treasury pallet and filter all spend related calls.
-pub struct IsTreasurySpend;
-impl Contains<RuntimeCall> for IsTreasurySpend {
-	fn contains(c: &RuntimeCall) -> bool {
-		matches!(
-			c,
-			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
-				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
-		)
-	}
-}
 
 pub type TechnicalCollectiveInstance = pallet_collective::Instance1;
 
@@ -400,7 +385,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<EverythingBut<IsTreasurySpend>, TxPause>;
+	type BaseCallFilter = TxPause;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.

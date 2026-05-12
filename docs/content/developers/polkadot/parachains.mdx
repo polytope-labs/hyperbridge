@@ -1,5 +1,5 @@
 ---
-title: Overview
+title: Parachains
 description: This is the implementation of the ISMP consensus client for parachains.
 ---
 
@@ -48,7 +48,7 @@ construct_runtime! {
 
 ### Whitelisting Parachains
 
-To use the parachain consensus client to communicate with sibling parachains, Hyperbridge included. You will need to first whitelist these parachains using the `ismp_parachain::Call::<T>::add_parachain` extrinsic. Once added consenus relayers like the ismp parachain inherent will begin including finality proofs of these parachains in your runtime. Opening the doors of secure cross-chain communication.
+To use the parachain consensus client to communicate with sibling parachains, Hyperbridge included. You will need to first whitelist these parachains using the `ismp_parachain::Call::<T>::add_parachain` extrinsic. Once added, the [tesseract relayer](/developers/network/relayer) will begin submitting finality proofs of these parachains to your runtime, opening the doors of secure cross-chain communication.
 
 <img src="/add_parachain.png" />
 
@@ -57,8 +57,7 @@ To use the parachain consensus client to communicate with sibling parachains, Hy
 
 | Call | Origin | Description |
 |------|--------|-------------|
-| `add_parachain` | RootOrigin | This call allows a priviledged origin to add a new parachain to the list of connected parachains. When a new parachain is added, the inherent provider will add state proofs of the parachain's latest header into subsequent consensus messages. The arguments are: 1. **id**: The parachain id of the sibling parachain. 2. **slotDuration**: The slot duration in **milliseconds** for the sibling parachain. |
-| `update_parachain_consensus` | Inherent | This is an inherent call that is used by the collator to include the consensus proofs for newly finalized parachain headers. |
+| `add_parachain` | RootOrigin | This call allows a priviledged origin to add a new parachain to the list of connected parachains. When a new parachain is added, consensus relayers will submit state proofs of the parachain's latest header in subsequent consensus messages. The arguments are: 1. **id**: The parachain id of the sibling parachain. 2. **slotDuration**: The slot duration in **milliseconds** for the sibling parachain. |
 | `remove_parachain` | RootOrigin | This priviledged call removes a parachain from the list of supported parachains, thereby preventing any future state updates from such parachain. |
 
 ## Hooks

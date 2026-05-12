@@ -41,15 +41,6 @@ For parachain runtimes that want to connect to Hyperbridge, They will do so by m
 cargo add ismp-parachain
 ```
 
-
-### Parachain Runtime API
-
-The parachain consensus client exposes a runtime API for accessing the whitelist of sibling parachains the runtime is configured to track. You can add the [`ismp-parachain-runtime-api`](https://docs.rs/ismp-parachain-runtime-api) to your runtime like so
-
-```bash lineNumbers
-cargo add ismp-parachain-runtime-api
-```
-
 ## GRANDPA Consensus Client
 
 Solochains that want to connect to Hyperbridge will do so by means of the GRANDPA consensus client. This consensus client is capable of verifying GRANDPA consensus proofs of standalone chains as well as relay chains. You can add the [`ismp-grandpa`](https://docs.rs/ismp-grandpa) to your runtime like so

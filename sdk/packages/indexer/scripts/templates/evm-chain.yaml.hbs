@@ -85,7 +85,7 @@ dataSources:
           handler: handleOrderFilledEventV2
           filter:
             topics:
-              - 'OrderFilled(bytes32,address)'
+              - 'OrderFilled(bytes32,address,(bytes32,uint256)[],(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
           handler: handlePartialFilledEventV2
           filter:
@@ -95,12 +95,12 @@ dataSources:
           handler: handleEscrowReleasedEventV2
           filter:
             topics:
-              - 'EscrowReleased(bytes32)'
+              - 'EscrowReleased(bytes32,(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
           handler: handleEscrowRefundedEventV2
           filter:
             topics:
-              - 'EscrowRefunded(bytes32)'
+              - 'EscrowRefunded(bytes32,(bytes32,uint256)[])'
         - kind: ethereum/LogHandler
           handler: handleDustCollectedEventV2
           filter:

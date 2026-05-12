@@ -278,7 +278,7 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     echo ""
 
     # Build forge command for this chain (using single-chain run())
-    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 300"
+    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 150"
 
     # Detect blockscout chains for verification
     VERIFIER_FLAGS=""

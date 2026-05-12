@@ -32,4 +32,13 @@ export const handleBandwidthConsumedEvent = wrap(async (event: SubstrateEvent): 
 	)
 
 	await BandwidthService.recordConsumption({ chain, appHex, bytes, blockTimestampMs })
+
+	await BandwidthService.syncActiveCounts({
+		chain,
+		appHex,
+		palletAppChain: data[0],
+		palletAppKey: data[1],
+		blockHash: block.block.header.hash.toString(),
+		blockTimestampMs,
+	})
 })

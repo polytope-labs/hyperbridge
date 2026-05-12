@@ -150,12 +150,10 @@ export class BandwidthService {
 		app.lastActivityAt = params.blockTimestampMs
 		app.lifetimeSubscriptions += BigInt(1)
 		app.lifetimeBytesCredited += params.bytes
-		app.activeSubscriptions += 1
 		await app.save()
 
 		tierStats.lifetimeSubscriptions += BigInt(1)
 		tierStats.lifetimeBytesCredited += params.bytes
-		tierStats.activeSubscriptions += 1
 		tierStats.lastPurchasedAt = params.blockTimestampMs
 		await tierStats.save()
 	}
@@ -216,7 +214,6 @@ export class BandwidthService {
 		const app = await this.getOrCreateApp(params.chain, params.appHex, params.blockTimestampMs)
 		app.lastActivityAt = params.blockTimestampMs
 		app.lifetimeBytesEvicted += params.lostBytes
-		app.activeSubscriptions = Math.max(0, app.activeSubscriptions - 1)
 		await app.save()
 
 		const tierStats = await this.getOrCreateTierStats(
@@ -226,7 +223,6 @@ export class BandwidthService {
 			params.blockTimestampMs,
 		)
 		tierStats.lifetimeBytesEvicted += params.lostBytes
-		tierStats.activeSubscriptions = Math.max(0, tierStats.activeSubscriptions - 1)
 		await tierStats.save()
 
 		const candidates = await BandwidthSubscription.getByFields(
@@ -283,5 +279,98 @@ export class BandwidthService {
 		}
 		tier.lastUpdatedAt = params.blockTimestampMs
 		await tier.save()
+	}
+
+	/**
+	 * Re-derive `activeSubscriptions` for an `(app_chain, app_key)` pair
+	 * from on-chain `pallet-bandwidth :: Allowance` storage at
+	 * `blockHash`. Two paths inside `try_consume` — natural drain
+	 * (`remaining_bytes → 0`) and expiry sweep — mutate the list
+	 * silently with no event, so delta-based counting from events
+	 * drifts strictly upward over time. This is the source-of-truth
+	 * refresh called after every bandwidth event.
+	 *
+	 * Primary path uses the typed `api.at(blockHash).query` which
+	 * decodes via runtime metadata. On failure (most commonly the
+	 * archive node pruned the historical state) it falls back to a
+	 * tip read; counts become eventually-consistent rather than
+	 * block-exact, which is still strictly better than the previous
+	 * unbounded drift.
+	 */
+	static async syncActiveCounts(params: {
+		chain: string
+		appHex: string
+		palletAppChain: unknown
+		palletAppKey: unknown
+		blockHash: string
+		blockTimestampMs: bigint
+	}): Promise<void> {
+		let raw: unknown
+		try {
+			const apiAt = await api.at(params.blockHash)
+			raw = await apiAt.query.bandwidth.allowance(
+				params.palletAppChain,
+				params.palletAppKey,
+			)
+		} catch (err) {
+			logger.warn(
+				`syncActiveCounts: at-block read failed (${(err as Error).message}); falling back to tip`,
+			)
+			try {
+				raw = await api.query.bandwidth.allowance(
+					params.palletAppChain,
+					params.palletAppKey,
+				)
+			} catch (err2) {
+				logger.warn(
+					`syncActiveCounts: tip fallback failed (${(err2 as Error).message}); leaving counts unchanged`,
+				)
+				return
+			}
+		}
+
+		const list = raw as unknown as Iterable<{ tier: { toNumber(): number } }>
+		const tierCounts = new Map<number, number>()
+		let total = 0
+		for (const sub of list) {
+			total++
+			const tier = sub.tier.toNumber()
+			tierCounts.set(tier, (tierCounts.get(tier) ?? 0) + 1)
+		}
+
+		const app = await this.getOrCreateApp(
+			params.chain,
+			params.appHex,
+			params.blockTimestampMs,
+		)
+		app.activeSubscriptions = total
+		await app.save()
+
+		// Walk every per-tier stats row for this app and overwrite from
+		// the live count. Zeroes out tiers that had active subs before
+		// but don't now — the silent-drain / expiry case Seun flagged.
+		const existing = await BandwidthAppTierStats.getByFields(
+			[["appId", "=", app.id]],
+			{ limit: 100 },
+		)
+		const updated = new Set<number>()
+		for (const row of existing) {
+			row.activeSubscriptions = tierCounts.get(row.tier) ?? 0
+			await row.save()
+			updated.add(row.tier)
+		}
+		// Defensive: storage shows a tier with no prior stats row — can
+		// happen on genesis state or if we missed an earlier event.
+		for (const [tier, count] of tierCounts) {
+			if (updated.has(tier)) continue
+			const stats = await this.getOrCreateTierStats(
+				params.chain,
+				params.appHex,
+				tier,
+				params.blockTimestampMs,
+			)
+			stats.activeSubscriptions = count
+			await stats.save()
+		}
 	}
 }

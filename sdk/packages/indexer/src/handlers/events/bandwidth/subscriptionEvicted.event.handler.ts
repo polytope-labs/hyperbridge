@@ -33,4 +33,13 @@ export const handleSubscriptionEvictedEvent = wrap(async (event: SubstrateEvent)
 	)
 
 	await BandwidthService.recordEviction({ chain, appHex, tier, lostBytes, blockTimestampMs })
+
+	await BandwidthService.syncActiveCounts({
+		chain,
+		appHex,
+		palletAppChain: data[0],
+		palletAppKey: data[1],
+		blockHash: block.block.header.hash.toString(),
+		blockTimestampMs,
+	})
 })

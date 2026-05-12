@@ -3,7 +3,6 @@
   "defaultOpen": false,
   "pages": [
     "overview",
-    "ismp-parachain-inherent",
     "ismp-parachain-runtime-api"
   ]
 }

@@ -42,17 +42,9 @@ cargo add ismp-parachain
 ```
 
 
-### Parachain Inherent
-
-The parachain inherent greatly simplifies the infrastructure required for parachains to exchange messages with Hyperbridge by turning collators into consensus relayers. Specifically this inherent will automatically include sibling parachain headers and their proofs into every block keeping the parachain up to date with the latest finalized state of Hyperbridge and any other sibling parachain that is configured. Without this, a seperate consensus relayer will need to be run offchain. You can add the [`ismp-parachain-inherent`](https://docs.rs/ismp-parachain-inherent) to your runtime like so
-
-```bash lineNumbers
-cargo add ismp-parachain-inherent
-```
-
 ### Parachain Runtime API
 
-The Parachain inherent provider requires some runtime APIs to access which parachains are configured by the runtime to be included in the inherent. You can add the [`ismp-parachain-runtime-api`](https://docs.rs/ismp-parachain-runtime-api) to your runtime like so
+The parachain consensus client exposes a runtime API for accessing the whitelist of sibling parachains the runtime is configured to track. You can add the [`ismp-parachain-runtime-api`](https://docs.rs/ismp-parachain-runtime-api) to your runtime like so
 
 ```bash lineNumbers
 cargo add ismp-parachain-runtime-api

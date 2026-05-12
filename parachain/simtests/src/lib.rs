@@ -1,4 +1,3 @@
-mod hyperbridge_client;
 mod intents_rpc;
 mod legacy_storage_items_state_drain_test;
 mod migration_test;

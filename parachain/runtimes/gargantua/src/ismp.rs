@@ -37,7 +37,7 @@ use pallet_assets::BenchmarkHelper;
 use polkadot_sdk::{sp_weights::WeightToFee, *};
 use sp_core::{crypto::AccountId32, H256};
 
-use hyperbridge_client_machine::HyperbridgeClientMachine;
+use substrate_state_machine::SubstrateStateMachine;
 use ismp::{consensus::StateMachineClient, router::Timeout};
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
@@ -121,7 +121,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 			StateMachine::Evm(chain_id)
 				if chain_id == ismp_parachain::PASSET_HUB_TESTNET_CHAIN_ID =>
 				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
-			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+			_ => Ok(Box::new(SubstrateStateMachine::<Runtime>::from(id))),
 		}
 	}
 }
@@ -152,10 +152,7 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			ParachainStateMachineProvider,
 		>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
@@ -235,9 +232,7 @@ impl frame_support::traits::Contains<AccountId> for IsCollator {
 		if pallet_collator_selection::Invulnerables::<Runtime>::get().contains(account) {
 			return true;
 		}
-		pallet_collator_selection::CandidateList::<Runtime>::get()
-			.iter()
-			.any(|c| c.who == *account)
+		false
 	}
 }
 
@@ -373,6 +368,25 @@ impl IsmpModule for ProxyModule {
 	}
 
 	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
+		// Bandwidth gate. Mirrors the request path in `on_accept`: the chain
+		// and module that produced the response pay for the bytes they
+		// deliver.
+		if let Response::Post(post) = &response {
+			let bytes = core::cmp::max(post.response.len(), 32) as u32;
+			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
+				&post.source_chain(),
+				&post.source_module(),
+				bytes,
+			)
+			.map_err(|err| {
+				anyhow!(
+					"bandwidth gate: {err} (source={:?}, from={:x?})",
+					post.source_chain(),
+					post.source_module(),
+				)
+			})?;
+		}
+
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,

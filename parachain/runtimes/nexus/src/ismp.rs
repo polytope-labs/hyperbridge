@@ -100,6 +100,7 @@ impl ismp_bsc::pallet::Config for Runtime {
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
+	type BandwidthGate = pallet_bandwidth::Pallet<Runtime>;
 }
 
 pub struct Coprocessor;
@@ -292,6 +293,10 @@ impl pallet_hyperbridge::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl pallet_bandwidth::Config for Runtime {
+	type Dispatcher = Ismp;
+}
+
 parameter_types! {
 	pub const Decimals: u8 = 10;
 }
@@ -346,6 +351,24 @@ impl IsmpModule for ProxyModule {
 			));
 		}
 
+		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
+		// recharge flow itself doesn't need bandwidth.
+		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
+			let bytes = core::cmp::max(request.body.len(), 32) as u32;
+			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
+				&request.source,
+				&request.from,
+				bytes,
+			)
+			.map_err(|err| {
+				anyhow!(
+					"bandwidth gate: {err} (source={:?}, from={:x?})",
+					request.source,
+					request.from
+				)
+			})?;
+		}
+
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -364,6 +387,8 @@ impl IsmpModule for ProxyModule {
 				pallet_token_gateway::Pallet::<Runtime>::default().on_accept(request),
 			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
 				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
+				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}

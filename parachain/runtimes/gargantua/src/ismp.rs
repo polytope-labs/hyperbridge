@@ -24,7 +24,6 @@ use frame_support::{
 	pallet_prelude::{ConstU32, Get},
 	parameter_types,
 	traits::AsEnsureOriginWithArg,
-	PalletId,
 };
 use frame_system::EnsureRoot;
 use ismp::{
@@ -77,6 +76,7 @@ impl ismp_bsc::pallet::Config for Runtime {
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
+	type BandwidthGate = pallet_bandwidth::Pallet<Runtime>;
 }
 
 parameter_types! {
@@ -250,6 +250,10 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 
+impl pallet_bandwidth::Config for Runtime {
+	type Dispatcher = Ismp;
+}
+
 parameter_types! {
 	pub const HftDecimals: u8 = 10;
 }
@@ -323,6 +327,24 @@ impl pallet_assets::Config for Runtime {
 
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
+		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
+		// recharge flow itself doesn't need bandwidth.
+		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
+			let bytes = core::cmp::max(request.body.len(), 32) as u32;
+			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
+				&request.source,
+				&request.from,
+				bytes,
+			)
+			.map_err(|err| {
+				anyhow!(
+					"bandwidth gate: {err} (source={:?}, from={:x?})",
+					request.source,
+					request.from
+				)
+			})?;
+		}
+
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -339,8 +361,13 @@ impl IsmpModule for ProxyModule {
 		match pallet_id {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
+
+			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
+				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
+
 			pallet_hyper_fungible_token::PALLET_ID =>
 				pallet_hyper_fungible_token::Pallet::<Runtime>::default().on_accept(request),
+
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}

@@ -122,6 +122,5 @@ impl pallet_messaging_fees::Config for Runtime {
     type PriceOracle = YourPriceOracle;
     type TargetMessageSize = ConstU32<4096>; // 4KB
     type ReputationAsset = Assets;
-    type WeightInfo = ();
 }
 ```

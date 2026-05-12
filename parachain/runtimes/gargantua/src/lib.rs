@@ -918,6 +918,8 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type TxPause = pallet_tx_pause;
+	#[runtime::pallet_index(87)]
+	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(90)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 	#[runtime::pallet_index(91)]

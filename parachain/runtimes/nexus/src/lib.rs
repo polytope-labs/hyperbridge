@@ -29,7 +29,6 @@ pub mod governance;
 mod ismp;
 mod weights;
 pub mod xcm;
-use crate::sp_runtime::DispatchError;
 #[cfg(feature = "runtime-benchmarks")]
 use alloc::sync::Arc;
 
@@ -83,7 +82,6 @@ use frame_system::{
 };
 use mmr_primitives::INDEXING_PREFIX;
 use pallet_ismp::offchain::{Proof, ProofKeys};
-use pallet_messaging_fees::types::PriceOracle;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -338,7 +336,7 @@ use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::{frame_support::traits::LockIdentifier, sp_core::U256};
+use polkadot_sdk::frame_support::traits::LockIdentifier;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
@@ -891,12 +889,8 @@ impl pallet_proxy::Config for Runtime {
 }
 
 impl pallet_messaging_fees::Config for Runtime {
-	type IsmpHost = Ismp;
-	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EnsureRoot<AccountId>;
-	type PriceOracle = FixedPriceOracle;
-	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
+	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 parameter_types! {
@@ -914,14 +908,6 @@ impl pallet_collator_manager::Config for Runtime {
 	type WeightInfo = ();
 }
 
-pub struct FixedPriceOracle;
-
-impl PriceOracle for FixedPriceOracle {
-	fn get_bridge_price() -> Result<U256, DispatchError> {
-		// return 0.05 with 18 decimals: 0.05 * 10^18
-		Ok(U256::from(50_000_000_000_000_000u128))
-	}
-}
 
 #[frame_support::runtime]
 mod runtime {
@@ -1061,6 +1047,8 @@ mod runtime {
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 	#[runtime::pallet_index(95)]
 	pub type TxPause = pallet_tx_pause;
+	#[runtime::pallet_index(96)]
+	pub type Bandwidth = pallet_bandwidth;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]

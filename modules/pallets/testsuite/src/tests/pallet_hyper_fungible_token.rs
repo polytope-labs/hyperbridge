@@ -199,10 +199,7 @@ fn should_register_and_update_token() {
 		let mut chains = BTreeMap::new();
 		chains.insert(
 			StateMachine::Evm(42),
-			ChainConfig {
-				token_contract: contract.clone(),
-				decimals: 6,
-			},
+			ChainConfig { token_contract: contract.clone(), decimals: 6 },
 		);
 
 		let reg = TokenRegistration { local_id: asset_id, native: false, chains };

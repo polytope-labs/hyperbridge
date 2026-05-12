@@ -228,7 +228,7 @@ with it, every EVM destination stays current.
 | Consensus relaying (external chain → Hyperbridge) | Relayer | Hyperbridge treasury via `pallet-consensus-incentives`, on `StateMachineUpdated` | `$BRIDGE` + reputation asset |
 | Inbound messaging (source → Hyperbridge) | Relayer | — | None (unpaid; enables outbound earnings) |
 | Outbound delivery (Hyperbridge → destination) | Relayer | User-attached fee on the source chain, claimed via Hyperbridge accumulation | `DAI` (or the host-configured `feeToken`) |
-| Mandatory consensus proof delivery (Hyperbridge → EVM destination) | Relayer | On-chain reward on the EVM destination, auto-claimed by tesseract | Destination-chain reward token |
+| Mandatory consensus proof delivery (Hyperbridge → EVM destination) | Relayer | On-chain reward on the EVM destination, auto-claimed by tesseract | `$BRIDGE` |
 | BEEFY consensus proofs of Hyperbridge submitted to Hyperbridge | Prover | Hyperbridge treasury via `pallet-beefy-consensus-proofs::ProofReward` | `$BRIDGE` + reputation asset |
 
 A single tesseract process handles every relayer-side workload above,

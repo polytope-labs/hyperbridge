@@ -204,15 +204,15 @@ library HeaderImpl {
 
     /// @dev Extracts the ISMP MMR root, child trie root, and AURA timestamp from the header
     /// digests and returns them as a StateCommitment. Reverts if no AURA timestamp is found.
-    function stateCommitment(Header calldata self) public pure returns (StateCommitment memory) {
+    function stateCommitment(Header memory self) internal pure returns (StateCommitment memory) {
         bytes32 mmrRoot;
         bytes32 childTrieRoot;
         uint256 timestamp;
 
         for (uint256 j = 0; j < self.digests.length; j++) {
             if (self.digests[j].isConsensus && self.digests[j].consensus.consensusId == ISMP_CONSENSUS_ID) {
-                mmrRoot = Bytes.toBytes32(self.digests[j].consensus.data[:32]);
-                childTrieRoot = Bytes.toBytes32(self.digests[j].consensus.data[32:]);
+                mmrRoot = Bytes.toBytes32(Bytes.substr(self.digests[j].consensus.data, 0, 32));
+                childTrieRoot = Bytes.toBytes32(Bytes.substr(self.digests[j].consensus.data, 32));
             }
 
             if (self.digests[j].isPreRuntime && self.digests[j].preruntime.consensusId == AURA_CONSENSUS_ID) {

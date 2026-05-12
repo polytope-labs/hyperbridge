@@ -36,7 +36,8 @@ contract DeployScript is BaseScript {
             })
         );
 
-        config.set("INTENT_GATEWAY", address(intentGateway));
+        vm.stopBroadcast();
+        config.set("INTENT_GATEWAY_V2", address(intentGateway));
         config.set("SOLVER_ACCOUNT", address(solverAccount));
         config.set("PRICE_ORACLE", address(priceOracle));
     }

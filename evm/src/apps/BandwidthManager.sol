@@ -19,10 +19,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {PostRequest} from "@hyperbridge/core/libraries/Message.sol";
 import {DispatchPost, IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
-import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import {IncomingPostRequest, IApp} from "@hyperbridge/core/interfaces/IApp.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 
@@ -62,7 +62,7 @@ struct Withdrawal {
 /// `purchase()` to debit a fee-token and dispatch a credit message to
 /// `pallet-bandwidth` on hyperbridge; tier prices and treasury
 /// withdrawals are governed exclusively by the pallet via `onAccept`.
-contract BandwidthManager is HyperApp, ERC165 {
+contract BandwidthManager is HyperApp, ERC165, Ownable {
     using Bytes for bytes;
     using SafeERC20 for IERC20;
 
@@ -78,7 +78,8 @@ contract BandwidthManager is HyperApp, ERC165 {
         Withdraw
     }
 
-    address public immutable host_;
+    // The host address
+    address public _host;
 
     /// tier → price in 18-decimal units. Zero = unconfigured (purchases
     /// against an unconfigured tier revert with `UnknownTier`).
@@ -111,14 +112,23 @@ contract BandwidthManager is HyperApp, ERC165 {
     /// `onAccept` body came from a non-hyperbridge source, or the
     /// action discriminant is out of range.
     error UnauthorizedAction();
+    /// Insufficient native token balance to cover the withdrawal amount.
+    error InsufficientNativeToken();
 
-    constructor(address host__) {
-        host_ = host__;
-    }
+    constructor(address owner) Ownable(owner) {}
 
     /// @inheritdoc HyperApp
     function host() public view override returns (address) {
-        return host_;
+        return _host;
+    }
+
+    /*
+    * @notice Sets the host address on the bandwidth manager.
+    * @param hostAddr The new host address.
+    */
+    function setHost(address hostAddr) public onlyOwner {
+        if (_host != address(0)) revert UnauthorizedAction();
+        _host = hostAddr;
     }
 
     /// @inheritdoc ERC165
@@ -145,7 +155,7 @@ contract BandwidthManager is HyperApp, ERC165 {
         if (price18d == 0) revert UnknownTier();
 
         uint256 total18d = price18d * months;
-        address feeToken = IHost(host_).feeToken();
+        address feeToken = IDispatcher(_host).feeToken();
         uint8 dec = IERC20Metadata(feeToken).decimals();
         uint256 scale = 10 ** (18 - dec);
         if (total18d % scale != 0) revert PriceNotRepresentable();
@@ -160,9 +170,9 @@ contract BandwidthManager is HyperApp, ERC165 {
             chain: chain
         });
 
-        commitment = IDispatcher(host_).dispatch(
+        commitment = IDispatcher(_host).dispatch(
             DispatchPost({
-                dest: IHost(host_).hyperbridge(),
+                dest: IDispatcher(_host).hyperbridge(),
                 to: PALLET_BANDWIDTH_MODULE_ID,
                 body: abi.encode(body),
                 timeout: 0,
@@ -192,7 +202,7 @@ contract BandwidthManager is HyperApp, ERC165 {
     function onAccept(IncomingPostRequest calldata incoming) external override onlyHost {
         PostRequest calldata request = incoming.request;
 
-        if (!request.source.equals(IHost(host_).hyperbridge())) revert UnauthorizedAction();
+        if (!request.source.equals(IDispatcher(_host).hyperbridge())) revert UnauthorizedAction();
 
         OnAcceptActions action = OnAcceptActions(uint8(request.body[0]));
         if (action == OnAcceptActions.SetTiers) {
@@ -203,7 +213,12 @@ contract BandwidthManager is HyperApp, ERC165 {
             }
         } else if (action == OnAcceptActions.Withdraw) {
             Withdrawal memory w = abi.decode(request.body[1:], (Withdrawal));
-            IERC20(w.token).safeTransfer(w.beneficiary, w.amount);
+            if (w.token != address(0)) {
+                IERC20(w.token).safeTransfer(w.beneficiary, w.amount);
+            } else {
+                (bool sent,) = w.beneficiary.call{value: w.amount}("");
+                if (!sent) revert InsufficientNativeToken();
+            }
             emit Withdrawn(w.token, w.beneficiary, w.amount);
         } else {
             revert UnauthorizedAction();

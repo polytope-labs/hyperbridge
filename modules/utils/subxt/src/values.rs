@@ -23,7 +23,7 @@ use pallet_ismp_demo::{EvmParams, GetRequest as GetRequestIsmpDemo, TransferPara
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 use pallet_ismp_relayer::{
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-	OutboundConsensusDeliveryClaim,
+	OutboundConsensusDeliveryClaim, OutboundRequestDeliveryClaim,
 };
 use pallet_state_coprocessor::impls::GetRequestsWithProof;
 
@@ -423,6 +423,19 @@ pub fn outbound_consensus_delivery_claim_to_value(
 	Value::named_composite(vec![
 		("state_proof".to_string(), proof_to_value(&claim.state_proof)),
 		("set_id".to_string(), Value::u128(claim.set_id as u128)),
+		("payee".to_string(), Value::from_bytes(claim.payee.to_vec())),
+		("signature".to_string(), signature_to_value(&claim.signature)),
+	])
+}
+
+/// Build the `scale_value::Value` for [`OutboundRequestDeliveryClaim`] so
+/// it can be passed to `subxt::dynamic::tx("Relayer",
+/// "claim_outbound_request_delivery_reward", ...)`. Field order matches
+/// the struct declaration.
+pub fn outbound_request_delivery_claim_to_value(claim: &OutboundRequestDeliveryClaim) -> Value<()> {
+	Value::named_composite(vec![
+		("commitment".to_string(), Value::from_bytes(claim.commitment.0.to_vec())),
+		("state_proof".to_string(), proof_to_value(&claim.state_proof)),
 		("payee".to_string(), Value::from_bytes(claim.payee.to_vec())),
 		("signature".to_string(), signature_to_value(&claim.signature)),
 	])

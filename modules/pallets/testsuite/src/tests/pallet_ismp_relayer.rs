@@ -34,7 +34,7 @@ use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
 	self as pallet_ismp_relayer, message,
 	withdrawal::{Key, Signature, WithdrawalInputData, WithdrawalProof},
-	OutboundConsensusDeliveryClaim,
+	OutboundConsensusDeliveryClaim, OutboundRequestDeliveryClaim,
 };
 use sp_core::{keccak_256, Pair, H256, U256};
 use sp_trie::LayoutV0;
@@ -925,5 +925,425 @@ mod outbound_consensus_delivery {
 				.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundDestinationStateNotKnown.into());
 		})
+	}
+}
+
+mod outbound_request_delivery {
+	use super::*;
+	use crate::runtime::Balances;
+	use pallet_ismp_relayer::{
+		outbound_request_delivery_message, Error, OutboundRequestDeliveryReward,
+		OutboundRequestsClaimed,
+	};
+	use polkadot_sdk::{
+		frame_support::traits::{
+			fungible::Inspect, tokens::fungible::Mutate as FungibleMutate, Get,
+		},
+		sp_runtime::{traits::AccountIdConversion, AccountId32},
+	};
+
+	const EVM_DEST: StateMachine = StateMachine::Evm(11155111);
+	const SUBSTRATE_DEST: StateMachine = StateMachine::Kusama(2001);
+	const REWARD: u128 = 1_000_000_000_000;
+	const HEIGHT: u64 = 100;
+
+	fn commitment() -> H256 {
+		H256::repeat_byte(0x42)
+	}
+
+	fn placeholder_claim(dest: StateMachine) -> OutboundRequestDeliveryClaim {
+		OutboundRequestDeliveryClaim {
+			commitment: commitment(),
+			state_proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: dest,
+						consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+					},
+					height: HEIGHT,
+				},
+				proof: vec![],
+			},
+			payee: [0xAA; 32],
+			signature: Signature::Evm { address: vec![0; 20], signature: vec![0; 65] },
+		}
+	}
+
+	fn register_request_commitment(commitment: H256) {
+		let fee = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 0u128.into() };
+		let metadata = RequestMetadata {
+			offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
+			fee,
+			claimed: false,
+		};
+		RequestCommitments::<Test>::insert(commitment, metadata);
+	}
+
+	fn fund_treasury(amount: u128) {
+		let treasury: AccountId32 = <Test as pallet_ismp_relayer::Config>::TreasuryPalletId::get()
+			.into_account_truncating();
+		Balances::mint_into(&treasury, amount).unwrap();
+	}
+
+	#[test]
+	fn unknown_commitment_is_rejected() {
+		new_test_ext().execute_with(|| {
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim(EVM_DEST),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestNotKnown.into());
+		})
+	}
+
+	#[test]
+	fn already_claimed_is_rejected() {
+		new_test_ext().execute_with(|| {
+			register_request_commitment(commitment());
+			OutboundRequestsClaimed::<Test>::insert(commitment(), ());
+
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim(EVM_DEST),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestAlreadyClaimed.into());
+		})
+	}
+
+	#[test]
+	fn unsupported_destination_is_rejected() {
+		new_test_ext().execute_with(|| {
+			register_request_commitment(commitment());
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim(StateMachine::Tendermint(*b"cosm")),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestUnsupportedDestination.into());
+		})
+	}
+
+	#[test]
+	fn placeholder_proof_reaches_verification_stage() {
+		// Origin check passes (commitment present), no idempotency tag, EVM
+		// destination is supported. State proof is empty, so verification
+		// fails with OutboundDestinationStateNotKnown.
+		new_test_ext().execute_with(|| {
+			register_request_commitment(commitment());
+			OutboundRequestDeliveryReward::<Test>::insert(EVM_DEST, REWARD);
+			fund_treasury(REWARD * 10);
+
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim(EVM_DEST),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundDestinationStateNotKnown.into());
+		})
+	}
+
+	/// Builds a substrate destination trie with `RequestReceipts[commitment]`
+	/// set to `relayer_value`, registers the resulting state commitment on the
+	/// mock ISMP host, and returns the encoded state proof to embed in a claim.
+	fn substrate_dest_proof(commitment: H256, relayer_value: &[u8]) -> Vec<u8> {
+		let mut root = H256::default();
+		let mut db = MemoryDB::<KeccakHasher>::default();
+		{
+			let mut trie =
+				TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut db, &mut root).build();
+			let receipt_key = RequestReceipts::<Test>::storage_key(commitment);
+			trie.insert(&receipt_key, &relayer_value.encode()).unwrap();
+		}
+
+		let mut recorder = Recorder::<LayoutV0<KeccakHasher>>::default();
+		{
+			let trie = TrieDBBuilder::<LayoutV0<KeccakHasher>>::new(&db, &root)
+				.with_recorder(&mut recorder)
+				.build();
+			let receipt_key = RequestReceipts::<Test>::storage_key(commitment);
+			trie.get(&receipt_key).unwrap();
+		}
+		let storage_proof = recorder.drain().into_iter().map(|f| f.data).collect::<Vec<_>>();
+
+		let host = Ismp::default();
+		host.store_state_machine_commitment(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: SUBSTRATE_DEST,
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: HEIGHT,
+			},
+			StateCommitment {
+				timestamp: 100,
+				overlay_root: Some(root),
+				state_root: Default::default(),
+			},
+		)
+		.unwrap();
+		host.store_state_machine_update_time(
+			StateMachineHeight {
+				id: StateMachineId {
+					state_id: SUBSTRATE_DEST,
+					consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+				},
+				height: HEIGHT,
+			},
+			Duration::from_secs(100),
+		)
+		.unwrap();
+		host.store_consensus_state(MOCK_CONSENSUS_STATE_ID, Default::default()).unwrap();
+		host.store_consensus_state_id(MOCK_CONSENSUS_STATE_ID, MOCK_CONSENSUS_CLIENT_ID)
+			.unwrap();
+		host.store_unbonding_period(MOCK_CONSENSUS_STATE_ID, 10_000_000_000).unwrap();
+		host.store_challenge_period(
+			StateMachineId {
+				state_id: SUBSTRATE_DEST,
+				consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+			},
+			0,
+		)
+		.unwrap();
+
+		SubstrateStateProof::OverlayProof(StateMachineProof {
+			hasher: HashAlgorithm::Keccak,
+			storage_proof,
+		})
+		.encode()
+	}
+
+	#[test]
+	fn substrate_destination_pays_relayer() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let relayer_bytes = pair.public().0.to_vec();
+			let payee = [0xAA; 32];
+			let payee_account: AccountId32 = payee.into();
+
+			register_request_commitment(commitment());
+			OutboundRequestDeliveryReward::<Test>::insert(SUBSTRATE_DEST, REWARD);
+			fund_treasury(REWARD * 10);
+
+			let msg = outbound_request_delivery_message(commitment(), SUBSTRATE_DEST, payee);
+			let signature = pair.sign(&msg).0.to_vec();
+
+			let claim = OutboundRequestDeliveryClaim {
+				commitment: commitment(),
+				state_proof: Proof {
+					height: StateMachineHeight {
+						id: StateMachineId {
+							state_id: SUBSTRATE_DEST,
+							consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+						},
+						height: HEIGHT,
+					},
+					proof: substrate_dest_proof(commitment(), &relayer_bytes),
+				},
+				payee,
+				signature: Signature::Sr25519 { public_key: relayer_bytes, signature },
+			};
+
+			let payee_before = Balances::balance(&payee_account);
+			pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				claim,
+			)
+			.unwrap();
+
+			assert_eq!(Balances::balance(&payee_account) - payee_before, REWARD);
+			assert!(OutboundRequestsClaimed::<Test>::contains_key(commitment()));
+		})
+	}
+
+	#[test]
+	fn signer_mismatch_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let recorded =
+				sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let other = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let payee = [0xAA; 32];
+
+			register_request_commitment(commitment());
+			OutboundRequestDeliveryReward::<Test>::insert(SUBSTRATE_DEST, REWARD);
+			fund_treasury(REWARD * 10);
+
+			let msg = outbound_request_delivery_message(commitment(), SUBSTRATE_DEST, payee);
+			let other_sig = other.sign(&msg).0.to_vec();
+
+			let claim = OutboundRequestDeliveryClaim {
+				commitment: commitment(),
+				state_proof: Proof {
+					height: StateMachineHeight {
+						id: StateMachineId {
+							state_id: SUBSTRATE_DEST,
+							consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+						},
+						height: HEIGHT,
+					},
+					proof: substrate_dest_proof(commitment(), &recorded.public().0),
+				},
+				payee,
+				signature: Signature::Sr25519 {
+					public_key: other.public().0.to_vec(),
+					signature: other_sig,
+				},
+			};
+
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				claim,
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestSignerMismatch.into());
+		})
+	}
+
+	#[test]
+	fn no_reward_configured_is_rejected() {
+		new_test_ext().execute_with(|| {
+			set_timestamp::<Test>(10_000_000_000);
+			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+			let relayer_bytes = pair.public().0.to_vec();
+			let payee = [0xAA; 32];
+
+			register_request_commitment(commitment());
+
+			let msg = outbound_request_delivery_message(commitment(), SUBSTRATE_DEST, payee);
+			let signature = pair.sign(&msg).0.to_vec();
+
+			let claim = OutboundRequestDeliveryClaim {
+				commitment: commitment(),
+				state_proof: Proof {
+					height: StateMachineHeight {
+						id: StateMachineId {
+							state_id: SUBSTRATE_DEST,
+							consensus_state_id: MOCK_CONSENSUS_STATE_ID,
+						},
+						height: HEIGHT,
+					},
+					proof: substrate_dest_proof(commitment(), &relayer_bytes),
+				},
+				payee,
+				signature: Signature::Sr25519 { public_key: relayer_bytes, signature },
+			};
+
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				claim,
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestNoRewardConfigured.into());
+		})
+	}
+
+	mod request_receipt_key {
+		use super::*;
+
+		#[test]
+		fn evm_returns_slot_hash() {
+			new_test_ext().execute_with(|| {
+				assert!(pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
+					EVM_DEST,
+					commitment()
+				)
+				.is_some(),);
+			})
+		}
+
+		#[test]
+		fn substrate_returns_child_trie_key() {
+			new_test_ext().execute_with(|| {
+				let key = pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
+					SUBSTRATE_DEST,
+					commitment(),
+				)
+				.unwrap();
+				assert_eq!(key, RequestReceipts::<Test>::storage_key(commitment()));
+			})
+		}
+
+		#[test]
+		fn unsupported_returns_none() {
+			new_test_ext().execute_with(|| {
+				assert!(pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
+					StateMachine::Tendermint(*b"cosm"),
+					commitment(),
+				)
+				.is_none());
+			})
+		}
+	}
+
+	mod decode_request_receipt_relayer {
+		use super::*;
+
+		#[test]
+		fn decodes_evm_address() {
+			new_test_ext().execute_with(|| {
+				let address = alloy_primitives::Address::from([0x11u8; 20]);
+				let raw = alloy_rlp::encode(&address);
+
+				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+					EVM_DEST, &raw,
+				)
+				.unwrap()
+				.unwrap();
+				assert_eq!(decoded, address.0.to_vec());
+			})
+		}
+
+		#[test]
+		fn decodes_substrate_raw_bytes() {
+			new_test_ext().execute_with(|| {
+				let pubkey = [0x77u8; 32];
+				let raw = pubkey.to_vec().encode();
+
+				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+					SUBSTRATE_DEST,
+					&raw,
+				)
+				.unwrap()
+				.unwrap();
+				assert_eq!(decoded, pubkey.to_vec());
+			})
+		}
+
+		#[test]
+		fn decodes_substrate_signature_wrapper() {
+			new_test_ext().execute_with(|| {
+				let pair =
+					sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
+				let inner = Signature::Sr25519 {
+					public_key: pair.public().0.to_vec(),
+					signature: vec![0u8; 64],
+				};
+				let raw = inner.encode().encode();
+
+				let decoded = pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+					SUBSTRATE_DEST,
+					&raw,
+				)
+				.unwrap()
+				.unwrap();
+				assert_eq!(decoded, pair.public().0.to_vec());
+			})
+		}
+
+		#[test]
+		fn unsupported_returns_none() {
+			new_test_ext().execute_with(|| {
+				let raw = vec![0u8; 21];
+				assert!(pallet_ismp_relayer::Pallet::<Test>::decode_request_receipt_relayer(
+					StateMachine::Tendermint(*b"cosm"),
+					&raw,
+				)
+				.unwrap()
+				.is_none());
+			})
+		}
 	}
 }

@@ -27,10 +27,7 @@ use alloy_primitives::Address;
 use codec::Encode;
 use crypto_utils::verification::Signature;
 use evm_state_machine::{
-	presets::{
-		REQUEST_COMMITMENTS_SLOT, REQUEST_RECEIPTS_SLOT, RESPONSE_COMMITMENTS_SLOT,
-		RESPONSE_RECEIPTS_SLOT,
-	},
+	presets::{REQUEST_COMMITMENTS_SLOT, RESPONSE_COMMITMENTS_SLOT, RESPONSE_RECEIPTS_SLOT},
 	utils::{add_off_set_to_map_key, derive_unhashed_map_key},
 };
 use frame_support::{
@@ -68,6 +65,11 @@ pub type BalanceOf<T> = <T as pallet_ismp::Config>::Balance;
 /// slot is 0. Kept as a constant so a future HandlerV2 layout change is a
 /// single-line edit here. Verified via `forge inspect HandlerV2 storage`.
 pub const HANDLER_V2_EPOCHS_SLOT: u64 = 0;
+
+/// Re-exported destination-side storage slot of `_requestReceipts` so
+/// off-chain callers (tesseract) and on-chain callers see the same source
+/// of truth.
+pub use evm_state_machine::presets::REQUEST_RECEIPTS_SLOT;
 
 /// Claim payload for [`Pallet::claim_outbound_consensus_delivery_reward`].
 ///
@@ -118,6 +120,56 @@ pub struct OutboundConsensusDeliveryClaim {
 	/// The signature is over [`outbound_consensus_delivery_message`] of
 	/// `(set_id, destination, payee)`. The recovered address must match
 	/// the address in the slot proof.
+	pub signature: Signature,
+}
+
+/// Claim payload for [`Pallet::claim_outbound_request_delivery_reward`].
+///
+/// A relayer who delivered a hyperbridge-originated request to a destination
+/// chain uses this to collect the per-destination
+/// `OutboundRequestDeliveryReward`. Verifying the relayer:
+///
+/// 1. The `commitment` is known locally in `pallet_ismp::child_trie::RequestCommitments`.
+///    Hyperbridge owns its own state, so this is the authoritative "this request really did
+///    originate here" check.
+/// 2. `(commitment)` has not already been claimed by some relayer.
+/// 3. State proof against Hyperbridge's stored commitment for the destination yields a value at the
+///    destination's `RequestReceipts[commitment]` slot (EVM: 32-byte slot hash routed to the ISMP
+///    host contract; substrate: the pallet-ismp child-trie storage key).
+/// 4. The `signature` recovers the same address (EVM) or bytes (substrate) that the destination
+///    recorded as the delivering relayer. Signs over [`outbound_request_delivery_message`] of
+///    `(commitment, destination, payee)`.
+///
+/// Replay protection comes from the on-chain `commitment` idempotency tag in
+/// [`pallet::OutboundRequestsClaimed`]. Once a commitment has been claimed it
+/// cannot be claimed again, so a captured signature cannot be reused.
+///
+/// The reward is paid from the treasury to `payee` (an sr25519 account on
+/// Hyperbridge that the relayer designates).
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	Eq,
+	codec::Encode,
+	codec::Decode,
+	codec::DecodeWithMemTracking,
+	scale_info::TypeInfo,
+)]
+pub struct OutboundRequestDeliveryClaim {
+	/// The hyperbridge-originated request commitment being claimed against.
+	pub commitment: H256,
+	/// State proof of the destination chain at the height the relayer is
+	/// proving against. `state_proof.height.id.state_id` is the destination;
+	/// Hyperbridge must already have a state commitment at `state_proof.height`.
+	pub state_proof: Proof,
+	/// Sr25519 public key on Hyperbridge that the reward is paid to.
+	pub payee: [u8; 32],
+	/// Signature over [`outbound_request_delivery_message`] of
+	/// `(commitment, destination, payee)`. For EVM destinations the recovered
+	/// secp256k1 address must equal the address proven in the receipt slot;
+	/// for substrate destinations the recovered signer bytes must equal the
+	/// relayer bytes proven in the receipt slot.
 	pub signature: Signature,
 }
 
@@ -216,6 +268,22 @@ pub mod pallet {
 	pub type OutboundConsensusRotationsClaimed<T: Config> =
 		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Blake2_128Concat, u64, (), OptionQuery>;
 
+	/// Per-destination reward, in the runtime's [`Config::Currency`], paid to
+	/// the relayer that delivers a hyperbridge-originated request to that
+	/// destination. `0` (the default) means rewards are off for the chain.
+	#[pallet::storage]
+	#[pallet::getter(fn outbound_request_delivery_reward)]
+	pub type OutboundRequestDeliveryReward<T: Config> =
+		StorageMap<_, Blake2_128Concat, StateMachine, BalanceOf<T>, ValueQuery>;
+
+	/// Idempotency map for outbound request delivery claims. The presence of
+	/// `commitment` means some relayer has already collected the reward for
+	/// delivering that request.
+	#[pallet::storage]
+	#[pallet::getter(fn outbound_requests_claimed)]
+	pub type OutboundRequestsClaimed<T: Config> =
+		StorageMap<_, Blake2_128Concat, H256, (), OptionQuery>;
+
 	#[pallet::error]
 	pub enum Error<T> {
 		/// Withdrawal Proof Validation Error
@@ -274,6 +342,24 @@ pub mod pallet {
 		/// substrate-style signatures cannot be matched against the
 		/// `HandlerV2._epochs[set_id]` slot.
 		OutboundSignatureNotEvm,
+		/// `commitment` has already been claimed by some relayer.
+		OutboundRequestAlreadyClaimed,
+		/// The commitment is not in Hyperbridge's local
+		/// `pallet_ismp::child_trie::RequestCommitments`, so it was not
+		/// dispatched from Hyperbridge and is not eligible for this reward.
+		OutboundRequestNotKnown,
+		/// No reward is configured for the destination
+		/// (`OutboundRequestDeliveryReward` is `0`).
+		OutboundRequestNoRewardConfigured,
+		/// Treasury → relayer transfer failed (typically because the treasury
+		/// balance is below the configured reward).
+		OutboundRequestRewardTransferFailed,
+		/// The signer recovered from `signature` does not match the relayer
+		/// recorded in the destination's `RequestReceipts[commitment]`.
+		OutboundRequestSignerMismatch,
+		/// The destination state machine is neither EVM nor substrate, so we
+		/// don't know how to decode `RequestReceipts[commitment]`.
+		OutboundRequestUnsupportedDestination,
 	}
 
 	/// Events emiited by the relayer pallet
@@ -315,6 +401,25 @@ pub mod pallet {
 		/// Governance updated the per-chain outbound consensus delivery
 		/// reward.
 		OutboundConsensusDeliveryRewardUpdated {
+			/// Destination chain whose reward was updated.
+			state_machine: StateMachine,
+			/// New reward amount.
+			new_reward: BalanceOf<T>,
+		},
+		/// A relayer has been paid for delivering a hyperbridge-originated
+		/// request to a destination chain.
+		OutboundRequestDeliveryRewarded {
+			/// Request commitment that was delivered.
+			commitment: H256,
+			/// Destination chain the request was delivered to.
+			state_machine: StateMachine,
+			/// Hyperbridge account credited.
+			relayer: T::AccountId,
+			/// Amount paid out, in the runtime's `Currency`.
+			amount: BalanceOf<T>,
+		},
+		/// Governance updated the per-chain outbound request delivery reward.
+		OutboundRequestDeliveryRewardUpdated {
 			/// Destination chain whose reward was updated.
 			state_machine: StateMachine,
 			/// New reward amount.
@@ -395,6 +500,40 @@ pub mod pallet {
 			});
 			Ok(())
 		}
+
+		/// Pay the configured `OutboundRequestDeliveryReward` to the relayer
+		/// that delivered a hyperbridge-originated request to the destination.
+		///
+		/// Unsigned. Spam-protected by `validate_unsigned` (the encoded
+		/// payload becomes a unique tag, so a duplicate submission with the
+		/// same `commitment` is rejected at the txpool stage).
+		#[pallet::call_index(5)]
+		#[pallet::weight({1_000_000})]
+		pub fn claim_outbound_request_delivery_reward(
+			origin: OriginFor<T>,
+			claim: OutboundRequestDeliveryClaim,
+		) -> DispatchResult {
+			ensure_none(origin)?;
+			Self::process_outbound_request_delivery_claim(claim)
+		}
+
+		/// Governance-set per-chain reward for delivering a
+		/// hyperbridge-originated request to that destination.
+		#[pallet::call_index(6)]
+		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
+		pub fn set_outbound_request_delivery_reward(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			amount: BalanceOf<T>,
+		) -> DispatchResult {
+			T::RelayerOrigin::ensure_origin(origin)?;
+			OutboundRequestDeliveryReward::<T>::insert(state_machine, amount);
+			Self::deposit_event(Event::OutboundRequestDeliveryRewardUpdated {
+				state_machine,
+				new_reward: amount,
+			});
+			Ok(())
+		}
 	}
 
 	#[pallet::validate_unsigned]
@@ -418,6 +557,8 @@ pub mod pallet {
 				Call::withdraw_fees { withdrawal_data } => Self::withdraw(withdrawal_data.clone()),
 				Call::claim_outbound_consensus_delivery_reward { claim } =>
 					Self::process_outbound_consensus_delivery_claim(claim.clone()),
+				Call::claim_outbound_request_delivery_reward { claim } =>
+					Self::process_outbound_request_delivery_claim(claim.clone()),
 				_ => Err(TransactionValidityError::Invalid(InvalidTransaction::Call))?,
 			};
 
@@ -430,6 +571,7 @@ pub mod pallet {
 				Call::accumulate_fees { withdrawal_proof } => withdrawal_proof.encode(),
 				Call::withdraw_fees { withdrawal_data } => withdrawal_data.encode(),
 				Call::claim_outbound_consensus_delivery_reward { claim } => claim.encode(),
+				Call::claim_outbound_request_delivery_reward { claim } => claim.encode(),
 				_ => unreachable!(),
 			};
 
@@ -535,6 +677,69 @@ where
 		Self::deposit_event(Event::OutboundConsensusDeliveryRewarded {
 			state_machine: destination,
 			set_id,
+			relayer: payee_account,
+			amount: reward,
+		});
+
+		Ok(())
+	}
+
+	/// Verify and pay out an outbound request delivery claim.
+	///
+	/// See [`OutboundRequestDeliveryClaim`] for the verification pipeline.
+	pub fn process_outbound_request_delivery_claim(
+		claim: OutboundRequestDeliveryClaim,
+	) -> DispatchResult {
+		let OutboundRequestDeliveryClaim { commitment, state_proof, payee, signature } = claim;
+		let destination = state_proof.height.id.state_id;
+
+		ensure!(
+			RequestCommitments::<T>::get(commitment).is_some(),
+			Error::<T>::OutboundRequestNotKnown,
+		);
+
+		ensure!(
+			!OutboundRequestsClaimed::<T>::contains_key(commitment),
+			Error::<T>::OutboundRequestAlreadyClaimed,
+		);
+
+		let receipt_key = Self::request_receipt_key(destination, commitment)
+			.ok_or(Error::<T>::OutboundRequestUnsupportedDestination)?;
+
+		let proof_results = Self::verify_withdrawal_proof(&state_proof, vec![receipt_key.clone()])
+			.map_err(|_| Error::<T>::OutboundDestinationStateNotKnown)?;
+		let raw = proof_results
+			.get(&receipt_key)
+			.cloned()
+			.flatten()
+			.ok_or(Error::<T>::OutboundDeliveryNotProven)?;
+
+		let delivered_by = Self::decode_request_receipt_relayer(destination, &raw)?
+			.ok_or(Error::<T>::OutboundRequestUnsupportedDestination)?;
+
+		let msg = outbound_request_delivery_message(commitment, destination, payee);
+		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
+		ensure!(recovered == delivered_by, Error::<T>::OutboundRequestSignerMismatch);
+
+		let reward = OutboundRequestDeliveryReward::<T>::get(destination);
+		ensure!(reward > BalanceOf::<T>::default(), Error::<T>::OutboundRequestNoRewardConfigured,);
+
+		let treasury: T::AccountId =
+			<T as Config>::TreasuryPalletId::get().into_account_truncating();
+		let payee_account: T::AccountId = payee.into();
+		<<T as pallet_ismp::Config>::Currency as Mutate<T::AccountId>>::transfer(
+			&treasury,
+			&payee_account,
+			reward,
+			Preservation::Preserve,
+		)
+		.map_err(|_| Error::<T>::OutboundRequestRewardTransferFailed)?;
+
+		OutboundRequestsClaimed::<T>::insert(commitment, ());
+
+		Self::deposit_event(Event::OutboundRequestDeliveryRewarded {
+			commitment,
+			state_machine: destination,
 			relayer: payee_account,
 			amount: reward,
 		});
@@ -797,6 +1002,61 @@ where
 
 		Ok(())
 	}
+	/// Storage key for `RequestReceipts[commitment]` on `destination`.
+	/// `None` for state machines we don't decode receipts on.
+	///
+	/// EVM destinations use the 32-byte slot hash, which the EVM verifier
+	/// routes to the chain's ISMP host contract via `EvmHosts`. Substrate
+	/// destinations use the pallet-ismp child-trie key.
+	pub fn request_receipt_key(destination: StateMachine, commitment: H256) -> Option<Vec<u8>> {
+		match destination {
+			s if s.is_evm() => Some(
+				derive_unhashed_map_key::<<T as Config>::IsmpHost>(
+					commitment.0.to_vec(),
+					REQUEST_RECEIPTS_SLOT,
+				)
+				.0
+				.to_vec(),
+			),
+			s if s.is_substrate() =>
+				Some(pallet_ismp::child_trie::RequestReceipts::<T>::storage_key(commitment)),
+			_ => None,
+		}
+	}
+
+	/// Decode the proven `RequestReceipts[commitment]` value into the
+	/// delivering relayer's identifier bytes. `Ok(None)` for state machines
+	/// we don't decode receipts on.
+	pub fn decode_request_receipt_relayer(
+		destination: StateMachine,
+		raw: &[u8],
+	) -> Result<Option<Vec<u8>>, Error<T>> {
+		match destination {
+			s if s.is_evm() => {
+				use alloy_rlp::Decodable;
+				let address = Address::decode(&mut &*raw)
+					.map_err(|_| Error::<T>::ProofValidationError)?
+					.0
+					.to_vec();
+				Ok(Some(address))
+			},
+			s if s.is_substrate() => {
+				use codec::Decode;
+				let bytes =
+					<Vec<u8>>::decode(&mut &*raw).map_err(|_| Error::<T>::ProofValidationError)?;
+				let signer = if bytes.len() > 32 {
+					Signature::decode(&mut &*bytes)
+						.map_err(|_| Error::<T>::SignatureDecodingError)?
+						.signer()
+				} else {
+					bytes
+				};
+				Ok(Some(signer))
+			},
+			_ => Ok(None),
+		}
+	}
+
 	/// Decode the EVM `address` value stored at
 	/// `HandlerV2._epochs[set_id]`, as returned by
 	/// `EvmStateMachine::verify_state_proof`.
@@ -875,22 +1135,12 @@ where
 		let mut keys = vec![];
 		for key in &proof.commitments {
 			match key {
-				Key::Request(commitment) => match proof.dest_proof.height.id.state_id {
-					s if s.is_evm() => {
-						keys.push(
-							derive_unhashed_map_key::<<T as Config>::IsmpHost>(
-								commitment.0.to_vec(),
-								REQUEST_RECEIPTS_SLOT,
-							)
-							.0
-							.to_vec(),
-						);
-					},
-					s if s.is_substrate() => keys.push(
-						pallet_ismp::child_trie::RequestReceipts::<T>::storage_key(*commitment),
-					),
-					// unsupported
-					_ => {},
+				Key::Request(commitment) => {
+					if let Some(k) =
+						Self::request_receipt_key(proof.dest_proof.height.id.state_id, *commitment)
+					{
+						keys.push(k);
+					}
 				},
 				Key::Response { request_commitment, .. } => {
 					match proof.dest_proof.height.id.state_id {
@@ -968,29 +1218,11 @@ where
 						.cloned()
 						.flatten()
 						.ok_or_else(|| Error::<T>::ProofValidationError)?;
-					let address = match proof.dest_proof.height.id.state_id {
-						s if s.is_evm() => {
-							use alloy_rlp::Decodable;
-							Address::decode(&mut &*encoded_receipt)
-								.map_err(|_| Error::<T>::ProofValidationError)?
-								.0
-								.to_vec()
-						},
-						s if s.is_substrate() => {
-							use codec::Decode;
-							let relayer_bytes = <Vec<u8>>::decode(&mut &*encoded_receipt)
-								.map_err(|_| Error::<T>::ProofValidationError)?;
-							if relayer_bytes.len() > 32 {
-								let signature = Signature::decode(&mut &*relayer_bytes)
-									.map_err(|_| Error::<T>::SignatureDecodingError)?;
-								signature.signer()
-							} else {
-								relayer_bytes
-							}
-						},
-						// unsupported
-						_ => Err(Error::<T>::MismatchedStateMachine)?,
-					};
+					let address = Self::decode_request_receipt_relayer(
+						proof.dest_proof.height.id.state_id,
+						&encoded_receipt,
+					)?
+					.ok_or(Error::<T>::MismatchedStateMachine)?;
 					let entry = result.entry(address).or_insert(U256::zero());
 					*entry += fee;
 					commitments.push(commitment);
@@ -1117,4 +1349,17 @@ pub fn outbound_consensus_delivery_message(
 	payee: [u8; 32],
 ) -> [u8; 32] {
 	sp_io::hashing::keccak_256(&(set_id, dest_chain, payee).encode())
+}
+
+/// Signed payload for [`OutboundRequestDeliveryClaim`]. Replay protection
+/// comes from the on-chain `commitment` idempotency tag in
+/// [`pallet::OutboundRequestsClaimed`]; once a commitment has been claimed
+/// it cannot be claimed again, so a captured signature has no way to be
+/// reused.
+pub fn outbound_request_delivery_message(
+	commitment: H256,
+	dest_chain: StateMachine,
+	payee: [u8; 32],
+) -> [u8; 32] {
+	sp_io::hashing::keccak_256(&(commitment, dest_chain, payee).encode())
 }

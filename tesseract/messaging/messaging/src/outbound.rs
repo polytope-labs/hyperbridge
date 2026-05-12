@@ -29,8 +29,8 @@ use ismp::{
 };
 use tesseract_primitives::{
 	config::RelayerConfig, ConsensusProofSource, IsmpProvider, NewEpochEvent,
-	PendingConsensusDeliveryClaim, ProofAccepted, RotationProof, StateMachineUpdated, TxReceipt,
-	BEEFY_CONSENSUS_STATE_ID,
+	PendingConsensusDeliveryClaim, PendingRequestDeliveryClaim, ProofAccepted, RotationProof,
+	StateMachineUpdated, TxReceipt, BEEFY_CONSENSUS_STATE_ID,
 };
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
@@ -56,6 +56,7 @@ pub async fn run(
 	fee_senders: HashMap<StateMachine, Sender<Vec<TxReceipt>>>,
 	claim_sender: Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
+	request_claim_sender: Option<Sender<Vec<PendingRequestDeliveryClaim>>>,
 ) -> Result<(), anyhow::Error> {
 	let hb_state_machine_id = hyperbridge.state_machine_id();
 	let coprocessor = hb_state_machine_id.state_id;
@@ -152,6 +153,7 @@ pub async fn run(
 				fee_sender,
 				claim_sender: claim_sender.clone(),
 				claim_tx_payment: claim_tx_payment.clone(),
+				request_claim_sender: request_claim_sender.clone(),
 			};
 			tasks.push(
 				submit_for_dest(event_ctx, dest_ctx)
@@ -203,6 +205,7 @@ struct DestinationContext {
 	fee_sender: Option<Sender<Vec<TxReceipt>>>,
 	claim_sender: Option<Sender<Vec<PendingConsensusDeliveryClaim>>>,
 	claim_tx_payment: Option<Arc<TransactionPayment>>,
+	request_claim_sender: Option<Sender<Vec<PendingRequestDeliveryClaim>>>,
 }
 
 async fn submit_for_dest(
@@ -222,7 +225,13 @@ async fn submit_for_dest(
 		new_height,
 		new_set_id,
 	} = event_ctx;
-	let DestinationContext { dest, fee_sender, claim_sender, claim_tx_payment } = dest_ctx;
+	let DestinationContext {
+		dest,
+		fee_sender,
+		claim_sender,
+		claim_tx_payment,
+		request_claim_sender,
+	} = dest_ctx;
 	let dest_state_machine = dest.state_machine_id().state_id;
 	let dest_name = dest.name();
 	// Bring the destination's BEEFY light client up to HB's current
@@ -353,6 +362,17 @@ async fn submit_for_dest(
 	// `batchCall(bytes[])` tx; everything else uses the legacy serial path.
 	let result = dest.submit(batch, hb_state_machine_id.state_id).await?;
 
+	// Forward a claim for every hyperbridge-originated request just delivered.
+	forward_request_delivery_claims(
+		&dest_name,
+		dest_state_machine,
+		coprocessor,
+		&result.receipts,
+		&request_claim_sender,
+		&claim_tx_payment,
+	)
+	.await;
+
 	// Forward receipts for fee accumulation (best-effort, channel may be
 	// closed if the relayer is shutting down).
 	if let (Some(sender), false) = (fee_sender, result.receipts.is_empty()) {
@@ -449,6 +469,71 @@ async fn forward_consensus_delivery_claims(
 			dest = %dest_name,
 			?summary,
 			"outbound-consensus claim channel send failed",
+		);
+	}
+}
+
+/// Sibling of [`forward_consensus_delivery_claims`] for the request reward.
+/// Filters `receipts` for [`TxReceipt::Request`] whose `source_chain` is the
+/// hyperbridge coprocessor, persists each to the local DB, then pushes them
+/// onto the request claim channel. Responses are ignored: this incentive is
+/// request-only.
+async fn forward_request_delivery_claims(
+	dest_name: &str,
+	dest_state_machine: StateMachine,
+	coprocessor: StateMachine,
+	receipts: &[TxReceipt],
+	claim_sender: &Option<Sender<Vec<PendingRequestDeliveryClaim>>>,
+	claim_tx_payment: &Option<Arc<TransactionPayment>>,
+) {
+	let Some(sender) = claim_sender else {
+		return;
+	};
+
+	let claims: Vec<PendingRequestDeliveryClaim> = receipts
+		.iter()
+		.filter_map(|receipt| match receipt {
+			TxReceipt::Request { query, height } if query.source_chain == coprocessor =>
+				Some(PendingRequestDeliveryClaim {
+					destination: dest_state_machine,
+					delivery_height: *height,
+					commitment: query.commitment,
+				}),
+			_ => None,
+		})
+		.collect();
+
+	if claims.is_empty() {
+		return;
+	}
+
+	if let Some(tx_payment) = claim_tx_payment {
+		let rows: Vec<(String, u64)> = claims
+			.iter()
+			.map(|c| (hex::encode(c.commitment.0), c.delivery_height))
+			.collect();
+		if let Err(err) = tx_payment
+			.insert_pending_request_claims(&dest_state_machine.to_string(), &rows)
+			.await
+		{
+			tracing::warn!(
+				target: LOG_TARGET,
+				?err,
+				dest = %dest_name,
+				count = rows.len(),
+				"failed to persist outbound-request claims; claims will not survive a restart",
+			);
+		}
+	}
+
+	let summary: Vec<String> = claims.iter().map(|c| hex::encode(c.commitment.0)).collect();
+	if let Err(err) = sender.send(claims).await {
+		tracing::warn!(
+			target: LOG_TARGET,
+			?err,
+			dest = %dest_name,
+			?summary,
+			"outbound-request claim channel send failed",
 		);
 	}
 }
@@ -700,6 +785,37 @@ pub async fn initialize(
 		.boxed(),
 	);
 
+	// Outbound request delivery reward claim task. Sibling of the consensus
+	// claim task; same DB-backed merge/dedupe/replay shape, keyed by request
+	// commitment instead of (dest, set_id).
+	let (request_claim_sender, request_claim_receiver) =
+		tokio::sync::mpsc::channel::<Vec<PendingRequestDeliveryClaim>>(64);
+	let request_claim_hb =
+		SubstrateClient::<KeccakSubstrateChain>::new(hyperbridge_config.clone()).await?;
+	let request_claim_destinations: HashMap<StateMachine, Arc<dyn IsmpProvider>> =
+		destinations.iter().map(|(sm, p)| (*sm, p.clone())).collect();
+	let request_claim_tx_payment = tx_payment.clone();
+	let request_claim_name = format!("outbound-request-claim-{}", hyperbridge_provider.name());
+	let request_claim_span =
+		tracing::info_span!("outbound_request_claim", hb = %hyperbridge_provider.name());
+	task_manager.spawn_essential_handle().spawn_blocking(
+		Box::leak(Box::new(request_claim_name)),
+		"outbound",
+		async move {
+			tracing::trace!(target: LOG_TARGET, "task started");
+			let res = crate::outbound_request_claim::run(
+				request_claim_hb,
+				request_claim_destinations,
+				request_claim_receiver,
+				Some(request_claim_tx_payment),
+			)
+			.await;
+			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
+		}
+		.instrument(request_claim_span)
+		.boxed(),
+	);
+
 	// Outbound fan-out itself.
 	let outbound_name = format!("outbound-{}", hyperbridge_provider.name());
 	let destinations_len = destinations.len();
@@ -723,6 +839,7 @@ pub async fn initialize(
 				fee_senders,
 				Some(claim_sender),
 				Some(outbound_tx_payment),
+				Some(request_claim_sender),
 			)
 			.await;
 			tracing::error!(target: LOG_TARGET, ?res, "task terminated");
@@ -839,6 +956,7 @@ mod tests {
 				fee_sender: None,
 				claim_sender: None,
 				claim_tx_payment: None,
+				request_claim_sender: None,
 			},
 		)
 		.await
@@ -877,6 +995,7 @@ mod tests {
 				fee_sender: None,
 				claim_sender: None,
 				claim_tx_payment: None,
+				request_claim_sender: None,
 			},
 		)
 		.await
@@ -921,6 +1040,7 @@ mod tests {
 				fee_sender: None,
 				claim_sender: None,
 				claim_tx_payment: None,
+				request_claim_sender: None,
 			},
 		)
 		.await
@@ -930,5 +1050,78 @@ mod tests {
 			submitted_log.lock().unwrap().is_empty(),
 			"DEST_A should see nothing when events target DEST_B"
 		);
+	}
+
+	use primitive_types::H256;
+	use tesseract_primitives::Query;
+
+	fn request_receipt(source: StateMachine, height: u64, commitment_byte: u8) -> TxReceipt {
+		TxReceipt::Request {
+			query: Query {
+				source_chain: source,
+				dest_chain: DEST_A,
+				nonce: 1,
+				commitment: H256::repeat_byte(commitment_byte),
+			},
+			height,
+		}
+	}
+
+	fn response_receipt(source: StateMachine, height: u64) -> TxReceipt {
+		TxReceipt::Response {
+			query: Query {
+				source_chain: source,
+				dest_chain: DEST_A,
+				nonce: 1,
+				commitment: H256::repeat_byte(0xCC),
+			},
+			request_commitment: H256::repeat_byte(0xDD),
+			height,
+		}
+	}
+
+	#[tokio::test]
+	async fn forwards_only_hyperbridge_originated_requests() {
+		let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+		let receipts = vec![
+			request_receipt(HB, 100, 0x11),
+			request_receipt(DEST_B, 101, 0x22),
+			request_receipt(HB, 102, 0x33),
+		];
+		forward_request_delivery_claims("dest_a", DEST_A, HB, &receipts, &Some(tx), &None).await;
+
+		let claims = rx.recv().await.expect("channel should receive claims");
+		assert_eq!(claims.len(), 2, "only hyperbridge-originated requests forwarded");
+		let commitments: Vec<u8> = claims.iter().map(|c| c.commitment.0[0]).collect();
+		assert_eq!(commitments, vec![0x11, 0x33]);
+		assert_eq!(claims[0].delivery_height, 100);
+		assert_eq!(claims[1].delivery_height, 102);
+		assert!(claims.iter().all(|c| c.destination == DEST_A));
+	}
+
+	#[tokio::test]
+	async fn forwards_ignores_responses() {
+		let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+		let receipts = vec![
+			response_receipt(HB, 100),
+			response_receipt(DEST_B, 101),
+			request_receipt(DEST_B, 102, 0x11),
+		];
+		forward_request_delivery_claims("dest_a", DEST_A, HB, &receipts, &Some(tx), &None).await;
+
+		assert!(rx.try_recv().is_err(), "no request was hyperbridge-originated");
+	}
+
+	#[tokio::test]
+	async fn forwards_no_sender_is_noop() {
+		let receipts = vec![request_receipt(HB, 100, 0x11)];
+		forward_request_delivery_claims("dest_a", DEST_A, HB, &receipts, &None, &None).await;
+	}
+
+	#[tokio::test]
+	async fn forwards_empty_receipts_is_noop() {
+		let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+		forward_request_delivery_claims("dest_a", DEST_A, HB, &[], &Some(tx), &None).await;
+		assert!(rx.try_recv().is_err());
 	}
 }

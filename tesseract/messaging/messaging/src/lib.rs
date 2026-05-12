@@ -22,6 +22,7 @@ pub mod fees;
 mod get_requests;
 pub mod outbound;
 pub mod outbound_claim;
+pub mod outbound_request_claim;
 /// Unprofitable-message retry loop. Kept public for callers that want to wire
 /// it up; **not** spawned by [`inbound`] in the consolidated relayer — the
 /// design is that retrying unprofitable messages is the outbound task's

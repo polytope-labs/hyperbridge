@@ -98,6 +98,26 @@ pub struct PendingConsensusDeliveryClaim {
 	/// Authority set id brought in by the rotation.
 	pub set_id: u64,
 }
+
+/// In-flight outbound request delivery reward claim.
+///
+/// Pushed by the outbound task after a hyperbridge-originated request is
+/// delivered to `destination`. The claim task waits for Hyperbridge's
+/// consensus client for the destination to verify `delivery_height`, builds
+/// a state proof of `RequestReceipts[commitment]`, signs the claim message
+/// with the destination's signing key, and submits
+/// `pallet_ismp_relayer::claim_outbound_request_delivery_reward`.
+///
+/// Supports both EVM and substrate destinations.
+#[derive(Debug, Clone)]
+pub struct PendingRequestDeliveryClaim {
+	/// Destination chain the request was delivered to.
+	pub destination: StateMachine,
+	/// Destination block height at which the request was delivered.
+	pub delivery_height: u64,
+	/// Hyperbridge-side commitment of the delivered request.
+	pub commitment: H256,
+}
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},

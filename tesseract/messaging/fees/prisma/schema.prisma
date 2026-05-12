@@ -63,3 +63,33 @@ model OutboundRotationClaims {
   @@unique([dest, set_id], name: "dest_set_id")
   @@index([status])
 }
+
+// In-flight outbound request delivery reward claims.
+//
+// Sibling table to OutboundRotationClaims, keyed by the hyperbridge-side
+// request commitment instead of (dest, set_id). One row per delivered
+// hyperbridge-originated request that is eligible for the
+// `claim_outbound_request_delivery_reward` payout. Rows are inserted the
+// moment the outbound task finishes delivering a request whose source is
+// the hyperbridge nexus; the claim task picks them up, waits for HB to see
+// the destination, builds the state proof, submits the extrinsic, and
+// deletes the row on success.
+//
+// Status string values mirror OutboundRotationClaims:
+//   "pending"    – in flight, replay on startup
+//   "claimed"    – extrinsic landed successfully
+//   "abandoned"  – another relayer won the race (e.g.
+//                  OutboundRequestAlreadyClaimed); keep for audit
+model OutboundRequestClaims {
+  id              Int    @id @default(autoincrement())
+  dest            String
+  commitment      String
+  delivery_height BigInt
+  status          String
+  created_at      Int
+  updated_at      Int
+  note            String?
+
+  @@unique([commitment], name: "commitment_unique")
+  @@index([status])
+}

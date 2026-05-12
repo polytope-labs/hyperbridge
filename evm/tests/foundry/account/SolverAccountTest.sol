@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import "forge-std/Test.sol";
-import {SolverAccount} from "../../../src/utils/SolverAccount.sol";
+import {SolverAccount} from "../../../src/apps/intentsv2/SolverAccount.sol";
 import {IntentGatewayV2} from "../../../src/apps/IntentGatewayV2.sol";
 import {
     SelectOptions,

@@ -106,50 +106,6 @@ contract UniV3UniswapV2Wrapper {
     }
 
     /**
-     * @notice Swaps exact amount of ETH for tokens through V3 with deadline protection.
-     * @param amountOutMin The minimum amount of tokens to receive
-     * @param path Array of token addresses representing the swap path
-     * @param recipient Address that will receive the output tokens
-     * @param deadline Unix timestamp deadline by which the transaction must confirm
-     * @return amounts Array of amounts [ethSpent, tokensReceived]
-     */
-    function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address recipient, uint256 deadline)
-        external
-        payable
-        returns (uint256[] memory)
-    {
-        address weth = _params.WETH;
-        if (path[0] != weth) revert InvalidWethAddress();
-
-        (bool sent,) = weth.call{value: msg.value}("");
-        if (!sent) revert DepositFailed();
-
-        IV3SwapRouter.ExactInputSingleParams memory params = IV3SwapRouter.ExactInputSingleParams({
-            tokenIn: weth,
-            tokenOut: path[1],
-            fee: _params.maxFee,
-            recipient: recipient,
-            amountIn: msg.value,
-            amountOutMinimum: amountOutMin,
-            sqrtPriceLimitX96: 0
-        });
-
-        bytes memory swapCall = abi.encodeWithSelector(IV3SwapRouter.exactInputSingle.selector, params);
-
-        bytes[] memory data = new bytes[](1);
-        data[0] = swapCall;
-
-        bytes[] memory results = IMulticallExtended(_params.swapRouter).multicall(deadline, data);
-        uint256 amountReceived = abi.decode(results[0], (uint256));
-
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = msg.value;
-        amounts[1] = amountReceived;
-
-        return amounts;
-    }
-
-    /**
      * @notice Swaps ETH for exact amount of tokens through V3 with deadline protection.
      * @param amountOut The exact amount of tokens to receive
      * @param path Array of token addresses representing the swap path

@@ -6,7 +6,7 @@
 //!
 //! ```text
 //!    ┌───────────────┐   mandatory proofs   ┌────────────────────────────┐
-//!    │ beefy-prover  │ ───────────────────▶ │ ProofBackend (Redis/etc.)  │
+//!    │ tesseract-prover  │ ───────────────────▶ │ ProofBackend (Redis/etc.)  │
 //!    │ (separate)    │                       └─────────────┬──────────────┘
 //!    └───────────────┘                                     │  drain(EpochChanged)
 //!                                                          ▼

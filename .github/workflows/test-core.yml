@@ -7,13 +7,14 @@ on:
         paths:
             - "sdk/packages/core/**"
             - ".github/workflows/test-core.yml"
-    pull_request_target:
+    pull_request:
         branches:
             - main
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "sdk/packages/core/**"
             - ".github/workflows/test-core.yml"
+    workflow_dispatch:
 
 concurrency:
     group: ${{ github.ref }}-core
@@ -26,13 +27,15 @@ jobs:
     compile:
         name: Compile
         # Skip on draft pull requests; run on push, ready PRs, and manual dispatch.
-        if: github.event_name != 'pull_request_target' || github.event.pull_request_target.draft == false
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
         runs-on: ubuntu-latest
         defaults:
             run:
                 working-directory: sdk
         steps:
             - uses: actions/checkout@v3
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
             - name: Install Foundry
               uses: foundry-rs/foundry-toolchain@v1
@@ -42,11 +45,11 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: "18"
+                  node-version: "22"
 
             - uses: pnpm/action-setup@v4
               with:
-                  version: 10
+                  version: 11
                   run_install: false
 
             - name: Get pnpm store directory

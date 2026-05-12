@@ -9,7 +9,7 @@
 //! which are std-only). Under `no_std` only the ABI types + codec impls are emitted,
 //! which is what substrate pallets consume.
 
-pub mod beefy;
+pub mod ecdsa_beefy;
 pub mod erc20;
 pub mod evm_host;
 pub mod handler;

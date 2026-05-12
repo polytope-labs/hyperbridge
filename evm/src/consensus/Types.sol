@@ -14,6 +14,16 @@
 // limitations under the License.
 pragma solidity ^0.8.17;
 
+/**
+ * @notice Shared type definitions for the BEEFY consensus client suite. Contains all structs
+ * used across EcdsaBeefy, FiatShamirBeefy, SP1Beefy, and the ConsensusRouter, as well as
+ * the HeaderImpl library for extracting state commitments from Substrate block headers.
+ */
+
+import {StateCommitment} from "@hyperbridge/core/interfaces/IConsensus.sol";
+import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
+import {ScaleCodec} from "@polytope-labs/solidity-merkle-trees/src/trie/polkadot/ScaleCodec.sol";
+
 struct SP1BeefyProof {
     // BEEFY Commitment message
     MiniCommitment commitment;
@@ -52,6 +62,8 @@ struct PublicInputs {
     uint256 authorities_len;
     // BEEFY mmr leaf hash
     bytes32 leaf_hash;
+    // commitment block number
+    uint256 block_number;
     // Parachain header hashes
     ParachainHeaderHash[] headers;
 }
@@ -153,4 +165,65 @@ struct BeefyConsensusProof {
     RelayChainProof relay;
     // Proof items for parachain headers
     ParachainProof parachain;
+}
+
+struct DigestItem {
+    bytes4 consensusId;
+    bytes data;
+}
+
+struct Digest {
+    bool isPreRuntime;
+    DigestItem preruntime;
+    bool isConsensus;
+    DigestItem consensus;
+    bool isSeal;
+    DigestItem seal;
+    bool isOther;
+    bytes other;
+    bool isRuntimeEnvironmentUpdated;
+}
+
+struct Header {
+    bytes32 parentHash;
+    uint256 number;
+    bytes32 stateRoot;
+    bytes32 extrinsicRoot;
+    Digest[] digests;
+}
+
+library HeaderImpl {
+    /// Digest Item ID
+    bytes4 public constant ISMP_CONSENSUS_ID = bytes4("ISMP");
+    /// ConsensusID for aura
+    bytes4 public constant AURA_CONSENSUS_ID = bytes4("aura");
+    /// Slot duration in milliseconds
+    uint256 public constant SLOT_DURATION = 12_000;
+
+    error TimestampNotFound();
+
+    /// @dev Extracts the ISMP MMR root, child trie root, and AURA timestamp from the header
+    /// digests and returns them as a StateCommitment. Reverts if no AURA timestamp is found.
+    function stateCommitment(Header calldata self) public pure returns (StateCommitment memory) {
+        bytes32 mmrRoot;
+        bytes32 childTrieRoot;
+        uint256 timestamp;
+
+        for (uint256 j = 0; j < self.digests.length; j++) {
+            if (self.digests[j].isConsensus && self.digests[j].consensus.consensusId == ISMP_CONSENSUS_ID) {
+                mmrRoot = Bytes.toBytes32(self.digests[j].consensus.data[:32]);
+                childTrieRoot = Bytes.toBytes32(self.digests[j].consensus.data[32:]);
+            }
+
+            if (self.digests[j].isPreRuntime && self.digests[j].preruntime.consensusId == AURA_CONSENSUS_ID) {
+                uint256 slot = ScaleCodec.decodeUint256(self.digests[j].preruntime.data);
+                timestamp = slot * SLOT_DURATION;
+            }
+        }
+
+        // sanity check
+        if (timestamp == 0) revert TimestampNotFound();
+
+        return StateCommitment({timestamp: timestamp, overlayRoot: mmrRoot, stateRoot: childTrieRoot});
+    }
 }

@@ -8,7 +8,7 @@ use crate::{DataOrHash, Mmr};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{SolCall, SolValue};
 use ismp_solidity_abi::{
-	beefy::Beefy::{IntermediateState, StateCommitment},
+	ecdsa_beefy::Beefy::{IntermediateState, StateCommitment},
 	evm_host::EvmHost::{
 		requestCommitmentsCall, requestReceiptsCall, responseCommitmentsCall, responseReceiptsCall,
 		FeeMetadata, ResponseReceipt,
@@ -343,8 +343,9 @@ impl TestEnv {
 				output: revm::context_interface::result::Output::Call(data),
 				..
 			} => Ok(data.to_vec()),
-			revm::context_interface::result::ExecutionResult::Revert { output, .. } =>
-				Err(output.to_vec()),
+			revm::context_interface::result::ExecutionResult::Revert { output, .. } => {
+				Err(output.to_vec())
+			},
 			other => panic!("call_as_may_revert unexpected result: {other:?}"),
 		}
 	}

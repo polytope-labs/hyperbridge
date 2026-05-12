@@ -10,7 +10,7 @@ export const handleEscrowRefundedEventV2 = wrap(async (event: EscrowRefundedLog)
 	logger.info(`[Intent Gateway V2] Escrow Refunded Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event
-	const { commitment } = args!
+	const { commitment, tokens } = args!
 
 	if (!args) return
 
@@ -20,7 +20,7 @@ export const handleEscrowRefundedEventV2 = wrap(async (event: EscrowRefundedLog)
 	logger.info(
 		`[Intent Gateway V2] Escrow Refunded: ${stringify({
 			commitment,
-		})}`,
+		})}, tokens: ${stringify(tokens)}`,
 	)
 
 	await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.REFUNDED, {

@@ -22,7 +22,10 @@ import PriceHelper from "@/utils/price.helpers"
 import { TokenPriceService } from "./token-price.service"
 import stringify from "safe-stable-stringify"
 import { getOrCreateUser } from "./userActivity.services"
-import { TokenInfo } from "./intentGateway.service"
+export interface TokenInfo {
+	token: Hex
+	amount: bigint
+}
 
 const ENTITY_TYPE = "IOrderV2"
 

@@ -231,7 +231,7 @@ fn dump_sp1_fixture_scale_bytes() {
 	use alloy_sol_types::{SolType, SolValue, sol};
 	use beefy_verifier_primitives::{ConsensusState, PROOF_TYPE_SP1, Sp1BeefyProof};
 	use ismp_solidity_abi::{
-		beefy::Beefy::BeefyConsensusState,
+		ecdsa_beefy::Beefy::BeefyConsensusState,
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 
@@ -286,7 +286,7 @@ fn test_sp1_verify_consensus_accepts_solidity_fixture() {
 	use alloy_sol_types::{SolType, SolValue, sol};
 	use beefy_verifier_primitives::{ConsensusState, Sp1BeefyProof};
 	use ismp_solidity_abi::{
-		beefy::Beefy::BeefyConsensusState,
+		ecdsa_beefy::Beefy::BeefyConsensusState,
 		sp1_beefy::SP1Beefy::{MiniCommitment, ParachainHeader, PartialBeefyMmrLeaf},
 	};
 

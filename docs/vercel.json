@@ -7,7 +7,17 @@
     },
     {
       "source": "/docs/developers/explore/permissionless-relayers/:path*",
-      "destination": "/docs/developers/explore/relayers/:path*",
+      "destination": "/docs/developers/explore/relayers",
+      "permanent": true
+    },
+    {
+      "source": "/docs/developers/explore/relayers/:path*",
+      "destination": "/docs/developers/explore/relayers",
+      "permanent": true
+    },
+    {
+      "source": "/docs/developers/explore/relayer",
+      "destination": "/docs/developers/explore/relayers",
       "permanent": true
     },
     {

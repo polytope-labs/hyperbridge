@@ -1,0 +1,239 @@
+---
+title: Permissionless Relayers
+description: A consolidated guide to Hyperbridge's permissionless relayers — the three roles a single tesseract process performs (consensus, messaging, outbound delivery), and the economic incentives that fund each one.
+---
+
+# Permissionless Relayers
+
+<figure>
+  <img src="/relayers.png" alt="Hyperbridge relayers" />
+  <figcaption style={{ textAlign: "center" }}>Hyperbridge relayers</figcaption>
+</figure>
+
+Relayers are the backbone of the Hyperbridge network. In a departure
+from most interoperability protocols, Hyperbridge's relayer ecosystem
+is fundamentally **permissionless**: any operator can participate
+without staking or whitelisting. The [tesseract relayer](/developers/network/relayer)
+is the single binary that performs every relayer responsibility — there
+is no separate operator class per role.
+
+A running tesseract process carries out three responsibilities:
+
+- **Consensus relaying** — submits finality proofs of connected
+  chains to Hyperbridge so it can verify their state.
+- **Messaging relaying** — delivers user-initiated requests and
+  responses across chains, once consensus has made them verifiable.
+- **Outbound delivery** — fans accepted Hyperbridge consensus and
+  message proofs back out to every configured destination chain.
+
+Each role is independently incentivized, and the incentives compose so
+that a single operator running a single process earns from all three at
+once.
+
+## Shared design principles
+
+The three roles share a free-market design.
+
+- **Permissionless.** No staking or approval is required.
+- **Economically incentivized.** Operators are compensated for every
+  unit of useful work, not running a node.
+- **Competitive.** First-to-submit wins. Latency and infrastructure
+  quality decide who earns each reward.
+
+## Consensus relaying
+
+A consensus relayer monitors a source chain, watches it finalize new
+state, and submits a verifiable consensus proof to Hyperbridge. This
+keeps Hyperbridge's view of every connected chain fresh. Without it
+no cross-chain message can be securely verified.
+
+### Lifecycle
+
+1. The relayer monitors a connected external chain. When that chain
+   finalizes a new block or set of blocks, the relayer constructs a
+   valid consensus proof and submits it as a transaction to
+   Hyperbridge.
+2. The Hyperbridge runtime verifies the proof. If it advances the
+   consensus state of the source chain (i.e. represents a newer
+   height), the proof is accepted.
+3. On acceptance, the runtime emits a `StateMachineUpdated` event —
+   the definitive on-chain record that a state machine has been
+   advanced by the submitting transaction.
+4. Reward issuance is tied directly to that event. The protocol pays
+   a fixed amount of the configured currency from the treasury
+   pallet to the account recovered from the proof submitter's
+   signature, and mints reputation to the same account.
+
+### Rewards
+
+Consensus relayers are paid in Hyperbridge's native currency. On
+mainnet and testnet that is `$BRIDGE`. Alongside the currency reward, the same
+relayer account is credited a **non-transferable reputation asset** at
+a 1:1 ratio. Reputation is the primary input to
+[collator selection](/developers/network/collator): the more proofs
+you submit, the better your chances of being selected to author
+Hyperbridge blocks.
+
+Only the **first relayer** to submit a proof for a given state update
+is rewarded. Later submitters for the same update receive nothing.
+This is what drives the competitive market in low-latency operation.
+
+## Messaging relaying
+
+A messaging relayer delivers a specific user-initiated request or
+response across chains. Its work begins only **after** a consensus
+relayer has provided the finality proof for the block containing the
+user's message.
+
+This service is funded by the user, not the protocol. When dispatching
+a message, the user attaches a fee in an ERC-20 stablecoin chosen per
+host at deployment time. `DAI` is the typical choice on EVM hosts for
+its decentralized properties, though the host stores a configurable
+`feeToken` address that governance can update without a redeploy.
+
+### Selection: a competitive race
+
+Once a request has been finalized on its origin chain and finality
+proofs are available on the destination, the request becomes eligible
+for delivery. The relayer estimates the delivery cost, queries the
+fee posted on the source, and — gated by `minimum_profit_percentage`
+in basis points — either delivers or skips it. The relayer fronts the
+gas and execution cost on the destination, and claims the user-posted
+fee on the source.
+
+A few factors decide which operator wins each race.
+
+- **Event notification.** Relayers are mostly idle. They only check
+  for new messages when the chains they care about receive new
+  consensus messages. Whichever relayer sees the destination block
+  containing the consensus update first can begin checking before
+  anyone else.
+- **Query throughput.** Each relayer must query the new requests,
+  their attached fees, and the simulated execution cost on the
+  destination. Co-located high-performance nodes win.
+- **MEV / proposer-builder integration.** Relayers may integrate with
+  validators auctioning blockspace to guarantee their bundles land
+  first. Priority fees go up; competition wins.
+
+### Claiming fees
+
+Once a relayer successfully delivers a batch of requests, the
+tesseract process automatically claims the associated fees in the
+background. Per-destination fee-accumulation tasks submit delivery
+proofs to Hyperbridge, which verifies them and credits the relayer's
+unclaimed balance. A periodic auto-withdrawal task (governed by
+`withdrawal_frequency` and `minimum_withdrawal_amount` in the
+relayer config) issues a withdrawal extrinsic that emits a POST
+request back to the destination chain. That POST carries no fee and
+is delivered by the same relayer, since other relayers ignore
+zero-fee messages.
+
+## Outbound delivery
+
+Where consensus and messaging both bring proofs **into** Hyperbridge,
+outbound delivery pushes them **out**. After Hyperbridge accepts a
+BEEFY consensus proof, the outbound role fans the proof and any
+accompanying messages out to every configured destination chain so
+those chains can advance their view of Hyperbridge and process
+requests originating from it.
+
+### What outbound delivers
+
+Each outbound submission to a destination chain is a batched payload
+of two things:
+
+- **Consensus proof.** A BEEFY proof attesting to a Hyperbridge
+  state advancement, so the destination's on-chain consensus client
+  can update its view of Hyperbridge.
+- **Messages.** Any cross-chain requests or responses originating
+  from Hyperbridge that target the destination chain.
+
+The two travel in a single transaction, so the destination's view of
+Hyperbridge is advanced atomically with the messages whose authority
+depends on it.
+
+### Trigger and pacing
+
+The outbound task is event driven. Tesseract subscribes to
+`ProofAccepted` events emitted by `pallet-beefy-consensus-proofs` on
+Hyperbridge. Each accepted proof represents an authority-set rotation
+or a new messaging proof ready to be propagated. On every event the
+relayer fetches the proof from Hyperbridge's offchain storage and
+fans out a `(consensus + messages)` submission concurrently to every
+opted-in destination.
+
+The Hyperbridge node MUST expose `offchain_localStorageGet` (typically
+by running with `--rpc-methods=Unsafe`), since that is how the relayer
+reads accepted BEEFY proofs out of offchain storage.
+
+### Mandatory vs opportunistic submissions
+
+Not every accepted proof reaches every chain.
+
+- **Authority-set rotations (mandatory).** When the Hyperbridge
+  validator set rotates, every destination chain must be notified or
+  its on-chain client will fall behind and stop accepting Hyperbridge
+  proofs altogether. The outbound task always propagates these, even
+  if there are no messages targeting that chain.
+- **Messaging-only proofs (opportunistic).** When an accepted proof
+  carries no authority-set change, the relayer skips destinations
+  with no pending messages, avoiding gas on chains that gain nothing
+  from the update.
+
+### Per-chain opt out
+
+Outbound is enabled for every chain whose config block has a
+`signer`. The signer's presence is the toggle, since outbound is the
+role that actually submits transactions on the destination chain.
+Omit `signer` to keep the chain inbound-only — useful when an
+operator only relays events into Hyperbridge without funding a
+wallet on that destination.
+
+```toml
+[some-chain]
+type = "evm"
+rpc_urls = ["https://..."]
+# no signer set — this chain runs in inbound-only mode
+```
+
+Inbound messaging and inbound consensus continue to work without a
+chain-side signer, since both submit on Hyperbridge using the
+`[hyperbridge]` signer.
+
+## Economic incentives at a glance
+
+The three roles draw rewards from three different sources, and each
+source covers a different cost or service.
+
+| Role | Trigger | Reward source | Currency |
+| ---- | ------- | ------------- | -------- |
+| **Consensus relaying** | `StateMachineUpdated` event after an accepted consensus proof. | Hyperbridge treasury (`pallet-consensus-incentives`). | `$BRIDGE` + reputation asset. |
+| **Messaging relaying** | Successful delivery + accumulated delivery proof. | User-attached fee at dispatch time on the source chain. | `DAI` (or the host-configured `feeToken`). |
+| **Outbound delivery (live)** | `ProofAccepted` event for a BEEFY proof submitted to Hyperbridge. | Hyperbridge treasury (`pallet-beefy-consensus-proofs::ProofReward`). | Runtime-configured `Currency`, typically `$BRIDGE`. |
+| **Outbound delivery (roadmap)** | Per-delivery on each destination chain. | Direct per-delivery reward, not yet live. | TBD. |
+
+A single tesseract process performs all three roles, so the incentives
+compose: consensus updates earn `$BRIDGE` directly; BEEFY proof
+acceptance earns `$BRIDGE` again (in the standard deployment topology,
+the same operator runs both the BEEFY prover and tesseract); inbound
+messaging on the destination earns user-paid `DAI` once outbound has
+caught the chain up. Outbound is the prerequisite for inbound earnings
+on any given destination.
+
+The currently-live outbound reward is paid to the account named on the
+BEEFY proof payload — whichever operator-side process actually pushes
+the proof to Hyperbridge. The reward amount is governance-set via the
+root-only `set_proof_reward` extrinsic.
+
+A direct per-delivery reward for the destination-chain submission step
+is on the roadmap. Until it lands, the destination-side gas cost is
+offset by the inbound messaging fees the same relayer collects on the
+destination once outbound has caught the chain up.
+
+## Configuration
+
+For installation, configuration, and paste-ready per-chain blocks, see
+[Running a Hyperbridge Relayer](/developers/network/relayer). Every
+chain that appears in the relayer config picks up inbound messaging
+and inbound consensus by default; setting a `signer` opts the chain
+into the outbound fan-out.

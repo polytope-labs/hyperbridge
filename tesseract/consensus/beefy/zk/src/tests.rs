@@ -4,7 +4,7 @@ use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_solidity_abi::{
-	ecdsa_beefy::{BeefyConsensusProof, BeefyConsensusState},
+	ecdsa_beefy::BeefyConsensusState,
 	sp1_beefy::SP1BeefyProof,
 };
 use serde::Deserialize;
@@ -108,60 +108,36 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 
 	println!("Parachains Onboarded");
 
-	// ============================================================================
-	// ZK Prover Setup (Commented out - using naive prover instead)
-	// ============================================================================
-	// let sp1_prover = sp1_beefy::cluster::ClusterProver::new(
-	// 	"http://127.0.0.1:50051".to_string(),
-	// 	"redis://:redispassword@127.0.0.1:6379".to_string(),
-	// )
-	// .await?;
+	// Local SP1 prover (single GPU). ClusterProver requires moongate + redis.
+	let sp1_prover = sp1_beefy::local::LocalProver::new().await.unwrap();
 
-	// let sp1_prover = sp1_beefy::local::LocalProver::new().await.unwrap();
+	let prover = crate::Prover::new(
+		beefy_prover::Prover {
+			beefy_activation_block: activation_block,
+			relay: relay.clone(),
+			relay_rpc: relay_rpc.clone(),
+			relay_rpc_client: relay_rpc_client.clone(),
+			para,
+			para_rpc,
+			para_rpc_client,
+			para_ids: vec![para_id],
+			query_batch_size: None,
+		},
+		sp1_prover,
+	);
 
-	// let prover = crate::Prover::new(
-	// 	beefy_prover::Prover {
-	// 		beefy_activation_block: activation_block,
-	// 		relay: relay.clone(),
-	// 		relay_rpc: relay_rpc.clone(),
-	// 		relay_rpc_client: relay_rpc_client.clone(),
-	// 		para,
-	// 		para_rpc,
-	// 		para_rpc_client,
-	// 		para_ids: vec![para_id],
-	// 		query_batch_size: None,
-	// 	},
-	// 	sp1_prover,
-	// );
-
-	// ============================================================================
-	// Naive Prover Setup (Active)
-	// ============================================================================
-	let prover = beefy_prover::Prover {
-		beefy_activation_block: activation_block,
-		relay: relay.clone(),
-		relay_rpc: relay_rpc.clone(),
-		relay_rpc_client: relay_rpc_client.clone(),
-		para,
-		para_rpc,
-		para_rpc_client,
-		para_ids: vec![],
-		query_batch_size: None,
-	};
-
-	// Get initial consensus state
-	let consensus_state = prover.get_initial_consensus_state(None).await?;
-
-	// Log the ABI-encoded BeefyConsensusState
-	let encoded_consensus_state =
+	// Get initial consensus state — also the "previousState" the on-chain verify() consumes.
+	let consensus_state = prover.inner.get_initial_consensus_state(None).await?;
+	let previous_state =
 		hex::encode(BeefyConsensusState::from(consensus_state.clone()).abi_encode());
 	println!("\n=== Initial Consensus State (ABI-encoded) ===");
-	println!("0x{}", encoded_consensus_state);
+	println!("0x{}", previous_state);
 	println!("\n=== Consensus State Details ===");
 	println!("{:#?}", consensus_state);
 	println!("==============================================\n");
 
 	let mut subscription: RpcSubscription<String> = prover
+		.inner
 		.relay_rpc_client
 		.subscribe(
 			"beefy_subscribeJustifications",
@@ -175,36 +151,42 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 		let VersionedFinalityProof::V1(signed_commitment) =
 			VersionedFinalityProof::<u32, Signature>::decode(&mut &*commitment)?;
 
-		match signed_commitment.commitment.validator_set_id {
-			id if id < consensus_state.current_authorities.id => {
-				// If validator set id of signed commitment is less than current validator set id we
-				// have Then commitment is outdated and we skip it.
-				println!(
-					"Skipping outdated commitment \n Received signed commitmment with
-	validator_set_id: {:?}\n Current authority set id: {:#?}\n Next authority set id: {:?}\n",
-					signed_commitment.commitment.validator_set_id,
-					consensus_state.current_authorities.id,
-					consensus_state.current_authorities.id
-				);
-				continue;
-			},
-			_ => {},
-		};
+		if signed_commitment.commitment.validator_set_id < consensus_state.current_authorities.id {
+			println!(
+				"Skipping outdated commitment validator_set_id={} current={}",
+				signed_commitment.commitment.validator_set_id,
+				consensus_state.current_authorities.id,
+			);
+			continue;
+		}
 
-		// Naive prover consensus proof
-		let proof: BeefyConsensusProof =
-			prover.consensus_proof(signed_commitment.clone()).await?.into();
+		println!(
+			"\nGenerating SP1 proof for block={} validator_set_id={} ...",
+			signed_commitment.commitment.block_number,
+			signed_commitment.commitment.validator_set_id,
+		);
 
-		println!("\n=== Consensus proof (ABI-encoded) ===");
-		println!("0x{}", hex::encode([&[0u8], proof.abi_encode().as_slice()].concat()));
+		let sp1_proof: SP1BeefyProof = prover
+			.consensus_proof(signed_commitment.clone(), consensus_state.clone())
+			.await?;
+
+		let encoded_proof = hex::encode(sp1_proof.abi_encode());
+		println!("\n=== SP1Beefy Proof (ABI-encoded SP1BeefyProof) ===");
+		println!("0x{}", encoded_proof);
 		println!("==============================================\n");
 
-		// ============================================================================
-		// ZK Prover Call (Commented out)
-		// ============================================================================
-		// prover
-		// 	.consensus_proof(signed_commitment.clone(), consensus_state.clone())
-		// 	.await?;
+		let fixture = serde_json::json!({
+			"block_number": signed_commitment.commitment.block_number,
+			"validator_set_id": signed_commitment.commitment.validator_set_id,
+			"para_id": para_id,
+			"previous_state": format!("0x{}", previous_state),
+			"proof": format!("0x{}", encoded_proof),
+		});
+		let out_path =
+			std::env::var("FIXTURE_OUT").unwrap_or_else(|_| "/tmp/sp1_beefy_fixture.json".into());
+		tokio::fs::write(&out_path, serde_json::to_string_pretty(&fixture)?).await?;
+		println!("Fixture written to {}", out_path);
+		break;
 	}
 
 	Ok(())

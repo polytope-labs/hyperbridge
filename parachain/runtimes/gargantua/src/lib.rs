@@ -249,7 +249,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 6_500,
+	spec_version: 6_600,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -918,6 +918,7 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type TxPause = pallet_tx_pause;
+	#[cfg(not(feature = "no-bandwidth"))]
 	#[runtime::pallet_index(87)]
 	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(90)]

@@ -17,26 +17,25 @@ docker pull polytopelabs/prover:latest
 
 ### Configuration
 
-Create a `config.toml` file:
+Create a `config.toml` file. Use the **Testnet** tab for proving Gargantua finality on Paseo, or **Mainnet** for proving Nexus finality on Polkadot.
+
+<Tabs items={['Testnet', 'Mainnet']}>
+  <Tab value="Testnet">
 
 ```toml lineNumbers
 [prover]
-# Relay chain (Paseo) RPC websocket endpoint
-relay_rpc_ws = "wss://paseo-rpc.polkadot.io"
-# Hyperbridge parachain RPC websocket endpoint
+# Polkadot Paseo (testnet relay chain) RPC websocket endpoint
+relay_rpc_ws = "wss://paseo.ibp.network"
+# Gargantua (testnet parachain) RPC websocket endpoint
 para_rpc_ws = "wss://gargantua.rpc.polytope.technology"
-# Hyperbridge parachain ID on the relay chain
+# Gargantua's para_id on Paseo
 para_ids = [4009]
-# Proof strategy: "naive" (no GPU) or "zk" (requires CUDA GPU)
+# Proof strategy: "ecdsa" (no GPU, testnet default) or "sp1" (requires CUDA GPU)
 proof_variant = "ecdsa"
 
 [substrate]
-# Hyperbridge state machine identifier
-state_machine = "KUSAMA-4009"
-# Hyperbridge parachain RPC
+# Gargantua parachain RPC
 rpc_ws = "wss://gargantua.rpc.polytope.technology"
-# Hashing algorithm used by the chain
-hashing = "Keccak"
 # SR25519 secret key for signing proof submissions (hex-encoded)
 signer = "0x<your_sr25519_secret_key>"
 
@@ -46,6 +45,36 @@ consensus_state_id = "PAS0"
 # Minimum number of blocks after a message before proving finality (0 = prove immediately)
 minimum_finalization_height = 0
 ```
+
+  </Tab>
+  <Tab value="Mainnet">
+
+```toml lineNumbers
+[prover]
+# Polkadot (mainnet relay chain) RPC websocket endpoint
+relay_rpc_ws = "wss://polkadot.ibp.network"
+# Nexus (mainnet parachain) RPC websocket endpoint
+para_rpc_ws = "wss://nexus.rpc.polytope.technology"
+# Nexus's para_id on Polkadot
+para_ids = [3367]
+# Proof strategy: "sp1" (mainnet — requires CUDA GPU)
+proof_variant = "sp1"
+
+[substrate]
+# Nexus parachain RPC
+rpc_ws = "wss://nexus.rpc.polytope.technology"
+# SR25519 secret key for signing proof submissions (hex-encoded)
+signer = "0x<your_sr25519_secret_key>"
+
+[beefy]
+# Consensus state identifier used by pallet-ismp
+consensus_state_id = "DOT0"
+# Minimum number of blocks after a message before proving finality (0 = prove immediately)
+minimum_finalization_height = 0
+```
+
+  </Tab>
+</Tabs>
 
 <Callout type="warn">
 The `signer` field is the SR25519 secret key that will sign proof submissions. The corresponding account does not need any balance — proof submission uses unsigned extrinsics. However, this account will receive `$BRIDGE` rewards and Reputation Asset tokens for accepted proofs.

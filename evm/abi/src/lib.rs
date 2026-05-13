@@ -27,7 +27,6 @@ extern crate alloc;
 mod generated;
 
 pub mod conversions;
-pub mod shared_types;
 
 pub use conversions::*;
 pub use generated::*;

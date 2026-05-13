@@ -89,7 +89,7 @@ where
 		);
 
 		let sudo_payload = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
-		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
+		send_extrinsic(&self.client, &signer, &sudo_payload, None, true).await?;
 
 		Ok(())
 	}
@@ -106,7 +106,7 @@ where
 		let sudo_payload =
 			subxt::dynamic::tx("Sudo", "sudo", vec![host_executive_payload.into_value()]);
 		let signer = InMemorySigner::new(self.signer.clone());
-		send_extrinsic(&self.client, &signer, &sudo_payload, None).await?;
+		send_extrinsic(&self.client, &signer, &sudo_payload, None, true).await?;
 
 		Ok(())
 	}

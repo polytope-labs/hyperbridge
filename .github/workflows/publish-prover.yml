@@ -33,7 +33,7 @@ jobs:
               id: version
               run: |
                   sudo apt-get update -y && sudo apt-get install -y jq
-                  VERSION=$(grep '^version' tesseract/consensus/relayer/Cargo.toml | head -1 | sed -E 's/.*"(.+)".*/\1/')
+                  VERSION=$(grep '^version' tesseract/prover/Cargo.toml | head -1 | sed -E 's/.*"(.+)".*/\1/')
                   echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
             - name: Set up Docker Buildx

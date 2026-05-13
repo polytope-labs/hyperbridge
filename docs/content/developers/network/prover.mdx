@@ -77,12 +77,15 @@ minimum_finalization_height = 0
 </Tabs>
 
 <Callout type="warn">
-The `signer` field is the SR25519 secret key that will sign proof submissions. The corresponding account does not need any balance — proof submission uses unsigned extrinsics. However, this account will receive `$BRIDGE` rewards and Reputation Asset tokens for accepted proofs.
+The `signer` field is the SR25519 secret key that will sign proof submissions. Proof submission is a **signed extrinsic**, so the account must hold a small balance for transaction fees. Fees are **refunded when a proof is accepted**, but the submitter is **charged when a proof arrives too late** (i.e. the chain has already advanced past it). Accepted proofs also earn `$BRIDGE` rewards and Reputation Asset tokens.
 </Callout>
 
 ### Docker Compose
 
-Create a `docker-compose.yml`:
+Create a `docker-compose.yml`. The **Mainnet** variant adds a GPU reservation and a bind mount to `$HOME/.sp1` so the ~8 GB of SP1 circuit artifacts downloaded on first run survive container recreates.
+
+<Tabs items={['Testnet', 'Mainnet']}>
+  <Tab value="Testnet">
 
 ```yaml lineNumbers
 services:
@@ -93,9 +96,38 @@ services:
     volumes:
       - ./config.toml:/app/config.toml:ro
     environment:
-      RUST_LOG: info,moongate_core=off
+      RUST_LOG: info,moongate_core=off,sp1_beefy=trace,beefy_prover=trace
     command: ["--config", "/app/config.toml"]
 ```
+
+  </Tab>
+  <Tab value="Mainnet">
+
+```yaml lineNumbers
+services:
+  tesseract-prover:
+    image: polytopelabs/prover:latest
+    restart: always
+    network_mode: host
+    volumes:
+      - ./config.toml:/app/config.toml:ro
+      # Persist the ~8 GB of SP1 circuit artifacts on the host so they survive
+      # container recreates. The directory will be created on first run.
+      - ${HOME}/.sp1:/root/.sp1
+    environment:
+      RUST_LOG: info,moongate_core=off,sp1_beefy=trace,beefy_prover=trace
+    command: ["--config", "/app/config.toml"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+```
+
+  </Tab>
+</Tabs>
 
 Start the prover:
 
@@ -128,35 +160,3 @@ docker compose logs -f tesseract-prover
 | RAM | 64 GB |
 | Network | 100 Mb/s |
 | GPU | NVIDIA RTX 4090 or newer (CUDA required) |
-
-<Callout type="info">
-ZK proof generation downloads ~8 GB of SP1 circuit artifacts on first run. These are cached in `/root/.sp1` inside the container. Mount a volume at this path to persist them across restarts.
-</Callout>
-
-### Persisting SP1 artifacts (ZK mode)
-
-When running with `proof_variant = "sp1"`, add a volume for the SP1 cache to avoid re-downloading circuit artifacts on each restart:
-
-```yaml lineNumbers
-services:
-  tesseract-prover:
-    image: polytopelabs/prover:latest
-    restart: always
-    network_mode: host
-    volumes:
-      - ./config.toml:/app/config.toml:ro
-      - sp1-cache:/root/.sp1
-    environment:
-      RUST_LOG: info,moongate_core=off
-    command: ["--config", "/app/config.toml"]
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-volumes:
-  sp1-cache:
-```

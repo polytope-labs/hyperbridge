@@ -267,19 +267,19 @@ const generateChainsTokenGatewayAddresses = () => {
 	console.log("Generated token-gateway-addresses.ts")
 }
 
-const generateChainsIntentGatewayV2Addresses = () => {
-	const intentGatewayV2 = {}
+const generateChainsIntentGatewayV3Addresses = () => {
+	const intentGatewayV3 = {}
 
 	validChains.forEach((config) => {
-		if (config.type === "evm" && config.contracts?.intentGatewayV2) {
-			intentGatewayV2[config.stateMachineId] = config.contracts.intentGatewayV2
+		if (config.type === "evm" && config.contracts?.intentGatewayV3) {
+			intentGatewayV3[config.stateMachineId] = config.contracts.intentGatewayV3
 		}
 	})
 
-	const value = `// Auto-generated, DO NOT EDIT \nexport const INTENT_GATEWAY_V2_ADDRESSES = ${JSON.stringify(intentGatewayV2, null, 2)}`
+	const value = `// Auto-generated, DO NOT EDIT \nexport const INTENT_GATEWAY_V3_ADDRESSES = ${JSON.stringify(intentGatewayV3, null, 2)}`
 
-	fs.writeFileSync(root + "/src/intent-gateway-v2-addresses.ts", value)
-	console.log("Generated intent-gateway-v2-addresses.ts")
+	fs.writeFileSync(root + "/src/intent-gateway-v3-addresses.ts", value)
+	console.log("Generated intent-gateway-v3-addresses.ts")
 }
 
 const generateTestnetStateMachineIds = () => {
@@ -341,7 +341,7 @@ try {
 	generateMultichainYaml()
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
-	generateChainsIntentGatewayV2Addresses()
+	generateChainsIntentGatewayV3Addresses()
 	generateChainsTokenGatewayAddresses()
 	generateTestnetStateMachineIds()
 	generateEnvironmentConfig()

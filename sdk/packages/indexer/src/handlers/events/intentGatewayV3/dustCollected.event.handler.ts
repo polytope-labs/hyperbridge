@@ -1,12 +1,12 @@
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
-import { DustSweptLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV2Abi"
+import { DustCollectedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
 import { ProtocolRevenueService } from "@/services/protocol-revenue.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { wrap } from "@/utils/event.utils"
 
-export const handleDustSweptEvent = wrap(async (event: DustSweptLog): Promise<void> => {
-	logger.info(`[Intent Gateway V2] DustSwept Event: ${stringify(event)}`)
+export const handleDustCollectedEventV3 = wrap(async (event: DustCollectedLog): Promise<void> => {
+	logger.info(`[Intent Gateway V3] DustCollected Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event
 	if (!args) return
@@ -17,13 +17,12 @@ export const handleDustSweptEvent = wrap(async (event: DustSweptLog): Promise<vo
 	const { token, amount } = args
 
 	logger.info(
-		`DustSwept: ${stringify({
+		`DustCollected: ${stringify({
 			token,
 			amount: amount.toString(),
-			beneficiary: args.beneficiary,
 			transactionHash,
 		})}`,
 	)
 
-	await ProtocolRevenueService.recordDustSwept(token, BigInt(amount.toString()), timestamp)
+	await ProtocolRevenueService.recordDustCollected(token, BigInt(amount.toString()), timestamp)
 })

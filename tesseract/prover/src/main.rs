@@ -56,10 +56,12 @@ async fn main() -> Result<(), anyhow::Error> {
 	};
 
 	let substrate = {
-		let substrate_config = config
+		let substrate_config: tesseract_substrate::SubstrateConfig = config
 			.remove("substrate")
-			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?;
-		SubstrateClient::new(substrate_config.try_into()?).await?
+			.ok_or_else(|| anyhow!("Substrate config missing; qed"))?
+			.try_into()?;
+		// Auto-fill state_machine + consensus_state_id from the chain when omitted.
+		SubstrateClient::new(substrate_config.resolve().await?).await?
 	};
 
 	let beefy_prover = {

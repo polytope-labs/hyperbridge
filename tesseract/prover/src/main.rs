@@ -23,8 +23,7 @@ use tesseract_substrate::{
 	config::{Blake2SubstrateChain, KeccakSubstrateChain},
 	SubstrateClient,
 };
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{filter::LevelFilter, util::SubscriberInitExt};
 
 /// CLI interface for BEEFY prover
 #[derive(Parser, Debug)]

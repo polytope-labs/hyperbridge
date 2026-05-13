@@ -135,15 +135,9 @@ pub mod pallet {
 		/// A `BandwidthManager` contract was bound to a source chain by
 		/// admin. Future purchases from that chain are accepted only if
 		/// `request.from` matches.
-		ManagerRegistered {
-			source: StateMachine,
-			manager: H160,
-		},
+		ManagerRegistered { source: StateMachine, manager: H160 },
 		/// A tier SKU was created, updated, or revoked (`config: None`).
-		TierSet {
-			tier: TierIndex,
-			config: Option<TierConfig>,
-		},
+		TierSet { tier: TierIndex, config: Option<TierConfig> },
 		/// A new subscription was appended on the `(app_chain, app)`
 		/// list as a result of a paid purchase from `paid_from`.
 		BandwidthCredited {
@@ -158,19 +152,10 @@ pub mod pallet {
 		/// The gate deducted `bytes` from the head subscription(s) of
 		/// `(source, app)`; `remaining` is the post-deduct sum across
 		/// what's left.
-		BandwidthConsumed {
-			source: StateMachine,
-			app: AppKey,
-			bytes: u128,
-			remaining: u128,
-		},
+		BandwidthConsumed { source: StateMachine, app: AppKey, bytes: u128, remaining: u128 },
 		/// Allowlist membership flipped: `on = true` makes the app
 		/// bypass the gate on `source`, `false` revokes the bypass.
-		AllowlistChanged {
-			source: StateMachine,
-			app: AppKey,
-			on: bool,
-		},
+		AllowlistChanged { source: StateMachine, app: AppKey, on: bool },
 		/// Admin-pushed subscription (migrations, refunds). Shape
 		/// mirrors `BandwidthCredited` minus the cross-chain payer.
 		ForceCredited {
@@ -189,11 +174,7 @@ pub mod pallet {
 			lost_bytes: BandwidthBytes,
 		},
 		/// Outbound `SetTiers` message dispatched to the registered manager.
-		TiersDispatched {
-			target: StateMachine,
-			count: u32,
-			commitment: H256,
-		},
+		TiersDispatched { target: StateMachine, count: u32, commitment: H256 },
 		/// Outbound `Withdraw` message dispatched to the registered manager.
 		WithdrawalDispatched {
 			target: StateMachine,
@@ -429,12 +410,8 @@ pub mod pallet {
 		) -> u64 {
 			let now = <T as pallet_ismp::Config>::TimestampProvider::now().as_secs();
 			let expires_at = now.saturating_add(duration_secs);
-			let new_sub = Subscription {
-				tier,
-				remaining_bytes: bytes,
-				expires_at,
-				purchased_at: now,
-			};
+			let new_sub =
+				Subscription { tier, remaining_bytes: bytes, expires_at, purchased_at: now };
 
 			let evicted = Allowance::<T>::mutate(app_chain, app, |list| {
 				let evicted = if list.len() == MAX_SUBSCRIPTIONS as usize {

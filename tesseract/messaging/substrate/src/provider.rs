@@ -540,7 +540,7 @@ where
 		update_height: StateMachineHeight,
 	) -> BoxStream<StateCommitmentVetoed> {
 		let client = self.clone();
-		let (tx, recv) = tokio::sync::mpsc::channel(32);
+		let (tx, recv) = tokio::sync::mpsc::channel(512);
 		tokio::task::spawn(async move {
 			let mut latest_height = from;
 			let state_machine = client.state_machine;
@@ -603,10 +603,29 @@ where
 
 				match event {
 					Some(event) => {
-						if let Err(err) = tx.send(Ok(event.clone())).await {
-							log::trace!(target: crate::LOG_TARGET, "Failed to send state commitment veto event over channel on {state_machine:?} - {:?} \n {err:?}", update_height.id.state_id);
-							return
-						};
+						// `try_send` so this poller never blocks on a
+						// stalled consumer of the veto stream. On
+						// `Closed` (consumer dropped) we exit the loop;
+						// on `Full` we warn and continue — the next
+						// query window will surface the same veto event.
+						match tx.try_send(Ok(event.clone())) {
+							Ok(()) => {},
+							Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+								log::warn!(
+									target: crate::LOG_TARGET,
+									"state commitment veto channel full on {state_machine:?} - {:?}; event dropped",
+									update_height.id.state_id,
+								);
+							},
+							Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+								log::trace!(
+									target: crate::LOG_TARGET,
+									"state commitment veto channel closed on {state_machine:?} - {:?}",
+									update_height.id.state_id,
+								);
+								return
+							},
+						}
 					},
 					None => {},
 				};
@@ -778,7 +797,7 @@ where
 		use futures::StreamExt;
 
 		let client = self.clone();
-		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(64);
+		let (tx, rx) = tokio::sync::mpsc::channel::<ProofAccepted>(512);
 
 		let initial_height = client.query_finalized_height().await?;
 		let state_machine = client.state_machine;
@@ -813,9 +832,21 @@ where
 					},
 				};
 
+				// `try_send` so the poller never blocks on a slow
+				// consumer. On `Closed`, the receiver is gone — exit.
 				for proof in proofs {
-					if tx.send(proof).await.is_err() {
-						return;
+					match tx.try_send(proof) {
+						Ok(()) => {},
+						Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+							log::warn!(
+								target: crate::LOG_TARGET,
+								"{state_machine:?} ProofAccepted channel full; pausing poll until consumer catches up",
+							);
+							break;
+						},
+						Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+							return;
+						},
 					}
 				}
 

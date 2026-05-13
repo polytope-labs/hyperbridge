@@ -150,8 +150,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 				subxt::dynamic::Value::bool(true),
 			],
 		);
-		let sudo_call =
-			subxt::dynamic::tx("Sudo", "sudo", vec![set_allowlist_call.into_value()]);
+		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![set_allowlist_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
 		let extrinsic: Bytes = rpc_client
 			.request(
@@ -212,10 +211,7 @@ async fn test_txpool_should_reject_duplicate_requests() -> Result<(), anyhow::Er
 	let state_commitment =
 		StateCommitment { timestamp: 0, overlay_root: Some(root), state_root: root };
 	let height = StateMachineHeight {
-		id: StateMachineId {
-			state_id: source.into(),
-			consensus_state_id: *b"PAS0",
-		},
+		id: StateMachineId { state_id: source.into(), consensus_state_id: *b"PAS0" },
 		height: 200,
 	};
 
@@ -439,7 +435,10 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 	// rejects zero values, so a real (bytes, duration_secs) pair is needed
 	// even though `force_credit` doesn't read this row when crediting.
 	let tier_one = || {
-		subxt::dynamic::Value::variant("TierOne", subxt::ext::scale_value::Composite::unnamed(vec![]))
+		subxt::dynamic::Value::variant(
+			"TierOne",
+			subxt::ext::scale_value::Composite::unnamed(vec![]),
+		)
 	};
 	let bandwidth_bytes: u128 = 10 * 1024 * 1024;
 	let duration_secs: u64 = 7 * 24 * 60 * 60;
@@ -452,11 +451,8 @@ async fn test_force_credited_bandwidth_satisfies_gate() -> Result<(), anyhow::Er
 			"Some",
 			subxt::ext::scale_value::Composite::unnamed(vec![tier_config]),
 		);
-		let set_tier_call = subxt::dynamic::tx(
-			"Bandwidth",
-			"set_tier",
-			vec![tier_one(), tier_config_some],
-		);
+		let set_tier_call =
+			subxt::dynamic::tx("Bandwidth", "set_tier", vec![tier_one(), tier_config_some]);
 		let sudo_call = subxt::dynamic::tx("Sudo", "sudo", vec![set_tier_call.into_value()]);
 		let call = client.tx().call_data(&sudo_call)?;
 		let extrinsic: Bytes = rpc_client

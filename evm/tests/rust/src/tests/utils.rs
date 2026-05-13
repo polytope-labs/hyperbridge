@@ -343,9 +343,8 @@ impl TestEnv {
 				output: revm::context_interface::result::Output::Call(data),
 				..
 			} => Ok(data.to_vec()),
-			revm::context_interface::result::ExecutionResult::Revert { output, .. } => {
-				Err(output.to_vec())
-			},
+			revm::context_interface::result::ExecutionResult::Revert { output, .. } =>
+				Err(output.to_vec()),
 			other => panic!("call_as_may_revert unexpected result: {other:?}"),
 		}
 	}

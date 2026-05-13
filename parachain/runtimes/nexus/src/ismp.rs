@@ -27,7 +27,6 @@ use frame_support::{
 	traits::AsEnsureOriginWithArg,
 };
 use frame_system::EnsureRoot;
-use substrate_state_machine::SubstrateStateMachine;
 use ismp::{
 	consensus::StateMachineClient,
 	error::Error,
@@ -45,6 +44,7 @@ use sp_runtime::{traits::Zero, Weight};
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
+use substrate_state_machine::SubstrateStateMachine;
 use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 
 /// Deprecated TokenGateway contract addresses whose incoming ISMP Post requests

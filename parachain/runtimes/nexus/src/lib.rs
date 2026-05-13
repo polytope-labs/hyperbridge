@@ -908,7 +908,6 @@ impl pallet_collator_manager::Config for Runtime {
 	type WeightInfo = ();
 }
 
-
 #[frame_support::runtime]
 mod runtime {
 	use governance::Origin;

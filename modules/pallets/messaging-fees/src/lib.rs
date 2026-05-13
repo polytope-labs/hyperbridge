@@ -76,9 +76,7 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
-	pub trait Config:
-		polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>>
-	{
+	pub trait Config: polkadot_sdk::frame_system::Config<RuntimeEvent: From<Event<Self>>> {
 		/// The fungible asset minted to relayers.
 		type ReputationAsset: fungible::Mutate<Self::AccountId>;
 		/// Origin allowed to update the per-byte mint rate.
@@ -99,14 +97,8 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		MintRateUpdated {
-			amount: BalanceOf<T>,
-		},
-		ReputationMinted {
-			relayer: T::AccountId,
-			bytes: u32,
-			amount: BalanceOf<T>,
-		},
+		MintRateUpdated { amount: BalanceOf<T> },
+		ReputationMinted { relayer: T::AccountId, bytes: u32, amount: BalanceOf<T> },
 	}
 
 	#[pallet::call]
@@ -114,10 +106,7 @@ pub mod pallet {
 		/// Update the per-byte mint rate. Pass zero to disable minting.
 		#[pallet::call_index(0)]
 		#[pallet::weight(Weight::from_parts(10_000_000, 0).saturating_add(T::DbWeight::get().writes(1)))]
-		pub fn set_mint_per_byte(
-			origin: OriginFor<T>,
-			amount: BalanceOf<T>,
-		) -> DispatchResult {
+		pub fn set_mint_per_byte(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
 			T::AdminOrigin::ensure_origin(origin)?;
 			MintPerByte::<T>::put(amount);
 			Self::deposit_event(Event::MintRateUpdated { amount });
@@ -134,19 +123,14 @@ where
 	/// so undersized payloads can't game the mint by being charged 0.
 	fn message_bytes(message: &Message) -> u32 {
 		let raw = match message {
-			Message::Request(req) =>
-				req.requests.iter().map(|p| p.body.len()).sum::<usize>(),
+			Message::Request(req) => req.requests.iter().map(|p| p.body.len()).sum::<usize>(),
 			Message::Response(res) => match &res.datagram {
 				RequestResponse::Response(responses) => responses
 					.iter()
 					.map(|r| match r {
 						Response::Post(p) => p.response.len(),
-						Response::Get(g) => g
-							.values
-							.iter()
-							.filter_map(|v| v.value.as_ref())
-							.map(|b| b.len())
-							.sum(),
+						Response::Get(g) =>
+							g.values.iter().filter_map(|v| v.value.as_ref()).map(|b| b.len()).sum(),
 					})
 					.sum(),
 				RequestResponse::Request(_) => 0,
@@ -194,11 +178,8 @@ where
 				}
 				if let Some(relayer) = Self::relayer_for(&mw.message) {
 					match T::ReputationAsset::mint_into(&relayer, amount) {
-						Ok(_) => Self::deposit_event(Event::ReputationMinted {
-							relayer,
-							bytes,
-							amount,
-						}),
+						Ok(_) =>
+							Self::deposit_event(Event::ReputationMinted { relayer, bytes, amount }),
 						Err(err) => log::warn!(
 							target: "messaging-fees",
 							"reputation mint failed for {bytes}b: {err:?}",

@@ -20,8 +20,8 @@ export { handleOrderFilledEventV2 } from "@/handlers/events/intentGatewayV2/orde
 export { handlePartialFilledEventV2 } from "@/handlers/events/intentGatewayV2/partialFilledV2.event.handler"
 export { handleEscrowReleasedEventV2 } from "@/handlers/events/intentGatewayV2/escrowReleasedV2.event.handler"
 export { handleEscrowRefundedEventV2 } from "@/handlers/events/intentGatewayV2/escrowRefundedV2.event.handler"
-export { handleDustCollectedEvent } from "@/handlers/events/intentGatewayV2/dustCollected.event.handler"
-export { handleDustSweptEvent } from "@/handlers/events/intentGatewayV2/dustSwept.event.handler"
+export { handleDustCollectedEventV2 } from "@/handlers/events/intentGatewayV2/dustCollected.event.handler"
+export { handleDustSweptEventV2 } from "@/handlers/events/intentGatewayV2/dustSwept.event.handler"
 
 // Token Gateway Handlers
 export { handleAssetTeleportedEvent } from "@/handlers/events/tokenGateway/assetTeleported.event.handler"

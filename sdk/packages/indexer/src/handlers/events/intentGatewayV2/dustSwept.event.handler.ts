@@ -5,7 +5,7 @@ import { ProtocolRevenueService } from "@/services/protocol-revenue.service"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { wrap } from "@/utils/event.utils"
 
-export const handleDustSweptEvent = wrap(async (event: DustSweptLog): Promise<void> => {
+export const handleDustSweptEventV2 = wrap(async (event: DustSweptLog): Promise<void> => {
 	logger.info(`[Intent Gateway V2] DustSwept Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event

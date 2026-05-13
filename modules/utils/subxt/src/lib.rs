@@ -70,7 +70,7 @@ pub mod signer {
 	use polkadot_sdk::sp_core::{sr25519, Pair};
 	use subxt::{
 		config::{ExtrinsicParams, HashFor},
-		tx::{DefaultParams, Signer},
+		tx::{DefaultParams, Signer, TxInBlock, TxProgress, TxStatus},
 		utils::{AccountId32, MultiSignature},
 		OnlineClient,
 	};
@@ -119,6 +119,7 @@ pub mod signer {
 		signer: &InMemorySigner<T>,
 		payload: &Tx,
 		_tip: Option<u128>,
+		wait_for_finalization: bool,
 	) -> Result<HashFor<T>, anyhow::Error>
 	where
 		T::AccountId: Into<T::Address> + Clone + 'static,
@@ -130,11 +131,15 @@ pub mod signer {
 		let progress = ext.submit_and_watch().await.context("Failed to submit signed extrinsic")?;
 		let ext_hash = progress.extrinsic_hash();
 
-		let extrinsic = match progress.wait_for_finalized().await {
-			Ok(p) => p,
-			Err(err) => Err(refine_subxt_error(err)).context(format!(
-				"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
-			))?,
+		let extrinsic = if wait_for_finalization {
+			match progress.wait_for_finalized().await {
+				Ok(p) => p,
+				Err(err) => Err(refine_subxt_error(err)).context(format!(
+					"Error waiting for signed extrinsic in block with hash {ext_hash:?}"
+				))?,
+			}
+		} else {
+			wait_for_inblock::<T>(progress).await?
 		};
 
 		match extrinsic.wait_for_success().await {
@@ -143,6 +148,24 @@ pub mod signer {
 				Err(err).context(format!("Error executing signed extrinsic {ext_hash:?}"))?,
 		};
 		Ok(extrinsic.block_hash())
+	}
+
+	/// Resolve once the extrinsic appears in a (best) block, without waiting for finality.
+	async fn wait_for_inblock<T: subxt::Config>(
+		mut progress: TxProgress<T, OnlineClient<T>>,
+	) -> Result<TxInBlock<T, OnlineClient<T>>, anyhow::Error> {
+		let ext_hash = progress.extrinsic_hash();
+		while let Some(status) = progress.next().await {
+			match status? {
+				TxStatus::InFinalizedBlock(s) | TxStatus::InBestBlock(s) => return Ok(s),
+				TxStatus::Error { .. } | TxStatus::Invalid { .. } | TxStatus::Dropped { .. } =>
+					return Err(anyhow!(
+						"signed extrinsic {ext_hash:?} failed before reaching a block"
+					)),
+				_ => {},
+			}
+		}
+		Err(anyhow!("signed extrinsic {ext_hash:?} stream ended without in-block status"))
 	}
 }
 

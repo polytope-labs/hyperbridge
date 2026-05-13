@@ -66,7 +66,7 @@ print_usage() {
     echo ""
     echo "Available Chains:"
     echo "  Testnets: sepolia, optimism-sepolia, arbitrum-sepolia, base-sepolia,"
-    echo "            polygon-amoy, bsc-testnet, gnosis-chiado, sei-testnet, pharos-testnet"
+    echo "            polygon-amoy, bsc-testnet, gnosis-chiado, polkadot-testnet, pharos-testnet"
     echo ""
     echo "  Mainnets: ethereum, optimism, arbitrum, base, bsc, gnosis,"
     echo "            soneium, polygon, unichain, inkchain, sei"
@@ -278,7 +278,7 @@ for chain in "${CHAIN_ARRAY[@]}"; do
     echo ""
 
     # Build forge command for this chain (using single-chain run())
-    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 300"
+    FORGE_CMD="forge script $SCRIPT_PATH --sig \"run()\" --rpc-url $chain -g 150"
 
     # Detect blockscout chains for verification
     VERIFIER_FLAGS=""
@@ -290,10 +290,13 @@ for chain in "${CHAIN_ARRAY[@]}"; do
             VERIFIER_FLAGS="--verifier blockscout --verifier-url https://gnosis-chiado.blockscout.com/api/ --verifier-api-key $GNOSIS_BLOCKSCOUT_API_KEY"
             ;;
         polkadot-testnet)
-            VERIFIER_FLAGS="--verifier blockscout --verifier-url https://blockscout-testnet.polkadot.io/api/"
+            VERIFIER_FLAGS="--verifier custom --verifier-url https://api.routescan.io/v2/network/testnet/evm/420420417/etherscan --verifier-api-key verifyContract"
             ;;
         pharos-testnet)
-            VERIFIER_FLAGS="--verifier custom --verifier-url $PHAROS_EXPLORER_API_URL --verifier-api-key verifyContract"
+            # Pharos uses SocialScan. Its etherscan-compatible endpoint requires any
+            # non-empty --verifier-api-key (the value is ignored). See
+            # https://thehemera.gitbook.io/explorer-api/verify-smart-contract/verify-smart-contract/verify-through-foundry
+            VERIFIER_FLAGS="--verifier etherscan --verifier-url $PHAROS_EXPLORER_API_URL --verifier-api-key ${PHAROS_EXPLORER_API_KEY:-verifyContract}"
             ;;
     esac
 

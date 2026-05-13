@@ -235,7 +235,7 @@ pub async fn set_arbitrum_config_on_hyperbridge(
 	let call = subxt::dynamic::tx("IsmpArbitrum", "set_rollup_core_address", inner_tx_args);
 
 	let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
-	send_extrinsic(&client.client, &signer, &tx, None).await?;
+	send_extrinsic(&client.client, &signer, &tx, None, true).await?;
 
 	Ok(())
 }
@@ -273,7 +273,7 @@ pub async fn set_optimism_config_on_hyperbridge(
 	let call = subxt::dynamic::tx("IsmpOptimism", "set_dispute_game_factories", inner_tx_args);
 	println!("constructing sudo call");
 	let tx = subxt::dynamic::tx("Sudo", "sudo", vec![call.into_value()]);
-	send_extrinsic(&client.client, &signer, &tx, None).await?;
+	send_extrinsic(&client.client, &signer, &tx, None, true).await?;
 
 	Ok(())
 }

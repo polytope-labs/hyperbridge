@@ -28587,7 +28587,7 @@ dependencies = [
 
 [[package]]
 name = "tesseract-prover"
-version = "1.9.0"
+version = "1.9.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -32099,12 +32099,14 @@ dependencies = [
  "ismp",
  "ismp-solidity-abi",
  "log",
+ "pallet-ismp",
  "parity-scale-codec",
  "polkadot-ckb-merkle-mountain-range",
  "polkadot-sdk",
  "primitive-types 0.13.1",
  "rs_merkle",
  "serde",
+ "serde_json",
  "sp-consensus-beefy",
  "sp-core",
  "sp-crypto-hashing",

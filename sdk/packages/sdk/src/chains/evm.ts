@@ -804,7 +804,7 @@ export class EvmChain implements IChain {
 			args: contractArgs,
 		})
 
-		const gas = await this.publicClient.estimateContractGas({
+		let gas = await this.publicClient.estimateContractGas({
 			address: hostParams.handler,
 			abi: HandlerV2.ABI,
 			functionName: "handlePostRequests",
@@ -821,6 +821,9 @@ export class EvmChain implements IChain {
 				},
 			],
 		})
+
+		// Add the cost of consensus verification (~600k gas)
+		gas += 600_000n
 
 		return { gas, postRequestCalldata }
 	}

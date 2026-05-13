@@ -80,6 +80,43 @@ minimum_finalization_height = 0
 The `signer` field is the SR25519 secret key that will sign proof submissions. Proof submission is a **signed extrinsic**, so the account must hold a small balance for transaction fees. Fees are **refunded when a proof is accepted**, but the submitter is **charged when a proof arrives too late** (i.e. the chain has already advanced past it). Accepted proofs also earn `$BRIDGE` rewards and Reputation Asset tokens.
 </Callout>
 
+### Host Prerequisites (SP1 / GPU mode)
+
+Before running with `proof_variant = "sp1"`, the host needs the following. CUDA libraries themselves ship inside the prover image — no host CUDA install required.
+
+<Steps>
+<Step>
+### Install the NVIDIA driver
+
+Install a driver that matches your GPU (e.g. ≥ 580 for Blackwell RTX 50xx). Verify:
+
+```bash lineNumbers
+nvidia-smi
+```
+</Step>
+<Step>
+### Install Docker and Docker Compose v2
+
+Follow the official Docker install guide for your distro:
+[Install Docker Engine](https://docs.docker.com/engine/install/).
+The `docker compose` plugin (v2) is included with current Docker Engine releases — the legacy `docker-compose` binary is not supported.
+</Step>
+<Step>
+### Install the NVIDIA Container Toolkit
+
+Install per the official guide so Docker can expose the GPU to containers:
+[Installing the NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
+then configure the Docker runtime:
+[Configuring Docker](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html#configuring-docker).
+
+Verify the toolkit can hand the GPU to a container:
+
+```bash lineNumbers
+docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi
+```
+</Step>
+</Steps>
+
 ### Docker Compose
 
 Create a `docker-compose.yml`. The **Mainnet** variant adds a GPU reservation and a bind mount to `$HOME/.sp1` so the ~8 GB of SP1 circuit artifacts downloaded on first run survive container recreates.

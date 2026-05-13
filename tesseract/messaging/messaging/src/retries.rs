@@ -385,14 +385,18 @@ pub async fn retry_unprofitable_messages(
 									receipts.len()
 								)
 							}
-							// Send receipts to the fee accumulation task
-							match fee_acc_sender.send(receipts).await {
-								Err(_sent) => {
-									tracing::error!(
-										target: crate::LOG_TARGET, "Fee auto accumulation failed You can try again manually"
-									)
-								},
-								_ => {},
+							// Send receipts to the fee accumulation task.
+							// `try_send` so this retry path never blocks on a
+							// backed-up consumer; deliveries were already
+							// persisted to the local DB just above, so the
+							// `accumulate-fees` subcommand can recover any
+							// dropped trigger.
+							if let Err(err) = fee_acc_sender.try_send(receipts) {
+								tracing::error!(
+									target: crate::LOG_TARGET,
+									?err,
+									"Fee auto accumulation channel send failed; you can try again manually",
+								);
 							}
 						}
 					}

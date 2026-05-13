@@ -66,7 +66,6 @@ export const TRON_CHAIN_IDS: ReadonlySet<string> = new Set(["3448148188", "72812
 import ENV_CONFIG from "./env-config.json"
 import { CHAIN_IDS_BY_GENESIS } from "./chain-ids-by-genesis"
 import { CHAINS_BY_ISMP_HOST } from "./chains-by-ismp-host"
-import { INTENT_GATEWAY_ADDRESSES } from "./intent-gateway-addresses"
 import { INTENT_GATEWAY_V3_ADDRESSES } from "./intent-gateway-v3-addresses"
 import { TOKEN_GATEWAY_ADDRESSES } from "./token-gateway-addresses"
 export {
@@ -74,7 +73,6 @@ export {
 	CHAINS_BY_ISMP_HOST,
 	ENV_CONFIG,
 	TOKEN_GATEWAY_ADDRESSES,
-	INTENT_GATEWAY_ADDRESSES,
 	INTENT_GATEWAY_V3_ADDRESSES,
 }
 

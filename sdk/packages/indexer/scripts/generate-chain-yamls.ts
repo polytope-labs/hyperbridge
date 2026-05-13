@@ -267,22 +267,6 @@ const generateChainsTokenGatewayAddresses = () => {
 	console.log("Generated token-gateway-addresses.ts")
 }
 
-const generateChainsIntentGatewayAddresses = () => {
-	const intentGateway = {}
-
-	validChains.forEach((config) => {
-		// Only include EVM chains with ethereumHost contract
-		if (config.type === "evm" && config.contracts?.intentGateway) {
-			intentGateway[config.stateMachineId] = config.contracts.intentGateway
-		}
-	})
-
-	const value = `// Auto-generated, DO NOT EDIT \nexport const INTENT_GATEWAY_ADDRESSES = ${JSON.stringify(intentGateway, null, 2)}`
-
-	fs.writeFileSync(root + "/src/intent-gateway-addresses.ts", value)
-	console.log("Generated intent-gateway-addresses.ts")
-}
-
 const generateChainsIntentGatewayV3Addresses = () => {
 	const intentGatewayV3 = {}
 
@@ -357,7 +341,6 @@ try {
 	generateMultichainYaml()
 	generateChainIdsByGenesis()
 	generateChainsByIsmpHost()
-	generateChainsIntentGatewayAddresses()
 	generateChainsIntentGatewayV3Addresses()
 	generateChainsTokenGatewayAddresses()
 	generateTestnetStateMachineIds()

@@ -37,12 +37,12 @@ use pallet_assets::BenchmarkHelper;
 use polkadot_sdk::{sp_weights::WeightToFee, *};
 use sp_core::{crypto::AccountId32, H256};
 
-use substrate_state_machine::SubstrateStateMachine;
 use ismp::{consensus::StateMachineClient, router::Timeout};
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;
 use sp_std::prelude::*;
+use substrate_state_machine::SubstrateStateMachine;
 
 #[derive(Default)]
 pub struct ProxyModule;

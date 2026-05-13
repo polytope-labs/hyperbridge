@@ -463,7 +463,7 @@ impl IsmpProvider for EvmClient {
 		from: u64,
 		update_height: StateMachineHeight,
 	) -> BoxStream<StateCommitmentVetoed> {
-		let (tx, recv) = tokio::sync::mpsc::channel(32);
+		let (tx, recv) = tokio::sync::mpsc::channel(512);
 		let client = self.clone();
 		let poll_interval = 10;
 		tokio::spawn(async move {
@@ -526,10 +526,29 @@ impl IsmpProvider for EvmClient {
 					});
 
 				if let Some(event) = event {
-					if let Err(err) = tx.send(Ok(event.clone())).await {
-						log::trace!(target: crate::LOG_TARGET, "Failed to send state commitment vetoed event over channel on {state_machine:?}->{:?} \n {err:?}", update_height.id.state_id);
-						return
-					};
+					// `try_send` so this poller never blocks on a stalled
+					// consumer. On `Closed`, the receiver is gone — exit.
+					// On `Full`, log + drop; the next poll window will
+					// surface the same vetoed event so it isn't lost
+					// permanently.
+					match tx.try_send(Ok(event.clone())) {
+						Ok(()) => {},
+						Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+							log::warn!(
+								target: crate::LOG_TARGET,
+								"state commitment veto channel full on {state_machine:?}->{:?}; event dropped",
+								update_height.id.state_id,
+							);
+						},
+						Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+							log::trace!(
+								target: crate::LOG_TARGET,
+								"state commitment veto channel closed on {state_machine:?}->{:?}",
+								update_height.id.state_id,
+							);
+							return
+						},
+					}
 				}
 				latest_height = block_number;
 			}

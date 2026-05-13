@@ -171,13 +171,10 @@ where
 			// plus the storage values being returned. 32-byte floor
 			// mirrors the on_accept precedent. Charged once per request
 			// after proof verification so the value size is final.
-			let value_bytes: usize = values
-				.iter()
-				.map(|sv| sv.value.as_ref().map(|v| v.len()).unwrap_or(0))
-				.sum();
-			let payload_bytes: usize = req.keys.iter().map(|k| k.len()).sum::<usize>()
-				+ req.context.len()
-				+ value_bytes;
+			let value_bytes: usize =
+				values.iter().map(|sv| sv.value.as_ref().map(|v| v.len()).unwrap_or(0)).sum();
+			let payload_bytes: usize =
+				req.keys.iter().map(|k| k.len()).sum::<usize>() + req.context.len() + value_bytes;
 			let bytes = core::cmp::max(payload_bytes, 32) as u32;
 			<T as Config>::BandwidthGate::try_consume(&req.source, &req.from, bytes)
 				.map_err(|err| Error::Custom(alloc::format!("bandwidth gate: {err}")))?;

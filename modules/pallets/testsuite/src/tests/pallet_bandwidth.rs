@@ -684,4 +684,3 @@ fn withdraw_body_round_trips() {
 	assert_eq!(beneficiary, H160([0x20; 20]));
 	assert_eq!(amount, 42);
 }
-

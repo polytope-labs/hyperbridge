@@ -34,14 +34,15 @@ use frame_support::{
 	dispatch::DispatchResult,
 	ensure,
 	traits::tokens::{fungible::Mutate, Preservation},
-	PalletId,
+	BoundedVec, PalletId,
 };
 use frame_system::pallet_prelude::OriginFor;
 use ismp::{
 	dispatcher::{DispatchPost, DispatchRequest, FeeMetadata, IsmpDispatcher},
 	handlers::validate_state_machine,
 	host::{IsmpHost, StateMachine},
-	messaging::Proof,
+	messaging::{hash_request, Proof},
+	router::{PostRequest, Request},
 };
 pub use pallet::*;
 use pallet_hyperbridge::{Message, WithdrawalRequest, PALLET_HYPERBRIDGE};
@@ -125,27 +126,27 @@ pub struct OutboundConsensusDeliveryClaim {
 
 /// Claim payload for [`Pallet::claim_outbound_request_delivery_reward`].
 ///
-/// A relayer who delivered a hyperbridge-originated request to a destination
-/// chain uses this to collect the per-destination
-/// `OutboundRequestDeliveryReward`. Verifying the relayer:
+/// Carries the full [`PostRequest`] so the pallet can hash it on chain and
+/// look up the reward by `(request.dest, request.from)`. A `(destination,
+/// module_id)` pair with zero reward is treated as not on the allowlist and
+/// rejected before any state proof verification runs.
 ///
-/// 1. The `commitment` is known locally in `pallet_ismp::child_trie::RequestCommitments`.
-///    Hyperbridge owns its own state, so this is the authoritative "this request really did
-///    originate here" check.
-/// 2. `(commitment)` has not already been claimed by some relayer.
-/// 3. State proof against Hyperbridge's stored commitment for the destination yields a value at the
-///    destination's `RequestReceipts[commitment]` slot (EVM: 32-byte slot hash routed to the ISMP
-///    host contract; substrate: the pallet-ismp child-trie storage key).
-/// 4. The `signature` recovers the same address (EVM) or bytes (substrate) that the destination
-///    recorded as the delivering relayer. Signs over [`outbound_request_delivery_message`] of
+/// Verification pipeline:
+///
+/// 1. Hash `request` to derive the commitment.
+/// 2. Reject if `request.source` is not this hyperbridge instance.
+/// 3. Reject if the commitment is not in `pallet_ismp::child_trie::RequestCommitments` (defence in
+///    depth; the dispatcher already enforces source on insert).
+/// 4. Reject if the commitment has already been claimed.
+/// 5. Reject if `OutboundRequestDeliveryReward[(request.dest, request.from)]` is zero (allowlist).
+/// 6. State proof against Hyperbridge's stored commitment for the destination yields a value at
+///    `RequestReceipts[commitment]`.
+/// 7. The `signature` recovers the same address (EVM) or bytes (substrate) that the destination
+///    recorded as the delivering relayer, signing [`outbound_request_delivery_message`] of
 ///    `(commitment, destination, payee)`.
 ///
 /// Replay protection comes from the on-chain `commitment` idempotency tag in
-/// [`pallet::OutboundRequestsClaimed`]. Once a commitment has been claimed it
-/// cannot be claimed again, so a captured signature cannot be reused.
-///
-/// The reward is paid from the treasury to `payee` (an sr25519 account on
-/// Hyperbridge that the relayer designates).
+/// [`pallet::OutboundRequestsClaimed`].
 #[derive(
 	Clone,
 	Debug,
@@ -157,8 +158,10 @@ pub struct OutboundConsensusDeliveryClaim {
 	scale_info::TypeInfo,
 )]
 pub struct OutboundRequestDeliveryClaim {
-	/// The hyperbridge-originated request commitment being claimed against.
-	pub commitment: H256,
+	/// The hyperbridge-originated request being claimed against. Hashed on
+	/// chain to derive the commitment; `source` is verified against
+	/// `IsmpHost::host_state_machine()`; `(dest, from)` keys the reward map.
+	pub request: PostRequest,
 	/// State proof of the destination chain at the height the relayer is
 	/// proving against. `state_proof.height.id.state_id` is the destination;
 	/// Hyperbridge must already have a state commitment at `state_proof.height`.
@@ -172,6 +175,13 @@ pub struct OutboundRequestDeliveryClaim {
 	/// relayer bytes proven in the receipt slot.
 	pub signature: Signature,
 }
+
+/// Upper bound on the `module_id` (request `from` field) used as a storage
+/// key in [`OutboundRequestDeliveryReward`]. Substrate pallet ids are 8
+/// bytes, EVM contract addresses 20, and various module identifiers go up
+/// to 32 bytes in this codebase. 64 leaves headroom without bloating the
+/// storage key.
+pub type ModuleIdBound = sp_core::ConstU32<64>;
 
 pub const MODULE_ID: &'static [u8] = b"ISMP-RLYR";
 
@@ -268,13 +278,23 @@ pub mod pallet {
 	pub type OutboundConsensusRotationsClaimed<T: Config> =
 		StorageDoubleMap<_, Blake2_128Concat, StateMachine, Blake2_128Concat, u64, (), OptionQuery>;
 
-	/// Per-destination reward, in the runtime's [`Config::Currency`], paid to
-	/// the relayer that delivers a hyperbridge-originated request to that
-	/// destination. `0` (the default) means rewards are off for the chain.
+	/// Per `(destination, source_module_id)` reward, in the runtime's
+	/// [`Config::Currency`], paid to the relayer that delivers a
+	/// hyperbridge-originated request from that module to that destination.
+	/// `0` (the default) is both "no reward" and "module not on the
+	/// allowlist". Governance enables a module on a destination by setting a
+	/// non-zero value.
 	#[pallet::storage]
 	#[pallet::getter(fn outbound_request_delivery_reward)]
-	pub type OutboundRequestDeliveryReward<T: Config> =
-		StorageMap<_, Blake2_128Concat, StateMachine, BalanceOf<T>, ValueQuery>;
+	pub type OutboundRequestDeliveryReward<T: Config> = StorageDoubleMap<
+		_,
+		Blake2_128Concat,
+		StateMachine,
+		Blake2_128Concat,
+		BoundedVec<u8, ModuleIdBound>,
+		BalanceOf<T>,
+		ValueQuery,
+	>;
 
 	/// Idempotency map for outbound request delivery claims. The presence of
 	/// `commitment` means some relayer has already collected the reward for
@@ -348,8 +368,14 @@ pub mod pallet {
 		/// `pallet_ismp::child_trie::RequestCommitments`, so it was not
 		/// dispatched from Hyperbridge and is not eligible for this reward.
 		OutboundRequestNotKnown,
-		/// No reward is configured for the destination
-		/// (`OutboundRequestDeliveryReward` is `0`).
+		/// `request.source` is not this hyperbridge instance.
+		OutboundRequestSourceNotHyperbridge,
+		/// `request.from` exceeds [`ModuleIdBound`] and therefore cannot be
+		/// keyed into the reward map; treated as not on the allowlist.
+		OutboundRequestModuleIdTooLong,
+		/// No reward is configured for `(request.dest, request.from)`. Either
+		/// the module is not on the allowlist for that destination, or
+		/// governance has paused it.
 		OutboundRequestNoRewardConfigured,
 		/// Treasury → relayer transfer failed (typically because the treasury
 		/// balance is below the configured reward).
@@ -413,15 +439,20 @@ pub mod pallet {
 			commitment: H256,
 			/// Destination chain the request was delivered to.
 			state_machine: StateMachine,
+			/// Source module id (`request.from`) — the allowlist key.
+			module_id: BoundedVec<u8, ModuleIdBound>,
 			/// Hyperbridge account credited.
 			relayer: T::AccountId,
 			/// Amount paid out, in the runtime's `Currency`.
 			amount: BalanceOf<T>,
 		},
-		/// Governance updated the per-chain outbound request delivery reward.
+		/// Governance updated the per-`(destination, module_id)` outbound
+		/// request delivery reward.
 		OutboundRequestDeliveryRewardUpdated {
 			/// Destination chain whose reward was updated.
 			state_machine: StateMachine,
+			/// Source module id whose reward was updated.
+			module_id: BoundedVec<u8, ModuleIdBound>,
 			/// New reward amount.
 			new_reward: BalanceOf<T>,
 		},
@@ -517,19 +548,23 @@ pub mod pallet {
 			Self::process_outbound_request_delivery_claim(claim)
 		}
 
-		/// Governance-set per-chain reward for delivering a
-		/// hyperbridge-originated request to that destination.
+		/// Governance-set per-`(destination, module_id)` reward for delivering
+		/// a hyperbridge-originated request to that destination. Setting
+		/// `amount = 0` removes the module from the allowlist for that
+		/// destination.
 		#[pallet::call_index(6)]
 		#[pallet::weight(<T as frame_system::Config>::DbWeight::get().reads_writes(0, 1))]
 		pub fn set_outbound_request_delivery_reward(
 			origin: OriginFor<T>,
 			state_machine: StateMachine,
+			module_id: BoundedVec<u8, ModuleIdBound>,
 			amount: BalanceOf<T>,
 		) -> DispatchResult {
 			T::RelayerOrigin::ensure_origin(origin)?;
-			OutboundRequestDeliveryReward::<T>::insert(state_machine, amount);
+			OutboundRequestDeliveryReward::<T>::insert(state_machine, &module_id, amount);
 			Self::deposit_event(Event::OutboundRequestDeliveryRewardUpdated {
 				state_machine,
+				module_id,
 				new_reward: amount,
 			});
 			Ok(())
@@ -687,11 +722,22 @@ where
 	/// Verify and pay out an outbound request delivery claim.
 	///
 	/// See [`OutboundRequestDeliveryClaim`] for the verification pipeline.
+	/// Ordering is deliberate: every cheap rejection runs before the
+	/// state-proof verification, so non-allowlisted claims and replays are
+	/// dropped without ever touching the trie verifier.
 	pub fn process_outbound_request_delivery_claim(
 		claim: OutboundRequestDeliveryClaim,
 	) -> DispatchResult {
-		let OutboundRequestDeliveryClaim { commitment, state_proof, payee, signature } = claim;
+		let OutboundRequestDeliveryClaim { request, state_proof, payee, signature } = claim;
 		let destination = state_proof.height.id.state_id;
+
+		let commitment = hash_request::<<T as Config>::IsmpHost>(&Request::Post(request.clone()));
+
+		let host = <T as Config>::IsmpHost::default();
+		ensure!(
+			request.source == host.host_state_machine(),
+			Error::<T>::OutboundRequestSourceNotHyperbridge,
+		);
 
 		ensure!(
 			RequestCommitments::<T>::get(commitment).is_some(),
@@ -702,6 +748,16 @@ where
 			!OutboundRequestsClaimed::<T>::contains_key(commitment),
 			Error::<T>::OutboundRequestAlreadyClaimed,
 		);
+
+		let module_id: BoundedVec<u8, ModuleIdBound> = request
+			.from
+			.clone()
+			.try_into()
+			.map_err(|_| Error::<T>::OutboundRequestModuleIdTooLong)?;
+		let reward = OutboundRequestDeliveryReward::<T>::get(request.dest, &module_id);
+		ensure!(reward > BalanceOf::<T>::default(), Error::<T>::OutboundRequestNoRewardConfigured);
+
+		ensure!(destination == request.dest, Error::<T>::MismatchedStateMachine);
 
 		let receipt_key = Self::request_receipt_key(destination, commitment)
 			.ok_or(Error::<T>::OutboundRequestUnsupportedDestination)?;
@@ -721,9 +777,6 @@ where
 		let recovered = signature.verify(&msg, None).map_err(|_| Error::<T>::InvalidSignature)?;
 		ensure!(recovered == delivered_by, Error::<T>::OutboundRequestSignerMismatch);
 
-		let reward = OutboundRequestDeliveryReward::<T>::get(destination);
-		ensure!(reward > BalanceOf::<T>::default(), Error::<T>::OutboundRequestNoRewardConfigured,);
-
 		let treasury: T::AccountId =
 			<T as Config>::TreasuryPalletId::get().into_account_truncating();
 		let payee_account: T::AccountId = payee.into();
@@ -740,6 +793,7 @@ where
 		Self::deposit_event(Event::OutboundRequestDeliveryRewarded {
 			commitment,
 			state_machine: destination,
+			module_id,
 			relayer: payee_account,
 			amount: reward,
 		});

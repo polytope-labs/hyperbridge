@@ -931,29 +931,50 @@ mod outbound_consensus_delivery {
 mod outbound_request_delivery {
 	use super::*;
 	use crate::runtime::Balances;
+	use ismp::router::PostRequest;
 	use pallet_ismp_relayer::{
 		outbound_request_delivery_message, Error, OutboundRequestDeliveryReward,
 		OutboundRequestsClaimed,
 	};
 	use polkadot_sdk::{
-		frame_support::traits::{
-			fungible::Inspect, tokens::fungible::Mutate as FungibleMutate, Get,
+		frame_support::{
+			traits::{fungible::Inspect, tokens::fungible::Mutate as FungibleMutate, Get},
+			BoundedVec,
 		},
 		sp_runtime::{traits::AccountIdConversion, AccountId32},
 	};
 
+	const NEXUS: StateMachine = StateMachine::Kusama(100);
 	const EVM_DEST: StateMachine = StateMachine::Evm(11155111);
 	const SUBSTRATE_DEST: StateMachine = StateMachine::Kusama(2001);
 	const REWARD: u128 = 1_000_000_000_000;
 	const HEIGHT: u64 = 100;
+	const MODULE_ID: &[u8] = b"HOSTEXEC";
 
-	fn commitment() -> H256 {
-		H256::repeat_byte(0x42)
+	fn post_request(dest: StateMachine, from: &[u8]) -> PostRequest {
+		PostRequest {
+			source: NEXUS,
+			dest,
+			nonce: 0,
+			from: from.to_vec(),
+			to: vec![0xBB; 20],
+			timeout_timestamp: 0,
+			body: vec![],
+		}
 	}
 
-	fn placeholder_claim(dest: StateMachine) -> OutboundRequestDeliveryClaim {
+	fn commitment_of(req: &PostRequest) -> H256 {
+		hash_request::<Ismp>(&ismp::router::Request::Post(req.clone()))
+	}
+
+	fn module_bound(id: &[u8]) -> BoundedVec<u8, pallet_ismp_relayer::ModuleIdBound> {
+		BoundedVec::try_from(id.to_vec()).expect("module id within bound")
+	}
+
+	fn placeholder_claim_for(req: PostRequest) -> OutboundRequestDeliveryClaim {
+		let dest = req.dest;
 		OutboundRequestDeliveryClaim {
-			commitment: commitment(),
+			request: req,
 			state_proof: Proof {
 				height: StateMachineHeight {
 					id: StateMachineId {
@@ -969,7 +990,8 @@ mod outbound_request_delivery {
 		}
 	}
 
-	fn register_request_commitment(commitment: H256) {
+	fn register_request(req: &PostRequest) -> H256 {
+		let commitment = commitment_of(req);
 		let fee = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 0u128.into() };
 		let metadata = RequestMetadata {
 			offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
@@ -977,6 +999,11 @@ mod outbound_request_delivery {
 			claimed: false,
 		};
 		RequestCommitments::<Test>::insert(commitment, metadata);
+		commitment
+	}
+
+	fn set_reward(dest: StateMachine, module_id: &[u8], amount: u128) {
+		OutboundRequestDeliveryReward::<Test>::insert(dest, module_bound(module_id), amount);
 	}
 
 	fn fund_treasury(amount: u128) {
@@ -986,11 +1013,25 @@ mod outbound_request_delivery {
 	}
 
 	#[test]
+	fn source_not_hyperbridge_is_rejected() {
+		new_test_ext().execute_with(|| {
+			let mut req = post_request(EVM_DEST, MODULE_ID);
+			req.source = StateMachine::Kusama(999);
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim_for(req),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestSourceNotHyperbridge.into());
+		})
+	}
+
+	#[test]
 	fn unknown_commitment_is_rejected() {
 		new_test_ext().execute_with(|| {
 			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
 				RuntimeOrigin::none(),
-				placeholder_claim(EVM_DEST),
+				placeholder_claim_for(post_request(EVM_DEST, MODULE_ID)),
 			)
 			.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundRequestNotKnown.into());
@@ -1000,12 +1041,13 @@ mod outbound_request_delivery {
 	#[test]
 	fn already_claimed_is_rejected() {
 		new_test_ext().execute_with(|| {
-			register_request_commitment(commitment());
-			OutboundRequestsClaimed::<Test>::insert(commitment(), ());
+			let req = post_request(EVM_DEST, MODULE_ID);
+			let commitment = register_request(&req);
+			OutboundRequestsClaimed::<Test>::insert(commitment, ());
 
 			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
 				RuntimeOrigin::none(),
-				placeholder_claim(EVM_DEST),
+				placeholder_claim_for(req),
 			)
 			.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundRequestAlreadyClaimed.into());
@@ -1013,12 +1055,49 @@ mod outbound_request_delivery {
 	}
 
 	#[test]
-	fn unsupported_destination_is_rejected() {
+	fn module_id_too_long_is_rejected() {
 		new_test_ext().execute_with(|| {
-			register_request_commitment(commitment());
+			let long = vec![0u8; 65];
+			let req = post_request(EVM_DEST, &long);
+			register_request(&req);
+
 			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
 				RuntimeOrigin::none(),
-				placeholder_claim(StateMachine::Tendermint(*b"cosm")),
+				placeholder_claim_for(req),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestModuleIdTooLong.into());
+		})
+	}
+
+	#[test]
+	fn allowlist_off_rejects_before_proof_verification() {
+		// Reward not set for (dest, module_id). The check rejects before
+		// any state-proof work happens, which is the whole point of the
+		// allowlist ordering.
+		new_test_ext().execute_with(|| {
+			let req = post_request(EVM_DEST, MODULE_ID);
+			register_request(&req);
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim_for(req),
+			)
+			.unwrap_err();
+			assert_eq!(err, Error::<Test>::OutboundRequestNoRewardConfigured.into());
+		})
+	}
+
+	#[test]
+	fn unsupported_destination_is_rejected() {
+		new_test_ext().execute_with(|| {
+			let dest = StateMachine::Tendermint(*b"cosm");
+			let req = post_request(dest, MODULE_ID);
+			register_request(&req);
+			set_reward(dest, MODULE_ID, REWARD);
+
+			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
+				RuntimeOrigin::none(),
+				placeholder_claim_for(req),
 			)
 			.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundRequestUnsupportedDestination.into());
@@ -1027,17 +1106,17 @@ mod outbound_request_delivery {
 
 	#[test]
 	fn placeholder_proof_reaches_verification_stage() {
-		// Origin check passes (commitment present), no idempotency tag, EVM
-		// destination is supported. State proof is empty, so verification
-		// fails with OutboundDestinationStateNotKnown.
+		// All cheap checks pass (source, commitment, idempotency, reward,
+		// destination type). State proof is empty so verification fails.
 		new_test_ext().execute_with(|| {
-			register_request_commitment(commitment());
-			OutboundRequestDeliveryReward::<Test>::insert(EVM_DEST, REWARD);
+			let req = post_request(EVM_DEST, MODULE_ID);
+			register_request(&req);
+			set_reward(EVM_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
 			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
 				RuntimeOrigin::none(),
-				placeholder_claim(EVM_DEST),
+				placeholder_claim_for(req),
 			)
 			.unwrap_err();
 			assert_eq!(err, Error::<Test>::OutboundDestinationStateNotKnown.into());
@@ -1123,15 +1202,16 @@ mod outbound_request_delivery {
 			let payee = [0xAA; 32];
 			let payee_account: AccountId32 = payee.into();
 
-			register_request_commitment(commitment());
-			OutboundRequestDeliveryReward::<Test>::insert(SUBSTRATE_DEST, REWARD);
+			let req = post_request(SUBSTRATE_DEST, MODULE_ID);
+			let commitment = register_request(&req);
+			set_reward(SUBSTRATE_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
-			let msg = outbound_request_delivery_message(commitment(), SUBSTRATE_DEST, payee);
+			let msg = outbound_request_delivery_message(commitment, SUBSTRATE_DEST, payee);
 			let signature = pair.sign(&msg).0.to_vec();
 
 			let claim = OutboundRequestDeliveryClaim {
-				commitment: commitment(),
+				request: req,
 				state_proof: Proof {
 					height: StateMachineHeight {
 						id: StateMachineId {
@@ -1140,7 +1220,7 @@ mod outbound_request_delivery {
 						},
 						height: HEIGHT,
 					},
-					proof: substrate_dest_proof(commitment(), &relayer_bytes),
+					proof: substrate_dest_proof(commitment, &relayer_bytes),
 				},
 				payee,
 				signature: Signature::Sr25519 { public_key: relayer_bytes, signature },
@@ -1154,7 +1234,7 @@ mod outbound_request_delivery {
 			.unwrap();
 
 			assert_eq!(Balances::balance(&payee_account) - payee_before, REWARD);
-			assert!(OutboundRequestsClaimed::<Test>::contains_key(commitment()));
+			assert!(OutboundRequestsClaimed::<Test>::contains_key(commitment));
 		})
 	}
 
@@ -1167,15 +1247,16 @@ mod outbound_request_delivery {
 			let other = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
 			let payee = [0xAA; 32];
 
-			register_request_commitment(commitment());
-			OutboundRequestDeliveryReward::<Test>::insert(SUBSTRATE_DEST, REWARD);
+			let req = post_request(SUBSTRATE_DEST, MODULE_ID);
+			let commitment = register_request(&req);
+			set_reward(SUBSTRATE_DEST, MODULE_ID, REWARD);
 			fund_treasury(REWARD * 10);
 
-			let msg = outbound_request_delivery_message(commitment(), SUBSTRATE_DEST, payee);
+			let msg = outbound_request_delivery_message(commitment, SUBSTRATE_DEST, payee);
 			let other_sig = other.sign(&msg).0.to_vec();
 
 			let claim = OutboundRequestDeliveryClaim {
-				commitment: commitment(),
+				request: req,
 				state_proof: Proof {
 					height: StateMachineHeight {
 						id: StateMachineId {
@@ -1184,7 +1265,7 @@ mod outbound_request_delivery {
 						},
 						height: HEIGHT,
 					},
-					proof: substrate_dest_proof(commitment(), &recorded.public().0),
+					proof: substrate_dest_proof(commitment, &recorded.public().0),
 				},
 				payee,
 				signature: Signature::Sr25519 {
@@ -1202,55 +1283,18 @@ mod outbound_request_delivery {
 		})
 	}
 
-	#[test]
-	fn no_reward_configured_is_rejected() {
-		new_test_ext().execute_with(|| {
-			set_timestamp::<Test>(10_000_000_000);
-			let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
-			let relayer_bytes = pair.public().0.to_vec();
-			let payee = [0xAA; 32];
-
-			register_request_commitment(commitment());
-
-			let msg = outbound_request_delivery_message(commitment(), SUBSTRATE_DEST, payee);
-			let signature = pair.sign(&msg).0.to_vec();
-
-			let claim = OutboundRequestDeliveryClaim {
-				commitment: commitment(),
-				state_proof: Proof {
-					height: StateMachineHeight {
-						id: StateMachineId {
-							state_id: SUBSTRATE_DEST,
-							consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-						},
-						height: HEIGHT,
-					},
-					proof: substrate_dest_proof(commitment(), &relayer_bytes),
-				},
-				payee,
-				signature: Signature::Sr25519 { public_key: relayer_bytes, signature },
-			};
-
-			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
-				RuntimeOrigin::none(),
-				claim,
-			)
-			.unwrap_err();
-			assert_eq!(err, Error::<Test>::OutboundRequestNoRewardConfigured.into());
-		})
-	}
-
 	mod request_receipt_key {
 		use super::*;
+
+		const COMMITMENT: H256 = H256::repeat_byte(0x42);
 
 		#[test]
 		fn evm_returns_slot_hash() {
 			new_test_ext().execute_with(|| {
 				assert!(pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
-					EVM_DEST,
-					commitment()
+					EVM_DEST, COMMITMENT
 				)
-				.is_some(),);
+				.is_some());
 			})
 		}
 
@@ -1259,10 +1303,10 @@ mod outbound_request_delivery {
 			new_test_ext().execute_with(|| {
 				let key = pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
 					SUBSTRATE_DEST,
-					commitment(),
+					COMMITMENT,
 				)
 				.unwrap();
-				assert_eq!(key, RequestReceipts::<Test>::storage_key(commitment()));
+				assert_eq!(key, RequestReceipts::<Test>::storage_key(COMMITMENT));
 			})
 		}
 
@@ -1271,7 +1315,7 @@ mod outbound_request_delivery {
 			new_test_ext().execute_with(|| {
 				assert!(pallet_ismp_relayer::Pallet::<Test>::request_receipt_key(
 					StateMachine::Tendermint(*b"cosm"),
-					commitment(),
+					COMMITMENT,
 				)
 				.is_none());
 			})

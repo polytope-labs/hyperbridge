@@ -25,7 +25,10 @@ use sp_core::{
 	storage::{ChildInfo, StorageData, StorageKey},
 	U256,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+	collections::{BTreeMap, BTreeSet},
+	sync::Arc,
+};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
 	config::{ExtrinsicParams, HashFor, Header},
@@ -145,6 +148,73 @@ where
 		);
 		send_unsigned_extrinsic(&self.client, payload, true).await?;
 		Ok(())
+	}
+
+	/// Enumerate every `(destination, module_id)` pair on hyperbridge that
+	/// has a non-zero `OutboundRequestDeliveryReward` configured. This is
+	/// the on-chain allowlist; modules not present (zero reward) are
+	/// ineligible and the relayer will not get paid for delivering their
+	/// hyperbridge-originated requests.
+	///
+	/// Returns a [`BTreeSet`] for deterministic iteration when the caller
+	/// applies the filter.
+	pub async fn incentivized_outbound_request_modules(
+		&self,
+	) -> anyhow::Result<BTreeSet<(StateMachine, Vec<u8>)>> {
+		use codec::Decode;
+		use subxt_utils::outbound_request_delivery_reward_prefix;
+		const PAGE: u32 = 500;
+
+		let block_hash = self
+			.rpc
+			.chain_get_block_hash(None)
+			.await?
+			.ok_or_else(|| anyhow::anyhow!("Failed to query latest hyperbridge block hash"))?;
+		let prefix = outbound_request_delivery_reward_prefix();
+		let mut out = BTreeSet::new();
+		let mut start_key: Option<Vec<u8>> = None;
+
+		loop {
+			let keys = self
+				.rpc
+				.state_get_keys_paged(&prefix, PAGE, start_key.as_deref(), Some(block_hash.into()))
+				.await?;
+			if keys.is_empty() {
+				break;
+			}
+			for key in &keys {
+				let raw = self.client.storage().at(block_hash).fetch_raw(key.clone()).await?;
+				let Some(bytes) = raw else { continue };
+				let reward: u128 = match Decode::decode(&mut &bytes[..]) {
+					Ok(r) => r,
+					Err(_) => continue,
+				};
+				if reward == 0 {
+					continue;
+				}
+				let mut suffix = &key[prefix.len() + 16..]; // skip blake2_128(dest)
+				let dest = match StateMachine::decode(&mut suffix) {
+					Ok(sm) => sm,
+					Err(_) => continue,
+				};
+				if suffix.len() < 16 {
+					continue;
+				}
+				let mut module_tail = &suffix[16..]; // skip blake2_128(module_id)
+				let module_id = match <Vec<u8>>::decode(&mut module_tail) {
+					Ok(m) => m,
+					Err(_) => continue,
+				};
+				out.insert((dest, module_id));
+			}
+			let last = keys.last().expect("non-empty checked above");
+			if Some(last) == start_key.as_ref() {
+				break;
+			}
+			start_key = Some(last.clone());
+		}
+
+		Ok(out)
 	}
 }
 

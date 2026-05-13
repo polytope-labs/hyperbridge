@@ -84,6 +84,7 @@ model OutboundRequestClaims {
   id              Int    @id @default(autoincrement())
   dest            String
   commitment      String
+  encoded_request Bytes
   delivery_height BigInt
   status          String
   created_at      Int

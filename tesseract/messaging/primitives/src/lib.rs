@@ -108,15 +108,29 @@ pub struct PendingConsensusDeliveryClaim {
 /// with the destination's signing key, and submits
 /// `pallet_ismp_relayer::claim_outbound_request_delivery_reward`.
 ///
-/// Supports both EVM and substrate destinations.
+/// Carries the full [`PostRequest`] so the on-chain extrinsic can hash it,
+/// verify the source, and look up the reward by `(request.dest,
+/// request.from)`. Supports both EVM and substrate destinations.
 #[derive(Debug, Clone)]
 pub struct PendingRequestDeliveryClaim {
-	/// Destination chain the request was delivered to.
-	pub destination: StateMachine,
+	/// The hyperbridge-originated request being claimed against.
+	pub request: PostRequest,
 	/// Destination block height at which the request was delivered.
 	pub delivery_height: u64,
-	/// Hyperbridge-side commitment of the delivered request.
-	pub commitment: H256,
+}
+
+impl PendingRequestDeliveryClaim {
+	/// Destination chain the request was delivered to.
+	pub fn destination(&self) -> StateMachine {
+		self.request.dest
+	}
+
+	/// Hyperbridge-side commitment of the delivered request, derived from
+	/// the request bytes. Computed locally with [`Hasher`] (keccak), which
+	/// matches what hyperbridge runs on chain.
+	pub fn commitment(&self) -> H256 {
+		ismp::messaging::hash_request::<Hasher>(&ismp::router::Request::Post(self.request.clone()))
+	}
 }
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},

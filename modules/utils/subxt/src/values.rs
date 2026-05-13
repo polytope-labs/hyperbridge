@@ -434,7 +434,7 @@ pub fn outbound_consensus_delivery_claim_to_value(
 /// the struct declaration.
 pub fn outbound_request_delivery_claim_to_value(claim: &OutboundRequestDeliveryClaim) -> Value<()> {
 	Value::named_composite(vec![
-		("commitment".to_string(), Value::from_bytes(claim.commitment.0.to_vec())),
+		("request".to_string(), post_request_to_value(&claim.request)),
 		("state_proof".to_string(), proof_to_value(&claim.state_proof)),
 		("payee".to_string(), Value::from_bytes(claim.payee.to_vec())),
 		("signature".to_string(), signature_to_value(&claim.signature)),

@@ -390,34 +390,21 @@ pub async fn translate_events_to_messages(
 	Ok((messages, unprofitable))
 }
 
-/// Return true for Request and Response events designated for the counterparty
+/// Return true for Request and Response events designated for the counterparty.
+///
+/// Hyperbridge-originated requests pass through the same as any other; the
+/// allowlist for which `(destination, module_id)` pairs earn a relayer
+/// reward now lives on chain in `pallet_ismp_relayer::OutboundRequestDeliveryReward`.
 pub fn filter_events(
-	config: &RelayerConfig,
+	_config: &RelayerConfig,
 	router_id: StateMachine,
 	counterparty: StateMachine,
 	ev: &IsmpEvent,
 ) -> bool {
-	// Is the counterparty the routing chain?
 	let is_router = router_id == counterparty;
-
-	let allow_module = |module: &[u8]| {
-		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty()) &&
-			is_allowed_module(config, module)
-	};
 	match ev {
-		// We filter out events whose origin is the coprocessor unless the source module is
-		// explicitly allowed in the module filter
-		IsmpEvent::PostRequest(post) =>
-			(post.dest == counterparty &&
-				(post.source != router_id ||
-					(post.source == router_id && allow_module(&post.from)))) ||
-				is_router,
-		IsmpEvent::PostResponse(resp) =>
-			(resp.dest_chain() == counterparty &&
-				(resp.source_chain() != router_id ||
-					(resp.source_chain() == router_id &&
-						allow_module(&resp.source_module())))) ||
-				is_router,
+		IsmpEvent::PostRequest(post) => post.dest == counterparty || is_router,
+		IsmpEvent::PostResponse(resp) => resp.dest_chain() == counterparty || is_router,
 		_ => false,
 	}
 }

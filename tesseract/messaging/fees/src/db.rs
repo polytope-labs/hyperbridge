@@ -3553,6 +3553,64 @@ pub mod outbound_request_claims {
 			}
 		}
 	}
+	pub mod encoded_request {
+		use super::{
+			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
+			WithParam, _prisma::*,
+		};
+		pub const NAME: &str = "encoded_request";
+		pub struct Set(pub Vec<u8>);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetEncodedRequest(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::EncodedRequest(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: Vec<u8>) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::EncodedRequest(direction)
+		}
+		pub fn equals(value: Vec<u8>) -> WhereParam {
+			WhereParam::EncodedRequest(_prisma::read_filters::BytesFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::BytesFilter,
+			EncodedRequest,
+			{
+				fn in_vec(_: Vec<Vec<u8>>) -> InVec;
+				fn not_in_vec(_: Vec<Vec<u8>>) -> NotInVec;
+				fn not(_: Vec<u8>) -> Not;
+			}
+		);
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::EncodedRequest(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::EncodedRequest(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
 	pub mod delivery_height {
 		use super::{
 			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
@@ -3908,32 +3966,53 @@ pub mod outbound_request_claims {
 	pub fn create(
 		dest: String,
 		commitment: String,
+		encoded_request: Vec<u8>,
 		delivery_height: i64,
 		status: String,
 		created_at: i32,
 		updated_at: i32,
 		_params: Vec<SetParam>,
-	) -> (String, String, i64, String, i32, i32, Vec<SetParam>) {
-		(dest, commitment, delivery_height, status, created_at, updated_at, _params)
+	) -> (String, String, Vec<u8>, i64, String, i32, i32, Vec<SetParam>) {
+		(
+			dest,
+			commitment,
+			encoded_request,
+			delivery_height,
+			status,
+			created_at,
+			updated_at,
+			_params,
+		)
 	}
 	pub fn create_unchecked(
 		dest: String,
 		commitment: String,
+		encoded_request: Vec<u8>,
 		delivery_height: i64,
 		status: String,
 		created_at: i32,
 		updated_at: i32,
 		_params: Vec<SetParam>,
-	) -> (String, String, i64, String, i32, i32, Vec<SetParam>) {
-		(dest, commitment, delivery_height, status, created_at, updated_at, _params)
+	) -> (String, String, Vec<u8>, i64, String, i32, i32, Vec<SetParam>) {
+		(
+			dest,
+			commitment,
+			encoded_request,
+			delivery_height,
+			status,
+			created_at,
+			updated_at,
+			_params,
+		)
 	}
 	#[macro_export]
-	macro_rules ! _select_outbound_request_claims { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: outbound_request_claims :: select ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn select ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: outbound_request_claims :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: outbound_request_claims :: select ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: outbound_request_claims :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { id , dest , commitment , delivery_height , status , created_at , updated_at , note } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { $ (pub $ field : crate :: prisma :: outbound_request_claims :: select ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) +] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME , & self . $ field) ? ;) * state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: outbound_request_claims :: $ field :: NAME) , + ,] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: outbound_request_claims :: $ field :: NAME => Ok (Field :: $ field)) , * , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * while let Some (key) = map . next_key () ? { match key { $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ? ;) * Ok (Data { $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "commitment" , "delivery_height" , "status" , "created_at" , "updated_at" , "note"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: outbound_request_claims :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; id) => { i32 } ; (@ field_type ; dest) => { String } ; (@ field_type ; commitment) => { String } ; (@ field_type ; delivery_height) => { i64 } ; (@ field_type ; status) => { String } ; (@ field_type ; created_at) => { i32 } ; (@ field_type ; updated_at) => { i32 } ; (@ field_type ; note) => { Option < String > } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "OutboundRequestClaims" , available relations are "id, dest, commitment, delivery_height, status, created_at, updated_at, note")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; id) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: id :: Select) } ; (@ selection_field_to_selection_param ; dest) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: dest :: Select) } ; (@ selection_field_to_selection_param ; commitment) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: commitment :: Select) } ; (@ selection_field_to_selection_param ; delivery_height) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: delivery_height :: Select) } ; (@ selection_field_to_selection_param ; status) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: status :: Select) } ; (@ selection_field_to_selection_param ; created_at) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: created_at :: Select) } ; (@ selection_field_to_selection_param ; updated_at) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: updated_at :: Select) } ; (@ selection_field_to_selection_param ; note) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: note :: Select) } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: outbound_request_claims :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; commitment) => { "commitment" } ; (@ field_serde_name ; delivery_height) => { "delivery_height" } ; (@ field_serde_name ; status) => { "status" } ; (@ field_serde_name ; created_at) => { "created_at" } ; (@ field_serde_name ; updated_at) => { "updated_at" } ; (@ field_serde_name ; note) => { "note" } ; }
+	macro_rules ! _select_outbound_request_claims { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: outbound_request_claims :: select ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn select ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: outbound_request_claims :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: outbound_request_claims :: select ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: outbound_request_claims :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { id , dest , commitment , encoded_request , delivery_height , status , created_at , updated_at , note } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { $ (pub $ field : crate :: prisma :: outbound_request_claims :: select ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) +] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME , & self . $ field) ? ;) * state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: outbound_request_claims :: $ field :: NAME) , + ,] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: outbound_request_claims :: $ field :: NAME => Ok (Field :: $ field)) , * , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * while let Some (key) = map . next_key () ? { match key { $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ? ;) * Ok (Data { $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "commitment" , "encoded_request" , "delivery_height" , "status" , "created_at" , "updated_at" , "note"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: outbound_request_claims :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; id) => { i32 } ; (@ field_type ; dest) => { String } ; (@ field_type ; commitment) => { String } ; (@ field_type ; encoded_request) => { Vec < u8 > } ; (@ field_type ; delivery_height) => { i64 } ; (@ field_type ; status) => { String } ; (@ field_type ; created_at) => { i32 } ; (@ field_type ; updated_at) => { i32 } ; (@ field_type ; note) => { Option < String > } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "OutboundRequestClaims" , available relations are "id, dest, commitment, encoded_request, delivery_height, status, created_at, updated_at, note")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; id) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: id :: Select) } ; (@ selection_field_to_selection_param ; dest) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: dest :: Select) } ; (@ selection_field_to_selection_param ; commitment) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: commitment :: Select) } ; (@ selection_field_to_selection_param ; encoded_request) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: encoded_request :: Select) } ; (@ selection_field_to_selection_param ; delivery_height) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: delivery_height :: Select) } ; (@ selection_field_to_selection_param ; status) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: status :: Select) } ; (@ selection_field_to_selection_param ; created_at) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: created_at :: Select) } ; (@ selection_field_to_selection_param ; updated_at) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: updated_at :: Select) } ; (@ selection_field_to_selection_param ; note) => { Into :: < crate :: prisma :: outbound_request_claims :: SelectParam > :: into (crate :: prisma :: outbound_request_claims :: note :: Select) } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: outbound_request_claims :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; commitment) => { "commitment" } ; (@ field_serde_name ; encoded_request) => { "encoded_request" } ; (@ field_serde_name ; delivery_height) => { "delivery_height" } ; (@ field_serde_name ; status) => { "status" } ; (@ field_serde_name ; created_at) => { "created_at" } ; (@ field_serde_name ; updated_at) => { "updated_at" } ; (@ field_serde_name ; note) => { "note" } ; }
 	pub use _select_outbound_request_claims as select;
 	pub enum SelectParam {
 		Id(id::Select),
 		Dest(dest::Select),
 		Commitment(commitment::Select),
+		EncodedRequest(encoded_request::Select),
 		DeliveryHeight(delivery_height::Select),
 		Status(status::Select),
 		CreatedAt(created_at::Select),
@@ -3946,6 +4025,7 @@ pub mod outbound_request_claims {
 				Self::Id(data) => data.to_selection(),
 				Self::Dest(data) => data.to_selection(),
 				Self::Commitment(data) => data.to_selection(),
+				Self::EncodedRequest(data) => data.to_selection(),
 				Self::DeliveryHeight(data) => data.to_selection(),
 				Self::Status(data) => data.to_selection(),
 				Self::CreatedAt(data) => data.to_selection(),
@@ -3955,12 +4035,13 @@ pub mod outbound_request_claims {
 		}
 	}
 	#[macro_export]
-	macro_rules ! _include_outbound_request_claims { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: outbound_request_claims :: include ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn include ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: outbound_request_claims :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: outbound_request_claims :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: outbound_request_claims :: include ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: outbound_request_claims :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: outbound_request_claims :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { pub id : i32 , pub dest : String , pub commitment : String , pub delivery_height : i64 , pub status : String , pub created_at : i32 , pub updated_at : i32 , pub note : Option < String > , $ (pub $ field : crate :: prisma :: outbound_request_claims :: include ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) + stringify ! (id) , stringify ! (dest) , stringify ! (commitment) , stringify ! (delivery_height) , stringify ! (status) , stringify ! (created_at) , stringify ! (updated_at) , stringify ! (note)] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME , & self . $ field) ? ;) * state . serialize_field (crate :: prisma :: outbound_request_claims :: id :: NAME , & self . id) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: dest :: NAME , & self . dest) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: commitment :: NAME , & self . commitment) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: delivery_height :: NAME , & self . delivery_height) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: status :: NAME , & self . status) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: created_at :: NAME , & self . created_at) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: updated_at :: NAME , & self . updated_at) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: note :: NAME , & self . note) ? ; state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , id , dest , commitment , delivery_height , status , created_at , updated_at , note } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: outbound_request_claims :: $ field :: NAME) , + , crate :: prisma :: outbound_request_claims :: id :: NAME , crate :: prisma :: outbound_request_claims :: dest :: NAME , crate :: prisma :: outbound_request_claims :: commitment :: NAME , crate :: prisma :: outbound_request_claims :: delivery_height :: NAME , crate :: prisma :: outbound_request_claims :: status :: NAME , crate :: prisma :: outbound_request_claims :: created_at :: NAME , crate :: prisma :: outbound_request_claims :: updated_at :: NAME , crate :: prisma :: outbound_request_claims :: note :: NAME] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: outbound_request_claims :: $ field :: NAME => Ok (Field :: $ field)) , * , crate :: prisma :: outbound_request_claims :: id :: NAME => Ok (Field :: id) , crate :: prisma :: outbound_request_claims :: dest :: NAME => Ok (Field :: dest) , crate :: prisma :: outbound_request_claims :: commitment :: NAME => Ok (Field :: commitment) , crate :: prisma :: outbound_request_claims :: delivery_height :: NAME => Ok (Field :: delivery_height) , crate :: prisma :: outbound_request_claims :: status :: NAME => Ok (Field :: status) , crate :: prisma :: outbound_request_claims :: created_at :: NAME => Ok (Field :: created_at) , crate :: prisma :: outbound_request_claims :: updated_at :: NAME => Ok (Field :: updated_at) , crate :: prisma :: outbound_request_claims :: note :: NAME => Ok (Field :: note) , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * let mut id = None ; let mut dest = None ; let mut commitment = None ; let mut delivery_height = None ; let mut status = None ; let mut created_at = None ; let mut updated_at = None ; let mut note = None ; while let Some (key) = map . next_key () ? { match key { Field :: id => { if id . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: id :: NAME)) ; } id = Some (map . next_value () ?) ; } Field :: dest => { if dest . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: dest :: NAME)) ; } dest = Some (map . next_value () ?) ; } Field :: commitment => { if commitment . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: commitment :: NAME)) ; } commitment = Some (map . next_value () ?) ; } Field :: delivery_height => { if delivery_height . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: delivery_height :: NAME)) ; } delivery_height = Some (map . next_value () ?) ; } Field :: status => { if status . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: status :: NAME)) ; } status = Some (map . next_value () ?) ; } Field :: created_at => { if created_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: created_at :: NAME)) ; } created_at = Some (map . next_value () ?) ; } Field :: updated_at => { if updated_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: updated_at :: NAME)) ; } updated_at = Some (map . next_value () ?) ; } Field :: note => { if note . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: note :: NAME)) ; } note = Some (map . next_value () ?) ; } $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ? ;) * let id = id . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: id :: NAME)) ? ; let dest = dest . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: dest :: NAME)) ? ; let commitment = commitment . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: commitment :: NAME)) ? ; let delivery_height = delivery_height . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: delivery_height :: NAME)) ? ; let status = status . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: status :: NAME)) ? ; let created_at = created_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: created_at :: NAME)) ? ; let updated_at = updated_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: updated_at :: NAME)) ? ; let note = note . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: note :: NAME)) ? ; Ok (Data { id , dest , commitment , delivery_height , status , created_at , updated_at , note , $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "commitment" , "delivery_height" , "status" , "created_at" , "updated_at" , "note"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: outbound_request_claims :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "OutboundRequestClaims" , available relations are "")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: outbound_request_claims :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; commitment) => { "commitment" } ; (@ field_serde_name ; delivery_height) => { "delivery_height" } ; (@ field_serde_name ; status) => { "status" } ; (@ field_serde_name ; created_at) => { "created_at" } ; (@ field_serde_name ; updated_at) => { "updated_at" } ; (@ field_serde_name ; note) => { "note" } ; }
+	macro_rules ! _include_outbound_request_claims { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: outbound_request_claims :: include ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn include ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: outbound_request_claims :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: outbound_request_claims :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: outbound_request_claims :: include ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: outbound_request_claims :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: outbound_request_claims :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: outbound_request_claims :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { pub id : i32 , pub dest : String , pub commitment : String , pub encoded_request : Vec < u8 > , pub delivery_height : i64 , pub status : String , pub created_at : i32 , pub updated_at : i32 , pub note : Option < String > , $ (pub $ field : crate :: prisma :: outbound_request_claims :: include ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) + stringify ! (id) , stringify ! (dest) , stringify ! (commitment) , stringify ! (encoded_request) , stringify ! (delivery_height) , stringify ! (status) , stringify ! (created_at) , stringify ! (updated_at) , stringify ! (note)] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME , & self . $ field) ? ;) * state . serialize_field (crate :: prisma :: outbound_request_claims :: id :: NAME , & self . id) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: dest :: NAME , & self . dest) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: commitment :: NAME , & self . commitment) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: encoded_request :: NAME , & self . encoded_request) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: delivery_height :: NAME , & self . delivery_height) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: status :: NAME , & self . status) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: created_at :: NAME , & self . created_at) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: updated_at :: NAME , & self . updated_at) ? ; state . serialize_field (crate :: prisma :: outbound_request_claims :: note :: NAME , & self . note) ? ; state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , id , dest , commitment , encoded_request , delivery_height , status , created_at , updated_at , note } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: outbound_request_claims :: $ field :: NAME) , + , crate :: prisma :: outbound_request_claims :: id :: NAME , crate :: prisma :: outbound_request_claims :: dest :: NAME , crate :: prisma :: outbound_request_claims :: commitment :: NAME , crate :: prisma :: outbound_request_claims :: encoded_request :: NAME , crate :: prisma :: outbound_request_claims :: delivery_height :: NAME , crate :: prisma :: outbound_request_claims :: status :: NAME , crate :: prisma :: outbound_request_claims :: created_at :: NAME , crate :: prisma :: outbound_request_claims :: updated_at :: NAME , crate :: prisma :: outbound_request_claims :: note :: NAME] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: outbound_request_claims :: $ field :: NAME => Ok (Field :: $ field)) , * , crate :: prisma :: outbound_request_claims :: id :: NAME => Ok (Field :: id) , crate :: prisma :: outbound_request_claims :: dest :: NAME => Ok (Field :: dest) , crate :: prisma :: outbound_request_claims :: commitment :: NAME => Ok (Field :: commitment) , crate :: prisma :: outbound_request_claims :: encoded_request :: NAME => Ok (Field :: encoded_request) , crate :: prisma :: outbound_request_claims :: delivery_height :: NAME => Ok (Field :: delivery_height) , crate :: prisma :: outbound_request_claims :: status :: NAME => Ok (Field :: status) , crate :: prisma :: outbound_request_claims :: created_at :: NAME => Ok (Field :: created_at) , crate :: prisma :: outbound_request_claims :: updated_at :: NAME => Ok (Field :: updated_at) , crate :: prisma :: outbound_request_claims :: note :: NAME => Ok (Field :: note) , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * let mut id = None ; let mut dest = None ; let mut commitment = None ; let mut encoded_request = None ; let mut delivery_height = None ; let mut status = None ; let mut created_at = None ; let mut updated_at = None ; let mut note = None ; while let Some (key) = map . next_key () ? { match key { Field :: id => { if id . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: id :: NAME)) ; } id = Some (map . next_value () ?) ; } Field :: dest => { if dest . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: dest :: NAME)) ; } dest = Some (map . next_value () ?) ; } Field :: commitment => { if commitment . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: commitment :: NAME)) ; } commitment = Some (map . next_value () ?) ; } Field :: encoded_request => { if encoded_request . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: encoded_request :: NAME)) ; } encoded_request = Some (map . next_value () ?) ; } Field :: delivery_height => { if delivery_height . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: delivery_height :: NAME)) ; } delivery_height = Some (map . next_value () ?) ; } Field :: status => { if status . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: status :: NAME)) ; } status = Some (map . next_value () ?) ; } Field :: created_at => { if created_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: created_at :: NAME)) ; } created_at = Some (map . next_value () ?) ; } Field :: updated_at => { if updated_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: updated_at :: NAME)) ; } updated_at = Some (map . next_value () ?) ; } Field :: note => { if note . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: note :: NAME)) ; } note = Some (map . next_value () ?) ; } $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: $ field :: NAME)) ? ;) * let id = id . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: id :: NAME)) ? ; let dest = dest . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: dest :: NAME)) ? ; let commitment = commitment . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: commitment :: NAME)) ? ; let encoded_request = encoded_request . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: encoded_request :: NAME)) ? ; let delivery_height = delivery_height . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: delivery_height :: NAME)) ? ; let status = status . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: status :: NAME)) ? ; let created_at = created_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: created_at :: NAME)) ? ; let updated_at = updated_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: updated_at :: NAME)) ? ; let note = note . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: outbound_request_claims :: note :: NAME)) ? ; Ok (Data { id , dest , commitment , encoded_request , delivery_height , status , created_at , updated_at , note , $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "commitment" , "encoded_request" , "delivery_height" , "status" , "created_at" , "updated_at" , "note"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: outbound_request_claims :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "OutboundRequestClaims" , available relations are "")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: outbound_request_claims :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; commitment) => { "commitment" } ; (@ field_serde_name ; encoded_request) => { "encoded_request" } ; (@ field_serde_name ; delivery_height) => { "delivery_height" } ; (@ field_serde_name ; status) => { "status" } ; (@ field_serde_name ; created_at) => { "created_at" } ; (@ field_serde_name ; updated_at) => { "updated_at" } ; (@ field_serde_name ; note) => { "note" } ; }
 	pub use _include_outbound_request_claims as include;
 	pub enum IncludeParam {
 		Id(id::Include),
 		Dest(dest::Include),
 		Commitment(commitment::Include),
+		EncodedRequest(encoded_request::Include),
 		DeliveryHeight(delivery_height::Include),
 		Status(status::Include),
 		CreatedAt(created_at::Include),
@@ -3973,6 +4054,7 @@ pub mod outbound_request_claims {
 				Self::Id(data) => data.to_selection(),
 				Self::Dest(data) => data.to_selection(),
 				Self::Commitment(data) => data.to_selection(),
+				Self::EncodedRequest(data) => data.to_selection(),
 				Self::DeliveryHeight(data) => data.to_selection(),
 				Self::Status(data) => data.to_selection(),
 				Self::CreatedAt(data) => data.to_selection(),
@@ -3982,7 +4064,7 @@ pub mod outbound_request_claims {
 		}
 	}
 	#[macro_export]
-	macro_rules ! _partial_unchecked_outbound_request_claims { ($ struct_name : ident { $ ($ scalar_field : ident) + }) => { :: prisma_client_rust :: macros :: partial_unchecked ! { crate :: prisma :: outbound_request_claims struct $ struct_name { # [serde (rename = "id")] pub id : i32 , # [serde (rename = "dest")] pub dest : String , # [serde (rename = "commitment")] pub commitment : String , # [serde (rename = "delivery_height")] pub delivery_height : i64 , # [serde (rename = "status")] pub status : String , # [serde (rename = "created_at")] pub created_at : i32 , # [serde (rename = "updated_at")] pub updated_at : i32 , # [serde (rename = "note")] # [serde (default , with = "::prisma_client_rust::serde::double_option")] pub note : Option < String > } [$ ($ scalar_field) , +] } } ; }
+	macro_rules ! _partial_unchecked_outbound_request_claims { ($ struct_name : ident { $ ($ scalar_field : ident) + }) => { :: prisma_client_rust :: macros :: partial_unchecked ! { crate :: prisma :: outbound_request_claims struct $ struct_name { # [serde (rename = "id")] pub id : i32 , # [serde (rename = "dest")] pub dest : String , # [serde (rename = "commitment")] pub commitment : String , # [serde (rename = "encoded_request")] pub encoded_request : Vec < u8 > , # [serde (rename = "delivery_height")] pub delivery_height : i64 , # [serde (rename = "status")] pub status : String , # [serde (rename = "created_at")] pub created_at : i32 , # [serde (rename = "updated_at")] pub updated_at : i32 , # [serde (rename = "note")] # [serde (default , with = "::prisma_client_rust::serde::double_option")] pub note : Option < String > } [$ ($ scalar_field) , +] } } ; }
 	pub use _partial_unchecked_outbound_request_claims as partial_unchecked;
 	#[derive(Debug, Clone, :: serde :: Serialize, :: serde :: Deserialize)]
 	pub struct Data {
@@ -3992,6 +4074,8 @@ pub mod outbound_request_claims {
 		pub dest: String,
 		#[serde(rename = "commitment")]
 		pub commitment: String,
+		#[serde(rename = "encoded_request")]
+		pub encoded_request: Vec<u8>,
 		#[serde(rename = "delivery_height")]
 		pub delivery_height: i64,
 		#[serde(rename = "status")]
@@ -4020,6 +4104,7 @@ pub mod outbound_request_claims {
 		DivideId(i32),
 		SetDest(String),
 		SetCommitment(String),
+		SetEncodedRequest(Vec<u8>),
 		SetDeliveryHeight(i64),
 		IncrementDeliveryHeight(i64),
 		DecrementDeliveryHeight(i64),
@@ -4075,6 +4160,10 @@ pub mod outbound_request_claims {
 					(dest::NAME.to_string(), ::prisma_client_rust::PrismaValue::String(value)),
 				SetParam::SetCommitment(value) =>
 					(commitment::NAME.to_string(), ::prisma_client_rust::PrismaValue::String(value)),
+				SetParam::SetEncodedRequest(value) => (
+					encoded_request::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Bytes(value),
+				),
 				SetParam::SetDeliveryHeight(value) => (
 					delivery_height::NAME.to_string(),
 					::prisma_client_rust::PrismaValue::BigInt(value),
@@ -4187,6 +4276,7 @@ pub mod outbound_request_claims {
 		Id(i32),
 		Dest(String),
 		Commitment(String),
+		EncodedRequest(Vec<u8>),
 		DeliveryHeight(i64),
 		Status(String),
 		CreatedAt(i32),
@@ -4199,6 +4289,7 @@ pub mod outbound_request_claims {
 				UncheckedSetParam::Id(value) => Self::SetId(value),
 				UncheckedSetParam::Dest(value) => Self::SetDest(value),
 				UncheckedSetParam::Commitment(value) => Self::SetCommitment(value),
+				UncheckedSetParam::EncodedRequest(value) => Self::SetEncodedRequest(value),
 				UncheckedSetParam::DeliveryHeight(value) => Self::SetDeliveryHeight(value),
 				UncheckedSetParam::Status(value) => Self::SetStatus(value),
 				UncheckedSetParam::CreatedAt(value) => Self::SetCreatedAt(value),
@@ -4212,6 +4303,7 @@ pub mod outbound_request_claims {
 		Id(::prisma_client_rust::Direction),
 		Dest(::prisma_client_rust::Direction),
 		Commitment(::prisma_client_rust::Direction),
+		EncodedRequest(::prisma_client_rust::Direction),
 		DeliveryHeight(::prisma_client_rust::Direction),
 		Status(::prisma_client_rust::Direction),
 		CreatedAt(::prisma_client_rust::Direction),
@@ -4231,6 +4323,10 @@ pub mod outbound_request_claims {
 				),
 				Self::Commitment(direction) => (
 					commitment::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::EncodedRequest(direction) => (
+					encoded_request::NAME.to_string(),
 					::prisma_client_rust::PrismaValue::String(direction.to_string()),
 				),
 				Self::DeliveryHeight(direction) => (
@@ -4264,6 +4360,7 @@ pub mod outbound_request_claims {
 		Id(_prisma::read_filters::IntFilter),
 		Dest(_prisma::read_filters::StringFilter),
 		Commitment(_prisma::read_filters::StringFilter),
+		EncodedRequest(_prisma::read_filters::BytesFilter),
 		DeliveryHeight(_prisma::read_filters::BigIntFilter),
 		Status(_prisma::read_filters::StringFilter),
 		CreatedAt(_prisma::read_filters::IntFilter),
@@ -4312,6 +4409,7 @@ pub mod outbound_request_claims {
 				Self::Id(value) => (id::NAME, value.into()),
 				Self::Dest(value) => (dest::NAME, value.into()),
 				Self::Commitment(value) => (commitment::NAME, value.into()),
+				Self::EncodedRequest(value) => (encoded_request::NAME, value.into()),
 				Self::DeliveryHeight(value) => (delivery_height::NAME, value.into()),
 				Self::Status(value) => (status::NAME, value.into()),
 				Self::CreatedAt(value) => (created_at::NAME, value.into()),
@@ -4361,6 +4459,7 @@ pub mod outbound_request_claims {
 				::prisma_client_rust::sel(id::NAME),
 				::prisma_client_rust::sel(dest::NAME),
 				::prisma_client_rust::sel(commitment::NAME),
+				::prisma_client_rust::sel(encoded_request::NAME),
 				::prisma_client_rust::sel(delivery_height::NAME),
 				::prisma_client_rust::sel(status::NAME),
 				::prisma_client_rust::sel(created_at::NAME),
@@ -4400,6 +4499,7 @@ pub mod outbound_request_claims {
 			self,
 			dest: String,
 			commitment: String,
+			encoded_request: Vec<u8>,
 			delivery_height: i64,
 			status: String,
 			created_at: i32,
@@ -4409,6 +4509,7 @@ pub mod outbound_request_claims {
 			_params.extend([
 				dest::set(dest),
 				commitment::set(commitment),
+				encoded_request::set(encoded_request),
 				delivery_height::set(delivery_height),
 				status::set(status),
 				created_at::set(created_at),
@@ -4420,6 +4521,7 @@ pub mod outbound_request_claims {
 			self,
 			dest: String,
 			commitment: String,
+			encoded_request: Vec<u8>,
 			delivery_height: i64,
 			status: String,
 			created_at: i32,
@@ -4429,6 +4531,7 @@ pub mod outbound_request_claims {
 			_params.extend([
 				dest::set(dest),
 				commitment::set(commitment),
+				encoded_request::set(encoded_request),
 				delivery_height::set(delivery_height),
 				status::set(status),
 				created_at::set(created_at),
@@ -4461,20 +4564,22 @@ pub mod outbound_request_claims {
 		pub fn upsert(
 			self,
 			_where: UniqueWhereParam,
-			(dest, commitment, delivery_height, status, created_at, updated_at, mut _params): (
-				String,
-				String,
-				i64,
-				String,
-				i32,
-				i32,
-				Vec<SetParam>,
-			),
+			(
+				dest,
+				commitment,
+				encoded_request,
+				delivery_height,
+				status,
+				created_at,
+				updated_at,
+				mut _params,
+			): (String, String, Vec<u8>, i64, String, i32, i32, Vec<SetParam>),
 			_update: Vec<SetParam>,
 		) -> Upsert<'a> {
 			_params.extend([
 				dest::set(dest),
 				commitment::set(commitment),
+				encoded_request::set(encoded_request),
 				delivery_height::set(delivery_height),
 				status::set(status),
 				created_at::set(created_at),
@@ -4655,6 +4760,8 @@ pub mod _prisma {
 		Dest,
 		#[serde(rename = "commitment")]
 		Commitment,
+		#[serde(rename = "encoded_request")]
+		EncodedRequest,
 		#[serde(rename = "delivery_height")]
 		DeliveryHeight,
 		#[serde(rename = "status")]
@@ -4672,6 +4779,7 @@ pub mod _prisma {
 				Self::Id => "id".to_string(),
 				Self::Dest => "dest".to_string(),
 				Self::Commitment => "commitment".to_string(),
+				Self::EncodedRequest => "encoded_request".to_string(),
 				Self::DeliveryHeight => "delivery_height".to_string(),
 				Self::Status => "status".to_string(),
 				Self::CreatedAt => "created_at".to_string(),

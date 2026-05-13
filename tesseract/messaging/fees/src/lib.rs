@@ -62,11 +62,13 @@ pub struct OutboundRotationClaimRow {
 
 /// Row view of a persisted outbound-request delivery claim. Sibling shape
 /// to [`OutboundRotationClaimRow`] keyed by the hyperbridge request
-/// commitment instead of `(dest, set_id)`.
+/// commitment instead of `(dest, set_id)`. `encoded_request` is the
+/// SCALE-encoded `PostRequest` the claim was made for.
 #[derive(Debug, Clone, ::serde::Deserialize)]
 pub struct OutboundRequestClaimRow {
 	pub dest: String,
 	pub commitment: String,
+	pub encoded_request: Vec<u8>,
 	pub delivery_height: i64,
 }
 
@@ -186,12 +188,13 @@ impl TransactionPayment {
 
 	/// Persist pending outbound-request delivery claims, one row per
 	/// hyperbridge-originated request just delivered to `destination`.
+	/// `rows` is `[(commitment_hex, encoded_request, delivery_height)]`.
 	/// Idempotent on the commitment unique key so re-triggers (e.g.
-	/// crash-replay) overwrite the stored height in place.
+	/// crash-replay) overwrite the stored row in place.
 	pub async fn insert_pending_request_claims(
 		&self,
 		destination: &str,
-		rows: &[(String, u64)],
+		rows: &[(String, Vec<u8>, u64)],
 	) -> anyhow::Result<()> {
 		use crate::db::outbound_request_claims;
 		if rows.is_empty() {
@@ -200,12 +203,13 @@ impl TransactionPayment {
 		let now = chrono::Utc::now().timestamp() as i32;
 		let actions: Vec<_> = rows
 			.iter()
-			.map(|(commitment, delivery_height)| {
+			.map(|(commitment, encoded_request, delivery_height)| {
 				self.db.outbound_request_claims().upsert(
 					outbound_request_claims::UniqueWhereParam::CommitmentEquals(commitment.clone()),
 					outbound_request_claims::create(
 						destination.to_string(),
 						commitment.clone(),
+						encoded_request.clone(),
 						*delivery_height as i64,
 						outbound_rotation_claim_status::PENDING.to_string(),
 						now,
@@ -252,6 +256,7 @@ impl TransactionPayment {
 			.map(|data| OutboundRequestClaimRow {
 				dest: data.dest,
 				commitment: data.commitment,
+				encoded_request: data.encoded_request,
 				delivery_height: data.delivery_height,
 			})
 			.collect())

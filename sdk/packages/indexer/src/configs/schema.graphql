@@ -1091,6 +1091,21 @@ type IOrderV2 @entity {
 	partialFills: [IOrderV2PartialFill!]! @derivedFrom(field: "order")
 
 	"""
+	Full fill events for this order (one per order — fires on the destination chain for cross-chain, or on the final partial fill for same-chain)
+	"""
+	fills: [IOrderV2Fill!]! @derivedFrom(field: "order")
+
+	"""
+	Escrow release events for this order (fires on the source chain after a successful fill)
+	"""
+	escrowReleases: [IOrderV2EscrowRelease!]! @derivedFrom(field: "order")
+
+	"""
+	Escrow refund events for this order (fires on the source chain after cancellation)
+	"""
+	escrowRefunds: [IOrderV2EscrowRefund!]! @derivedFrom(field: "order")
+
+	"""
 	Predispatch assets for this order
 	"""
 	predispatchAssets: [IOrderV2PredispatchAsset!]! @derivedFrom(field: "order")
@@ -1404,6 +1419,275 @@ type IOrderV2PartialFillOutputAsset @entity {
 	Beneficiary address for this output
 	"""
 	beneficiary: String! @index
+}
+
+"""
+Represents a full fill event for an IOrderV2. Each record corresponds to a single on-chain OrderFilled emission.
+For same-chain orders this marks the final fill that completes the order (preceded by zero or more PartialFill events).
+For cross-chain orders this fires on the destination chain when the solver delivers the outputs.
+"""
+type IOrderV2Fill @entity {
+	"""
+	Unique identifier for the fill event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order this fill belongs to
+	"""
+	order: IOrderV2!
+
+	"""
+	The chain on which the fill occurred (destination chain for cross-chain orders)
+	"""
+	chain: String! @index
+
+	"""
+	The address of the filler that executed this fill
+	"""
+	filler: String! @index
+
+	"""
+	The timestamp of the fill event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the fill occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the fill occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Input assets credited to the filler (post-fee, post-FoT escrowed amounts that will be released on the source chain)
+	"""
+	inputAssets: [IOrderV2FillInputAsset!]! @derivedFrom(field: "fill")
+
+	"""
+	Output assets delivered by the filler to the beneficiary
+	"""
+	outputAssets: [IOrderV2FillOutputAsset!]! @derivedFrom(field: "fill")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents an input asset associated with an IOrderV2 full fill (amount released or owed to the solver)
+"""
+type IOrderV2FillInputAsset @entity {
+	"""
+	Unique identifier: {fillId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The fill this input asset belongs to
+	"""
+	fill: IOrderV2Fill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the fill input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset delivered by the solver in an IOrderV2 full fill
+"""
+type IOrderV2FillOutputAsset @entity {
+	"""
+	Unique identifier: {fillId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The fill this output asset belongs to
+	"""
+	fill: IOrderV2Fill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount delivered to the beneficiary
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the fill output assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an EscrowReleased event for an IOrderV2 — escrowed tokens released to the solver after a successful fill.
+Fires on the source chain (where the order was placed) once Hyperbridge confirms the destination-chain fill.
+"""
+type IOrderV2EscrowRelease @entity {
+	"""
+	Unique identifier for the release event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose escrow was released
+	"""
+	order: IOrderV2!
+
+	"""
+	The chain on which the release occurred (source chain)
+	"""
+	chain: String! @index
+
+	"""
+	The timestamp of the release event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the release occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the release occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Token amounts released from escrow
+	"""
+	tokens: [IOrderV2EscrowReleaseToken!]! @derivedFrom(field: "release")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a single token released from escrow as part of an IOrderV2 EscrowReleased event
+"""
+type IOrderV2EscrowReleaseToken @entity {
+	"""
+	Unique identifier: {releaseId}-token-{index}
+	"""
+	id: ID!
+
+	"""
+	The release event this token belongs to
+	"""
+	release: IOrderV2EscrowRelease!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount released from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the release tokens array
+	"""
+	index: Int!
+}
+
+"""
+Represents an EscrowRefunded event for an IOrderV2 — escrowed tokens refunded to the user after cancellation.
+Fires on the source chain.
+"""
+type IOrderV2EscrowRefund @entity {
+	"""
+	Unique identifier for the refund event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose escrow was refunded
+	"""
+	order: IOrderV2!
+
+	"""
+	The chain on which the refund occurred (source chain)
+	"""
+	chain: String! @index
+
+	"""
+	The timestamp of the refund event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the refund occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the refund occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Token amounts refunded from escrow
+	"""
+	tokens: [IOrderV2EscrowRefundToken!]! @derivedFrom(field: "refund")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a single token refunded from escrow as part of an IOrderV2 EscrowRefunded event
+"""
+type IOrderV2EscrowRefundToken @entity {
+	"""
+	Unique identifier: {refundId}-token-{index}
+	"""
+	id: ID!
+
+	"""
+	The refund event this token belongs to
+	"""
+	refund: IOrderV2EscrowRefund!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount refunded from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the refund tokens array
+	"""
+	index: Int!
 }
 
 """

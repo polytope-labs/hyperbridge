@@ -14,6 +14,13 @@ import { IOrderV2OutputAsset } from "@/configs/src/types/models/IOrderV2OutputAs
 import { IOrderV2PartialFill } from "@/configs/src/types/models/IOrderV2PartialFill"
 import { IOrderV2PartialFillInputAsset } from "@/configs/src/types/models/IOrderV2PartialFillInputAsset"
 import { IOrderV2PartialFillOutputAsset } from "@/configs/src/types/models/IOrderV2PartialFillOutputAsset"
+import { IOrderV2Fill } from "@/configs/src/types/models/IOrderV2Fill"
+import { IOrderV2FillInputAsset } from "@/configs/src/types/models/IOrderV2FillInputAsset"
+import { IOrderV2FillOutputAsset } from "@/configs/src/types/models/IOrderV2FillOutputAsset"
+import { IOrderV2EscrowRelease } from "@/configs/src/types/models/IOrderV2EscrowRelease"
+import { IOrderV2EscrowReleaseToken } from "@/configs/src/types/models/IOrderV2EscrowReleaseToken"
+import { IOrderV2EscrowRefund } from "@/configs/src/types/models/IOrderV2EscrowRefund"
+import { IOrderV2EscrowRefundToken } from "@/configs/src/types/models/IOrderV2EscrowRefundToken"
 import { timestampToDate } from "@/utils/date.helpers"
 
 import { PointsService } from "./points.service"
@@ -573,6 +580,179 @@ export class IntentGatewayV2Service {
 				partialFillId,
 				filler,
 			})}`,
+		)
+	}
+
+	static async recordFill(
+		commitment: string,
+		filler: string,
+		outputs: TokenInfo[],
+		inputs: TokenInfo[],
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+
+		const orderPlaced = await OrderV2Placed.get(commitment)
+		if (!orderPlaced) {
+			logger.warn(
+				`OrderV2 ${stringify({
+					commitment,
+				})} does not exist yet but OrderFilled event received. Recording fill linked by commitment.`,
+			)
+		}
+
+		const fillId = `${transactionHash}.${logIndex}`
+
+		let fill = await IOrderV2Fill.get(fillId)
+		if (!fill) {
+			fill = await IOrderV2Fill.create({
+				id: fillId,
+				orderId: commitment,
+				chain: chainId,
+				filler,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				transactionHash,
+				createdAt: timestampToDate(timestamp),
+			})
+		}
+		await fill.save()
+
+		await Promise.all(
+			inputs.map(async (input, index) => {
+				const assetId = `${fillId}-input-${index}`
+				let assetEntity = await IOrderV2FillInputAsset.get(assetId)
+				if (!assetEntity) {
+					assetEntity = await IOrderV2FillInputAsset.create({
+						id: assetId,
+						fillId,
+						token: input.token,
+						amount: input.amount,
+						index,
+					})
+				}
+				await assetEntity.save()
+			}),
+		)
+
+		await Promise.all(
+			outputs.map(async (output, index) => {
+				const assetId = `${fillId}-output-${index}`
+				let assetEntity = await IOrderV2FillOutputAsset.get(assetId)
+				if (!assetEntity) {
+					assetEntity = await IOrderV2FillOutputAsset.create({
+						id: assetId,
+						fillId,
+						token: output.token,
+						amount: output.amount,
+						index,
+					})
+				}
+				await assetEntity.save()
+			}),
+		)
+
+		logger.info(
+			`OrderV2 Fill recorded: ${stringify({
+				commitment,
+				fillId,
+				filler,
+			})}`,
+		)
+	}
+
+	static async recordEscrowRelease(
+		commitment: string,
+		tokens: TokenInfo[],
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+		const releaseId = `${transactionHash}.${logIndex}`
+
+		let release = await IOrderV2EscrowRelease.get(releaseId)
+		if (!release) {
+			release = await IOrderV2EscrowRelease.create({
+				id: releaseId,
+				orderId: commitment,
+				chain: chainId,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				transactionHash,
+				createdAt: timestampToDate(timestamp),
+			})
+		}
+		await release.save()
+
+		await Promise.all(
+			tokens.map(async (token, index) => {
+				const tokenId = `${releaseId}-token-${index}`
+				let tokenEntity = await IOrderV2EscrowReleaseToken.get(tokenId)
+				if (!tokenEntity) {
+					tokenEntity = await IOrderV2EscrowReleaseToken.create({
+						id: tokenId,
+						releaseId,
+						token: token.token,
+						amount: token.amount,
+						index,
+					})
+				}
+				await tokenEntity.save()
+			}),
+		)
+	}
+
+	static async recordEscrowRefund(
+		commitment: string,
+		tokens: TokenInfo[],
+		logsData: {
+			transactionHash: string
+			blockNumber: number
+			timestamp: bigint
+			logIndex: number
+		},
+	): Promise<void> {
+		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
+		const refundId = `${transactionHash}.${logIndex}`
+
+		let refund = await IOrderV2EscrowRefund.get(refundId)
+		if (!refund) {
+			refund = await IOrderV2EscrowRefund.create({
+				id: refundId,
+				orderId: commitment,
+				chain: chainId,
+				timestamp,
+				blockNumber: blockNumber.toString(),
+				transactionHash,
+				createdAt: timestampToDate(timestamp),
+			})
+		}
+		await refund.save()
+
+		await Promise.all(
+			tokens.map(async (token, index) => {
+				const tokenId = `${refundId}-token-${index}`
+				let tokenEntity = await IOrderV2EscrowRefundToken.get(tokenId)
+				if (!tokenEntity) {
+					tokenEntity = await IOrderV2EscrowRefundToken.create({
+						id: tokenId,
+						refundId,
+						token: token.token,
+						amount: token.amount,
+						index,
+					})
+				}
+				await tokenEntity.save()
+			}),
 		)
 	}
 

@@ -102,15 +102,15 @@ pub struct PendingConsensusDeliveryClaim {
 /// In-flight outbound request delivery reward claim.
 ///
 /// Pushed by the outbound task after a hyperbridge-originated request is
-/// delivered to `destination`. The claim task waits for Hyperbridge's
+/// delivered to `request.dest`. The claim task waits for Hyperbridge's
 /// consensus client for the destination to verify `delivery_height`, builds
 /// a state proof of `RequestReceipts[commitment]`, signs the claim message
 /// with the destination's signing key, and submits
 /// `pallet_ismp_relayer::claim_outbound_request_delivery_reward`.
 ///
 /// Carries the full [`PostRequest`] so the on-chain extrinsic can hash it,
-/// verify the source, and look up the reward by `(request.dest,
-/// request.from)`. Supports both EVM and substrate destinations.
+/// verify the source, and look up the reward by `request.from`. Supports
+/// both EVM and substrate destinations.
 #[derive(Debug, Clone)]
 pub struct PendingRequestDeliveryClaim {
 	/// The hyperbridge-originated request being claimed against.

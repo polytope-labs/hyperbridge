@@ -290,9 +290,9 @@ struct OutboundEventContext {
 	is_mandatory: bool,
 	new_height: u64,
 	new_set_id: Option<u64>,
-	/// Snapshot of the on-chain allowlist for this fan-out cycle. `None`
+	/// Snapshot of allowlisted `module_id`s for this fan-out cycle. `None`
 	/// means the fetch failed and the filter should not run.
-	incentivized: Option<Arc<BTreeSet<(StateMachine, Vec<u8>)>>>,
+	incentivized: Option<Arc<BTreeSet<Vec<u8>>>>,
 }
 
 /// Per-destination args. Splits cleanly from [`OutboundEventContext`] so
@@ -556,19 +556,18 @@ async fn submit_for_dest(
 	Ok(())
 }
 
-/// Drop hyperbridge-originated requests whose `(destination, source_module)`
-/// pair is not on the on-chain reward allowlist. User-originated requests
-/// and non-request events pass through. `None` means the snapshot fetch
-/// failed this cycle; deliver everything as a no-op fallback.
+/// Drop hyperbridge-originated requests whose `source_module` is not on
+/// the on-chain reward allowlist. User-originated requests and non-request
+/// events pass through. `None` means the snapshot fetch failed this cycle;
+/// deliver everything as a no-op fallback.
 fn retain_incentivized_requests(
 	events: &mut Vec<Event>,
 	coprocessor: StateMachine,
-	incentivized: Option<&BTreeSet<(StateMachine, Vec<u8>)>>,
+	incentivized: Option<&BTreeSet<Vec<u8>>>,
 ) {
 	let Some(incentivized) = incentivized else { return };
 	events.retain(|ev| match ev {
-		Event::PostRequest(post) =>
-			post.source != coprocessor || incentivized.contains(&(post.dest, post.from.clone())),
+		Event::PostRequest(post) => post.source != coprocessor || incentivized.contains(&post.from),
 		_ => true,
 	});
 }
@@ -1382,8 +1381,7 @@ mod tests {
 	fn retain_incentivized_drops_unallowlisted_hyperbridge_requests() {
 		let allowed_module = vec![0xAA, 0xBB];
 		let other_module = vec![0xCC, 0xDD];
-		let allowlist: BTreeSet<(StateMachine, Vec<u8>)> =
-			[(DEST_A, allowed_module.clone())].into_iter().collect();
+		let allowlist: BTreeSet<Vec<u8>> = [allowed_module.clone()].into_iter().collect();
 
 		let mut allowed = post_req(HB, DEST_A, 1);
 		allowed.from = allowed_module;
@@ -1422,7 +1420,7 @@ mod tests {
 
 	#[test]
 	fn retain_incentivized_passes_non_request_events() {
-		let allowlist: BTreeSet<(StateMachine, Vec<u8>)> = BTreeSet::new();
+		let allowlist: BTreeSet<Vec<u8>> = BTreeSet::new();
 		let mut events = vec![Event::PostResponse(post_res(DEST_B, HB, 1))];
 		retain_incentivized_requests(&mut events, HB, Some(&allowlist));
 		assert_eq!(events.len(), 1);

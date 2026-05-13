@@ -216,12 +216,10 @@ pub fn outbound_requests_claimed_storage_key(commitment: H256) -> Vec<u8> {
 }
 
 /// Prefix for the `pallet_ismp_relayer::OutboundRequestDeliveryReward`
-/// double map (`twox_128("Relayer") || twox_128("OutboundRequestDeliveryReward")`).
-/// Pass to `state_getKeysPaged` to enumerate every `(destination,
-/// module_id)` pair that has a reward configured. Both keys hash with
-/// `Blake2_128Concat`, so each entry key continues as
-/// `blake2_128(dest_encoded) || dest_encoded || blake2_128(module_id_encoded) ||
-/// module_id_encoded`.
+/// map (`twox_128("Relayer") || twox_128("OutboundRequestDeliveryReward")`).
+/// Pass to `state_getKeysPaged` to enumerate every `module_id` with a
+/// reward configured. The key hashes with `Blake2_128Concat`, so each
+/// entry key continues as `blake2_128(module_id_encoded) || module_id_encoded`.
 pub fn outbound_request_delivery_reward_prefix() -> Vec<u8> {
 	[twox_128(b"Relayer").to_vec(), twox_128(b"OutboundRequestDeliveryReward").to_vec()].concat()
 }

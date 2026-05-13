@@ -1002,8 +1002,8 @@ mod outbound_request_delivery {
 		commitment
 	}
 
-	fn set_reward(dest: StateMachine, module_id: &[u8], amount: u128) {
-		OutboundRequestDeliveryReward::<Test>::insert(dest, module_bound(module_id), amount);
+	fn set_reward(_dest: StateMachine, module_id: &[u8], amount: u128) {
+		OutboundRequestDeliveryReward::<Test>::insert(module_bound(module_id), amount);
 	}
 
 	fn fund_treasury(amount: u128) {

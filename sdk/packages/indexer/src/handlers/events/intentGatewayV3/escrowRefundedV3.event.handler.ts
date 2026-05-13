@@ -1,14 +1,14 @@
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
-import { EscrowRefundedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV2Abi"
-import { IntentGatewayV2Service } from "@/services/intentGatewayV2.service"
+import { EscrowRefundedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
+import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
 
-export const handleEscrowRefundedEventV2 = wrap(async (event: EscrowRefundedLog): Promise<void> => {
-	logger.info(`[Intent Gateway V2] Escrow Refunded Event: ${stringify(event)}`)
+export const handleEscrowRefundedEventV3 = wrap(async (event: EscrowRefundedLog): Promise<void> => {
+	logger.info(`[Intent Gateway V3] Escrow Refunded Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash, logIndex } = event
 	if (!args) return
@@ -18,12 +18,12 @@ export const handleEscrowRefundedEventV2 = wrap(async (event: EscrowRefundedLog)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
 
 	logger.info(
-		`[Intent Gateway V2] Escrow Refunded: ${stringify({
+		`[Intent Gateway V3] Escrow Refunded: ${stringify({
 			commitment,
 		})}, tokens: ${stringify(tokens)}`,
 	)
 
-	await IntentGatewayV2Service.recordEscrowRefund(
+	await IntentGatewayV3Service.recordEscrowRefund(
 		commitment,
 		tokens.map((token) => ({
 			token: token.token as Hex,
@@ -37,7 +37,7 @@ export const handleEscrowRefundedEventV2 = wrap(async (event: EscrowRefundedLog)
 		},
 	)
 
-	await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.REFUNDED, {
+	await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.REFUNDED, {
 		transactionHash,
 		blockNumber,
 		timestamp,

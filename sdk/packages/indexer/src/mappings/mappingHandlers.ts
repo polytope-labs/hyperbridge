@@ -14,14 +14,14 @@ export { handleGetRequestEvent } from "@/handlers/events/evmHost/getRequest.even
 export { handleGetRequestHandledEvent } from "@/handlers/events/evmHost/getRequestHandled.event.handler"
 export { handleGetRequestTimeoutHandled } from "@/handlers/events/evmHost/getRequestTimeoutHandled.event.handler"
 
-// Intent Gateway V2 Handlers
-export { handleOrderPlacedEventV2 } from "@/handlers/events/intentGatewayV2/orderPlacedV2.event.handler"
-export { handleOrderFilledEventV2 } from "@/handlers/events/intentGatewayV2/orderFilledV2.event.handler"
-export { handlePartialFilledEventV2 } from "@/handlers/events/intentGatewayV2/partialFilledV2.event.handler"
-export { handleEscrowReleasedEventV2 } from "@/handlers/events/intentGatewayV2/escrowReleasedV2.event.handler"
-export { handleEscrowRefundedEventV2 } from "@/handlers/events/intentGatewayV2/escrowRefundedV2.event.handler"
-export { handleDustCollectedEventV2 } from "@/handlers/events/intentGatewayV2/dustCollected.event.handler"
-export { handleDustSweptEventV2 } from "@/handlers/events/intentGatewayV2/dustSwept.event.handler"
+// Intent Gateway V3 Handlers
+export { handleOrderPlacedEventV3 } from "@/handlers/events/intentGatewayV3/orderPlacedV3.event.handler"
+export { handleOrderFilledEventV3 } from "@/handlers/events/intentGatewayV3/orderFilledV3.event.handler"
+export { handlePartialFilledEventV3 } from "@/handlers/events/intentGatewayV3/partialFilledV3.event.handler"
+export { handleEscrowReleasedEventV3 } from "@/handlers/events/intentGatewayV3/escrowReleasedV3.event.handler"
+export { handleEscrowRefundedEventV3 } from "@/handlers/events/intentGatewayV3/escrowRefundedV3.event.handler"
+export { handleDustCollectedEventV3 } from "@/handlers/events/intentGatewayV3/dustCollected.event.handler"
+export { handleDustSweptEventV3 } from "@/handlers/events/intentGatewayV3/dustSwept.event.handler"
 
 // Token Gateway Handlers
 export { handleAssetTeleportedEvent } from "@/handlers/events/tokenGateway/assetTeleported.event.handler"

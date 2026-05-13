@@ -1,31 +1,31 @@
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
-import { PartialFillLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV2Abi"
-import { IntentGatewayV2Service } from "@/services/intentGatewayV2.service"
+import { OrderFilledLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
+import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
+import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
 
-export const handlePartialFilledEventV2 = wrap(async (event: PartialFillLog): Promise<void> => {
-	logger.info(`[Intent Gateway V2] Partial Fill Event: ${stringify(event)}`)
+export const handleOrderFilledEventV3 = wrap(async (event: OrderFilledLog): Promise<void> => {
+	logger.info(`[Intent Gateway V3] Order Filled Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash, logIndex } = event
 	if (!args) return
-
 	const { commitment, filler, outputs, inputs } = args
 
 	const chain = getHostStateMachine(chainId)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
 
 	logger.info(
-		`[Intent Gateway V2] Partial Fill: ${stringify({
+		`[Intent Gateway V3] Order Filled: ${stringify({
 			commitment,
-		})} by ${stringify({ filler })}`,
+		})} by ${stringify({ filler })}, outputs: ${stringify(outputs)}, inputs: ${stringify(inputs)}`,
 	)
 
-	await IntentGatewayV2Service.recordPartialFill(
+	await IntentGatewayV3Service.recordFill(
 		commitment,
-		filler as Hex,
+		filler,
 		outputs.map((token) => ({
 			token: token.token as Hex,
 			amount: BigInt(token.amount.toString()),
@@ -40,5 +40,16 @@ export const handlePartialFilledEventV2 = wrap(async (event: PartialFillLog): Pr
 			timestamp,
 			logIndex,
 		},
+	)
+
+	await IntentGatewayV3Service.updateOrderStatus(
+		commitment,
+		OrderStatus.FILLED,
+		{
+			transactionHash,
+			blockNumber,
+			timestamp,
+		},
+		filler,
 	)
 })

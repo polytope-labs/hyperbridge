@@ -1,14 +1,14 @@
 import { getBlockTimestamp } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
-import { EscrowReleasedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV2Abi"
-import { IntentGatewayV2Service } from "@/services/intentGatewayV2.service"
+import { EscrowReleasedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
+import { IntentGatewayV3Service } from "@/services/intentGatewayV3.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
 
-export const handleEscrowReleasedEventV2 = wrap(async (event: EscrowReleasedLog): Promise<void> => {
-	logger.info(`[Intent Gateway V2] Escrow Released Event: ${stringify(event)}`)
+export const handleEscrowReleasedEventV3 = wrap(async (event: EscrowReleasedLog): Promise<void> => {
+	logger.info(`[Intent Gateway V3] Escrow Released Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash, logIndex } = event
 	if (!args) return
@@ -18,12 +18,12 @@ export const handleEscrowReleasedEventV2 = wrap(async (event: EscrowReleasedLog)
 	const timestamp = await getBlockTimestamp(blockHash, chain)
 
 	logger.info(
-		`[Intent Gateway V2] Escrow Released: ${stringify({
+		`[Intent Gateway V3] Escrow Released: ${stringify({
 			commitment,
 		})}, tokens: ${stringify(tokens)}`,
 	)
 
-	await IntentGatewayV2Service.recordEscrowRelease(
+	await IntentGatewayV3Service.recordEscrowRelease(
 		commitment,
 		tokens.map((token) => ({
 			token: token.token as Hex,
@@ -37,7 +37,7 @@ export const handleEscrowReleasedEventV2 = wrap(async (event: EscrowReleasedLog)
 		},
 	)
 
-	await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.REDEEMED, {
+	await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.REDEEMED, {
 		transactionHash,
 		blockNumber,
 		timestamp,

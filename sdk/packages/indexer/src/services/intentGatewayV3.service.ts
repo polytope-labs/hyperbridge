@@ -6,21 +6,21 @@ import { bytes32ToBytes20 } from "@/utils/transfer.helpers"
 
 import { OrderStatus, PendingStatusMetadata, ProtocolParticipantType, PointsActivityType } from "@/configs/src/types"
 import { ERC6160Ext20Abi__factory } from "@/configs/src/types/contracts"
-import { IOrderV2 as OrderV2Placed } from "@/configs/src/types/models/IOrderV2"
-import { IOrderV2StatusMetadata } from "@/configs/src/types/models/IOrderV2StatusMetadata"
-import { IOrderV2PredispatchAsset } from "@/configs/src/types/models/IOrderV2PredispatchAsset"
-import { IOrderV2InputAsset } from "@/configs/src/types/models/IOrderV2InputAsset"
-import { IOrderV2OutputAsset } from "@/configs/src/types/models/IOrderV2OutputAsset"
-import { IOrderV2PartialFill } from "@/configs/src/types/models/IOrderV2PartialFill"
-import { IOrderV2PartialFillInputAsset } from "@/configs/src/types/models/IOrderV2PartialFillInputAsset"
-import { IOrderV2PartialFillOutputAsset } from "@/configs/src/types/models/IOrderV2PartialFillOutputAsset"
-import { IOrderV2Fill } from "@/configs/src/types/models/IOrderV2Fill"
-import { IOrderV2FillInputAsset } from "@/configs/src/types/models/IOrderV2FillInputAsset"
-import { IOrderV2FillOutputAsset } from "@/configs/src/types/models/IOrderV2FillOutputAsset"
-import { IOrderV2EscrowRelease } from "@/configs/src/types/models/IOrderV2EscrowRelease"
-import { IOrderV2EscrowReleaseToken } from "@/configs/src/types/models/IOrderV2EscrowReleaseToken"
-import { IOrderV2EscrowRefund } from "@/configs/src/types/models/IOrderV2EscrowRefund"
-import { IOrderV2EscrowRefundToken } from "@/configs/src/types/models/IOrderV2EscrowRefundToken"
+import { IOrderV3 as OrderV3Placed } from "@/configs/src/types/models/IOrderV3"
+import { IOrderV3StatusMetadata } from "@/configs/src/types/models/IOrderV3StatusMetadata"
+import { IOrderV3PredispatchAsset } from "@/configs/src/types/models/IOrderV3PredispatchAsset"
+import { IOrderV3InputAsset } from "@/configs/src/types/models/IOrderV3InputAsset"
+import { IOrderV3OutputAsset } from "@/configs/src/types/models/IOrderV3OutputAsset"
+import { IOrderV3PartialFill } from "@/configs/src/types/models/IOrderV3PartialFill"
+import { IOrderV3PartialFillInputAsset } from "@/configs/src/types/models/IOrderV3PartialFillInputAsset"
+import { IOrderV3PartialFillOutputAsset } from "@/configs/src/types/models/IOrderV3PartialFillOutputAsset"
+import { IOrderV3Fill } from "@/configs/src/types/models/IOrderV3Fill"
+import { IOrderV3FillInputAsset } from "@/configs/src/types/models/IOrderV3FillInputAsset"
+import { IOrderV3FillOutputAsset } from "@/configs/src/types/models/IOrderV3FillOutputAsset"
+import { IOrderV3EscrowRelease } from "@/configs/src/types/models/IOrderV3EscrowRelease"
+import { IOrderV3EscrowReleaseToken } from "@/configs/src/types/models/IOrderV3EscrowReleaseToken"
+import { IOrderV3EscrowRefund } from "@/configs/src/types/models/IOrderV3EscrowRefund"
+import { IOrderV3EscrowRefundToken } from "@/configs/src/types/models/IOrderV3EscrowRefundToken"
 import { timestampToDate } from "@/utils/date.helpers"
 
 import { PointsService } from "./points.service"
@@ -34,18 +34,18 @@ export interface TokenInfo {
 	amount: bigint
 }
 
-const ENTITY_TYPE = "IOrderV2"
+const ENTITY_TYPE = "IOrderV3"
 
 export interface DispatchInfo {
 	assets: TokenInfo[]
 	call: Hex
 }
-export interface PaymentInfoV2 {
+export interface PaymentInfoV3 {
 	beneficiary: Hex
 	assets: TokenInfo[]
 	call: Hex
 }
-export interface OrderV2 {
+export interface OrderV3 {
 	id?: string
 	user: Hex
 	sourceChain: string
@@ -56,12 +56,12 @@ export interface OrderV2 {
 	session: Hex
 	predispatch: DispatchInfo
 	inputs: TokenInfo[]
-	outputs: PaymentInfoV2
+	outputs: PaymentInfoV3
 }
 
 export const DEFAULT_REFERRER = "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex
 
-export class IntentGatewayV2Service {
+export class IntentGatewayV3Service {
 	/**
 	 * Create predispatch asset entities for an order
 	 */
@@ -69,10 +69,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			predispatch.assets.map(async (asset, index) => {
 				const assetId = `${orderId}-predispatch-${index}`
-				let assetEntity = await IOrderV2PredispatchAsset.get(assetId)
+				let assetEntity = await IOrderV3PredispatchAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await IOrderV2PredispatchAsset.create({
+					assetEntity = await IOrderV3PredispatchAsset.create({
 						id: assetId,
 						orderId,
 						token: asset.token,
@@ -96,10 +96,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			inputs.map(async (input, index) => {
 				const assetId = `${orderId}-input-${index}`
-				let assetEntity = await IOrderV2InputAsset.get(assetId)
+				let assetEntity = await IOrderV3InputAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await IOrderV2InputAsset.create({
+					assetEntity = await IOrderV3InputAsset.create({
 						id: assetId,
 						orderId,
 						token: input.token,
@@ -119,15 +119,15 @@ export class IntentGatewayV2Service {
 	/**
 	 * Create output asset entities for an order
 	 */
-	private static async createOutputAssets(orderId: string, outputs: PaymentInfoV2): Promise<void> {
+	private static async createOutputAssets(orderId: string, outputs: PaymentInfoV3): Promise<void> {
 		// Create/update output asset entities
 		await Promise.all(
 			outputs.assets.map(async (asset, index) => {
 				const assetId = `${orderId}-output-${index}`
-				let assetEntity = await IOrderV2OutputAsset.get(assetId)
+				let assetEntity = await IOrderV3OutputAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await IOrderV2OutputAsset.create({
+					assetEntity = await IOrderV3OutputAsset.create({
 						id: assetId,
 						orderId,
 						token: asset.token,
@@ -147,21 +147,21 @@ export class IntentGatewayV2Service {
 	}
 
 	static async getOrCreateOrder(
-		order: OrderV2,
+		order: OrderV3,
 		referrer: string,
 		logsData: {
 			transactionHash: string
 			blockNumber: number
 			timestamp: bigint
 		},
-	): Promise<OrderV2Placed> {
+	): Promise<OrderV3Placed> {
 		const { transactionHash, blockNumber, timestamp } = logsData
 
-		let orderPlaced = await OrderV2Placed.get(order.id!)
+		let orderPlaced = await OrderV3Placed.get(order.id!)
 
 		if (!orderPlaced) {
 			const { inputUSD } = await this.getOrderValue(order)
-			orderPlaced = await OrderV2Placed.create({
+			orderPlaced = await OrderV3Placed.create({
 				id: order.id!,
 				user: order.user,
 				sourceChain: order.sourceChain,
@@ -189,14 +189,14 @@ export class IntentGatewayV2Service {
 			await this.createOutputAssets(order.id!, order.outputs)
 
 			logger.info(
-				`OrderV2 Placed Event successfully saved: ${stringify({
+				`OrderV3 Placed Event successfully saved: ${stringify({
 					orderPlaced,
 				})}`,
 			)
 
 			await this.flushPendingStatuses(order.id!)
 
-			logger.info("Now awarding points for the OrderV2 Placed Event")
+			logger.info("Now awarding points for the OrderV3 Placed Event")
 
 			// Award points for order placement - using USD value directly
 			const orderValue = new Decimal(inputUSD)
@@ -209,11 +209,11 @@ export class IntentGatewayV2Service {
 				ProtocolParticipantType.USER,
 				PointsActivityType.ORDER_PLACED_POINTS,
 				transactionHash,
-				`Points awarded for placing orderV2 ${order.id} with value ${inputUSD} USD`,
+				`Points awarded for placing orderV3 ${order.id} with value ${inputUSD} USD`,
 				timestamp,
 			)
 
-			await VolumeService.updateVolume("IntentGatewayV2.USER", inputUSD, timestamp)
+			await VolumeService.updateVolume("IntentGatewayV3.USER", inputUSD, timestamp)
 
 			// Convert user to 20 bytes for UserActivity ID, but keep referrer as 32 bytes
 			const userAddress20 = bytes32ToBytes20(order.user)
@@ -228,7 +228,7 @@ export class IntentGatewayV2Service {
 			// Handle race condition: Order already exists (e.g., was filled first)
 			// Update all fields except status and status-related metadata
 			logger.info(
-				`OrderV2 ${stringify({ order: order.id })} already exists with status ${stringify({ status: orderPlaced.status })}. Updating order details while preserving status.`,
+				`OrderV3 ${stringify({ order: order.id })} already exists with status ${stringify({ status: orderPlaced.status })}. Updating order details while preserving status.`,
 			)
 
 			const existingStatus = orderPlaced.status
@@ -255,13 +255,13 @@ export class IntentGatewayV2Service {
 			await this.createOutputAssets(order.id!, order.outputs)
 
 			logger.info(
-				`OrderV2 ${stringify({ order })} updated with actual data. Status remains: ${stringify({ existingStatus })}`,
+				`OrderV3 ${stringify({ order })} updated with actual data. Status remains: ${stringify({ existingStatus })}`,
 			)
 
 			// Award points for order placement - using USD value directly
 			// Only award if status is not already FILLED (to avoid double awarding)
 			if (existingStatus !== OrderStatus.FILLED) {
-				logger.info("Now awarding points for the OrderV2 Placed Event")
+				logger.info("Now awarding points for the OrderV3 Placed Event")
 
 				const orderValue = new Decimal(inputUSD)
 				const pointsToAward = orderValue.floor().toNumber()
@@ -273,26 +273,26 @@ export class IntentGatewayV2Service {
 					ProtocolParticipantType.USER,
 					PointsActivityType.ORDER_PLACED_POINTS,
 					transactionHash,
-					`Points awarded for placing orderV2 ${order.id} with value ${inputUSD} USD`,
+					`Points awarded for placing orderV3 ${order.id} with value ${inputUSD} USD`,
 					timestamp,
 				)
 
-				await VolumeService.updateVolume("IntentGatewayV2.USER", inputUSD, timestamp)
+				await VolumeService.updateVolume("IntentGatewayV3.USER", inputUSD, timestamp)
 			}
 		}
 
 		return orderPlaced
 	}
 
-	static async getByCommitment(commitment: string): Promise<OrderV2Placed | null> {
-		const orderPlaced = await OrderV2Placed.get(commitment)
+	static async getByCommitment(commitment: string): Promise<OrderV3Placed | null> {
+		const orderPlaced = await OrderV3Placed.get(commitment)
 
 		if (!orderPlaced) return null
 
 		return orderPlaced
 	}
 
-	private static async getOrderValue(order: OrderV2): Promise<{ inputUSD: string }> {
+	private static async getOrderValue(order: OrderV3): Promise<{ inputUSD: string }> {
 		const inputValuesUSD = await this.getInputValuesUSD(order)
 
 		return {
@@ -300,7 +300,7 @@ export class IntentGatewayV2Service {
 		}
 	}
 
-	private static async getInputValuesUSD(order: OrderV2): Promise<{ total: string; values: string[] }> {
+	private static async getInputValuesUSD(order: OrderV3): Promise<{ total: string; values: string[] }> {
 		return this.getTokenValuesUSD(order.inputs)
 	}
 
@@ -350,11 +350,11 @@ export class IntentGatewayV2Service {
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp } = logsData
 
-		let orderPlaced = await OrderV2Placed.get(commitment)
+		let orderPlaced = await OrderV3Placed.get(commitment)
 
 		if (!orderPlaced) {
 			logger.warn(
-				`OrderV2 ${stringify({ commitment })} does not exist yet, storing in PendingStatusMetadata for status ${status}`,
+				`OrderV3 ${stringify({ commitment })} does not exist yet, storing in PendingStatusMetadata for status ${status}`,
 			)
 
 			let pending = PendingStatusMetadata.create({
@@ -384,7 +384,7 @@ export class IntentGatewayV2Service {
 			const outputAssets: TokenInfo[] = []
 			for (let index = 0; index < 100; index++) {
 				const assetId = `${commitment}-output-${index}`
-				const asset = await IOrderV2OutputAsset.get(assetId)
+				const asset = await IOrderV3OutputAsset.get(assetId)
 				if (!asset) break
 				outputAssets.push({
 					token: asset.token as Hex,
@@ -396,7 +396,7 @@ export class IntentGatewayV2Service {
 				// Volume
 				let outputUSD = await this.getOutputValuesUSD(outputAssets)
 
-				await VolumeService.updateVolume(`IntentGatewayV2.FILLER.${filler}`, outputUSD.total, timestamp)
+				await VolumeService.updateVolume(`IntentGatewayV3.FILLER.${filler}`, outputUSD.total, timestamp)
 
 				const orderValue = new Decimal(orderPlaced.inputUSD.toString())
 				const pointsToAward = orderValue.floor().toNumber()
@@ -409,7 +409,7 @@ export class IntentGatewayV2Service {
 					ProtocolParticipantType.FILLER,
 					PointsActivityType.ORDER_FILLED_POINTS,
 					transactionHash,
-					`Points awarded for filling orderV2 ${commitment} with value ${orderPlaced.inputUSD} USD`,
+					`Points awarded for filling orderV3 ${commitment} with value ${orderPlaced.inputUSD} USD`,
 					timestamp,
 				)
 
@@ -432,14 +432,14 @@ export class IntentGatewayV2Service {
 						ProtocolParticipantType.REFERRER,
 						PointsActivityType.ORDER_REFERRED_POINTS,
 						transactionHash,
-						`Points awarded for filling orderV2 ${commitment} with value ${orderPlaced.inputUSD} USD`,
+						`Points awarded for filling orderV3 ${commitment} with value ${orderPlaced.inputUSD} USD`,
 						timestamp,
 					)
 				}
 			}
 		}
 
-		const orderStatusMetadata = await IOrderV2StatusMetadata.create({
+		const orderStatusMetadata = await IOrderV3StatusMetadata.create({
 			id: `${commitment}.${status}`,
 			orderId: commitment,
 			status,
@@ -465,7 +465,7 @@ export class IntentGatewayV2Service {
 		const matching = pendingStatuses.filter((p) => p.entityType === ENTITY_TYPE)
 
 		for (const pending of matching) {
-			const orderStatusMetadata = IOrderV2StatusMetadata.create({
+			const orderStatusMetadata = IOrderV3StatusMetadata.create({
 				id: `${commitment}.${pending.status}`,
 				orderId: commitment,
 				status: pending.status as OrderStatus,
@@ -481,7 +481,7 @@ export class IntentGatewayV2Service {
 			await PendingStatusMetadata.remove(pending.id)
 
 			logger.info(
-				`Flushed pending status ${pending.status} for IOrderV2 ${commitment}`,
+				`Flushed pending status ${pending.status} for IOrderV3 ${commitment}`,
 			)
 		}
 	}
@@ -501,10 +501,10 @@ export class IntentGatewayV2Service {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 
 		// Ensure we at least log if the order doesn't exist yet (race between PLACED and PartialFill)
-		const orderPlaced = await OrderV2Placed.get(commitment)
+		const orderPlaced = await OrderV3Placed.get(commitment)
 		if (!orderPlaced) {
 			logger.warn(
-				`OrderV2 ${stringify({
+				`OrderV3 ${stringify({
 					commitment,
 				})} does not exist yet but PartialFill event received. Recording partial fill linked by commitment.`,
 			)
@@ -512,9 +512,9 @@ export class IntentGatewayV2Service {
 
 		const partialFillId = `${transactionHash}.${logIndex}`
 
-		let partialFill = await IOrderV2PartialFill.get(partialFillId)
+		let partialFill = await IOrderV3PartialFill.get(partialFillId)
 		if (!partialFill) {
-			partialFill = await IOrderV2PartialFill.create({
+			partialFill = await IOrderV3PartialFill.create({
 				id: partialFillId,
 				orderId: commitment,
 				chain: chainId,
@@ -532,10 +532,10 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			inputs.map(async (input, index) => {
 				const assetId = `${partialFillId}-input-${index}`
-				let assetEntity = await IOrderV2PartialFillInputAsset.get(assetId)
+				let assetEntity = await IOrderV3PartialFillInputAsset.get(assetId)
 
 				if (!assetEntity) {
-					assetEntity = await IOrderV2PartialFillInputAsset.create({
+					assetEntity = await IOrderV3PartialFillInputAsset.create({
 						id: assetId,
 						partialFillId,
 						token: input.token,
@@ -552,15 +552,15 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			outputs.map(async (output, index) => {
 				const assetId = `${partialFillId}-output-${index}`
-				let assetEntity = await IOrderV2PartialFillOutputAsset.get(assetId)
+				let assetEntity = await IOrderV3PartialFillOutputAsset.get(assetId)
 
 				// Try to reuse the beneficiary from the original order's output asset
 				const orderOutputAssetId = `${commitment}-output-${index}`
-				const orderOutputAsset = await IOrderV2OutputAsset.get(orderOutputAssetId)
+				const orderOutputAsset = await IOrderV3OutputAsset.get(orderOutputAssetId)
 				const beneficiary = orderOutputAsset?.beneficiary ?? "0x0000000000000000000000000000000000000000"
 
 				if (!assetEntity) {
-					assetEntity = await IOrderV2PartialFillOutputAsset.create({
+					assetEntity = await IOrderV3PartialFillOutputAsset.create({
 						id: assetId,
 						partialFillId,
 						token: output.token,
@@ -575,7 +575,7 @@ export class IntentGatewayV2Service {
 		)
 
 		logger.info(
-			`OrderV2 PartialFill recorded: ${stringify({
+			`OrderV3 PartialFill recorded: ${stringify({
 				commitment,
 				partialFillId,
 				filler,
@@ -597,10 +597,10 @@ export class IntentGatewayV2Service {
 	): Promise<void> {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 
-		const orderPlaced = await OrderV2Placed.get(commitment)
+		const orderPlaced = await OrderV3Placed.get(commitment)
 		if (!orderPlaced) {
 			logger.warn(
-				`OrderV2 ${stringify({
+				`OrderV3 ${stringify({
 					commitment,
 				})} does not exist yet but OrderFilled event received. Recording fill linked by commitment.`,
 			)
@@ -608,9 +608,9 @@ export class IntentGatewayV2Service {
 
 		const fillId = `${transactionHash}.${logIndex}`
 
-		let fill = await IOrderV2Fill.get(fillId)
+		let fill = await IOrderV3Fill.get(fillId)
 		if (!fill) {
-			fill = await IOrderV2Fill.create({
+			fill = await IOrderV3Fill.create({
 				id: fillId,
 				orderId: commitment,
 				chain: chainId,
@@ -626,9 +626,9 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			inputs.map(async (input, index) => {
 				const assetId = `${fillId}-input-${index}`
-				let assetEntity = await IOrderV2FillInputAsset.get(assetId)
+				let assetEntity = await IOrderV3FillInputAsset.get(assetId)
 				if (!assetEntity) {
-					assetEntity = await IOrderV2FillInputAsset.create({
+					assetEntity = await IOrderV3FillInputAsset.create({
 						id: assetId,
 						fillId,
 						token: input.token,
@@ -643,9 +643,9 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			outputs.map(async (output, index) => {
 				const assetId = `${fillId}-output-${index}`
-				let assetEntity = await IOrderV2FillOutputAsset.get(assetId)
+				let assetEntity = await IOrderV3FillOutputAsset.get(assetId)
 				if (!assetEntity) {
-					assetEntity = await IOrderV2FillOutputAsset.create({
+					assetEntity = await IOrderV3FillOutputAsset.create({
 						id: assetId,
 						fillId,
 						token: output.token,
@@ -658,7 +658,7 @@ export class IntentGatewayV2Service {
 		)
 
 		logger.info(
-			`OrderV2 Fill recorded: ${stringify({
+			`OrderV3 Fill recorded: ${stringify({
 				commitment,
 				fillId,
 				filler,
@@ -679,9 +679,9 @@ export class IntentGatewayV2Service {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 		const releaseId = `${transactionHash}.${logIndex}`
 
-		let release = await IOrderV2EscrowRelease.get(releaseId)
+		let release = await IOrderV3EscrowRelease.get(releaseId)
 		if (!release) {
-			release = await IOrderV2EscrowRelease.create({
+			release = await IOrderV3EscrowRelease.create({
 				id: releaseId,
 				orderId: commitment,
 				chain: chainId,
@@ -696,9 +696,9 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			tokens.map(async (token, index) => {
 				const tokenId = `${releaseId}-token-${index}`
-				let tokenEntity = await IOrderV2EscrowReleaseToken.get(tokenId)
+				let tokenEntity = await IOrderV3EscrowReleaseToken.get(tokenId)
 				if (!tokenEntity) {
-					tokenEntity = await IOrderV2EscrowReleaseToken.create({
+					tokenEntity = await IOrderV3EscrowReleaseToken.create({
 						id: tokenId,
 						releaseId,
 						token: token.token,
@@ -724,9 +724,9 @@ export class IntentGatewayV2Service {
 		const { transactionHash, blockNumber, timestamp, logIndex } = logsData
 		const refundId = `${transactionHash}.${logIndex}`
 
-		let refund = await IOrderV2EscrowRefund.get(refundId)
+		let refund = await IOrderV3EscrowRefund.get(refundId)
 		if (!refund) {
-			refund = await IOrderV2EscrowRefund.create({
+			refund = await IOrderV3EscrowRefund.create({
 				id: refundId,
 				orderId: commitment,
 				chain: chainId,
@@ -741,9 +741,9 @@ export class IntentGatewayV2Service {
 		await Promise.all(
 			tokens.map(async (token, index) => {
 				const tokenId = `${refundId}-token-${index}`
-				let tokenEntity = await IOrderV2EscrowRefundToken.get(tokenId)
+				let tokenEntity = await IOrderV3EscrowRefundToken.get(tokenId)
 				if (!tokenEntity) {
-					tokenEntity = await IOrderV2EscrowRefundToken.create({
+					tokenEntity = await IOrderV3EscrowRefundToken.create({
 						id: tokenId,
 						refundId,
 						token: token.token,
@@ -756,7 +756,7 @@ export class IntentGatewayV2Service {
 		)
 	}
 
-	static computeOrderCommitment(order: OrderV2): string {
+	static computeOrderCommitment(order: OrderV3): string {
 		const encoded = encodeAbiParameters(
 			[
 				{

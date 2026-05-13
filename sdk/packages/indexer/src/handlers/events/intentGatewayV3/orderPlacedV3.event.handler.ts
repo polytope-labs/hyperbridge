@@ -1,20 +1,20 @@
 import { getBlockTimestamp, getContractCallInput } from "@/utils/rpc.helpers"
 import stringify from "safe-stable-stringify"
-import { OrderPlacedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV2Abi"
-import { DEFAULT_REFERRER, IntentGatewayV2Service, OrderV2 } from "@/services/intentGatewayV2.service"
+import { OrderPlacedLog } from "@/configs/src/types/abi-interfaces/IntentGatewayV3Abi"
+import { DEFAULT_REFERRER, IntentGatewayV3Service, OrderV3 } from "@/services/intentGatewayV3.service"
 import { OrderStatus } from "@/configs/src/types"
 import { getHostStateMachine } from "@/utils/substrate.helpers"
 import { Hex } from "viem"
 import { wrap } from "@/utils/event.utils"
 import { Interface } from "@ethersproject/abi"
-import IntentGatewayV2Abi from "@/configs/abis/IntentGatewayV2.abi.json"
-import { INTENT_GATEWAY_V2_ADDRESSES } from "@/constants"
+import IntentGatewayV3Abi from "@/configs/abis/IntentGatewayV3.abi.json"
+import { INTENT_GATEWAY_V3_ADDRESSES } from "@/constants"
 import { bytes32ToBytes20, bytes20ToBytes32 } from "@/utils/transfer.helpers"
 
-const intentGatewayInterface = new Interface(IntentGatewayV2Abi)
+const intentGatewayInterface = new Interface(IntentGatewayV3Abi)
 
-export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Promise<void> => {
-	logger.info(`[Intent Gateway V2] Order Placed Event: ${stringify(event)}`)
+export const handleOrderPlacedEventV3 = wrap(async (event: OrderPlacedLog): Promise<void> => {
+	logger.info(`[Intent Gateway V3] Order Placed Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash, transaction } = event
 	if (!args) return
@@ -23,7 +23,7 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 	const timestamp = await getBlockTimestamp(blockHash, chain)
 	const txMeta = { transactionHash, blockNumber, timestamp }
 
-	let order: OrderV2 = {
+	let order: OrderV3 = {
 		user: args.user as Hex,
 		sourceChain: args.source,
 		destChain: args.destination,
@@ -65,9 +65,9 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 
 	// If direct decoding failed, try to find IntentGateway call in nested calls
 	if (!decoded) {
-		const intentGatewayAddress = INTENT_GATEWAY_V2_ADDRESSES[chain]
+		const intentGatewayAddress = INTENT_GATEWAY_V3_ADDRESSES[chain]
 		if (!intentGatewayAddress) {
-			logger.error(`No IntentGatewayV2 address found for chain: ${chain}`)
+			logger.error(`No IntentGatewayV3 address found for chain: ${chain}`)
 		} else {
 			try {
 				const calldata = await getContractCallInput(transactionHash, intentGatewayAddress, chain)
@@ -85,18 +85,18 @@ export const handleOrderPlacedEventV2 = wrap(async (event: OrderPlacedLog): Prom
 	if (!decoded) return
 
 	const { graffiti } = applyDecodedOrder(order, decoded.decodedOrder, decoded.graffitiArg, args.user)
-	const commitment = IntentGatewayV2Service.computeOrderCommitment(order)
+	const commitment = IntentGatewayV3Service.computeOrderCommitment(order)
 	order.id = commitment
 
-	logger.info(`[Intent Gateway V2] Order Commitment: ${commitment}`)
+	logger.info(`[Intent Gateway V3] Order Commitment: ${commitment}`)
 
-	await IntentGatewayV2Service.getOrCreateOrder(
+	await IntentGatewayV3Service.getOrCreateOrder(
 		{ ...order, user: bytes32ToBytes20(order.user) as Hex },
 		graffiti,
 		txMeta,
 	)
 
-	await IntentGatewayV2Service.updateOrderStatus(commitment, OrderStatus.PLACED, txMeta)
+	await IntentGatewayV3Service.updateOrderStatus(commitment, OrderStatus.PLACED, txMeta)
 })
 
 /**
@@ -110,11 +110,11 @@ function decodePlaceOrder(calldata: string): { decodedOrder: any; graffitiArg: s
 }
 
 function applyDecodedOrder(
-	order: OrderV2,
+	order: OrderV3,
 	decodedOrder: any,
 	graffitiArg: string,
 	userAddress: string,
-): { order: OrderV2; graffiti: Hex } {
+): { order: OrderV3; graffiti: Hex } {
 	order.outputs.beneficiary = decodedOrder.output.beneficiary as Hex
 	order.outputs.call = decodedOrder.output.call as Hex
 	order.predispatch.call = decodedOrder.predispatch.call as Hex

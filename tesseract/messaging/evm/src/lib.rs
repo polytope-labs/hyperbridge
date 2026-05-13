@@ -28,7 +28,7 @@ use evm_state_machine::presets::{
 	RESPONSE_RECEIPTS_SLOT,
 };
 
-use ismp_solidity_abi::shared_types::{StateCommitment, StateMachineHeight};
+use ismp_solidity_abi::evm_host::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};

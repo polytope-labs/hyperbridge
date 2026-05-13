@@ -14,7 +14,7 @@ sol!(
 	#[sol(rpc, ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
 	Beefy,
-	"../out/BeefyV1.sol/BeefyV1.json"
+	"../out/EcdsaBeefy.sol/EcdsaBeefy.json"
 );
 
 #[cfg(not(feature = "std"))]
@@ -23,7 +23,7 @@ sol!(
 	#[sol(ignore_unlinked)]
 	#[derive(Debug, PartialEq, Eq)]
 	Beefy,
-	"../out/BeefyV1.sol/BeefyV1.json"
+	"../out/EcdsaBeefy.sol/EcdsaBeefy.json"
 );
 
 pub use Beefy::*;

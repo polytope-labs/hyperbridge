@@ -8,7 +8,7 @@ use crate::{DataOrHash, Mmr};
 use alloy_primitives::{Address, Bytes, FixedBytes, U256};
 use alloy_sol_types::{SolCall, SolValue};
 use ismp_solidity_abi::{
-	beefy::Beefy::{IntermediateState, StateCommitment},
+	ecdsa_beefy::Beefy::{IntermediateState, StateCommitment},
 	evm_host::EvmHost::{
 		requestCommitmentsCall, requestReceiptsCall, responseCommitmentsCall, responseReceiptsCall,
 		FeeMetadata, ResponseReceipt,

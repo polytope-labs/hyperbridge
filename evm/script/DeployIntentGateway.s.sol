@@ -7,7 +7,7 @@ import "stringutils/strings.sol";
 import {IntentGatewayV2, Params} from "../src/apps/IntentGatewayV2.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
-import {SolverAccount} from "../src/utils/SolverAccount.sol";
+import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
 import {VWAPOracle} from "../src/utils/VWAPOracle.sol";
 
 contract DeployScript is BaseScript {
@@ -21,7 +21,28 @@ contract DeployScript is BaseScript {
 
         SolverAccount solverAccount = new SolverAccount{salt: salt}(address(intentGateway));
         console.log("SolverAccount deployed at:", address(solverAccount));
-        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin, address(intentGateway));
+
+        address priceOracle = address(0);
+        // address priceOracle = deployPriceOracle(address(intentGateway));
+
+        intentGateway.setParams(
+            Params({
+                host: HOST_ADDRESS,
+                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
+                solverSelection: config.get("7702").toBool(),
+                surplusShareBps: 5_000, // 50%
+                protocolFeeBps: 30, // 0.3%
+                priceOracle: address(priceOracle)
+            })
+        );
+
+        config.set("INTENT_GATEWAY", address(intentGateway));
+        config.set("SOLVER_ACCOUNT", address(solverAccount));
+        config.set("PRICE_ORACLE", address(priceOracle));
+    }
+
+    function deployPriceOracle(address intentGateway) internal returns (address) {
+        VWAPOracle priceOracle = new VWAPOracle{salt: salt}(admin, intentGateway);
         console.log("VWAPOracle deployed at:", address(priceOracle));
 
         // Initialize price oracle with token decimals
@@ -122,7 +143,7 @@ contract DeployScript is BaseScript {
             token: 0x9151434b16b9763660705744891fA906F660EcC5, // USDT
             decimals: 6
         });
-        
+
         // Tron
         decimalsUpdates[8].sourceChain = bytes("EVM-728126428");
         decimalsUpdates[8].tokens = new VWAPOracle.TokenDecimal[](2);
@@ -134,23 +155,8 @@ contract DeployScript is BaseScript {
             token: 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C, // USDT
             decimals: 6
         });
-
         priceOracle.init(HOST_ADDRESS, decimalsUpdates);
-        console.log("VWAPOracle initialized with token decimals");
 
-        intentGateway.setParams(
-            Params({
-                host: HOST_ADDRESS,
-                dispatcher: config.get("CALL_DISPATCHER").toAddress(),
-                solverSelection: config.get("7702").toBool(),
-                surplusShareBps: 0,
-                protocolFeeBps: 0,
-                priceOracle: address(priceOracle)
-            })
-        );
-
-        config.set("INTENT_GATEWAY", address(intentGateway));
-        config.set("SOLVER_ACCOUNT", address(solverAccount));
-        config.set("PRICE_ORACLE", address(priceOracle));
+        return address(priceOracle);
     }
 }

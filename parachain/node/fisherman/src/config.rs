@@ -26,8 +26,15 @@ use url::Url;
 const MIN_RPC_URLS_PER_L2: usize = 2;
 
 /// Enforce the collator-side rules. Returns the first violation as `Err`.
-/// The signer is sourced from the local AURA keystore by the wrapper
+/// The signer must be set in `[hyperbridge].signer` — operators provide it
+/// explicitly, it is not sourced from the local keystore.
 pub fn validate(config: &HyperbridgeConfig) -> anyhow::Result<()> {
+	if config.hyperbridge.substrate.signer.as_deref().map_or(true, str::is_empty) {
+		return Err(anyhow!(
+			"[hyperbridge].signer is required for the fisherman; set it to the seed/URI of the account that should sign veto extrinsics"
+		));
+	}
+
 	let mut configured_l2s: Vec<u64> = Vec::new();
 	for (state_machine, per_chain) in &config.chains {
 		let AnyConfig::Evm(evm) = &per_chain.messaging else { continue };
@@ -216,7 +223,7 @@ mod tests {
 				consensus_state_id: Some("DOT0".into()),
 				rpc_ws: "ws://127.0.0.1:9933".into(),
 				max_rpc_payload_size: None,
-				signer: None,
+				signer: Some("//Alice".into()),
 				initial_height: None,
 				max_concurent_queries: None,
 				poll_interval: None,
@@ -263,6 +270,22 @@ mod tests {
 		fn validate_accepts_complete_testnet_collator_config() {
 			let cfg = complete_testnet_collator_config();
 			validate(&cfg).expect("validate should accept a complete testnet collator config");
+		}
+
+		#[test]
+		fn validate_rejects_missing_signer() {
+			let mut cfg = complete_testnet_collator_config();
+			cfg.hyperbridge.substrate.signer = None;
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("signer"), "error: {err}");
+		}
+
+		#[test]
+		fn validate_rejects_empty_signer() {
+			let mut cfg = complete_testnet_collator_config();
+			cfg.hyperbridge.substrate.signer = Some(String::new());
+			let err = validate(&cfg).unwrap_err().to_string();
+			assert!(err.contains("signer"), "error: {err}");
 		}
 
 		#[test]

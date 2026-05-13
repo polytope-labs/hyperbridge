@@ -27,6 +27,7 @@ members = [
     "modules/pallets/token-gateway/primitives",
     "modules/pallets/token-gateway-inspector",
     "modules/pallets/hyperbridge",
+    "modules/pallets/bandwidth",
     "modules/pallets/intents-coprocessor",
     "modules/pallets/intents-coprocessor/rpc",
     "modules/pallets/state-coprocessor",
@@ -103,7 +104,6 @@ members = [
     "tesseract/messaging/primitives",
     "tesseract/messaging/messaging",
     "tesseract/messaging/substrate",
-    # "tesseract/messaging/relayer",
     "tesseract/messaging/fisherman",
     "tesseract/messaging/evm",
     "tesseract/messaging/tron",
@@ -114,7 +114,6 @@ members = [
     "tesseract/messaging/fees/prisma-cli",
     "tesseract/messaging/telemetry",
     "tesseract/messaging/config",
-    # "tesseract/integration-test",
 
     "tesseract/consensus/arb-host",
     "tesseract/consensus/op-host",
@@ -125,7 +124,7 @@ members = [
     "tesseract/consensus/integration-tests",
     "tesseract/consensus/beefy",
     "tesseract/consensus/beefy/zk",
-    # "tesseract/consensus/relayer",
+    "tesseract/prover",
     "tesseract/consensus/admin-relayer",
     "tesseract/consensus/polygon",
     "tesseract/consensus/tendermint",
@@ -269,7 +268,10 @@ pallet-ismp = { version = "2512.1.0", path = "modules/pallets/ismp", default-fea
 pallet-ismp-rpc = { version = "2512.0.0", path = "modules/pallets/ismp/rpc" }
 pallet-ismp-runtime-api = { version = "2512.0.0", path = "modules/pallets/ismp/runtime-api", default-features = false }
 pallet-hyperbridge = { version = "2512.0.0", path = "modules/pallets/hyperbridge", default-features = false }
+pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = false }
+
 pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
+
 pallet-token-gateway = { version = "2512.0.0", path = "modules/pallets/token-gateway", default-features = false }
 token-gateway-primitives = { version = "2512.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 substrate-state-machine = { version = "2512.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
@@ -359,7 +361,6 @@ tesseract-evm = { path = "tesseract/messaging/evm" }
 tesseract-tron = { path = "tesseract/messaging/tron" }
 tesseract-evm-tendermint = { path = "tesseract/messaging/evm-tendermint" }
 tesseract-fisherman = { path = "tesseract/messaging/fisherman" }
-# tesseract-relayer = { path = "tesseract/messaging/relayer" }
 transaction-fees = { path = "tesseract/messaging/fees" }
 telemetry-server = { path = "tesseract/messaging/telemetry" }
 tesseract-config = { path = "tesseract/messaging/config" }
@@ -373,7 +374,6 @@ tesseract-bsc = { path = "tesseract/consensus/bsc" }
 tesseract-integration-tests = { path = "tesseract/consensus/integration-tests" }
 tesseract-sync-committee = { path = "tesseract/consensus/sync-committee" }
 tesseract-grandpa = { path = "tesseract/consensus/grandpa" }
-# tesseract-consensus = { path = "tesseract/consensus/relayer" }
 tesseract-admin-relayer = { path = "tesseract/consensus/admin-relayer" }
 tesseract-polygon = { path = "tesseract/consensus/polygon" }
 tesseract-tendermint = { path = "tesseract/consensus/tendermint" }

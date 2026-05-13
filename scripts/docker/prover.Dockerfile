@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for beefy-prover.
+# Multi-stage Dockerfile for tesseract-prover.
 #
 # Builds from source in a hermetic container — no dependency on the host's
 # toolchain / pre-built binary / pre-downloaded artifacts. The only host
@@ -68,14 +68,13 @@ RUN --mount=type=ssh \
     git clone --filter=blob:none --no-checkout git@github.com:polytope-labs/hyperbridge.git . \
  && git checkout ${HYPERBRIDGE_REF} \
  && git submodule update --init --recursive \
-        evm/lib/forge-std \
         evm/lib/solidity-stringutils \
         evm/lib/sp1-contracts
 
 # Build EVM ABIs (emit out/*.sol/*.json that ismp-solidity-abi includes).
 RUN cd evm && pnpm install --prefer-offline --reporter=silent && forge build
 
-# Build beefy-prover with default feature set (includes SP1 local CUDA).
+# Build tesseract-prover with default feature set (includes SP1 local CUDA).
 # BuildKit caches for cargo registry + target dir to avoid redownloading
 # crates + allow incremental rebuilds. We cp the final binary out of the
 # cached target/ to a stable path inside the image layer.
@@ -84,10 +83,10 @@ RUN --mount=type=ssh \
     --mount=type=cache,target=/usr/local/cargo/git,id=beefy-cargo-git \
     --mount=type=cache,target=/build/target,id=beefy-cargo-target \
     cargo build --release \
-        --manifest-path tesseract/consensus/relayer/Cargo.toml \
-        --bin beefy-prover \
- && cp /build/target/release/beefy-prover /usr/local/bin/beefy-prover \
- && strip /usr/local/bin/beefy-prover
+        --manifest-path tesseract/prover/Cargo.toml \
+        --bin tesseract-prover \
+ && cp /build/target/release/tesseract-prover /usr/local/bin/tesseract-prover \
+ && strip /usr/local/bin/tesseract-prover
 
 ############################################################
 # Stage 2 — runtime image
@@ -102,7 +101,7 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia-*.li
  && update-ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/local/bin/beefy-prover /app/beefy-prover
+COPY --from=builder /usr/local/bin/tesseract-prover /app/tesseract-prover
 
 # sp1-sdk downloads sp1-gpu-server (~236 MB) and groth16 circuits (~8 GB)
 # to $HOME/.sp1 on first run. Mount a named volume here to persist across
@@ -110,5 +109,5 @@ COPY --from=builder /usr/local/bin/beefy-prover /app/beefy-prover
 VOLUME ["/root/.sp1"]
 
 WORKDIR /app
-ENTRYPOINT ["/app/beefy-prover"]
+ENTRYPOINT ["/app/tesseract-prover"]
 CMD ["--config", "/app/config.toml"]

@@ -25,7 +25,9 @@
     "@layerzerolabs/oft-evm": "^4.0.0",
     "@hyperbridge/core": "workspace:*",
     "@openzeppelin/contracts": "^5.4.0",
-    "@polytope-labs/solidity-merkle-trees": "github:polytope-labs/solidity-merkle-trees#135f2251c1e10677384f76a3514d0a6230bd8a56",
-    "forge-std": "github:foundry-rs/forge-std"
-  }
+    "@polytope-labs/solidity-merkle-trees": "1.0.0"
+  },
+   "devDependencies": {
+     "forge-std": "github:foundry-rs/forge-std#v1.16.1"
+   }
 }

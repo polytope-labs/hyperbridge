@@ -15,7 +15,7 @@ import {
     DispatchGet
 } from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MerklePatricia} from "@polytope-labs/solidity-merkle-trees/src/MerklePatricia.sol";
+import {StorageValue} from "@polytope-labs/solidity-merkle-trees/src/trie/Node.sol";
 
 struct PingMessage {
     bytes dest;
@@ -36,7 +36,7 @@ contract PingModule is HyperApp {
     using Message for GetRequest;
 
     event PostResponseReceived();
-    event GetResponseReceived(MerklePatricia.StorageValue[] message);
+    event GetResponseReceived(StorageValue[] message);
     event PostRequestTimeoutReceived();
     event PostResponseTimeoutReceived();
     event GetTimeoutReceived();

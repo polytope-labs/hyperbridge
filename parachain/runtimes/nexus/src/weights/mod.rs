@@ -36,7 +36,6 @@ pub mod pallet_conviction_voting;
 pub mod pallet_intents_coprocessor;
 pub mod pallet_ismp;
 pub mod pallet_message_queue;
-pub mod pallet_messaging_fees;
 pub mod pallet_multisig;
 pub mod pallet_preimage;
 pub mod pallet_proxy;

@@ -268,10 +268,6 @@ startup, before block production:
    portion of each URL and rejects configs that list two URLs on the same host. Use endpoints from genuinely different vendors
    (for example one Alchemy endpoint and one Infura endpoint), not two API keys against the same provider.
 
-3. **You do not need to set `[hyperbridge].signer`.** The fisherman signs its veto extrinsics with the AURA key already loaded in
-   your collator's keystore. Anything you put in `[hyperbridge].signer` is ignored by the fisherman path. The relayer signer (if
-   you also run a relayer on the same node) is unaffected.
-
 A minimal mainnet collator config looks like this. The `[hyperbridge]` table holds the substrate host fields directly, and each L2
 is a top-level `[<chain>]` table with `type = "evm"`. The `[relayer]` section is optional for collators and can be omitted, since
 the fisherman task is the only role the collator path spawns.
@@ -282,9 +278,8 @@ the fisherman task is the only role the collator path spawns.
 state_machine = "POLKADOT-4009"
 hashing = "Keccak"
 rpc_ws = "ws://127.0.0.1:9933"
-# Leave the signer empty on a collator. The fisherman uses the AURA key
-# in the local keystore; anything set here is ignored by the collator path.
-signer = ""
+# Your Controller account's private key
+signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
 
 # Each of the five mainnet L2s must be present, with at least two
 # distinct-host rpc_urls. URLs that share a host (case-insensitive) are

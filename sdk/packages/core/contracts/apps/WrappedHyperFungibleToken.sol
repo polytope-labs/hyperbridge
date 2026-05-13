@@ -221,6 +221,48 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
     }
 
     /**
+     * @notice Returns the fee in the host's fee token for sending a cross-chain transfer.
+     * @param params The send parameters
+     * @return The fee amount in the fee token
+     */
+    function quote(HyperFungibleToken.SendParams calldata params) public view returns (uint256) {
+        return quote(_buildDispatchPost(params));
+    }
+
+    /**
+     * @notice Returns the fee in native currency for sending a cross-chain transfer.
+     * @param params The send parameters
+     * @return The fee amount in native currency
+     */
+    function quoteNative(HyperFungibleToken.SendParams calldata params) public view returns (uint256) {
+        return quoteNative(_buildDispatchPost(params));
+    }
+
+    /**
+     * @dev Builds the DispatchPost from SendParams.
+     */
+    function _buildDispatchPost(HyperFungibleToken.SendParams calldata params) internal view returns (DispatchPost memory) {
+        bytes memory dest = _supportedChains[params.dest];
+        if (dest.length == 0) revert UnsupportedChain();
+
+        bytes memory body = abi.encode(HyperFungibleToken.Message({
+            from: abi.encodePacked(msg.sender),
+            to: params.to,
+            amount: params.amount,
+            data: params.data
+        }));
+
+        return DispatchPost({
+            dest: params.dest,
+            to: dest,
+            body: body,
+            timeout: params.timeout,
+            fee: params.relayerFee,
+            payer: msg.sender
+        });
+    }
+
+    /**
      * @notice Locks underlying tokens and dispatches a cross-chain transfer message
      * @dev If `msg.value >= params.amount`, wraps native tokens via the underlying's WETH
      * deposit function (reverts if the underlying is not WETH). The remainder of msg.value
@@ -232,9 +274,6 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
      * @param params The send parameters including destination, recipient, amount, and optional calldata
      */
     function send(HyperFungibleToken.SendParams calldata params) external payable whenNotPaused {
-        bytes memory dest = _supportedChains[params.dest];
-        if (dest.length == 0) revert UnsupportedChain();
-
         uint256 msgValue = msg.value;
         if (_isWeth) {
             msgValue = msgValue - params.amount;
@@ -243,22 +282,7 @@ contract WrappedHyperFungibleToken is ERC165, HyperApp, Ownable, Pausable {
             IERC20(_underlying).safeTransferFrom(msg.sender, address(this), params.amount);
         }
 
-        bytes memory from = abi.encodePacked(msg.sender);
-        bytes memory body = abi.encode(HyperFungibleToken.Message({
-            from: from,
-            to: params.to,
-            amount: params.amount,
-            data: params.data
-        }));
-
-        DispatchPost memory request = DispatchPost({
-            dest: params.dest,
-            to: dest,
-            body: body,
-            timeout: params.timeout,
-            fee: params.relayerFee,
-            payer: msg.sender
-        });
+        DispatchPost memory request = _buildDispatchPost(params);
 
         bytes32 commitment;
         if (msgValue > 0) {

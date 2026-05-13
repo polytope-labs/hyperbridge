@@ -850,177 +850,6 @@ type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 }
 
 """
-Represents an order placed through the IntentGateway contract.
-This entity tracks cross-chain orders.
-"""
-type Order @entity {
-	"""
-	Unique identifier for the order (commitment)
-	"""
-	id: ID!
-
-	"""
-	Address of the user who placed the order
-	"""
-	user: String!
-
-	"""
-	Source chain identifier where the order originates from
-	"""
-	sourceChain: String!
-
-	"""
-	Destination chain identifier where the order will be executed
-	"""
-	destChain: String!
-
-	"""
-	Unique commitment hash of the order used for verification
-	"""
-	commitment: String!
-
-	"""
-	Timestamp after which the order expires
-	"""
-	deadline: BigInt!
-
-	"""
-	Sequential number to ensure uniqueness of the order
-	"""
-	nonce: BigInt!
-
-	"""
-	Total fees supplied by the user for executing the order
-	"""
-	fees: BigInt!
-
-	"""
-	Array of input token addresses
-	"""
-	inputTokens: [String!]!
-
-	"""
-	Array of input token amounts corresponding to inputTokens
-	"""
-	inputAmounts: [BigInt!]!
-
-	"""
-	Array of input token values in USD
-	"""
-	inputValuesUSD: [String!]!
-
-	"""
-	Total input value in USD
-	"""
-	inputUSD: String!
-
-	"""
-	Array of output token addresses
-	"""
-	outputTokens: [String!]!
-
-	"""
-	Array of output token amounts corresponding to outputTokens
-	"""
-	outputAmounts: [BigInt!]!
-
-	"""
-	Array of beneficiary addresses that will receive the output tokens
-	"""
-	outputBeneficiaries: [String!]!
-
-	"""
-	Encoded function call data to be executed on the destination chain
-	"""
-	calldata: String!
-
-	"""
-	Status of the order
-	"""
-	status: OrderStatus!
-
-	"""
-	Metatdata about the order's progression through different statuses
-	"""
-	statusMetadata: [OrderStatusMetadata]! @derivedFrom(field: "order")
-
-	"""
-	Referrer address that referred the user
-	"""
-	referrer: String
-
-	"""
-	Timestamp when the order was created
-	"""
-	createdAt: Date! @index
-
-	"""
-	Block number where the order was placed
-	"""
-	blockNumber: BigInt! @index
-
-	"""
-	Timestamp of the block where the order was placed
-	"""
-	blockTimestamp: BigInt! @index
-
-	"""
-	Hash of the transaction that placed the order
-	"""
-	transactionHash: String! @index
-}
-
-"""
-Metadata about the status of an Order
-"""
-type OrderStatusMetadata @entity {
-	"""
-	The ID of the OrderStatusMetadata
-	"""
-	id: ID!
-
-	"""
-	The status of the order
-	"""
-	status: OrderStatus!
-
-	"""
-	The chain on which the status change occurred
-	"""
-	chain: String!
-
-	"""
-	The timestamp of the event
-	"""
-	timestamp: BigInt!
-
-	"""
-	The number of the block in which the event occurred
-	"""
-	blockNumber: String!
-
-	"""
-	The hash of the transaction in which the event occurred
-	"""
-	transactionHash: String!
-
-	"""
-	The order that owns this status change
-	"""
-	order: Order
-
-	"""
-	The filler of the order if the order has been filled
-	"""
-	filler: String
-
-	"""
-	The timestamp when this record was created
-	"""
-	createdAt: Date! @index
-}
-
-"""
 Represents an order placed through the IntentGatewayV2 contract.
 This entity tracks cross-chain orders for V2 of the IntentGateway.
 """
@@ -2046,3 +1875,241 @@ type HyperbridgeCollatorRewardTransaction @entity {
 	"""
 	createdAt: Date! @index
 }
+
+"""
+An application that has interacted with `pallet-bandwidth` on its
+credit chain. ID is `${chain}-${appHex}` where `chain` is the
+StateMachine string the credit landed on (= `BandwidthCredited.app_chain`)
+and `appHex` is the lowercase hex of the `AppKey` bytes (no prefix).
+"""
+type BandwidthApp @entity {
+	id: ID!
+
+	"""
+	StateMachine string of the credit chain. Differs from the payer
+	chain on cross-chain sponsorship purchases.
+	"""
+	chain: String! @index
+
+	"""
+	Lowercase hex of the `AppKey` bytes (no 0x prefix).
+	"""
+	app: String! @index
+
+	"""
+	Block timestamp (ms) of the first purchase or force-credit that
+	created a row for this app.
+	"""
+	firstSeenAt: BigInt!
+
+	"""
+	Block timestamp (ms) of the most recent event that touched this app.
+	"""
+	lastActivityAt: BigInt!
+
+	"""
+	Total number of subscriptions ever created (purchases + force credits).
+	"""
+	lifetimeSubscriptions: BigInt!
+
+	"""
+	Total bytes ever credited across all subscriptions.
+	"""
+	lifetimeBytesCredited: BigInt!
+
+	"""
+	Total bytes ever drained by the gate via `BandwidthConsumed` events.
+	"""
+	lifetimeBytesConsumed: BigInt!
+
+	"""
+	Sum of `lost_bytes` across `SubscriptionEvicted` events — bandwidth
+	paid for but lost to the 1024-cap eviction.
+	"""
+	lifetimeBytesEvicted: BigInt!
+
+	"""
+	Running estimate of live subscriptions, derived from credit minus
+	eviction minus full-drain events. Best-effort; resync from chain
+	storage if exact count is needed.
+	"""
+	activeSubscriptions: Int!
+}
+
+"""
+Per-`(app, tier)` lifetime aggregate. Lets a frontend show "App X
+has bought N Tier1 subs over its lifetime" without scanning history.
+ID is `${chain}-${appHex}-${tier}`.
+"""
+type BandwidthAppTierStats @entity @compositeIndexes(fields: [["app", "tier"]]) {
+	id: ID!
+
+	"""
+	Parent app entity.
+	"""
+	app: BandwidthApp!
+
+	"""
+	Tier discriminant on the wire (1..4).
+	"""
+	tier: Int! @index
+
+	"""
+	Total subscriptions of this tier ever bought (purchases + force credits).
+	"""
+	lifetimeSubscriptions: BigInt!
+
+	"""
+	Total bytes credited via subscriptions of this tier.
+	"""
+	lifetimeBytesCredited: BigInt!
+
+	"""
+	Bytes lost to eviction via subscriptions of this tier.
+	"""
+	lifetimeBytesEvicted: BigInt!
+
+	"""
+	Running count of live subscriptions of this tier.
+	"""
+	activeSubscriptions: Int!
+
+	"""
+	Block timestamp (ms) of the most recent purchase of this tier.
+	"""
+	lastPurchasedAt: BigInt!
+}
+
+"""
+One row per subscription created on `pallet-bandwidth` — i.e. per
+`BandwidthCredited` or `ForceCredited` event. Acts as the per-app
+purchase history. ID is `${chain}-${appHex}-${block}-${eventIdx}`.
+"""
+type BandwidthSubscription
+	@entity
+	@compositeIndexes(fields: [["app", "purchasedAt"], ["app", "tier"]]) {
+	id: ID!
+
+	"""
+	Parent app entity.
+	"""
+	app: BandwidthApp!
+
+	"""
+	Tier discriminant on the wire (1..4).
+	"""
+	tier: Int! @index
+
+	"""
+	Bytes credited at purchase time. Scaled by months on bulk buys.
+	"""
+	bytes: BigInt!
+
+	"""
+	Unix seconds (from the event payload) at which this sub expires.
+	Fixed at purchase time, never extends.
+	"""
+	expiresAt: BigInt!
+
+	"""
+	Block timestamp (ms) at which the subscription was created.
+	"""
+	purchasedAt: BigInt!
+
+	"""
+	StateMachine string of the chain that paid for this subscription.
+	Differs from `app.chain` on cross-chain sponsorship.
+	"""
+	paidFrom: String!
+
+	"""
+	True if the row was created by an admin `ForceCredited` event
+	rather than an end-user `BandwidthCredited` purchase.
+	"""
+	forced: Boolean!
+
+	"""
+	Block timestamp (ms) at which the 1024-cap evicted this sub. Null
+	if still live (or naturally expired).
+	"""
+	evictedAt: BigInt
+
+	"""
+	`lost_bytes` from the matching `SubscriptionEvicted` event. Null if
+	never evicted.
+	"""
+	evictedLostBytes: BigInt
+
+	"""
+	Hyperbridge block this sub was created in.
+	"""
+	blockNumber: BigInt!
+
+	"""
+	Extrinsic hash of the originating ISMP message handler (or
+	`force_credit` call).
+	"""
+	extrinsicHash: String
+}
+
+"""
+Daily bandwidth consumed per `(chain, app)`. Aggregated from
+`BandwidthConsumed` events bucketed by UTC date. Monthly and yearly
+views are `SUM(bytesConsumed)` over the relevant date range on this
+entity — same pattern used by `DailyVolumeUSD`.
+ID is `${chain}-${appHex}-YYYY-MM-DD`.
+"""
+type BandwidthAppDailyConsumption
+	@entity
+	@compositeIndexes(fields: [["app", "date"]]) {
+	id: ID!
+
+	"""
+	Parent app entity.
+	"""
+	app: BandwidthApp!
+
+	"""
+	UTC date bucket for this aggregate.
+	"""
+	date: Date! @index
+
+	"""
+	Sum of `BandwidthConsumed.bytes` events for this app on this date.
+	"""
+	bytesConsumed: BigInt!
+}
+
+"""
+Tracks current and historical `pallet-bandwidth` tier configuration
+(governance audit trail). ID is the tier discriminant as a string.
+"""
+type BandwidthTier @entity {
+	id: ID!
+
+	"""
+	Tier discriminant on the wire (1..4).
+	"""
+	tier: Int!
+
+	"""
+	Bytes per single-month purchase. Null when the tier is revoked.
+	"""
+	bytes: BigInt
+
+	"""
+	Window length in seconds per single-month purchase. Null when revoked.
+	"""
+	durationSecs: BigInt
+
+	"""
+	`true` if the tier is currently configured (last `TierSet` was non-None).
+	"""
+	isActive: Boolean!
+
+	"""
+	Block timestamp (ms) of the most recent `TierSet` event.
+	"""
+	lastUpdatedAt: BigInt!
+}
+

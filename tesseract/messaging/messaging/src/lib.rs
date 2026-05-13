@@ -88,7 +88,7 @@ where
 	// Shared GET-request channel. The inbound messaging task populates it as a
 	// side effect of its normal event querying; the processor task drains it.
 	let (get_request_sender, get_request_receiver) =
-		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(64);
+		tokio::sync::mpsc::channel::<(Vec<GetRequest>, StateMachineUpdated)>(512);
 
 	// chain_b → Hyperbridge inbound messaging. Also forwards any GET requests
 	// seen on chain_b into `get_request_sender` (via handle_update's built-in
@@ -287,7 +287,18 @@ async fn handle_update(
 					})
 					.collect::<Vec<_>>();
 				if !get_requests.is_empty() {
-					let _ = sender.send((get_requests, state_machine_update.clone())).await;
+					// `try_send` so this inbound forwarder never blocks on a
+					// backed-up get-request consumer. On `Full`, the events
+					// are still emitted upstream and a future range query
+					// will pick them back up; warn so it surfaces.
+					if let Err(err) = sender.try_send((get_requests, state_machine_update.clone()))
+					{
+						tracing::warn!(
+							target: "messaging-inbound",
+							?err,
+							"get-request channel send failed",
+						);
+					}
 				}
 			}
 
@@ -393,17 +404,20 @@ async fn handle_update(
 									"Failed to persist deliveries to database",
 								)
 							}
-							// Send receipts to the fee accumulation task
-							match sender.send(receipts).await {
-								Err(_sent) => {
-									tracing::error!(
-										target: LOG_TARGET,
-										source = %chain_b.name(),
-										dest = %chain_a.name(),
-										"Fee auto accumulation failed; you can try again manually",
-									)
-								},
-								_ => {},
+							// Send receipts to the fee accumulation task.
+							// `try_send` so the inbound task never blocks on
+							// a backed-up fee-accumulator. Receipts are
+							// already persisted via `tx_payment.store_messages`
+							// above, so a dropped channel push is recoverable
+							// by the manual `accumulate-fees` subcommand.
+							if let Err(err) = sender.try_send(receipts) {
+								tracing::error!(
+									target: LOG_TARGET,
+									source = %chain_b.name(),
+									dest = %chain_a.name(),
+									?err,
+									"Fee auto accumulation channel send failed; you can try again manually",
+								);
 							}
 						}
 					}

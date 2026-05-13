@@ -127,10 +127,16 @@ abstract contract IntrinsicIntents is IntentsBase {
 
         if (isFullyFilled) {
             _execute(order, outputsLen);
-            emit OrderFilled({commitment: commitment, filler: msg.sender});
+            emit OrderFilled({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
         } else {
             delete _filled[commitment];
             emit PartialFill({commitment: commitment, filler: msg.sender, outputs: outputFills, inputs: escrowedInputs});
+        }
+
+        // Refund any unspent native tokens to the solver.
+        if (msgValue > 0) {
+            (bool sent,) = msg.sender.call{value: msgValue}("");
+            if (!sent) revert InsufficientNativeToken();
         }
     }
 

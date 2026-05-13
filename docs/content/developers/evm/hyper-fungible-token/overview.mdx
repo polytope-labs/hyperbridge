@@ -5,7 +5,7 @@ description: Cross-chain token standard where each token is its own bridge appli
 
 # Hyper Fungible Token
 
-HyperFungibleToken is a cross-chain token standard where each token deployment is its own bridge application. There is no shared custody pool, no governance overhead, and no token-governor — the token contract itself handles cross-chain messaging via [ISMP](/protocol/ismp).
+HyperFungibleToken is a cross-chain token standard where each token deployment is its own bridge application. There is no shared custody pool, no governance overhead, and no token-governor — the token contract itself handles cross-chain messaging via [ISMP](/protocol/ismp/introduction).
 
 ## Architecture
 
@@ -83,9 +83,19 @@ struct Message {
 }
 ```
 
-## CallDispatcher
+## Calldata Execution
 
-Both contracts support optional calldata execution on the destination chain. If the `data` field in `SendParams` is non-empty, the contract calls `ICallDispatcher.dispatch(data)` after minting/unlocking tokens. This enables composable cross-chain interactions like transfer-and-swap or transfer-and-stake. Existing `CallDispatcher` deployments are listed on the [contract addresses](/developers/evm/contract-addresses/mainnet) page.
+Both contracts support optional calldata execution on the destination chain via the `CallDispatcher`. By passing a non-empty `data` field in `SendParams`, the sender can trigger arbitrary contract calls on the destination chain immediately after tokens are minted or unlocked. This enables composable cross-chain workflows like transfer-and-swap (e.g., bridge USDC then swap to WETH via UniswapV2), transfer-and-stake, or transfer-and-deposit into a lending protocol — all in a single cross-chain operation.
+
+The `data` field is an ABI-encoded `Call[]` array, where each `Call` specifies a target contract, a native value to forward, and the calldata to execute. On the destination chain, the HFT contract mints or unlocks tokens to the `to` address, then forwards the entire `data` payload to the `CallDispatcher`, which executes each call sequentially. If the calls need to spend the bridged tokens (e.g., approve then swap), set `to` to the `CallDispatcher` address so tokens are delivered directly to it.
+
+For code examples, see the [HyperFungibleToken](/developers/evm/hyper-fungible-token/hyper-fungible-token#calldata-execution) and [WrappedHyperFungibleToken](/developers/evm/hyper-fungible-token/wrapped-hyper-fungible-token#calldata-execution) pages.
+
+### Security
+
+The `CallDispatcher` executes calls in its own context (not via `delegatecall`), so the HFT contract's storage is never at risk. If any call in the array reverts, the entire `onAccept` handler reverts — including the token mint/unlock. The request can then be retried by any relayer until the timeout expires. If no successful execution occurs before the timeout, the request times out and the sender is eligible for a refund on the source chain. Token approvals in the `Call[]` should use exact amounts rather than unlimited allowances, since the dispatcher contract holds tokens temporarily during execution.
+
+Existing `CallDispatcher` deployments are listed on the [contract addresses](/developers/evm/contract-addresses/mainnet) page.
 
 ## ERC165 Interface Detection
 

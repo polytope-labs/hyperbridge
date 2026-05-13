@@ -72,39 +72,94 @@ Users call `send()` to burn tokens and dispatch a cross-chain transfer:
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IHyperFungibleToken} from "@hyperbridge/core/interfaces/IHyperFungibleToken.sol";
 
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the native fee required for dispatching the transfer
+uint256 nativeFee = IHyperFungibleToken(token).quoteNative(params);
 // Pay fees in native token
-IHyperFungibleToken(tokenAddress).send{value: nativeFee}(
-    IHyperFungibleToken.SendParams({
-        dest: StateMachine.evm(42161),
-        to: abi.encodePacked(recipientAddress),
-        amount: 1 ether,
-        timeout: 3600,
-        relayerFee: relayerFee,
-        data: ""
-    })
-);
+IHyperFungibleToken(token).send{value: nativeFee}(params);
 ```
 
 To pay fees in the host's fee token instead, send with `msg.value = 0`. The contract pulls fee tokens from the caller via `transferFrom`:
 
 ```solidity lineNumbers
-IERC20(feeToken).approve(tokenAddress, feeAmount);
+import {IDispatcher} from "@hyperbridge/core/contracts/interfaces/IDispatcher.sol";
 
-IHyperFungibleToken(tokenAddress).send(
+IHyperFungibleToken.SendParams params = IHyperFungibleToken.SendParams({
+    dest: StateMachine.evm(42161),
+    to: abi.encodePacked(recipientAddress),
+    amount: 1 ether,
+    timeout: 3600,
+    relayerFee: relayerFee,
+    data: new bytes(0)
+});
+// Quote the fee token amount required for dispatching the transfer
+uint256 feeTokenAmount = IHyperFungibleToken(token).quote(params);
+// Approve the fee token transfer from the caller
+address feeToken = IDispatcher(host()).feeToken();
+IERC20(feeToken).approve(token, feeTokenAmount);
+// Dispatch the transfer, fees will be withdrawn from the caller
+IHyperFungibleToken(token).send(params);
+```
+
+For a higher-level experience, the [TypeScript SDK](/developers/sdk/hyper-fungible-token) handles fee estimation, token approvals, and decimal scaling automatically.
+
+### Calldata Execution
+
+Pass a non-empty `data` field to execute arbitrary calls on the destination chain after tokens are minted. The `data` must be an ABI-encoded `Call[]` array (see [overview](/developers/evm/hyper-fungible-token/overview#calldata-execution) for the full `Call` struct and security details).
+
+Bridge tokens and swap to WETH via UniswapV2 on the destination chain:
+
+```solidity lineNumbers
+import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+
+address[] memory path = new address[](2);
+path[0] = DEST_TOKEN;
+path[1] = WETH;
+
+Call[] memory calls = new Call[](2);
+
+// Approve UniswapV2 router
+calls[0] = Call({
+    to: DEST_TOKEN,
+    value: 0,
+    data: abi.encodeWithSelector(IERC20.approve.selector, UNISWAP_V2_ROUTER, amount)
+});
+
+// Swap via UniswapV2
+calls[1] = Call({
+    to: UNISWAP_V2_ROUTER,
+    value: 0,
+    data: abi.encodeWithSelector(
+        IUniswapV2Router02.swapExactTokensForTokens.selector,
+        amount,
+        minAmountOut,
+        path,
+        recipientAddress,
+        block.timestamp
+    )
+});
+
+IHyperFungibleToken(tokenAddress).send{value: nativeFee}(
     IHyperFungibleToken.SendParams({
         dest: StateMachine.evm(42161),
-        to: abi.encodePacked(recipientAddress),
-        amount: 1 ether,
+        // mint to the CallDispatcher so the swap can spend the tokens
+        to: abi.encodePacked(CALL_DISPATCHER),
+        amount: amount,
         timeout: 3600,
         relayerFee: relayerFee,
-        data: ""
+        data: abi.encode(calls)
     })
 );
 ```
 
-### Fee Estimation
-
-Use the inherited [HyperApp](/developers/evm/api/hyperapp) `quote()` and `quoteNative()` methods to estimate fees on-chain. For a higher-level experience, use the [TypeScript SDK](/developers/sdk/hyper-fungible-token) which handles gas estimation, cross-chain fee token conversion, and decimal scaling automatically.
+Tokens are minted to `to` first, then the `CallDispatcher` executes each call in sequence. If the calls need to spend the minted tokens, set `to` to the `CallDispatcher` address so tokens are minted directly to the dispatcher.
 
 ## Related
 

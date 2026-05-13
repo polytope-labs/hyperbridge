@@ -212,7 +212,9 @@ rpc_urls = ["https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"]
 # chain.
 signer = ""
 
-# Substrate chain template.
+# Substrate chain template. See the per-chain sections below for the
+# matching `[<chain>.consensus]` sub-table — `parachain` for parachains,
+# `grandpa` for standalone chains.
 [substrate]
 type   = "substrate"
 rpc_ws = "wss://your-substrate-chain.example.com"
@@ -582,32 +584,138 @@ signer   = "SIGNER-KEY"
 type = "pharos"
 ```
 
-### Substrate parachain (GRANDPA)
+### Parachains and Solochains (GRANDPA)
 
-For a parachain whose finality gadget is GRANDPA on its relay chain. The
-consensus sub-table takes the relay chain RPC and the `para_ids` of the
-parachains that should be tracked.
+Hyperbridge is itself a parachain. The `[hyperbridge.consensus]`
+sub-table tells this relayer what shape of consensus proof to fetch
+for Hyperbridge and ship to the counterparty as part of every
+Hyperbridge → chain outbound submission. Pick the variant the
+counterparty knows how to verify:
+
+- `parachain` — for a counterparty that shares Hyperbridge's relay
+  chain. The relayer reads Hyperbridge's parachain-header storage
+  proof from the relay and ships that.
+- `grandpa` — for a standalone solochain (no shared relay). The
+  relayer ships a GRANDPA finality proof of Hyperbridge's relay
+  chain together with the parachain-header inclusion proof, so the
+  solochain can verify Hyperbridge end-to-end through GRANDPA.
+
+The counterparty's `[<chain>.consensus]` sub-table mirrors the same
+choice in the opposite direction — it tells the relayer how to ship
+the counterparty's own consensus proofs into Hyperbridge.
+
+> Support for the `ismp-parachain-inherent` has been dropped to
+> manage parachain runtime state growth. Hyperbridge → chain
+> delivery now runs entirely through this relayer; parachains no
+> longer need to embed sibling headers and consensus proofs in
+> every block.
+
+#### Parachain counterparty
+
+Both sides use the `parachain` consensus type. `consensus_state_id`
+on the counterparty is optional and inherits a sane default from the
+relay (`DOT0` on Polkadot, `PAS0` on Paseo)
+
+**Mainnet (Polkadot)**
 
 ```toml lineNumbers
+[hyperbridge]
+rpc_ws = "wss://nexus.rpc.polytope.technology"
+signer = "SIGNER-KEY"
+
+[hyperbridge.consensus]
+type         = "parachain"
+relay_rpc_ws = "wss://polkadot-rpc.n.dwellir.com"
+
 [mychain]
 type   = "substrate"
-rpc_ws = "wss://your-substrate-chain.example.com"
+rpc_ws = "wss://your-parachain-rpc.example.com"
 signer = "SIGNER-KEY"
 
 [mychain.consensus]
-type     = "grandpa"
-rpc      = "wss://polkadot-rpc.n.dwellir.com"
-para_ids = [2100]
-```
-
-For tracking a sibling parachain through relay-chain storage proofs
-instead (for example, when this relayer is running on the parachain
-itself), swap the consensus sub-table for:
-
-```toml
-[mychain.consensus]
 type         = "parachain"
 relay_rpc_ws = "wss://polkadot-rpc.n.dwellir.com"
+```
+
+**Testnet (Paseo)**
+
+```toml lineNumbers
+[hyperbridge]
+rpc_ws = "wss://gargantua.rpc.polytope.technology"
+signer = "SIGNER-KEY"
+
+[hyperbridge.consensus]
+type         = "parachain"
+relay_rpc_ws = "wss://paseo-rpc.dwellir.com"
+
+[mychain]
+type   = "substrate"
+rpc_ws = "wss://your-parachain-rpc.example.com"
+signer = "SIGNER-KEY"
+
+[mychain.consensus]
+type         = "parachain"
+relay_rpc_ws = "wss://paseo-rpc.dwellir.com"
+```
+
+#### Solochain counterparty (GRANDPA)
+
+Both sides use the `grandpa` consensus type. `slot_duration` is the
+target chain's block time in seconds and is required for state
+initialization. `consensus_state_id` is required on the solochain.
+
+For `[hyperbridge.consensus]`, point `rpc` at Hyperbridge's relay
+chain and list Hyperbridge's `para_id` so the relayer ships proofs
+that verify Hyperbridge through its relay's GRANDPA. For
+`[mychain.consensus]`, point `rpc` at the solochain itself and leave
+`para_ids` empty.
+
+**Mainnet (Polkadot)** — Hyperbridge's `para_id` is `3367`.
+
+```toml lineNumbers
+[hyperbridge]
+rpc_ws = "wss://nexus.rpc.polytope.technology"
+signer = "SIGNER-KEY"
+
+[hyperbridge.consensus]
+type          = "grandpa"
+rpc           = "wss://polkadot-rpc.n.dwellir.com"
+para_ids      = [3367]
+
+[mychain]
+type               = "substrate"
+rpc_ws             = "wss://your-solochain-rpc.example.com"
+signer             = "SIGNER-KEY"
+consensus_state_id = "MYC0"
+
+[mychain.consensus]
+type          = "grandpa"
+rpc           = "wss://your-solochain-rpc.example.com"
+para_ids      = []
+```
+
+**Testnet (Paseo)** — Hyperbridge's `para_id` is `4009`.
+
+```toml lineNumbers
+[hyperbridge]
+rpc_ws = "wss://gargantua.rpc.polytope.technology"
+signer = "SIGNER-KEY"
+
+[hyperbridge.consensus]
+type          = "grandpa"
+rpc           = "wss://paseo-rpc.dwellir.com"
+para_ids      = [4009]
+
+[mychain]
+type               = "substrate"
+rpc_ws             = "wss://your-solochain-rpc.example.com"
+signer             = "SIGNER-KEY"
+consensus_state_id = "MYC0"
+
+[mychain.consensus]
+type          = "grandpa"
+rpc           = "wss://your-solochain-rpc.example.com"
+para_ids      = []
 ```
 
 ## RPC Requirements

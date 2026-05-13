@@ -65,8 +65,7 @@ services:
       - ./config.toml:/app/config.toml:ro
     environment:
       RUST_LOG: info,moongate_core=off
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["/app/tesseract-prover --config /app/config.toml 2>&1 | tee /app/prover.log"]
+    command: ["--config", "/app/config.toml"]
 ```
 
 Start the prover:

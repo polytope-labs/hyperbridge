@@ -27,7 +27,7 @@ use frame_support::{
 	traits::AsEnsureOriginWithArg,
 };
 use frame_system::EnsureRoot;
-use hyperbridge_client_machine::HyperbridgeClientMachine;
+use substrate_state_machine::SubstrateStateMachine;
 use ismp::{
 	consensus::StateMachineClient,
 	error::Error,
@@ -41,7 +41,7 @@ use pallet_assets::BenchmarkHelper;
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::*;
 use sp_core::{crypto::AccountId32, H256};
-use sp_runtime::Weight;
+use sp_runtime::{traits::Zero, Weight};
 use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
@@ -100,6 +100,7 @@ impl ismp_bsc::pallet::Config for Runtime {
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
+	type BandwidthGate = pallet_bandwidth::Pallet<Runtime>;
 }
 
 pub struct Coprocessor;
@@ -124,7 +125,7 @@ impl ismp_parachain::ParachainStateMachineProvider<Runtime> for ParachainStateMa
 			StateMachine::Evm(chain_id)
 				if chain_id == ismp_parachain::ASSET_HUB_MAINNET_CHAIN_ID =>
 				Ok(Box::new(SubstrateEvmStateMachine::<Ismp, Runtime>::default())),
-			_ => Ok(Box::new(HyperbridgeClientMachine::<Runtime, Ismp, ()>::from(id))),
+			_ => Ok(Box::new(SubstrateStateMachine::<Runtime>::from(id))),
 		}
 	}
 }
@@ -146,14 +147,12 @@ impl pallet_ismp::Config for Runtime {
 			IsmpParachain,
 			ParachainStateMachineProvider,
 		>,
-		ismp_grandpa::consensus::GrandpaConsensusClient<
-			Runtime,
-			HyperbridgeClientMachine<Runtime, Ismp, ()>,
-		>,
+		ismp_grandpa::consensus::GrandpaConsensusClient<Runtime>,
 		ismp_arbitrum::ArbitrumConsensusClient<Ismp, Runtime>,
 		ismp_optimism::OptimismConsensusClient<Ismp, Runtime>,
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
+		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
 	);
 	type OffchainDB = Mmr;
 	type FeeHandler =
@@ -176,9 +175,24 @@ impl pallet_call_decompressor::Config for Runtime {
 	type MaxCallSize = ConstU32<3>;
 }
 
+/// True when the account is a bonded controller account registered with
+/// `pallet-collator-manager`. Controllers are paired with a stash that has
+/// bonded funds; `deregister` removes both entries in the same block, so an
+/// account present in `Stash` whose paired stash still holds a non-zero
+/// bond is a legitimate fisherman.
+pub struct IsCollator;
+impl frame_support::traits::Contains<AccountId> for IsCollator {
+	fn contains(account: &AccountId) -> bool {
+		let Some(stash) = pallet_collator_manager::Stash::<Runtime>::get(account) else {
+			return false;
+		};
+		!pallet_collator_manager::Bonded::<Runtime>::get(&stash).is_zero()
+	}
+}
+
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId>;
+	type IsCollator = IsCollator;
 }
 
 impl ismp_parachain::Config for Runtime {
@@ -273,6 +287,10 @@ impl pallet_hyperbridge::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+impl pallet_bandwidth::Config for Runtime {
+	type Dispatcher = Ismp;
+}
+
 parameter_types! {
 	pub const Decimals: u8 = 10;
 }
@@ -327,6 +345,24 @@ impl IsmpModule for ProxyModule {
 			));
 		}
 
+		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
+		// recharge flow itself doesn't need bandwidth.
+		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
+			let bytes = core::cmp::max(request.body.len(), 32) as u32;
+			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
+				&request.source,
+				&request.from,
+				bytes,
+			)
+			.map_err(|err| {
+				anyhow!(
+					"bandwidth gate: {err} (source={:?}, from={:x?})",
+					request.source,
+					request.from
+				)
+			})?;
+		}
+
 		if request.dest != HostStateMachine::get() {
 			TokenGatewayInspector::inspect_request(&request)?;
 
@@ -345,11 +381,32 @@ impl IsmpModule for ProxyModule {
 				pallet_token_gateway::Pallet::<Runtime>::default().on_accept(request),
 			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
 				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
+			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
+				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
 			_ => Err(anyhow!("Destination module not found")),
 		}
 	}
 
 	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
+		// Bandwidth gate. Mirrors the request path in `on_accept`: the chain
+		// and module that produced the response pay for the bytes they
+		// deliver.
+		if let Response::Post(post) = &response {
+			let bytes = core::cmp::max(post.response.len(), 32) as u32;
+			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
+				&post.source_chain(),
+				&post.source_module(),
+				bytes,
+			)
+			.map_err(|err| {
+				anyhow!(
+					"bandwidth gate: {err} (source={:?}, from={:x?})",
+					post.source_chain(),
+					post.source_module(),
+				)
+			})?;
+		}
+
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,

@@ -10,7 +10,10 @@ Our system rewards active and reliable network participants — Relayers who del
 
 ## Who is a Collator
 
-Collators are block producers for the Hyperbridge blockchain. They are essential for keeping the chain live and processing transactions.
+Collators are block producers for the Hyperbridge blockchain. They are essential for keeping the chain live and processing transactions, and
+they double as the network's fraud-detection layer for the L2s Hyperbridge messages with: every collator runs an in-node fisherman task that
+watches each connected L2 across multiple independent RPC providers and submits a veto when those providers disagree about L2 state at a
+height Hyperbridge is about to commit to.
 For their vital contributions, Collators are directly rewarded from the network Treasury. Each successful block authored earns the Collator `0.7 $BRIDGE`.
 This creates a consistent and reliable revenue stream, with a total of approximately `4,000,000 $BRIDGE` allocated annually for Collator rewards,
 distributed among the active set based on their block production performance.
@@ -20,6 +23,10 @@ The primary responsibilities for Collators on Hyperbridge are:
 - **Collecting Transactions**: They gather transactions from users.
 - **Producing Blocks**: They ensure the production of blocks.
 - **Submitting to Polkadot Validators**: They submit blocks along with proof to the relay chain validators, in this case, Polkadot.
+- **Running the Fisherman Task**: Every collator runs an in-node fisherman that monitors each supported L2 across at least two distinct RPC
+  providers. When the providers reach a supermajority on an L2 state that disagrees with what Hyperbridge is about to commit, the fisherman
+  signs a `pallet-fishermen.veto_state_commitment` extrinsic with the collator's AURA key. The collator binary will not start without a valid
+  tesseract config (see Step 2, Action 4).
 
 ## The Path from Operator to Collator
 
@@ -234,9 +241,97 @@ You do this by calling the `session.setKeys` extrinsic from your Controller acco
 - Leave the `proof` field empty (0x0).
 - Sign and submit the transaction.
 
+**Action 4: Provide a Tesseract Config for the Fisherman Task**:
+
+Every collator must run the fisherman task. The fisherman watches each connected L2 across multiple independent RPC providers
+and submits a `pallet-fishermen.veto_state_commitment` extrinsic when those providers disagree about the L2 state at a finalized
+height. This is what protects the network from a faulty or compromised consensus client trying to commit fraudulent L2 state to
+Hyperbridge. The collator binary will refuse to start without a valid config.
+
+Pass the same toml shape the relayer consumes via `--tesseract-config`:
+
+```bash
+./target/release/hyperbridge --collator --tesseract-config /etc/hyperbridge/tesseract.toml ...
+```
+
+The collator path layers stricter rules on top of the relayer's parser. Anything that breaks one of these rules fails the node at
+startup, before block production:
+
+1. **Every supported L2 must have a `[<chain>]` section.** If you configure even one chain from a set, you must configure all of
+   them. Partial coverage is rejected.
+
+   - Mainnet: Arbitrum (42161), Base (8453), Optimism (10), Unichain (130), Soneium (1868).
+   - Testnet: Arbitrum Sepolia (421614), Optimism Sepolia (11155420), Base Sepolia (84532).
+
+2. **Each L2 needs at least two `rpc_urls`, and they must come from distinct providers.** The fisherman computes a supermajority
+   quorum (`floor(2/3 * N) + 1`) across the listed RPCs, so duplicate endpoints add no safety. The validator extracts the host
+   portion of each URL and rejects configs that list two URLs on the same host. Use endpoints from genuinely different vendors
+   (for example one Alchemy endpoint and one Infura endpoint), not two API keys against the same provider.
+
+A minimal mainnet collator config looks like this. The `[hyperbridge]` table holds the substrate host fields directly, and each L2
+is a top-level `[<chain>]` table with `type = "evm"`. The `[relayer]` section is optional for collators and can be omitted, since
+the fisherman task is the only role the collator path spawns.
+
+```toml lineNumbers
+# Hyperbridge parachain host config. Required.
+[hyperbridge]
+state_machine = "POLKADOT-4009"
+hashing = "Keccak"
+rpc_ws = "ws://127.0.0.1:9933"
+# Your Controller account's private key
+signer = "0xe12f8d9bf570f710db4197853a306a20259b82b5a394fa06c64e8fa3037bcaa6"
+
+# Each of the five mainnet L2s must be present, with at least two
+# distinct-host rpc_urls. URLs that share a host (case-insensitive) are
+# rejected as the same provider, even if the API key in the path differs.
+[arbitrum]
+type = "evm"
+rpc_urls = [
+    "https://arb-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
+    "https://arbitrum-mainnet.infura.io/v3/<your-infura-key>",
+]
+
+[base]
+type = "evm"
+rpc_urls = [
+    "https://base-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
+    "https://base-mainnet.infura.io/v3/<your-infura-key>",
+]
+
+[optimism]
+type = "evm"
+rpc_urls = [
+    "https://opt-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
+    "https://optimism-mainnet.infura.io/v3/<your-infura-key>",
+]
+
+[unichain]
+type = "evm"
+rpc_urls = [
+    "https://unichain-mainnet.g.alchemy.com/v2/<your-alchemy-key>",
+    "https://rpc.unichain.org",
+]
+
+[soneium]
+type = "evm"
+rpc_urls = [
+    "https://soneium.g.alchemy.com/v2/<your-alchemy-key>",
+    "https://rpc.soneium.org",
+]
+```
+
+`state_machine`, `ismp_host`, and `consensus_state_id` on each L2 table are derived from the chain's `eth_chainId` against the
+first RPC URL, so a minimal collator config only needs `type` and `rpc_urls`. Operators who also run a relayer alongside the
+collator can add a `[relayer]` section and `[<chain>.consensus]` sub-tables in the same file; those don't affect fisherman
+validation.
+
+Operators running on testnet substitute the testnet L2 set above (Arbitrum Sepolia, Optimism Sepolia, Base Sepolia) instead of the
+mainnet entries. Mixing the two sets in one config is supported, but a partial set on either side is rejected.
+
 **Final Action: Prepare Your Node for Block Production**:
-After you have successfully registered as a candidate, you should restart your node with the `--collator` flag. This prepares your
-node to start producing blocks as soon as you are selected for the active set.
+After you have successfully registered as a candidate, you should restart your node with both the `--collator` and
+`--tesseract-config` flags. This prepares your node to start producing blocks as soon as you are selected for the active set, and
+brings the fisherman task online so the node is contributing to L2 fraud detection from the moment it joins the set.
 
 <figure>
   <img src="/set_collator_keys.png" alt="Setting session keys" />

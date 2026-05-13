@@ -44,16 +44,17 @@ pallet-fishermen = { workspace = true }
 pallet-state-coprocessor = { workspace = true }
 pallet-token-gateway-inspector = { workspace = true }
 pallet-hyperbridge = { workspace = true }
+pallet-bandwidth = { workspace = true }
 pallet-token-gateway = { workspace = true }
 token-gateway-primitives = { workspace = true }
 pallet-mmr-tree = { workspace = true }
 pallet-mmr-runtime-api = { workspace = true }
 mmr-primitives = { workspace = true }
-hyperbridge-client-machine = { workspace = true }
 pallet-bridge-airdrop = { workspace = true }
 ismp-arbitrum = { workspace = true }
 ismp-optimism = { workspace = true }
 ismp-polygon = { workspace = true }
+ismp-pharos = { workspace = true }
 pallet-consensus-incentives = { workspace = true }
 pallet-messaging-fees = { workspace = true }
 pallet-collator-manager = { workspace = true }
@@ -155,10 +156,10 @@ std = [
     "pallet-mmr-runtime-api/std",
     "mmr-primitives/std",
     "simnode-runtime-api/std",
-    "hyperbridge-client-machine/std",
     "anyhow/std",
     "pallet-token-gateway-inspector/std",
     "pallet-hyperbridge/std",
+    "pallet-bandwidth/std",
     "pallet-token-gateway/std",
     "token-gateway-primitives/std",
     "pallet-fishermen/std",
@@ -167,6 +168,7 @@ std = [
     "pallet-bridge-airdrop/std",
     "ismp-arbitrum/std",
     "ismp-optimism/std",
+    "ismp-pharos/std",
     "pallet-consensus-incentives/std",
     "polkadot-sdk/std",
     "ismp-polygon/std",

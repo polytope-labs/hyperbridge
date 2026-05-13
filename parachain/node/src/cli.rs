@@ -67,6 +67,14 @@ pub enum Subcommand {
 pub struct SimnodeCli {
 	#[arg(long)]
 	pub instant: bool,
+	/// Path to a tesseract relayer toml config. Mirrors the top-level flag
+	/// of the same name; required because `args_conflicts_with_subcommands`
+	/// on the root `Cli` makes top-level options unreachable when running a
+	/// subcommand. When simnode runs as a `--validator`, the fisherman task
+	/// is spawned from this config — same path the production collator
+	/// uses.
+	#[arg(long)]
+	pub tesseract_config: Option<PathBuf>,
 	#[command(flatten)]
 	pub rest: sc_simnode::cli::SimnodeCli,
 }
@@ -99,6 +107,14 @@ pub struct Cli {
 	/// NOTE: DEPRECATED, async-backing is enabled by default.
 	#[arg(long)]
 	pub async_backing: bool,
+
+	/// Path to a tesseract relayer toml config. When the node runs as a
+	/// collator/authority this is required, and the fisherman task is spawned
+	/// using it to watch L2 chains across multiple RPC providers and submit
+	/// veto extrinsics on disagreement. When the node is a non-authority, the
+	/// flag is optional and ignored.
+	#[arg(long)]
+	pub tesseract_config: Option<PathBuf>,
 
 	/// Relay chain arguments
 	#[arg(raw = true)]

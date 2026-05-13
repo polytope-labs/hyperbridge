@@ -9,7 +9,6 @@ signer = ""
 [relayer]
 consensus = false
 messaging = true
-fisherman = false
 router = { Kusama = 4296 }
 module_filter = []
 minimum_profit_percentage = 100

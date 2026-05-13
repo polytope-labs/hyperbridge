@@ -60,10 +60,8 @@ use sp_runtime::{
 	AccountId32, BuildStorage,
 };
 
-use crate::runtime::sp_runtime::DispatchError;
 use hyperbridge_client_machine::HyperbridgeClientMachine;
 use ismp::consensus::IntermediateState;
-use pallet_messaging_fees::types::PriceOracle;
 use polkadot_sdk::frame_support::dispatch::DispatchClass;
 use substrate_state_machine::SubstrateStateMachine;
 use xcm_simulator::mock_message_queue;
@@ -114,6 +112,7 @@ frame_support::construct_runtime!(
 		MsgQueue: mock_message_queue,
 		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
+		Bandwidth: pallet_bandwidth,
 	}
 );
 
@@ -174,9 +173,20 @@ parameter_types! {
 	pub const CollatorBondLockId: LockIdentifier = *b"collbond";
 }
 
+parameter_types! {
+	pub static CollatorSet: alloc::vec::Vec<AccountId32> = alloc::vec::Vec::new();
+}
+
+pub struct IsCollatorMock;
+impl frame_support::traits::Contains<AccountId32> for IsCollatorMock {
+	fn contains(t: &AccountId32) -> bool {
+		CollatorSet::get().contains(t)
+	}
+}
+
 impl pallet_fishermen::Config for Test {
 	type IsmpHost = Ismp;
-	type FishermenOrigin = EnsureRoot<AccountId32>;
+	type IsCollator = IsCollatorMock;
 }
 
 impl pallet_sudo::Config for Test {
@@ -258,7 +268,7 @@ impl pallet_ismp::Config for Test {
 		ismp_bsc::BscClient<Ismp, Test, ismp_bsc::Testnet>,
 		ismp_grandpa::consensus::GrandpaConsensusClient<
 			Test,
-			HyperbridgeClientMachine<Test, Ismp, MessagingRelayerIncentives>,
+			HyperbridgeClientMachine<Test, Ismp, ()>,
 		>,
 		ismp_parachain::ParachainConsensusClient<Test, IsmpParachain>,
 		ismp_pharos::PharosClient<Ismp, Test, pharos_primitives::Testnet>,
@@ -285,6 +295,10 @@ impl pallet_ismp::Config for Test {
 
 impl pallet_hyperbridge::Config for Test {
 	type IsmpHost = Ismp;
+}
+
+impl pallet_bandwidth::Config for Test {
+	type Dispatcher = Ismp;
 }
 
 parameter_types! {
@@ -514,21 +528,8 @@ impl pallet_consensus_incentives::Config for Test {
 }
 
 impl pallet_messaging_fees::Config for Test {
-	type IsmpHost = Ismp;
-	type TreasuryAccount = TreasuryAccount;
-	type IncentivesOrigin = EnsureRoot<AccountId32>;
-	type PriceOracle = MockPriceOracle;
-	type WeightInfo = ();
 	type ReputationAsset = ReputationAsset;
-}
-
-pub struct MockPriceOracle;
-
-impl PriceOracle for MockPriceOracle {
-	fn get_bridge_price() -> Result<U256, DispatchError> {
-		// return 0.05 with 18 decimals: 0.05 * 10^18
-		Ok(U256::from(50_000_000_000_000_000u128))
-	}
+	type AdminOrigin = EnsureRoot<AccountId32>;
 }
 
 parameter_types! {

@@ -29,12 +29,11 @@ pub mod governance;
 mod ismp;
 mod weights;
 pub mod xcm;
-use crate::sp_runtime::DispatchError;
 #[cfg(feature = "runtime-benchmarks")]
 use alloc::sync::Arc;
 
 use cumulus_primitives_core::AggregateMessageOrigin;
-use frame_support::traits::{EverythingBut, InsideBoth, TransformOrigin, WithdrawReasons};
+use frame_support::traits::{TransformOrigin, WithdrawReasons};
 use parachains_common::message_queue::{NarrowOriginToSibling, ParaIdToSibling};
 
 use alloc::borrow::Cow;
@@ -83,7 +82,6 @@ use frame_system::{
 };
 use mmr_primitives::INDEXING_PREFIX;
 use pallet_ismp::offchain::{Proof, ProofKeys};
-use pallet_messaging_fees::types::PriceOracle;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_mmr_primitives::LeafIndex;
 pub use sp_runtime::{MultiAddress, Perbill, Permill};
@@ -150,6 +148,7 @@ pub type SignedExtra = (
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+	pallet_fishermen::PrioritizeVeto<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -333,14 +332,11 @@ parameter_types! {
 
 // Configure FRAME pallets to include in runtime.
 
-use frame_support::{
-	derive_impl,
-	traits::{tokens::pay::PayAssetFromAccount, Contains},
-};
+use frame_support::{derive_impl, traits::tokens::pay::PayAssetFromAccount};
 use pallet_ismp::offchain::Leaf;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_treasury::ArgumentsFactory;
-use polkadot_sdk::{frame_support::traits::LockIdentifier, sp_core::U256};
+use polkadot_sdk::frame_support::traits::LockIdentifier;
 use sp_core::crypto::AccountId32;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_core::crypto::FromEntropy;
@@ -349,18 +345,6 @@ use sp_runtime::traits::{ConvertInto, IdentityLookup};
 use staging_xcm::latest::Location;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::{Junction, Junctions::X1};
-
-/// A type to identify calls to the treasury pallet and filter all spend related calls.
-pub struct IsTreasurySpend;
-impl Contains<RuntimeCall> for IsTreasurySpend {
-	fn contains(c: &RuntimeCall) -> bool {
-		matches!(
-			c,
-			RuntimeCall::Treasury(pallet_treasury::Call::spend { .. }) |
-				RuntimeCall::Treasury(pallet_treasury::Call::spend_local { .. })
-		)
-	}
-}
 
 pub type TechnicalCollectiveInstance = pallet_collective::Instance1;
 
@@ -399,7 +383,7 @@ impl frame_system::Config for Runtime {
 	/// The weight of database operations that the runtime can invoke.
 	type DbWeight = RocksDbWeight;
 	/// The basic call filter to use in dispatchable.
-	type BaseCallFilter = InsideBoth<EverythingBut<IsTreasurySpend>, TxPause>;
+	type BaseCallFilter = TxPause;
 	/// Weight information for the extrinsics of this pallet.
 	type SystemWeightInfo = weights::frame_system::WeightInfo<Runtime>;
 	/// Block & extrinsics weights: base values and limits.
@@ -905,12 +889,8 @@ impl pallet_proxy::Config for Runtime {
 }
 
 impl pallet_messaging_fees::Config for Runtime {
-	type IsmpHost = Ismp;
-	type TreasuryAccount = TreasuryPalletId;
-	type IncentivesOrigin = EnsureRoot<AccountId>;
-	type PriceOracle = FixedPriceOracle;
-	type WeightInfo = weights::pallet_messaging_fees::WeightInfo<Runtime>;
 	type ReputationAsset = ReputationAsset;
+	type AdminOrigin = EnsureRoot<AccountId>;
 }
 
 parameter_types! {
@@ -928,14 +908,6 @@ impl pallet_collator_manager::Config for Runtime {
 	type WeightInfo = ();
 }
 
-pub struct FixedPriceOracle;
-
-impl PriceOracle for FixedPriceOracle {
-	fn get_bridge_price() -> Result<U256, DispatchError> {
-		// return 0.05 with 18 decimals: 0.05 * 10^18
-		Ok(U256::from(50_000_000_000_000_000u128))
-	}
-}
 
 #[frame_support::runtime]
 mod runtime {
@@ -1075,6 +1047,8 @@ mod runtime {
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
 	#[runtime::pallet_index(95)]
 	pub type TxPause = pallet_tx_pause;
+	#[runtime::pallet_index(96)]
+	pub type Bandwidth = pallet_bandwidth;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1470,7 +1444,8 @@ impl_runtime_apis! {
 				frame_system::CheckNonce::<Runtime>::from(nonce),
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
-				frame_metadata_hash_extension::CheckMetadataHash::new(false)
+				frame_metadata_hash_extension::CheckMetadataHash::new(false),
+				pallet_fishermen::PrioritizeVeto::<Runtime>::new(),
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());

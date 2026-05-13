@@ -161,6 +161,7 @@ pub type SignedExtra = (
 	frame_system::CheckWeight<Runtime>,
 	pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
 	frame_metadata_hash_extension::CheckMetadataHash<Runtime>,
+	pallet_fishermen::PrioritizeVeto<Runtime>,
 );
 
 /// Unchecked extrinsic type as expected by this runtime.
@@ -917,6 +918,8 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type TxPause = pallet_tx_pause;
+	#[runtime::pallet_index(87)]
+	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(90)]
 	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 	#[runtime::pallet_index(91)]
@@ -1306,7 +1309,8 @@ impl_runtime_apis! {
 				frame_system::CheckNonce::<Runtime>::from(nonce),
 				frame_system::CheckWeight::<Runtime>::new(),
 				pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0),
-				frame_metadata_hash_extension::CheckMetadataHash::new(false)
+				frame_metadata_hash_extension::CheckMetadataHash::new(false),
+				pallet_fishermen::PrioritizeVeto::<Runtime>::new(),
 			);
 			let signature = MultiSignature::from(sr25519::Signature::default());
 			let address = sp_runtime::traits::AccountIdLookup::unlookup(account.into());

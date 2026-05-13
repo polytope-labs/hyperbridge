@@ -1710,6 +1710,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert-json-diff"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "assert_matches"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8214,7 +8224,6 @@ dependencies = [
  "evm-state-machine",
  "frame-benchmarking",
  "hex-literal 0.4.1",
- "hyperbridge-client-machine",
  "ismp",
  "ismp-arbitrum",
  "ismp-beefy",
@@ -8229,6 +8238,7 @@ dependencies = [
  "ismp-tendermint",
  "log",
  "mmr-primitives",
+ "pallet-bandwidth",
  "pallet-beefy-consensus-proofs",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
@@ -8240,7 +8250,6 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
- "pallet-messaging-fees",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
@@ -9248,6 +9257,7 @@ dependencies = [
  "clap",
  "futures",
  "gargantua-runtime",
+ "hyperbridge-fisherman",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
  "jsonrpsee 0.24.10",
@@ -9255,6 +9265,7 @@ dependencies = [
  "mmr-gadget 29.0.1",
  "mmr-primitives",
  "nexus-runtime",
+ "pallet-fishermen",
  "pallet-intents-coprocessor",
  "pallet-intents-rpc",
  "pallet-ismp",
@@ -9287,6 +9298,24 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-sdk",
  "substrate-state-machine",
+]
+
+[[package]]
+name = "hyperbridge-fisherman"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ismp",
+ "log",
+ "polkadot-sdk",
+ "tesseract",
+ "tesseract-config",
+ "tesseract-evm",
+ "tesseract-fisherman",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -12547,6 +12576,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "mockito"
+version = "1.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90820618712cab19cfc46b274c6c22546a82affcb3c3bdf0f29e3db8e1bb92c0"
+dependencies = [
+ "assert-json-diff",
+ "bytes",
+ "colored",
+ "futures-core",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.8.1",
+ "hyper-util",
+ "log",
+ "pin-project-lite",
+ "rand 0.9.2",
+ "regex",
+ "serde_json",
+ "serde_urlencoded",
+ "similar",
+ "tokio",
+]
+
+[[package]]
 name = "moka"
 version = "0.12.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13030,7 +13084,6 @@ dependencies = [
  "evm-state-machine",
  "frame-benchmarking",
  "hex-literal 0.4.1",
- "hyperbridge-client-machine",
  "ismp",
  "ismp-arbitrum",
  "ismp-bsc",
@@ -13038,11 +13091,13 @@ dependencies = [
  "ismp-optimism",
  "ismp-parachain",
  "ismp-parachain-runtime-api",
+ "ismp-pharos",
  "ismp-polygon",
  "ismp-sync-committee",
  "ismp-tendermint",
  "log",
  "mmr-primitives",
+ "pallet-bandwidth",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
@@ -14391,6 +14446,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-bandwidth"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives 1.5.7",
+ "alloy-sol-macro 1.5.7",
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "ismp",
+ "pallet-ismp",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "primitive-types 0.13.1",
+ "scale-info",
+]
+
+[[package]]
 name = "pallet-beefy"
 version = "46.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15355,6 +15426,7 @@ dependencies = [
  "ismp-testsuite",
  "log",
  "mmr-primitives",
+ "pallet-bandwidth",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
@@ -15455,13 +15527,9 @@ name = "pallet-messaging-fees"
 version = "0.1.0"
 dependencies = [
  "crypto-utils",
- "hyperbridge-client-machine",
  "ismp",
  "log",
- "pallet-hyperbridge",
  "pallet-ismp",
- "pallet-ismp-host-executive",
- "pallet-ismp-relayer",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -16357,6 +16425,7 @@ dependencies = [
  "ismp",
  "log",
  "mmr-primitives",
+ "pallet-bandwidth",
  "pallet-ismp",
  "pallet-ismp-relayer",
  "parity-scale-codec",
@@ -24088,6 +24157,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "simnode-runtime-api"
 version = "2512.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -24128,12 +24203,14 @@ dependencies = [
  "hash-db",
  "hex",
  "hex-literal 0.4.1",
+ "hyperbridge-fisherman",
  "indicatif 0.17.11",
  "ismp",
  "ismp-parachain",
  "ismp-solidity-abi",
  "jsonrpsee-core 0.24.10",
  "mmr-primitives",
+ "mockito",
  "nexus-runtime",
  "pallet-bridge-airdrop",
  "pallet-hyperbridge",
@@ -24156,6 +24233,10 @@ dependencies = [
  "subxt 0.42.1",
  "subxt-signer 0.41.0",
  "subxt-utils",
+ "tesseract-evm",
+ "tesseract-fisherman",
+ "tesseract-primitives",
+ "tesseract-substrate",
  "tokio",
  "trie-db",
 ]
@@ -25737,7 +25818,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=79cb95d9e86c002c60c568ae1bf65c1c0495a22f#79cb95d9e86c002c60c568ae1bf65c1c0495a22f"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=dc0c2006a5bce842b514b2b610f977af0da18d35#dc0c2006a5bce842b514b2b610f977af0da18d35"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "anyhow",
@@ -25759,7 +25840,7 @@ dependencies = [
 [[package]]
 name = "sp1-beefy-primitives"
 version = "0.1.0"
-source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=79cb95d9e86c002c60c568ae1bf65c1c0495a22f#79cb95d9e86c002c60c568ae1bf65c1c0495a22f"
+source = "git+ssh://git@github.com/polytope-labs/sp1-beefy.git?rev=dc0c2006a5bce842b514b2b610f977af0da18d35#dc0c2006a5bce842b514b2b610f977af0da18d35"
 dependencies = [
  "alloy-sol-types 0.7.7",
  "parity-scale-codec",
@@ -28032,7 +28113,6 @@ dependencies = [
  "tesseract-config",
  "tesseract-consensus-config",
  "tesseract-evm",
- "tesseract-fisherman",
  "tesseract-primitives",
  "tesseract-substrate",
  "tokio",
@@ -28503,6 +28583,23 @@ dependencies = [
  "sp-core",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "tesseract-prover"
+version = "1.9.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rustls 0.23.36",
+ "subxt-utils",
+ "tesseract-beefy",
+ "tesseract-primitives",
+ "tesseract-substrate",
+ "tokio",
+ "toml 0.7.8",
+ "tracing-subscriber 0.3.22",
+ "zk-beefy",
 ]
 
 [[package]]

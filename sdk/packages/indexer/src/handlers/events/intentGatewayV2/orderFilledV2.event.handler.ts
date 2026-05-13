@@ -10,7 +10,7 @@ export const handleOrderFilledEventV2 = wrap(async (event: OrderFilledLog): Prom
 	logger.info(`[Intent Gateway V2] Order Filled Event: ${stringify(event)}`)
 
 	const { blockNumber, transactionHash, args, blockHash } = event
-	const { commitment, filler } = args!
+	const { commitment, filler, outputs, inputs } = args!
 
 	if (!args) return
 
@@ -20,7 +20,7 @@ export const handleOrderFilledEventV2 = wrap(async (event: OrderFilledLog): Prom
 	logger.info(
 		`[Intent Gateway V2] Order Filled: ${stringify({
 			commitment,
-		})} by ${stringify({ filler })}`,
+		})} by ${stringify({ filler })}, outputs: ${stringify(outputs)}, inputs: ${stringify(inputs)}`,
 	)
 
 	await IntentGatewayV2Service.updateOrderStatus(

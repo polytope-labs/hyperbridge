@@ -175,6 +175,7 @@ async fn start_node_impl<Runtime, T, Extra>(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	tesseract_config: Option<std::path::PathBuf>,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
@@ -218,6 +219,24 @@ where
 	let prometheus_registry = parachain_config.prometheus_registry().cloned();
 	let transaction_pool = params.transaction_pool.clone();
 	let import_queue_service = params.import_queue.service();
+
+	// Collators are required to run the fisherman task; non-authorities skip
+	// it. Errors here abort node startup.
+	if validator {
+		let path = tesseract_config.clone().ok_or_else(|| {
+			sc_service::Error::Other(
+				"--tesseract-config is required when running as a collator/authority".to_string(),
+			)
+		})?;
+		hyperbridge_fisherman::spawn(&path, &task_manager).await.map_err(|e| {
+			sc_service::Error::Other(format!("failed to spawn fisherman task: {e:?}"))
+		})?;
+	} else if tesseract_config.is_some() {
+		log::info!(
+			target: "fisherman",
+			"--tesseract-config provided to a non-authority node; ignoring (fisherman only runs on collators)",
+		);
+	}
 
 	let (network, system_rpc_tx, tx_handler_controller, sync_service) =
 		build_network(BuildNetworkParams {
@@ -522,6 +541,7 @@ pub async fn start_parachain_node(
 	collator_options: CollatorOptions,
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
+	tesseract_config: Option<std::path::PathBuf>,
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
@@ -529,14 +549,28 @@ pub async fn start_parachain_node(
 				gargantua_runtime::RuntimeApi,
 				gargantua_runtime::Runtime,
 				gargantua_runtime::SignedExtra,
-			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
+			>(
+				parachain_config,
+				polkadot_config,
+				collator_options,
+				para_id,
+				hwbench,
+				tesseract_config,
+			)
 			.await,
 		chain if chain.contains("nexus") =>
 			start_node_impl::<
 				nexus_runtime::RuntimeApi,
 				nexus_runtime::Runtime,
 				nexus_runtime::SignedExtra,
-			>(parachain_config, polkadot_config, collator_options, para_id, hwbench)
+			>(
+				parachain_config,
+				polkadot_config,
+				collator_options,
+				para_id,
+				hwbench,
+				tesseract_config,
+			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),
 	}

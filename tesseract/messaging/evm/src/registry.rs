@@ -87,6 +87,36 @@ pub fn ismp_host_for_chain_id(chain_id: u64) -> Option<H160> {
 	H160::from_str(addr).ok()
 }
 
+/// EVM chain IDs that Hyperbridge treats as L2 rollups of Ethereum. These are
+/// the chains the collator-side fisherman task is required to monitor, and the
+/// canonical source of truth used by the wrapper to enforce coverage of the
+/// `[<chain>]` sections in the operator's tesseract toml.
+///
+/// Excludes Ethereum L1 itself, plus chains not finalized through Ethereum
+/// (BSC, Gnosis, Polygon, Pharos), and Polkadot-finalized chains.
+pub const SUPPORTED_L2_CHAIN_IDS_MAINNET: &[u64] = &[
+	42161, // Arbitrum
+	8453,  // Base
+	130,   // Unichain
+	10,    // Optimism
+	1868,  // Soneium
+];
+
+/// Testnet counterparts of [`SUPPORTED_L2_CHAIN_IDS_MAINNET`]. Listed
+/// separately so a collator pointed at a testnet deployment doesn't need
+/// mainnet entries (and vice-versa).
+pub const SUPPORTED_L2_CHAIN_IDS_TESTNET: &[u64] = &[
+	421614,   // Arbitrum Sepolia
+	11155420, // Optimism Sepolia
+	84532,    // Base Sepolia
+];
+
+/// True when `chain_id` is a Hyperbridge-supported L2 (mainnet or testnet).
+pub fn is_supported_l2(chain_id: u64) -> bool {
+	SUPPORTED_L2_CHAIN_IDS_MAINNET.contains(&chain_id) ||
+		SUPPORTED_L2_CHAIN_IDS_TESTNET.contains(&chain_id)
+}
+
 /// Fetches the chain's numeric ID via `eth_chainId` against the first RPC URL
 /// in the list. Used by the consolidated relayer to auto-derive a chain's
 /// `state_machine` identifier.

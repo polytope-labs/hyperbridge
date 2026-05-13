@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/core",
-	"version": "2.0.0",
+	"version": "2.1.0",
 	"description": "Hyperbridge Solidity SDK for dispatching & receiving cross-chain messages",
 	"author": "Polytope Labs <hello@polytope.technology>",
 	"license": "Apache-2.0",
@@ -36,8 +36,11 @@
 	],
 	"dependencies": {
 		"@openzeppelin/contracts": "^5.4.0",
-		"@polytope-labs/solidity-merkle-trees": "github:polytope-labs/solidity-merkle-trees#135f2251c1e10677384f76a3514d0a6230bd8a56",
+		"@polytope-labs/solidity-merkle-trees": "1.0.0",
 		"prettier": "^3.3.3",
 		"prettier-plugin-solidity": "^1.3.1"
-	}
+	},
+  "devDependencies": {
+    "forge-std": "github:foundry-rs/forge-std#v1.16.1"
+  }
 }

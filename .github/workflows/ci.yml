@@ -11,7 +11,7 @@ on:
             - ".github/workflows/ci.yml"
             - "!sdk/**"
 
-    pull_request_target:
+    pull_request:
        types: [opened, synchronize, reopened, ready_for_review]
        paths:
            - "**/*.rs"
@@ -19,6 +19,8 @@ on:
            - "**/Cargo.lock"
            - ".github/workflows/ci.yml"
            - "!sdk/**"
+
+    workflow_dispatch:
 
     # pull_request_target:
     #     branches:
@@ -58,7 +60,7 @@ jobs:
     detect-changes:
         name: Detect Changed Paths
         runs-on: ubuntu-22.04
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         outputs:
             pharos: ${{ steps.filter.outputs.pharos }}
             sync-committee: ${{ steps.filter.outputs.sync-committee }}
@@ -67,7 +69,7 @@ jobs:
         steps:
             - uses: actions/checkout@v3
               with:
-                  ref: ${{ github.event.pull_request_target.head.sha || github.sha }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   fetch-depth: 0
 
@@ -98,7 +100,7 @@ jobs:
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         strategy:
             matrix:
                 crate: [gargantua-runtime, nexus-runtime]
@@ -121,7 +123,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -183,7 +185,7 @@ jobs:
     check-workspace:
         name: Check Workspace
         runs-on: arc-runner-set
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -202,7 +204,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -270,7 +272,7 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: arc-runner-set
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -289,7 +291,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -357,7 +359,7 @@ jobs:
     simnet-tests:
         name: Simnet Tests
         runs-on: arc-runner-set
-        if: github.event.pull_request_target.draft != true
+        if: github.event.pull_request.draft != true
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -376,7 +378,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -429,6 +431,11 @@ jobs:
 
             - uses: Swatinem/rust-cache@v2
 
+            - name: Install Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
+
             - name: Run Simnet Tests
               run: |
                   cargo build -p hyperbridge --release
@@ -446,7 +453,7 @@ jobs:
         name: Ethereum Sync Committee Tests
         needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request_target.draft != true && needs.detect-changes.outputs.sync-committee == 'true'
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.sync-committee == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -465,7 +472,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -540,7 +547,7 @@ jobs:
         name: Binance Smart Chain Tests
         needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request_target.draft != true && needs.detect-changes.outputs.bsc == 'true'
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.bsc == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -559,7 +566,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -621,7 +628,7 @@ jobs:
         name: Tendermint Tests
         needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request_target.draft != true && needs.detect-changes.outputs.tendermint == 'true'
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.tendermint == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -640,7 +647,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 
@@ -702,7 +709,7 @@ jobs:
         name: Pharos Tests
         needs: detect-changes
         runs-on: ubuntu-22.04
-        if: github.event.pull_request_target.draft != true && needs.detect-changes.outputs.pharos == 'true'
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.pharos == 'true'
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -721,7 +728,7 @@ jobs:
 
             - uses: actions/checkout@v3
               with:
-                  ref: ${{  github.event.pull_request_target.head.sha }}
+                  ref: ${{  github.event.pull_request.head.sha }}
                   token: ${{ secrets.GH_TOKEN }}
                   submodules: recursive
 

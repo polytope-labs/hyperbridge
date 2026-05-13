@@ -42,6 +42,31 @@ dataSources:
           filter:
             module: collatorManager
             method: CollatorRewarded
+        - handler: handleBandwidthCreditedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: bandwidth
+            method: BandwidthCredited
+        - handler: handleBandwidthConsumedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: bandwidth
+            method: BandwidthConsumed
+        - handler: handleSubscriptionEvictedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: bandwidth
+            method: SubscriptionEvicted
+        - handler: handleForceCreditedEvent
+          kind: substrate/EventHandler
+          filter:
+            module: bandwidth
+            method: ForceCredited
+        - handler: handleTierSetEvent
+          kind: substrate/EventHandler
+          filter:
+            module: bandwidth
+            method: TierSet
         - handler: handleSubstrateAssetTeleportedEvent
           kind: substrate/EventHandler
           filter:

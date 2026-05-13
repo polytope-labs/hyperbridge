@@ -1,0 +1,38 @@
+[package]
+name = "pallet-bandwidth"
+version = "0.1.0"
+edition = "2021"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+license = "Apache-2.0"
+repository = "https://github.com/polytope-labs/hyperbridge"
+description = "Bandwidth-subscription accounting for hyperbridge applications. Tracks per-(source-chain, application) byte allowances credited via on-chain purchases dispatched from EVM source chains."
+publish = false
+
+[dependencies]
+ismp = { workspace = true }
+codec = { workspace = true }
+scale-info = { workspace = true }
+pallet-ismp = { workspace = true }
+primitive-types = { workspace = true }
+anyhow = { workspace = true, default-features = false }
+alloy-primitives = { workspace = true }
+alloy-sol-macro = { workspace = true }
+alloy-sol-types = { workspace = true }
+
+[dependencies.polkadot-sdk]
+workspace = true
+features = ["frame-support", "frame-system", "sp-std", "sp-runtime", "sp-core", "sp-io"]
+
+[features]
+default = ["std"]
+std = [
+    "ismp/std",
+    "polkadot-sdk/std",
+    "codec/std",
+    "scale-info/std",
+    "pallet-ismp/std",
+    "primitive-types/std",
+    "anyhow/std",
+    "alloy-primitives/std",
+]
+try-runtime = ["polkadot-sdk/try-runtime"]

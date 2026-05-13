@@ -34,8 +34,6 @@ abstract contract BaseScript is Script, Config {
 
         deploy();
 
-        vm.stopBroadcast();
-
         console.log("\n=================================");
         console.log("Deployment Completed");
         console.log("=================================\n");
@@ -89,8 +87,6 @@ abstract contract BaseScript is Script, Config {
 
         // Call the child contract's deploy function
         deploy();
-
-        vm.stopBroadcast();
 
         console.log("Deployment completed for chain:", chain, "\n");
     }

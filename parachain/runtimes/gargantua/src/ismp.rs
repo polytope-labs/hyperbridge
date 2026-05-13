@@ -73,10 +73,34 @@ impl ismp_bsc::pallet::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
+/// Bandwidth gate the runtime exposes to consumers (currently
+/// `pallet-state-coprocessor`). With the `no-bandwidth` flag off (the
+/// default) the live `pallet-bandwidth` pallet is consulted; turn the
+/// flag on and a no-op gate is wired in so the trait bound on
+/// `pallet_state_coprocessor::Config` is satisfied without enforcing
+/// per-app quotas.
+#[cfg(not(feature = "no-bandwidth"))]
+type RuntimeBandwidthGate = pallet_bandwidth::Pallet<Runtime>;
+#[cfg(feature = "no-bandwidth")]
+type RuntimeBandwidthGate = NoopBandwidthGate;
+
+#[cfg(feature = "no-bandwidth")]
+pub struct NoopBandwidthGate;
+#[cfg(feature = "no-bandwidth")]
+impl pallet_bandwidth::BandwidthGate for NoopBandwidthGate {
+	fn try_consume(
+		_source: &StateMachine,
+		_app: &[u8],
+		_bytes: u32,
+	) -> Result<(), pallet_bandwidth::GateError> {
+		Ok(())
+	}
+}
+
 impl pallet_state_coprocessor::Config for Runtime {
 	type IsmpHost = Ismp;
 	type Mmr = Mmr;
-	type BandwidthGate = pallet_bandwidth::Pallet<Runtime>;
+	type BandwidthGate = RuntimeBandwidthGate;
 }
 
 parameter_types! {
@@ -245,6 +269,7 @@ impl pallet_token_gateway_inspector::Config for Runtime {
 	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 
+#[cfg(not(feature = "no-bandwidth"))]
 impl pallet_bandwidth::Config for Runtime {
 	type Dispatcher = Ismp;
 }
@@ -322,8 +347,11 @@ impl pallet_assets::Config for Runtime {
 
 impl IsmpModule for ProxyModule {
 	fn on_accept(&self, request: PostRequest) -> Result<Weight, anyhow::Error> {
-		// Bandwidth gate. Always-enforce; skipped for purchase messages so the
-		// recharge flow itself doesn't need bandwidth.
+		// Bandwidth gate. Always-enforce unless the `no-bandwidth` flag
+		// is set; skipped for purchase messages so the recharge flow
+		// itself doesn't need bandwidth. With the flag on the gate is a
+		// no-op and this block is compiled out entirely.
+		#[cfg(not(feature = "no-bandwidth"))]
 		if !pallet_bandwidth::Pallet::<Runtime>::is_purchase_message(&request) {
 			let bytes = core::cmp::max(request.body.len(), 32) as u32;
 			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
@@ -357,6 +385,7 @@ impl IsmpModule for ProxyModule {
 			pallet_ismp_demo::PALLET_ID =>
 				pallet_ismp_demo::IsmpModuleCallback::<Runtime>::default().on_accept(request),
 
+			#[cfg(not(feature = "no-bandwidth"))]
 			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
 				pallet_bandwidth::Pallet::<Runtime>::default().on_accept(request),
 
@@ -370,7 +399,8 @@ impl IsmpModule for ProxyModule {
 	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
 		// Bandwidth gate. Mirrors the request path in `on_accept`: the chain
 		// and module that produced the response pay for the bytes they
-		// deliver.
+		// deliver. Compiled out when the `no-bandwidth` flag is on.
+		#[cfg(not(feature = "no-bandwidth"))]
 		if let Response::Post(post) = &response {
 			let bytes = core::cmp::max(post.response.len(), 32) as u32;
 			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(

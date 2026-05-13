@@ -126,6 +126,14 @@ features = [
 
 [features]
 default = ["std"]
+# Negatively-biased flag for `pallet-bandwidth`. Off by default, so the
+# `Bandwidth` pallet is part of `construct_runtime!` and the bandwidth
+# gate is wired into the ISMP router (`on_accept` / `on_response`).
+# Turning this flag ON strips the pallet from the runtime: the `Bandwidth`
+# entry is dropped, the gate becomes a no-op `BandwidthGate`, and none of
+# the pallet's extrinsics are exposed. Release builds for testnet
+# deployments enable this — see `scripts/build_release_runtime.sh`.
+no-bandwidth = []
 std = [
     "codec/std",
     "log/std",

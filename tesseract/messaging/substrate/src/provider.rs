@@ -1072,7 +1072,7 @@ where
 			"veto_state_commitment",
 			vec![state_machine_height_to_value(&height)],
 		);
-		send_extrinsic(&self.client, &signer, &call, Some(100)).await?;
+		send_extrinsic(&self.client, &signer, &call, Some(100), true).await?;
 		Ok(())
 	}
 

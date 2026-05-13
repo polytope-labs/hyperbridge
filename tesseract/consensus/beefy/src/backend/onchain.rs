@@ -90,7 +90,9 @@ where
 		let tx = subxt::dynamic::tx("BeefyConsensusProofs", "submit_proof", vec![payload_value]);
 
 		let signer = InMemorySigner::<P>::new(self.signer.clone());
-		let result = send_extrinsic(&self.client, &signer, &tx, None).await;
+		// Don't wait for finalization: in-block is enough — the prover loop sleeps a block
+		// below before reading state, and uncle proofs need to race the next prover.
+		let result = send_extrinsic(&self.client, &signer, &tx, None, false).await;
 
 		// Wait one block so that load_state() on the next iteration sees the
 		// state advance written by the pallet in the previous block.

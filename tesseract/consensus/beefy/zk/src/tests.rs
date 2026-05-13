@@ -7,8 +7,50 @@ use ismp_solidity_abi::{
 	ecdsa_beefy::BeefyConsensusState,
 	sp1_beefy::SP1BeefyProof,
 };
+use polkadot_sdk::*;
+use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
+use sp_runtime::{generic::Header as SubstrateHeader, traits::BlakeTwo256, DigestItem};
+
+/// The AURA consensus engine id, matching `HeaderImpl.AURA_CONSENSUS_ID` in
+/// `evm/src/consensus/Types.sol`. The contract reads the slot from the AURA
+/// preruntime digest and multiplies by SLOT_DURATION (12_000 ms).
+const AURA_ENGINE_ID: sp_runtime::ConsensusEngineId = *b"aura";
+const SLOT_DURATION_MS: u64 = 12_000;
+
+/// Decode the (timestamp, overlayRoot, stateRoot) the on-chain SP1Beefy will
+/// produce for a parachain header, by parsing its ISMP and AURA digests the
+/// same way HeaderImpl.stateCommitment does.
+fn expected_commitment(header_bytes: &[u8]) -> anyhow::Result<(u64, u32, [u8; 32], [u8; 32])> {
+	let header = SubstrateHeader::<u32, BlakeTwo256>::decode(&mut &*header_bytes)
+		.map_err(|e| anyhow!("decode parachain header: {e}"))?;
+	let mut overlay = None::<[u8; 32]>;
+	let mut state = None::<[u8; 32]>;
+	let mut timestamp_ms = None::<u64>;
+	for log in header.digest.logs.iter() {
+		match log {
+			DigestItem::Consensus(id, value) if id == &ISMP_ID => {
+				let d = ConsensusDigest::decode(&mut &value[..])
+					.map_err(|e| anyhow!("decode ISMP ConsensusDigest: {e}"))?;
+				overlay = Some(d.mmr_root.0);
+				state = Some(d.child_trie_root.0);
+			},
+			DigestItem::PreRuntime(id, value) if id == &AURA_ENGINE_ID => {
+				let slot = u64::decode(&mut &value[..])
+					.map_err(|e| anyhow!("decode AURA slot: {e}"))?;
+				timestamp_ms = Some(slot * SLOT_DURATION_MS);
+			},
+			_ => {},
+		}
+	}
+	Ok((
+		timestamp_ms.ok_or_else(|| anyhow!("no AURA preruntime digest"))?,
+		header.number,
+		overlay.ok_or_else(|| anyhow!("no ISMP consensus digest"))?,
+		state.ok_or_else(|| anyhow!("no ISMP consensus digest"))?,
+	))
+}
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
 	config::{Hasher, Header},
@@ -170,10 +212,24 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 			.consensus_proof(signed_commitment.clone(), consensus_state.clone())
 			.await?;
 
-		let encoded_proof = hex::encode(sp1_proof.abi_encode());
+		let encoded_proof = hex::encode(sp1_proof.abi_encode_params());
 		println!("\n=== SP1Beefy Proof (ABI-encoded SP1BeefyProof) ===");
 		println!("0x{}", encoded_proof);
 		println!("==============================================\n");
+
+		// Cross-check expectations the contract should emit, derived from the same
+		// header digests HeaderImpl.stateCommitment parses on-chain.
+		let mut expected = Vec::with_capacity(sp1_proof.headers.len());
+		for header in &sp1_proof.headers {
+			let (ts, height, overlay, state) = expected_commitment(&header.header)?;
+			expected.push(serde_json::json!({
+				"state_machine_id": header.id.to::<u64>(),
+				"height": height,
+				"timestamp": ts,
+				"overlay_root": format!("0x{}", hex::encode(overlay)),
+				"state_root": format!("0x{}", hex::encode(state)),
+			}));
+		}
 
 		let fixture = serde_json::json!({
 			"block_number": signed_commitment.commitment.block_number,
@@ -181,6 +237,7 @@ async fn test_sp1_beefy() -> Result<(), anyhow::Error> {
 			"para_id": para_id,
 			"previous_state": format!("0x{}", previous_state),
 			"proof": format!("0x{}", encoded_proof),
+			"intermediates_expected": expected,
 		});
 		let out_path =
 			std::env::var("FIXTURE_OUT").unwrap_or_else(|_| "/tmp/sp1_beefy_fixture.json".into());

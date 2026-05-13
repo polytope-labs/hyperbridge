@@ -32105,6 +32105,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "rs_merkle",
  "serde",
+ "serde_json",
  "sp-consensus-beefy",
  "sp-core",
  "sp-crypto-hashing",

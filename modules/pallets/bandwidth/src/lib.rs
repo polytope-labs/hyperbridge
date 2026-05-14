@@ -314,7 +314,7 @@ pub mod pallet {
 				.collect();
 
 			let mut body = vec![ACTION_SET_TIERS];
-			body.extend(rows.abi_encode());
+			body.extend(rows.abi_encode_params());
 
 			let commitment = Self::dispatch_governance(target, manager, body)?;
 			Self::deposit_event(Event::TiersDispatched { target, count, commitment });
@@ -343,7 +343,7 @@ pub mod pallet {
 				amount: to_alloy_u256(amount),
 			};
 			let mut body = vec![ACTION_WITHDRAW];
-			body.extend(payload.abi_encode());
+			body.extend(payload.abi_encode_params());
 
 			let commitment = Self::dispatch_governance(target, manager, body)?;
 			Self::deposit_event(Event::WithdrawalDispatched {

@@ -16,7 +16,7 @@
 use crate::{
 	alloc::{boxed::Box, string::ToString},
 	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	Runtime, RuntimeEvent, Timestamp, TokenGatewayInspector, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
+	Runtime, RuntimeEvent, Timestamp, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -201,12 +201,6 @@ impl ismp_grandpa::Config for Runtime {
 	type RootOrigin = EnsureRoot<AccountId>;
 }
 
-impl pallet_token_governor::Config for Runtime {
-	type Dispatcher = Ismp;
-	type TreasuryAccount = TreasuryPalletId;
-	type GovernorOrigin = EnsureRoot<AccountId>;
-}
-
 impl pallet_ismp_demo::Config for Runtime {
 	type Balance = Balance;
 	type NativeCurrency = Balances;
@@ -263,10 +257,6 @@ impl frame_support::traits::Contains<AccountId> for IsCollator {
 impl pallet_fishermen::Config for Runtime {
 	type IsmpHost = Ismp;
 	type IsCollator = IsCollator;
-}
-
-impl pallet_token_gateway_inspector::Config for Runtime {
-	type GatewayOrigin = EnsureRoot<AccountId>;
 }
 
 #[cfg(not(feature = "no-bandwidth"))]
@@ -369,8 +359,6 @@ impl IsmpModule for ProxyModule {
 		}
 
 		if request.dest != HostStateMachine::get() {
-			TokenGatewayInspector::inspect_request(&request)?;
-
 			Ismp::dispatch_request(
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
@@ -441,12 +429,7 @@ impl IsmpModule for ProxyModule {
 
 	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
 		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => {
-				if post.source != HostStateMachine::get() {
-					TokenGatewayInspector::handle_timeout(post)?;
-				}
-				(&post.from, post.source.clone())
-			},
+			Timeout::Request(Request::Post(post)) => (&post.from, post.source.clone()),
 			Timeout::Request(Request::Get(get)) => (&get.from, get.source.clone()),
 			Timeout::Response(res) => (&res.source_module(), res.source_chain()),
 		};

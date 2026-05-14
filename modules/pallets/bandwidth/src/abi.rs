@@ -61,7 +61,7 @@ impl TryFrom<&[u8]> for PurchaseMessage {
 	type Error = anyhow::Error;
 
 	fn try_from(body: &[u8]) -> Result<Self, Self::Error> {
-		let abi = BandwidthPurchaseMsgAbi::abi_decode(body)
+		let abi = BandwidthPurchaseMsgAbi::abi_decode_params(body)
 			.map_err(|err| anyhow::anyhow!(format!("invalid bandwidth purchase ABI: {err:?}")))?;
 
 		let tier: u32 = abi.tier.try_into().map_err(|_| anyhow::anyhow!("tier exceeds u32"))?;
@@ -87,6 +87,6 @@ impl From<&PurchaseMessage> for Vec<u8> {
 			months: alloy_primitives::U256::from(msg.months),
 			chain: alloy_primitives::Bytes::from(msg.chain.to_string().into_bytes()),
 		};
-		BandwidthPurchaseMsgAbi::abi_encode(&abi)
+		BandwidthPurchaseMsgAbi::abi_encode_params(&abi)
 	}
 }

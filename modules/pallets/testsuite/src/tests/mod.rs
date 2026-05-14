@@ -15,6 +15,5 @@ mod pallet_consensus_incentives;
 mod pallet_hyper_fungible_token;
 mod pallet_ismp_beefy;
 mod pallet_messaging_incentives;
-mod pallet_token_gateway;
 mod pharos_state_machine;
 mod substrate_evm_state_machine;

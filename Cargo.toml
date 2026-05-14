@@ -20,12 +20,7 @@ members = [
     "modules/pallets/demo",
     "modules/pallets/testsuite",
     "modules/pallets/call-decompressor",
-    "modules/pallets/xcm-gateway",
-    "modules/pallets/token-governor",
     "modules/pallets/hyper-fungible-token",
-    "modules/pallets/token-gateway",
-    "modules/pallets/token-gateway/primitives",
-    "modules/pallets/token-gateway-inspector",
     "modules/pallets/hyperbridge",
     "modules/pallets/bandwidth",
     "modules/pallets/intents-coprocessor",
@@ -272,8 +267,6 @@ pallet-bandwidth = { path = "modules/pallets/bandwidth", default-features = fals
 
 pallet-hyper-fungible-token = { version = "2512.0.0", path = "modules/pallets/hyper-fungible-token", default-features = false }
 
-pallet-token-gateway = { version = "2512.0.0", path = "modules/pallets/token-gateway", default-features = false }
-token-gateway-primitives = { version = "2512.0.0", path = "modules/pallets/token-gateway/primitives", default-features = false }
 substrate-state-machine = { version = "2512.0.0", path = "modules/ismp/state-machines/substrate", default-features = false }
 
 # local crates
@@ -329,12 +322,9 @@ pallet-consensus-incentives = { path = "modules/pallets/consensus-incentives", d
 pallet-messaging-incentives = { path = "modules/pallets/messaging-incentives", default-features = false }
 pallet-beefy-consensus-proofs = { path = "modules/pallets/beefy-consensus-proofs", default-features = false }
 pallet-collator-manager = { path = "modules/pallets/collator-manager", default-features = false }
-pallet-xcm-gateway = { path = "modules/pallets/xcm-gateway", default-features = false }
-pallet-token-governor = { path = "modules/pallets/token-governor", default-features = false }
 pallet-state-coprocessor = { path = "modules/pallets/state-coprocessor", default-features = false }
 pallet-intents-coprocessor = { path = "modules/pallets/intents-coprocessor", default-features = false }
 pallet-intents-rpc = { path = "modules/pallets/intents-coprocessor/rpc" }
-pallet-token-gateway-inspector = { path = "modules/pallets/token-gateway-inspector", default-features = false }
 pallet-bridge-airdrop = { path = "modules/pallets/bridge-drop", default-features = false }
 ismp-beefy = { path = "modules/ismp/clients/beefy", default-features = false }
 

@@ -171,8 +171,6 @@ pub type Executive = frame_executive::Executive<
 /// All runtime migrations executed on each runtime upgrade in order.
 pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
-	pallet_token_governor::migrations::ResetTokenGatewayState<Runtime>,
-	pallet_token_gateway_inspector::migrations::ResetTokenGatewayInspectorState<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 );
 
@@ -1032,22 +1030,16 @@ mod runtime {
 	pub type CallDecompressor = pallet_call_decompressor;
 	#[runtime::pallet_index(56)]
 	pub type Assets = pallet_assets;
-	#[runtime::pallet_index(57)]
-	pub type TokenGovernor = pallet_token_governor;
 	#[runtime::pallet_index(58)]
 	pub type StateCoprocessor = pallet_state_coprocessor;
 	#[runtime::pallet_index(59)]
 	pub type Fishermen = pallet_fishermen;
-	#[runtime::pallet_index(60)]
-	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
 	#[runtime::pallet_index(61)]
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(62)]
 	pub type IsmpBsc = ismp_bsc::pallet;
 	#[runtime::pallet_index(63)]
 	pub type Hyperbridge = pallet_hyperbridge;
-	#[runtime::pallet_index(64)]
-	pub type TokenGateway = pallet_token_gateway;
 
 	// Governance
 	#[runtime::pallet_index(80)]
@@ -1129,7 +1121,6 @@ mod benches {
 		[pallet_scheduler, Scheduler]
 		[pallet_preimage, Preimage]
 		[pallet_vesting, Vesting]
-		[pallet_token_gateway, TokenGateway]
 		[pallet_tx_pause, TxPause]
 		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
 	);

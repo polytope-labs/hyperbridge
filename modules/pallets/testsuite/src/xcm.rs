@@ -2,9 +2,9 @@
 use crate::{
 	relay_chain,
 	runtime::{
-		register_offchain_ext, Assets, Balance, Balances, Ismp, MessageQueue, PalletXcm,
-		ParachainInfo, ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test,
-		Timestamp, XcmpQueue, ALICE,
+		register_offchain_ext, Balance, Balances, MessageQueue, PalletXcm, ParachainInfo,
+		ParachainSystem, RuntimeCall, RuntimeEvent, RuntimeOrigin, System, Test, Timestamp,
+		XcmpQueue, ALICE,
 	},
 };
 use codec::Decode;
@@ -18,28 +18,22 @@ use frame_support::{
 		Nothing,
 	},
 	weights::{constants::WEIGHT_REF_TIME_PER_SECOND, Weight},
-	PalletId,
 };
 use frame_system::EnsureRoot;
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use pallet_xcm::XcmPassthrough;
-use pallet_xcm_gateway::{
-	xcm_utilities::{ConvertAssetId, HyperbridgeAssetTransactor, ReserveTransferFilter},
-	AssetGatewayParams,
-};
 use polkadot_parachain_primitives::primitives::{DmpMessageHandler, Sibling};
 use polkadot_sdk::*;
 use sp_core::H256;
-use sp_runtime::{traits::Identity, AccountId32, BuildStorage, Permill};
+use sp_runtime::{AccountId32, BuildStorage};
 use staging_xcm::{latest::prelude::*, VersionedXcm};
 use staging_xcm_builder::{
-	AccountId32Aliases, AllowUnpaidExecutionFrom, ConvertedConcreteId, EnsureXcmOrigin,
-	FixedWeightBounds, NativeAsset, NoChecking, ParentIsPreset, SiblingParachainConvertsVia,
-	SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation,
+	AccountId32Aliases, AllowUnpaidExecutionFrom, EnsureXcmOrigin, FixedWeightBounds,
+	ParentIsPreset, SiblingParachainConvertsVia, SignedAccountId32AsNative, SignedToAccountId32,
+	SovereignSignedViaLocation,
 };
 use staging_xcm_executor::{traits::ConvertLocation, WeighedMessage, XcmExecutor};
-use std::sync::Arc;
 use xcm_simulator::{
 	decl_test_network, decl_test_parachain, decl_test_relay_chain, mock_message_queue, ParaId,
 	TestExt,
@@ -115,13 +109,7 @@ impl Get<AccountId32> for CheckingAccount {
 	}
 }
 
-pub type LocalAssetTransactor = HyperbridgeAssetTransactor<
-	Test,
-	ConvertedConcreteId<H256, Balance, ConvertAssetId<Test>, Identity>,
-	LocationToAccountId,
-	NoChecking,
-	CheckingAccount,
->;
+pub type LocalAssetTransactor = ();
 pub fn para_ext(para_id: u32) -> sp_io::TestExternalities {
 	let mut t = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
 
@@ -336,15 +324,11 @@ impl cumulus_pallet_parachain_system::Config for Test {
 
 use crate::runtime::BOB;
 use frame_support::traits::TransformOrigin;
-use pallet_xcm_gateway::xcm_utilities::ASSET_HUB_PARA_ID;
 use parachains_common::message_queue::ParaIdToSibling;
 use polkadot_runtime_common::xcm_sender::NoPriceForMessageDelivery;
-use polkadot_sdk::{
-	frame_support::traits::ContainsPair,
-	sp_runtime::traits::AccountIdConversion,
-	staging_xcm_builder::ExternalConsensusLocationsConverterFor,
-	xcm_simulator::Junctions::{X1, X3},
-};
+use polkadot_sdk::frame_support::traits::ContainsPair;
+
+const ASSET_HUB_PARA_ID: u32 = 1000;
 
 impl cumulus_pallet_xcmp_queue::Config for Test {
 	type RuntimeEvent = RuntimeEvent;
@@ -402,7 +386,7 @@ impl pallet_xcm::Config for Test {
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmTeleportFilter = Nothing;
-	type XcmReserveTransferFilter = ReserveTransferFilter;
+	type XcmReserveTransferFilter = Nothing;
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;
@@ -419,20 +403,6 @@ impl pallet_xcm::Config for Test {
 	type WeightInfo = pallet_xcm::TestWeightInfo;
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type AuthorizedAliasConsideration = ();
-}
-
-parameter_types! {
-	pub const AssetPalletId: PalletId = PalletId(*b"asset-tx");
-	pub const ProtocolAccount: PalletId = PalletId(*b"protocol");
-	pub const TransferParams: AssetGatewayParams = AssetGatewayParams::from_parts(Permill::from_parts(1_000)); // 0.1%
-}
-
-impl pallet_xcm_gateway::Config for Test {
-	type PalletId = AssetPalletId;
-	type Params = TransferParams;
-	type Assets = Assets;
-	type IsmpHost = Ismp;
-	type GatewayOrigin = EnsureRoot<AccountId32>;
 }
 
 impl pallet_assets::Config for Test {

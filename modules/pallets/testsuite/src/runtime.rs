@@ -99,7 +99,7 @@ frame_support::construct_runtime!(
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
 		RelayerIncentives: pallet_consensus_incentives,
-		MessagingRelayerIncentives: pallet_messaging_fees,
+		MessagingRelayerIncentives: pallet_messaging_incentives,
 		IsmpGrandpa: ismp_grandpa::pallet,
 		Session: pallet_session,
 		CollatorSelection: pallet_collator_selection,
@@ -276,7 +276,7 @@ impl pallet_ismp::Config for Test {
 	type OffchainDB = Mmr;
 	type FeeHandler = (
 		pallet_consensus_incentives::Pallet<Test>,
-		pallet_messaging_fees::Pallet<Test>,
+		pallet_messaging_incentives::Pallet<Test>,
 		pallet_ismp::fee_handler::WeightFeeHandler<
 			AccountId32,
 			Balances,
@@ -485,7 +485,7 @@ impl pallet_consensus_incentives::Config for Test {
 	type ReputationAsset = ReputationAsset;
 }
 
-impl pallet_messaging_fees::Config for Test {
+impl pallet_messaging_incentives::Config for Test {
 	type ReputationAsset = ReputationAsset;
 	type AdminOrigin = EnsureRoot<AccountId32>;
 }

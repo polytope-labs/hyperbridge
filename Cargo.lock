@@ -13083,6 +13083,7 @@ dependencies = [
  "hex-literal 0.4.1",
  "ismp",
  "ismp-arbitrum",
+ "ismp-beefy",
  "ismp-bsc",
  "ismp-grandpa",
  "ismp-optimism",
@@ -13095,6 +13096,7 @@ dependencies = [
  "log",
  "mmr-primitives",
  "pallet-bandwidth",
+ "pallet-beefy-consensus-proofs",
  "pallet-bridge-airdrop",
  "pallet-call-decompressor",
  "pallet-collator-manager",
@@ -13107,7 +13109,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-runtime-api",
- "pallet-messaging-fees",
+ "pallet-messaging-incentives",
  "pallet-mmr-runtime-api",
  "pallet-mmr-tree",
  "pallet-state-coprocessor",
@@ -14696,7 +14698,7 @@ version = "0.1.0"
 dependencies = [
  "ismp",
  "pallet-ismp",
- "pallet-messaging-fees",
+ "pallet-messaging-incentives",
  "parity-scale-codec",
  "polkadot-sdk",
  "scale-info",
@@ -15431,7 +15433,7 @@ dependencies = [
  "pallet-ismp-host-executive",
  "pallet-ismp-relayer",
  "pallet-ismp-rpc",
- "pallet-messaging-fees",
+ "pallet-messaging-incentives",
  "pallet-mmr-tree",
  "parity-scale-codec",
  "pharos-primitives",
@@ -15511,7 +15513,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-messaging-fees"
+name = "pallet-messaging-incentives"
 version = "0.1.0"
 dependencies = [
  "crypto-utils",
@@ -24132,7 +24134,7 @@ dependencies = [
  "pallet-ismp-demo",
  "pallet-ismp-host-executive",
  "pallet-ismp-rpc",
- "pallet-messaging-fees",
+ "pallet-messaging-incentives",
  "pallet-mmr-tree",
  "parity-scale-codec",
  "polkadot-sdk",

@@ -151,10 +151,13 @@ impl pallet_ismp::Config for Runtime {
 		ismp_polygon::PolygonClient<Ismp, Runtime>,
 		ismp_tendermint::TendermintClient<Ismp, Runtime>,
 		ismp_pharos::PharosClient<Ismp, Runtime, ismp_pharos::Mainnet>,
+		ismp_beefy::BeefyConsensusClient<Ismp, Runtime>,
 	);
 	type OffchainDB = Mmr;
-	type FeeHandler =
-		(pallet_consensus_incentives::Pallet<Runtime>, pallet_messaging_fees::Pallet<Runtime>);
+	type FeeHandler = (
+		pallet_consensus_incentives::Pallet<Runtime>,
+		pallet_messaging_incentives::Pallet<Runtime>,
+	);
 	type MigrationWeightInfo = crate::weights::pallet_ismp::WeightInfo<Runtime>;
 }
 
@@ -197,6 +200,16 @@ impl ismp_parachain::Config for Runtime {
 	type IsmpHost = Ismp;
 	type WeightInfo = weights::ismp_parachain::WeightInfo<Runtime>;
 	type RootOrigin = EnsureRoot<AccountId>;
+}
+
+impl ismp_beefy::BeefyClientConfig for Runtime {
+	fn is_parachain_tracked(para_id: u32) -> bool {
+		para_id == u32::from(ParachainInfo::get())
+	}
+
+	fn sp1_vkey_hash() -> Vec<u8> {
+		pallet_beefy_consensus_proofs::Sp1VkeyHash::<Runtime>::get()
+	}
 }
 
 impl pallet_consensus_incentives::Config for Runtime {

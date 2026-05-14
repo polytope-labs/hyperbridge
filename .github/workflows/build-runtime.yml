@@ -65,6 +65,9 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          # Full history so `git tag -l` and `git log <prev>..<current>` can
+          # find the previous release tag and walk commits between them.
+          fetch-depth: 0
 
       - name: Setup SSH Agent
         uses: webfactory/ssh-agent@v0.7.0
@@ -172,8 +175,27 @@ jobs:
           cp "${WASM_PATH}" "${ASSET_NAME}"
           echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
 
+          # Walk commits between this tag and the previous release tag for the
+          # same runtime, keeping only commits whose subject mentions
+          # "runtime" (case-insensitive). Tags follow the convention
+          # `<name>-v<spec>` (e.g. `nexus-v6800`, `gargantua-v6500`).
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREVIOUS_TAG=$(git tag -l "${NAME}-v*" --sort=-version:refname \
+            | grep -v "^${CURRENT_TAG}$" | head -n1)
+          if [ -z "${PREVIOUS_TAG}" ]; then
+            COMMIT_RANGE="HEAD"
+          else
+            COMMIT_RANGE="${PREVIOUS_TAG}..${CURRENT_TAG}"
+          fi
+          CHANGELOG=$(git log --pretty=format:"* %s (%h)" "${COMMIT_RANGE}" --reverse \
+            | grep -i "runtime" || true)
+
           cat > RELEASE_NOTES.md <<EOF
-          # Runtime info
+          # What's Changed
+
+          ${CHANGELOG}
+
+          ## Runtime info
           *This runtime was built with **${RUSTC_VERSION}***
 
           To replicate the build:

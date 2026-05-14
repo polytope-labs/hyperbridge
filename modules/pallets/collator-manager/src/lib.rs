@@ -21,7 +21,7 @@
 #![deny(missing_docs)]
 extern crate alloc;
 
-use pallet_messaging_fees::IncentivesManager;
+use pallet_messaging_incentives::IncentivesManager;
 use polkadot_sdk::{sp_runtime::Weight, *};
 
 pub use pallet::*;
@@ -110,7 +110,7 @@ pub mod pallet {
 		type LockId: Get<LockIdentifier>;
 
 		/// Trait implementation for resetting messaging incentives.
-		type IncentivesManager: pallet_messaging_fees::IncentivesManager;
+		type IncentivesManager: pallet_messaging_incentives::IncentivesManager;
 
 		/// Weight information for operations
 		type WeightInfo: WeightInfo;

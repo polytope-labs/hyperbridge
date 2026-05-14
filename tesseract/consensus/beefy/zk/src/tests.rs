@@ -3,12 +3,9 @@ use anyhow::anyhow;
 use codec::Decode;
 use futures::stream::StreamExt;
 use hex_literal::hex;
-use ismp_solidity_abi::{
-	ecdsa_beefy::BeefyConsensusState,
-	sp1_beefy::SP1BeefyProof,
-};
-use polkadot_sdk::*;
+use ismp_solidity_abi::{ecdsa_beefy::BeefyConsensusState, sp1_beefy::SP1BeefyProof};
 use pallet_ismp::{ConsensusDigest, ISMP_ID};
+use polkadot_sdk::*;
 use serde::Deserialize;
 use sp_consensus_beefy::{ecdsa_crypto::Signature, VersionedFinalityProof};
 use sp_runtime::{generic::Header as SubstrateHeader, traits::BlakeTwo256, DigestItem};
@@ -37,8 +34,8 @@ fn expected_commitment(header_bytes: &[u8]) -> anyhow::Result<(u64, u32, [u8; 32
 				state = Some(d.child_trie_root.0);
 			},
 			DigestItem::PreRuntime(id, value) if id == &AURA_ENGINE_ID => {
-				let slot = u64::decode(&mut &value[..])
-					.map_err(|e| anyhow!("decode AURA slot: {e}"))?;
+				let slot =
+					u64::decode(&mut &value[..]).map_err(|e| anyhow!("decode AURA slot: {e}"))?;
 				timestamp_ms = Some(slot * SLOT_DURATION_MS);
 			},
 			_ => {},

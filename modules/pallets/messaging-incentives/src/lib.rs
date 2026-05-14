@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! # pallet-messaging-fees
+//! # pallet-messaging-incentives
 //!
 //! Mints reputation tokens to the relayer that delivered each
 //! message, scaled by message size. The per-byte mint rate is set by
@@ -181,7 +181,7 @@ where
 						Ok(_) =>
 							Self::deposit_event(Event::ReputationMinted { relayer, bytes, amount }),
 						Err(err) => log::warn!(
-							target: "messaging-fees",
+							target: "messaging-incentives",
 							"reputation mint failed for {bytes}b: {err:?}",
 						),
 					}

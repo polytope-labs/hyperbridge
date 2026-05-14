@@ -52,7 +52,7 @@ nexus-runtime = { workspace = true, default-features = true}
 gargantua-runtime = { workspace = true, default-features = true}
 pallet-bridge-airdrop = { workspace = true, default-features = true}
 crypto-utils = { workspace = true, default-features = true }
-pallet-messaging-fees = { workspace = true, default-features = true}
+pallet-messaging-incentives = { workspace = true, default-features = true}
 hyperbridge-fisherman = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-fisherman = { workspace = true }

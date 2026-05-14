@@ -184,8 +184,6 @@ pub type Executive = frame_executive::Executive<
 /// All runtime migrations executed on each runtime upgrade in order.
 pub type Migrations = (
 	pallet_mmr_tree::migrations::ResetMmrTree<Runtime>,
-	pallet_token_governor::migrations::ResetTokenGatewayState<Runtime>,
-	pallet_token_gateway_inspector::migrations::ResetTokenGatewayInspectorState<Runtime>,
 	ismp_optimism::migrations::SeedDisputeGameConfigs<Runtime>,
 );
 
@@ -249,7 +247,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("gargantua"),
 	impl_name: Cow::Borrowed("gargantua"),
 	authoring_version: 1,
-	spec_version: 6_300,
+	spec_version: 6_600,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -886,16 +884,12 @@ mod runtime {
 	pub type CallDecompressor = pallet_call_decompressor;
 	#[runtime::pallet_index(58)]
 	pub type Assets = pallet_assets;
-	#[runtime::pallet_index(59)]
-	pub type TokenGovernor = pallet_token_governor;
 	#[runtime::pallet_index(60)]
 	pub type StateCoprocessor = pallet_state_coprocessor;
 	#[runtime::pallet_index(61)]
 	pub type Fishermen = pallet_fishermen;
 	#[runtime::pallet_index(65)]
 	pub type IntentsCoprocessor = pallet_intents_coprocessor;
-	#[runtime::pallet_index(62)]
-	pub type TokenGatewayInspector = pallet_token_gateway_inspector;
 	#[runtime::pallet_index(63)]
 	pub type IsmpSyncCommitteeGno = ismp_sync_committee::pallet<Instance2>;
 	#[runtime::pallet_index(64)]
@@ -918,6 +912,7 @@ mod runtime {
 	pub type IsmpTendermint = ismp_tendermint::pallet;
 	#[runtime::pallet_index(86)]
 	pub type TxPause = pallet_tx_pause;
+	#[cfg(not(feature = "no-bandwidth"))]
 	#[runtime::pallet_index(87)]
 	pub type Bandwidth = pallet_bandwidth;
 	#[runtime::pallet_index(90)]

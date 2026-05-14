@@ -22,8 +22,8 @@ Once the runtime verifies and accepts the proof, it is persisted in offchain sto
 
 The prover supports two proof strategies:
 
-- **Naive** — Includes the full 2/3+1 BEEFY ECDSA validator signatures which are verified on-chain. No special hardware required. Suitable for testnets.
-- **ZK (SP1)** — Delegates signature verification to an SP1 zero-knowledge program, producing a compact Groth16 proof. Requires a CUDA-capable GPU (e.g. RTX 4090 or newer). Used on mainnet for gas efficiency.
+- **ECDSA** — Includes the full 2/3+1 BEEFY ECDSA validator signatures which are verified on-chain. No special hardware required. Suitable for testnets.
+- **SP1** — Delegates signature verification to an SP1 zero-knowledge program, producing a compact Groth16 proof. Requires a CUDA-capable GPU (e.g. RTX 4090 or newer). Used on mainnet for gas efficiency.
 
 ## Incentives
 
@@ -39,7 +39,7 @@ The reward amount is configurable via governance through `pallet-beefy-consensus
 The process for earning rewards is deterministic and transparent:
 
 1. **The Triggering Action**: A prover monitors the relay chain for BEEFY finality and Hyperbridge for new cross-chain message dispatches.
-2. **Proof Generation**: When new work is detected, the prover generates a consensus proof (either naive or ZK) and submits it to the Hyperbridge runtime.
+2. **Proof Generation**: When new work is detected, the prover generates a consensus proof (either ECDSA or SP1) and submits it to the Hyperbridge runtime.
 3. **Verification and State Update**: The runtime verifies the proof. If it is valid and advances the proven state (either by rotating the authority set or proving new message dispatches), it is accepted.
 4. **Automated Reward Issuance**: Upon acceptance, the protocol transfers a fixed `$BRIDGE` reward from the treasury to the prover's account.
 

@@ -8,7 +8,8 @@ import "stringutils/strings.sol";
 import {EvmHost, HostParams} from "../src/core/EvmHost.sol";
 import {EcdsaBeefy} from "../src/consensus/EcdsaBeefy.sol";
 import {BaseScript} from "./BaseScript.sol";
-import "../src/core/HandlerV2.sol";
+import {HandlerV2} from "../src/core/HandlerV2.sol";
+import {BandwidthManager} from "../src/apps/BandwidthManager.sol";
 
 import {SP1Beefy} from "../src/consensus/SP1Beefy.sol";
 import {SP1Verifier} from "@sp1-contracts/v6.1.0/SP1VerifierGroth16.sol";
@@ -31,12 +32,20 @@ contract DeployScript is BaseScript {
         SP1Beefy sp1 = new SP1Beefy{salt: salt}(verifier, sp1VerificationKey);
         console.log("SP1Beefy deployed at:", address(sp1));
 
-        ConsensusRouter consensusClient =
-            new ConsensusRouter{salt: salt}(IConsensus(sp1), IConsensus(ecdsaBeefy), IConsensus(address(0)));
+        ConsensusRouter consensusClient = new ConsensusRouter{salt: salt}(
+            IConsensus(sp1),
+            IConsensus(ecdsaBeefy),
+            IConsensus(address(0))
+        );
         console.log("ConsensusRouter deployed at:", address(consensusClient));
 
         HandlerV2 handler = new HandlerV2{salt: salt}();
         console.log("HandlerV2 deployed at:", address(handler));
+
+        BandwidthManager bandwidthManager = new BandwidthManager{salt: salt}(admin);
+        bandwidthManager.setHost(HOST_ADDRESS);
+        bandwidthManager.renounceOwnership();
+        console.log("BandwidthManager deployed at:", address(bandwidthManager));
 
         // Update host params if not mainnet
         bool isMainnet = config.get("is_mainnet").toBool();
@@ -49,5 +58,12 @@ contract DeployScript is BaseScript {
             EvmHost(HOST_ADDRESS).updateHostParams(params);
             console.log("Host params updated with new consensus client and handler");
         }
+
+        vm.stopBroadcast();
+        config.set("ECDSA_BEEFY", address(ecdsaBeefy));
+        config.set("SP1_BEEFY", address(sp1));
+        config.set("CONSENSUS_ROUTER", address(consensusClient));
+        config.set("BANDWIDTH_MANAGER", address(bandwidthManager));
+        config.set("HANDLER_V2", address(handler));
     }
 }

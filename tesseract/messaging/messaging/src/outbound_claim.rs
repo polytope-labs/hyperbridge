@@ -66,7 +66,7 @@ const LOG_TARGET: &str = "messaging-outbound-claim";
 ///
 /// The payee is always the relayer's own Hyperbridge sr25519 account
 /// (`hyperbridge.signer.public()`) — the same account that already
-/// receives messaging fees, so all relayer earnings on HB land in one
+/// receives messaging incentives, so all relayer earnings on HB land in one
 /// place.
 pub async fn run(
 	hyperbridge: SubstrateClient<KeccakSubstrateChain>,

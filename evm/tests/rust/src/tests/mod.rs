@@ -1,6 +1,6 @@
 mod utils;
 
-mod beefy_v1;
+mod ecdsa_beefy;
 mod get_response;
 mod get_timeout;
 mod host_manager;

@@ -850,10 +850,10 @@ type GetResponse @entity @compositeIndexes(fields: [["commitment", "chain"]]) {
 }
 
 """
-Represents an order placed through the IntentGatewayV2 contract.
-This entity tracks cross-chain orders for V2 of the IntentGateway.
+Represents an order placed through the IntentGatewayV3 contract.
+This entity tracks cross-chain orders for V3 of the IntentGateway.
 """
-type IOrderV2 @entity {
+type IOrderV3 @entity {
 	"""
 	Unique identifier for the order (commitment)
 	"""
@@ -912,17 +912,32 @@ type IOrderV2 @entity {
 	"""
 	Metatdata about the order's progression through different statuses
 	"""
-	statusMetadata: [IOrderV2StatusMetadata]! @derivedFrom(field: "order")
+	statusMetadata: [IOrderV3StatusMetadata]! @derivedFrom(field: "order")
 
 	"""
 	Partial fill events for this order
 	"""
-	partialFills: [IOrderV2PartialFill!]! @derivedFrom(field: "order")
+	partialFills: [IOrderV3PartialFill!]! @derivedFrom(field: "order")
+
+	"""
+	Full fill events for this order (one per order — fires on the destination chain for cross-chain, or on the final partial fill for same-chain)
+	"""
+	fills: [IOrderV3Fill!]! @derivedFrom(field: "order")
+
+	"""
+	Escrow release events for this order (fires on the source chain after a successful fill)
+	"""
+	escrowReleases: [IOrderV3EscrowRelease!]! @derivedFrom(field: "order")
+
+	"""
+	Escrow refund events for this order (fires on the source chain after cancellation)
+	"""
+	escrowRefunds: [IOrderV3EscrowRefund!]! @derivedFrom(field: "order")
 
 	"""
 	Predispatch assets for this order
 	"""
-	predispatchAssets: [IOrderV2PredispatchAsset!]! @derivedFrom(field: "order")
+	predispatchAssets: [IOrderV3PredispatchAsset!]! @derivedFrom(field: "order")
 
 	"""
 	Pre dispatch calldata
@@ -932,12 +947,12 @@ type IOrderV2 @entity {
 	"""
 	Input assets for this order
 	"""
-	inputAssets: [IOrderV2InputAsset!]! @derivedFrom(field: "order")
+	inputAssets: [IOrderV3InputAsset!]! @derivedFrom(field: "order")
 
 	"""
 	Output assets for this order
 	"""
-	outputAssets: [IOrderV2OutputAsset!]! @derivedFrom(field: "order")
+	outputAssets: [IOrderV3OutputAsset!]! @derivedFrom(field: "order")
 
 	"""
 	Post dispatch calldata
@@ -971,9 +986,9 @@ type IOrderV2 @entity {
 }
 
 """
-Represents a predispatch asset in an IOrderV2
+Represents a predispatch asset in an IOrderV3
 """
-type IOrderV2PredispatchAsset @entity {
+type IOrderV3PredispatchAsset @entity {
 	"""
 	Unique identifier: {orderId}-predispatch-{index}
 	"""
@@ -982,7 +997,7 @@ type IOrderV2PredispatchAsset @entity {
 	"""
 	The order this asset belongs to
 	"""
-	order: IOrderV2!
+	order: IOrderV3!
 
 	"""
 	Token address (bytes32 format)
@@ -1001,9 +1016,9 @@ type IOrderV2PredispatchAsset @entity {
 }
 
 """
-Represents an input asset in an IOrderV2
+Represents an input asset in an IOrderV3
 """
-type IOrderV2InputAsset @entity {
+type IOrderV3InputAsset @entity {
 	"""
 	Unique identifier: {orderId}-input-{index}
 	"""
@@ -1012,7 +1027,7 @@ type IOrderV2InputAsset @entity {
 	"""
 	The order this asset belongs to
 	"""
-	order: IOrderV2!
+	order: IOrderV3!
 
 	"""
 	Token address (bytes32 format)
@@ -1031,9 +1046,9 @@ type IOrderV2InputAsset @entity {
 }
 
 """
-Represents an output asset in an IOrderV2
+Represents an output asset in an IOrderV3
 """
-type IOrderV2OutputAsset @entity {
+type IOrderV3OutputAsset @entity {
 	"""
 	Unique identifier: {orderId}-output-{index}
 	"""
@@ -1042,7 +1057,7 @@ type IOrderV2OutputAsset @entity {
 	"""
 	The order this asset belongs to
 	"""
-	order: IOrderV2!
+	order: IOrderV3!
 
 	"""
 	Token address (bytes32 format)
@@ -1066,9 +1081,9 @@ type IOrderV2OutputAsset @entity {
 }
 
 """
-Metadata about the status of an IOrderV2
+Metadata about the status of an IOrderV3
 """
-type IOrderV2StatusMetadata @entity {
+type IOrderV3StatusMetadata @entity {
 	"""
 	The ID of the status metadata
 	"""
@@ -1102,7 +1117,7 @@ type IOrderV2StatusMetadata @entity {
 	"""
 	The order that owns this status change
 	"""
-	order: IOrderV2
+	order: IOrderV3
 
 	"""
 	The filler of the order if the order has been filled
@@ -1116,9 +1131,9 @@ type IOrderV2StatusMetadata @entity {
 }
 
 """
-Represents a partial fill event for an IOrderV2. Each record corresponds to a single on-chain PartialFill emission.
+Represents a partial fill event for an IOrderV3. Each record corresponds to a single on-chain PartialFill emission.
 """
-type IOrderV2PartialFill @entity {
+type IOrderV3PartialFill @entity {
 	"""
 	Unique identifier for the partial fill event. Recommended format: {commitment}.{sequence} or {transactionHash}.{logIndex}
 	"""
@@ -1127,7 +1142,7 @@ type IOrderV2PartialFill @entity {
 	"""
 	The order this partial fill belongs to
 	"""
-	order: IOrderV2!
+	order: IOrderV3!
 
 	"""
 	The chain on which the partial fill occurred
@@ -1157,12 +1172,12 @@ type IOrderV2PartialFill @entity {
 	"""
 	Input assets released from escrow for this partial fill
 	"""
-	inputAssets: [IOrderV2PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
+	inputAssets: [IOrderV3PartialFillInputAsset!]! @derivedFrom(field: "partialFill")
 
 	"""
 	Output assets delivered in this partial fill
 	"""
-	outputAssets: [IOrderV2PartialFillOutputAsset!]! @derivedFrom(field: "partialFill")
+	outputAssets: [IOrderV3PartialFillOutputAsset!]! @derivedFrom(field: "partialFill")
 
 	"""
 	The timestamp when this record was created
@@ -1171,9 +1186,9 @@ type IOrderV2PartialFill @entity {
 }
 
 """
-Represents an input asset released from escrow in an IOrderV2 partial fill
+Represents an input asset released from escrow in an IOrderV3 partial fill
 """
-type IOrderV2PartialFillInputAsset @entity {
+type IOrderV3PartialFillInputAsset @entity {
 	"""
 	Unique identifier: {partialFillId}-input-{index}
 	"""
@@ -1182,7 +1197,7 @@ type IOrderV2PartialFillInputAsset @entity {
 	"""
 	The partial fill this input asset belongs to
 	"""
-	partialFill: IOrderV2PartialFill!
+	partialFill: IOrderV3PartialFill!
 
 	"""
 	Token address (bytes32 format)
@@ -1201,9 +1216,9 @@ type IOrderV2PartialFillInputAsset @entity {
 }
 
 """
-Represents an output asset delivered in an IOrderV2 partial fill
+Represents an output asset delivered in an IOrderV3 partial fill
 """
-type IOrderV2PartialFillOutputAsset @entity {
+type IOrderV3PartialFillOutputAsset @entity {
 	"""
 	Unique identifier: {partialFillId}-output-{index}
 	"""
@@ -1212,7 +1227,7 @@ type IOrderV2PartialFillOutputAsset @entity {
 	"""
 	The partial fill this output asset belongs to
 	"""
-	partialFill: IOrderV2PartialFill!
+	partialFill: IOrderV3PartialFill!
 
 	"""
 	Token address (bytes32 format)
@@ -1233,6 +1248,275 @@ type IOrderV2PartialFillOutputAsset @entity {
 	Beneficiary address for this output
 	"""
 	beneficiary: String! @index
+}
+
+"""
+Represents a full fill event for an IOrderV3. Each record corresponds to a single on-chain OrderFilled emission.
+For same-chain orders this marks the final fill that completes the order (preceded by zero or more PartialFill events).
+For cross-chain orders this fires on the destination chain when the solver delivers the outputs.
+"""
+type IOrderV3Fill @entity {
+	"""
+	Unique identifier for the fill event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order this fill belongs to
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the fill occurred (destination chain for cross-chain orders)
+	"""
+	chain: String! @index
+
+	"""
+	The address of the filler that executed this fill
+	"""
+	filler: String! @index
+
+	"""
+	The timestamp of the fill event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the fill occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the fill occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Input assets credited to the filler (post-fee, post-FoT escrowed amounts that will be released on the source chain)
+	"""
+	inputAssets: [IOrderV3FillInputAsset!]! @derivedFrom(field: "fill")
+
+	"""
+	Output assets delivered by the filler to the beneficiary
+	"""
+	outputAssets: [IOrderV3FillOutputAsset!]! @derivedFrom(field: "fill")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents an input asset associated with an IOrderV3 full fill (amount released or owed to the solver)
+"""
+type IOrderV3FillInputAsset @entity {
+	"""
+	Unique identifier: {fillId}-input-{index}
+	"""
+	id: ID!
+
+	"""
+	The fill this input asset belongs to
+	"""
+	fill: IOrderV3Fill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the fill input assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an output asset delivered by the solver in an IOrderV3 full fill
+"""
+type IOrderV3FillOutputAsset @entity {
+	"""
+	Unique identifier: {fillId}-output-{index}
+	"""
+	id: ID!
+
+	"""
+	The fill this output asset belongs to
+	"""
+	fill: IOrderV3Fill!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount delivered to the beneficiary
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the fill output assets array
+	"""
+	index: Int!
+}
+
+"""
+Represents an EscrowReleased event for an IOrderV3 — escrowed tokens released to the solver after a successful fill.
+Fires on the source chain (where the order was placed) once Hyperbridge confirms the destination-chain fill.
+"""
+type IOrderV3EscrowRelease @entity {
+	"""
+	Unique identifier for the release event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose escrow was released
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the release occurred (source chain)
+	"""
+	chain: String! @index
+
+	"""
+	The timestamp of the release event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the release occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the release occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Token amounts released from escrow
+	"""
+	tokens: [IOrderV3EscrowReleaseToken!]! @derivedFrom(field: "release")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a single token released from escrow as part of an IOrderV3 EscrowReleased event
+"""
+type IOrderV3EscrowReleaseToken @entity {
+	"""
+	Unique identifier: {releaseId}-token-{index}
+	"""
+	id: ID!
+
+	"""
+	The release event this token belongs to
+	"""
+	release: IOrderV3EscrowRelease!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount released from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the release tokens array
+	"""
+	index: Int!
+}
+
+"""
+Represents an EscrowRefunded event for an IOrderV3 — escrowed tokens refunded to the user after cancellation.
+Fires on the source chain.
+"""
+type IOrderV3EscrowRefund @entity {
+	"""
+	Unique identifier for the refund event. Format: {transactionHash}.{logIndex}
+	"""
+	id: ID!
+
+	"""
+	The order whose escrow was refunded
+	"""
+	order: IOrderV3!
+
+	"""
+	The chain on which the refund occurred (source chain)
+	"""
+	chain: String! @index
+
+	"""
+	The timestamp of the refund event
+	"""
+	timestamp: BigInt! @index
+
+	"""
+	The number of the block in which the refund occurred
+	"""
+	blockNumber: String! @index
+
+	"""
+	The hash of the transaction in which the refund occurred
+	"""
+	transactionHash: String! @index
+
+	"""
+	Token amounts refunded from escrow
+	"""
+	tokens: [IOrderV3EscrowRefundToken!]! @derivedFrom(field: "refund")
+
+	"""
+	The timestamp when this record was created
+	"""
+	createdAt: Date! @index
+}
+
+"""
+Represents a single token refunded from escrow as part of an IOrderV3 EscrowRefunded event
+"""
+type IOrderV3EscrowRefundToken @entity {
+	"""
+	Unique identifier: {refundId}-token-{index}
+	"""
+	id: ID!
+
+	"""
+	The refund event this token belongs to
+	"""
+	refund: IOrderV3EscrowRefund!
+
+	"""
+	Token address (bytes32 format)
+	"""
+	token: String! @index
+
+	"""
+	Token amount refunded from escrow
+	"""
+	amount: BigInt! @index
+
+	"""
+	Position index in the refund tokens array
+	"""
+	index: Int!
 }
 
 """

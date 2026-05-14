@@ -63,7 +63,8 @@ contract BandwidthManagerTest is Test {
         feeToken.grantMinterRole(address(this));
 
         host = _deployHost(address(feeToken));
-        manager = new BandwidthManager(address(host));
+        manager = new BandwidthManager(address(this));
+        manager.setHost(address(host));
 
         _setTier(manager, host, TIER1, TIER1_PRICE_18D);
     }
@@ -116,7 +117,8 @@ contract BandwidthManagerTest is Test {
     function testScalesAgainstSixDecimalStablecoin() public {
         Stable6d usd = new Stable6d("USD Coin", "USDC");
         TestHost usdHost = _deployHost(address(usd));
-        BandwidthManager usdMgr = new BandwidthManager(address(usdHost));
+        BandwidthManager usdMgr = new BandwidthManager(address(this));
+        usdMgr.setHost(address(usdHost));
         _setTier(usdMgr, usdHost, TIER1, TIER1_PRICE_18D);
 
         uint256 expected = 1_000_000;
@@ -134,7 +136,8 @@ contract BandwidthManagerTest is Test {
     function testRejectsNonRepresentablePrice() public {
         Stable6d usd = new Stable6d("USD Coin", "USDC");
         TestHost usdHost = _deployHost(address(usd));
-        BandwidthManager usdMgr = new BandwidthManager(address(usdHost));
+        BandwidthManager usdMgr = new BandwidthManager(address(this));
+        usdMgr.setHost(address(usdHost));
         _setTier(usdMgr, usdHost, 2, 1e11);
 
         vm.expectRevert(BandwidthManager.PriceNotRepresentable.selector);

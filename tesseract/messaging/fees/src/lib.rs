@@ -5,7 +5,7 @@
 #![allow(unused)]
 
 /// Log/tracing target for this crate.
-pub const LOG_TARGET: &str = "messaging-fees";
+pub const LOG_TARGET: &str = "messaging-incentives";
 use crate::db::{
 	deliveries::{Data, OrderByParam, UniqueWhereParam, WhereParam},
 	new_client_with_url,

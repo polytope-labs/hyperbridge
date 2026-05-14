@@ -40,7 +40,6 @@ use ismp::{
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
 use pallet_ismp::{offchain::Leaf, ModuleId};
-use pallet_token_governor::GatewayParams;
 use polkadot_sdk::{
 	frame_support::{
 		traits::{FindAuthor, LockIdentifier},
@@ -53,7 +52,7 @@ use polkadot_sdk::{
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	offchain::{testing::TestOffchainExt, OffchainDbExt, OffchainWorkerExt},
-	H160, H256, U256,
+	H256,
 };
 use sp_runtime::{
 	traits::{IdentityLookup, Keccak256},
@@ -93,14 +92,10 @@ frame_support::construct_runtime!(
 		MessageQueue: pallet_message_queue,
 		PalletXcm: pallet_xcm,
 		Assets: pallet_assets,
-		Gateway: pallet_xcm_gateway,
-		TokenGovernor: pallet_token_governor,
 		Sudo: pallet_sudo,
 		IsmpSyncCommittee: ismp_sync_committee::pallet,
 		IsmpBsc: ismp_bsc::pallet,
-		TokenGateway: pallet_token_gateway,
 		HyperFungibleToken: pallet_hyper_fungible_token,
-		TokenGatewayInspector: pallet_token_gateway_inspector,
 		Vesting: pallet_vesting,
 		BridgeDrop: pallet_bridge_airdrop,
 		RelayerIncentives: pallet_consensus_incentives,
@@ -305,34 +300,6 @@ parameter_types! {
 	pub const Decimals: u8 = 10;
 }
 
-pub struct NativeAssetId;
-
-impl Get<H256> for NativeAssetId {
-	fn get() -> H256 {
-		sp_io::hashing::keccak_256(b"BRIDGE").into()
-	}
-}
-
-pub struct AssetAdmin;
-
-impl Get<<Test as frame_system::Config>::AccountId> for AssetAdmin {
-	fn get() -> <Test as frame_system::Config>::AccountId {
-		TokenGateway::pallet_account()
-	}
-}
-
-impl pallet_token_gateway::Config for Test {
-	type Dispatcher = Ismp;
-	type Assets = Assets;
-	type NativeCurrency = Balances;
-	type NativeAssetId = NativeAssetId;
-	type CreateOrigin = EnsureSigned<AccountId32>;
-	type Decimals = Decimals;
-	type AssetAdmin = AssetAdmin;
-	type EvmToSubstrate = ();
-	type WeightInfo = ();
-}
-
 pub struct HftNativeAssetId;
 
 impl Get<H256> for HftNativeAssetId {
@@ -443,10 +410,6 @@ impl pallet_authorship::Config for Test {
 	type EventHandler = CollatorManager;
 }
 
-impl pallet_token_gateway_inspector::Config for Test {
-	type GatewayOrigin = EnsureRoot<AccountId32>;
-}
-
 impl ismp_sync_committee::pallet::Config for Test {
 	type AdminOrigin = EnsureRoot<AccountId32>;
 	type IsmpHost = Ismp;
@@ -481,11 +444,6 @@ impl ismp_beefy::BeefyClientConfig for Test {
 
 parameter_types! {
 	pub const TreasuryAccount: PalletId = PalletId(*b"treasury");
-}
-impl pallet_token_governor::Config for Test {
-	type Dispatcher = Ismp;
-	type TreasuryAccount = TreasuryAccount;
-	type GovernorOrigin = EnsureRoot<AccountId32>;
 }
 
 impl pallet_mmr_tree::Config for Test {
@@ -752,7 +710,6 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	pallet_balances::GenesisConfig::<Test> {
 		balances: vec![
 			(ALICE, INITIAL_BALANCE),
-			(TokenGateway::pallet_account(), INITIAL_BALANCE),
 			(HyperFungibleToken::pallet_account(), INITIAL_BALANCE),
 			(BridgeDrop::account_id(), INITIAL_BALANCE * 5000),
 		],
@@ -766,37 +723,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
 	ext.execute_with(|| {
 		System::set_block_number(1);
-		let protocol_params =
-			pallet_token_governor::Params::<Balance> { registration_fee: Default::default() };
 
-		pallet_token_governor::ProtocolParams::<Test>::put(protocol_params);
-		pallet_token_gateway::SupportedAssets::<Test>::insert(NativeAssetId::get(), H256::zero());
-		pallet_token_gateway::NativeAssets::<Test>::insert(NativeAssetId::get(), true);
-		pallet_token_gateway::LocalAssets::<Test>::insert(H256::zero(), NativeAssetId::get());
-		pallet_token_gateway::Precisions::<Test>::insert(
-			NativeAssetId::get(),
-			StateMachine::Evm(1),
-			18,
-		);
-		pallet_token_gateway::TokenGatewayAddresses::<Test>::insert(
-			StateMachine::Evm(1),
-			H160::zero().0.to_vec(),
-		);
-		pallet_token_governor::StandaloneChainAssets::<Test>::insert(
-			StateMachine::Kusama(100),
-			H256::zero(),
-			true,
-		);
-
-		let params = GatewayParams {
-			address: H160::zero(),
-			host: H160::zero(),
-			call_dispatcher: H160::random(),
-		};
-		pallet_token_governor::TokenGatewayParams::<Test>::insert(StateMachine::Evm(1), params);
-
-		// Setup HyperFungibleToken pallet storage
-		// Register the native asset with a mock EVM contract address
 		let hft_contract = vec![0xABu8; 20];
 		pallet_hyper_fungible_token::TokenContracts::<Test>::insert(
 			StateMachine::Evm(1),

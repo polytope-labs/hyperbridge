@@ -40,7 +40,6 @@ use sp_runtime::{
 };
 
 use crate::asset_hub_runtime::sp_runtime::DispatchError;
-use pallet_xcm_gateway::xcm_utilities::ASSET_HUB_PARA_ID;
 use xcm_simulator::mock_message_queue;
 pub const ALICE: AccountId32 = AccountId32::new([1; 32]);
 pub const BOB: AccountId32 = AccountId32::new([2; 32]);

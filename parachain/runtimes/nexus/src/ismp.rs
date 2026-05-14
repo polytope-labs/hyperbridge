@@ -15,9 +15,8 @@
 
 use crate::{
 	alloc::{boxed::Box, string::ToString},
-	weights, AccountId, Assets, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
-	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TokenGateway, TokenGatewayInspector,
-	TreasuryPalletId, EXISTENTIAL_DEPOSIT,
+	weights, AccountId, Balance, Balances, Ismp, IsmpParachain, Mmr, ParachainInfo,
+	ReputationAsset, Runtime, RuntimeEvent, Timestamp, TreasuryPalletId, EXISTENTIAL_DEPOSIT,
 };
 use anyhow::anyhow;
 use evm_state_machine::SubstrateEvmStateMachine;
@@ -45,7 +44,6 @@ use sp_std::prelude::*;
 #[cfg(feature = "runtime-benchmarks")]
 use staging_xcm::latest::Location;
 use substrate_state_machine::SubstrateStateMachine;
-use token_gateway_primitives::PALLET_TOKEN_GATEWAY_ID;
 
 /// Deprecated TokenGateway contract addresses whose incoming ISMP Post requests
 /// must be rejected unconditionally by the nexus runtime.
@@ -201,12 +199,6 @@ impl ismp_parachain::Config for Runtime {
 	type RootOrigin = EnsureRoot<AccountId>;
 }
 
-impl pallet_token_governor::Config for Runtime {
-	type Dispatcher = Ismp;
-	type TreasuryAccount = TreasuryPalletId;
-	type GovernorOrigin = EnsureRoot<AccountId>;
-}
-
 impl pallet_consensus_incentives::Config for Runtime {
 	type IsmpHost = Ismp;
 	type TreasuryAccount = TreasuryPalletId;
@@ -279,46 +271,12 @@ impl pallet_assets::Config for Runtime {
 	type BenchmarkHelper = XcmBenchmarkHelper;
 }
 
-impl pallet_token_gateway_inspector::Config for Runtime {
-	type GatewayOrigin = EnsureRoot<AccountId>;
-}
-
 impl pallet_hyperbridge::Config for Runtime {
 	type IsmpHost = Ismp;
 }
 
 impl pallet_bandwidth::Config for Runtime {
 	type Dispatcher = Ismp;
-}
-
-parameter_types! {
-	pub const Decimals: u8 = 10;
-}
-
-pub struct NativeAssetId;
-impl Get<H256> for NativeAssetId {
-	fn get() -> H256 {
-		sp_io::hashing::keccak_256(b"BRIDGE").into()
-	}
-}
-
-pub struct AssetAdmin;
-impl Get<AccountId> for AssetAdmin {
-	fn get() -> AccountId {
-		TokenGateway::pallet_account()
-	}
-}
-
-impl pallet_token_gateway::Config for Runtime {
-	type Dispatcher = Ismp;
-	type Assets = Assets;
-	type NativeCurrency = Balances;
-	type NativeAssetId = NativeAssetId;
-	type CreateOrigin = EnsureRoot<AccountId>;
-	type Decimals = Decimals;
-	type AssetAdmin = AssetAdmin;
-	type EvmToSubstrate = ();
-	type WeightInfo = crate::weights::pallet_token_gateway::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -364,8 +322,6 @@ impl IsmpModule for ProxyModule {
 		}
 
 		if request.dest != HostStateMachine::get() {
-			TokenGatewayInspector::inspect_request(&request)?;
-
 			Ismp::dispatch_request(
 				Request::Post(request),
 				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
@@ -377,8 +333,6 @@ impl IsmpModule for ProxyModule {
 			ModuleId::from_bytes(&request.to).map_err(|err| Error::Custom(err.to_string()))?;
 
 		match pallet_id {
-			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
-				pallet_token_gateway::Pallet::<Runtime>::default().on_accept(request),
 			id if id == ModuleId::Pallet(pallet_hyperbridge::pallet::PALLET_HYPERBRIDGE) =>
 				pallet_hyperbridge::Pallet::<Runtime>::default().on_accept(request),
 			id if id == ModuleId::Pallet(pallet_bandwidth::pallet::PALLET_BANDWIDTH) =>
@@ -432,28 +386,17 @@ impl IsmpModule for ProxyModule {
 			}
 		}
 
-		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => {
-				if post.source != HostStateMachine::get() {
-					TokenGatewayInspector::handle_timeout(post)?;
-				}
-				(&post.from, &post.source)
-			},
-			Timeout::Request(Request::Get(get)) => (&get.from, &get.source),
-			Timeout::Response(res) => (&res.source_module(), &res.source_chain()),
+		let source = match &timeout {
+			Timeout::Request(Request::Post(post)) => &post.source,
+			Timeout::Request(Request::Get(get)) => &get.source,
+			Timeout::Response(res) => &res.source_chain(),
 		};
 
 		if *source != HostStateMachine::get() {
 			return Ok(Weight::from_parts(0, 0));
 		}
 
-		let pallet_id = ModuleId::from_bytes(from).map_err(|err| Error::Custom(err.to_string()))?;
-		match pallet_id {
-			id if id == ModuleId::Evm(PALLET_TOKEN_GATEWAY_ID.into()) =>
-				pallet_token_gateway::Pallet::<Runtime>::default().on_timeout(timeout),
-			// instead of returning an error, do nothing. The timeout is for a connected chain.
-			_ => Ok(Weight::from_parts(300_000_000, 0)),
-		}
+		Ok(Weight::from_parts(300_000_000, 0))
 	}
 }
 

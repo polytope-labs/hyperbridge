@@ -37,9 +37,6 @@ use staging_xcm_builder::{
 };
 use staging_xcm_executor::XcmExecutor;
 
-/// Polkadot AssetHub parachain id, previously re-exported by
-/// `pallet_xcm_gateway::xcm_utilities`. Kept inline now that the gateway pallet
-/// has been removed from this runtime.
 const ASSET_HUB_PARA_ID: u32 = 1000;
 
 parameter_types! {
@@ -62,12 +59,8 @@ pub type LocationToAccountId = (
 	AccountId32Aliases<RelayNetwork, AccountId>,
 );
 
-/// Means for transacting assets on this chain.
-///
-/// After the removal of `pallet-xcm-gateway`, nexus no longer supports XCM asset
-/// transacting: the unit tuple's no-op `TransactAsset` impl is used here so the
-/// XCM executor configuration still compiles, but any instruction that tries to
-/// move fungibles will fail at runtime.
+/// XCM asset transacting is not supported; the no-op `()` impl satisfies the
+/// executor's type bound but fails any instruction that moves fungibles.
 pub type LocalAssetTransactor = ();
 
 /// This is the type we use to convert an (incoming) XCM origin into a local `Origin` instance,

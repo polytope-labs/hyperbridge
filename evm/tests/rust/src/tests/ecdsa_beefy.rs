@@ -17,13 +17,13 @@ use codec::{Decode, Encode};
 use futures::stream::StreamExt;
 use hex_literal::hex;
 use ismp_solidity_abi::ecdsa_beefy::{BeefyConsensusProof, BeefyConsensusState};
+use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use polkadot_sdk::*;
 use primitive_types::H256;
 use serde::Deserialize;
 use sp_consensus_beefy::{
 	ecdsa_crypto::Signature, mmr::MmrLeaf, Commitment as BeefyCommitment, VersionedFinalityProof,
 };
-use pallet_ismp::{ConsensusDigest, ISMP_ID};
 use sp_runtime::{generic::Header, traits::BlakeTwo256};
 use subxt::{
 	backend::legacy::LegacyRpcMethods,
@@ -266,7 +266,7 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 		)
 		.await?;
 
-	let mut subscription = subscription.take(5); 
+	let mut subscription = subscription.take(5);
 	while let Some(Ok(commitment_hex)) = subscription.next().await {
 		let raw = if let Some(stripped) = commitment_hex.strip_prefix("0x") {
 			hex::decode(stripped)?
@@ -324,10 +324,7 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 				// at that height. The contract derives commitment fields from the header
 				// digests (HeaderImpl.stateCommitment); stateRoot must match exactly.
 				let intermediates = &ret._1;
-				assert!(
-					!intermediates.is_empty(),
-					"verify returned no IntermediateStates",
-				);
+				assert!(!intermediates.is_empty(), "verify returned no IntermediateStates",);
 				println!("  intermediate states: {}", intermediates.len());
 				for inter in intermediates {
 					let height_u32: u32 = inter
@@ -338,16 +335,12 @@ async fn test_beefy_consensus_client() -> Result<(), anyhow::Error> {
 						.para_rpc
 						.chain_get_block_hash(Some(height_u32.into()))
 						.await?
-						.ok_or_else(|| {
-							anyhow!("no parachain block at height {}", height_u32)
-						})?;
+						.ok_or_else(|| anyhow!("no parachain block at height {}", height_u32))?;
 					let para_header = prover
 						.para_rpc
 						.chain_get_header(Some(block_hash))
 						.await?
-						.ok_or_else(|| {
-							anyhow!("no parachain header at {:?}", block_hash)
-						})?;
+						.ok_or_else(|| anyhow!("no parachain header at {:?}", block_hash))?;
 					// The contract derives the commitment from the header's ISMP consensus
 					// digest (HeaderImpl.stateCommitment in src/consensus/Types.sol):
 					//   overlayRoot = ConsensusDigest.mmr_root        (digest data [0..32])

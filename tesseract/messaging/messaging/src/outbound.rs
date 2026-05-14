@@ -361,12 +361,11 @@ async fn submit_for_dest(
 
 	// Only events relevant to this destination matter; skip the RPC-heavy
 	// translate_events_to_messages entirely when there's nothing to do.
-	// `coprocessor` is the HB router id; `dest_state_machine` is the
-	// counterparty whose batch we're building, so the filter keeps every
-	// event HB is routing to this destination.
+	// `dest_state_machine` is the counterparty whose batch we're building,
+	// so the filter keeps every event routed to this destination.
 	let mut events = events
 		.into_iter()
-		.filter(|ev| filter_events(&relayer_config, coprocessor, dest_state_machine, ev))
+		.filter(|ev| filter_events(&relayer_config, dest_state_machine, ev))
 		.collect::<Vec<_>>();
 
 	retain_incentivized_requests(&mut events, coprocessor, incentivized.as_deref());

@@ -304,9 +304,7 @@ async fn handle_update(
 
 			events
 				.into_iter()
-				.filter(|ev| {
-					filter_events(&config, coprocessor, chain_a.state_machine_id().state_id, ev)
-				})
+				.filter(|ev| filter_events(&config, chain_a.state_machine_id().state_id, ev))
 				.collect::<Vec<_>>()
 		},
 		Err(err) => {

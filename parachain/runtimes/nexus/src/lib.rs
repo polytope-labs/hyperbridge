@@ -236,7 +236,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: Cow::Borrowed("nexus"),
 	impl_name: Cow::Borrowed("nexus"),
 	authoring_version: 1,
-	spec_version: 6_800,
+	spec_version: 6_900,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -888,7 +888,7 @@ impl pallet_proxy::Config for Runtime {
 	type BlockNumberProvider = System;
 }
 
-impl pallet_messaging_fees::Config for Runtime {
+impl pallet_messaging_incentives::Config for Runtime {
 	type ReputationAsset = ReputationAsset;
 	type AdminOrigin = EnsureRoot<AccountId>;
 }
@@ -904,8 +904,44 @@ impl pallet_collator_manager::Config for Runtime {
 	type LockId = CollatorBondLockId;
 	type TreasuryAccount = TreasuryPalletId;
 	type AdminOrigin = EnsureRoot<AccountId>;
-	type IncentivesManager = MessagingFees;
+	type IncentivesManager = MessagingIncentives;
 	type WeightInfo = ();
+}
+
+parameter_types! {
+	/// `ConsensusStateId` used by `pallet-beefy-consensus-proofs`. Matches the on-chain
+	/// `BEEFY_CONSENSUS_ID` used by Polkadot mainnet consensus clients.
+	pub const BeefyConsensusStateId: ::ismp::consensus::ConsensusStateId = *b"DOT0";
+	/// Unbonding period handed to `pallet-ismp` on first `initialize_state` (21 days in
+	/// seconds), aligning with other BEEFY clients in the runtime.
+	pub const BeefyUnbondingPeriod: u64 = 21 * 24 * 60 * 60;
+	/// Maximum size in bytes of a single proof passed to `submit_proof`.
+	pub const MaxBeefyProofSize: u32 = 1_048_576;
+	/// Per-bucket ring-buffer size for `MessagingProofs` and `RotationProofs`.
+	pub const MaxStoredBeefyProofs: u32 = 512;
+	/// Maximum number of unique provers rewarded per BEEFY block (first + uncles).
+	pub const MaxBeefyUncleProvers: u32 = 5;
+}
+
+parameter_types! {
+	pub const AllowedBeefyProofTypes: &'static [u8] = &[
+		pallet_beefy_consensus_proofs::types::PROOF_TYPE_NAIVE,
+		pallet_beefy_consensus_proofs::types::PROOF_TYPE_SP1,
+	];
+}
+
+impl pallet_beefy_consensus_proofs::Config for Runtime {
+	type AdminOrigin = EnsureRoot<AccountId>;
+	type Currency = Balances;
+	type TreasuryPalletId = TreasuryPalletId;
+	type MaxProofSize = MaxBeefyProofSize;
+	type MaxStoredProofs = MaxStoredBeefyProofs;
+	type ConsensusStateId = BeefyConsensusStateId;
+	type UnbondingPeriod = BeefyUnbondingPeriod;
+	type AllowedProofTypes = AllowedBeefyProofTypes;
+	type MaxUncleProvers = MaxBeefyUncleProvers;
+	type ReputationAsset = ReputationAsset;
+	type WeightInfo = weights::pallet_beefy_consensus_proofs::WeightInfo<Runtime>;
 }
 
 #[frame_support::runtime]
@@ -1039,7 +1075,7 @@ mod runtime {
 	#[runtime::pallet_index(91)]
 	pub type ConsensusIncentives = pallet_consensus_incentives::pallet;
 	#[runtime::pallet_index(92)]
-	pub type MessagingFees = pallet_messaging_fees;
+	pub type MessagingIncentives = pallet_messaging_incentives;
 	#[runtime::pallet_index(93)]
 	pub type CollatorManager = pallet_collator_manager;
 	#[runtime::pallet_index(94)]
@@ -1048,6 +1084,8 @@ mod runtime {
 	pub type TxPause = pallet_tx_pause;
 	#[runtime::pallet_index(96)]
 	pub type Bandwidth = pallet_bandwidth;
+	#[runtime::pallet_index(97)]
+	pub type BeefyConsensusProofs = pallet_beefy_consensus_proofs;
 
 	// consensus clients
 	#[runtime::pallet_index(254)]
@@ -1093,6 +1131,7 @@ mod benches {
 		[pallet_vesting, Vesting]
 		[pallet_token_gateway, TokenGateway]
 		[pallet_tx_pause, TxPause]
+		[pallet_beefy_consensus_proofs, BeefyConsensusProofs]
 	);
 }
 

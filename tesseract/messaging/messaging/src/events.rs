@@ -392,26 +392,17 @@ pub async fn translate_events_to_messages(
 
 /// Return true for Request and Response events designated for the counterparty.
 ///
-/// Hyperbridge-originated events are additionally gated by `module_filter`
-/// so operators can scope which modules they deliver. The on-chain reward
-/// allowlist (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is
-/// applied separately by the outbound task.
-pub fn filter_events(
-	config: &RelayerConfig,
-	router_id: StateMachine,
-	counterparty: StateMachine,
-	ev: &IsmpEvent,
-) -> bool {
-	let allow_module = |module: &[u8]| {
-		config.module_filter.as_ref().is_some_and(|inner| !inner.is_empty()) &&
-			is_allowed_module(config, module)
-	};
+/// Events are gated by `module_filter` via `is_allowed_module`, so operators
+/// can scope which modules they deliver. With no `module_filter` configured,
+/// `is_allowed_module` permits every module. The on-chain reward allowlist
+/// (`pallet_ismp_relayer::OutboundRequestDeliveryReward`) is applied
+/// separately by the outbound task.
+pub fn filter_events(config: &RelayerConfig, counterparty: StateMachine, ev: &IsmpEvent) -> bool {
 	match ev {
 		IsmpEvent::PostRequest(post) =>
-			post.dest == counterparty && (post.source != router_id || allow_module(&post.from)),
+			post.dest == counterparty && is_allowed_module(config, &post.from),
 		IsmpEvent::PostResponse(resp) =>
-			resp.dest_chain() == counterparty &&
-				(resp.source_chain() != router_id || allow_module(&resp.source_module())),
+			resp.dest_chain() == counterparty && is_allowed_module(config, &resp.source_module()),
 		_ => false,
 	}
 }

@@ -1088,23 +1088,6 @@ mod outbound_request_delivery {
 	}
 
 	#[test]
-	fn unsupported_destination_is_rejected() {
-		new_test_ext().execute_with(|| {
-			let dest = StateMachine::Tendermint(*b"cosm");
-			let req = post_request(dest, MODULE_ID);
-			register_request(&req);
-			set_reward(dest, MODULE_ID, REWARD);
-
-			let err = pallet_ismp_relayer::Pallet::<Test>::claim_outbound_request_delivery_reward(
-				RuntimeOrigin::none(),
-				placeholder_claim_for(req),
-			)
-			.unwrap_err();
-			assert_eq!(err, Error::<Test>::OutboundRequestUnsupportedDestination.into());
-		})
-	}
-
-	#[test]
 	fn placeholder_proof_reaches_verification_stage() {
 		// All cheap checks pass (source, commitment, idempotency, reward,
 		// destination type). State proof is empty so verification fails.

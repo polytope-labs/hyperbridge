@@ -293,7 +293,7 @@ pub mod pallet {
 				from: PALLET_ID.to_bytes(),
 				to: token_contract,
 				timeout: params.timeout,
-				body: Message::abi_encode(&token_message),
+				body: Message::abi_encode_params(&token_message),
 			};
 
 			let metadata = FeeMetadata { payer: who.clone(), fee: params.relayer_fee.into() };

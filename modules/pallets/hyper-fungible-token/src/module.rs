@@ -56,7 +56,7 @@ where
 			.ok_or(HftError::UnknownSourceContract(source))?;
 
 		// Decode the Message
-		let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
+		let message = Message::abi_decode_params(&body).map_err(HftError::DecodeError)?;
 
 		// Convert recipient bytes to substrate AccountId
 		// If 32 bytes: use directly. If 20 bytes: left-pad with zeros.
@@ -212,7 +212,7 @@ where
 	fn on_timeout(&self, request: Timeout) -> Result<Weight, anyhow::Error> {
 		match request {
 			Timeout::Request(Request::Post(PostRequest { body, to, dest, .. })) => {
-				let message = Message::abi_decode(&body).map_err(HftError::DecodeError)?;
+				let message = Message::abi_decode_params(&body).map_err(HftError::DecodeError)?;
 
 				// Refund the original sender
 				let from_bytes = message.from.as_ref();

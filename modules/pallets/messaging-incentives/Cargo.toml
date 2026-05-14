@@ -1,5 +1,5 @@
 [package]
-name = "pallet-messaging-fees"
+name = "pallet-messaging-incentives"
 version = "0.1.0"
 description = "FRAME pallet that mints reputation tokens to relayers proportional to bytes delivered"
 authors = ["Polytope Labs <hello@polytope.technology>"]

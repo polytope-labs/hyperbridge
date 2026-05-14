@@ -1,126 +1,91 @@
-# Pallet Messaging Fees
+# Pallet Messaging Incentives
 
-This pallet implements a dual-mechanism system to manage incentives for ISMP message relayers. It acts as a **FeeHandler** for `pallet-ismp`, processing all relayed messages to distribute rewards, and account for protocol-level charges.
+Mints a reputation asset to the relayer that delivered each ISMP message, scaled
+by the byte-size of the delivered payload. It plugs into `pallet-ismp` as a
+[`FeeHandler`] and only fires on successful message execution.
+
+The pallet is deliberately minimal — no per-session accounting, no treasury
+draws, no protocol-fee bookkeeping. Hyperbridge's other incentive surfaces
+(BEEFY proof rewards, prepaid bandwidth, EVM fee tokens) live in their own
+pallets.
 
 ---
 
 ## Overview
 
-The **Messaging Fees** pallet is designed to create a balanced economic model for messaging relayers within the Hyperbridge ecosystem.  
-It ensures that relayers are compensated for their service for delivering ISMP `Request` and `Response` messages.
-
-The pallet features two primary incentive mechanisms:
-
-1. **Bridge Rewards/Incentives**  
-   Relayers are rewarded from the local treasury for delivering messages on whitelisted routes.  
-   The incentive amount is calculated based on the message size and follows a dynamic quadratic/decay curve.  
-   This mechanism can either reward relayers or charge them a fee, depending on network traffic within the current session.
-
-2. **Protocol Fees**  
-   The pallet captures fees paid by users on various source chains (both Substrate and EVM).  
-   It integrates with `pallet-ismp-relayer` to handle the accounting of these fees, allowing relayers to accumulate and eventually withdraw them from the respective source chains.
-
----
-
-## Key Concepts
-
-### Bridge Incentives (Rewards & Fees)
-
-This mechanism incentivizes relaying when network traffic is low and disincentivizes it during periods of high congestion.  
-It operates on a **session-by-session** basis.
-
-- A `TargetMessageSize` is configured for each session.
-- When a relayer processes a message on a whitelisted route, the pallet calculates a `base_reward` based on the message size and a price oracle.
-
-**Reward Scenario**  
-If `TotalBytesProcessed` in the current session is **less than** `TargetMessageSize`, the relayer receives a reward from the treasury:
-
-```latex
-Reward=BaseReward×((TargetSize−TotalBytes)/TargetSize)^2
-```
-
-**Fee Scenario**  
-If `TotalBytesProcessed` **exceeds** `TargetMessageSize`, the relayer is charged a fee equal to the `base_reward`, which is transferred to the treasury.
-
-**Reputation**  
-In both scenarios, a **reputation asset** is minted to the relayer, equal to the calculated reward or fee amount.
-
-**Session Reset**  
-`TotalBytesProcessed` is reset to zero at the beginning of each new session, restarting the incentive curve.
+1. `pallet-ismp` finishes executing a batch of messages and invokes
+   [`FeeHandler::on_executed`].
+2. This pallet reads the current `MintPerByte` rate. If it is zero, nothing
+   happens (the pallet stays installed but inactive).
+3. For each `Request`/`Response` message it:
+   - Computes `bytes = max(body_size, 32)` — the same floor `pallet-bandwidth`
+     uses, so trivial payloads can't game the mint by costing zero.
+   - Multiplies `bytes × MintPerByte` to get the mint amount.
+   - Recovers the relayer's account from the sr25519 signature on the message's
+     `signer` field.
+   - Mints that amount of `ReputationAsset` to the relayer.
+4. Consensus messages and any non-Request/Response variants are skipped.
+5. `pays_fee = Pays::No` on the dispatch info — the relayer is never charged
+   here.
 
 ---
 
-### Protocol Fees
+## Storage
 
-This mechanism allows relayers to collect fees paid by users for cross-chain interactions.
-
-- **Substrate Chains**  
-  Fees are captured via the `OnRequestProcessed` hook (from the hyperbridge client machine) and stored temporarily in the `CommitmentFees` map.
-
-- **EVM Chains**  
-  Fees are calculated based on a `per_byte_fee` defined in the `HostParams` for the destination chain.
-
-All collected fees are funneled to `pallet-ismp-relayer` for proper accounting and to enable withdrawal by the relayer.
+| Item | Type | Description |
+|------|------|-------------|
+| `MintPerByte` | `BalanceOf<T>` | Reputation units minted per delivered byte. Zero disables minting. |
 
 ---
 
-### Relayer Identification
+## Extrinsics
 
-The pallet identifies the relayer of a message by recovering their public key from the cryptographic signature attached to the ISMP `Request` or `Response`.
-
----
-
-## Interface
-
-### Dispatchable Functions
-
-- `set_supported_route(origin, state_machine)`  
-  A privileged extrinsic to whitelist a `StateMachine` (i.e., a chain) for Messaging Incentives.
+| Call | Origin | Effect |
+|------|--------|--------|
+| `set_mint_per_byte(amount)` | `AdminOrigin` | Update the per-byte mint rate. Pass `0` to disable. |
 
 ---
 
-### Storage
+## Events
 
-- **TotalBytesProcessed**  
-  A `StorageValue` that tracks the cumulative size of message bodies processed on incentivized routes within the current session.
+| Event | Description |
+|-------|-------------|
+| `MintRateUpdated { amount }` | Governance set a new per-byte mint rate. |
+| `ReputationMinted { relayer, bytes, amount }` | Reputation successfully minted to `relayer` for delivering `bytes` of payload. |
 
-- **IncentivizedRoutes**  
-  A `StorageMap` that holds the set of whitelisted state machines eligible for Messaging Incentives.
-
-- **CommitmentFees**  
-  A temporary `StorageMap` that links a request commitment hash to the protocol fees paid on a source Substrate chain.  
-  Entries are consumed when the corresponding message is processed.
-
----
-
-### Events
-
-- `RouteSupported` — Emitted when a new state machine is whitelisted.
-- `FeeRewarded` — Emitted when a relayer receives a reward from the treasury.
-- `FeePaid` — Emitted when a relayer is charged a fee that is paid to the treasury.
-- `IncentivesReset` — Emitted at the start of a new session when `TotalBytesProcessed` is reset.
+If `ReputationAsset::mint_into` fails (unusual — typically a frozen asset),
+the failure is logged at `WARN` against the `messaging-incentives` target and
+the rest of the batch continues.
 
 ---
 
-## Configuration
+## Traits implemented
 
-To integrate this pallet into a runtime, implement its `Config` trait:
+- [`pallet_ismp::fee_handler::FeeHandler`] — entry point from `pallet-ismp`'s
+  `FeeHandler` tuple.
+- [`IncentivesManager`] — re-exported here for the `pallet-collator-manager`
+  `Config` bound. The canonical impl is a no-op `reset_incentives()` because
+  this version doesn't accumulate per-session state.
+
+---
+
+## Runtime integration
 
 ```rust
-use frame_support::{parameter_types, PalletId};
-use sp_core::ConstU32;
-
-parameter_types! {
-    pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+impl pallet_messaging_incentives::Config for Runtime {
+    type ReputationAsset = ReputationAsset; // see runtime for the fungible item
+    type AdminOrigin = EnsureRoot<AccountId>;
 }
+```
 
-impl pallet_messaging_fees::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type IsmpHost = Ismp;
-    type TreasuryAccount = TreasuryPalletId;
-    type IncentivesOrigin = EnsureRoot<AccountId>;
-    type PriceOracle = YourPriceOracle;
-    type TargetMessageSize = ConstU32<4096>; // 4KB
-    type ReputationAsset = Assets;
+And wire it into `pallet_ismp`'s `FeeHandler`:
+
+```rust
+impl pallet_ismp::Config for Runtime {
+    // ...
+    type FeeHandler = (
+        // other handlers
+        pallet_messaging_incentives::Pallet<Runtime>,
+    );
 }
 ```

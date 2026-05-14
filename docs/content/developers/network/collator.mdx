@@ -32,7 +32,7 @@ The primary responsibilities for Collators on Hyperbridge are:
 
 In the Hyperbridge ecosystem, the path to becoming a Collator begins with being a successful network operator. There are three ways to build the reputation required:
 
-- **Messaging Relayers** deliver cross-chain messages between connected chains and earn `$BRIDGE` rewards through `pallet-messaging-fees`.
+- **Messaging Relayers** deliver cross-chain messages between connected chains and earn `$BRIDGE` rewards through `pallet-messaging-incentives`.
 - **Consensus Relayers** submit consensus proofs for connected chains (e.g. Ethereum, BSC) and earn `$BRIDGE` rewards through `pallet-consensus-incentives`.
 - **BEEFY Provers** generate and submit BEEFY consensus proofs that attest to the finality of Hyperbridge's own parachain state, earning `$BRIDGE` rewards through `pallet-beefy-consensus-proofs`.
 
@@ -82,7 +82,7 @@ This is the foundation of the entire system. The primary goal is to be an active
 
 **Action**: Operate one or more of the above roles using a dedicated Controller account as the signer.
 
-**Outcome**: For every `$BRIDGE` reward your Controller account receives, the corresponding pallet (`pallet-messaging-fees`, `pallet-consensus-incentives`, or `pallet-beefy-consensus-proofs`) automatically mints an equivalent amount of Reputation Asset to that same Controller account. You can check your Reputation Asset balance in the Polkadot-JS UI by going to `Developer > Chain State > Assets > Account`.
+**Outcome**: For every `$BRIDGE` reward your Controller account receives, the corresponding pallet (`pallet-messaging-incentives`, `pallet-consensus-incentives`, or `pallet-beefy-consensus-proofs`) automatically mints an equivalent amount of Reputation Asset to that same Controller account. You can check your Reputation Asset balance in the Polkadot-JS UI by going to `Developer > Chain State > Assets > Account`.
 
 <figure>
   <img src="/asset_account_balance.png" alt="Reputation Asset Account Balance   " />

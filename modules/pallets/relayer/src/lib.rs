@@ -60,7 +60,7 @@ use sp_runtime::{traits::AccountIdConversion, AccountId32, DispatchError};
 /// token in production. Reusing `pallet-ismp::Currency` rather than declaring
 /// a new `type Currency` on this pallet's `Config` avoids ambiguous
 /// associated-type errors in downstream pallets that bound on
-/// `pallet_ismp_relayer::Config` (e.g. `pallet-messaging-fees`).
+/// `pallet_ismp_relayer::Config` (e.g. `pallet-messaging-incentives`).
 pub type BalanceOf<T> = <T as pallet_ismp::Config>::Balance;
 
 /// Storage slot of `_epochs` in `HandlerV2`. `_epochs` is HandlerV2's first

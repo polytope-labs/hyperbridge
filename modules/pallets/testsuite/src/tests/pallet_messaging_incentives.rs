@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-//! Integration tests for the slim `pallet-messaging-fees`. The pallet
+//! Integration tests for the slim `pallet-messaging-incentives`. The pallet
 //! mints reputation tokens to relayers per byte delivered; the rate
 //! is set by governance and zero disables minting.
 
@@ -16,7 +16,7 @@ use ismp::{
 };
 use pallet_ismp::fee_handler::FeeHandler;
 use pallet_ismp_relayer::withdrawal::Signature;
-use pallet_messaging_fees::MintPerByte;
+use pallet_messaging_incentives::MintPerByte;
 
 use crate::{
 	runtime::{

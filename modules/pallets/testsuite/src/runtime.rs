@@ -35,7 +35,7 @@ use ismp::{
 	host::{IsmpHost, StateMachine},
 	messaging::{CreateConsensusState, Proof, StateCommitmentHeight},
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, RequestResponse, Response, Timeout},
+	router::{GetResponse, IsmpRouter, PostRequest, Request, RequestResponse},
 	Error,
 };
 use ismp_sync_committee::constants::sepolia::Sepolia;
@@ -522,11 +522,11 @@ impl IsmpModule for ErrorModule {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Err(Error::InsufficientProofHeight.into())
 	}
 }
@@ -573,11 +573,11 @@ impl IsmpModule for MockModule {
 		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 }

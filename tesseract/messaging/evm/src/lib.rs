@@ -28,7 +28,7 @@ use evm_state_machine::presets::{
 	RESPONSE_RECEIPTS_SLOT,
 };
 
-use ismp_solidity_abi::evm_host::{StateCommitment, StateMachineHeight};
+use ismp_abi::evm_host::{StateCommitment, StateMachineHeight};
 use serde::{Deserialize, Serialize};
 use sp_core::{bytes::from_hex, keccak_256, Pair, H160};
 use std::{sync::Arc, time::Duration};
@@ -433,13 +433,10 @@ impl EvmClient {
 	pub async fn events(&self, from: u64, to: u64) -> Result<Vec<Event>, anyhow::Error> {
 		use alloy::rpc::types::Filter;
 		use alloy_sol_types::SolEvent;
-		use ismp_solidity_abi::{
-			evm_host::EvmHost::{
-				GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
-				PostResponseEvent, PostResponseHandled,
-				StateMachineUpdated as EvmStateMachineUpdated,
-			},
-			EvmHostEvents,
+		use ismp::abi::EvmHostEvents;
+		use ismp_abi::evm_host::EvmHost::{
+			GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
+			StateMachineUpdated as EvmStateMachineUpdated,
 		};
 
 		let host_addr = Address::from_slice(&self.ismp_host.0);
@@ -454,17 +451,11 @@ impl EvmClient {
 				if let Ok(event) = PostRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestEvent(event.data).try_into().ok();
 				}
-				if let Ok(event) = PostResponseEvent::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseEvent(event.data).try_into().ok();
-				}
 				if let Ok(event) = GetRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestEvent(event.data).try_into().ok();
 				}
 				if let Ok(event) = PostRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestHandled(event.data).try_into().ok();
-				}
-				if let Ok(event) = PostResponseHandled::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseHandled(event.data).try_into().ok();
 				}
 				if let Ok(event) = GetRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestHandled(event.data).try_into().ok();

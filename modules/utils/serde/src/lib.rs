@@ -382,7 +382,7 @@ pub mod seq_of_u8_str_or_hex {
 #[cfg(test)]
 mod test {
 	use super::{as_string, seq_of_u8_str_or_hex};
-	use ismp::router::{GetRequest, GetResponse, PostRequest, PostResponse, StorageValue};
+	use ismp::router::{GetRequest, GetResponse, PostRequest, StorageValue};
 	use primitive_types::{H256, H512};
 	use serde::Deserialize;
 
@@ -435,30 +435,6 @@ mod test {
 		let deserialized: PostRequest = serde_json::from_str(&serialized).unwrap();
 
 		assert_eq!(post, deserialized);
-	}
-
-	#[test]
-	fn serialize_and_deserialize_post_response() {
-		let post = PostRequest {
-			source: ismp::host::StateMachine::Polkadot(100),
-			dest: ismp::host::StateMachine::Polkadot(2000),
-			nonce: 300,
-			from: H256::random().0.to_vec(),
-			to: H256::random().0.to_vec(),
-			timeout_timestamp: 0,
-			body: H512::random().0.to_vec(),
-		};
-
-		let response =
-			PostResponse { post, response: H512::random().0.to_vec(), timeout_timestamp: 30000 };
-
-		let serialized = serde_json::to_string(&response).unwrap();
-
-		println!("{serialized:?}\n");
-
-		let deserialized: PostResponse = serde_json::from_str(&serialized).unwrap();
-
-		assert_eq!(response, deserialized);
 	}
 
 	#[test]

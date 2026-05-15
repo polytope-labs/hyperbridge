@@ -291,12 +291,12 @@ fn known_relay_heights_storage_key() -> Vec<u8> {
 }
 
 /// True if any of the events represent an application-level ISMP message the
-/// counterparty would need to relay — i.e. a PostRequest, PostResponse, or
-/// GetRequest originating from self. Pure consensus/bookkeeping events
+/// counterparty would need to relay — i.e. a PostRequest or GetRequest
+/// originating from self. Pure consensus/bookkeeping events
 /// (`StateMachineUpdated`, `PostRequestHandled`, ...) don't require a new
 /// consensus proof on their own.
 fn has_relay_worthy_events(events: &[Event]) -> bool {
 	events.iter().any(|ev| {
-		matches!(ev, Event::PostRequest(_) | Event::PostResponse(_) | Event::GetRequest(_))
+		matches!(ev, Event::PostRequest(_) | Event::GetRequest(_))
 	})
 }

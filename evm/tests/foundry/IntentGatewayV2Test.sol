@@ -2874,7 +2874,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             source: host.host(),
             dest: order.destination,
             nonce: 0,
-            from: address(intentGateway),
+            from: abi.encodePacked(address(intentGateway)),
             keys: new bytes[](0),
             height: 0,
             timeoutTimestamp: 0,

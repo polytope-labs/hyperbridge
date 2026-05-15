@@ -7,7 +7,7 @@ use ismp::{
 	messaging::hash_request,
 	router::{self, Request},
 };
-use ismp_solidity_abi::handler::PostRequestTimeoutMessage;
+use ismp_abi::handler::PostRequestTimeoutMessage;
 use polkadot_sdk::*;
 use sp_trie::StorageProof;
 
@@ -39,7 +39,7 @@ fn test_post_timeout_proof() {
 	// The value should be None since it's a non-membership proof
 	assert!(result.get(&key).unwrap().is_none());
 
-	let timeout_height = ismp_solidity_abi::handler::StateMachineHeight {
+	let timeout_height = ismp_abi::handler::StateMachineHeight {
 		stateMachineId: U256::from(2000),
 		height: U256::from(10),
 	};
@@ -52,7 +52,7 @@ fn test_post_timeout_proof() {
 		U256::ZERO,
 	);
 
-	let mut sol_post: ismp_solidity_abi::evm_host::EvmHost::PostRequest = post.clone().into();
+	let mut sol_post: ismp_abi::evm_host::EvmHost::PostRequest = post.clone().into();
 
 	let message = PostRequestTimeoutMessage {
 		proof: proof.into_iter().map(Into::into).collect(),

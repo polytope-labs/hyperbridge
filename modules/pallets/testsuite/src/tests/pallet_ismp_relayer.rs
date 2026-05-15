@@ -22,13 +22,12 @@ use frame_support::crypto::ecdsa::ECDSAExt;
 use ismp::{
 	consensus::{StateCommitment, StateMachineHeight, StateMachineId},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, Proof},
+	messaging::{hash_request, Proof},
 	router::{PostRequest, Request},
 };
 use pallet_ismp::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+	child_trie::{RequestCommitments, RequestReceipts},
 	dispatcher::FeeMetadata,
-	ResponseReceipt,
 };
 use pallet_ismp_host_executive::{EvmHostParam, HostParam};
 use pallet_ismp_relayer::{
@@ -69,27 +68,6 @@ fn test_accumulate_fees() {
 			})
 			.collect::<Vec<_>>();
 
-		let responses = (0u64..10)
-			.into_iter()
-			.map(|nonce| {
-				let post = PostRequest {
-					source: StateMachine::Kusama(2001),
-					dest: StateMachine::Kusama(2000),
-					nonce,
-					from: vec![],
-					to: vec![],
-					timeout_timestamp: 0,
-					body: vec![],
-				};
-				let response = ismp::router::PostResponse {
-					post: post.clone(),
-					response: vec![0; 32],
-					timeout_timestamp: nonce,
-				};
-				(hash_request::<Ismp>(&Request::Post(post)), hash_post_response::<Ismp>(&response))
-			})
-			.collect::<Vec<_>>();
-
 		let pair = sp_core::sr25519::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
 		let public_key = pair.public().0.to_vec();
 
@@ -105,7 +83,7 @@ fn test_accumulate_fees() {
 		let mut dest_trie =
 			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
 
-		// Insert requests and responses
+		// Insert requests
 		for request in &requests {
 			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
 			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
@@ -120,20 +98,6 @@ fn test_accumulate_fees() {
 			dest_trie.insert(&request_receipt_key, &public_key.encode()).unwrap();
 		}
 
-		for (request, response) in &responses {
-			let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-			let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
-			let leaf_meta = RequestMetadata {
-				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-				fee: fee_metadata,
-				claimed: false,
-			};
-			ResponseCommitments::<Test>::insert(*response, leaf_meta.clone());
-			source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
-			let receipt = ResponseReceipt { response: *response, relayer: public_key.clone() };
-			dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
-		}
 		drop(source_trie);
 		drop(dest_trie);
 
@@ -156,19 +120,6 @@ fn test_accumulate_fees() {
 				source_trie.get(&request_commitment_key).unwrap();
 				dest_trie.get(&request_receipt_key).unwrap();
 				keys.push(Key::Request(*request));
-			}
-		}
-
-		for (index, (request, response)) in responses.iter().enumerate() {
-			if index % 2 == 0 {
-				let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-				let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-				source_trie.get(&response_commitment_key).unwrap();
-				dest_trie.get(&response_receipt_key).unwrap();
-				keys.push(Key::Response {
-					response_commitment: *response,
-					request_commitment: *request,
-				});
 			}
 		}
 
@@ -310,7 +261,7 @@ fn test_accumulate_fees() {
 				StateMachine::Kusama(2000),
 				beneficiary_address.0.to_vec()
 			),
-			U256::from(10000u128)
+			U256::from(5000u128)
 		);
 	})
 }
@@ -336,27 +287,6 @@ fn test_accumulate_fees_evm_signatures() {
 			})
 			.collect::<Vec<_>>();
 
-		let responses = (0u64..10)
-			.into_iter()
-			.map(|nonce| {
-				let post = PostRequest {
-					source: StateMachine::Kusama(2001),
-					dest: StateMachine::Kusama(2000),
-					nonce,
-					from: vec![],
-					to: vec![],
-					timeout_timestamp: 0,
-					body: vec![],
-				};
-				let response = ismp::router::PostResponse {
-					post: post.clone(),
-					response: vec![0; 32],
-					timeout_timestamp: nonce,
-				};
-				(hash_request::<Ismp>(&Request::Post(post)), hash_post_response::<Ismp>(&response))
-			})
-			.collect::<Vec<_>>();
-
 		let pair = sp_core::ecdsa::Pair::from_seed_slice(H256::random().as_bytes()).unwrap();
 		let eth_address = pair.public().to_eth_address().unwrap().to_vec();
 
@@ -372,7 +302,7 @@ fn test_accumulate_fees_evm_signatures() {
 		let mut dest_trie =
 			TrieDBMutBuilder::<LayoutV0<KeccakHasher>>::new(&mut dest_db, &mut dest_root).build();
 
-		// Insert requests and responses
+		// Insert requests
 		for request in &requests {
 			let request_commitment_key = RequestCommitments::<Test>::storage_key(*request);
 			let request_receipt_key = RequestReceipts::<Test>::storage_key(*request);
@@ -387,20 +317,6 @@ fn test_accumulate_fees_evm_signatures() {
 			dest_trie.insert(&request_receipt_key, &eth_address.encode()).unwrap();
 		}
 
-		for (request, response) in &responses {
-			let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-			let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-			let fee_metadata = FeeMetadata::<Test> { payer: [0; 32].into(), fee: 1000u128.into() };
-			let leaf_meta = RequestMetadata {
-				offchain: LeafIndexAndPos { leaf_index: 0, pos: 0 },
-				fee: fee_metadata,
-				claimed: false,
-			};
-			ResponseCommitments::<Test>::insert(*response, leaf_meta.clone());
-			source_trie.insert(&response_commitment_key, &leaf_meta.encode()).unwrap();
-			let receipt = ResponseReceipt { response: *response, relayer: eth_address.clone() };
-			dest_trie.insert(&response_receipt_key, &receipt.encode()).unwrap();
-		}
 		drop(source_trie);
 		drop(dest_trie);
 
@@ -423,19 +339,6 @@ fn test_accumulate_fees_evm_signatures() {
 				source_trie.get(&request_commitment_key).unwrap();
 				dest_trie.get(&request_receipt_key).unwrap();
 				keys.push(Key::Request(*request));
-			}
-		}
-
-		for (index, (request, response)) in responses.iter().enumerate() {
-			if index % 2 == 0 {
-				let response_commitment_key = ResponseCommitments::<Test>::storage_key(*response);
-				let response_receipt_key = ResponseReceipts::<Test>::storage_key(*request);
-				source_trie.get(&response_commitment_key).unwrap();
-				dest_trie.get(&response_receipt_key).unwrap();
-				keys.push(Key::Response {
-					response_commitment: *response,
-					request_commitment: *request,
-				});
 			}
 		}
 
@@ -577,7 +480,7 @@ fn test_accumulate_fees_evm_signatures() {
 				StateMachine::Kusama(2000),
 				beneficiary_address.0.to_vec()
 			),
-			U256::from(10000u128)
+			U256::from(5000u128)
 		);
 	})
 }

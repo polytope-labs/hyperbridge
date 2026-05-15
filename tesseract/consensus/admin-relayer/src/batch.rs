@@ -24,7 +24,7 @@ use alloy::{
 use alloy_sol_types::{sol, SolCall, SolValue};
 use anyhow::{anyhow, Context};
 use ismp::messaging::ConsensusMessage;
-use ismp_solidity_abi::{evm_host::EvmHost, handler::Handler};
+use ismp_abi::{evm_host::EvmHost, handler::handler_v2::HandlerV2};
 use primitive_types::H256;
 use tesseract_evm::EvmClient;
 
@@ -81,7 +81,7 @@ pub async fn submit_mandatory_batch(
 
 	let unfreeze = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
 	let consensus =
-		Handler::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
+		HandlerV2::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
 			.abi_encode();
 	let freeze = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 
@@ -114,7 +114,7 @@ pub async fn submit_mandatory_sequential(
 
 	let _unfreeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_NONE }.abi_encode();
 	let consensus_cd =
-		Handler::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
+		HandlerV2::handleConsensusCall { host, proof: Bytes::from(message.consensus_proof.clone()) }
 			.abi_encode();
 	let _freeze_cd = EvmHost::setFrozenStateCall { newState: FROZEN_ALL }.abi_encode();
 

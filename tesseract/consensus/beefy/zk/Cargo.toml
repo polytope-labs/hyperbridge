@@ -19,7 +19,7 @@ beefy-prover = { workspace = true }
 sp-consensus-beefy = { workspace = true }
 subxt = { workspace = true, default-features = true }
 sp-crypto-hashing = { workspace = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 polkadot-ckb-merkle-mountain-range = "0.8.1"
 hex-literal = "0.4.1"
@@ -42,7 +42,7 @@ envy = "0.4.2"
 subxt-utils = { workspace = true, default-features = true }
 hex = { version = "0.4.3", features = [] }
 beefy-prover = { workspace = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 tesseract-tron = { workspace = true }
 tesseract-evm = { workspace = true }
 tesseract-primitives = { workspace = true }

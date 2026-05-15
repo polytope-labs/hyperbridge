@@ -20,8 +20,7 @@ use crate::{
 	events::{Event, TimeoutHandled},
 	handlers::{validate_state_machine, MessageResult},
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, TimeoutMessage},
-	router::Response,
+	messaging::{hash_request, TimeoutMessage},
 };
 use alloc::vec::Vec;
 use sp_weights::Weight;
@@ -107,83 +106,6 @@ where
 						// If the request was routed we store it's receipt
 						if host.host_state_machine() != request.source_chain() && signer.is_some() {
 							host.store_request_receipt(&request, &signer.expect("Infaliible"))?;
-						}
-					}
-					Ok::<_, anyhow::Error>(res)
-				})
-				.collect::<Result<Vec<_>, _>>()?
-		},
-		TimeoutMessage::PostResponse { responses, timeout_proof } => {
-			let state_machine = validate_state_machine(host, timeout_proof.height)?;
-			let state = host.state_machine_commitment(timeout_proof.height)?;
-			for response in &responses {
-				let dest_chain = response.dest_chain();
-
-				// in order to allow proxies, the host must configure the given state machine
-				// as it's proxy and must not have a state machine client for the destination chain
-				let allow_proxy = host.is_allowed_proxy(&timeout_proof.height.id.state_id) &&
-					check_state_machine_client(dest_chain);
-
-				// check if the response is allowed to be proxied
-				if dest_chain != timeout_proof.height.id.state_id && !allow_proxy {
-					Err(Error::ResponseProxyProhibited {
-						meta: Response::Post(response.clone()).into(),
-					})?
-				}
-
-				// Ensure a commitment exists for all responses in the batch
-				let commitment = hash_post_response::<H>(response);
-				if host.response_commitment(commitment).is_err() {
-					Err(Error::UnknownResponse { meta: Response::Post(response.clone()).into() })?
-				}
-
-				if response.timeout() > state.timestamp() {
-					Err(Error::RequestTimeoutNotElapsed {
-						meta: response.into(),
-						timeout_timestamp: response.timeout(),
-						state_machine_time: state.timestamp(),
-					})?
-				}
-			}
-
-			let items = responses.iter().map(|r| Into::into(r.clone())).collect::<Vec<Response>>();
-			let keys = state_machine.receipts_state_trie_key(items.into());
-			let values = state_machine.verify_state_proof(host, keys, state, &timeout_proof)?;
-			if values.into_iter().any(|(_key, val)| val.is_some()) {
-				Err(Error::Custom("Some responses in the batch have been delivered".into()))?
-			}
-
-			let router = host.ismp_router();
-			responses
-				.into_iter()
-				.map(|response| {
-					let cb = router.module_for_id(response.source_module())?;
-					// Delete commitment to prevent rentrancy
-					let meta = host.delete_response_commitment(&response)?;
-					// If the response was routed we delete it's receipt
-					let mut signer = None;
-					if host.host_state_machine() != response.source_chain() {
-						signer =
-							host.delete_response_receipt(&Response::Post(response.clone())).ok();
-					}
-					let res = cb.on_timeout(response.clone().into()).map(|weight| {
-						total_module_weight.saturating_accrue(weight);
-						let commitment = hash_post_response::<H>(&response);
-						Event::PostResponseTimeoutHandled(TimeoutHandled {
-							commitment,
-							source: response.source_chain(),
-							dest: response.dest_chain(),
-						})
-					});
-					// If module callback failed restore commitment so it can be retried
-					if res.is_err() {
-						host.store_response_commitment(&response, meta)?;
-						if host.host_state_machine() != response.source_chain() && signer.is_some()
-						{
-							host.store_response_receipt(
-								&Response::Post(response),
-								&signer.expect("Infallible"),
-							)?;
 						}
 					}
 					Ok::<_, anyhow::Error>(res)

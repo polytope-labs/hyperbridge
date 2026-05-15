@@ -26,7 +26,7 @@ use crate::{
 	},
 	error::Error,
 	host::StateMachine,
-	router::{GetResponse, PostRequest, PostResponse, Request, RequestResponse, Response},
+	router::{GetResponse, PostRequest, Request, RequestResponse},
 };
 use alloc::{string::ToString, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
@@ -167,13 +167,6 @@ pub enum TimeoutMessage {
 		/// Non membership batch proof for these requests
 		timeout_proof: Proof,
 	},
-	/// A non memership proof for POST requests
-	PostResponse {
-		/// Request timeouts
-		responses: Vec<PostResponse>,
-		/// Non membership batch proof for these requests
-		timeout_proof: Proof,
-	},
 	/// There are no proofs for Get timeouts, we only need to
 	/// ensure that the timeout timestamp has elapsed on the host
 	Get {
@@ -188,8 +181,6 @@ impl TimeoutMessage {
 		match self {
 			TimeoutMessage::Post { requests, .. } | TimeoutMessage::Get { requests, .. } =>
 				requests.clone(),
-			TimeoutMessage::PostResponse { responses, .. } =>
-				responses.clone().into_iter().map(|res| res.request()).collect(),
 		}
 	}
 	/// Returns the associated proof
@@ -261,16 +252,8 @@ pub fn hash_request<H: Keccak256>(req: &Request) -> H256 {
 }
 
 /// Return the keccak256 of a response
-pub fn hash_response<H: Keccak256>(res: &Response) -> H256 {
-	match res {
-		Response::Post(res) => hash_post_response::<H>(res),
-		Response::Get(res) => hash_get_response::<H>(res),
-	}
-}
-
-/// Return the keccak256 of a post response
-pub fn hash_post_response<H: Keccak256>(res: &PostResponse) -> H256 {
-	H::keccak256(&res.encode())
+pub fn hash_response<H: Keccak256>(res: &GetResponse) -> H256 {
+	hash_get_response::<H>(res)
 }
 
 /// Return the keccak256 of a get response

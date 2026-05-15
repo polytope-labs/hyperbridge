@@ -15,7 +15,7 @@ use ismp::{
 		CreateConsensusState, Message, Proof, ResponseMessage, StateCommitmentHeight,
 		TimeoutMessage,
 	},
-	router::{GetRequest, PostRequest, PostResponse, Request, RequestResponse, Response},
+	router::{GetRequest, PostRequest, Request, RequestResponse, GetResponse},
 };
 use ismp_parachain::ParachainData;
 use pallet_hyperbridge::{SubstrateHostParams, VersionedHostParams};
@@ -96,16 +96,6 @@ fn timeout_message_to_value(msg: &TimeoutMessage) -> Value<()> {
 				("timeout_proof".to_string(), proof_to_value(timeout_proof)),
 			]),
 		),
-		TimeoutMessage::PostResponse { responses, timeout_proof } => Value::variant(
-			"PostResponse",
-			Composite::named(vec![
-				(
-					"responses".to_string(),
-					Value::unnamed_composite(responses.iter().map(post_response_to_value)),
-				),
-				("timeout_proof".to_string(), proof_to_value(timeout_proof)),
-			]),
-		),
 		TimeoutMessage::Get { requests } => Value::variant(
 			"Get",
 			Composite::named(vec![(
@@ -149,35 +139,22 @@ fn request_to_value(req: &Request) -> Value<()> {
 	}
 }
 
-fn response_to_value(resp: &Response) -> Value<()> {
-	match resp {
-		Response::Post(post) => Value::variant(
-			"Post",
-			Composite::named(vec![
-				("post".to_string(), post_response_to_value(post)),
-				("response".to_string(), Value::from_bytes(post.response.clone())),
-				("timeout_timestamp".to_string(), Value::u128(post.timeout_timestamp.into())),
-			]),
+fn response_to_value(resp: &GetResponse) -> Value<()> {
+	Value::named_composite(vec![
+		("get".to_string(), get_request_to_value(&resp.get)),
+		(
+			"values".to_string(),
+			Value::unnamed_composite(resp.values.iter().map(|v| {
+				Value::named_composite(vec![
+					("key".to_string(), Value::from_bytes(v.key.clone())),
+					(
+						"value".to_string(),
+						Value::from_bytes(v.value.clone().unwrap_or_default()),
+					),
+				])
+			})),
 		),
-		Response::Get(get) => Value::variant(
-			"Get",
-			Composite::named(vec![
-				("get".to_string(), get_request_to_value(&get.get)),
-				(
-					"values".to_string(),
-					Value::unnamed_composite(get.values.iter().map(|v| {
-						Value::named_composite(vec![
-							("key".to_string(), Value::from_bytes(v.key.clone())),
-							(
-								"value".to_string(),
-								Value::from_bytes(v.value.clone().unwrap_or_default()),
-							),
-						])
-					})),
-				),
-			]),
-		),
-	}
+	])
 }
 
 fn post_request_to_value(post: &PostRequest) -> Value<()> {
@@ -205,14 +182,6 @@ fn get_request_to_value(get: &GetRequest) -> Value<()> {
 		("height".to_string(), Value::u128(get.height.into())),
 		("context".to_string(), Value::from_bytes(get.context.clone())),
 		("timeout_timestamp".to_string(), Value::u128(get.timeout_timestamp.into())),
-	])
-}
-
-fn post_response_to_value(post: &PostResponse) -> Value<()> {
-	Value::named_composite(vec![
-		("post".to_string(), post_request_to_value(&post.post)),
-		("response".to_string(), Value::from_bytes(post.response.clone())),
-		("timeout_timestamp".to_string(), Value::u128(post.timeout_timestamp.into())),
 	])
 }
 

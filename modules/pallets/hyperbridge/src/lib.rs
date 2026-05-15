@@ -66,7 +66,7 @@ use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	host::StateMachine,
 	module::IsmpModule,
-	router::{PostRequest, PostResponse, Response, Timeout},
+	router::{GetResponse, PostRequest, Request},
 };
 pub use pallet::*;
 use pallet_ismp::RELAYER_FEE_ACCOUNT;
@@ -229,45 +229,6 @@ where
 		Ok(commitment)
 	}
 
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
-		fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, anyhow::Error> {
-		// collect protocol fees
-		let VersionedHostParams::V1(params) = Self::host_params();
-		let per_byte_fee: u128 = (*params
-			.per_byte_fees
-			.get(&response.dest_chain())
-			.unwrap_or(&params.default_per_byte_fee))
-		.into();
-		// minimum fee is 32 bytes
-		let fees = if response.response.len() < 32 {
-			per_byte_fee * 32u128
-		} else {
-			per_byte_fee * response.response.len() as u128
-		};
-
-		if fees != 0 {
-			T::Currency::transfer(
-				&fee.payer,
-				&RELAYER_FEE_ACCOUNT.into_account_truncating(),
-				fees.into(),
-				Preservation::Expendable,
-			)
-			.map_err(|err| {
-				ismp::Error::Custom(format!("Error withdrawing request fees: {err:?}"))
-			})?;
-		}
-
-		let host = <T as Config>::IsmpHost::default();
-		let commitment = host.dispatch_response(response, fee)?;
-
-		// commit the collected to child-trie
-		child_trie::ResponsePayments::insert(commitment, fees);
-
-		Ok(commitment)
-	}
 }
 
 /// A request to withdraw some funds. Could either be for protocol revenue or relayer fees.
@@ -334,12 +295,12 @@ where
 		Ok(weight)
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		// this module does not expect responses
 		Err(ismp::Error::CannotHandleMessage.into())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		// this module does not dispatch requests
 		Err(ismp::Error::CannotHandleMessage.into())
 	}

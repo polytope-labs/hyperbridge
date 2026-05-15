@@ -15,7 +15,7 @@
 pragma solidity ^0.8.17;
 
 import {Bytes} from "@polytope-labs/solidity-merkle-trees/src/trie/Bytes.sol";
-import {PostRequest, PostResponse, GetRequest, GetResponse} from "@hyperbridge/core/libraries/Message.sol";
+import {PostRequest, GetRequest, GetResponse} from "@hyperbridge/core/libraries/Message.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {IHost} from "@hyperbridge/core/interfaces/IHost.sol";
 import {IncomingPostRequest, IApp} from "@hyperbridge/core/interfaces/IApp.sol";

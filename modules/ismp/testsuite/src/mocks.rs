@@ -17,11 +17,10 @@ use ismp::{
 	dispatcher::{DispatchRequest, FeeMetadata, IsmpDispatcher},
 	error::Error,
 	host::{IsmpHost, StateMachine},
-	messaging::{hash_post_response, hash_request, hash_response, Keccak256, Proof},
+	messaging::{hash_request, hash_response, Keccak256, Proof},
 	module::IsmpModule,
 	router::{
-		GetRequest, IsmpRouter, PostRequest, PostResponse, Request, RequestResponse, Response,
-		Timeout,
+		GetRequest, GetResponse, IsmpRouter, PostRequest, Request, RequestResponse,
 	},
 };
 
@@ -247,7 +246,7 @@ impl IsmpHost for Host {
 		self.receipts.borrow().get(&hash).map(|_| ())
 	}
 
-	fn response_receipt(&self, res: &Response) -> Option<()> {
+	fn response_receipt(&self, res: &GetResponse) -> Option<()> {
 		let hash = hash_request::<Self>(&res.request());
 		self.receipts.borrow().get(&hash).map(|_| ())
 	}
@@ -327,19 +326,13 @@ impl IsmpHost for Host {
 		Ok(val.encode())
 	}
 
-	fn delete_response_commitment(&self, res: &PostResponse) -> Result<Vec<u8>, Error> {
-		let hash = hash_post_response::<Self>(res);
-		let val = self.responses.borrow_mut().remove(&hash);
-		Ok(val.encode())
-	}
-
 	fn delete_request_receipt(&self, req: &Request) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(req);
 		let val = self.receipts.borrow_mut().remove(&hash);
 		Ok(val.encode())
 	}
 
-	fn delete_response_receipt(&self, res: &Response) -> Result<Vec<u8>, Error> {
+	fn delete_response_receipt(&self, res: &GetResponse) -> Result<Vec<u8>, Error> {
 		let hash = hash_request::<Self>(&res.request());
 		let val = self.receipts.borrow_mut().remove(&hash);
 		Ok(val.encode())
@@ -351,7 +344,7 @@ impl IsmpHost for Host {
 		Ok(vec![])
 	}
 
-	fn store_response_receipt(&self, res: &Response, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
+	fn store_response_receipt(&self, res: &GetResponse, _signer: &Vec<u8>) -> Result<Vec<u8>, Error> {
 		let hash = hash_response::<Self>(res);
 		self.receipts.borrow_mut().insert(hash, ());
 		Ok(vec![])
@@ -360,12 +353,6 @@ impl IsmpHost for Host {
 	fn store_request_commitment(&self, req: &Request, _meta: Vec<u8>) -> Result<(), Error> {
 		let hash = hash_request::<Self>(req);
 		self.requests.borrow_mut().insert(hash);
-		Ok(())
-	}
-
-	fn store_response_commitment(&self, res: &PostResponse, _meta: Vec<u8>) -> Result<(), Error> {
-		let hash = hash_request::<Self>(&Request::Post(res.post.clone()));
-		self.responses.borrow_mut().insert(hash);
 		Ok(())
 	}
 
@@ -419,11 +406,11 @@ impl IsmpModule for MockModule {
 		Ok(weight())
 	}
 
-	fn on_response(&self, _response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, _response: GetResponse) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, _request: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, _request: Request) -> Result<Weight, anyhow::Error> {
 		Ok(weight())
 	}
 }
@@ -491,20 +478,6 @@ impl IsmpDispatcher for Host {
 		Ok(hash)
 	}
 
-	fn dispatch_response(
-		&self,
-		response: PostResponse,
-		_fee: FeeMetadata<Self::Account, Self::Balance>,
-	) -> Result<H256, anyhow::Error> {
-		let host = self.clone();
-		let response = Response::Post(response);
-		let hash = hash_response::<Host>(&response);
-		if host.responses.borrow().contains(&hash) {
-			return Err(Error::Custom("Duplicate response".to_string()).into());
-		}
-		host.responses.borrow_mut().insert(hash);
-		Ok(hash)
-	}
 }
 
 pub struct Keccak256Hasher;

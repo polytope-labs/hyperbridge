@@ -29,7 +29,7 @@ use ismp::{
 	error::Error as IsmpError,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{PostRequest, Request, Response, Timeout},
+	router::{PostRequest, Request, GetResponse},
 };
 pub use pallet::*;
 use pallet_ismp::ModuleId;
@@ -400,22 +400,17 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 		Ok(weight())
 	}
 
-	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
-		match response {
-			Response::Post(_) => Err(IsmpError::Custom(
-				"Balance transfer protocol does not accept post responses".to_string(),
-			))?,
-			Response::Get(res) => Pallet::<T>::deposit_event(Event::<T>::GetResponse(
-				res.values.into_iter().map(|storage_value| storage_value.value).collect(),
-			)),
-		};
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
+		Pallet::<T>::deposit_event(Event::<T>::GetResponse(
+			response.values.into_iter().map(|storage_value| storage_value.value).collect(),
+		));
 
 		Ok(weight())
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		let request = match timeout {
-			Timeout::Request(Request::Post(post)) => Request::Post(post),
+			Request::Post(post) => Request::Post(post),
 			_ => Err(IsmpError::Custom("Only Post requests allowed, found Get".to_string()))?,
 		};
 		let source_chain = request.source_chain();

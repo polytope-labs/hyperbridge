@@ -337,7 +337,6 @@ async fn handle_update(
 		.iter()
 		.chunk_by(|event| match event {
 			ismp::events::Event::PostRequest(req) => req.dest,
-			ismp::events::Event::PostResponse(res) => res.dest_chain(),
 			event => {
 				unreachable!("Only application messages filtered; qed. Unexpected event: {event:?}")
 			},

@@ -25,7 +25,6 @@ import "../../src/core/EvmHost.sol";
 import "@hyperbridge/core/libraries/Message.sol";
 
 contract EvmHostForkTest is MainnetForkBaseTest {
-    using Message for PostResponse;
     using Message for PostRequest;
     using Message for GetRequest;
 
@@ -50,39 +49,6 @@ contract EvmHostForkTest is MainnetForkBaseTest {
             })
         );
         assert(host.requestCommitments(commitment).sender == whaleAccount);
-    }
-
-    function testCanDispatchPostResponseWithNative() public {
-        // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee(host.host());
-
-        PostRequest memory request = PostRequest({
-            source: host.hyperbridge(),
-            dest: host.host(),
-            nonce: 0,
-            from: new bytes(0),
-            to: abi.encodePacked(address(manager)),
-            timeoutTimestamp: 0,
-            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
-        });
-
-        vm.prank(address(handler));
-        host.dispatchIncoming(request, address(this));
-        assert(host.requestReceipts(request.hash()) == address(this));
-
-        // dispatch response
-        uint256 cost = quote(messagingFee);
-        bytes memory response = abi.encode(bytes32(0));
-
-        vm.prank(whaleAccount); // send some eth to the manager
-        (bool ok,) = address(manager).call{value: cost}("");
-        if (!ok) revert("Transfer failed");
-
-        vm.prank(address(manager));
-        bytes32 commitment = host.dispatch{value: cost}(
-            DispatchPostResponse({request: request, response: response, fee: 0, timeout: 0, payer: address(manager)})
-        );
-        assert(host.responseCommitments(commitment).sender == address(manager));
     }
 
     function testCanDispatchGetRequestWithNative() public {
@@ -138,52 +104,6 @@ contract EvmHostForkTest is MainnetForkBaseTest {
         vm.expectRevert(EvmHost.UnknownRequest.selector);
         vm.prank(whaleAccount);
         host.fundRequest{value: cost}(keccak256(hex"dead"), 10 * 1e18);
-    }
-
-    function testCanDispatchFundResponseWithNative() public {
-        // per-byte fee
-        uint256 messagingFee = 32 * host.perByteFee(StateMachine.evm(97));
-
-        PostRequest memory request = PostRequest({
-            source: host.hyperbridge(),
-            dest: host.host(),
-            nonce: 0,
-            from: new bytes(0),
-            to: abi.encodePacked(address(manager)),
-            timeoutTimestamp: 0,
-            body: bytes.concat(hex"01", abi.encode(host.hostParams()))
-        });
-
-        vm.prank(address(handler));
-        host.dispatchIncoming(request, address(this));
-        assert(host.requestReceipts(request.hash()) == address(this));
-
-        // dispatch response
-        uint256 cost = quote(messagingFee);
-        bytes memory response = abi.encode(bytes32(0));
-
-        vm.prank(whaleAccount); // send some eth to the manager
-        (bool ok,) = address(manager).call{value: cost}("");
-        if (!ok) revert("Transfer failed");
-
-        vm.prank(address(manager));
-        bytes32 commitment = host.dispatch{value: cost}(
-            DispatchPostResponse({request: request, response: response, fee: 0, timeout: 0, payer: address(manager)})
-        );
-        assert(host.responseCommitments(commitment).sender == address(manager));
-        assert(host.responseCommitments(commitment).fee == 0);
-
-        // fund request
-        vm.prank(whaleAccount);
-        uint256 newfee = 10 * 1e18;
-        host.fundResponse{value: quote(newfee)}(commitment, newfee);
-        assert(host.responseCommitments(commitment).fee == newfee);
-
-        // can't fund unknown requests
-        uint256 newCost = quote(newfee);
-        vm.expectRevert(EvmHost.UnknownResponse.selector);
-        vm.prank(whaleAccount);
-        host.fundResponse{value: newCost}(keccak256(hex"dead"), 10 * 1e18);
     }
 
     /*function testCanWithdrawNativeToken() public {

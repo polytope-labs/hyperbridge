@@ -37,7 +37,7 @@ pallet-intents-coprocessor = { workspace = true, default-features = true }
 ismp-parachain = { workspace = true, default-features = true }
 beefy-prover = { workspace = true }
 beefy-verifier-primitives = { workspace = true, default-features = true }
-ismp-solidity-abi = { workspace = true, default-features = true }
+ismp-abi = { workspace = true, default-features = true }
 alloy-sol-types = { workspace = true, default-features = true }
 merkle-mountain-range = { workspace = true }
 jsonrpsee-core = { workspace = true, features = ["client"] }

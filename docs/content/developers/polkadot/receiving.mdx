@@ -118,7 +118,6 @@ impl<T> IsmpModule for Pallet<T> {
 	fn on_accept(&self, request: Post) -> Result<(), ismp::Error> {
         // Here you would perform validations on the post request data
         // Ensure it can be executed successfully before making any state changes
-        // You can also dispatch a post response after execution
         Self::deposit_event(Event::<T>::MessageReceived);
 		Ok(())
 	}

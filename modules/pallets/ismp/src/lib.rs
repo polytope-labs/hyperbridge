@@ -780,14 +780,10 @@ pub mod pallet {
 		},
 		/// Post Request Handled
 		PostRequestHandled(RequestResponseHandled),
-		/// Post Response Handled
-		PostResponseHandled(RequestResponseHandled),
 		/// Get Response Handled
 		GetRequestHandled(RequestResponseHandled),
 		/// Post request timeout handled
 		PostRequestTimeoutHandled(TimeoutHandled),
-		/// Post response timeout handled
-		PostResponseTimeoutHandled(TimeoutHandled),
 		/// Get request timeout handled
 		GetRequestTimeoutHandled(TimeoutHandled),
 	}

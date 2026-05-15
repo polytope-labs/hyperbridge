@@ -21,7 +21,7 @@ use ismp::{
 	events::{Event, StateCommitmentVetoed},
 	messaging::{Message, StateCommitmentHeight},
 };
-use ismp_solidity_abi::evm_host::{PostRequestHandled, PostResponseHandled};
+use ismp_abi::evm_host::PostRequestHandled;
 use pallet_ismp_host_executive::{EvmHostParam, HostParam, PerByteFee};
 
 use crate::{
@@ -43,7 +43,7 @@ use tesseract_primitives::{
 	StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
 };
 
-use ismp_solidity_abi::ecdsa_beefy::BeefyConsensusState;
+use ismp_abi::ecdsa_beefy::BeefyConsensusState;
 
 #[async_trait::async_trait]
 impl IsmpProvider for EvmClient {
@@ -446,16 +446,9 @@ impl IsmpProvider for EvmClient {
 		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
 	}
 
-	async fn query_response_fee_metadata(&self, hash: H256) -> Result<U256, Error> {
-		let host_addr = Address::from_slice(&self.ismp_host.0);
-		let host_contract = EvmHostInstance::new(host_addr, self.signer.clone());
-		let fee_metadata = host_contract
-			.responseCommitments(B256::from_slice(&hash.0))
-			.block(BlockId::latest())
-			.call()
-			.await?;
-		// erc20 tokens are formatted in 18 decimals
-		return Ok(alloy_u256_to_primitive(fee_metadata.fee));
+	async fn query_response_fee_metadata(&self, _hash: H256) -> Result<U256, Error> {
+		// PostResponse has been removed from the protocol, no response commitments exist
+		Ok(U256::zero())
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -769,7 +762,7 @@ impl IsmpProvider for EvmClient {
 	async fn veto_state_commitment(&self, _height: StateMachineHeight) -> Result<(), Error> {
 		// let contract = EvmHost::new(self.ismp_host, self.client.clone());
 		// if let Some(_) = contract
-		// 	.veto_state_commitment(ismp_solidity_abi::ecdsa_beefy::StateMachineHeight {
+		// 	.veto_state_commitment(ismp_abi::ecdsa_beefy::StateMachineHeight {
 		// 		state_machine_id: match height.id.state_id {
 		// 			StateMachine::Kusama(id) | StateMachine::Polkadot(id) => id.into(),
 		// 			_ => Err(anyhow!("Unexpected State machine"))?,
@@ -851,7 +844,6 @@ impl IsmpProvider for EvmClient {
 
 pub enum CheckTraceForEventParams {
 	Request,
-	Response,
 }
 
 pub fn check_trace_for_event(
@@ -868,17 +860,17 @@ pub fn check_trace_for_event(
 /// frame emits the target event. The pre-batchCall version of this check
 /// only looked at the last direct inner call — that worked when the handler
 /// function was the top-level call and the host emitted its
-/// `PostRequestHandled` / `PostResponseHandled` log one level down. With
+/// `PostRequestHandled` log one level down. With
 /// `IHandlerV2.batchCall([consensus, msg])` the structure is:
 ///
 /// ```text
 /// batchCall (handler_addr)
 /// ├── delegatecall — handleConsensus
 /// │    └── call — host.handleConsensus (consensus logs)
-/// └── delegatecall — handlePost{Requests,Responses}
+/// └── delegatecall — handlePostRequests
 ///      └── call — host.dispatchPost…
 ///          └── call — module.onAccept
-///              └── log: PostRequest/ResponseHandled (from host)
+///              └── log: PostRequestHandled (from host)
 /// ```
 ///
 /// The event log can land in any frame depending on where the host emitted
@@ -903,8 +895,6 @@ fn any_frame_has_event(
 			alloy::primitives::Log { address: log.address.unwrap_or_default(), data: log_data };
 		let matched = match event_in {
 			CheckTraceForEventParams::Request => PostRequestHandled::decode_log(&prim_log).is_ok(),
-			CheckTraceForEventParams::Response =>
-				PostResponseHandled::decode_log(&prim_log).is_ok(),
 		};
 		if matched {
 			return true;
@@ -923,13 +913,13 @@ fn any_frame_has_event(
 /// Shared body of gas estimation for a pre-built `Vec<TransactionRequest>`
 /// + the matching `Vec<Message>`. Splits into `tracing_batch_size` chunks,
 /// fires `debug_traceCall` per entry, walks each trace to confirm the
-/// `PostRequest/PostResponseHandled` event is emitted, and computes the
+/// `PostRequestHandled` event is emitted, and computes the
 /// actual gas used (+ L2 calldata-fee padding).
 ///
 /// Called from both [`IsmpProvider::estimate_gas`] (one tx per message) and
 /// [`IsmpProvider::estimate_gas_batched`] (one `batchCall([prelude, msg])`
 /// tx per message). In the batched case the trace still surfaces the inner
-/// `PostRequest/PostResponseHandled` event emitted by the handler's
+/// `PostRequestHandled` event emitted by the handler's
 /// delegate-call, so the same success-check works for both shapes.
 async fn estimate_gas_for_tx_requests(
 	client_outer: &EvmClient,
@@ -1016,16 +1006,10 @@ async fn estimate_gas_for_tx_requests(
 									}
 								},
 								Message::Response(_) => {
-									successful_execution = check_trace_for_event(
-										&call_frame,
-										CheckTraceForEventParams::Response,
+									log::trace!(
+										target: crate::LOG_TARGET, "debug_traceCall response message on {:?}",
+										client.state_machine
 									);
-									if !successful_execution {
-										log::trace!(
-											target: crate::LOG_TARGET, "debug_traceCall response message failed on {:?}",
-											client.state_machine
-										);
-									}
 								},
 								_ => unreachable!("Only request/responses are estimated"),
 							};

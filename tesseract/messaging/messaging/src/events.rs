@@ -7,8 +7,8 @@ use ismp::{
 		Event as IsmpEvent, Meta, RequestResponseHandled, StateMachineUpdated, TimeoutHandled,
 	},
 	host::StateMachine,
-	messaging::{hash_request, hash_response, Message, Proof, RequestMessage, ResponseMessage},
-	router::{PostRequest, Request, RequestResponse, Response},
+	messaging::{hash_request, Message, Proof, RequestMessage},
+	router::{PostRequest, Request},
 };
 use sp_core::{H160, U256};
 use std::{collections::HashMap, sync::Arc};
@@ -22,20 +22,14 @@ pub enum Event {
 	StateMachineUpdated(StateMachineUpdated),
 	/// An event that is emitted when a post request is dispatched
 	PostRequest(Meta),
-	/// An event that is emitted when a post response is dispatched
-	PostResponse(Meta),
 	/// An event that is emitted when a get request is dispatched
 	GetRequest(Meta),
 	/// An event that is emitted when a get response is dispatched
 	GetResponse(Meta),
 	/// Post request handled
 	PostRequestHandled(RequestResponseHandled),
-	/// Emitted when a post response is handled
-	PostResponseHandled(RequestResponseHandled),
 	/// Emitted when a post request timeout is handled
 	PostRequestTimeoutHandled(TimeoutHandled),
-	/// Emitted when a post response timeout is handled
-	PostResponseTimeoutHandled(TimeoutHandled),
 	/// Emitted when a get request is handled
 	GetRequestHandled(RequestResponseHandled),
 	/// Emitted when a get request timeout is handled
@@ -50,11 +44,6 @@ impl From<IsmpEvent> for Event {
 			IsmpEvent::StateMachineUpdated(e) => Event::StateMachineUpdated(e),
 			IsmpEvent::PostRequest(e) =>
 				Event::PostRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
-			IsmpEvent::PostResponse(e) => Event::PostResponse(Meta {
-				nonce: e.post.nonce,
-				dest: e.post.dest,
-				source: e.post.source,
-			}),
 			IsmpEvent::GetRequest(e) =>
 				Event::GetRequest(Meta { nonce: e.nonce, dest: e.dest, source: e.source }),
 			IsmpEvent::GetResponse(e) => Event::GetResponse(Meta {
@@ -63,11 +52,8 @@ impl From<IsmpEvent> for Event {
 				source: e.get.source,
 			}),
 			IsmpEvent::PostRequestHandled(ev) => Event::PostRequestHandled(ev),
-			IsmpEvent::PostResponseHandled(handled) => Event::PostResponseHandled(handled),
 			IsmpEvent::PostRequestTimeoutHandled(handled) =>
 				Event::PostRequestTimeoutHandled(handled),
-			IsmpEvent::PostResponseTimeoutHandled(handled) =>
-				Event::PostResponseTimeoutHandled(handled),
 			IsmpEvent::GetRequestHandled(handled) => Event::GetRequestHandled(handled),
 			IsmpEvent::GetRequestTimeoutHandled(handled) =>
 				Event::GetRequestTimeoutHandled(handled),
@@ -102,13 +88,10 @@ pub async fn translate_events_to_messages(
 	consensus_prelude: Option<Message>,
 ) -> Result<(Vec<Message>, Vec<Message>), anyhow::Error> {
 	let mut post_request_queries = vec![];
-	let mut response_queries = vec![];
 
 	let mut post_requests = vec![];
-	let mut post_responses = vec![];
 
 	let mut request_messages = vec![];
-	let mut response_messages = vec![];
 
 	let counterparty_timestamp = sink.query_timestamp().await?;
 
@@ -170,53 +153,6 @@ pub async fn translate_events_to_messages(
 							};
 							Ok(Some((Message::Request(_msg), query)))
 						},
-						IsmpEvent::PostResponse(post_response) => {
-							// Skip timed out responses
-							if post_response.timeout_timestamp != 0 &&
-								post_response.timeout_timestamp <=
-									counterparty_timestamp.as_secs()
-							{
-								tracing::trace!(
-									target: crate::LOG_TARGET, "Found timed out request, request: {}, counterparty: {}",
-									post_response.timeout_timestamp,
-									counterparty_timestamp.as_secs()
-								);
-								return Ok(None);
-							}
-
-							if !is_allowed_module(&config, &post_response.source_module()) {
-								tracing::trace!(
-									target: crate::LOG_TARGET, "Request from module {}, filtered by module filter",
-									hex::encode(&post_response.source_module()),
-								);
-								return Ok(None);
-							}
-
-							let resp = Response::Post(post_response.clone());
-							let hash = hash_response::<Hasher>(&resp);
-
-							let query = Query {
-								source_chain: resp.source_chain(),
-								dest_chain: resp.dest_chain(),
-								nonce: resp.nonce(),
-								commitment: hash,
-							};
-
-							let proof = source
-								.query_responses_proof(
-									state_machine_height.height,
-									vec![query],
-									sink.state_machine_id().state_id,
-								)
-								.await?;
-
-							let _msg = ResponseMessage {
-								datagram: RequestResponse::Response(vec![resp.clone()]),
-								proof: Proof { height: state_machine_height, proof },
-								signer: sink.address(),
-							};
-							Ok(Some((Message::Response(_msg), query)))
-						},
 						_ => Ok(None),
 					}
 				}
@@ -238,18 +174,6 @@ pub async fn translate_events_to_messages(
 					);
 					request_messages.push(Message::Request(req_msg))
 				},
-				Message::Response(resp_msg) => {
-					response_queries.push(query);
-					let response = match resp_msg.datagram {
-						RequestResponse::Response(ref resps) => resps
-							.get(0)
-							.cloned()
-							.ok_or_else(|| anyhow!("Expected a response to be present"))?,
-						_ => Err(anyhow!("Expected Response found posts"))?,
-					};
-					post_responses.push(response);
-					response_messages.push(Message::Response(resp_msg))
-				},
 				_ => Err(anyhow!("Unexpected message: {msg:?}"))?,
 			}
 		}
@@ -257,8 +181,8 @@ pub async fn translate_events_to_messages(
 
 	let mut unprofitable = vec![];
 
-	let (post_requests, post_request_queries, post_responses, response_queries) = {
-		if !request_messages.is_empty() || !response_messages.is_empty() {
+	let (post_requests, post_request_queries) = {
+		if !request_messages.is_empty() {
 			tracing::trace!(
 				target: crate::LOG_TARGET, "Tracing transactions to {:?}, from: {:?}",
 				sink.state_machine_id().state_id,
@@ -300,44 +224,9 @@ pub async fn translate_events_to_messages(
 			.filter_map(|query| query)
 			.collect();
 
-		let post_response_successful_query = return_successful_queries(
-			sink.clone(),
-			response_messages,
-			response_queries,
-			config.minimum_profit_percentage,
-			coprocessor,
-			&client_map,
-			config.deliver_failed.unwrap_or_default(),
-			consensus_prelude.clone(),
-		)
-		.await?;
-
-		unprofitable.extend(post_response_successful_query.retriable_messages);
-
-		let post_response_to_push: Vec<Response> = post_responses
-			.into_iter()
-			.zip(post_response_successful_query.queries.iter())
-			.filter_map(
-				|(current_post, current_query)| {
-					if current_query.is_some() {
-						Some(current_post)
-					} else {
-						None
-					}
-				},
-			)
-			.collect();
-
-		let post_response_queries_to_push: Vec<Query> = post_response_successful_query
-			.queries
-			.into_iter()
-			.filter_map(|query| query)
-			.collect();
 		(
 			post_request_to_push,
 			post_request_queries_to_push,
-			post_response_to_push,
-			post_response_queries_to_push,
 		)
 	};
 
@@ -365,28 +254,6 @@ pub async fn translate_events_to_messages(
 		}
 	}
 
-	if !response_queries.is_empty() {
-		tracing::trace!(target: crate::LOG_TARGET, "Querying response proof for batch length {}", response_queries.len());
-		let chunks = chunk_size(sink.state_machine_id().state_id);
-		let query_chunks = response_queries.chunks(chunks);
-		let post_request_chunks = post_responses.chunks(chunks);
-		for (queries, post_responses) in query_chunks.into_iter().zip(post_request_chunks) {
-			let responses_proof = source
-				.query_responses_proof(
-					state_machine_height.height,
-					queries.to_vec(),
-					sink.state_machine_id().state_id,
-				)
-				.await?;
-			let msg = ResponseMessage {
-				datagram: RequestResponse::Response(post_responses.to_vec()),
-				proof: Proof { height: state_machine_height, proof: responses_proof },
-				signer: sink.address(),
-			};
-			messages.push(Message::Response(msg));
-		}
-	}
-
 	Ok((messages, unprofitable))
 }
 
@@ -411,12 +278,6 @@ pub fn filter_events(
 			(post.dest == counterparty &&
 				(post.source != router_id ||
 					(post.source == router_id && allow_module(&post.from)))) ||
-				is_router,
-		IsmpEvent::PostResponse(resp) =>
-			(resp.dest_chain() == counterparty &&
-				(resp.source_chain() != router_id ||
-					(resp.source_chain() == router_id &&
-						allow_module(&resp.source_module())))) ||
 				is_router,
 		_ => false,
 	}

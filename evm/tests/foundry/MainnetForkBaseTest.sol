@@ -18,7 +18,7 @@ import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
 import {PingModule} from "../../src/utils/PingModule.sol";
-import {HandlerV1} from "../../src/core/HandlerV1.sol";
+import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {CallDispatcher} from "../../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
@@ -42,7 +42,7 @@ contract MainnetForkBaseTest is Test {
 
     TestConsensusClient internal consensusClient;
     TestHost internal host;
-    HandlerV1 internal handler;
+    HandlerV2 internal handler;
     PingModule internal testModule;
     HostManager internal manager;
     IERC20 internal usdc;
@@ -69,7 +69,7 @@ contract MainnetForkBaseTest is Test {
         vm.selectFork(mainnetFork);
 
         consensusClient = new TestConsensusClient();
-        handler = new HandlerV1();
+        handler = new HandlerV2();
         dispatcher = new CallDispatcher();
 
         uint256 paraId = 2000;

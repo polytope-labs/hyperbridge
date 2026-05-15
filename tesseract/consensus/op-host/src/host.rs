@@ -240,7 +240,7 @@ async fn construct_state_proposal(
 	let events = client.provider.query_ismp_events(*latest_height, event).await?;
 	*latest_height = block_number;
 	let event = events.into_iter().find(|ev| match &ev {
-		Event::PostRequest(_) | Event::GetRequest(_) | Event::PostResponse(_) => true,
+		Event::PostRequest(_) | Event::GetRequest(_) => true,
 		_ => false,
 	});
 

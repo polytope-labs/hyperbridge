@@ -30,14 +30,14 @@ use ismp::{
 	error::Error,
 	host::StateMachine,
 	module::IsmpModule,
-	router::{IsmpRouter, PostRequest, Request, Response},
+	router::{IsmpRouter, PostRequest, Request, GetResponse},
 };
 #[cfg(feature = "runtime-benchmarks")]
 use pallet_assets::BenchmarkHelper;
 use polkadot_sdk::{sp_weights::WeightToFee, *};
 use sp_core::{crypto::AccountId32, H256};
 
-use ismp::{consensus::StateMachineClient, router::Timeout};
+use ismp::{consensus::StateMachineClient};
 use ismp_sync_committee::constants::{gnosis, sepolia::Sepolia};
 use pallet_ismp::{dispatcher::FeeMetadata, ModuleId};
 use polkadot_sdk::sp_runtime::Weight;
@@ -384,39 +384,15 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
+	fn on_response(&self, response: GetResponse) -> Result<Weight, anyhow::Error> {
 		// Bandwidth gate. Mirrors the request path in `on_accept`: the chain
 		// and module that produced the response pay for the bytes they
 		// deliver. Compiled out when the `no-bandwidth` flag is on.
-		#[cfg(not(feature = "no-bandwidth"))]
-		if let Response::Post(post) = &response {
-			let bytes = core::cmp::max(post.response.len(), 32) as u32;
-			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
-				&post.source_chain(),
-				&post.source_module(),
-				bytes,
-			)
-			.map_err(|err| {
-				anyhow!(
-					"bandwidth gate: {err} (source={:?}, from={:x?})",
-					post.source_chain(),
-					post.source_module(),
-				)
-			})?;
-		}
-
 		if response.dest_chain() != HostStateMachine::get() {
-			Ismp::dispatch_response(
-				response,
-				FeeMetadata::<Runtime> { payer: [0u8; 32].into(), fee: Default::default() },
-			)?;
 			return Ok(Weight::from_parts(0, 0));
 		}
 
-		let dest = match &response {
-			Response::Post(post) => &post.destination_module(),
-			Response::Get(resp) => &resp.get.from,
-		};
+		let dest = &response.get.from;
 
 		let pallet_id = ModuleId::from_bytes(dest).map_err(|err| Error::Custom(err.to_string()))?;
 
@@ -427,11 +403,10 @@ impl IsmpModule for ProxyModule {
 		}
 	}
 
-	fn on_timeout(&self, timeout: Timeout) -> Result<Weight, anyhow::Error> {
+	fn on_timeout(&self, timeout: Request) -> Result<Weight, anyhow::Error> {
 		let (from, source) = match &timeout {
-			Timeout::Request(Request::Post(post)) => (&post.from, post.source.clone()),
-			Timeout::Request(Request::Get(get)) => (&get.from, get.source.clone()),
-			Timeout::Response(res) => (&res.source_module(), res.source_chain()),
+			Request::Post(post) => (&post.from, post.source.clone()),
+			Request::Get(get) => (&get.from, get.source.clone()),
 		};
 
 		if source != HostStateMachine::get() {

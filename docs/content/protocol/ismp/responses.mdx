@@ -5,19 +5,9 @@ description: The ISMP Response specification
 
 # Responses
 
-Responses in the ISMP framework can be either one of a `PostResponse` or a `GetResponse`.
+Responses in the ISMP framework are represented as `GetResponse`.
 
 ```rust showLineNumbers
-/// The response to a POST request
-pub struct PostResponse {
-    /// The POST request that triggered this response.
-    pub post: Post,
-    /// The response message.
-    pub response: Vec<u8>,
-    /// Unix timestamp at which this response expires in seconds.
-    pub timeout_timestamp: u64,
-}
-
 /// The response to a GET request
 pub struct GetResponse {
     /// The Get request that triggered this response.
@@ -28,16 +18,10 @@ pub struct GetResponse {
 
 /// The ISMP response
 pub enum Response {
-    /// The response to a POST request
-    Post(PostResponse),
     /// The response to a GET request
     Get(GetResponse),
 }
 ```
-
-## `PostResponse`
-
-A `PostResponse` can be seen as the result or return value of a `PostRequest` execution. `IsmpModule`s may opt not to generate a `PostResponse`, and instead employ an optimistic model. In this model, the module state is altered before the request is dispatched, in such a way that **it can be reverted** if the request times out. This approach reduces considerable message round trip and verification expenses, providing a better user experience. However, when it's necessary to give the caller an execution result, the ISMP framework allows for a `PostResponse`. The `PostResponse`, much like a `PostRequest` can also [time-out](/protocol/ismp/timeouts).
 
 ## `GetResponse`
 

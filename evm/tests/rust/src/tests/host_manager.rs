@@ -2,7 +2,7 @@ use super::utils::*;
 use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolCall, SolValue};
 use ismp::{host::StateMachine, router};
-use ismp_solidity_abi::evm_host::EvmHost::PostRequest as EvmPostRequest;
+use ismp_abi::evm_host::EvmHost::PostRequest as EvmPostRequest;
 use pallet_ismp_host_executive::{withdrawal::WithdrawalParams, EvmHostParamsAbi};
 use polkadot_sdk::*;
 use primitive_types::{H160, U256 as SubstrateU256};

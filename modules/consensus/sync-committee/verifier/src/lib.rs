@@ -37,15 +37,6 @@ pub fn verify_sync_committee_attestation<C: Config>(
 		Err(Error::InvalidUpdate("Finality branch is incorrect".into()))?
 	}
 
-	// Verify sync committee has super majority participants
-	let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
-	let sync_aggregate_participants: u64 =
-		sync_committee_bits.iter().as_bitslice().count_ones() as u64;
-
-	if sync_aggregate_participants < ((2 * sync_committee_bits.len() as u64) / 3) + 1 {
-		Err(Error::SyncCommitteeParticipantsTooLow)?
-	}
-
 	// Verify update is valid
 	let is_valid_update = update.signature_slot > update.attested_header.slot &&
 		update.attested_header.slot > update.finalized_header.slot;
@@ -75,6 +66,29 @@ pub fn verify_sync_committee_attestation<C: Config>(
 	};
 
 	let sync_committee_pubkeys = sync_committee.public_keys;
+	let sync_committee_bits = update.sync_aggregate.sync_committee_bits;
+
+	// Verify sync committee has super majority participants. The bit
+	// vector and the pubkey set should both be `SYNC_COMMITTEE_SIZE`,
+	// but the threshold is computed against the actual pubkey set size
+	// and any bit past it is treated as junk — otherwise an attacker
+	// could pad `count_ones()` with positions that have no corresponding
+	// validator and trivially clear the supermajority check.
+	let committee_size = sync_committee_pubkeys.len();
+	if sync_committee_bits
+		.iter()
+		.enumerate()
+		.any(|(i, bit)| i >= committee_size && *bit)
+	{
+		Err(Error::InvalidUpdate("Sync committee bits set beyond committee size".into()))?
+	}
+
+	let sync_aggregate_participants: u64 =
+		sync_committee_bits.iter().take(committee_size).filter(|b| **b).count() as u64;
+
+	if sync_aggregate_participants < ((2 * committee_size as u64) / 3) + 1 {
+		Err(Error::SyncCommitteeParticipantsTooLow)?
+	}
 
 	let non_participant_pubkeys = sync_committee_bits
 		.iter()

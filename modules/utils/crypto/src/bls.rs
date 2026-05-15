@@ -38,11 +38,15 @@ pub fn pubkey_to_projective(compressed_key: &BlsPublicKey) -> Result<G1Projectiv
 }
 
 /// Aggregate multiple BLS public keys into a single public key.
-pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Vec<u8> {
-	let aggregate = keys
-		.iter()
-		.filter_map(|key| pubkey_to_projective(key).ok())
-		.fold(G1ProjectivePoint::default(), |acc, next| acc + next);
-
-	bls::point_to_pubkey(aggregate.into())
+///
+/// Any input key that fails to decompress is propagated as an error
+/// rather than silently dropped — otherwise a caller's participant
+/// count would diverge from the aggregate, letting an attacker pad the
+/// quorum with junk keys that contribute nothing to the signature.
+pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Result<Vec<u8>, BLSError> {
+	let mut aggregate = G1ProjectivePoint::default();
+	for key in keys {
+		aggregate = aggregate + pubkey_to_projective(key)?;
+	}
+	Ok(bls::point_to_pubkey(aggregate.into()))
 }

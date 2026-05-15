@@ -63,9 +63,27 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 	)
 	.map_err(|_| anyhow!("Could not deseerialize vote address set"))?;
 
+	// `VALIDATOR_BIT_SET_SIZE` is a fixed 64-bit width; the active
+	// validator set is smaller, so bits at positions `>= validators.len()`
+	// have no corresponding validator. Setting them would inflate
+	// `count_ones()` past the supermajority threshold without any extra
+	// validator actually signing.
+	if validators_bit_set
+		.iter()
+		.enumerate()
+		.any(|(i, bit)| i >= current_validators.len() && *bit)
+	{
+		Err(anyhow!("Vote address set has bits set beyond validator count"))?
+	}
+
 	// We have to use the same threshold specified in the bsc parlia consensus which is 2/3
 	// https://github.com/bnb-chain/bsc/blob/da35ee13e2fe38efaeab2d6fb27f112332459b50/consensus/parlia/parlia.go#L557
-	if validators_bit_set.iter().as_bitslice().count_ones() < ((2 * current_validators.len()) / 3) {
+	let participant_count = validators_bit_set
+		.iter()
+		.take(current_validators.len())
+		.filter(|bit| **bit)
+		.count();
+	if participant_count < ((2 * current_validators.len()) / 3) {
 		Err(anyhow!("Not enough participants"))?
 	}
 
@@ -84,7 +102,8 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		.filter_map(|(validator, bit)| if *bit { Some(validator.clone()) } else { None })
 		.collect();
 
-	let aggregate_public_key = aggregate_public_keys(&participants);
+	let aggregate_public_key = aggregate_public_keys(&participants)
+		.map_err(|err| anyhow!("Failed to aggregate participant public keys: {err:?}"))?;
 	let msg = H::keccak256(alloy_rlp::encode(extra_data.vote_data.clone()).as_slice());
 	let signature = extra_data.agg_signature;
 

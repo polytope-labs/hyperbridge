@@ -21,7 +21,7 @@ extern crate alloc;
 
 pub mod pallet;
 use arbitrum_verifier::{
-	Error as ArbitrumError, ArbitrumBoldProof, ArbitrumPayloadProof, verify_arbitrum_bold,
+	ArbitrumBoldProof, ArbitrumPayloadProof, Error as ArbitrumError, verify_arbitrum_bold,
 	verify_arbitrum_payload,
 };
 use pallet::{Pallet, SupportedStateMachines};

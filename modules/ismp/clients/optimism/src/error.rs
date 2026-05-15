@@ -11,6 +11,7 @@
 
 use alloc::string::{String, ToString};
 use ismp::host::StateMachine;
+use primitive_types::H160;
 use thiserror::Error;
 
 /// Failure modes for Op Stack consensus proof verification and the
@@ -46,6 +47,56 @@ pub enum Error {
 	/// The `counteredByIntermediateRootIndexPlusOne` storage value is longer than 32 bytes.
 	#[error("counteredByIntermediateRootIndexPlusOne value longer than 32 bytes")]
 	CounteredByTooLong,
+	/// The L2 output root slot wasn't present in the storage proof.
+	#[error("Output root slot not found in L2Oracle storage proof")]
+	OutputRootSlotMissing,
+	/// The recovered output root from the proof doesn't match the value
+	/// computed from `(version, state_root, withdrawal_storage_root, l2_block_hash)`.
+	#[error("Invalid optimism output root proof")]
+	OutputRootMismatch,
+	/// The block-number-and-timestamp slot wasn't present in the storage proof.
+	#[error("Block-and-timestamp slot not found in L2Oracle storage proof")]
+	BlockTimestampSlotMissing,
+	/// The recovered block number or timestamp doesn't match the value in the payload.
+	#[error("Invalid optimism block and timestamp proof")]
+	BlockTimestampMismatch,
+	/// The proof's `game_type` isn't in the configured set of respected game types.
+	#[error("Game type {0} is not in the respected game types")]
+	UnsupportedGameType(u32),
+	/// The dispute game's id wasn't present in the `_disputeGames` map proof.
+	#[error("Dispute Game's Id not found in proof")]
+	DisputeGameIdMissing,
+	/// The dispute game id recovered from the proof doesn't match the one
+	/// derived from `(game_type, timestamp, proxy)`.
+	#[error("Dispute Game Id from proof does not match derived game id")]
+	DisputeGameIdMismatch,
+	/// The `gameImpls[gameType]` slot wasn't present in the factory storage proof.
+	#[error("gameImpls[gameType] not found in factory storage")]
+	GameImplsMissing,
+	/// The implementation address proved by `gameImpls[gameType]` doesn't match the configured
+	/// `expected_impl` for this game type.
+	#[error("gameImpls[{game_type}] is {actual:?}, expected {expected:?}")]
+	GameImplMismatch {
+		/// The game type whose implementation was being checked.
+		game_type: u32,
+		/// The implementation address recovered from the factory proof.
+		actual: H160,
+		/// The implementation address configured for this game type.
+		expected: H160,
+	},
+	/// The `FaultDisputeGame.claimData[0]` storage word wasn't present in the proxy storage proof.
+	#[error("claimData[0] slot not found in proxy storage")]
+	ClaimDataSlotMissing,
+	/// The `FaultDisputeGame.claimData[0].counteredBy` field is non-zero — the game is challenged.
+	#[error("FaultDisputeGame has been challenged: claimData[0].counteredBy != 0")]
+	FaultDisputeGameChallenged,
+	/// The `AggregateVerifier.counteredByIntermediateRootIndexPlusOne` value is non-zero — the
+	/// game is challenged.
+	#[error(
+		"AggregateVerifier game has been challenged: \
+		counteredByIntermediateRootIndexPlusOne != 0"
+	)]
+	AggregateVerifierChallenged,
 
 	// -- ismp-optimism client wrapper --
 	/// The submitted consensus proof failed to SCALE-decode into an `OptimismUpdate`.

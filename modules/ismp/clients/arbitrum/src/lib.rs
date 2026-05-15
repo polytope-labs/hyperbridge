@@ -19,7 +19,7 @@ extern crate alloc;
 
 pub mod error;
 
-use alloc::{format, string::ToString};
+use alloc::format;
 use alloy_rlp::Decodable;
 use alloy_sol_types::SolValue;
 pub use error::Error;
@@ -157,9 +157,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 		payload.storage_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Value not found in proof".to_string(),
-		))?,
+		_ => Err(Error::StateHashSlotMissing)?,
 	};
 
 	let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
@@ -167,9 +165,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 		.to_be_bytes::<32>();
 
 	if proof_value != state_hash.0 {
-		Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"State hash from proof does not match calculated state hash".to_string(),
-		))?
+		Err(Error::StateHashMismatch)?
 	}
 
 	Ok(IntermediateState {

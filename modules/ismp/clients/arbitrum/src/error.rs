@@ -46,6 +46,14 @@ pub enum Error {
 	/// this branch is in challenge.
 	#[error("Assertion has been challenged: parent.secondChildBlock != 0")]
 	AssertionChallenged,
+	/// The state-hash slot wasn't present in the rollup-core storage proof
+	/// — `get_value_from_proof` returned `None`.
+	#[error("State hash slot not found in storage proof")]
+	StateHashSlotMissing,
+	/// The state hash recovered from the proof doesn't match the value
+	/// computed from `(global_state, machine_status, inbox_max_count)`.
+	#[error("State hash from proof does not match calculated state hash")]
+	StateHashMismatch,
 
 	// -- ismp-arbitrum client wrapper --
 	/// The submitted consensus proof failed to SCALE-decode into an `ArbitrumUpdate`.

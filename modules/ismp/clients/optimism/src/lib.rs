@@ -19,7 +19,7 @@ extern crate alloc;
 
 pub mod error;
 
-use alloc::{format, string::ToString};
+use alloc::format;
 use alloy_rlp::Decodable;
 pub use error::Error;
 use evm_state_machine::{
@@ -153,9 +153,7 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 		payload.output_root_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Value not found in proof".to_string(),
-		))?,
+		_ => Err(Error::OutputRootSlotMissing)?,
 	};
 
 	let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
@@ -163,10 +161,7 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 		.to_be_bytes::<32>();
 
 	if proof_value != output_root.0 {
-		return Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Invalid optimism output root proof".to_string(),
-		)
-		.into());
+		return Err(Error::OutputRootMismatch);
 	}
 
 	// verify timestamp and block number
@@ -178,9 +173,7 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 		payload.multi_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Value not found in proof".to_string(),
-		))?,
+		_ => Err(Error::BlockTimestampSlotMissing)?,
 	};
 
 	let block_and_timestamp =
@@ -197,11 +190,8 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 	block_number.copy_from_slice(&block_and_timestamp.0[2..]);
 	let block_number = U128(block_number).as_u128() as u64;
 
-	if payload.timestamp != timestamp && payload.block_number != block_number {
-		return Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Invalid optimism block and timestamp proof".to_string(),
-		)
-		.into());
+	if payload.timestamp != timestamp || payload.block_number != block_number {
+		return Err(Error::BlockTimestampMismatch);
 	}
 
 	Ok(IntermediateState {
@@ -293,12 +283,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 	let game_config = game_type_configs
 		.iter()
 		.find(|c| c.game_type == payload.game_type)
-		.ok_or_else(|| {
-			ismp::error::Error::MembershipProofVerificationFailed(format!(
-				"Game type {} is not in the respected game types",
-				payload.game_type
-			))
-		})?
+		.ok_or(Error::UnsupportedGameType(payload.game_type))?
 		.clone();
 
 	let factory_storage_root =
@@ -326,9 +311,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 		payload.dispute_game_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Dispute Game's Id not found in proof".to_string(),
-		))?,
+		_ => Err(Error::DisputeGameIdMissing)?,
 	};
 
 	let mut encoded_game_id = <alloy_primitives::Bytes as Decodable>::decode(&mut &*proof_value)
@@ -345,9 +328,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 
 	// Derived game id must be equal to encoded game id
 	if encoded_game_id != game_id_bytes {
-		Err(ismp::error::Error::MembershipProofVerificationFailed(
-			"Dispute Game Id from proof does not match derived game id".to_string(),
-		))?
+		Err(Error::DisputeGameIdMismatch)?
 	}
 
 	// Bind the proxy's storage layout to the expected implementation by proving
@@ -364,17 +345,14 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 		factory_storage_root,
 		payload.game_impl_proof,
 	)?
-	.ok_or_else(|| {
-		ismp::error::Error::MembershipProofVerificationFailed(
-			"gameImpls[gameType] not found in factory storage".to_string(),
-		)
-	})?;
+	.ok_or(Error::GameImplsMissing)?;
 	let impl_address = decode_address_from_storage_value(&impl_value)?;
 	if impl_address != game_config.expected_impl {
-		Err(ismp::error::Error::MembershipProofVerificationFailed(format!(
-			"gameImpls[{}] is {:?}, expected {:?}",
-			payload.game_type, impl_address, game_config.expected_impl,
-		)))?
+		Err(Error::GameImplMismatch {
+			game_type: payload.game_type,
+			actual: impl_address,
+			expected: game_config.expected_impl,
+		})?
 	}
 
 	// Prove the proxy account, then verify "not challenged" against its storage root.
@@ -463,11 +441,7 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 				proxy_storage_root,
 				challenge_proof,
 			)?
-			.ok_or_else(|| {
-				ismp::error::Error::MembershipProofVerificationFailed(
-					"claimData[0] slot not found in proxy storage".to_string(),
-				)
-			})?;
+			.ok_or(Error::ClaimDataSlotMissing)?;
 			let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*value)
 				.map_err(|_| Error::DecodeClaimData(format!("{:?}", value)))?
 				.0
@@ -487,10 +461,7 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// occupies bytes [28..32].
 			const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
 			if &word[8..28] != ZERO_ADDRESS.as_slice() {
-				Err(ismp::error::Error::MembershipProofVerificationFailed(
-					"FaultDisputeGame has been challenged: claimData[0].counteredBy != 0"
-						.to_string(),
-				))?
+				Err(Error::FaultDisputeGameChallenged)?
 			}
 			Ok(())
 		},
@@ -523,11 +494,7 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 					// and the game has been challenged.
 					const ZERO_WORD: [u8; 32] = [0u8; 32];
 					if raw.as_slice() != &ZERO_WORD[..raw.len()] {
-						Err(ismp::error::Error::MembershipProofVerificationFailed(
-							"AggregateVerifier game has been challenged: \
-							counteredByIntermediateRootIndexPlusOne != 0"
-								.to_string(),
-						))?
+						Err(Error::AggregateVerifierChallenged)?
 					}
 					Ok(())
 				},

@@ -17,8 +17,11 @@
 
 extern crate alloc;
 
-use alloc::format;
+pub mod error;
+
+use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
+pub use error::Error;
 use evm_state_machine::{
 	derive_array_item_key, derive_map_key, get_contract_account, get_value_from_proof, prelude::*,
 };
@@ -27,7 +30,6 @@ use ismp::{
 	consensus::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
-	error::Error,
 	host::StateMachine,
 	messaging::Keccak256,
 };
@@ -151,17 +153,20 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 		payload.output_root_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
+		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
+			"Value not found in proof".to_string(),
+		))?,
 	};
 
 	let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
-		.map_err(|_| Error::Custom(format!("Error decoding output root from {:?}", &proof_value)))?
+		.map_err(|_| Error::DecodeOutputRoot(format!("{:?}", &proof_value)))?
 		.to_be_bytes::<32>();
 
 	if proof_value != output_root.0 {
-		return Err(Error::MembershipProofVerificationFailed(
+		return Err(ismp::error::Error::MembershipProofVerificationFailed(
 			"Invalid optimism output root proof".to_string(),
-		));
+		)
+		.into());
 	}
 
 	// verify timestamp and block number
@@ -173,17 +178,14 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 		payload.multi_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
+		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
+			"Value not found in proof".to_string(),
+		))?,
 	};
 
 	let block_and_timestamp =
 		<alloy_primitives::U256 as Decodable>::decode(&mut &*block_and_timestamp)
-			.map_err(|_| {
-				Error::Custom(format!(
-					"Error decoding block and timestamp from{:?}",
-					&block_and_timestamp
-				))
-			})?
+			.map_err(|_| Error::DecodeBlockTimestamp(format!("{:?}", &block_and_timestamp)))?
 			.to_be_bytes::<32>();
 
 	let block_and_timestamp = U256::from_big_endian(&block_and_timestamp);
@@ -196,9 +198,10 @@ pub fn verify_optimism_payload<H: Keccak256 + Send + Sync>(
 	let block_number = U128(block_number).as_u128() as u64;
 
 	if payload.timestamp != timestamp && payload.block_number != block_number {
-		return Err(Error::MembershipProofVerificationFailed(
+		return Err(ismp::error::Error::MembershipProofVerificationFailed(
 			"Invalid optimism block and timestamp proof".to_string(),
-		));
+		)
+		.into());
 	}
 
 	Ok(IntermediateState {
@@ -291,7 +294,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 		.iter()
 		.find(|c| c.game_type == payload.game_type)
 		.ok_or_else(|| {
-			Error::MembershipProofVerificationFailed(format!(
+			ismp::error::Error::MembershipProofVerificationFailed(format!(
 				"Game type {} is not in the respected game types",
 				payload.game_type
 			))
@@ -323,15 +326,13 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 		payload.dispute_game_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(Error::MembershipProofVerificationFailed(
+		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
 			"Dispute Game's Id not found in proof".to_string(),
 		))?,
 	};
 
 	let mut encoded_game_id = <alloy_primitives::Bytes as Decodable>::decode(&mut &*proof_value)
-		.map_err(|_| {
-			Error::Custom(format!("Error decoding dispute game id from {:?}", &proof_value))
-		})?
+		.map_err(|_| Error::DecodeDisputeGameId(format!("{:?}", &proof_value)))?
 		.0
 		.to_vec();
 
@@ -344,7 +345,7 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 
 	// Derived game id must be equal to encoded game id
 	if encoded_game_id != game_id_bytes {
-		Err(Error::MembershipProofVerificationFailed(
+		Err(ismp::error::Error::MembershipProofVerificationFailed(
 			"Dispute Game Id from proof does not match derived game id".to_string(),
 		))?
 	}
@@ -364,13 +365,13 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 		payload.game_impl_proof,
 	)?
 	.ok_or_else(|| {
-		Error::MembershipProofVerificationFailed(
+		ismp::error::Error::MembershipProofVerificationFailed(
 			"gameImpls[gameType] not found in factory storage".to_string(),
 		)
 	})?;
 	let impl_address = decode_address_from_storage_value(&impl_value)?;
 	if impl_address != game_config.expected_impl {
-		Err(Error::MembershipProofVerificationFailed(format!(
+		Err(ismp::error::Error::MembershipProofVerificationFailed(format!(
 			"gameImpls[{}] is {:?}, expected {:?}",
 			payload.game_type, impl_address, game_config.expected_impl,
 		)))?
@@ -408,11 +409,11 @@ pub fn verify_optimism_dispute_game_proof<H: Keccak256 + Send + Sync>(
 /// the last 20.
 fn decode_address_from_storage_value(value: &[u8]) -> Result<H160, Error> {
 	let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*value)
-		.map_err(|_| Error::Custom(format!("Error decoding storage value {:?}", value)))?
+		.map_err(|_| Error::DecodeStorageValue(format!("{:?}", value)))?
 		.0
 		.to_vec();
 	if raw.len() > 32 {
-		Err(Error::Custom("storage value longer than 32 bytes".to_string()))?
+		Err(Error::StorageValueTooLong)?
 	}
 	let mut padded = vec![0u8; 32 - raw.len()];
 	padded.extend_from_slice(&raw);
@@ -463,18 +464,16 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 				challenge_proof,
 			)?
 			.ok_or_else(|| {
-				Error::MembershipProofVerificationFailed(
+				ismp::error::Error::MembershipProofVerificationFailed(
 					"claimData[0] slot not found in proxy storage".to_string(),
 				)
 			})?;
 			let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*value)
-				.map_err(|_| {
-					Error::Custom(format!("Error decoding claimData[0] value {:?}", value))
-				})?
+				.map_err(|_| Error::DecodeClaimData(format!("{:?}", value)))?
 				.0
 				.to_vec();
 			if raw.len() > 32 {
-				Err(Error::Custom("claimData[0] storage value longer than 32 bytes".to_string()))?
+				Err(Error::ClaimDataTooLong)?
 			}
 			let mut word = vec![0u8; 32 - raw.len()];
 			word.extend_from_slice(&raw);
@@ -488,7 +487,7 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 			// occupies bytes [28..32].
 			const ZERO_ADDRESS: [u8; 20] = [0u8; 20];
 			if &word[8..28] != ZERO_ADDRESS.as_slice() {
-				Err(Error::MembershipProofVerificationFailed(
+				Err(ismp::error::Error::MembershipProofVerificationFailed(
 					"FaultDisputeGame has been challenged: claimData[0].counteredBy != 0"
 						.to_string(),
 				))?
@@ -513,26 +512,18 @@ fn verify_not_challenged<H: Keccak256 + Send + Sync>(
 				None => Ok(()),
 				Some(v) => {
 					let raw = <alloy_primitives::Bytes as Decodable>::decode(&mut &*v)
-						.map_err(|_| {
-							Error::Custom(format!(
-								"Error decoding counteredByIntermediateRootIndexPlusOne value {:?}",
-								v
-							))
-						})?
+						.map_err(|_| Error::DecodeCounteredBy(format!("{:?}", v)))?
 						.0
 						.to_vec();
 					if raw.len() > 32 {
-						Err(Error::Custom(
-							"counteredByIntermediateRootIndexPlusOne value longer than 32 bytes"
-								.to_string(),
-						))?
+						Err(Error::CounteredByTooLong)?
 					}
 					// RLP strips leading zeros from the stored uint256. Compare against a slice
 					// of zeros of the same length: any non-zero byte means the value is non-zero
 					// and the game has been challenged.
 					const ZERO_WORD: [u8; 32] = [0u8; 32];
 					if raw.as_slice() != &ZERO_WORD[..raw.len()] {
-						Err(Error::MembershipProofVerificationFailed(
+						Err(ismp::error::Error::MembershipProofVerificationFailed(
 							"AggregateVerifier game has been challenged: \
 							counteredByIntermediateRootIndexPlusOne != 0"
 								.to_string(),

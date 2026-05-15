@@ -17,17 +17,18 @@
 #![allow(unused_variables)]
 extern crate alloc;
 
-use alloc::format;
+pub mod error;
+
+use alloc::{format, string::ToString};
 use alloy_rlp::Decodable;
 use alloy_sol_types::SolValue;
-use anyhow::anyhow;
+pub use error::Error;
 use evm_state_machine::{derive_map_key, get_contract_account, get_value_from_proof, prelude::*};
 use geth_primitives::{CodecHeader, Header};
 use ismp::{
 	consensus::{
 		ConsensusStateId, IntermediateState, StateCommitment, StateMachineHeight, StateMachineId,
 	},
-	error::Error,
 	host::StateMachine,
 	messaging::Keccak256,
 };
@@ -133,9 +134,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 
 	let header: Header = payload.arbitrum_header.as_ref().into();
 	if &payload.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
-		Err(Error::Custom(
-			"Arbitrum header extra data does not match send root in global state".to_string(),
-		))?
+		Err(Error::HeaderExtraDataMismatch)?
 	}
 
 	let block_number = payload.arbitrum_header.number.low_u64();
@@ -144,9 +143,7 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 
 	let header_hash = header.hash::<H>();
 	if payload.global_state.block_hash != header_hash {
-		Err(Error::Custom(
-			"Arbitrum header hash does not match block hash in global state".to_string(),
-		))?
+		Err(Error::HeaderHashMismatch)?
 	}
 
 	let state_hash =
@@ -160,15 +157,17 @@ pub fn verify_arbitrum_payload<H: Keccak256 + Send + Sync>(
 		payload.storage_proof,
 	)? {
 		Some(value) => value.clone(),
-		_ => Err(Error::MembershipProofVerificationFailed("Value not found in proof".to_string()))?,
+		_ => Err(ismp::error::Error::MembershipProofVerificationFailed(
+			"Value not found in proof".to_string(),
+		))?,
 	};
 
 	let proof_value = <alloy_primitives::U256 as Decodable>::decode(&mut &*proof_value)
-		.map_err(|_| Error::Custom(format!("Error decoding state hash {:?}", &proof_value)))?
+		.map_err(|_| Error::DecodeStateHash(format!("{:?}", &proof_value)))?
 		.to_be_bytes::<32>();
 
 	if proof_value != state_hash.0 {
-		Err(Error::MembershipProofVerificationFailed(
+		Err(ismp::error::Error::MembershipProofVerificationFailed(
 			"State hash from proof does not match calculated state hash".to_string(),
 		))?
 	}
@@ -297,7 +296,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	root: H256,
 	rollup_core_address: H160,
 	consensus_state_id: ConsensusStateId,
-) -> Result<IntermediateState, anyhow::Error> {
+) -> Result<IntermediateState, Error> {
 	let storage_root =
 		get_contract_account::<H>(payload.contract_proof, &rollup_core_address.0, root)?
 			.storage_root
@@ -306,7 +305,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	let header: Header = payload.arbitrum_header.as_ref().into();
 	if &payload.after_state.global_state.send_root[..] != &payload.arbitrum_header.extra_data {
-		Err(anyhow!("Arbitrum header extra data does not match send root in global state",))?
+		Err(Error::HeaderExtraDataMismatch)?
 	}
 
 	let block_number = payload.arbitrum_header.number.low_u64();
@@ -315,7 +314,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 
 	let header_hash = header.hash::<H>();
 	if payload.after_state.global_state.block_hash != header_hash {
-		Err(anyhow!("Arbitrum header hash does not match block hash in global state",))?
+		Err(Error::HeaderHashMismatch)?
 	}
 
 	let assertion_hash = compute_assertion_hash(
@@ -331,7 +330,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	// https://github.com/OffchainLabs/nitro-contracts/blob/94999b3e2d3b4b7f8e771cc458b9eb229620dd8f/src/rollup/RollupCore.sol#L542
 
 	get_value_from_proof::<H>(assertion_hash_key.0.to_vec(), storage_root, payload.storage_proof)?
-		.ok_or_else(|| anyhow!("Assertion provided is invalid"))?;
+		.ok_or(Error::InvalidAssertion)?;
 
 	// BoLD encodes challenges implicitly: a parent with two children is being contested. The
 	// parent's `AssertionNode.secondChildBlock` (uint64 at struct offset 8) is non-zero iff a
@@ -341,15 +340,13 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 		derive_map_key::<H>(payload.previous_assertion_hash.0.to_vec(), ASSERTIONS_SLOT);
 	let parent_word_raw =
 		get_value_from_proof::<H>(parent_key.0.to_vec(), storage_root, payload.challenge_proof)?
-			.ok_or_else(|| {
-				anyhow!("Parent assertion not found in proof — cannot check challenge state")
-			})?;
+			.ok_or(Error::ParentAssertionNotFound)?;
 	let parent_word_bytes = <alloy_primitives::Bytes as Decodable>::decode(&mut &*parent_word_raw)
-		.map_err(|_| anyhow!("Error decoding parent assertion word {:?}", parent_word_raw))?
+		.map_err(|_| Error::DecodeParentAssertionWord(format!("{:?}", parent_word_raw)))?
 		.0
 		.to_vec();
 	if parent_word_bytes.len() > 32 {
-		Err(anyhow!("parent AssertionNode storage word longer than 32 bytes"))?
+		Err(Error::ParentAssertionTooLong)?
 	}
 	let mut word = vec![0u8; 32 - parent_word_bytes.len()];
 	word.extend_from_slice(&parent_word_bytes);
@@ -357,7 +354,7 @@ pub fn verify_arbitrum_bold<H: Keccak256 + Send + Sync>(
 	// secondChildBlock occupies bytes word[16..24].
 	const ZERO_U64: [u8; 8] = [0u8; 8];
 	if &word[16..24] != ZERO_U64.as_slice() {
-		Err(anyhow!("Assertion has been challenged: parent.secondChildBlock != 0"))?
+		Err(Error::AssertionChallenged)?
 	}
 
 	Ok(IntermediateState {

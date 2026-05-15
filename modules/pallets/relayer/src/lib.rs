@@ -712,13 +712,10 @@ where
 			dest_result,
 		)?;
 
-		if result.is_empty() {
-			Err(Error::<T>::IncompleteProof)?
-		}
-
+		let mut entries = result.into_iter();
+		let (delivery_address, total_fee) = entries.next().ok_or(Error::<T>::IncompleteProof)?;
 		// Every commitment in the batch must share a single delivery address.
-		ensure!(result.len() == 1, Error::<T>::MixedDeliveryAddressesInBatch);
-		let (delivery_address, total_fee) = result.into_iter().next().expect("len == 1; qed");
+		ensure!(entries.next().is_none(), Error::<T>::MixedDeliveryAddressesInBatch);
 
 		// Let's verify the beneficiary address
 		let beneficiary_address = if let Some((beneficiary_address, signature)) =

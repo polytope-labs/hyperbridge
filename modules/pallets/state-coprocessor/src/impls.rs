@@ -18,7 +18,7 @@
 use polkadot_sdk::*;
 
 use super::{Config, Pallet};
-use alloc::{string::ToString, vec, vec::Vec};
+use alloc::{collections::BTreeSet, string::ToString, vec, vec::Vec};
 use codec::{Decode, DecodeWithMemTracking, Encode};
 use evm_state_machine::{derive_unhashed_map_key, presets::REQUEST_COMMITMENTS_SLOT};
 use ismp::{
@@ -42,8 +42,10 @@ use sp_core::U256;
 	Debug, Clone, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq, scale_info::TypeInfo,
 )]
 pub struct GetRequestsWithProof {
-	/// The associated Get requests
-	pub requests: Vec<GetRequest>,
+	/// The associated Get requests. A `BTreeSet` structurally rejects
+	/// duplicates within a batch — SCALE-decoded payloads that contain
+	/// repeats are silently collapsed before the pallet sees them.
+	pub requests: BTreeSet<GetRequest>,
 	/// Proof of these requests on the source chain
 	pub source: Proof,
 	/// State proof of the requested values in the Get requests.
@@ -65,7 +67,6 @@ where
 		// 3. Verify response proof
 		// 4. insert GetResponse into mmr and request receipts
 		// 5. emit Response events
-		let mut checked = vec![];
 		let host = <<T as Config>::IsmpHost>::default();
 		for req in requests.iter() {
 			let full = Request::Get(req.clone());
@@ -80,17 +81,20 @@ where
 				Err(Error::RequestProofMetadataNotValid { meta: full.clone().into() })?
 			}
 
+			// Proof must come from the requested chain
+			if full.dest_chain() != response.height.id.state_id {
+				Err(Error::RequestProofMetadataNotValid { meta: full.clone().into() })?
+			}
+
 			// This request has already been previously processed
 			if host.request_receipt(&full).is_some() {
 				Err(Error::DuplicateResponse { meta: full.into() })?
 			}
-
-			checked.push(req.clone());
 		}
 
 		// Ensure the proof height is equal to each retrieval height specified in the Get
 		// requests
-		if !checked.iter().all(|get| get.height == response.height.height) {
+		if !requests.iter().all(|get| get.height == response.height.height) {
 			Err(Error::InsufficientProofHeight)?
 		}
 
@@ -239,7 +243,10 @@ where
 }
 
 /// Returns the storage keys for
-fn get_request_keys<T: Config>(requests: &[GetRequest], source: StateMachine) -> Vec<Vec<u8>> {
+fn get_request_keys<T: Config>(
+	requests: &BTreeSet<GetRequest>,
+	source: StateMachine,
+) -> Vec<Vec<u8>> {
 	let mut keys = vec![];
 	for req in requests {
 		let full = Request::Get(req.clone());

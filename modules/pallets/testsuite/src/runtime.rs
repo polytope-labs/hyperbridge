@@ -108,6 +108,7 @@ frame_support::construct_runtime!(
 		Authorship: pallet_authorship,
 		IsmpParachain: ismp_parachain,
 		Bandwidth: pallet_bandwidth,
+		StateCoprocessor: pallet_state_coprocessor,
 	}
 );
 
@@ -294,6 +295,12 @@ impl pallet_hyperbridge::Config for Test {
 
 impl pallet_bandwidth::Config for Test {
 	type Dispatcher = Ismp;
+}
+
+impl pallet_state_coprocessor::Config for Test {
+	type IsmpHost = Ismp;
+	type Mmr = Mmr;
+	type BandwidthGate = Bandwidth;
 }
 
 parameter_types! {
@@ -608,8 +615,9 @@ impl ConsensusClient for MockConsensusClient {
 
 	fn state_machine(&self, _id: StateMachine) -> Result<Box<dyn StateMachineClient>, IsmpError> {
 		let state_machine: Box<dyn StateMachineClient> = match _id {
-			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) =>
-				Box::new(SubstrateStateMachine::<Test>::default()),
+			StateMachine::Kusama(2000) | StateMachine::Kusama(2001) => {
+				Box::new(SubstrateStateMachine::<Test>::default())
+			},
 			_ => Box::new(MockStateMachine),
 		};
 		Ok(state_machine)

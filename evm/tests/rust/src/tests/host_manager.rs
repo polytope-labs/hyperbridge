@@ -3,20 +3,12 @@ use alloy_primitives::{Address, U256};
 use alloy_sol_types::{SolCall, SolValue};
 use ismp::{host::StateMachine, router};
 use ismp_abi::evm_host::EvmHost::PostRequest as EvmPostRequest;
-use pallet_ismp_host_executive::{withdrawal::WithdrawalParams, EvmHostParamsAbi};
+use pallet_ismp_host_executive::{encode_host_params, EvmHostParamsAbi, WithdrawalParams};
 use polkadot_sdk::*;
 use primitive_types::{H160, U256 as SubstrateU256};
 
 alloy_sol_macro::sol! {
-	struct PerByteFee {
-		bytes32 stateIdHash;
-		uint256 perByteFee;
-	}
-
 	struct HostParams {
-		uint256 defaultTimeout;
-		uint256 defaultPerByteFee;
-		uint256 stateCommitmentFee;
 		address feeToken;
 		address admin;
 		address handler;
@@ -26,7 +18,6 @@ alloy_sol_macro::sol! {
 		uint256 challengePeriod;
 		address consensusClient;
 		uint256[] stateMachines;
-		PerByteFee[] perByteFees;
 		bytes hyperbridge;
 	}
 
@@ -88,11 +79,13 @@ fn test_host_manager_withdraw() {
 	env.call(env.fee_token, mintCall { to: env.host, amount: amount_to_mint }.abi_encode());
 	assert_eq!(host_balance(&mut env), amount_to_mint);
 
-	// Build a withdraw request (body = [0] + abi.encode(WithdrawParams))
+	// Build a withdraw request (body = [0] + abi.encode(WithdrawParams)).
+	// Withdraw the fee token (non-zero `token`) — the zero address would be
+	// the native-ETH path which this test isn't exercising.
 	let params = WithdrawalParams {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: SubstrateU256::from(500_000_000_000_000_000_000u128),
-		native: false,
+		token: H160::from_slice(env.fee_token.as_slice()),
 	};
 
 	let post = router::PostRequest {
@@ -102,7 +95,7 @@ fn test_host_manager_withdraw() {
 		from: env.sender.as_slice().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		body: params.abi_encode(),
+		body: params.abi_encode().expect("20-byte beneficiary"),
 	};
 	let evm_request: EvmPostRequest = post.into();
 
@@ -123,7 +116,7 @@ fn test_host_manager_unauthorized_request() {
 	let params = WithdrawalParams {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: SubstrateU256::from(500_000_000_000_000_000_000u128),
-		native: false,
+		token: H160::zero(),
 	};
 
 	// Wrong source — not kusama-2000, expected to revert with UnauthorizedAction()
@@ -134,7 +127,7 @@ fn test_host_manager_unauthorized_request() {
 		from: env.sender.as_slice().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		body: params.abi_encode(),
+		body: params.abi_encode().expect("20-byte beneficiary"),
 	};
 	let evm_request: EvmPostRequest = post.into();
 
@@ -156,7 +149,7 @@ fn test_host_manager_insufficient_balance() {
 	let params = WithdrawalParams {
 		beneficiary_address: H160::random().as_bytes().to_vec(),
 		amount: SubstrateU256::from(500_000_000_000_000_000_000u128),
-		native: false,
+		token: H160::from_slice(env.fee_token.as_slice()),
 	};
 
 	let post = router::PostRequest {
@@ -166,7 +159,7 @@ fn test_host_manager_insufficient_balance() {
 		from: env.sender.as_slice().to_vec(),
 		to: vec![],
 		timeout_timestamp: 100,
-		body: params.abi_encode(),
+		body: params.abi_encode().expect("20-byte beneficiary"),
 	};
 	let evm_request: EvmPostRequest = post.into();
 
@@ -187,9 +180,6 @@ fn test_host_manager_set_host_params() {
 	let new_challenge_period = U256::from(5_000_000u128);
 
 	let params = EvmHostParamsAbi {
-		defaultTimeout: value.defaultTimeout,
-		defaultPerByteFee: value.defaultPerByteFee,
-		stateCommitmentFee: value.stateCommitmentFee,
 		feeToken: value.feeToken,
 		admin: value.admin,
 		handler: value.handler,
@@ -199,11 +189,10 @@ fn test_host_manager_set_host_params() {
 		challengePeriod: new_challenge_period,
 		consensusClient: value.consensusClient,
 		stateMachines: value.stateMachines.clone(),
-		perByteFees: vec![],
 		hyperbridge: value.hyperbridge.to_vec().into(),
 	};
-	// EvmHostParamsAbi::encode prepends action byte (1 = SetHostParam)
-	let body = params.encode();
+	// encode_host_params prepends action byte (1 = SetHostParam)
+	let body = encode_host_params(&params);
 
 	let post = router::PostRequest {
 		source: StateMachine::Kusama(2000),

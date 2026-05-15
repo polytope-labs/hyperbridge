@@ -21,7 +21,7 @@ import {TestHost} from "./TestHost.sol";
 import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
-import {HostParams, PerByteFee} from "../../src/core/EvmHost.sol";
+import {HostParams} from "../../src/core/EvmHost.sol";
 import {HostManagerParams, HostManager} from "../../src/core/HostManager.sol";
 import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 import {
@@ -58,19 +58,14 @@ contract HandlerV2Test is Test {
         manager = new HostManager(gParams);
         uint256[] memory stateMachines = new uint256[](1);
         stateMachines[0] = paraId;
-        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: address(0),
-            perByteFees: perByteFees,
             admin: address(this),
             hostManager: address(manager),
             handler: address(handler),
-            defaultTimeout: 0,
             unStakingPeriod: 21 * (60 * 60 * 24),
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            defaultPerByteFee: 1000000000000000000,
-            stateCommitmentFee: 10 * 1e18,
             feeToken: address(feeToken),
             hyperbridge: StateMachine.kusama(paraId),
             stateMachines: stateMachines

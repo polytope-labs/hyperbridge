@@ -130,7 +130,6 @@ contract EvmHostTest is BaseTest {
         vm.prank(host.hostParams().handler);
         host.setFrozenState(FrozenStatus.None);
 
-        feeToken.mint(address(this), 32 * host.perByteFee(StateMachine.evm(97)));
         bytes32 commitment = host.dispatch(
             DispatchPost({
                 body: abi.encodePacked(bytes32(0)),
@@ -175,42 +174,6 @@ contract EvmHostTest is BaseTest {
         host.fundRequest(commitment, 10 * 1e18);
     }
 
-    function testMinimumMessagingFee() public {
-        bytes memory hyperbridge = host.host();
-        // dispatch request
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IERC20Errors.ERC20InsufficientBalance.selector,
-                address(this),
-                0,
-                host.perByteFee(StateMachine.evm(97)) * 32
-            )
-        );
-        host.dispatch(
-            DispatchPost({
-                body: new bytes(0), // empty body
-                payer: msg.sender,
-                fee: 0,
-                dest: hyperbridge,
-                timeout: 0,
-                to: abi.encode(address(this))
-            })
-        );
-
-        feeToken.mint(address(this), host.perByteFee(StateMachine.evm(97)) * 32);
-        bytes32 commitment = host.dispatch(
-            DispatchPost({
-                body: new bytes(0), // empty body
-                payer: msg.sender,
-                fee: 0,
-                dest: hyperbridge,
-                timeout: 0,
-                to: abi.encode(address(this))
-            })
-        );
-        // charges minimum fee
-        assert(host.requestCommitments(commitment).sender == msg.sender);
-    }
 
     function testCanAddwhitelistedStateMachines() public {
         HostParams memory params = host.hostParams();

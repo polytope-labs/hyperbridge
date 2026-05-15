@@ -37,7 +37,6 @@ import {FeeToken} from "../tests/foundry/FeeToken.sol";
 import {CallDispatcher} from "../src/utils/CallDispatcher.sol";
 import {BaseScript} from "./BaseScript.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IntentGateway, Params} from "../src/apps/IntentGateway.sol";
 import {UniV3UniswapV2Wrapper} from "../src/utils/uniswapv2/UniV3UniswapV2Wrapper.sol";
 
 bytes32 constant MINTER_ROLE = keccak256("MINTER ROLE");
@@ -116,19 +115,14 @@ contract DeployScript is BaseScript {
         stateMachines[0] = paraId;
 
         // EvmHost
-        PerByteFee[] memory perByteFees = new PerByteFee[](0);
         HostParams memory params = HostParams({
             uniswapV2: uniswapV2,
-            perByteFees: perByteFees,
             admin: admin,
             hostManager: address(manager),
             handler: address(handler),
-            defaultTimeout: 2 * 60 * 60,
             unStakingPeriod: 21 * (60 * 60 * 24),
             challengePeriod: 0,
             consensusClient: address(consensusClient),
-            defaultPerByteFee: 3 * (10 ** (decimals - 3)), // $0.0003/byte
-            stateCommitmentFee: 1 * (10 ** decimals), // $1
             hyperbridge: hyperbridge,
             feeToken: feeToken,
             stateMachines: stateMachines
@@ -149,9 +143,6 @@ contract DeployScript is BaseScript {
         // ============= Deploy applications =============
         CallDispatcher callDispatcher = new CallDispatcher{salt: salt}();
 
-        IntentGateway intentGateway = new IntentGateway{salt: salt}(admin);
-        intentGateway.setParams(Params({host: hostAddress, dispatcher: address(callDispatcher)}));
-
         if (!isMainnet) {
             config.set("TOKEN_FAUCET", address(faucet));
         }
@@ -161,7 +152,6 @@ contract DeployScript is BaseScript {
         config.set("HANDLER", address(handler));
         config.set("FEE_TOKEN", feeToken);
         config.set("CALL_DISPATCHER", address(callDispatcher));
-        config.set("INTENT_GATEWAY", address(intentGateway));
     }
 
     function initHost(HostParams memory params) public returns (address) {

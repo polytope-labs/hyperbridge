@@ -31,11 +31,6 @@ contract TestDispatcher is HyperApp {
     }
 
     function dispatchPostRequest(PostRequest memory request) external returns (bytes32) {
-        uint256 perByteFee = IHost(_host).perByteFee(request.dest);
-        address feeToken = IHost(_host).feeToken();
-        uint256 length = 32 > request.body.length ? 32 : request.body.length;
-        uint256 fee = perByteFee * length;
-        IERC20(feeToken).transferFrom(msg.sender, address(this), fee);
         DispatchPost memory post = DispatchPost({
             body: request.body,
             dest: request.dest,

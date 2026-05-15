@@ -35,26 +35,8 @@ import {StateMachine} from "@hyperbridge/core/libraries/StateMachine.sol";
 
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-// Per-byte-fee for chains
-struct PerByteFee {
-    // keccak256 hash of the state machine id
-    bytes32 stateIdHash;
-    // Per byte fee for this destination chain
-    uint256 perByteFee;
-}
-
 // The EvmHost protocol parameters
 struct HostParams {
-    // The default timeout in seconds for messages. If messages are dispatched
-    // with a timeout value lower than this this value will be used instead
-    uint256 defaultTimeout;
-    // The default per byte fee.
-    uint256 defaultPerByteFee;
-    // The cost for applications to access the hyperbridge state commitment.
-    // They might do so because the hyperbridge state contains the verified state commitments
-    // for all chains and they want to directly read the state of these chains state bypassing
-    // the ISMP protocol entirely.
-    uint256 stateCommitmentFee;
     // The fee token contract address. This will typically be DAI.
     // but we allow it to be configurable to prevent future regrets.
     address feeToken;
@@ -77,9 +59,6 @@ struct HostParams {
     address consensusClient;
     // State machines whose state commitments are accepted
     uint256[] stateMachines;
-    // The cost of cross-chain requests charged in the feeToken, per byte.
-    // Different destination chains can have different per byte fees.
-    PerByteFee[] perByteFees;
     // The state machine identifier for hyperbridge
     bytes hyperbridge;
 }
@@ -111,7 +90,7 @@ struct WithdrawParams {
     // the amount to be disbursed
     uint256 amount;
     // Withdraw the native token?
-    bool native;
+    address token;
 }
 
 /**
@@ -130,6 +109,8 @@ struct WithdrawParams {
 abstract contract EvmHost is IHost, IHostManager, Context {
     using Message for PostRequest;
     using Message for GetRequest;
+    using Message for GetResponse;
+    using SafeERC20 for IERC20;
 
     // commitment of all outgoing requests and amount put up for relayers.
     mapping(bytes32 => FeeMetadata) private _requestCommitments;
@@ -157,10 +138,6 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     // useful for rewarding fishermen on hyperbridge
     // (stateMachineId => (blockHeight => fisherman))
     mapping(uint256 => mapping(uint256 => address)) private _vetoes;
-
-    // Mapping of destination stateIds to their perByteFee
-    // (keccak256(stateMachineId) => perByteFee)
-    mapping(bytes32 => uint256) private _perByteFees;
 
     // Parameters for the host
     HostParams private _hostParams;
@@ -301,16 +278,8 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         uint256 amount,
         // The beneficiary address for this withdrawal
         address beneficiary,
-        // Flag for if the native token was withdrawn
-        bool native
-    );
-
-    // An application has accessed the Hyperbridge state commitment
-    event StateCommitmentRead(
-        // the application responsible
-        address indexed caller,
-        // The fee that was paid
-        uint256 fee
+        // The token that was withdrawn
+        address token
     );
 
     // Account is unauthorized to perform requested action
@@ -454,29 +423,10 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     }
 
     /**
-     * @return the per-byte fee for outgoing requests/responses.
-     */
-    function perByteFee(bytes memory stateId) public view returns (uint256) {
-        uint256 overridden = _perByteFees[keccak256(stateId)];
-        if (overridden == 0) {
-            return _hostParams.defaultPerByteFee;
-        }
-        return overridden;
-    }
-
-    /**
      * @return the state machine identifier for the connected hyperbridge instance
      */
     function hyperbridge() external view returns (bytes memory) {
         return _hostParams.hyperbridge;
-    }
-
-    /**
-     * @dev Returns the fee required for 3rd party applications to access hyperbridge state commitments.
-     * @return the `stateCommitmentFee`
-     */
-    function stateCommitmentFee() external view returns (uint256) {
-        return _hostParams.stateCommitmentFee;
     }
 
     /**
@@ -549,13 +499,6 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     }
 
     /**
-     * @notice Charges the stateCommitmentFee to 3rd party applications.
-     * If native tokens are provided, will attempt to swap them for the stateCommitmentFee.
-     * If not enough native tokens are supplied, will revert.
-     *
-     * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IHost.feeToken.
-     *
      * @param height - state machine height
      * @return the state commitment at `height`
      */
@@ -564,23 +507,6 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         payable
         returns (StateCommitment memory)
     {
-        address caller = _msgSender();
-        if (caller != _hostParams.handler) {
-            uint256 fee = _hostParams.stateCommitmentFee;
-            if (msg.value > 0) {
-                address[] memory path = new address[](2);
-                address uniswapV2 = _hostParams.uniswapV2;
-                path[0] = IUniswapV2Router02(uniswapV2).WETH();
-                path[1] = feeToken();
-                IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                    fee, path, address(this), block.timestamp
-                );
-            } else {
-                SafeERC20.safeTransferFrom(IERC20(feeToken()), caller, address(this), fee);
-            }
-            emit StateCommitmentRead({caller: caller, fee: fee});
-        }
-
         return _stateCommitments[height.stateMachineId][height.height];
     }
 
@@ -658,10 +584,6 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         // and don't want to store a temp variable for the old params
         emit HostParamsUpdated({oldParams: _hostParams, newParams: params});
 
-        // update all but .perByteFees, sigh solidity
-        _hostParams.defaultTimeout = params.defaultTimeout;
-        _hostParams.defaultPerByteFee = params.defaultPerByteFee;
-        _hostParams.stateCommitmentFee = params.stateCommitmentFee;
         _hostParams.feeToken = params.feeToken;
         _hostParams.admin = params.admin;
         _hostParams.handler = params.handler;
@@ -672,14 +594,6 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         _hostParams.consensusClient = params.consensusClient;
         _hostParams.stateMachines = params.stateMachines;
         _hostParams.hyperbridge = params.hyperbridge;
-        // Error: Unimplemented feature: Copying of type struct PerByteFee memory[] memory to storage not yet supported.
-        // _hostParams.perByteFees = params.perByteFees;
-
-        // Add the new per byte fees
-        uint256 len = params.perByteFees.length;
-        for (uint256 i = 0; i < len; ++i) {
-            _perByteFees[params.perByteFees[i].stateIdHash] = params.perByteFees[i].perByteFee;
-        }
 
         // add whitelisted state machines
         for (uint256 i = 0; i < stateMachinesLen; ++i) {
@@ -695,14 +609,14 @@ abstract contract EvmHost is IHost, IHostManager, Context {
      * @param params, the parameters for withdrawal
      */
     function withdraw(WithdrawParams memory params) external restrict(_hostParams.hostManager) {
-        if (params.native) {
+        if (params.token == address(0)) {
             // this is safe because re-entrancy is mitigated before dispatching requests
             (bool sent,) = params.beneficiary.call{value: params.amount}("");
             if (!sent) revert WithdrawalFailed();
         } else {
-            SafeERC20.safeTransfer(IERC20(feeToken()), params.beneficiary, params.amount);
+            IERC20(params.token).safeTransfer(params.beneficiary, params.amount);
         }
-        emit HostWithdrawal({beneficiary: params.beneficiary, amount: params.amount, native: params.native});
+        emit HostWithdrawal({beneficiary: params.beneficiary, amount: params.amount, token: params.token});
     }
 
     /**
@@ -726,7 +640,8 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         _latestStateMachineHeight[height.stateMachineId] = height.height;
 
         emit StateMachineUpdated({
-            stateMachineId: this.stateMachineId(_hostParams.hyperbridge, height.stateMachineId), height: height.height
+            stateMachineId: this.stateMachineId(_hostParams.hyperbridge, height.stateMachineId), 
+            height: height.height
         });
     }
 
@@ -842,8 +757,10 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     function dispatchIncoming(GetResponse memory response, address relayer) external restrict(_hostParams.handler) {
         // replay protection
         bytes32 commitment = response.request.hash();
-        // don't commit the full response object, it's unused.
-        _responseReceipts[commitment] = ResponseReceipt({relayer: relayer, responseCommitment: bytes32(0)});
+        _responseReceipts[commitment] = ResponseReceipt({
+            relayer: relayer,
+            responseCommitment: response.hash()
+        });
 
         (bool success,) = _bytesToAddress(response.request.from)
             .call(abi.encodeWithSelector(IApp.onGetResponse.selector, IncomingGetResponse(response, relayer)));
@@ -854,6 +771,11 @@ abstract contract EvmHost is IHost, IHostManager, Context {
             return;
         }
 
+        // reward the relayer fee
+        uint256 fee = _requestCommitments[commitment].fee;
+        if (fee != 0) {
+            IERC20(feeToken()).safeTransfer(relayer, fee);
+        }
         emit GetRequestHandled({commitment: commitment, relayer: relayer});
     }
 
@@ -868,7 +790,8 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     {
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success,) = _bytesToAddress(request.from).call(abi.encodeWithSelector(IApp.onGetTimeout.selector, request));
+        (bool success,) = _bytesToAddress(request.from)
+            .call(abi.encodeWithSelector(IApp.onGetTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -878,7 +801,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
 
         if (meta.fee != 0) {
             // refund relayer fee
-            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
+            IERC20(feeToken()).safeTransfer(meta.sender, meta.fee);
         }
         emit GetRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
     }
@@ -891,11 +814,10 @@ abstract contract EvmHost is IHost, IHostManager, Context {
         external
         restrict(_hostParams.handler)
     {
-        address origin = _bytesToAddress(request.from);
-
         // replay protection
         delete _requestCommitments[commitment];
-        (bool success,) = address(origin).call(abi.encodeWithSelector(IApp.onPostRequestTimeout.selector, request));
+        (bool success,) = _bytesToAddress(request.from)
+            .call(abi.encodeWithSelector(IApp.onPostRequestTimeout.selector, request));
 
         if (!success) {
             // so that it can be retried
@@ -905,7 +827,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
 
         if (meta.fee != 0) {
             // refund relayer fee
-            SafeERC20.safeTransfer(IERC20(feeToken()), meta.sender, meta.fee);
+            IERC20(feeToken()).safeTransfer(meta.sender, meta.fee);
         }
         emit PostRequestTimeoutHandled({commitment: commitment, dest: string(request.dest)});
     }
@@ -913,38 +835,31 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     /**
      * @dev Dispatch a POST request to Hyperbridge
      *
-     * @notice Payment for the request can be made with either the native token or the IHost.feeToken.
+     * @notice Payment for the request can be made with either the native token or the feeToken.
      * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
      * Will revert if enough native tokens are not provided.
      *
      * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IHost.feeToken.
-     *
-     * A minimum fee of one word size (32) * _params.perByteFee is enforced, even for empty payloads.
+     * the feeToken.
      *
      * @param post - post request
      * @return commitment - the request commitment
      */
     function dispatch(DispatchPost memory post) external payable notFrozen returns (bytes32 commitment) {
-        // minimum charge is the size of one word
-        uint256 length = 32 > post.body.length ? 32 : post.body.length;
-        uint256 fee = (perByteFee(post.dest) * length) + post.fee;
-
         if (msg.value > 0) {
             address[] memory path = new address[](2);
             address uniswapV2 = _hostParams.uniswapV2;
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                fee, path, address(this), block.timestamp
+                post.fee, path, address(this), block.timestamp
             );
-        } else {
-            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
+        } else if (post.fee > 0) {
+            IERC20(feeToken()).safeTransferFrom(_msgSender(), address(this), post.fee);
         }
 
         // adjust the timeout
-        uint256 timeout = _hostParams.defaultTimeout > post.timeout ? _hostParams.defaultTimeout : post.timeout;
-        uint64 timeoutTimestamp = post.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
+        uint64 timeoutTimestamp = post.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(post.timeout);
         PostRequest memory request = PostRequest({
             source: host(),
             dest: post.dest,
@@ -973,41 +888,30 @@ abstract contract EvmHost is IHost, IHostManager, Context {
     /**
      * @dev Dispatch a GET request to Hyperbridge
      *
-     * @notice Payment for the request can be made with either the native token or the IIsmpHost.feeToken.
+     * @notice Payment for the request can be made with either the native token or the feeToken.
      * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
      * Will revert if enough native tokens are not provided.
      *
      * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IIsmpHost.feeToken.
-     *
-     * A minimum fee of one word size (32) * _params.perByteFee is enforced, to mitigate spam.
+     * the feeToken.
      *
      * @param get - get request
      * @return commitment - the request commitment
      */
     function dispatch(DispatchGet memory get) external payable notFrozen returns (bytes32 commitment) {
-        // minimum charge is the size of one word
-        uint256 pbf = perByteFee(host());
-        uint256 minimumFee = 32 * pbf;
-        uint256 totalFee = get.fee + (pbf * get.context.length);
-        uint256 fee = minimumFee > totalFee ? minimumFee : totalFee;
-
         if (msg.value > 0) {
             address[] memory path = new address[](2);
             address uniswapV2 = _hostParams.uniswapV2;
             path[0] = IUniswapV2Router02(uniswapV2).WETH();
             path[1] = feeToken();
             IUniswapV2Router02(uniswapV2).swapETHForExactTokens{value: msg.value}(
-                fee, path, address(this), block.timestamp
+                get.fee, path, address(this), block.timestamp
             );
-        } else {
-            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), fee);
+        } else if (get.fee > 0) {
+            IERC20(feeToken()).safeTransferFrom(_msgSender(), address(this), get.fee);
         }
 
-        // adjust the timeout
-        uint256 timeout = _hostParams.defaultTimeout > get.timeout ? _hostParams.defaultTimeout : get.timeout;
-        uint64 timeoutTimestamp = get.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(timeout);
-
+        uint64 timeoutTimestamp = get.timeout == 0 ? 0 : uint64(block.timestamp) + uint64(get.timeout);
         GetRequest memory request = GetRequest({
             source: host(),
             dest: get.dest,
@@ -1021,7 +925,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
 
         // make the commitment
         commitment = request.hash();
-        _requestCommitments[commitment] = FeeMetadata({sender: msg.sender, fee: fee});
+        _requestCommitments[commitment] = FeeMetadata({sender: _msgSender(), fee: get.fee});
         emit GetRequestEvent({
             source: string(request.source),
             dest: string(request.dest),
@@ -1031,7 +935,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
             height: request.height,
             context: request.context,
             timeoutTimestamp: request.timeoutTimestamp,
-            fee: fee
+            fee: get.fee
         });
     }
 
@@ -1040,18 +944,18 @@ abstract contract EvmHost is IHost, IHostManager, Context {
      * This is provided for use only on pending requests, such that when they timeout,
      * the user can recover the entire relayer fee.
      *
-     * @notice Payment can be made with either the native token or the IIsmpHost.feeToken.
+     * @notice Payment can be made with either the native token or the feeToken.
      * If native tokens are supplied, it will perform a swap under the hood using the local uniswap router.
      * Will revert if enough native tokens are not provided.
      *
      * If no native tokens are provided then it will try to collect payment from the calling contract in
-     * the IIsmpHost.feeToken.
+     * the feeToken.
      *
      * If called on an already delivered request, these funds will be seen as a donation to the hyperbridge protocol.
      * @param commitment - The request commitment
-     * @param amount - The amount provided in `IIsmpHost.feeToken()`
+     * @param amount - The amount provided in `feeToken()`
      */
-    function fundRequest(bytes32 commitment, uint256 amount) external payable {
+    function fundRequest(bytes32 commitment, uint256 amount) external payable notFrozen {
         if (msg.value > 0) {
             address[] memory path = new address[](2);
             address uniswapV2 = _hostParams.uniswapV2;
@@ -1061,7 +965,7 @@ abstract contract EvmHost is IHost, IHostManager, Context {
                 amount, path, address(this), block.timestamp
             );
         } else {
-            SafeERC20.safeTransferFrom(IERC20(feeToken()), _msgSender(), address(this), amount);
+            IERC20(feeToken()).safeTransferFrom(_msgSender(), address(this), amount);
         }
 
         FeeMetadata memory metadata = _requestCommitments[commitment];

@@ -275,10 +275,10 @@ impl TransactionPayment {
 			.await?;
 
 		let highest_request_delivery_height =
-			request_entries.get(request_entries.len() - 1).map(|data| data.height as u64);
+			request_entries.last().map(|data| data.height as u64);
 
 		let highest_response_delivery_height =
-			response_entries.get(response_entries.len() - 1).map(|data| data.height as u64);
+			response_entries.last().map(|data| data.height as u64);
 
 		let dest_height = std::cmp::max(
 			highest_request_delivery_height.unwrap_or_default(),

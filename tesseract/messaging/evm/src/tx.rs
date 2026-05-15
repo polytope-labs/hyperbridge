@@ -22,9 +22,9 @@ use ismp::{
 	router::{Request, RequestResponse},
 };
 use ismp_abi::{
-	evm_host::PostRequestHandled,
+	evm_host::{NewEpoch, PostRequestHandled},
 	handler::handler_v2::{
-		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, Proof, StateMachineHeight,
+		HandlerV2Instance, PostRequestLeaf, PostRequestMessage, Proof, StateMachineHeight,
 	},
 };
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};

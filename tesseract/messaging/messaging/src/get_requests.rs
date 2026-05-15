@@ -1,7 +1,4 @@
-use std::{
-	collections::{BTreeSet, HashMap},
-	sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::anyhow;
 use futures::StreamExt;
@@ -134,7 +131,7 @@ pub async fn process_get_request_events<
 
 				tracing::trace!(target: crate::LOG_TARGET, "Handling {} get_requests for the chain pair {}:{state_machine}", requests.len(), state_machine_update.state_machine_id.state_id);
 				let msg = GetRequestsWithProof {
-					requests: requests.into_iter().collect::<BTreeSet<_>>(),
+					requests,
 					source: source_proof,
 					response: storage_proof,
 					address: source.address(),

@@ -18,7 +18,6 @@ import "forge-std/Test.sol";
 
 import {TestConsensusClientV2} from "./TestConsensusClientV2.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "../../src/utils/PingModule.sol";
 import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {FeeToken} from "./FeeToken.sol";
 import {MockUSCDC} from "./MockUSDC.sol";
@@ -46,7 +45,6 @@ contract HandlerV2Test is Test {
     TestConsensusClientV2 internal consensusClient;
     TestHost internal host;
     HandlerV2 internal handler;
-    PingModule internal testModule;
     FeeToken internal feeToken;
     HostManager internal manager;
 
@@ -79,17 +77,10 @@ contract HandlerV2Test is Test {
         });
         host = new TestHost(params);
 
-        testModule = new PingModule(address(this));
-        uint256 oldTime = block.timestamp;
-        vm.warp(100_000);
-        testModule.setIsmpHost(address(host), address(0));
-        vm.warp(oldTime);
-
         manager.setIsmpHost(address(host));
 
         feeToken.superApprove(address(tx.origin), address(host));
         feeToken.superApprove(address(this), address(host));
-        feeToken.superApprove(address(testModule), address(host));
 
         vm.chainId(1);
     }

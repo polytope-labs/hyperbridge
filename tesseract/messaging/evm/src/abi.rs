@@ -39,4 +39,4 @@ pub mod erc_20 {
 	pub use super::Erc20::*;
 }
 
-pub use ismp_abi::{ecdsa_beefy::*, evm_host::*, handler::*, ping_module::*};
+pub use ismp_abi::{ecdsa_beefy::*, evm_host::*, handler::*};

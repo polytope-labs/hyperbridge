@@ -17,7 +17,6 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {TestConsensusClient} from "./TestConsensusClient.sol";
 import {TestHost} from "./TestHost.sol";
-import {PingModule} from "../../src/utils/PingModule.sol";
 import {HandlerV2} from "../../src/core/HandlerV2.sol";
 import {CallDispatcher} from "../../src/utils/CallDispatcher.sol";
 import {FeeToken} from "./FeeToken.sol";
@@ -43,7 +42,6 @@ contract MainnetForkBaseTest is Test {
     TestConsensusClient internal consensusClient;
     TestHost internal host;
     HandlerV2 internal handler;
-    PingModule internal testModule;
     HostManager internal manager;
     IERC20 internal usdc;
     IERC20 internal dai;
@@ -98,12 +96,7 @@ contract MainnetForkBaseTest is Test {
 
         host = new TestHost(params);
 
-        testModule = new PingModule(address(this));
-        testModule.setIsmpHost(address(host), address(0));
         manager.setIsmpHost(address(host));
     }
 
-    function module() public view returns (address) {
-        return address(testModule);
-    }
 }

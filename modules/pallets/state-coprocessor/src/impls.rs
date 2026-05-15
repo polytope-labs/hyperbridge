@@ -66,6 +66,7 @@ where
 		// 4. insert GetResponse into mmr and request receipts
 		// 5. emit Response events
 		let mut checked = vec![];
+		let mut seen = alloc::collections::BTreeSet::new();
 		let host = <<T as Config>::IsmpHost>::default();
 		for req in requests.iter() {
 			let full = Request::Get(req.clone());
@@ -80,9 +81,20 @@ where
 				Err(Error::RequestProofMetadataNotValid { meta: full.clone().into() })?
 			}
 
+			// Proof must come from the requested chain
+			if full.dest_chain() != response.height.id.state_id {
+				Err(Error::RequestProofMetadataNotValid { meta: full.clone().into() })?
+			}
+
 			// This request has already been previously processed
 			if host.request_receipt(&full).is_some() {
-				Err(Error::DuplicateResponse { meta: full.into() })?
+				Err(Error::DuplicateResponse { meta: full.clone().into() })?
+			}
+
+			// Reject duplicate requests within the same batch
+			let commitment = hash_request::<<T as Config>::IsmpHost>(&full);
+			if !seen.insert(commitment) {
+				Err(Error::DuplicateRequest { meta: full.into() })?
 			}
 
 			checked.push(req.clone());

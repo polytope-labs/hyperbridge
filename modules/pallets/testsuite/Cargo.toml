@@ -34,6 +34,7 @@ pallet-ismp = { workspace = true, default-features = true, features = [
 ] }
 pallet-hyperbridge = { workspace = true, default-features = true }
 pallet-bandwidth = { workspace = true, default-features = true }
+pallet-state-coprocessor = { workspace = true, default-features = true }
 ethereum-triedb = { workspace = true, default-features = true }
 substrate-state-machine = { workspace = true, default-features = true }
 pallet-ismp-relayer = { workspace = true, default-features = true }

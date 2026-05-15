@@ -15435,6 +15435,7 @@ dependencies = [
  "pallet-ismp-rpc",
  "pallet-messaging-incentives",
  "pallet-mmr-tree",
+ "pallet-state-coprocessor",
  "parity-scale-codec",
  "pharos-primitives",
  "pharos-prover",

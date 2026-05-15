@@ -22,6 +22,7 @@ extern crate alloc;
 pub mod error;
 pub mod state_proof;
 
+use core::cmp::Ordering;
 use error::Error;
 use geth_primitives::Header;
 use ismp::messaging::Keccak256;
@@ -35,9 +36,11 @@ pub const PHAROS_BLS_DST: &str = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 
 /// Verifies a Pharos block proof and updates the verifier state.
 ///
-/// Epoch transitions are determined by the presence of a `validator_set_proof`:
-/// if present, the epoch increments by 1. The relayer walks epoch-by-epoch,
-/// so each validator set proof corresponds to exactly one epoch transition.
+/// The proven epoch (from a storage proof of `currentEpoch` against the header's
+/// state root) drives rotation: same epoch keeps the trusted set, an increment of
+/// one rotates to the set proved in `validator_set_proof`, anything else is
+/// rejected. The BLS aggregate signature is verified against the post-rotation
+/// set because Pharos signs the boundary block with the new validators.
 pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 	trusted_state: VerifierState,
 	update: VerifierStateUpdate,
@@ -52,16 +55,6 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		});
 	}
 
-	verify_validator_membership(
-		&trusted_state.current_validator_set,
-		&update.block_proof.participant_keys,
-	)?;
-
-	verify_stake_threshold(
-		&trusted_state.current_validator_set,
-		&update.block_proof.participant_keys,
-	)?;
-
 	let computed_hash = Header::from(&update.header).hash::<H>();
 
 	if computed_hash != update.block_proof.block_proof_hash {
@@ -71,37 +64,75 @@ pub fn verify_pharos_block<C: Config, H: Keccak256 + Send + Sync>(
 		});
 	}
 
-	verify_bls_signature(
-		&update.block_proof.participant_keys,
-		&update.block_proof,
-		update.block_proof.block_proof_hash,
+	let observed_epoch = state_proof::verify_current_epoch_proof(
+		update.header.state_root,
+		&update.current_epoch_proof,
 	)?;
 
-	// Epoch transition is determined by presence of validator_set_proof
-	let new_state = if let Some(validator_set_proof) = update.validator_set_proof {
-		let new_epoch = trusted_state.current_epoch + 1;
+	let trusted_epoch = trusted_state.current_epoch;
 
-		let new_validator_set = state_proof::verify_validator_set_proof::<H>(
-			update.header.state_root,
-			&validator_set_proof,
-			new_epoch,
-		)?;
+	match observed_epoch.cmp(&trusted_epoch) {
+		Ordering::Less =>
+			Err(Error::EpochRegressed { trusted: trusted_epoch, observed: observed_epoch }),
+		Ordering::Equal => {
+			if update.validator_set_proof.is_some() {
+				return Err(Error::UnexpectedValidatorSetProof {
+					block_number: update_block_number,
+				});
+			}
 
-		VerifierState {
-			current_validator_set: new_validator_set,
-			finalized_block_number: update_block_number,
-			finalized_hash: computed_hash,
-			current_epoch: new_epoch,
-		}
-	} else {
-		VerifierState {
-			finalized_block_number: update_block_number,
-			finalized_hash: computed_hash,
-			..trusted_state
-		}
-	};
+			verify_block_signature(
+				&trusted_state.current_validator_set,
+				&update.block_proof,
+				computed_hash,
+			)?;
 
-	Ok(new_state)
+			Ok(VerifierState {
+				finalized_block_number: update_block_number,
+				finalized_hash: computed_hash,
+				..trusted_state
+			})
+		},
+		Ordering::Greater => {
+			if observed_epoch != trusted_epoch + 1 {
+				return Err(Error::EpochSkipped {
+					trusted: trusted_epoch,
+					observed: observed_epoch,
+				});
+			}
+
+			let validator_set_proof = update
+				.validator_set_proof
+				.ok_or(Error::MissingValidatorSetProof { block_number: update_block_number })?;
+
+			let new_validator_set = state_proof::verify_validator_set_proof::<H>(
+				update.header.state_root,
+				&validator_set_proof,
+				observed_epoch,
+			)?;
+
+			verify_block_signature(&new_validator_set, &update.block_proof, computed_hash)?;
+
+			Ok(VerifierState {
+				current_validator_set: new_validator_set,
+				finalized_block_number: update_block_number,
+				finalized_hash: computed_hash,
+				current_epoch: observed_epoch,
+			})
+		},
+	}
+}
+
+/// Verify that the block proof's signers are a supermajority of `validator_set`
+/// and that the aggregate BLS signature is valid for `block_proof_hash`.
+fn verify_block_signature(
+	validator_set: &ValidatorSet,
+	block_proof: &BlockProof,
+	block_proof_hash: H256,
+) -> Result<(), Error> {
+	verify_validator_membership(validator_set, &block_proof.participant_keys)?;
+	verify_stake_threshold(validator_set, &block_proof.participant_keys)?;
+	verify_bls_signature(&block_proof.participant_keys, block_proof, block_proof_hash)
 }
 
 /// Verify that all participating validators are members of the trusted validator set.

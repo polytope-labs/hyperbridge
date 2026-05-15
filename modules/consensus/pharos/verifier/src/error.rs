@@ -85,6 +85,24 @@ pub enum Error {
 		block_number: u64,
 	},
 
+	/// Proven epoch is lower than the trusted epoch
+	#[error("Epoch regressed: trusted {trusted}, observed {observed}")]
+	EpochRegressed {
+		/// The epoch the verifier currently trusts
+		trusted: u64,
+		/// The epoch proved by the update's slot-5 storage proof
+		observed: u64,
+	},
+
+	/// Proven epoch is more than one ahead of the trusted epoch
+	#[error("Epoch skip: trusted {trusted}, observed {observed}")]
+	EpochSkipped {
+		/// The epoch the verifier currently trusts
+		trusted: u64,
+		/// The epoch proved by the update's slot-5 storage proof
+		observed: u64,
+	},
+
 	/// Storage proof lookup failed
 	#[error("Storage proof lookup failed")]
 	StorageProofLookupFailed,

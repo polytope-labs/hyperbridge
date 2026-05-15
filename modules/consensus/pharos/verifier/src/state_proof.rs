@@ -31,9 +31,34 @@ use crate::error::Error;
 use alloc::{collections::BTreeMap, vec::Vec};
 use ismp::messaging::Keccak256;
 use pharos_primitives::{
-	spv, PharosProofNode, ValidatorInfo, ValidatorSet, ValidatorSetProof, STAKING_CONTRACT_ADDRESS,
+	spv, EpochProof, PharosProofNode, ValidatorInfo, ValidatorSet, ValidatorSetProof,
+	CURRENT_EPOCH_SLOT, STAKING_CONTRACT_ADDRESS,
 };
 use primitive_types::{H256, U256};
+
+/// Verify a storage proof of `currentEpoch` (slot 5) against `state_root` and
+/// return the proven epoch number.
+pub fn verify_current_epoch_proof(state_root: H256, proof: &EpochProof) -> Result<u64, Error> {
+	let layout = StakingContractLayout::default();
+	let slot_key = layout.raw_slot_key(CURRENT_EPOCH_SLOT);
+	let address: [u8; 20] = STAKING_CONTRACT_ADDRESS.0 .0;
+
+	if proof.value.len() > 32 {
+		return Err(Error::StorageValueTooLarge);
+	}
+
+	let mut padded = [0u8; 32];
+	padded[32 - proof.value.len()..].copy_from_slice(&proof.value);
+
+	spv::verify_proof(
+		&proof.proof,
+		&spv::build_storage_key(&address, &slot_key.0),
+		&padded,
+		&state_root.0,
+	)?;
+
+	Ok(decode_u256_from_storage(&proof.value)?.low_u64())
+}
 
 /// This function verifies that the provided validator set is correctly stored
 /// in the staking contract at the given block.

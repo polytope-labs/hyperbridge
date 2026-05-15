@@ -36,7 +36,7 @@ use ismp::{
 };
 use ismp_testsuite::{
 	check_challenge_period, check_client_expiry, create_relayer_signer,
-	missing_state_commitment_check, post_request_timeout_check, post_response_timeout_check,
+	missing_state_commitment_check, post_request_timeout_check,
 	write_outgoing_commitments,
 };
 use pallet_ismp::{
@@ -140,22 +140,6 @@ fn should_handle_post_request_timeouts_correctly() {
 		};
 		host.store_challenge_period(id, 0).unwrap();
 		post_request_timeout_check(&host).unwrap()
-	})
-}
-
-#[test]
-fn should_handle_post_response_timeouts_correctly() {
-	let mut ext = new_test_ext();
-
-	ext.execute_with(|| {
-		set_timestamp(None);
-		let host = Ismp::default();
-		let id = StateMachineId {
-			state_id: StateMachine::Evm(11155111),
-			consensus_state_id: MOCK_CONSENSUS_STATE_ID,
-		};
-		host.store_challenge_period(id, 1_000_000).unwrap();
-		post_response_timeout_check(&host).unwrap()
 	})
 }
 

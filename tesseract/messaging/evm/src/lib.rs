@@ -436,7 +436,6 @@ impl EvmClient {
 		use ismp::abi::EvmHostEvents;
 		use ismp_abi::evm_host::EvmHost::{
 			GetRequestEvent, GetRequestHandled, PostRequestEvent, PostRequestHandled,
-			PostResponseEvent, PostResponseHandled,
 			StateMachineUpdated as EvmStateMachineUpdated,
 		};
 
@@ -452,17 +451,11 @@ impl EvmClient {
 				if let Ok(event) = PostRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestEvent(event.data).try_into().ok();
 				}
-				if let Ok(event) = PostResponseEvent::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseEvent(event.data).try_into().ok();
-				}
 				if let Ok(event) = GetRequestEvent::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestEvent(event.data).try_into().ok();
 				}
 				if let Ok(event) = PostRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::PostRequestHandled(event.data).try_into().ok();
-				}
-				if let Ok(event) = PostResponseHandled::decode_log(&log.inner) {
-					return EvmHostEvents::PostResponseHandled(event.data).try_into().ok();
 				}
 				if let Ok(event) = GetRequestHandled::decode_log(&log.inner) {
 					return EvmHostEvents::GetRequestHandled(event.data).try_into().ok();

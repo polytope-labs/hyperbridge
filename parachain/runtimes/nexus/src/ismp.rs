@@ -358,22 +358,6 @@ impl IsmpModule for ProxyModule {
 		// Bandwidth gate. Mirrors the request path in `on_accept`: the chain
 		// and module that produced the response pay for the bytes they
 		// deliver.
-		if let Response::Post(post) = &response {
-			let bytes = core::cmp::max(post.response.len(), 32) as u32;
-			<pallet_bandwidth::Pallet<Runtime> as pallet_bandwidth::BandwidthGate>::try_consume(
-				&post.source_chain(),
-				&post.source_module(),
-				bytes,
-			)
-			.map_err(|err| {
-				anyhow!(
-					"bandwidth gate: {err} (source={:?}, from={:x?})",
-					post.source_chain(),
-					post.source_module(),
-				)
-			})?;
-		}
-
 		if response.dest_chain() != HostStateMachine::get() {
 			Ismp::dispatch_response(
 				response,
@@ -402,7 +386,6 @@ impl IsmpModule for ProxyModule {
 		let source = match &timeout {
 			Timeout::Request(Request::Post(post)) => &post.source,
 			Timeout::Request(Request::Get(get)) => &get.source,
-			Timeout::Response(res) => &res.source_chain(),
 		};
 
 		if *source != HostStateMachine::get() {

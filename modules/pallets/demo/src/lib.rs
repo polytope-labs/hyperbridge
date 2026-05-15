@@ -402,9 +402,6 @@ impl<T: Config> IsmpModule for IsmpModuleCallback<T> {
 
 	fn on_response(&self, response: Response) -> Result<Weight, anyhow::Error> {
 		match response {
-			Response::Post(_) => Err(IsmpError::Custom(
-				"Balance transfer protocol does not accept post responses".to_string(),
-			))?,
 			Response::Get(res) => Pallet::<T>::deposit_event(Event::<T>::GetResponse(
 				res.values.into_iter().map(|storage_value| storage_value.value).collect(),
 			)),

@@ -337,10 +337,7 @@ async fn submit_for_dest(
 		.filter(|ev| filter_events(&relayer_config, coprocessor, dest_state_machine, ev))
 		.collect::<Vec<_>>();
 	let has_events_for_dest = events.iter().any(|ev| {
-		matches!(ev,
-		Event::PostRequest(req) if req.dest == dest_state_machine) ||
-			matches!(ev,
-		Event::PostResponse(res) if res.dest_chain() == dest_state_machine)
+		matches!(ev, Event::PostRequest(req) if req.dest == dest_state_machine)
 	});
 
 	if !has_events_for_dest && !is_mandatory {
@@ -884,7 +881,7 @@ pub async fn initialize(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::router::{PostRequest, PostResponse};
+	use ismp::router::PostRequest;
 	use std::sync::Arc;
 	use tesseract_primitives::mocks::MockHost;
 
@@ -901,21 +898,6 @@ mod tests {
 			to: vec![2],
 			timeout_timestamp: 0,
 			body: vec![],
-		}
-	}
-
-	/// Build a PostResponse whose `dest_chain()` is `response_to`. A response
-	/// heads back to the *source* of the original request, so we put
-	/// `response_to` in the inner post's `source` field.
-	fn post_res(
-		response_to: StateMachine,
-		request_was_for: StateMachine,
-		nonce: u64,
-	) -> PostResponse {
-		PostResponse {
-			post: post_req(response_to, request_was_for, nonce),
-			response: vec![9],
-			timeout_timestamp: 0,
 		}
 	}
 
@@ -1041,7 +1023,6 @@ mod tests {
 		// Only DEST_B-targeted events; messaging-only proof for DEST_A.
 		let events = vec![
 			Event::PostRequest(post_req(HB, DEST_B, 1)),
-			Event::PostResponse(post_res(DEST_B, HB, 2)),
 		];
 
 		submit_for_dest(

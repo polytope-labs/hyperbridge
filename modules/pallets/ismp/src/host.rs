@@ -23,7 +23,7 @@ use crate::{
 	BoundedStateCommitments, BoundedStateMachineUpdateTime, ChallengePeriod, Config,
 	ConsensusClientUpdateTime, ConsensusStateClient, ConsensusStates, FrozenConsensusClients,
 	KnownStateMachineHeights, LatestStateMachineHeight, Nonce, Pallet, PreviousStateMachineHeight,
-	Responded, UnbondingPeriod,
+	UnbondingPeriod,
 };
 use alloc::{format, string::ToString};
 use codec::{Decode, Encode};

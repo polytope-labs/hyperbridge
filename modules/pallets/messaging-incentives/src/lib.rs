@@ -128,11 +128,10 @@ where
 				RequestResponse::Response(responses) => responses
 					.iter()
 					.map(|r| match r {
-						Response::Post(p) => p.response.len(),
 						Response::Get(g) =>
-							g.values.iter().filter_map(|v| v.value.as_ref()).map(|b| b.len()).sum(),
+							g.values.iter().filter_map(|v| v.value.as_ref()).map(|b| b.len()).sum::<usize>(),
 					})
-					.sum(),
+					.sum::<usize>(),
 				RequestResponse::Request(_) => 0,
 			},
 			_ => 0,

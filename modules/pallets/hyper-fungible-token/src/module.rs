@@ -286,7 +286,6 @@ where
 				Ok(T::DbWeight::get().reads_writes(5, 2))
 			},
 			Timeout::Request(Request::Get(_)) => Err(HftError::UnsupportedTimeoutType)?,
-			Timeout::Response(_) => Err(HftError::UnsupportedTimeoutType)?,
 		}
 	}
 }

@@ -17,7 +17,7 @@
 use polkadot_sdk::*;
 
 use crate::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
+	child_trie::RequestCommitments,
 	offchain::LeafIndexAndPos,
 	Config, Pallet, RELAYER_FEE_ACCOUNT,
 };
@@ -31,7 +31,6 @@ use ismp::{
 	dispatcher,
 	dispatcher::{DispatchRequest, IsmpDispatcher},
 	error::Error as IsmpError,
-	events::Meta,
 	host::IsmpHost,
 	messaging::hash_request,
 	module::IsmpModule,

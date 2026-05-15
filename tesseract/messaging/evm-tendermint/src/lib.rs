@@ -377,7 +377,7 @@ impl<T: EvmStoreKeys> IsmpProvider for TendermintEvmClient<T> {
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<pallet_ismp_host_executive::HostParam<u128>, Error> {
+	) -> Result<pallet_ismp_host_executive::HostParam, Error> {
 		self.inner.query_host_params(state_machine).await
 	}
 

@@ -4,7 +4,7 @@
 #![cfg(test)]
 
 //! Integration tests for `pallet-bandwidth` against the testsuite mock
-//! runtime — same harness as `pallet_hyperbridge.rs`.
+//! runtime.
 
 use polkadot_sdk::*;
 

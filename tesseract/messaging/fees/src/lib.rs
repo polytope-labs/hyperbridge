@@ -274,8 +274,7 @@ impl TransactionPayment {
 			.exec()
 			.await?;
 
-		let highest_request_delivery_height =
-			request_entries.last().map(|data| data.height as u64);
+		let highest_request_delivery_height = request_entries.last().map(|data| data.height as u64);
 
 		let highest_response_delivery_height =
 			response_entries.last().map(|data| data.height as u64);

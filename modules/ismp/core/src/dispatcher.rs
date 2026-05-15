@@ -105,5 +105,4 @@ pub trait IsmpDispatcher: Default {
 		request: DispatchRequest,
 		fee: FeeMetadata<Self::Account, Self::Balance>,
 	) -> Result<H256, anyhow::Error>;
-
 }

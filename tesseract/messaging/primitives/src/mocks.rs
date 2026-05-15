@@ -339,7 +339,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	async fn query_host_params(
 		&self,
 		_state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error> {
+	) -> Result<HostParam, anyhow::Error> {
 		todo!()
 	}
 

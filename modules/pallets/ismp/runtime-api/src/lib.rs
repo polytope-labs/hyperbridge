@@ -24,7 +24,7 @@ use alloc::vec::Vec;
 use ismp::{
 	consensus::{ConsensusClientId, StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	router::{Request, GetResponse},
+	router::{GetResponse, Request},
 };
 use polkadot_sdk::*;
 use primitive_types::H256;

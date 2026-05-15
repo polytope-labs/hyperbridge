@@ -553,7 +553,7 @@ pub trait IsmpProvider: ByzantineHandler + Send + Sync {
 	async fn query_host_params(
 		&self,
 		state_machine: StateMachine,
-	) -> Result<HostParam<u128>, anyhow::Error>;
+	) -> Result<HostParam, anyhow::Error>;
 
 	/// The max number of concurrent queries that can be made to the rpc node
 	fn max_concurrent_queries(&self) -> usize {

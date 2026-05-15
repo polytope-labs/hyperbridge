@@ -55,10 +55,7 @@ async fn transaction_payments_flow() {
 		}
 	});
 
-	tx_payment
-		.store_messages(receipts.collect())
-		.await
-		.unwrap();
+	tx_payment.store_messages(receipts.collect()).await.unwrap();
 
 	let proofs = tx_payment
 		.create_claim_proof(
@@ -248,10 +245,7 @@ async fn highest_delivery_height() {
 		}
 	});
 
-	tx_payment
-		.store_messages(receipts.collect())
-		.await
-		.unwrap();
+	tx_payment.store_messages(receipts.collect()).await.unwrap();
 
 	let height = tx_payment
 		.highest_delivery_height(StateMachine::Evm(97), StateMachine::Evm(8002))

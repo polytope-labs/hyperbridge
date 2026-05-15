@@ -29,10 +29,10 @@ use ismp::{
 	error::Error,
 	host::{IsmpHost, StateMachine},
 	messaging::{hash_request, hash_response, Proof},
-	router::{Request, RequestResponse, GetResponse},
+	router::{Request, RequestResponse},
 };
 use pallet_ismp::{
-	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments, ResponseReceipts},
+	child_trie::{RequestCommitments, RequestReceipts, ResponseCommitments},
 	ConsensusDigest, TimestampDigest, ISMP_ID, ISMP_TIMESTAMP_ID,
 };
 use polkadot_sdk::*;

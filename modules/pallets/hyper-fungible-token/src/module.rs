@@ -30,7 +30,7 @@ use frame_support::traits::{
 use frame_system::RawOrigin;
 use ismp::{
 	module::IsmpModule,
-	router::{PostRequest, Request, GetResponse},
+	router::{GetResponse, PostRequest, Request},
 };
 use polkadot_sdk::*;
 use sp_core::{Get, H160, U256};

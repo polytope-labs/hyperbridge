@@ -19,13 +19,12 @@ use codec::Decode;
 use ismp::{
 	host::StateMachine,
 	messaging::{hash_request, hash_response, Message, ResponseMessage},
-	router::{Request, RequestResponse, GetResponse},
+	router::{Request, RequestResponse},
 };
 use ismp_abi::{
 	evm_host::PostRequestHandled,
 	handler::handler_v2::{
-		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, Proof,
-		StateMachineHeight,
+		HandlerV2Instance, NewEpoch, PostRequestLeaf, PostRequestMessage, Proof, StateMachineHeight,
 	},
 };
 use pallet_ismp::offchain::{LeafIndexAndPos, Proof as MmrProof};
@@ -288,7 +287,8 @@ pub async fn generate_contract_calls(
 				(call.calldata().clone(), gas_with_buffer(gas))
 			},
 
-			Message::Response(_) => return Err(anyhow!("Response messages not supported by relayer")),
+			Message::Response(_) =>
+				return Err(anyhow!("Response messages not supported by relayer")),
 
 			Message::Timeout(_) => return Err(anyhow!("Timeout messages not supported by relayer")),
 

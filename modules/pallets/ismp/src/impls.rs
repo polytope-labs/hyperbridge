@@ -30,7 +30,7 @@ use ismp::{
 	events,
 	handlers::{handle_incoming_message, MessageResult},
 	messaging::{hash_request, Message, MessageWithWeight},
-	router::{Request, GetResponse},
+	router::{GetResponse, Request},
 };
 use sp_core::{offchain::StorageKind, H256};
 

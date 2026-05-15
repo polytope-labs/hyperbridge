@@ -23,7 +23,7 @@ use anyhow::anyhow;
 use crypto_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use primitives::{parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
+use primitives::{BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE, parse_extra};
 use sp_core::H256;
 use ssz_rs::{Bitvector, Deserialize};
 use sync_committee_primitives::constants::BlsPublicKey;
@@ -181,4 +181,143 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		finalized_header: update.source_header,
 		next_validators: next_validator_addresses,
 	})
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use alloy_primitives::{B256, Bytes, FixedBytes};
+	use alloy_rlp::Encodable;
+	use geth_primitives::CodecHeader;
+	use primitive_types::{H160, H256, U256};
+	use primitives::{Testnet, VoteAttestationData, VoteData};
+
+	/// `sp_core::keccak_256` host wired into the `Keccak256` trait.
+	struct TestHost;
+	impl Keccak256 for TestHost {
+		fn keccak256(bytes: &[u8]) -> H256 {
+			sp_core::keccak_256(bytes).into()
+		}
+	}
+
+	/// Build a `CodecHeader` whose `extra_data` parses into the requested
+	/// `VoteAttestationData`. The RLP-encoded attestation always starts with
+	/// `0xf8`, so the validator-section branch in `parse_extra` is skipped.
+	fn header_with_vote_set(
+		vote_address_set: u64,
+		source_hash: B256,
+		target_hash: B256,
+	) -> CodecHeader {
+		let attestation = VoteAttestationData {
+			vote_address_set,
+			agg_signature: FixedBytes::<96>::from([0u8; 96]),
+			data: VoteData { source_number: 1, source_hash, target_number: 2, target_hash },
+			extra: Bytes::new(),
+		};
+
+		let mut attestation_rlp = Vec::new();
+		attestation.encode(&mut attestation_rlp);
+		// Sanity: long-list prefix so the parser skips validator parsing.
+		assert_eq!(attestation_rlp[0], 0xf8);
+
+		let mut extra_data = Vec::with_capacity(32 + attestation_rlp.len() + 65);
+		extra_data.extend_from_slice(&[0u8; 32]);
+		extra_data.extend_from_slice(&attestation_rlp);
+		extra_data.extend_from_slice(&[0u8; 65]);
+
+		CodecHeader {
+			parent_hash: H256::zero(),
+			uncle_hash: H256::zero(),
+			coinbase: H160::zero(),
+			state_root: H256::zero(),
+			transactions_root: H256::zero(),
+			receipts_root: H256::zero(),
+			logs_bloom: Default::default(),
+			difficulty: U256::zero(),
+			number: U256::zero(),
+			gas_limit: 0,
+			gas_used: 0,
+			timestamp: 0,
+			extra_data,
+			mix_hash: H256::zero(),
+			nonce: Default::default(),
+			base_fee_per_gas: None,
+			withdrawals_hash: None,
+			blob_gas_used: None,
+			excess_blob_gas_used: None,
+			parent_beacon_root: None,
+			requests_hash: None,
+		}
+	}
+
+	fn dummy_validators(n: usize) -> Vec<BlsPublicKey> {
+		(0..n).map(|i| vec![i as u8; 48].try_into().expect("48 byte pubkey")).collect()
+	}
+
+	fn update_with(attested_header: CodecHeader) -> BscClientUpdate {
+		BscClientUpdate {
+			source_header: attested_header.clone(),
+			target_header: attested_header.clone(),
+			attested_header,
+			epoch_header_ancestry: Default::default(),
+		}
+	}
+
+	/// 21 validators (the BSC testnet shape). All 21 in-range bits set —
+	/// well above the 2/3 threshold, so the bit-set check passes. The
+	/// signature check will then fail (we use a dummy aggregate), but
+	/// that's downstream of what we're asserting.
+	#[test]
+	fn accepts_fully_populated_in_range_bits() {
+		let validators = dummy_validators(21);
+		// Bits 0..21 set, bits 21..64 clear.
+		let mask: u64 = (1u64 << 21) - 1;
+		let header = header_with_vote_set(mask, B256::repeat_byte(1), B256::repeat_byte(2));
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
+			.expect_err("downstream signature check must fail");
+		// We made it past the supermajority/junk-bits checks; failure is
+		// the header-hash mismatch (we left source_hash/target_hash as
+		// constants, but the recomputed hash of the empty CodecHeader
+		// won't match those). Either way, neither of the two errors we
+		// guard against here.
+		let msg = format!("{err}");
+		assert!(!msg.contains("Vote address set has bits set beyond validator count"));
+		assert!(!msg.contains("Not enough participants"));
+	}
+
+	/// Setting a bit past `current_validators.len()` must be rejected,
+	/// even when it would otherwise inflate `count_ones()` over the
+	/// 2/3 threshold.
+	#[test]
+	fn rejects_bits_set_beyond_validator_count() {
+		let validators = dummy_validators(21);
+		// 10 in-range bits (below the 14-vote threshold) plus 30 bits
+		// in the junk range [21, 64) — pre-fix this would clear the
+		// supermajority check at 40 ones; post-fix it is rejected.
+		let in_range: u64 = (1u64 << 10) - 1;
+		let junk: u64 = ((1u64 << 51) - 1) << 21; // bits 21..=63 (wraps to 30 bits set)
+		let header =
+			header_with_vote_set(in_range | junk, B256::repeat_byte(1), B256::repeat_byte(2));
+
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
+			.expect_err("junk bits must be rejected");
+		assert!(
+			format!("{err}").contains("Vote address set has bits set beyond validator count"),
+			"unexpected error: {err:?}"
+		);
+	}
+
+	/// All bits are within the validator range, but fewer than 2/3 are
+	/// set — the supermajority check rejects.
+	#[test]
+	fn rejects_too_few_in_range_participants() {
+		let validators = dummy_validators(21);
+		// 10 of 21 bits set (threshold is 14).
+		let mask: u64 = (1u64 << 10) - 1;
+		let header = header_with_vote_set(mask, B256::repeat_byte(1), B256::repeat_byte(2));
+
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update_with(header), 1000)
+			.expect_err("under-threshold update must be rejected");
+		assert!(format!("{err}").contains("Not enough participants"), "unexpected error: {err:?}");
+	}
 }

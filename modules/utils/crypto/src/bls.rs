@@ -50,3 +50,18 @@ pub fn aggregate_public_keys(keys: &[BlsPublicKey]) -> Result<Vec<u8>, BLSError>
 	}
 	Ok(bls::point_to_pubkey(aggregate.into()))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn aggregate_public_keys_rejects_malformed_key() {
+		// An all-zeros 48-byte buffer is not a valid compressed G1 point.
+		let junk: BlsPublicKey = vec![0u8; BLS_PUBLIC_KEY_BYTES_LEN].try_into().unwrap();
+		let err = aggregate_public_keys(&[junk]).expect_err("malformed key must error");
+		// Any BLSError is acceptable — the point is that the error is surfaced
+		// rather than silently dropped.
+		let _ = err;
+	}
+}

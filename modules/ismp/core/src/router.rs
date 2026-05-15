@@ -98,6 +98,8 @@ impl core::fmt::Display for PostRequest {
 	DecodeWithMemTracking,
 	PartialEq,
 	Eq,
+	PartialOrd,
+	Ord,
 	scale_info::TypeInfo,
 	serde::Deserialize,
 	serde::Serialize,

@@ -114,15 +114,15 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
     event NewEpoch(uint256 indexed authoritySetId, address indexed relayer);
 
     /**
-     * @notice Maps an authority set ID (epoch) to the relayer that first submitted
+     * @notice Maps the host address an authority set ID (epoch) to the relayer that first submitted
      * the consensus proof for that epoch.
      */
-    mapping(uint256 => address) private _epochs;
+    mapping(address => mapping(uint256 => address)) private _epochs;
 
     /**
-     * @notice The most recent authority set ID for which a consensus proof has been submitted.
+     * @notice Maps the host to the recent authority set ID for which a consensus proof has been submitted.
      */
-    uint256 private _currentEpoch;
+    mapping(address => uint256) private _currentEpoch;
 
     /**
      * @dev Checks if the host permits incoming datagrams
@@ -143,18 +143,21 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
 
     /**
     * @dev Returns the relayer address for a given authority set ID.
+    * @param host - the host address
     * @param authoritySetId - the authority set / epoch ID
     * @return the relayer address, or address(0) if not set
     */
-    function relayerOf(uint256 authoritySetId) external view returns (address) {
-        return _epochs[authoritySetId];
+    function relayerOf(address host, uint256 authoritySetId) external view returns (address) {
+        return _epochs[host][authoritySetId];
     }
 
     /**
-    * @dev Returns the current authority set epoch.
+    * @dev Returns the current authority set epoch for the given host.
+    * @param host - the host address
+    * @return the current authority set epoch
     */
-    function currentEpoch() external view returns (uint256) {
-        return _currentEpoch;
+    function currentEpoch(address host) external view returns (uint256) {
+        return _currentEpoch[host];
     }
 
     /**
@@ -200,10 +203,12 @@ contract HandlerV2 is IHandlerV2, ERC165, Context {
             }
         }
 
-        if (nextAuthoritySetId > _currentEpoch) {
-            _currentEpoch = nextAuthoritySetId;
-            _epochs[nextAuthoritySetId] = msg.sender;
-            emit NewEpoch(nextAuthoritySetId, msg.sender);
+        uint256 currentEpoch = nextAuthoritySetId - 1;
+        address hostAddr = address(host);
+        if (currentEpoch > _currentEpoch[hostAddr]) {
+            _currentEpoch[hostAddr] = currentEpoch;
+            _epochs[hostAddr][currentEpoch] = msg.sender;
+            emit NewEpoch(currentEpoch, msg.sender);
         }
     }
 

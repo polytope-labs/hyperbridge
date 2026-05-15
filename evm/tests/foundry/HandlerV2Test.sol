@@ -145,8 +145,8 @@ contract HandlerV2Test is Test {
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
-        assertEq(handler.relayerOf(1), tx.origin);
-        assertEq(handler.currentEpoch(), 1);
+        assertEq(handler.relayerOf(address(host), 1), tx.origin);
+        assertEq(handler.currentEpoch(address(host)), 1);
     }
 
     function testHandleConsensusV2NoEpochChange() public {
@@ -156,11 +156,11 @@ contract HandlerV2Test is Test {
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
-        assertEq(handler.relayerOf(0), address(0));
+        assertEq(handler.relayerOf(address(host), 0), address(0));
     }
 
     function testRelayerOfUnknownEpoch() public view {
-        assertEq(handler.relayerOf(999), address(0));
+        assertEq(handler.relayerOf(address(host), 999), address(0));
     }
 
     function testBatchCallRevertsAtomically() public {
@@ -176,7 +176,7 @@ contract HandlerV2Test is Test {
         handler.batchCall(calls);
 
         // relayer mapping should not have been set since batch reverted
-        assertEq(handler.relayerOf(1), address(0));
+        assertEq(handler.relayerOf(address(host), 1), address(0));
     }
 
     function testBatchCallPreservesMsgSender() public {
@@ -190,7 +190,7 @@ contract HandlerV2Test is Test {
         vm.prank(relayer);
         handler.batchCall(calls);
 
-        assertEq(handler.relayerOf(1), relayer);
+        assertEq(handler.relayerOf(address(host), 1), relayer);
     }
 
     function testSupportsInterfaceV2() public view {
@@ -203,7 +203,7 @@ contract HandlerV2Test is Test {
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof);
 
-        assertEq(handler.relayerOf(1), tx.origin);
+        assertEq(handler.relayerOf(address(host), 1), tx.origin);
     }
 
     function testStaleEpochIgnored() public {
@@ -211,7 +211,7 @@ contract HandlerV2Test is Test {
         bytes memory proof1 = _makeConsensusProof(2000, 1, 1);
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof1);
-        assertEq(handler.currentEpoch(), 1);
+        assertEq(handler.currentEpoch(address(host)), 1);
 
         // submit proof with same epoch (not increasing) — should not update relayer
         address otherRelayer = address(0xDEAD);
@@ -220,8 +220,8 @@ contract HandlerV2Test is Test {
         handler.handleConsensus(host, proof2);
 
         // epoch unchanged, relayer for epoch 1 still the original
-        assertEq(handler.currentEpoch(), 1);
-        assertEq(handler.relayerOf(1), tx.origin);
+        assertEq(handler.currentEpoch(address(host)), 1);
+        assertEq(handler.relayerOf(address(host), 1), tx.origin);
     }
 
     function testSequentialEpochs() public {
@@ -229,14 +229,14 @@ contract HandlerV2Test is Test {
         bytes memory proof1 = _makeConsensusProof(2000, 1, 1);
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof1);
-        assertEq(handler.currentEpoch(), 1);
+        assertEq(handler.currentEpoch(address(host)), 1);
 
         // epoch 1 -> 2
         bytes memory proof2 = _makeConsensusProof(2000, 2, 2);
         vm.prank(tx.origin);
         handler.handleConsensus(host, proof2);
-        assertEq(handler.currentEpoch(), 2);
-        assertEq(handler.relayerOf(2), tx.origin);
+        assertEq(handler.currentEpoch(address(host)), 2);
+        assertEq(handler.relayerOf(address(host), 2), tx.origin);
     }
 
 

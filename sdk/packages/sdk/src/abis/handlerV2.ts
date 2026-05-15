@@ -13,7 +13,13 @@ const ABI = [
 		type: "function",
 	},
 	{
-		inputs: [],
+		inputs: [
+			{
+				internalType: "address",
+				name: "host",
+				type: "address",
+			},
+		],
 		name: "currentEpoch",
 		outputs: [
 			{
@@ -393,6 +399,11 @@ const ABI = [
 	},
 	{
 		inputs: [
+			{
+				internalType: "address",
+				name: "host",
+				type: "address",
+			},
 			{
 				internalType: "uint256",
 				name: "authoritySetId",

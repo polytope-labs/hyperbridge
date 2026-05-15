@@ -248,6 +248,7 @@ export class EvmChain implements IChain {
 			address: hostParams.handler,
 			abi: HandlerV2.ABI,
 			functionName: "currentEpoch",
+			args: [this.params.host],
 		})
 		return BigInt(epoch)
 	}

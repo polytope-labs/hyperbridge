@@ -171,7 +171,7 @@ fn should_handle_get_request_timeouts_correctly() {
 					FeeMetadata { payer: [0u8; 32].into(), fee: Default::default() },
 				)
 				.unwrap();
-				let get = ismp::router::GetRequest {
+				ismp::router::GetRequest {
 					source: host.host_state_machine(),
 					dest: StateMachine::Evm(1),
 					nonce: i,
@@ -181,8 +181,7 @@ fn should_handle_get_request_timeouts_correctly() {
 					context: Default::default(),
 
 					timeout_timestamp: Duration::from_millis(Timestamp::now()).as_secs() + 1000,
-				};
-				ismp::router::Request::Get(get)
+				}
 			})
 			.collect::<Vec<_>>();
 
@@ -190,9 +189,9 @@ fn should_handle_get_request_timeouts_correctly() {
 
 		set_timestamp(Some(Duration::from_secs(100_000_000).as_millis() as u64));
 		pallet_ismp::Pallet::<Test>::execute(vec![Message::Timeout(timeout_msg)]).unwrap();
-		for request in requests {
+		for get in requests {
 			// commitments should not be found in storage after timeout has been processed
-			let commitment = hash_request::<Ismp>(&request);
+			let commitment = hash_request::<Ismp>(&ismp::router::Request::Get(get));
 			assert!(host.request_commitment(commitment).is_err())
 		}
 	})

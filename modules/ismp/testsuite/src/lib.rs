@@ -127,7 +127,6 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 		timeout_timestamp: 0,
 		body: vec![0u8; 64],
 	};
-	let request = Request::Post(post.clone());
 
 	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
 
@@ -144,7 +143,7 @@ pub fn check_challenge_period<H: IsmpHost>(host: &H) -> Result<(), &'static str>
 
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request],
+		requests: vec![post],
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -230,7 +229,6 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 		timeout_timestamp: 0,
 		body: vec![0u8; 64],
 	};
-	let request = Request::Post(post.clone());
 
 	let (signature, ..) = create_relayer_signer(vec![post.clone()].encode(), &[1u8; 32]);
 
@@ -251,7 +249,7 @@ pub fn missing_state_commitment_check<H: IsmpHost>(host: &H) -> Result<(), &'sta
 
 	// Timeout mesaage handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request],
+		requests: vec![post],
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
@@ -295,7 +293,6 @@ where
 		timeout_timestamp: intermediate_state.commitment.timestamp,
 		body: vec![0u8; 64],
 	};
-	let request = Request::Post(post);
 	let dispatch_request = DispatchRequest::Post(dispatch_post);
 	host.dispatch_request(
 		dispatch_request,
@@ -305,14 +302,14 @@ where
 
 	// Timeout message handling check
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request.clone()],
+		requests: vec![post.clone()],
 		timeout_proof: Proof { height: intermediate_state.height, proof: vec![] },
 	});
 
 	handle_incoming_message(host, timeout_message).unwrap();
 
 	// Assert that request commitment was deleted
-	let commitment = hash_request::<H>(&request);
+	let commitment = hash_request::<H>(&Request::Post(post));
 	let res = host.request_commitment(commitment);
 	assert!(matches!(res, Err(..)));
 	Ok(())
@@ -449,8 +446,6 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 		body: vec![0u8; 64],
 	};
 
-	let request = Request::Post(post.clone());
-
 	let dispatch_request = DispatchRequest::Post(dispatch_post);
 	host.dispatch_request(
 		dispatch_request,
@@ -459,7 +454,7 @@ pub fn prevent_request_timeout_on_proxy_with_known_state_machine(
 	.unwrap();
 
 	let timeout_message = Message::Timeout(TimeoutMessage::Post {
-		requests: vec![request.clone()],
+		requests: vec![post],
 		timeout_proof: Proof { height: proxy.height, proof: vec![] },
 	});
 

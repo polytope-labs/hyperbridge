@@ -239,7 +239,7 @@ where
 		_proof_2: Vec<u8>,
 	) -> Result<(), Error> {
 		// There are no fraud proofs for the parachain client
-		Ok(())
+		Err(Error::CannotHandleMessage)
 	}
 
 	fn consensus_client_id(&self) -> [u8; 4] {

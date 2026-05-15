@@ -124,7 +124,7 @@ where
 				.map_err(|e| Error::Custom(format!("Error decoding parachain header: {e}")))?;
 
 			let mut state_commitments_vec = Vec::new();
-			let (mut timestamp, mut overlay_root) = (0, H256::default());
+			let (mut timestamp, mut child_trie_root, mut mmr_root) = (0, H256::default(), H256::default());
 
 			for digest in header.digest().logs.iter() {
 				match digest {
@@ -142,7 +142,8 @@ where
 					{
 						let log = ConsensusDigest::decode(&mut &value[..]);
 						if let Ok(log) = log {
-							overlay_root = log.child_trie_root;
+							child_trie_root = log.child_trie_root;
+							mmr_root = log.mmr_root;
 						} else {
 							Err(Error::Custom(
 								"Header contains an invalid ismp consensus log".into(),
@@ -168,10 +169,10 @@ where
 			let intermediate = StateCommitmentHeight {
 				commitment: StateCommitment {
 					timestamp,
-					overlay_root: Some(overlay_root),
-					state_root: header.state_root,
+					overlay_root: Some(mmr_root),
+					state_root: child_trie_root,
 				},
-				height: height.into(),
+				height: height.into()
 			};
 
 			state_commitments_vec.push(intermediate);

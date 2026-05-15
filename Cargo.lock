@@ -3568,6 +3568,7 @@ dependencies = [
  "primitive-types 0.13.1",
  "ssz-rs",
  "sync-committee-primitives",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8557,6 +8558,7 @@ dependencies = [
  "substrate-state-machine",
  "subxt 0.42.1",
  "subxt-utils",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -10583,6 +10585,7 @@ dependencies = [
  "sp-io",
  "sync-committee-primitives",
  "sync-committee-verifier",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -27644,9 +27647,11 @@ dependencies = [
  "bls_on_arkworks",
  "hex",
  "hex-literal 0.4.1",
+ "ismp",
  "log",
  "ssz-rs",
  "sync-committee-primitives",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

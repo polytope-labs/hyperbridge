@@ -29,5 +29,6 @@ pub mod pallet;
 pub mod types;
 
 pub use beacon_client::*;
+pub use sync_committee_verifier::error::Error;
 
 pub use sync_committee_primitives::constants;

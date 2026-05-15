@@ -23,6 +23,7 @@ pallet-ismp-host-executive = { workspace = true }
 hex = { workspace = true, default-features = false }
 hex-literal = { workspace = true }
 ethabi = { workspace = true }
+thiserror = { workspace = true }
 codec = { workspace = true, default-features = false }
 scale-info = { version = "2.1.1", default-features = false, features = [
     "derive",
@@ -41,6 +42,7 @@ std = [
     "ethereum-triedb/std",
     "ethabi/std",
     "hex/std",
+    "thiserror/std",
     "sync-committee-primitives/std",
     "sync-committee-verifier/std",
     "polkadot-sdk/std",
